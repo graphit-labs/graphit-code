@@ -13,23 +13,25 @@ import (
 )
 
 const (
-	tasksTableName        = "tasks"
-	dependenciesTableName = "task_dependencies"
-	eventsTableName       = "task_events"
-	checksTableName       = "task_checks"
-	commentsTableName     = "task_comments"
-	controlTableName      = "task_control"
-	pageSize              = 512
+	tasksTableName         = "tasks"
+	dependenciesTableName  = "task_dependencies"
+	eventsTableName        = "task_events"
+	checksTableName        = "task_checks"
+	commentsTableName      = "task_comments"
+	specRevisionsTableName = "task_spec_revisions"
+	controlTableName       = "task_control"
+	pageSize               = 512
 )
 
 type tables struct {
-	store        *lancestore.Store
-	tasks        *lancestore.Table
-	dependencies *lancestore.Table
-	events       *lancestore.Table
-	checks       *lancestore.Table
-	comments     *lancestore.Table
-	control      *lancestore.Table
+	store         *lancestore.Store
+	tasks         *lancestore.Table
+	dependencies  *lancestore.Table
+	events        *lancestore.Table
+	checks        *lancestore.Table
+	comments      *lancestore.Table
+	specRevisions *lancestore.Table
+	control       *lancestore.Table
 }
 
 func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, error) {
@@ -64,6 +66,9 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, e
 		return closeOnError(err)
 	}
 	if t.comments, err = open(commentsTableName, commentSchema()); err != nil {
+		return closeOnError(err)
+	}
+	if t.specRevisions, err = open(specRevisionsTableName, specRevisionSchema()); err != nil {
 		return closeOnError(err)
 	}
 	if t.control, err = open(controlTableName, controlSchema()); err != nil {
@@ -108,6 +113,13 @@ func (t *tables) ensureIndexes(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("indexing task comments: %w", err)
 	}
+	if err := t.specRevisions.EnsureIndexes(ctx,
+		lancestore.Index{Column: "key", Kind: lancestore.IndexScalarBTree},
+		lancestore.Index{Column: "task_id", Kind: lancestore.IndexScalarBTree},
+		lancestore.Index{Column: "subject_id", Kind: lancestore.IndexScalarBTree},
+	); err != nil {
+		return fmt.Errorf("indexing task specification revisions: %w", err)
+	}
 	return nil
 }
 
@@ -119,7 +131,7 @@ func (t *tables) close() error {
 }
 
 func (t *tables) refresh(ctx context.Context) error {
-	for _, table := range []*lancestore.Table{t.tasks, t.dependencies, t.events, t.checks, t.comments, t.control} {
+	for _, table := range []*lancestore.Table{t.tasks, t.dependencies, t.events, t.checks, t.comments, t.specRevisions, t.control} {
 		if err := table.Refresh(ctx); err != nil {
 			return err
 		}
@@ -186,6 +198,17 @@ func commentSchema() lancestore.Schema {
 		{Name: "kind", Type: lancestore.FieldString}, {Name: "body", Type: lancestore.FieldString},
 		{Name: "actor", Type: lancestore.FieldString}, {Name: "at", Type: lancestore.FieldString},
 		{Name: "revision", Type: lancestore.FieldInt64},
+	}}
+}
+
+func specRevisionSchema() lancestore.Schema {
+	return lancestore.Schema{Fields: []lancestore.Field{
+		{Name: "key", Type: lancestore.FieldString}, {Name: "task_id", Type: lancestore.FieldString},
+		{Name: "source_revision", Type: lancestore.FieldInt64}, {Name: "kind", Type: lancestore.FieldString},
+		{Name: "subject_id", Type: lancestore.FieldString}, {Name: "actor", Type: lancestore.FieldString},
+		{Name: "reason", Type: lancestore.FieldString},
+		{Name: "at", Type: lancestore.FieldString}, {Name: "before_json", Type: lancestore.FieldString},
+		{Name: "after_json", Type: lancestore.FieldString}, {Name: "revision", Type: lancestore.FieldInt64},
 	}}
 }
 
@@ -261,6 +284,22 @@ func commentFromRow(r lancestore.Row) Comment {
 	return Comment{ID: text(r, "id"), TaskID: text(r, "task_id"), IdempotencyKey: text(r, "idempotency_key"),
 		Sequence: number(r, "sequence"), Kind: text(r, "kind"), Body: text(r, "body"), Actor: text(r, "actor"),
 		At: text(r, "at"), Revision: number(r, "revision")}
+}
+
+func specRevisionRow(v SpecRevision) lancestore.Row {
+	before, _ := json.Marshal(v.Before)
+	after, _ := json.Marshal(v.After)
+	return lancestore.Row{"key": v.Key, "task_id": v.TaskID, "source_revision": v.SourceRevision,
+		"kind": v.Kind, "subject_id": v.SubjectID, "actor": v.Actor, "reason": v.Reason, "at": v.At,
+		"before_json": string(before), "after_json": string(after), "revision": v.SourceRevision}
+}
+
+func specRevisionFromRow(r lancestore.Row) SpecRevision {
+	v := SpecRevision{Key: text(r, "key"), TaskID: text(r, "task_id"), SourceRevision: number(r, "source_revision"),
+		Kind: text(r, "kind"), SubjectID: text(r, "subject_id"), Actor: text(r, "actor"), Reason: text(r, "reason"), At: text(r, "at")}
+	_ = json.Unmarshal([]byte(text(r, "before_json")), &v.Before)
+	_ = json.Unmarshal([]byte(text(r, "after_json")), &v.After)
+	return v
 }
 
 func (t *tables) getTask(ctx context.Context, id string) (Task, bool, error) {
@@ -356,6 +395,24 @@ func (t *tables) commentsFor(ctx context.Context, id string) ([]Comment, error) 
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Sequence < out[j].Sequence })
+	return out, nil
+}
+
+func (t *tables) specRevisionsFor(ctx context.Context, id string) ([]SpecRevision, error) {
+	var out []SpecRevision
+	for offset := 0; ; offset += pageSize {
+		hits, err := t.specRevisions.Search(ctx, lancestore.Query{Filter: "task_id = " + quote(id), Limit: pageSize, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		for _, hit := range hits {
+			out = append(out, specRevisionFromRow(hit.Row))
+		}
+		if len(hits) < pageSize {
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].SourceRevision < out[j].SourceRevision })
 	return out, nil
 }
 

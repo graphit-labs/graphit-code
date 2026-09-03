@@ -71,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/inst
 irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 ```
 
-The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. Pin a release with `--version <tag>`. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
+The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. On the next invocation, the launcher extracts a changed Core, the daemon replaces itself, and the stdio MCP proxy asks connected clients to refresh their tool catalog through the protocol's list-change notification. Pin a release with `--version <tag>`. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
 
 ### Run it as a server, for any AI agent
 
@@ -130,7 +130,7 @@ Project memory captures repository-specific decisions and corrections. User memo
 
 ### Shared work that survives the agent
 
-Graphit Task replaces host-native TODO lists and repository Markdown task logs with one project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, verify structured acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. With S3 configured, every project agent reads and writes the same LanceDB tables directly.
+Graphit Task replaces host-native TODO lists and repository Markdown task logs with one project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, revise scope through expected-revision fencing, supersede obsolete checks without erasing history, verify active acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. With S3 configured, every project agent reads and writes the same LanceDB tables directly.
 
 ### Reusable ecosystem context
 

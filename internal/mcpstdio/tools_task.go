@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/toon"
@@ -137,6 +138,37 @@ type taskCheckInput struct {
 	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
+type taskReviseInput struct {
+	ProjectDir            string    `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID                    string    `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken            string    `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID               string    `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	ExpectedRevision      int64     `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
+	Reason                string    `json:"reason" jsonschema:"Why the specification changed (required)"`
+	Title                 *string   `json:"title,omitempty" jsonschema:"Replacement concise title"`
+	Description           *string   `json:"description,omitempty" jsonschema:"Replacement robust self-contained specification"`
+	Type                  *string   `json:"type,omitempty" jsonschema:"Replacement task type"`
+	Priority              *int      `json:"priority,omitempty" jsonschema:"Replacement priority 0 through 4"`
+	ParentID              *string   `json:"parent_id,omitempty" jsonschema:"Replacement parent task ID; empty clears the parent"`
+	DependsOn             *[]string `json:"depends_on,omitempty" jsonschema:"Complete replacement dependency list; empty clears dependencies"`
+	AddAcceptanceCriteria []string  `json:"add_acceptance_criteria,omitempty" jsonschema:"New acceptance checks to append"`
+	AddTests              []string  `json:"add_tests,omitempty" jsonschema:"New test checks to append"`
+	Lease                 string    `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+}
+
+type taskCheckSupersedeInput struct {
+	ProjectDir       string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID               string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken       string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID          string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	ExpectedRevision int64  `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
+	CheckID          string `json:"check_id" jsonschema:"Active acceptance or test check ID (required)"`
+	Reason           string `json:"reason" jsonschema:"Why this check no longer represents the task specification (required)"`
+	ReplacementText  string `json:"replacement_text,omitempty" jsonschema:"Optional replacement check text"`
+	ReplacementKind  string `json:"replacement_kind,omitempty" jsonschema:"Optional replacement kind: acceptance or test; defaults to the superseded kind"`
+	Lease            string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+}
+
 type taskCommentInput struct {
 	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
 	ID             string `json:"id" jsonschema:"Claimed task ID (required)"`
@@ -166,6 +198,11 @@ type taskBatchInput struct {
 func taskActor(req *mcp.CallToolRequest, explicit string) string {
 	if explicit != "" {
 		return explicit
+	}
+	if req != nil && req.Extra != nil {
+		if session := strings.TrimSpace(req.Extra.Header.Get(mcpproxy.AgentSessionHeader)); session != "" {
+			return graphtask.AgentIDForSession(session)
+		}
 	}
 	session := ""
 	if req != nil && req.Session != nil {
@@ -424,6 +461,36 @@ func registerTaskTools(server *mcp.Server) {
 			return errResult(err)
 		}
 		value, err := svc.VerifyCheck(ctx, in.ID, in.ClaimToken, taskActor(req, in.AgentID), in.CheckID, in.Passed, in.Evidence, lease)
+		if err != nil {
+			return errResult(err)
+		}
+		return taskResult(value, nil)
+	}))
+	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "revise"), Description: "Revise a claimed task specification with claim and expected-revision fencing, a required reason, and immutable before/after history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReviseInput) (*mcp.CallToolResult, any, error) {
+		lease, err := parseTaskLease(in.Lease)
+		if err != nil {
+			return errResult(err)
+		}
+		svc, _, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		value, err := svc.Revise(ctx, in.ID, in.ClaimToken, taskActor(req, in.AgentID), graphtask.ReviseInput{ExpectedRevision: in.ExpectedRevision, Reason: in.Reason, Title: in.Title, Description: in.Description, Type: in.Type, Priority: in.Priority, ParentID: in.ParentID, DependsOn: in.DependsOn, AddAcceptanceCriteria: in.AddAcceptanceCriteria, AddTests: in.AddTests}, lease)
+		if err != nil {
+			return errResult(err)
+		}
+		return taskResult(value, nil)
+	}))
+	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check", "supersede"), Description: "Supersede an obsolete acceptance or test check without deleting history, optionally adding a replacement check."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckSupersedeInput) (*mcp.CallToolResult, any, error) {
+		lease, err := parseTaskLease(in.Lease)
+		if err != nil {
+			return errResult(err)
+		}
+		svc, _, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		value, err := svc.SupersedeCheck(ctx, in.ID, in.ClaimToken, taskActor(req, in.AgentID), graphtask.SupersedeCheckInput{ExpectedRevision: in.ExpectedRevision, CheckID: in.CheckID, Reason: in.Reason, ReplacementText: in.ReplacementText, ReplacementKind: in.ReplacementKind}, lease)
 		if err != nil {
 			return errResult(err)
 		}

@@ -257,6 +257,132 @@ func TestBatchRunsEveryItemInOrderAndPreservesLifecycleChecks(t *testing.T) {
 	}
 }
 
+func TestTaskSpecificationRevisionsAndCheckSupersession(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-spec-revisions", t.TempDir())
+	created, err := svc.Create(ctx, testCreate("Original title", "spec-revisions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-a", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := svc.VerifyCheck(ctx, created.ID, claimed.ClaimToken, "agent-a", created.Checks[0].ID, true, "evidence for the original scope", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := "A revised self-contained specification with corrected scope."
+	revised, err := svc.Revise(ctx, created.ID, claimed.ClaimToken, "agent-a", ReviseInput{
+		ExpectedRevision: verified.Revision,
+		Reason:           "The implementation scope changed after discovery.",
+		Description:      &description,
+		AddTests:         []string{"The corrected scope has a focused regression test"},
+	}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.Description != description {
+		t.Fatalf("description = %q", revised.Description)
+	}
+	for _, check := range revised.Checks {
+		if check.Status != "pending" || check.Evidence != "" {
+			t.Fatalf("active check was not reset after semantic revision: %#v", check)
+		}
+	}
+	if _, err := svc.Revise(ctx, created.ID, claimed.ClaimToken, "agent-a", ReviseInput{ExpectedRevision: verified.Revision, Reason: "stale", Description: &description}, time.Hour); !errors.Is(err, ErrConcurrent) {
+		t.Fatalf("stale revise error = %v", err)
+	}
+	if _, err := svc.Revise(ctx, created.ID, "stale-token", "agent-a", ReviseInput{ExpectedRevision: revised.Revision, Reason: "invalid owner", Description: &description}, time.Hour); !errors.Is(err, ErrFence) {
+		t.Fatalf("unfenced revise error = %v", err)
+	}
+
+	oldCheck := created.Checks[0]
+	if _, err := svc.SupersedeCheck(ctx, created.ID, claimed.ClaimToken, "agent-a", SupersedeCheckInput{ExpectedRevision: revised.Revision, CheckID: oldCheck.ID, Reason: "Remove the only active check of its kind"}, time.Hour); err == nil {
+		t.Fatal("supersession removed the only active check kind without replacement")
+	}
+	superseded, err := svc.SupersedeCheck(ctx, created.ID, claimed.ClaimToken, "agent-a", SupersedeCheckInput{
+		ExpectedRevision: revised.Revision,
+		CheckID:          oldCheck.ID,
+		Reason:           "The original wording no longer matches the corrected scope.",
+		ReplacementText:  "The corrected scope satisfies the observable requirement",
+	}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obsolete Check
+	for _, check := range superseded.Checks {
+		if check.ID == oldCheck.ID {
+			obsolete = check
+		}
+	}
+	if obsolete.Status != "superseded" || obsolete.SupersededBy != "agent-a" || obsolete.SupersededReason == "" || obsolete.SupersededAt == "" || obsolete.ReplacementCheckID == "" {
+		t.Fatalf("superseded check = %#v", obsolete)
+	}
+	if _, err := svc.VerifyCheck(ctx, created.ID, claimed.ClaimToken, "agent-a", oldCheck.ID, true, "obsolete evidence", time.Hour); err == nil {
+		t.Fatal("expected superseded check verification to fail")
+	}
+
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.SpecRevisions) != 3 {
+		t.Fatalf("spec revisions = %d, want 3", len(detail.SpecRevisions))
+	}
+	if detail.SpecRevisions[1].Before.Description == detail.SpecRevisions[1].After.Description {
+		t.Fatal("revision did not preserve distinct before and after specifications")
+	}
+	if detail.SpecRevisions[2].Kind != "check_superseded" {
+		t.Fatalf("last revision kind = %q", detail.SpecRevisions[2].Kind)
+	}
+
+	current := superseded
+	for _, check := range current.Checks {
+		if check.Status == "superseded" {
+			continue
+		}
+		current, err = svc.VerifyCheck(ctx, current.ID, claimed.ClaimToken, "agent-a", check.ID, true, "focused verification passed", time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Complete(ctx, current.ID, claimed.ClaimToken, "agent-a", "active checks passed"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBatchSupportsReviseAndCheckSupersede(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-batch-revisions", t.TempDir())
+	created, err := svc.Create(ctx, testCreate("Batch revision", "batch-revision"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-a", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priority := 1
+	result, err := svc.Batch(ctx, BatchInput{Actor: "agent-a", Operations: []BatchOperation{
+		{Action: "revise", ID: created.ID, ClaimToken: claimed.ClaimToken, ExpectedRevision: claimed.Revision, Reason: "Raise priority after discovery", Priority: &priority},
+		{Action: "check_supersede", ID: created.ID, ClaimToken: claimed.ClaimToken, ExpectedRevision: claimed.Revision + 1, CheckID: created.Checks[0].ID, Reason: "Replace obsolete wording", ReplacementText: "The replacement acceptance requirement passes"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Failed != 0 || result.Succeeded != 2 {
+		t.Fatalf("batch result = %#v", result)
+	}
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Task.Priority != priority || len(detail.SpecRevisions) != 3 {
+		t.Fatalf("task = %#v, revisions = %d", detail.Task, len(detail.SpecRevisions))
+	}
+}
+
 func TestLeaseRenewalNeverShortensAnActiveClaim(t *testing.T) {
 	ctx := context.Background()
 	svc := OpenAt("project-lease-renewal", t.TempDir())
@@ -645,7 +771,7 @@ func TestRemoveRequiresExactConfirmationRejectsReferencesAndCleansProjections(t 
 		t.Fatal(err)
 	}
 	defer inspect.close()
-	for name, table := range map[string]*lancestore.Table{"events": inspect.events, "comments": inspect.comments, "checks": inspect.checks, "dependencies": inspect.dependencies} {
+	for name, table := range map[string]*lancestore.Table{"events": inspect.events, "comments": inspect.comments, "checks": inspect.checks, "dependencies": inspect.dependencies, "spec revisions": inspect.specRevisions} {
 		hits, err := table.Search(ctx, lancestore.Query{Filter: "task_id = " + quote(disposable.ID), Limit: pageSize})
 		if err != nil {
 			t.Fatal(err)

@@ -18,22 +18,22 @@ type BatchInput struct {
 
 type BatchOperation struct {
 	Key                string   `json:"key,omitempty" jsonschema:"Optional caller correlation key"`
-	Action             string   `json:"action" jsonschema:"create, claim, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, comment, dependency_add, or dependency_remove"`
+	Action             string   `json:"action" jsonschema:"create, claim, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, check_supersede, revise, comment, dependency_add, or dependency_remove"`
 	ID                 string   `json:"id,omitempty" jsonschema:"Task ID for every action except create"`
 	ClaimToken         string   `json:"claim_token,omitempty" jsonschema:"Fencing token for owner mutations"`
 	Lease              string   `json:"lease,omitempty" jsonschema:"Per-item lease override such as 2h"`
-	Title              string   `json:"title,omitempty" jsonschema:"Create: concise task title"`
-	Description        string   `json:"description,omitempty" jsonschema:"Create: robust self-contained specification"`
-	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" jsonschema:"Create: observable acceptance criteria"`
-	Tests              []string `json:"tests,omitempty" jsonschema:"Create: concrete tests or validations"`
-	Type               string   `json:"type,omitempty" jsonschema:"Create: task type"`
-	Priority           *int     `json:"priority,omitempty" jsonschema:"Create: priority 0 through 4; default 2"`
-	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Create: parent task ID"`
-	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Create: blocking task IDs"`
+	Title              string   `json:"title,omitempty" jsonschema:"Create or revise: concise task title"`
+	Description        string   `json:"description,omitempty" jsonschema:"Create or revise: robust self-contained specification"`
+	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" jsonschema:"Create criteria or revise additions"`
+	Tests              []string `json:"tests,omitempty" jsonschema:"Create tests or revise additions"`
+	Type               string   `json:"type,omitempty" jsonschema:"Create or revise: task type"`
+	Priority           *int     `json:"priority,omitempty" jsonschema:"Create or revise: priority 0 through 4; create defaults to 2"`
+	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Create or revise: parent task ID"`
+	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Create or revise: complete blocking task ID list"`
 	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Create or comment: stable caller key"`
 	Summary            string   `json:"summary,omitempty" jsonschema:"Progress, release, or complete summary"`
 	NextStep           string   `json:"next_step,omitempty" jsonschema:"Progress or release continuation step"`
-	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, or flag reason"`
+	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, flag, revise, or check supersede reason"`
 	ConfirmID          string   `json:"confirm_id,omitempty" jsonschema:"Remove: exact task ID confirmation"`
 	CheckID            string   `json:"check_id,omitempty" jsonschema:"Check: acceptance or test check ID"`
 	Passed             *bool    `json:"passed,omitempty" jsonschema:"Check: whether the check passed"`
@@ -41,6 +41,10 @@ type BatchOperation struct {
 	Kind               string   `json:"kind,omitempty" jsonschema:"Comment: note, decision, problem, lesson, or knowledge"`
 	Body               string   `json:"body,omitempty" jsonschema:"Comment: durable self-contained body"`
 	DependencyID       string   `json:"dependency_id,omitempty" jsonschema:"Dependency actions: blocking task ID"`
+	ExpectedRevision   int64    `json:"expected_revision,omitempty" jsonschema:"Revise or check_supersede: current task revision"`
+	ClearParent        bool     `json:"clear_parent,omitempty" jsonschema:"Revise: clear the parent task relationship"`
+	ReplacementText    string   `json:"replacement_text,omitempty" jsonschema:"Check supersede: optional replacement check text"`
+	ReplacementKind    string   `json:"replacement_kind,omitempty" jsonschema:"Check supersede: optional acceptance or test replacement kind"`
 }
 
 type BatchItemResult struct {
@@ -138,6 +142,29 @@ func (s *Service) runBatchOperation(ctx context.Context, actor string, defaultLe
 			return nil, errors.New("check action requires passed")
 		}
 		return s.VerifyCheck(ctx, operation.ID, operation.ClaimToken, actor, operation.CheckID, *operation.Passed, operation.Evidence, lease)
+	case "check_supersede":
+		return s.SupersedeCheck(ctx, operation.ID, operation.ClaimToken, actor, SupersedeCheckInput{ExpectedRevision: operation.ExpectedRevision, CheckID: operation.CheckID, Reason: operation.Reason, ReplacementText: operation.ReplacementText, ReplacementKind: operation.ReplacementKind}, lease)
+	case "revise":
+		input := ReviseInput{ExpectedRevision: operation.ExpectedRevision, Reason: operation.Reason, Priority: operation.Priority, AddAcceptanceCriteria: operation.AcceptanceCriteria, AddTests: operation.Tests}
+		if strings.TrimSpace(operation.Title) != "" {
+			input.Title = &operation.Title
+		}
+		if strings.TrimSpace(operation.Description) != "" {
+			input.Description = &operation.Description
+		}
+		if strings.TrimSpace(operation.Type) != "" {
+			input.Type = &operation.Type
+		}
+		if operation.ClearParent {
+			empty := ""
+			input.ParentID = &empty
+		} else if strings.TrimSpace(operation.ParentID) != "" {
+			input.ParentID = &operation.ParentID
+		}
+		if operation.DependsOn != nil {
+			input.DependsOn = &operation.DependsOn
+		}
+		return s.Revise(ctx, operation.ID, operation.ClaimToken, actor, input, lease)
 	case "comment":
 		return s.AddComment(ctx, operation.ID, operation.ClaimToken, actor, operation.Kind, operation.Body, operation.IdempotencyKey, lease)
 	case "dependency_add":

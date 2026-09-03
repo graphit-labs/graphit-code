@@ -1045,16 +1045,18 @@ native TODO/task mechanisms. The main contracts are:
 
 | Tools | Required state and result |
 |---|---|
-| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
+| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments/spec revisions. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
 | `graphit_task_batch` | Runs 1-100 mutations sequentially in input order. Every item returns its index, optional key, action, task ID, `ok`, and either a value or explicit error; all normal lifecycle gates still apply. |
 | `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `parent_id`, dependencies, priority, type, and stable `idempotency_key`. |
 | `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
 | `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_release` | Require task ID, current token, and agent identity; progress/release preserve an exact continuation step. |
 | `graphit_task_comment_add` | Requires token, typed `kind`, body, and optional idempotency key. |
 | `graphit_task_check` | Requires token, check ID, pass/fail result, and concrete evidence. |
+| `graphit_task_revise` | Requires token, `expected_revision`, and reason; replaces supplied specification fields or appends new checks and records immutable before/after state. Title, description, or type changes reset active checks for revalidation. |
+| `graphit_task_check_supersede` | Requires token, `expected_revision`, check ID, and reason; preserves the obsolete check and may create a pending replacement. |
 | `graphit_task_flag`, `graphit_task_unflag` | Add a required completion-gate reason or remove it after resolution. |
 | `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain explicit, cycle-checked ordering edges. |
-| `graphit_task_complete` | Succeeds only when all checks passed with evidence, every subtask completed, and no flag remains. |
+| `graphit_task_complete` | Succeeds only when all active checks passed with evidence, every subtask completed, and no flag remains. |
 | `graphit_task_cancel` | Records a terminal cancellation and required reason; cancelling active work also requires its fencing token. |
 | `graphit_task_remove` | Hard-removes only after exact-ID confirmation plus a reason; dependents and subtasks refuse deletion. |
 

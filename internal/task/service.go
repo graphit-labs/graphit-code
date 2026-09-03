@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -180,6 +181,8 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 		now := stamp(s.now().UTC())
 		out = Task{ID: id, ProjectID: s.projectID, ParentID: parentID, IdempotencyKey: key, Title: in.Title, Description: in.Description, Type: in.Type, Status: StatusOpen, Priority: in.Priority, DependsOn: deps, Checks: checks, CreatedAt: now, UpdatedAt: now, Revision: 1}
 		out.LastEvent = newEvent(out, "created", in.Actor, "", StatusOpen, "task created", out.NextStep)
+		revision := newSpecRevision(Task{}, out, "created", in.Actor, "task created")
+		out.LastEvent.SpecRevision = &revision
 		res, err := t.tasks.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: "false", InsertIfMissing: true}, []lancestore.Row{taskRow(out)})
 		if err != nil {
 			return err
@@ -189,6 +192,231 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 			return err
 		}
 		return s.projectTask(ctx, t, out, in.Actor)
+	})
+	return out, err
+}
+
+func (s *Service) Revise(ctx context.Context, id, token, actor string, in ReviseInput, lease time.Duration) (Task, error) {
+	actor = strings.TrimSpace(actor)
+	in.Reason = strings.TrimSpace(in.Reason)
+	if actor == "" {
+		return Task{}, errors.New("agent id is required")
+	}
+	if in.ExpectedRevision < 1 {
+		return Task{}, errors.New("expected revision is required")
+	}
+	if in.Reason == "" {
+		return Task{}, errors.New("revision reason is required")
+	}
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		current, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, current, actor); err != nil {
+			return err
+		}
+		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token || (actor != "" && current.Owner != actor) {
+			return ErrFence
+		}
+		if current.Revision != in.ExpectedRevision {
+			return fmt.Errorf("%w: expected revision %d, current revision is %d", ErrConcurrent, in.ExpectedRevision, current.Revision)
+		}
+		next := current
+		if in.Title != nil {
+			next.Title = strings.TrimSpace(*in.Title)
+			if next.Title == "" {
+				return errors.New("task title is required")
+			}
+		}
+		if in.Description != nil {
+			next.Description = strings.TrimSpace(*in.Description)
+			if next.Description == "" {
+				return errors.New("task description is required and must contain the self-contained specification")
+			}
+		}
+		if in.Type != nil {
+			next.Type = strings.TrimSpace(*in.Type)
+			if next.Type == "" {
+				return errors.New("task type is required")
+			}
+		}
+		if in.Priority != nil {
+			if *in.Priority < 0 || *in.Priority > 4 {
+				return errors.New("priority must be between 0 and 4")
+			}
+			next.Priority = *in.Priority
+		}
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		if in.ParentID != nil {
+			next.ParentID = strings.TrimSpace(*in.ParentID)
+			if next.ParentID != "" {
+				if pending, err := removalPending(ctx, t, next.ParentID); err != nil {
+					return err
+				} else if pending {
+					return fmt.Errorf("parent task %s is pending removal", next.ParentID)
+				}
+			}
+			if err := validateParentChange(next.ID, next.ParentID, all); err != nil {
+				return err
+			}
+		}
+		if in.DependsOn != nil {
+			next.DependsOn = uniqueSorted(*in.DependsOn)
+			if err := s.validateDependencies(ctx, t, id, next.DependsOn); err != nil {
+				return err
+			}
+		}
+		if len(nonEmpty(in.AddAcceptanceCriteria))+len(nonEmpty(in.AddTests)) > 0 {
+			added, err := buildChecks(id, in.AddAcceptanceCriteria, in.AddTests)
+			if err != nil {
+				return err
+			}
+			seen := make(map[string]bool, len(next.Checks))
+			for _, check := range next.Checks {
+				seen[check.ID] = true
+			}
+			for _, check := range added {
+				if !seen[check.ID] {
+					next.Checks = append(next.Checks, check)
+					seen[check.ID] = true
+				}
+			}
+			sortChecks(next.Checks)
+		}
+		if next.Title != current.Title || next.Description != current.Description || next.Type != current.Type {
+			for i := range next.Checks {
+				if next.Checks[i].Status == "superseded" {
+					continue
+				}
+				next.Checks[i].Status = "pending"
+				next.Checks[i].Evidence = ""
+				next.Checks[i].VerifiedBy = ""
+				next.Checks[i].VerifiedAt = ""
+			}
+		}
+		beforeSpec, afterSpec := taskSpec(current), taskSpec(next)
+		if reflect.DeepEqual(beforeSpec, afterSpec) {
+			return errors.New("task revision has no specification changes")
+		}
+		now := s.now().UTC()
+		if lease <= 0 {
+			lease = DefaultLease
+		}
+		next.HeartbeatAt = stamp(now)
+		next.LeaseExpiresAt = renewedLeaseExpiry(current.LeaseExpiresAt, now, lease)
+		next.Revision++
+		next.UpdatedAt = stamp(now)
+		next.LastEvent = newEvent(next, "revised", actor, current.Status, next.Status, in.Reason, next.NextStep)
+		revision := newSpecRevision(current, next, "revised", actor, in.Reason)
+		next.LastEvent.SpecRevision = &revision
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
+func (s *Service) SupersedeCheck(ctx context.Context, id, token, actor string, in SupersedeCheckInput, lease time.Duration) (Task, error) {
+	actor = strings.TrimSpace(actor)
+	in.CheckID = strings.TrimSpace(in.CheckID)
+	in.Reason = strings.TrimSpace(in.Reason)
+	in.ReplacementText = strings.TrimSpace(in.ReplacementText)
+	in.ReplacementKind = strings.ToLower(strings.TrimSpace(in.ReplacementKind))
+	if actor == "" {
+		return Task{}, errors.New("agent id is required")
+	}
+	if in.ExpectedRevision < 1 {
+		return Task{}, errors.New("expected revision is required")
+	}
+	if in.CheckID == "" || in.Reason == "" {
+		return Task{}, errors.New("check id and supersession reason are required")
+	}
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		current, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, current, actor); err != nil {
+			return err
+		}
+		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token || (actor != "" && current.Owner != actor) {
+			return ErrFence
+		}
+		if current.Revision != in.ExpectedRevision {
+			return fmt.Errorf("%w: expected revision %d, current revision is %d", ErrConcurrent, in.ExpectedRevision, current.Revision)
+		}
+		next := current
+		index := -1
+		for i := range next.Checks {
+			if next.Checks[i].ID == in.CheckID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("check %s: %w", in.CheckID, ErrNotFound)
+		}
+		if next.Checks[index].Status == "superseded" {
+			return fmt.Errorf("check %s is already superseded", in.CheckID)
+		}
+		now := s.now().UTC()
+		next.Checks[index].Status = "superseded"
+		next.Checks[index].SupersededBy = actor
+		next.Checks[index].SupersededReason = in.Reason
+		next.Checks[index].SupersededAt = stamp(now)
+		if in.ReplacementText != "" {
+			kind := in.ReplacementKind
+			if kind == "" {
+				kind = next.Checks[index].Kind
+			}
+			if kind != "acceptance" && kind != "test" {
+				return errors.New("replacement kind must be acceptance or test")
+			}
+			replacement := Check{ID: deterministicCheckID(id, kind, in.ReplacementText), Kind: kind, Text: in.ReplacementText, Status: "pending"}
+			for _, check := range next.Checks {
+				if check.ID == replacement.ID {
+					return fmt.Errorf("replacement check %s already exists", replacement.ID)
+				}
+			}
+			next.Checks[index].ReplacementCheckID = replacement.ID
+			next.Checks = append(next.Checks, replacement)
+			sortChecks(next.Checks)
+		} else if in.ReplacementKind != "" {
+			return errors.New("replacement kind requires replacement text")
+		}
+		if err := validateActiveCheckKinds(next.Checks); err != nil {
+			return err
+		}
+		if lease <= 0 {
+			lease = DefaultLease
+		}
+		next.HeartbeatAt = stamp(now)
+		next.LeaseExpiresAt = renewedLeaseExpiry(current.LeaseExpiresAt, now, lease)
+		next.Revision++
+		next.UpdatedAt = stamp(now)
+		next.LastEvent = newEvent(next, "check_superseded", actor, current.Status, next.Status, in.CheckID+": "+in.Reason, next.NextStep)
+		revision := newSpecRevision(current, next, "check_superseded", actor, in.Reason)
+		revision.SubjectID = in.CheckID
+		next.LastEvent.SpecRevision = &revision
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
 	})
 	return out, err
 }
@@ -439,6 +667,9 @@ func finishTaskRemoval(ctx context.Context, t *tables, id string) error {
 	if err := t.checks.DeleteWhere(ctx, filter); err != nil {
 		return err
 	}
+	if err := t.specRevisions.DeleteWhere(ctx, filter); err != nil {
+		return err
+	}
 	if err := t.dependencies.DeleteWhere(ctx, filter+" OR depends_on = "+quote(id)); err != nil {
 		return err
 	}
@@ -477,6 +708,9 @@ func (s *Service) VerifyCheck(ctx context.Context, id, token, actor, checkID str
 		for i := range v.Checks {
 			if v.Checks[i].ID != checkID {
 				continue
+			}
+			if v.Checks[i].Status == "superseded" {
+				return fmt.Errorf("check %s is superseded", checkID)
 			}
 			v.Checks[i].Status = "failed"
 			if passed {
@@ -684,7 +918,11 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 		if err != nil {
 			return err
 		}
-		out = Detail{Task: v, Events: events, Comments: comments}
+		revisions, err := t.specRevisionsFor(ctx, id)
+		if err != nil {
+			return err
+		}
+		out = Detail{Task: v, Events: events, Comments: comments, SpecRevisions: revisions}
 		return nil
 	})
 	return out, err
@@ -973,6 +1211,26 @@ func (s *Service) projectAllTasks(ctx context.Context, t *tables, all []Task, ac
 		}
 	}
 
+	existingRevisions, err := t.allProjectionRows(ctx, t.specRevisions)
+	if err != nil {
+		return err
+	}
+	revisionKeys := make(map[string]bool, len(existingRevisions))
+	for _, row := range existingRevisions {
+		revisionKeys[text(row, "key")] = true
+	}
+	missingRevisions := make([]lancestore.Row, 0)
+	for _, v := range all {
+		if revision := v.LastEvent.SpecRevision; revision != nil && !revisionKeys[revision.Key] {
+			missingRevisions = append(missingRevisions, specRevisionRow(*revision))
+		}
+	}
+	if len(missingRevisions) > 0 {
+		if _, err := t.specRevisions.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true}, missingRevisions); err != nil {
+			return err
+		}
+	}
+
 	if err := s.projectAllDependencies(ctx, t, all, actor); err != nil {
 		return err
 	}
@@ -1037,11 +1295,12 @@ func (s *Service) projectAllChecks(ctx context.Context, t *tables, all []Task) e
 		taskRevisions[v.ID] = v.Revision
 		for _, check := range v.Checks {
 			wanted[check.ID] = true
+			active := check.Status != "superseded"
 			row := lancestore.Row{"key": check.ID, "task_id": v.ID, "kind": check.Kind, "text": check.Text,
 				"status": check.Status, "evidence": check.Evidence, "verified_by": check.VerifiedBy,
-				"verified_at": check.VerifiedAt, "active": true, "revision": v.Revision}
+				"verified_at": check.VerifiedAt, "active": active, "revision": v.Revision}
 			old, ok := existing[check.ID]
-			if ok && boolValue(old, "active") && text(old, "task_id") == v.ID &&
+			if ok && boolValue(old, "active") == active && text(old, "task_id") == v.ID &&
 				text(old, "kind") == check.Kind && text(old, "text") == check.Text &&
 				text(old, "status") == check.Status && text(old, "evidence") == check.Evidence &&
 				text(old, "verified_by") == check.VerifiedBy && text(old, "verified_at") == check.VerifiedAt {
@@ -1070,6 +1329,11 @@ func (s *Service) projectAllChecks(ctx context.Context, t *tables, all []Task) e
 func (s *Service) projectTask(ctx context.Context, t *tables, v Task, actor string) error {
 	if err := ensureEvent(ctx, t, v.LastEvent); err != nil {
 		return err
+	}
+	if v.LastEvent.SpecRevision != nil {
+		if err := ensureSpecRevision(ctx, t, *v.LastEvent.SpecRevision); err != nil {
+			return err
+		}
 	}
 	if err := ensureComment(ctx, t, v.LastComment); err != nil {
 		return err
@@ -1100,6 +1364,16 @@ func ensureComment(ctx context.Context, t *tables, comment Comment) error {
 	return err
 }
 
+func ensureSpecRevision(ctx context.Context, t *tables, revision SpecRevision) error {
+	if revision.Key == "" {
+		return nil
+	}
+	_, err := t.specRevisions.Merge(ctx, lancestore.MergeOptions{
+		KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true,
+	}, []lancestore.Row{specRevisionRow(revision)})
+	return err
+}
+
 func (s *Service) projectChecks(ctx context.Context, t *tables, v Task) error {
 	hits, err := t.checks.Search(ctx, lancestore.Query{Filter: "task_id = " + quote(v.ID), Limit: pageSize})
 	if err != nil {
@@ -1113,10 +1387,11 @@ func (s *Service) projectChecks(ctx context.Context, t *tables, v Task) error {
 	var rows []lancestore.Row
 	for _, check := range v.Checks {
 		wanted[check.ID] = true
+		active := check.Status != "superseded"
 		row := lancestore.Row{"key": check.ID, "task_id": v.ID, "kind": check.Kind, "text": check.Text,
 			"status": check.Status, "evidence": check.Evidence, "verified_by": check.VerifiedBy,
-			"verified_at": check.VerifiedAt, "active": true, "revision": v.Revision}
-		if old, ok := existing[check.ID]; ok && boolValue(old, "active") &&
+			"verified_at": check.VerifiedAt, "active": active, "revision": v.Revision}
+		if old, ok := existing[check.ID]; ok && boolValue(old, "active") == active &&
 			text(old, "status") == check.Status && text(old, "evidence") == check.Evidence &&
 			text(old, "verified_by") == check.VerifiedBy && text(old, "verified_at") == check.VerifiedAt {
 			continue
@@ -1259,13 +1534,72 @@ func buildChecks(taskID string, acceptance, tests []string) ([]Check, error) {
 	if len(out) == 0 {
 		return nil, errors.New("task checks are required")
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Kind != out[j].Kind {
-			return out[i].Kind < out[j].Kind
-		}
-		return out[i].ID < out[j].ID
-	})
+	sortChecks(out)
 	return out, nil
+}
+
+func sortChecks(checks []Check) {
+	sort.Slice(checks, func(i, j int) bool {
+		if checks[i].Kind != checks[j].Kind {
+			return checks[i].Kind < checks[j].Kind
+		}
+		return checks[i].ID < checks[j].ID
+	})
+}
+
+func taskSpec(v Task) TaskSpec {
+	return TaskSpec{
+		Title: v.Title, Description: v.Description, Type: v.Type, Priority: v.Priority, ParentID: v.ParentID,
+		DependsOn: append([]string(nil), v.DependsOn...), Checks: append([]Check(nil), v.Checks...),
+	}
+}
+
+func newSpecRevision(before, after Task, kind, actor, reason string) SpecRevision {
+	return SpecRevision{
+		Key: fmt.Sprintf("%s/%020d", after.ID, after.Revision), TaskID: after.ID, SourceRevision: after.Revision,
+		Kind: kind, Actor: actor, Reason: reason, At: after.UpdatedAt, Before: taskSpec(before), After: taskSpec(after),
+	}
+}
+
+func validateActiveCheckKinds(checks []Check) error {
+	kinds := map[string]int{}
+	for _, check := range checks {
+		if check.Status != "superseded" {
+			kinds[check.Kind]++
+		}
+	}
+	if kinds["acceptance"] == 0 || kinds["test"] == 0 {
+		return errors.New("task must retain at least one active acceptance check and one active test check")
+	}
+	return nil
+}
+
+func validateParentChange(taskID, parentID string, all []Task) error {
+	if parentID == "" {
+		return nil
+	}
+	if parentID == taskID {
+		return errors.New("a task cannot be its own parent")
+	}
+	byID := indexTasks(all)
+	parent, ok := byID[parentID]
+	if !ok {
+		return fmt.Errorf("parent %s: %w", parentID, ErrNotFound)
+	}
+	if parent.Status == StatusCompleted || parent.Status == StatusCancelled {
+		return fmt.Errorf("parent task %s is already %s", parentID, parent.Status)
+	}
+	seen := map[string]bool{}
+	for current := parentID; current != ""; current = byID[current].ParentID {
+		if current == taskID {
+			return errors.New("task parent relationship would create a cycle")
+		}
+		if seen[current] {
+			return errors.New("existing task parent relationship contains a cycle")
+		}
+		seen[current] = true
+	}
+	return nil
 }
 
 func validCommentKind(kind string) bool {
@@ -1281,6 +1615,9 @@ func completionViolations(v Task, all []Task) []string {
 	var violations []string
 	kinds := map[string]int{}
 	for _, check := range v.Checks {
+		if check.Status == "superseded" {
+			continue
+		}
 		kinds[check.Kind]++
 		if check.Status != "passed" || strings.TrimSpace(check.Evidence) == "" {
 			violations = append(violations, fmt.Sprintf("%s %s is %s", check.Kind, check.ID, check.Status))
@@ -1293,6 +1630,12 @@ func completionViolations(v Task, all []Task) []string {
 		violations = append(violations, "task has no test checks")
 	}
 	byID := indexTasks(all)
+	for _, dependencyID := range v.DependsOn {
+		dependency, ok := byID[dependencyID]
+		if !ok || !effectivelyComplete(dependency, byID, map[string]bool{}) {
+			violations = append(violations, fmt.Sprintf("dependency %s is not validly completed", dependencyID))
+		}
+	}
 	for _, child := range all {
 		if child.ParentID == v.ID && !effectivelyComplete(child, byID, map[string]bool{}) {
 			violations = append(violations, fmt.Sprintf("subtask %s is not validly completed", child.ID))
@@ -1309,6 +1652,9 @@ func effectivelyComplete(v Task, all map[string]Task, seen map[string]bool) bool
 	seen[v.ID] = true
 	kinds := map[string]bool{}
 	for _, check := range v.Checks {
+		if check.Status == "superseded" {
+			continue
+		}
 		kinds[check.Kind] = true
 		if check.Status != "passed" || strings.TrimSpace(check.Evidence) == "" {
 			return false

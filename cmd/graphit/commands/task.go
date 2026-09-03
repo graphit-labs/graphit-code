@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +20,7 @@ func newTaskCmd() *cobra.Command {
 Open, unclaimed tasks are the backlog. Dependencies determine readiness. Agents
 must claim before work, checkpoint progress, and complete or release the claim.
 The returned claim token fences stopped or replaced agents from later writes.`}
-	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
+	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
 	return cmd
 }
 
@@ -97,13 +96,17 @@ func newTaskBatchCmd() *cobra.Command {
 }
 
 func decodeTaskBatch(stdin io.Reader, source string, input *graphtask.BatchInput) error {
+	return decodeStrictTaskJSON(stdin, source, input, "task batch")
+}
+
+func decodeStrictTaskJSON(stdin io.Reader, source string, input any, label string) error {
 	reader := stdin
 	var file *os.File
 	if source != "-" {
 		var err error
 		file, err = os.Open(source)
 		if err != nil {
-			return fmt.Errorf("opening task batch: %w", err)
+			return fmt.Errorf("opening %s: %w", label, err)
 		}
 		defer file.Close()
 		reader = file
@@ -111,14 +114,14 @@ func decodeTaskBatch(stdin io.Reader, source string, input *graphtask.BatchInput
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(input); err != nil {
-		return fmt.Errorf("decoding task batch: %w", err)
+		return fmt.Errorf("decoding %s: %w", label, err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		if err == nil {
-			return errors.New("decoding task batch: multiple JSON values are not allowed")
+			return fmt.Errorf("decoding %s: multiple JSON values are not allowed", label)
 		}
-		return fmt.Errorf("decoding task batch: %w", err)
+		return fmt.Errorf("decoding %s: %w", label, err)
 	}
 	return nil
 }
@@ -414,6 +417,76 @@ func newTaskCheckCmd() *cobra.Command {
 	cmd.Flags().StringVar(&evidence, "evidence", "", "Concrete command output, observation, or artifact")
 	_ = cmd.MarkFlagRequired("evidence")
 	cmd.Flags().BoolVar(&failed, "failed", false, "Record this check as failed instead of passed")
+	claimFlags(cmd, &token, &actor, &leaseText)
+	cmd.AddCommand(newTaskCheckSupersedeCmd())
+	return cmd
+}
+
+func newTaskCheckSupersedeCmd() *cobra.Command {
+	var token, actor, reason, replacement, replacementKind, leaseText string
+	var expected int64
+	cmd := &cobra.Command{Use: "supersede <task-id> <check-id>", Short: "Supersede an obsolete check without deleting history", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		lease, err := cliTaskLease(leaseText)
+		if err != nil {
+			return err
+		}
+		svc, err := currentTaskService()
+		if err != nil {
+			return err
+		}
+		v, err := svc.SupersedeCheck(context.Background(), args[0], token, cliTaskActor(actor), graphtask.SupersedeCheckInput{ExpectedRevision: expected, CheckID: args[1], Reason: reason, ReplacementText: replacement, ReplacementKind: replacementKind}, lease)
+		if err != nil {
+			return err
+		}
+		return printTaskJSON(v)
+	}}
+	cmd.Flags().Int64Var(&expected, "expected-revision", 0, "Current task revision fence")
+	_ = cmd.MarkFlagRequired("expected-revision")
+	cmd.Flags().StringVar(&reason, "reason", "", "Why the check is obsolete")
+	_ = cmd.MarkFlagRequired("reason")
+	cmd.Flags().StringVar(&replacement, "replacement", "", "Optional replacement check text")
+	cmd.Flags().StringVar(&replacementKind, "replacement-kind", "", "Optional acceptance or test replacement kind")
+	claimFlags(cmd, &token, &actor, &leaseText)
+	return cmd
+}
+
+type taskRevisionPatch struct {
+	Title                 *string   `json:"title,omitempty"`
+	Description           *string   `json:"description,omitempty"`
+	Type                  *string   `json:"type,omitempty"`
+	Priority              *int      `json:"priority,omitempty"`
+	ParentID              *string   `json:"parent_id,omitempty"`
+	DependsOn             *[]string `json:"depends_on,omitempty"`
+	AddAcceptanceCriteria []string  `json:"add_acceptance_criteria,omitempty"`
+	AddTests              []string  `json:"add_tests,omitempty"`
+}
+
+func newTaskReviseCmd() *cobra.Command {
+	var token, actor, reason, leaseText string
+	var expected int64
+	cmd := &cobra.Command{Use: "revise <task-id> <patch-file|->", Short: "Revise a claimed task specification", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		var patch taskRevisionPatch
+		if err := decodeStrictTaskJSON(cmd.InOrStdin(), args[1], &patch, "task revision patch"); err != nil {
+			return err
+		}
+		lease, err := cliTaskLease(leaseText)
+		if err != nil {
+			return err
+		}
+		svc, err := currentTaskService()
+		if err != nil {
+			return err
+		}
+		v, err := svc.Revise(context.Background(), args[0], token, cliTaskActor(actor), graphtask.ReviseInput{ExpectedRevision: expected, Reason: reason, Title: patch.Title, Description: patch.Description, Type: patch.Type, Priority: patch.Priority, ParentID: patch.ParentID, DependsOn: patch.DependsOn, AddAcceptanceCriteria: patch.AddAcceptanceCriteria, AddTests: patch.AddTests}, lease)
+		if err != nil {
+			return err
+		}
+		return printTaskJSON(v)
+	}}
+	cmd.Flags().Int64Var(&expected, "expected-revision", 0, "Current task revision fence")
+	_ = cmd.MarkFlagRequired("expected-revision")
+	cmd.Flags().StringVar(&reason, "reason", "", "Why the specification changed")
+	_ = cmd.MarkFlagRequired("reason")
 	claimFlags(cmd, &token, &actor, &leaseText)
 	return cmd
 }

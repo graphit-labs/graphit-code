@@ -266,10 +266,18 @@ tasks; deterministic ownership belongs to the Task module.
 | `graphit_task_claim`, `graphit_task_heartbeat`, `graphit_task_release` | Own and transfer work through leases and fencing tokens. |
 | `graphit_task_progress`, `graphit_task_comment_add` | Preserve resumable checkpoints and typed findings. |
 | `graphit_task_check` | Record acceptance/test pass or failure with evidence. |
+| `graphit_task_revise`, `graphit_task_check_supersede` | Correct claimed scope with expected-revision fencing and preserve obsolete checks as audited history. |
 | `graphit_task_flag`, `graphit_task_unflag` | Gate completion with a recorded reason and resolve the gate. |
 | `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain cycle-checked ordering edges. |
 | `graphit_task_complete` | Complete only after flags, checks, and subtasks satisfy deterministic gates. |
 | `graphit_task_cancel`, `graphit_task_remove` | Cancel with durable history or hard-remove certainly obsolete, unreferenced work with exact-ID confirmation. |
+
+When the launcher installs a changed Core, the daemon replaces itself. The stdio proxy watches the
+daemon port/key files, reconnects, replays the initialize handshake, and then sends
+`notifications/tools/list_changed`. MCP clients that implement the notification refresh the live
+catalog; clients without that protocol behavior require a fresh session. The proxy also forwards a
+stable host-agent session header on every HTTP request, so task ownership does not change when the
+daemon allocates a new backend MCP session during reconnection.
 
 ---
 

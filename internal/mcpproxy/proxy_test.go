@@ -2,13 +2,141 @@ package mcpproxy
 
 import (
 	"context"
+	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestToolListChangedNotification(t *testing.T) {
+	got, err := jsonrpc.EncodeMessage(toolListChangedNotification())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value struct {
+		JSONRPC string         `json:"jsonrpc"`
+		Method  string         `json:"method"`
+		Params  map[string]any `json:"params"`
+	}
+	if err := json.Unmarshal(got, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value.JSONRPC != "2.0" || value.Method != "notifications/tools/list_changed" || value.Params == nil {
+		t.Fatalf("notification = %s", got)
+	}
+}
+
+func TestProxyReconnectRefreshesToolCatalog(t *testing.T) {
+	first, firstPort := testToolBackend(t, "old_tool", "stable-agent")
+	defer first.Close()
+	second, secondPort := testToolBackend(t, "new_tool", "stable-agent")
+	defer second.Close()
+
+	dir := t.TempDir()
+	portFile := filepath.Join(dir, "mcp.port")
+	keyFile := filepath.Join(dir, "mcp.key")
+	if err := os.WriteFile(portFile, []byte(strconv.Itoa(firstPort)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, []byte("test-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	clientSide, proxySide := net.Pipe()
+	proxyDone := make(chan error, 1)
+	go func() {
+		proxyDone <- RunProxy(Config{PortFile: portFile, KeyFile: keyFile, MCPPath: "/", RetryInterval: 10 * time.Millisecond, AgentSessionID: "stable-agent"}, proxySide, proxySide)
+	}()
+
+	changed := make(chan struct{}, 1)
+	client := mcp.NewClient(&mcp.Implementation{Name: "catalog-refresh-test", Version: "1"}, &mcp.ClientOptions{
+		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		},
+	})
+	session, err := client.Connect(context.Background(), &mcp.IOTransport{Reader: clientSide, Writer: clientSide}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = session.Close()
+		select {
+		case <-proxyDone:
+		case <-time.After(2 * time.Second):
+		}
+	}()
+	assertOnlyTool(t, session, "old_tool")
+
+	if err := os.WriteFile(portFile, []byte(strconv.Itoa(secondPort)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-changed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("client did not receive tools/list_changed after daemon replacement")
+	}
+	assertOnlyTool(t, session, "new_tool")
+}
+
+func testToolBackend(t *testing.T, toolName, wantAgent string) (*httptest.Server, int) {
+	t.Helper()
+	server := mcp.NewServer(&mcp.Implementation{Name: toolName, Version: "1"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: toolName}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, struct{}, error) {
+		return &mcp.CallToolResult{}, struct{}{}, nil
+	})
+	httpServer := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
+		if got := request.Header.Get(AgentSessionHeader); got != wantAgent {
+			t.Errorf("agent session header = %q, want %q", got, wantAgent)
+		}
+		return server
+	}, nil))
+	parsed, err := url.Parse(httpServer.URL)
+	if err != nil {
+		httpServer.Close()
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		httpServer.Close()
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		httpServer.Close()
+		t.Fatal(err)
+	}
+	return httpServer, port
+}
+
+func TestHostAgentSessionIDUsesExplicitEnvironment(t *testing.T) {
+	t.Setenv("GRAPHIT_AGENT_SESSION_ID", "host-session")
+	if got := hostAgentSessionID(); got != "host-session" {
+		t.Fatalf("host agent session = %q", got)
+	}
+}
+
+func assertOnlyTool(t *testing.T, session *mcp.ClientSession, want string) {
+	t.Helper()
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Tools) != 1 || listed.Tools[0].Name != want {
+		t.Fatalf("tools = %#v, want only %s", listed.Tools, want)
+	}
+}
 
 func TestIsPortAlive_ListeningPort(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

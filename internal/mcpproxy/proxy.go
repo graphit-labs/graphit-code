@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -20,14 +21,16 @@ import (
 )
 
 const watchPollInterval = 500 * time.Millisecond
+const AgentSessionHeader = "X-Graphit-Agent-Session"
 
 type Config struct {
-	PortFile      string
-	KeyFile       string
-	MCPPath       string // default "/mcp"
-	EnsureDaemon  func()
-	RetryInterval time.Duration // default 500ms
-	Stderr        io.Writer
+	PortFile       string
+	KeyFile        string
+	MCPPath        string // default "/mcp"
+	EnsureDaemon   func()
+	RetryInterval  time.Duration // default 500ms
+	Stderr         io.Writer
+	AgentSessionID string
 }
 
 func (c *Config) applyDefaults() {
@@ -36,6 +39,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.RetryInterval <= 0 {
 		c.RetryInterval = 500 * time.Millisecond
+	}
+	if strings.TrimSpace(c.AgentSessionID) == "" {
+		c.AgentSessionID = hostAgentSessionID()
 	}
 }
 
@@ -95,7 +101,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		endpoint := fmt.Sprintf("http://127.0.0.1:%d%s", port, cfg.MCPPath)
 		cfg.logf("connecting to daemon at %s", endpoint)
 
-		httpConn, err := connectHTTP(ctx, endpoint, key)
+		httpConn, err := connectHTTP(ctx, endpoint, key, cfg.AgentSessionID)
 		if err != nil {
 			cfg.logf("HTTP connect failed: %v, retrying…", err)
 			if cfg.EnsureDaemon != nil {
@@ -155,6 +161,10 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 				time.Sleep(cfg.RetryInterval)
 				continue
 			}
+			if err := stdioConn.Write(ctx, toolListChangedNotification()); err != nil {
+				httpConn.Close()
+				return fmt.Errorf("notifying client of refreshed tool catalog: %w", err)
+			}
 		}
 
 		relayCtx, cancelRelay := context.WithCancel(ctx)
@@ -179,6 +189,23 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 			cfg.EnsureDaemon()
 		}
 	}
+}
+
+func toolListChangedNotification() jsonrpc.Message {
+	return &jsonrpc.Request{Method: "notifications/tools/list_changed", Params: json.RawMessage(`{}`)}
+}
+
+func hostAgentSessionID() string {
+	for _, name := range []string{"GRAPHIT_AGENT_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CLAUDE_SESSION_ID", "CURSOR_SESSION_ID", "GEMINI_SESSION_ID", "OPENCODE_SESSION_ID", "KIRO_SESSION_ID"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	value, err := GenerateAPIKey()
+	if err != nil {
+		return fmt.Sprintf("proxy-%d", os.Getpid())
+	}
+	return "proxy-" + value[:16]
 }
 
 func watchDaemonFiles(ctx context.Context, cfg Config, port int, key string, relayCancel context.CancelFunc) {
@@ -212,12 +239,12 @@ func isDaemonRestarted(err error) bool {
 	return strings.Contains(err.Error(), errDaemonRestartedMsg)
 }
 
-func connectHTTP(ctx context.Context, endpoint, apiKey string) (mcp.Connection, error) {
+func connectHTTP(ctx context.Context, endpoint, apiKey, agentSessionID string) (mcp.Connection, error) {
 	httpTransport := &mcp.StreamableClientTransport{
 		Endpoint: endpoint,
 		HTTPClient: &http.Client{
 			Timeout:   5 * time.Minute,
-			Transport: &authRoundTripper{key: apiKey, base: http.DefaultTransport},
+			Transport: &authRoundTripper{key: apiKey, agentSessionID: agentSessionID, base: http.DefaultTransport},
 		},
 	}
 	return httpTransport.Connect(ctx)
@@ -296,12 +323,16 @@ func isStdioClosed(err error) bool {
 }
 
 type authRoundTripper struct {
-	key  string
-	base http.RoundTripper
+	key            string
+	agentSessionID string
+	base           http.RoundTripper
 }
 
 func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+t.key)
+	if t.agentSessionID != "" {
+		req.Header.Set(AgentSessionHeader, t.agentSessionID)
+	}
 	return t.base.RoundTrip(req)
 }

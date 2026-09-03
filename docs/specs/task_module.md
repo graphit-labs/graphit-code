@@ -37,6 +37,7 @@ fencing tokens remain independent barriers against stale writers.
 | `task_checks` | Queryable acceptance and test checks, status, evidence, verifier, verification time, and source revision. |
 | `task_comments` | Append-only typed comments (`note`, `decision`, `problem`, `lesson`, `knowledge`) with deterministic ID and ordered sequence. Comment text has a LanceDB full-text index. |
 | `task_events` | Append-only lifecycle audit keyed by task and zero-padded revision. |
+| `task_spec_revisions` | Immutable, queryable specification history with mutation kind, optional affected check ID, actor, reason, timestamp, source task revision, and before/after state. |
 | `task_control` | Scheduler lease plus resumable hard-removal intents used to serialize and recover cross-table mutations. |
 
 The task snapshot embeds the dependency/check lists and the last event/comment because it is the
@@ -67,7 +68,15 @@ Creation requires all of the following:
 
 Acceptance criteria and tests are structured checks, not prose interpreted at completion time.
 Each starts as `pending` and must be recorded as `passed` with non-empty evidence. A failed check
-retains its evidence and keeps completion closed.
+retains its evidence and keeps completion closed. A claimed owner may revise supported specification
+fields only with the current fencing token, expected task revision, and a reason. Every successful
+change appends an immutable `task_spec_revisions` row containing the complete before/after spec.
+Changing the title, description, or type resets active checks to `pending`; their earlier results
+remain in the immutable before state, but completion requires evidence against the revised scope.
+
+Obsolete checks are superseded, never deleted or rewritten. Supersession records actor, reason,
+time, and an optional replacement check. Superseded checks and earlier evidence remain visible but
+do not gate completion; at least one active acceptance check and one active test check must remain.
 
 ## Lifecycle and deterministic gates
 
@@ -87,14 +96,16 @@ token, and refuses an agent that already owns another live task. All owner mutat
 current token. The default lease is one hour. Heartbeats, progress, checks, and comments extend it
 but never shorten a longer active lease. Release or lease expiry clears ownership while preserving progress, comments,
 checks, and `next_step`, so another agent can resume without reconstructing history.
+The stdio MCP proxy carries a stable host-agent identity across daemon reconnections, so backend
+session replacement does not invalidate the active owner's token or attribution.
 
 Completion is rejected unless every invariant is true:
 
 - the caller owns the current fenced claim;
 - the task is not flagged;
-- every acceptance and test check is `passed` with evidence;
+- every active acceptance and test check is `passed` with evidence;
 - every direct or nested subtask is validly completed;
-- the task's dependencies were complete when it was claimed.
+- every dependency remains validly completed, including after a specification revision.
 
 Full reconciliation runs at session boundaries. It repairs projections, expires leases, and reopens
 any completed snapshot that violates flag/check/subtask invariants. Explicit operations repair the
@@ -144,8 +155,8 @@ its always-loaded token cost remains small.
 ## Interfaces
 
 The CLI group is `graphit task`; its subcommands cover batch, create, list/ready, get, search, claim,
-progress, heartbeat, comment, check, flag/unflag, dependency add/remove, release, complete,
-cancel, and confirmed remove.
+revise, progress, heartbeat, comment, check/check supersede, flag/unflag, dependency add/remove,
+release, complete, cancel, and confirmed remove.
 The MCP tools expose the same operations as `graphit_task_*` and return compact TOON by default for
 read-heavy calls.
 
@@ -157,14 +168,15 @@ the original index, optional correlation key, normalized action, task ID, succes
 explicit error. A failed item therefore cannot make later independent outcomes ambiguous. Batch is
 a transport optimization, not a weaker lifecycle path: every item invokes the same LanceDB-backed
 service method and retains claim fencing, dependency, check, flag, cancellation, and confirmed
-removal rules. A batch cannot be used to claim multiple live tasks for one agent.
+removal rules. `revise` and `check_supersede` batch actions use the same fencing and revision checks
+as their focused tools. A batch cannot be used to claim multiple live tasks for one agent.
 
 `task_search` uses LanceDB full-text indexes over task specs/check evidence and comment bodies. It
 accepts `page_size` plus the opaque `cursor` returned as `next_cursor`; `top_k` remains the cap for
 the complete ranked result set. The cursor is bound to the query, project, page size, and cap, so a
 changed request fails instead of silently skipping or duplicating work. Search is discovery;
-`task_get` is the authoritative retrieval call and includes the snapshot, ordered events, and
-ordered comments.
+`task_get` is the authoritative retrieval call and includes the snapshot, ordered events, ordered
+comments, and immutable specification revisions.
 
 ## Source map
 

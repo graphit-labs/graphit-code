@@ -31,3 +31,27 @@ func TestDecodeTaskBatchRejectsUnknownFieldsAndMultipleValues(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeTaskRevisionPatchStrictly(t *testing.T) {
+	var patch taskRevisionPatch
+	err := decodeStrictTaskJSON(strings.NewReader(`{"description":"Corrected specification","depends_on":[],"add_tests":["Focused test"]}`), "-", &patch, "task revision patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patch.Description == nil || *patch.Description != "Corrected specification" || patch.DependsOn == nil || len(*patch.DependsOn) != 0 || len(patch.AddTests) != 1 {
+		t.Fatalf("decoded patch = %#v", patch)
+	}
+	if err := decodeStrictTaskJSON(strings.NewReader(`{"unknown":true}`), "-", &taskRevisionPatch{}, "task revision patch"); err == nil {
+		t.Fatal("unknown revision patch field was accepted")
+	}
+}
+
+func TestTaskRevisionCommandsAreReachable(t *testing.T) {
+	root := newTaskCmd()
+	if command, _, err := root.Find([]string{"revise"}); err != nil || command == root {
+		t.Fatalf("task revise command not found: %v", err)
+	}
+	if command, _, err := root.Find([]string{"check", "supersede"}); err != nil || command.Name() != "supersede" {
+		t.Fatalf("task check supersede command not found: %v", err)
+	}
+}

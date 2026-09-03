@@ -235,7 +235,7 @@ graphit mcp [flags]
 - The daemon listens on `127.0.0.1:<dynamic-port>/mcp` (Streamable HTTP transport)
 - Authentication: Bearer token stored in `~/.graphit/daemon/mcp.key`
 - Port: Written to `~/.graphit/daemon/mcp.port`
-- The stdio proxy auto-recovers if the daemon restarts (re-reads port/key files)
+- The stdio proxy auto-recovers if the daemon restarts, preserves its host-agent identity, replays the MCP handshake, and sends `notifications/tools/list_changed` so clients that implement catalog invalidation refresh their tools. Fresh sessions always receive the new catalog.
 
 ---
 
@@ -460,9 +460,11 @@ graphit task <subcommand> [flags]
 - `get`, `search`: Retrieve authoritative history or search task/comment text.
 - `claim`, `heartbeat`, `release`: Own or hand off work with a fenced lease.
 - `progress`, `comment`, `check`: Record checkpoints, typed context, and acceptance/test evidence.
+- `revise <task-id> <patch-file|->`: Apply a strict JSON specification patch with `--expected-revision`, `--reason`, and the current claim token.
+- `check supersede <task-id> <check-id>`: Preserve an obsolete check as superseded, with a reason and optional replacement.
 - `flag`, `unflag`: Add or resolve a completion gate with a reason.
 - `dependency add|remove`: Maintain explicit blocking edges.
-- `complete`: Finish only after every check and subtask passes and no flag remains.
+- `complete`: Finish only after every active check and subtask passes and no flag remains.
 - `cancel`: Preserve an obsolete task as an audited terminal record with a required reason.
 - `remove` / `rm`: Hard-delete certainly erroneous work with `--confirm <exact-id>` and `--reason`; referenced tasks are refused.
 
