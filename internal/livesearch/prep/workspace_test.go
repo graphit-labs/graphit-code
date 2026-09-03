@@ -105,9 +105,14 @@ func TestPrepareInstallsSkillsAndConfiguresTheDynamicInstructionHook(t *testing.
 	if err != nil {
 		t.Fatalf("reading lifecycle hook config: %v (progress: %v)", err, progress)
 	}
-	for _, want := range []string{"SessionStart", "_session-hook", "--project-dir", ws} {
+	for _, want := range []string{"SessionStart", "_session-hook"} {
 		if !strings.Contains(string(hook), want) {
 			t.Fatalf("dynamic hook config missing %q: %s", want, hook)
+		}
+	}
+	for _, forbidden := range []string{"--project-dir", ws} {
+		if strings.Contains(string(hook), forbidden) {
+			t.Fatalf("dynamic hook config embeds machine-specific value %q: %s", forbidden, hook)
 		}
 	}
 

@@ -64,7 +64,7 @@ func (a *AntigravityAdapter) syncSessionStartHook(projectDir string) error {
 	root[antigravityManagedHookName] = map[string]any{
 		"PreInvocation": []any{map[string]any{
 			"type":    "command",
-			"command": sessionHookCommand(sessionhook.FormatFirstInvocation, projectDir),
+			"command": sessionHookCommand(sessionhook.FormatFirstInvocation),
 			"timeout": 10,
 		}},
 	}

@@ -51,12 +51,11 @@ func (a *GeminiAdapter) syncSessionStartHook(projectDir string) error {
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
-		projectDir,
 		"gemini",
 	); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent, projectDir); err != nil {
+	if err := reconcileGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent); err != nil {
 		return err
 	}
 	return removeGroupedCommandHook(path, "BeforeTool", "guard-gemini")

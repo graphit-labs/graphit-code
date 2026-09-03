@@ -29,7 +29,9 @@ A busca contextual permanece semântica: a skill manda pesquisar o pedido atual,
 
 ### Contexto residente dinâmico
 
-No mesmo evento, `_session-hook` lê a configuração e o lockfile do projeto apontado por `--project-dir`. Ele compõe, em ordem estável, somente os mandates dos módulos habilitados e os corpos dos artifacts Hub de tipo `rule` instalados. Rules são lidas no artifact autoritativo (`RULE.md`), inclusive links locais; não são copiadas para diretórios de rules da IDE.
+No mesmo evento, `_session-hook` resolve a raiz em runtime a partir do campo nativo do host: `cwd` em Claude, Codex, Gemini e Kiro; `workspace_roots` no Cursor; e `workspacePaths` no Antigravity. A partir de cada candidato, sobe até o lockfile Graphit mais próximo; o cwd do processo é o fallback. OpenCode inicia o subprocesso com seu `directory` runtime como cwd. Nenhum checkout absoluto da máquina que executou o sync é serializado no hook. O flag `--project-dir` permanece somente como override explícito para diagnóstico.
+
+Depois da resolução, o comando lê a configuração e o lockfile desse projeto. Ele compõe, em ordem estável, somente os mandates dos módulos habilitados e os corpos dos artifacts Hub de tipo `rule` instalados. Rules são lidas no artifact autoritativo (`RULE.md`), inclusive links locais; não são copiadas para diretórios de rules da IDE.
 
 O Graphit não cria nem atualiza `AGENTS.md`, `CLAUDE.md` ou equivalentes para entregar essas instruções. Esses arquivos, quando existem, pertencem ao usuário. Skills continuam físicas nos diretórios nativos porque os hosts precisam descobri-las e carregá-las sob demanda.
 

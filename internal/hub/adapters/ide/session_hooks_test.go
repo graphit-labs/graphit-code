@@ -91,8 +91,14 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				t.Fatalf("second sync was not idempotent\nfirst: %s\nsecond: %s", first, second)
 			}
 			configContent := string(second)
-			if tc.adapter != "opencode" && (!strings.Contains(configContent, "--project-dir") || !strings.Contains(configContent, projectDir)) {
-				t.Fatalf("%s hook does not pin the active project: %s", tc.adapter, configContent)
+			if strings.Contains(configContent, projectDir) {
+				t.Fatalf("%s hook embeds the sync machine's checkout path: %s", tc.adapter, configContent)
+			}
+			if strings.Contains(configContent, "--project-dir") {
+				t.Fatalf("%s hook must resolve its project from native runtime input: %s", tc.adapter, configContent)
+			}
+			if tc.adapter == "opencode" && !strings.Contains(configContent, `{ cwd: directory }`) {
+				t.Fatalf("OpenCode must execute the hook from its runtime directory: %s", configContent)
 			}
 			protocolContent := configContent
 			if tc.adapter == "kiro" {

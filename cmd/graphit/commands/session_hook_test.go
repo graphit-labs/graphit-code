@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -95,8 +96,12 @@ func TestSessionHookOmitsMemoryBootstrapWhenModuleIsDisabled(t *testing.T) {
 	}
 }
 
-func TestSessionHookLoadsProjectMandateOverrideFromPinnedDirectory(t *testing.T) {
+func TestSessionHookLoadsProjectMandateOverrideFromNativeCWD(t *testing.T) {
 	projectDir := t.TempDir()
+	workingDir := filepath.Join(projectDir, "packages", "api")
+	if err := os.MkdirAll(workingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	rulesDir := filepath.Join(projectDir, brand.DotDir(), "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -109,15 +114,69 @@ func TestSessionHookLoadsProjectMandateOverrideFromPinnedDirectory(t *testing.T)
 	}
 
 	cmd := newSessionHookCmd()
-	cmd.SetArgs([]string{"--format", "additional-context", "--project-dir", projectDir})
-	cmd.SetIn(strings.NewReader("{}"))
+	cmd.SetArgs([]string{"--format", "additional-context"})
+	cmd.SetIn(strings.NewReader(`{"cwd":` + strconv.Quote(workingDir) + `}`))
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "PINNED AST MANDATE") {
-		t.Fatalf("hook ignored project-pinned mandate override: %s", output.String())
+		t.Fatalf("hook ignored the mandate override resolved from native cwd: %s", output.String())
+	}
+}
+
+func TestResolveSessionHookProjectDirFromNativeHostInputs(t *testing.T) {
+	projectDir := t.TempDir()
+	workingDir := filepath.Join(projectDir, "packages", "api")
+	if err := os.MkdirAll(workingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &hub.Lockfile{}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := map[string]string{
+		"cwd":               `{"cwd":` + strconv.Quote(workingDir) + `}`,
+		"cursor roots":      `{"workspace_roots":[` + strconv.Quote(workingDir) + `]}`,
+		"antigravity paths": `{"workspacePaths":[` + strconv.Quote(workingDir) + `]}`,
+	}
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := resolveSessionHookProjectDir("", []byte(input)); got != projectDir {
+				t.Fatalf("resolved project = %q, want %q", got, projectDir)
+			}
+		})
+	}
+
+	unrelatedGitRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(unrelatedGitRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	multiRootInput := `{"workspace_roots":[` + strconv.Quote(unrelatedGitRoot) + `,` + strconv.Quote(workingDir) + `]}`
+	if got := resolveSessionHookProjectDir("", []byte(multiRootInput)); got != projectDir {
+		t.Fatalf("multi-root project = %q, want Graphit root %q", got, projectDir)
+	}
+
+	otherProject := t.TempDir()
+	if got := resolveSessionHookProjectDir(otherProject, []byte(`{"cwd":`+strconv.Quote(workingDir)+`}`)); got != otherProject {
+		t.Fatalf("explicit diagnostic project = %q, want %q", got, otherProject)
+	}
+}
+
+func TestResolveSessionHookProjectDirFromProcessCWD(t *testing.T) {
+	projectDir := t.TempDir()
+	workingDir := filepath.Join(projectDir, "packages", "api")
+	if err := os.MkdirAll(workingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &hub.Lockfile{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workingDir)
+
+	if got := resolveSessionHookProjectDir("", nil); got != projectDir {
+		t.Fatalf("resolved project = %q, want %q", got, projectDir)
 	}
 }
 

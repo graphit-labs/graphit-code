@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
@@ -28,13 +29,11 @@ func newSessionHookCmd() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectDir == "" {
-				projectDir, _ = os.Getwd()
-			}
 			input, err := readSessionHookInput(cmd.InOrStdin(), format)
 			if err != nil {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
+			projectDir = resolveSessionHookProjectDir(projectDir, input)
 			projectCfg := loadProjectConfigFromDir(projectDir)
 			context := sessionhook.Context{
 				Instructions:   loadHookInstructionContext(projectDir, projectCfg),
@@ -58,6 +57,90 @@ func newSessionHookCmd() *cobra.Command {
 	cmd.Flags().StringVar(&projectDir, "project-dir", "", "active project directory")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
+}
+
+func resolveSessionHookProjectDir(explicit string, input []byte) string {
+	type hookInput struct {
+		CWD            string   `json:"cwd"`
+		WorkspaceRoots []string `json:"workspace_roots"`
+		WorkspacePaths []string `json:"workspacePaths"`
+	}
+
+	candidates := make([]string, 0, 5)
+	if explicit != "" {
+		if root := findSessionHookProjectRoot(explicit); root != "" {
+			return root
+		}
+		if root := findSessionHookGitRoot(explicit); root != "" {
+			return root
+		}
+		if abs, err := filepath.Abs(explicit); err == nil {
+			return filepath.Clean(abs)
+		}
+		return explicit
+	}
+
+	var event hookInput
+	if json.Unmarshal(input, &event) == nil {
+		candidates = append(candidates, event.CWD)
+		candidates = append(candidates, event.WorkspaceRoots...)
+		candidates = append(candidates, event.WorkspacePaths...)
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, wd)
+	}
+
+	for _, candidate := range candidates {
+		if root := findSessionHookProjectRoot(candidate); root != "" {
+			return root
+		}
+	}
+	for _, candidate := range candidates {
+		if root := findSessionHookGitRoot(candidate); root != "" {
+			return root
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(candidate); err == nil {
+			return filepath.Clean(abs)
+		}
+	}
+	return ""
+}
+
+func findSessionHookProjectRoot(start string) string {
+	return findSessionHookAncestor(start, brand.LockFileName())
+}
+
+func findSessionHookGitRoot(start string) string {
+	return findSessionHookAncestor(start, ".git")
+}
+
+func findSessionHookAncestor(start, marker string) string {
+	if start == "" {
+		return ""
+	}
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return ""
+	}
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	dir = filepath.Clean(dir)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 func hookInputNeedsMandatory(format string, input []byte) bool {

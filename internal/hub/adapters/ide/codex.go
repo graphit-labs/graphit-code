@@ -143,12 +143,11 @@ func (a *CodexAdapter) syncSessionStartHook(projectDir string) error {
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
-		projectDir,
 		"codex",
 	); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart, projectDir); err != nil {
+	if err := reconcileGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart); err != nil {
 		return err
 	}
 	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")

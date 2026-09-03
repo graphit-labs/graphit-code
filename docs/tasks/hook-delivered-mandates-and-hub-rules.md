@@ -22,6 +22,7 @@ The hook becomes the single delivery path for resident Graphit instructions. It 
 - [x] **T4 — Preserve lifecycle coverage** — Deliver the dynamic context at main-session and subagent starts; keep repeated model-boundary reinjection compact where the full context has already been established.
 - [x] **T5 — Test migration and ownership** — Cover all adapters, disabled modules, installed rules, sync cleanup, user-file preservation, payload formats, and idempotency.
 - [x] **T6 — Update architecture and durable memory** — Record the new ownership boundary, run focused/full validation, synchronize Graphit indexes, and regenerate tracked adapter artifacts.
+- [x] **T7 — Make hook project resolution machine-independent** — Remove machine-specific absolute roots from committed hook configuration; resolve the active project from native hook input or execution cwd, retain an explicit override only for diagnostics, update tests/docs/memory, sync, and commit the correction on `main`.
 
 ## Decisions
 
@@ -49,3 +50,16 @@ The hook becomes the single delivery path for resident Graphit instructions. It 
 - The freshly installed CLI completed a synchronous project sync, regenerating every configured adapter's hooks and MCP settings from the same lifecycle pass. Generated hook commands pin this project's absolute path; no Graphit-owned `AGENTS.md` or `CLAUDE.md` remains.
 - Full `go test ./...`, JSON parsing for every generated hook/MCP file, and `node --check` for the OpenCode plugin pass. A real ephemeral Codex run with hook trust explicitly bypassed confirmed that the model receives the `Graphit session bootstrap` developer context.
 - Final payload review removed a duplicate copy of the dynamic router from full bootstrap formats. The current project bootstrap is 5,633 bytes and contains exactly one router and one memory-bootstrap section; a regression assertion enforces single delivery at every format boundary.
+- User correction: absolute `--project-dir` values in versioned hook files are not portable across team machines. Reopened the task to make generated commands path-free and resolve the project dynamically at hook execution.
+- Generated command hooks no longer embed `--project-dir` or the sync machine's checkout path. `_session-hook` now resolves the nearest Graphit lockfile from the host's native `cwd`, Cursor `workspace_roots`, Antigravity `workspacePaths`, or process cwd; an explicit flag remains authoritative for manual diagnostics. OpenCode sets the subprocess cwd to its runtime `directory`.
+- Adapter regression coverage now rejects both serialized checkout roots and `--project-dir` arguments, while requiring OpenCode's runtime cwd expression.
+- Command tests cover all native location shapes used by the supported hosts (`cwd`, `workspace_roots`, and `workspacePaths`), upward resolution from a nested working directory, process-cwd fallback, and the explicit diagnostic override.
+- Architecture docs now state the machine-independent runtime resolution contract and name each host's authoritative location field.
+- Focused command, adapter, and session-hook tests pass after formatting. The same generated hook content is now expected for different checkout roots.
+- First full-suite run exposed one stale live-search assertion that still required `--project-dir`; production code and focused adapter tests passed. The assertion must be inverted to enforce the new portable contract before rerunning the suite.
+- The live-search regression now rejects both the temporary checkout root and `--project-dir` in its generated Claude hook.
+- Second full `go test ./...` run and `git diff --check` pass after updating that stale assertion.
+- The rebuilt CLI regenerated every configured adapter without a checkout path or `--project-dir`. JSON/JavaScript validation passed, and executions from `/tmp` using Antigravity `workspacePaths` and Cursor `workspace_roots` both resolved the project and returned mandates plus memory bootstrap. Durable architecture memory was corrected in place.
+- Final sync updated AST, wiki, memory, hooks, and MCP. Its vector-index phase encountered one explicit retryable commit conflict with a concurrent rewrite; rerunning only `sync --heavy` completed successfully with no pending embeddings.
+- Final resolver review fixed multi-root precedence: every workspace candidate is checked for a Graphit lockfile before any plain Git-root fallback, preventing an unrelated first root from masking the Graphit project. A regression covers that ordering.
+- Final rebuilt-binary check passed the multi-root case from `/tmp`, with an unrelated Git root listed before the real Graphit root. All generated JSON and OpenCode JavaScript parse, no hook contains `--project-dir` or this checkout path, and no Graphit-owned instruction markdown was recreated.
