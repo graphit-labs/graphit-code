@@ -147,7 +147,7 @@ h1 em { color: var(--signal); font-style: normal; }
 
 .signal-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   border-block: 1px solid var(--line);
   background: var(--surface);
 }
@@ -160,7 +160,7 @@ h1 em { color: var(--signal); font-style: normal; }
 .section-heading { max-width: 760px; margin-bottom: 3.5rem; }
 .section-heading h2, .trust-panel h2, .final-cta h2 { margin: .75rem 0 1rem; font-size: clamp(2.4rem, 5vw, 4.7rem); line-height: 1; letter-spacing: -.055em; }
 .section-heading > p:last-child { color: var(--muted); font-size: 1.05rem; }
-.system-flow { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); }
+.system-flow { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); }
 .flow-card { min-height: 310px; padding: 1.6rem; background: var(--surface); border-right: 1px solid var(--line); }
 .flow-card:last-child { border-right: 0; }
 .flow-card h3, .capability-card h3, .doc-card h3 { margin: 5rem 0 .8rem; font-size: 1.35rem; letter-spacing: -.03em; }

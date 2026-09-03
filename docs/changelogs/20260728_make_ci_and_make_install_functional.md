@@ -145,7 +145,7 @@ LD_LIBRARY_PATH="$LBUG:$LD_LIBRARY_PATH" go test -race -tags fts5 -run TestDelet
 ## Remaining debt
 
 None of this breaks the two targets today; all were found looking at the build and remain
-recorded in `docs/tasks/make-ci-and-make-install-functional.md`.
+recorded in Graphit Task `tsk-4761f865d2f7`.
 
 - **`BUILD_ID` is recalculated on every expansion.** `BUILD_ID ?= $(shell …)` creates a recursive
   variable, so `$(shell)` runs again on each use: the three `go build` of `build-linux`

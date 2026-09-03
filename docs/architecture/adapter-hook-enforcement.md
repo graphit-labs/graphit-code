@@ -43,9 +43,11 @@ O contexto residente completo é reservado para início real de sessão ou subag
 
 Retomar, reentrar ou continuar trabalho interrompido reaplica essa precedência antes da próxima ação. O hook só reinsere o roteador: a classificação do domínio continua a cargo do agente, que carrega a skill correspondente apenas quando o próximo passo encontra um trigger.
 
-### Checkpoint de tarefa e finalização
+### Estado de tarefa, checkpoints e finalização
 
-O Graphit trata a menor unidade semanticamente reportável como um checkpoint, não como sinônimo mecânico de qualquer tool call. Nos eventos pós-ação disponíveis, o hook pede ao agente que decida se a unidade terminou e, em caso positivo, atualize imediatamente o gerenciador ativo e o task log com o que foi entregue e o próximo passo. Kiro também possui `PostTaskExec`, que fornece um boundary objetivo de task de spec.
+O Graphit trata a menor unidade semanticamente reportável como um checkpoint, não como sinônimo mecânico de qualquer tool call. Nos eventos pós-ação disponíveis, o hook pede ao agente que decida se a unidade terminou e, em caso positivo, atualize imediatamente a task Graphit ativa com o que foi entregue e o próximo passo. Nenhum estado é gravado em task logs Markdown. Kiro também possui `PostTaskExec`, que fornece um boundary objetivo de task de spec.
+
+O mesmo hook executa reconciliação determinística nas tabelas LanceDB: restaura projeções de dependências, checks, comentários e eventos interrompidas depois do CAS autoritativo; expira leases; libera a claim do agente parado quando o host fornece identidade; e reabre qualquer conclusão que viole flag, checks evidenciados ou conclusão de subtasks. Eventos pós-tool renovam a lease da única task pertencente ao agente. Essas transições não dependem de interpretação do modelo.
 
 Depois da última atualização de tarefa, o evento final dispara `graphit sync` em segundo plano. `_session-hook --sync` inicia o executável Graphit ativo com o argumento `sync`, libera o processo filho e devolve imediatamente o payload nativo de conclusão; não espera indexação, lock ou processo terminar. Falha ao iniciar o dispatcher é erro do hook, mas a sincronização já iniciada não controla nem atrasa a resposta final do agente.
 
@@ -117,8 +119,8 @@ Não é seguro automatizar sem um modelo:
 - decidir qual artifact do Hub é relevante ou quando documentação externa é necessária;
 - selecionar quais resultados de memória/wiki devem ser lidos;
 - decidir se uma descoberta é durável, duplicada, contraditória ou merece promoção;
-- produzir e manter um task log que explique objetivo, decisões, progresso e dívida;
-- reconhecer se uma ação concluiu a menor unidade independentemente reportável antes de atualizar esse log;
+- decidir quando registrar progresso ou comentário tipado de decisão, problema, lição ou conhecimento na task ativa;
+- reconhecer se uma ação concluiu a menor unidade independentemente reportável antes de atualizar a task;
 - decidir quando freshness precisa ser provada antes de uma conclusão.
 
 Esses itens permanecem nos mandates/skills, mas sem manuais de schemas, justificativas genéricas ou exemplos repetitivos.

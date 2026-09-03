@@ -13,8 +13,8 @@ keywords:
 prerequisites:
   - "docs/specs/ast_module.md"
 related:
-  - "docs/tasks/add-vue-treesitter-grammar.md"
-  - "docs/tasks/embedded-language-parsing.md"
+  - "Graphit Task tsk-76a4ed507b9c"
+  - "Graphit Task tsk-d50e2251d31c"
 ---
 
 # Embedded Language Parsing
@@ -22,7 +22,7 @@ related:
 > **Status: implemented on 2026-08-05**, for `<script>` and `<style>` in Vue, Svelte and
 > HTML. The design below was followed; the six open decisions are recorded with the
 > chosen option and rationale. Implementation log:
-> [embedded-language-parsing.md](../tasks/embedded-language-parsing.md).
+> Graphit Task `tsk-d50e2251d31c`.
 
 ## The problem
 

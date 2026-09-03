@@ -278,7 +278,7 @@ and that message lists the planned forms rather than a rule, because no single r
 > The message these refusals replaced was one fixed sentence claiming the query was an
 > unsupported **multi-hop** form, emitted for every rejection including one-hop queries whose
 > real problem was a projected label or a missing `DISTINCT`. See
-> `docs/tasks/canonical-planner-names-its-refusal.md`.
+> Graphit Task `tsk-d18bf110142a`.
 
 ---
 

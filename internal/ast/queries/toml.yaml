@@ -58,7 +58,7 @@ queries:
   # need a second pattern per key, and since a uid is derived from name plus
   # context, the same member would exist as two nodes — `f::host` from the plain
   # query and `f::inline.host` from the nested one. See
-  # docs/tasks/data-format-key-value-nodes.md.
+  # Graphit Task tsk-0209e30b5deb.
 
 # TOML is a config format — no export concept
 exports:

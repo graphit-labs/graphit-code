@@ -515,39 +515,15 @@ func ResolveAstIndexDocs(inlineCfg, projectCfg ConfigMap) bool {
 	return strings.EqualFold(val, "true")
 }
 
-// backlogDirName and backlogParentDirName compose the default backlog location
-// underneath the documentation tree: <docs_dir>/tasks/backlog.
-const (
-	backlogParentDirName = "tasks"
-	backlogDirName       = "backlog"
-)
-
-// DefaultBacklogDir is where the task backlog lives when backlog.dir says
-// nothing: inside the documentation tree, beside
-// the task logs.
-//
-// It used to be under the brand directory, which `graphit init` gitignores —
-// so the work a review deliberately deferred was invisible to every other
-// checkout, to code review, and to anyone who was not sitting at the machine
-// that recorded it. A backlog item is a project artifact, not machine state:
-// it belongs in the repository, next to the task logs that close it.
-//
-// The default follows ResolveDocsDir rather than hardcoding "docs", so a
-// project that keeps its documentation elsewhere gets its backlog there too.
-func DefaultBacklogDir(inlineCfg, projectCfg ConfigMap) string {
-	return filepath.Join(ResolveDocsDir(inlineCfg, projectCfg), backlogParentDirName, backlogDirName)
-}
-
-// ResolveBacklogDir returns the directory holding the task backlog, relative to
-// the project root. Override it with backlog.dir — inline,
-// GRAPHIT_BACKLOG_DIR, project lockfile, global config, in
-// that order of precedence.
-func ResolveBacklogDir(inlineCfg, projectCfg ConfigMap) string {
-	val := strings.TrimSpace(ResolveConfig("backlog.dir", inlineCfg, projectCfg))
-	if val == "" {
-		return DefaultBacklogDir(inlineCfg, projectCfg)
+// ResolveTaskPrefix returns the namespace that holds authoritative task tables.
+// It follows the ordinary configuration precedence and is nested under the Hub
+// prefix when object storage is configured.
+func ResolveTaskPrefix(inlineCfg, projectCfg ConfigMap) string {
+	value := normalizePrefix(ResolveConfig("task.prefix", inlineCfg, projectCfg))
+	if value == "" {
+		return "tasks"
 	}
-	return filepath.Clean(filepath.FromSlash(val))
+	return value
 }
 
 // ResolveDreamReportsDir returns the directory holding dream session reports,
@@ -555,8 +531,8 @@ func ResolveBacklogDir(inlineCfg, projectCfg ConfigMap) string {
 // GRAPHIT_DREAM_REPORTS_DIR, project lockfile, global config, in that order of
 // precedence.
 //
-// The default lives under the project's ignored runtime tree. A backlog item is
-// intent and belongs in the repository, while dream reports, sentinels and the
+// The default lives under the project's ignored runtime tree. Task intent belongs
+// to Graphit Task's authoritative tables, while dream reports, sentinels and the
 // per-developer read marker are generated output. This key lets a project move the
 // whole vault to a versionable location such as docs/ when publication is explicit.
 // An empty return means "unset": the caller applies the default, which lives in

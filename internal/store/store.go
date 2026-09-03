@@ -367,6 +367,10 @@ func MemoryTableDir(scope, scopeID string) string {
 	return filepath.Join(MemoryTableRoot(), memoryScopeSegment(scope, scopeID))
 }
 
+// TaskTableRoot is the local-only counterpart of the shared S3 task store.
+// One child directory per project holds the authoritative LanceDB tables.
+func TaskTableRoot() string { return globalOr("", "task-table") }
+
 // memoryScopeSegment is the single directory name a scope maps to, shared by every local memory
 // artifact so two of them can never disagree about which directory a scope owns.
 func memoryScopeSegment(scope, scopeID string) string {

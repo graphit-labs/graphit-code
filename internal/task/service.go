@@ -1,0 +1,1403 @@
+package task
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/oklog/ulid/v2"
+)
+
+var (
+	ErrNotFound   = errors.New("task not found")
+	ErrClaimed    = errors.New("task is claimed by another agent")
+	ErrBlocked    = errors.New("task has incomplete dependencies")
+	ErrFence      = errors.New("task claim token is stale or invalid")
+	ErrConcurrent = errors.New("task changed concurrently")
+	ErrReferenced = errors.New("task is referenced by another task")
+	ErrDisabled   = errors.New("task module is disabled for this project")
+)
+
+type Service struct {
+	projectID, uri string
+	s3             config.S3Config
+	now            func() time.Time
+}
+
+func Open(projectDir string) (*Service, error) {
+	id := store.ProjectID(projectDir)
+	if id == "" {
+		return nil, fmt.Errorf("project is not initialized")
+	}
+	projectCfg := config.LoadProjectConfig(projectDir)
+	if config.IsModuleDisabled("task", nil, projectCfg) {
+		return nil, ErrDisabled
+	}
+	return &Service{projectID: id, uri: TableURI(id, projectCfg), s3: config.ResolveHubS3(nil, projectCfg), now: time.Now}, nil
+}
+
+func OpenAt(projectID, uri string) *Service {
+	return &Service{projectID: projectID, uri: uri, now: time.Now}
+}
+
+func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
+	t, err := openTables(ctx, s.uri, s.s3)
+	if err != nil {
+		return err
+	}
+	defer t.close()
+	return fn(t)
+}
+
+func (s *Service) withLock(ctx context.Context, actor string, fn func(*tables) error) error {
+	return s.withLockReconcile(ctx, actor, false, fn)
+}
+
+// withLockFast keeps the scheduler lease, manifest refresh and fenced writes,
+// but skips the full-project projection repair. High-frequency lifecycle hooks
+// use it and project only the owned task they mutate; session boundaries and
+// explicit task operations continue through withLock and reconcile everything.
+func (s *Service) withLockFast(ctx context.Context, actor string, fn func(*tables) error) error {
+	return s.withLockReconcile(ctx, actor, false, fn)
+}
+
+func (s *Service) withLockReconcile(ctx context.Context, actor string, reconcile bool, fn func(*tables) error) error {
+	if strings.TrimSpace(actor) == "" {
+		actor = "system"
+	}
+	t, err := openTables(ctx, s.uri, s.s3)
+	if err != nil {
+		return err
+	}
+	defer t.close()
+	token := ulid.Make().String()
+	for attempt := 0; attempt < 8; attempt++ {
+		now := s.now().UTC()
+		row := lancestore.Row{"key": "scheduler", "token": token, "owner": actor, "acquired_at": stamp(now), "expires_at": stamp(now.Add(30 * time.Second)), "revision": int64(1)}
+		res, merr := t.control.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.token = '' OR target.expires_at <= source.acquired_at", InsertIfMissing: true}, []lancestore.Row{row})
+		if merr != nil {
+			return fmt.Errorf("acquiring task scheduler lease: %w", merr)
+		}
+		if res.Changed() {
+			defer func() {
+				release := lancestore.Row{"key": "scheduler", "token": "", "owner": "", "acquired_at": stamp(s.now().UTC()), "expires_at": "", "revision": int64(1)}
+				_, _ = t.control.Merge(context.Background(), lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.token = " + quote(token)}, []lancestore.Row{release})
+			}()
+			// The tables were opened before this lease was acquired. Another
+			// scheduler may have committed while we waited, so advance every
+			// handle before reading task state or attempting its fenced CAS.
+			if err := t.refresh(ctx); err != nil {
+				return fmt.Errorf("refreshing task tables after scheduler lease: %w", err)
+			}
+			if reconcile {
+				if err := s.reconcileLocked(ctx, t, actor); err != nil {
+					return err
+				}
+			}
+			return fn(t)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 25 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("task scheduler is busy; retry the operation")
+}
+
+func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
+	in.Title = strings.TrimSpace(in.Title)
+	if in.Title == "" {
+		return Task{}, errors.New("task title is required")
+	}
+	in.Description = strings.TrimSpace(in.Description)
+	if in.Description == "" {
+		return Task{}, errors.New("task description is required and must contain the self-contained specification")
+	}
+	if len(nonEmpty(in.AcceptanceCriteria)) == 0 {
+		return Task{}, errors.New("at least one acceptance criterion is required")
+	}
+	if len(nonEmpty(in.Tests)) == 0 {
+		return Task{}, errors.New("at least one test or validation is required")
+	}
+	if in.Type == "" {
+		in.Type = "task"
+	}
+	if in.Priority < 0 || in.Priority > 4 {
+		return Task{}, errors.New("priority must be between 0 and 4")
+	}
+	key := strings.TrimSpace(in.IdempotencyKey)
+	if key == "" {
+		key = canonicalKey(in.Title)
+	}
+	var out Task
+	err := s.withLock(ctx, in.Actor, func(t *tables) error {
+		if err := t.ensureIndexes(ctx); err != nil {
+			return err
+		}
+		// Resolve by the durable idempotency key first. Besides making retries
+		// cheap, this preserves tasks created by versions that used longer IDs.
+		if current, ok, err := t.getTaskByIdempotencyKey(ctx, key); err != nil {
+			return err
+		} else if ok {
+			if err := s.projectTask(ctx, t, current, in.Actor); err != nil {
+				return err
+			}
+			out = current
+			return nil
+		}
+		id, err := s.availableTaskID(ctx, t, key)
+		if err != nil {
+			return err
+		}
+		checks, err := buildChecks(id, in.AcceptanceCriteria, in.Tests)
+		if err != nil {
+			return err
+		}
+		deps := uniqueSorted(in.DependsOn)
+		if err := s.validateDependencies(ctx, t, id, deps); err != nil {
+			return err
+		}
+		parentID := strings.TrimSpace(in.ParentID)
+		if parentID != "" {
+			if parentID == id {
+				return errors.New("a task cannot be its own parent")
+			}
+			if pending, err := removalPending(ctx, t, parentID); err != nil {
+				return err
+			} else if pending {
+				return fmt.Errorf("parent task %s is pending removal", parentID)
+			}
+			parent, ok, err := t.getTask(ctx, parentID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("parent %s: %w", parentID, ErrNotFound)
+			}
+			if parent.Status == StatusCompleted || parent.Status == StatusCancelled {
+				return fmt.Errorf("parent task %s is already %s", parentID, parent.Status)
+			}
+		}
+		now := stamp(s.now().UTC())
+		out = Task{ID: id, ProjectID: s.projectID, ParentID: parentID, IdempotencyKey: key, Title: in.Title, Description: in.Description, Type: in.Type, Status: StatusOpen, Priority: in.Priority, DependsOn: deps, Checks: checks, CreatedAt: now, UpdatedAt: now, Revision: 1}
+		out.LastEvent = newEvent(out, "created", in.Actor, "", StatusOpen, "task created", out.NextStep)
+		res, err := t.tasks.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: "false", InsertIfMissing: true}, []lancestore.Row{taskRow(out)})
+		if err != nil {
+			return err
+		}
+		if !res.Changed() {
+			out, _, err = t.getTask(ctx, id)
+			return err
+		}
+		return s.projectTask(ctx, t, out, in.Actor)
+	})
+	return out, err
+}
+
+const taskIDMinHashLength = 4
+
+func (s *Service) availableTaskID(ctx context.Context, t *tables, key string) (string, error) {
+	digest := taskIDDigest(s.projectID, key)
+	for length := taskIDMinHashLength; length <= len(digest); length++ {
+		id := "tsk-" + digest[:length]
+		current, exists, err := t.getTask(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if !exists || current.IdempotencyKey == key {
+			return id, nil
+		}
+	}
+	// A full SHA-256 collision is not silently accepted: failing closed keeps
+	// distinct tasks from ever overwriting each other.
+	return "", fmt.Errorf("cannot allocate a collision-free task id")
+}
+
+func (s *Service) Claim(ctx context.Context, id, actor string, lease time.Duration) (Task, error) {
+	if strings.TrimSpace(actor) == "" {
+		return Task{}, errors.New("agent id is required")
+	}
+	if lease <= 0 {
+		lease = DefaultLease
+	}
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		byID := indexTasks(all)
+		current, ok := byID[id]
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, current, actor); err != nil {
+			return err
+		}
+		if current.Status == StatusInProgress && current.LeaseExpiresAt != "" && current.LeaseExpiresAt <= stamp(s.now().UTC()) {
+			old := current
+			current.Status = StatusOpen
+			clearClaim(&current)
+			current.Revision++
+			current.UpdatedAt = stamp(s.now().UTC())
+			current.LastEvent = newEvent(current, "lease_expired", "system", old.Status, current.Status, "claim expired; task is ready for takeover", current.NextStep)
+			if err := s.putCAS(ctx, t, old.Revision, current); err != nil {
+				return err
+			}
+			if err := s.projectTask(ctx, t, current, actor); err != nil {
+				return err
+			}
+			byID[id] = current
+		}
+		if current.Status == StatusInProgress {
+			return ErrClaimed
+		}
+		if current.Status != StatusOpen {
+			return fmt.Errorf("task %s is %s", id, current.Status)
+		}
+		blocked := blockedBy(current, byID)
+		if len(blocked) > 0 {
+			return fmt.Errorf("%w: %s", ErrBlocked, strings.Join(blocked, ", "))
+		}
+		for _, other := range all {
+			if other.Status == StatusInProgress && other.Owner == actor && other.LeaseExpiresAt > stamp(s.now().UTC()) {
+				return fmt.Errorf("agent %q already owns %s", actor, other.ID)
+			}
+		}
+		now := s.now().UTC()
+		next := current
+		next.Status = StatusInProgress
+		next.Owner = actor
+		next.ClaimToken = ulid.Make().String()
+		next.ClaimEpoch++
+		next.ClaimedAt = stamp(now)
+		next.HeartbeatAt = stamp(now)
+		next.LeaseExpiresAt = stamp(now.Add(lease))
+		next.Revision++
+		next.UpdatedAt = stamp(now)
+		next.LastEvent = newEvent(next, "claimed", actor, current.Status, next.Status, "task claimed", next.NextStep)
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
+func (s *Service) Progress(ctx context.Context, id, token, actor, summary, nextStep string, lease time.Duration) (Task, error) {
+	if strings.TrimSpace(summary) == "" {
+		return Task{}, errors.New("progress summary is required")
+	}
+	return s.claimMutation(ctx, id, token, actor, lease, "progress", func(v *Task) error {
+		v.ProgressSequence++
+		v.ProgressSummary = strings.TrimSpace(summary)
+		v.NextStep = strings.TrimSpace(nextStep)
+		return nil
+	})
+}
+
+func (s *Service) Heartbeat(ctx context.Context, id, token, actor string, lease time.Duration) (Task, error) {
+	return s.claimMutation(ctx, id, token, actor, lease, "heartbeat", func(v *Task) error { return nil })
+}
+
+func (s *Service) Release(ctx context.Context, id, token, actor, summary, nextStep string) (Task, error) {
+	return s.claimMutation(ctx, id, token, actor, 0, "released", func(v *Task) error {
+		if strings.TrimSpace(summary) != "" {
+			v.ProgressSequence++
+			v.ProgressSummary = strings.TrimSpace(summary)
+		}
+		if strings.TrimSpace(nextStep) != "" {
+			v.NextStep = strings.TrimSpace(nextStep)
+		}
+		v.Status = StatusOpen
+		clearClaim(v)
+		return nil
+	})
+}
+
+func (s *Service) Complete(ctx context.Context, id, token, actor, summary string) (Task, error) {
+	return s.claimMutation(ctx, id, token, actor, 0, "completed", func(v *Task) error {
+		if strings.TrimSpace(summary) != "" {
+			v.ProgressSequence++
+			v.ProgressSummary = strings.TrimSpace(summary)
+		}
+		v.Status = StatusCompleted
+		v.CompletedBy = actor
+		v.CompletedAt = stamp(s.now().UTC())
+		v.NextStep = ""
+		clearClaim(v)
+		return nil
+	})
+}
+
+// Cancel records a durable terminal transition. Open work can be cancelled
+// directly; in-progress work still requires its current fencing token so one
+// agent cannot silently invalidate another agent's live claim.
+func (s *Service) Cancel(ctx context.Context, id, token, actor, reason string) (Task, error) {
+	actor = strings.TrimSpace(actor)
+	reason = strings.TrimSpace(reason)
+	if actor == "" {
+		return Task{}, errors.New("agent id is required")
+	}
+	if reason == "" {
+		return Task{}, errors.New("cancellation reason is required")
+	}
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		current, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if current.Status == StatusCancelled {
+			out = current
+			return nil
+		}
+		if current.Status == StatusCompleted {
+			return fmt.Errorf("completed task %s cannot be cancelled", id)
+		}
+		if current.Status == StatusInProgress && (token == "" || current.ClaimToken != token || current.Owner != actor) {
+			return ErrFence
+		}
+		next := current
+		next.Status = StatusCancelled
+		next.Flagged = false
+		next.FlagReason = ""
+		next.ProgressSequence++
+		next.ProgressSummary = "cancelled: " + reason
+		next.NextStep = ""
+		clearClaim(&next)
+		next.Revision++
+		next.UpdatedAt = stamp(s.now().UTC())
+		next.LastEvent = newEvent(next, "cancelled", actor, current.Status, next.Status, reason, "")
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
+const taskRemovalPrefix = "remove/"
+
+// Remove performs an explicitly confirmed hard cleanup. A durable intent row
+// in task_control makes the cross-table delete resumable after interruption.
+func (s *Service) Remove(ctx context.Context, id, confirmation, actor, reason string) (Removal, error) {
+	id = strings.TrimSpace(id)
+	confirmation = strings.TrimSpace(confirmation)
+	actor = strings.TrimSpace(actor)
+	reason = strings.TrimSpace(reason)
+	if id == "" || confirmation != id {
+		return Removal{}, errors.New("removal requires exact task id confirmation")
+	}
+	if actor == "" {
+		return Removal{}, errors.New("agent id is required")
+	}
+	if reason == "" {
+		return Removal{}, errors.New("removal reason is required")
+	}
+	var out Removal
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		if _, ok, err := t.getTask(ctx, id); err != nil {
+			return err
+		} else if !ok {
+			return ErrNotFound
+		}
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		if reference := taskReference(all, id); reference != "" {
+			return fmt.Errorf("%w: %s", ErrReferenced, reference)
+		}
+		now := stamp(s.now().UTC())
+		intent := lancestore.Row{"key": taskRemovalPrefix + id, "token": reason, "owner": actor, "acquired_at": now, "expires_at": "", "revision": int64(1)}
+		if err := t.control.Upsert(ctx, "key", []lancestore.Row{intent}); err != nil {
+			return err
+		}
+		if err := finishTaskRemoval(ctx, t, id); err != nil {
+			return err
+		}
+		out = Removal{ID: id, Reason: reason, RemovedBy: actor, RemovedAt: now}
+		return nil
+	})
+	return out, err
+}
+
+func finishTaskRemoval(ctx context.Context, t *tables, id string) error {
+	// Delete the authoritative snapshot first. The durable task_control intent
+	// then acts as a tombstone until every derived row is gone, preventing a
+	// task from becoming referenceable again during interrupted cleanup.
+	if err := t.tasks.DeleteByKey(ctx, "id", []string{id}); err != nil {
+		return err
+	}
+	filter := "task_id = " + quote(id)
+	if err := t.events.DeleteWhere(ctx, filter); err != nil {
+		return err
+	}
+	if err := t.comments.DeleteWhere(ctx, filter); err != nil {
+		return err
+	}
+	if err := t.checks.DeleteWhere(ctx, filter); err != nil {
+		return err
+	}
+	if err := t.dependencies.DeleteWhere(ctx, filter+" OR depends_on = "+quote(id)); err != nil {
+		return err
+	}
+	return t.control.DeleteByKey(ctx, "key", []string{taskRemovalPrefix + id})
+}
+
+func (s *Service) Flag(ctx context.Context, id, token, actor, reason string) (Task, error) {
+	if strings.TrimSpace(reason) == "" {
+		return Task{}, errors.New("flag reason is required")
+	}
+	return s.claimMutation(ctx, id, token, actor, 0, "flagged", func(v *Task) error {
+		v.Flagged = true
+		v.FlagReason = strings.TrimSpace(reason)
+		return nil
+	})
+}
+
+func (s *Service) Unflag(ctx context.Context, id, token, actor string) (Task, error) {
+	return s.claimMutation(ctx, id, token, actor, 0, "unflagged", func(v *Task) error {
+		v.Flagged = false
+		v.FlagReason = ""
+		return nil
+	})
+}
+
+func (s *Service) VerifyCheck(ctx context.Context, id, token, actor, checkID string, passed bool, evidence string, lease time.Duration) (Task, error) {
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" {
+		return Task{}, errors.New("verification evidence is required")
+	}
+	eventType := "check_failed"
+	if passed {
+		eventType = "check_passed"
+	}
+	return s.claimMutation(ctx, id, token, actor, lease, eventType, func(v *Task) error {
+		for i := range v.Checks {
+			if v.Checks[i].ID != checkID {
+				continue
+			}
+			v.Checks[i].Status = "failed"
+			if passed {
+				v.Checks[i].Status = "passed"
+			}
+			v.Checks[i].Evidence = evidence
+			v.Checks[i].VerifiedBy = actor
+			v.Checks[i].VerifiedAt = stamp(s.now().UTC())
+			return nil
+		}
+		return fmt.Errorf("check %s: %w", checkID, ErrNotFound)
+	})
+}
+
+func (s *Service) AddComment(ctx context.Context, id, token, actor, kind, body, idempotencyKey string, lease time.Duration) (Comment, error) {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if !validCommentKind(kind) {
+		return Comment{}, errors.New("comment kind must be note, decision, problem, lesson, or knowledge")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Comment{}, errors.New("comment body is required")
+	}
+	key := strings.TrimSpace(idempotencyKey)
+	if key == "" {
+		key = canonicalKey(kind + "-" + body)
+	}
+	commentID := deterministicCommentID(id, key)
+	var out Comment
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		hits, err := t.comments.Search(ctx, lancestore.Query{Filter: "id = " + quote(commentID), Limit: 1})
+		if err != nil {
+			return err
+		}
+		if len(hits) > 0 {
+			out = commentFromRow(hits[0].Row)
+			if out.IdempotencyKey != key {
+				return errors.New("task comment id collision")
+			}
+			return nil
+		}
+		current, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, current, actor); err != nil {
+			return err
+		}
+		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token || (actor != "" && current.Owner != actor) {
+			return ErrFence
+		}
+		now := s.now().UTC()
+		next := current
+		next.CommentSequence++
+		next.Revision++
+		next.UpdatedAt = stamp(now)
+		if lease <= 0 {
+			lease = DefaultLease
+		}
+		next.HeartbeatAt = stamp(now)
+		next.LeaseExpiresAt = stamp(now.Add(lease))
+		out = Comment{ID: commentID, TaskID: id, IdempotencyKey: key, Sequence: next.CommentSequence, Kind: kind, Body: body, Actor: actor, At: next.UpdatedAt, Revision: next.Revision}
+		next.LastComment = out
+		next.LastEvent = newEvent(next, "commented", actor, current.Status, next.Status, kind+": "+body, next.NextStep)
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
+func (s *Service) claimMutation(ctx context.Context, id, token, actor string, lease time.Duration, eventType string, apply func(*Task) error) (Task, error) {
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		current, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, current, actor); err != nil {
+			return err
+		}
+		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token {
+			return ErrFence
+		}
+		if actor != "" && current.Owner != actor {
+			return ErrFence
+		}
+		if eventType == "completed" && current.Flagged {
+			return fmt.Errorf("task %s is flagged and cannot be completed: %s", id, current.FlagReason)
+		}
+		if eventType == "completed" {
+			all, err := t.allTasks(ctx)
+			if err != nil {
+				return err
+			}
+			if violations := completionViolations(current, all); len(violations) > 0 {
+				return fmt.Errorf("task %s cannot be completed: %s", id, strings.Join(violations, "; "))
+			}
+		}
+		next := current
+		if err := apply(&next); err != nil {
+			return err
+		}
+		now := s.now().UTC()
+		if next.Status == StatusInProgress {
+			if lease <= 0 {
+				lease = DefaultLease
+			}
+			next.HeartbeatAt = stamp(now)
+			next.LeaseExpiresAt = stamp(now.Add(lease))
+		}
+		next.Revision++
+		next.UpdatedAt = stamp(now)
+		next.LastEvent = newEvent(next, eventType, actor, current.Status, next.Status, mutationSummary(current, next, eventType), next.NextStep)
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
+func (s *Service) AddDependency(ctx context.Context, id, dependsOn, actor string) (Task, error) {
+	return s.changeDependency(ctx, id, dependsOn, actor, true)
+}
+func (s *Service) RemoveDependency(ctx context.Context, id, dependsOn, actor string) (Task, error) {
+	return s.changeDependency(ctx, id, dependsOn, actor, false)
+}
+func (s *Service) changeDependency(ctx context.Context, id, dep, actor string, add bool) (Task, error) {
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		current, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, current, actor); err != nil {
+			return err
+		}
+		if current.Status != StatusOpen {
+			return fmt.Errorf("dependencies can change only while a task is open")
+		}
+		deps := append([]string(nil), current.DependsOn...)
+		if add {
+			deps = append(deps, dep)
+		} else {
+			deps = remove(deps, dep)
+		}
+		deps = uniqueSorted(deps)
+		if err := s.validateDependencies(ctx, t, id, deps); err != nil {
+			return err
+		}
+		next := current
+		next.DependsOn = deps
+		next.Revision++
+		next.UpdatedAt = stamp(s.now().UTC())
+		kind := "dependency_removed"
+		if add {
+			kind = "dependency_added"
+		}
+		next.LastEvent = newEvent(next, kind, actor, current.Status, next.Status, dep, next.NextStep)
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
+func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
+	var out Detail
+	err := s.withLock(ctx, "reader", func(t *tables) error {
+		v, ok, err := t.getTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		if err := s.projectTask(ctx, t, v, "reader"); err != nil {
+			return err
+		}
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		decorate(&v, indexTasks(all))
+		v.ClaimToken = ""
+		events, err := t.eventsFor(ctx, id)
+		if err != nil {
+			return err
+		}
+		comments, err := t.commentsFor(ctx, id)
+		if err != nil {
+			return err
+		}
+		out = Detail{Task: v, Events: events, Comments: comments}
+		return nil
+	})
+	return out, err
+}
+
+func (s *Service) List(ctx context.Context, opts ListOptions) ([]Task, error) {
+	var out []Task
+	err := s.withLock(ctx, "reader", func(t *tables) error {
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		byID := indexTasks(all)
+		for _, v := range all {
+			decorate(&v, byID)
+			v.ClaimToken = ""
+			if opts.Status != "" {
+				if opts.Status == "blocked" && !(len(v.BlockedBy) > 0 && v.Status == StatusOpen) {
+					continue
+				}
+				if opts.Status == "flagged" && !v.Flagged {
+					continue
+				}
+				if opts.Status != "blocked" && opts.Status != "flagged" && string(v.Status) != opts.Status {
+					continue
+				}
+			}
+			if opts.Owner != "" && v.Owner != opts.Owner {
+				continue
+			}
+			if opts.ParentID != "" && v.ParentID != opts.ParentID {
+				continue
+			}
+			if opts.Ready && !v.Ready {
+				continue
+			}
+			out = append(out, v)
+		}
+		sortTasks(out)
+		return nil
+	})
+	return out, err
+}
+
+func (s *Service) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, errors.New("task search query is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	var out []SearchResult
+	err := s.withLock(ctx, "reader", func(t *tables) error {
+		if err := t.ensureIndexes(ctx); err != nil {
+			return err
+		}
+		hits, err := t.tasks.Search(ctx, lancestore.Query{Text: query, TextColumn: "search_text", Limit: limit})
+		if err != nil {
+			return err
+		}
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		byID := indexTasks(all)
+		seen := make(map[string]bool, limit)
+		for _, hit := range hits {
+			v := taskFromRow(hit.Row)
+			decorate(&v, byID)
+			out = append(out, SearchResult{ID: v.ID, Title: v.Title, Status: v.Status, Priority: v.Priority, Ready: v.Ready, Flagged: v.Flagged, Score: hit.Score})
+			seen[v.ID] = true
+		}
+		commentHits, err := t.comments.Search(ctx, lancestore.Query{Text: query, TextColumn: "body", Limit: limit})
+		if err != nil {
+			return err
+		}
+		for _, hit := range commentHits {
+			id := text(hit.Row, "task_id")
+			if seen[id] || len(out) >= limit {
+				continue
+			}
+			v, ok := byID[id]
+			if !ok {
+				continue
+			}
+			decorate(&v, byID)
+			out = append(out, SearchResult{ID: v.ID, Title: v.Title, Status: v.Status, Priority: v.Priority, Ready: v.Ready, Flagged: v.Flagged, Score: hit.Score})
+			seen[id] = true
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (s *Service) putCAS(ctx context.Context, t *tables, expected int64, v Task) error {
+	res, err := t.tasks.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: fmt.Sprintf("target.revision = %d", expected)}, []lancestore.Row{taskRow(v)})
+	if err != nil {
+		return err
+	}
+	if !res.Changed() {
+		return fmt.Errorf("%w: %s; retry", ErrConcurrent, v.ID)
+	}
+	return nil
+}
+
+func (s *Service) validateDependencies(ctx context.Context, t *tables, id string, deps []string) error {
+	all, err := t.allTasks(ctx)
+	if err != nil {
+		return err
+	}
+	byID := indexTasks(all)
+	for _, dep := range deps {
+		if dep == id {
+			return errors.New("a task cannot depend on itself")
+		}
+		if _, ok := byID[dep]; !ok {
+			return fmt.Errorf("dependency %s: %w", dep, ErrNotFound)
+		}
+		if pending, err := removalPending(ctx, t, dep); err != nil {
+			return err
+		} else if pending {
+			return fmt.Errorf("dependency %s is pending removal", dep)
+		}
+		if reaches(byID, dep, id, map[string]bool{}) {
+			return fmt.Errorf("dependency %s creates a cycle", dep)
+		}
+	}
+	return nil
+}
+
+func removalPending(ctx context.Context, t *tables, id string) (bool, error) {
+	hits, err := t.control.Search(ctx, lancestore.Query{Filter: "key = " + quote(taskRemovalPrefix+id), Limit: 1})
+	return len(hits) > 0, err
+}
+
+func taskReference(all []Task, id string) string {
+	for _, candidate := range all {
+		if candidate.ID == id {
+			continue
+		}
+		if candidate.ParentID == id {
+			return "subtask " + candidate.ID
+		}
+		for _, dependency := range candidate.DependsOn {
+			if dependency == id {
+				return "dependent " + candidate.ID
+			}
+		}
+	}
+	return ""
+}
+
+func reaches(all map[string]Task, from, want string, seen map[string]bool) bool {
+	if from == want {
+		return true
+	}
+	if seen[from] {
+		return false
+	}
+	seen[from] = true
+	for _, d := range all[from].DependsOn {
+		if reaches(all, d, want, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) reconcileLocked(ctx context.Context, t *tables, actor string) error {
+	controlRows, err := t.allProjectionRows(ctx, t.control)
+	if err != nil {
+		return err
+	}
+	all, err := t.allTasks(ctx)
+	if err != nil {
+		return err
+	}
+	for _, row := range controlRows {
+		key := text(row, "key")
+		if !strings.HasPrefix(key, taskRemovalPrefix) {
+			continue
+		}
+		id := strings.TrimPrefix(key, taskRemovalPrefix)
+		if reference := taskReference(all, id); reference != "" {
+			// A reference means this intent predates the current tombstone
+			// protocol or was externally injected. Preserve the authoritative
+			// task and discard the unsafe intent instead of creating an orphan.
+			if err := t.control.DeleteByKey(ctx, "key", []string{key}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := finishTaskRemoval(ctx, t, id); err != nil {
+			return err
+		}
+	}
+	all, err = t.allTasks(ctx)
+	if err != nil {
+		return err
+	}
+	now := stamp(s.now().UTC())
+	for _, v := range all {
+		if v.Status == StatusInProgress && v.LeaseExpiresAt != "" && v.LeaseExpiresAt <= now {
+			old := v
+			v.Status = StatusOpen
+			clearClaim(&v)
+			v.Revision++
+			v.UpdatedAt = now
+			v.LastEvent = newEvent(v, "lease_expired", "system", old.Status, v.Status, "claim expired; task is ready for takeover", v.NextStep)
+			if err := s.putCAS(ctx, t, old.Revision, v); err != nil {
+				if errors.Is(err, ErrConcurrent) {
+					continue
+				}
+				return err
+			}
+		}
+		if v.Status == StatusCompleted {
+			if violations := completionViolations(v, all); v.Flagged || len(violations) > 0 {
+				old := v
+				v.Status = StatusOpen
+				v.CompletedAt = ""
+				v.CompletedBy = ""
+				v.Revision++
+				v.UpdatedAt = now
+				reasons := violations
+				if v.Flagged {
+					reasons = append(reasons, "task is flagged")
+				}
+				v.LastEvent = newEvent(v, "completion_invalidated", "hook", old.Status, v.Status, strings.Join(reasons, "; "), v.NextStep)
+				if err := s.putCAS(ctx, t, old.Revision, v); err != nil {
+					if errors.Is(err, ErrConcurrent) {
+						continue
+					}
+					return err
+				}
+			}
+		}
+	}
+
+	// A hook may race a normal task mutation because it deliberately does not
+	// hold the global scheduler lease. Re-read the authoritative snapshots and
+	// repair every projection in table-sized batches. Projection merges are
+	// revision-fenced, so this pass cannot overwrite a newer targeted write.
+	if err := t.refresh(ctx); err != nil {
+		return err
+	}
+	all, err = t.allTasks(ctx)
+	if err != nil {
+		return err
+	}
+	return s.projectAllTasks(ctx, t, all, actor)
+}
+
+// projectAllTasks repairs the denormalized Task tables with a fixed number of
+// remote reads and writes. The former per-task projection loop performed four
+// or more S3/LanceDB round trips for every backlog item and made session-start
+// latency grow linearly with the number of tasks.
+func (s *Service) projectAllTasks(ctx context.Context, t *tables, all []Task, actor string) error {
+	eventRows, err := t.allProjectionRows(ctx, t.events)
+	if err != nil {
+		return err
+	}
+	existingEvents := make(map[string]bool, len(eventRows))
+	for _, row := range eventRows {
+		existingEvents[text(row, "key")] = true
+	}
+	missingEvents := make([]lancestore.Row, 0)
+	for _, v := range all {
+		if v.LastEvent.Key != "" && !existingEvents[v.LastEvent.Key] {
+			missingEvents = append(missingEvents, eventRow(v.LastEvent))
+		}
+	}
+	if len(missingEvents) > 0 {
+		if _, err := t.events.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true}, missingEvents); err != nil {
+			return err
+		}
+	}
+
+	commentRows, err := t.allProjectionRows(ctx, t.comments)
+	if err != nil {
+		return err
+	}
+	existingComments := make(map[string]bool, len(commentRows))
+	for _, row := range commentRows {
+		existingComments[text(row, "id")] = true
+	}
+	missingComments := make([]lancestore.Row, 0)
+	for _, v := range all {
+		if v.LastComment.ID != "" && !existingComments[v.LastComment.ID] {
+			missingComments = append(missingComments, commentRow(v.LastComment))
+		}
+	}
+	if len(missingComments) > 0 {
+		if _, err := t.comments.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: "false", InsertIfMissing: true}, missingComments); err != nil {
+			return err
+		}
+	}
+
+	if err := s.projectAllDependencies(ctx, t, all, actor); err != nil {
+		return err
+	}
+	return s.projectAllChecks(ctx, t, all)
+}
+
+func (s *Service) projectAllDependencies(ctx context.Context, t *tables, all []Task, actor string) error {
+	rows, err := t.allProjectionRows(ctx, t.dependencies)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]lancestore.Row, len(rows))
+	for _, row := range rows {
+		existing[text(row, "key")] = row
+	}
+	wanted := make(map[string]bool)
+	taskRevisions := make(map[string]int64, len(all))
+	changes := make([]lancestore.Row, 0)
+	now := stamp(s.now().UTC())
+	for _, v := range all {
+		taskRevisions[v.ID] = v.Revision
+		for _, dependency := range v.DependsOn {
+			key := v.ID + "/" + dependency
+			wanted[key] = true
+			old, ok := existing[key]
+			if ok && boolValue(old, "active") && text(old, "task_id") == v.ID && text(old, "depends_on") == dependency {
+				continue
+			}
+			changes = append(changes, lancestore.Row{"key": key, "task_id": v.ID, "depends_on": dependency, "active": true, "created_at": now, "created_by": actor, "revision": v.Revision})
+		}
+	}
+	for _, row := range rows {
+		key := text(row, "key")
+		revision, knownTask := taskRevisions[text(row, "task_id")]
+		if wanted[key] || !knownTask || !boolValue(row, "active") {
+			continue
+		}
+		row["active"] = false
+		row["revision"] = revision
+		changes = append(changes, row)
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	_, err = t.dependencies.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.revision <= source.revision", InsertIfMissing: true}, changes)
+	return err
+}
+
+func (s *Service) projectAllChecks(ctx context.Context, t *tables, all []Task) error {
+	rows, err := t.allProjectionRows(ctx, t.checks)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]lancestore.Row, len(rows))
+	for _, row := range rows {
+		existing[text(row, "key")] = row
+	}
+	wanted := make(map[string]bool)
+	taskRevisions := make(map[string]int64, len(all))
+	changes := make([]lancestore.Row, 0)
+	for _, v := range all {
+		taskRevisions[v.ID] = v.Revision
+		for _, check := range v.Checks {
+			wanted[check.ID] = true
+			row := lancestore.Row{"key": check.ID, "task_id": v.ID, "kind": check.Kind, "text": check.Text,
+				"status": check.Status, "evidence": check.Evidence, "verified_by": check.VerifiedBy,
+				"verified_at": check.VerifiedAt, "active": true, "revision": v.Revision}
+			old, ok := existing[check.ID]
+			if ok && boolValue(old, "active") && text(old, "task_id") == v.ID &&
+				text(old, "kind") == check.Kind && text(old, "text") == check.Text &&
+				text(old, "status") == check.Status && text(old, "evidence") == check.Evidence &&
+				text(old, "verified_by") == check.VerifiedBy && text(old, "verified_at") == check.VerifiedAt {
+				continue
+			}
+			changes = append(changes, row)
+		}
+	}
+	for _, row := range rows {
+		key := text(row, "key")
+		revision, knownTask := taskRevisions[text(row, "task_id")]
+		if wanted[key] || !knownTask || !boolValue(row, "active") {
+			continue
+		}
+		row["active"] = false
+		row["revision"] = revision
+		changes = append(changes, row)
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	_, err = t.checks.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.revision <= source.revision", InsertIfMissing: true}, changes)
+	return err
+}
+
+func (s *Service) projectTask(ctx context.Context, t *tables, v Task, actor string) error {
+	if err := ensureEvent(ctx, t, v.LastEvent); err != nil {
+		return err
+	}
+	if err := ensureComment(ctx, t, v.LastComment); err != nil {
+		return err
+	}
+	if err := s.projectDependencies(ctx, t, v, actor); err != nil {
+		return err
+	}
+	return s.projectChecks(ctx, t, v)
+}
+
+func ensureEvent(ctx context.Context, t *tables, event Event) error {
+	if event.Key == "" {
+		return nil
+	}
+	_, err := t.events.Merge(ctx, lancestore.MergeOptions{
+		KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true,
+	}, []lancestore.Row{eventRow(event)})
+	return err
+}
+
+func ensureComment(ctx context.Context, t *tables, comment Comment) error {
+	if comment.ID == "" {
+		return nil
+	}
+	_, err := t.comments.Merge(ctx, lancestore.MergeOptions{
+		KeyColumn: "id", MatchCondition: "false", InsertIfMissing: true,
+	}, []lancestore.Row{commentRow(comment)})
+	return err
+}
+
+func (s *Service) projectChecks(ctx context.Context, t *tables, v Task) error {
+	hits, err := t.checks.Search(ctx, lancestore.Query{Filter: "task_id = " + quote(v.ID), Limit: pageSize})
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]lancestore.Row, len(hits))
+	for _, hit := range hits {
+		existing[text(hit.Row, "key")] = hit.Row
+	}
+	wanted := make(map[string]bool, len(v.Checks))
+	var rows []lancestore.Row
+	for _, check := range v.Checks {
+		wanted[check.ID] = true
+		row := lancestore.Row{"key": check.ID, "task_id": v.ID, "kind": check.Kind, "text": check.Text,
+			"status": check.Status, "evidence": check.Evidence, "verified_by": check.VerifiedBy,
+			"verified_at": check.VerifiedAt, "active": true, "revision": v.Revision}
+		if old, ok := existing[check.ID]; ok && boolValue(old, "active") &&
+			text(old, "status") == check.Status && text(old, "evidence") == check.Evidence &&
+			text(old, "verified_by") == check.VerifiedBy && text(old, "verified_at") == check.VerifiedAt {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	for _, hit := range hits {
+		key := text(hit.Row, "key")
+		if wanted[key] || !boolValue(hit.Row, "active") {
+			continue
+		}
+		row := hit.Row
+		row["active"] = false
+		row["revision"] = v.Revision
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return t.checks.Upsert(ctx, "key", rows)
+}
+
+func (s *Service) projectDependencies(ctx context.Context, t *tables, v Task, actor string) error {
+	hits, err := t.dependencies.Search(ctx, lancestore.Query{Filter: "task_id = " + quote(v.ID), Limit: pageSize})
+	if err != nil {
+		return err
+	}
+	wanted := map[string]bool{}
+	existing := make(map[string]lancestore.Row, len(hits))
+	for _, h := range hits {
+		existing[text(h.Row, "key")] = h.Row
+	}
+	rows := []lancestore.Row{}
+	now := stamp(s.now().UTC())
+	for _, d := range v.DependsOn {
+		key := v.ID + "/" + d
+		wanted[key] = true
+		if row, ok := existing[key]; ok && boolValue(row, "active") {
+			continue
+		}
+		rows = append(rows, lancestore.Row{"key": key, "task_id": v.ID, "depends_on": d, "active": true, "created_at": now, "created_by": actor, "revision": v.Revision})
+	}
+	for _, h := range hits {
+		key := text(h.Row, "key")
+		if !wanted[key] {
+			r := h.Row
+			r["active"] = false
+			r["revision"] = v.Revision
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) > 0 {
+		return t.dependencies.Upsert(ctx, "key", rows)
+	}
+	return nil
+}
+
+func newEvent(v Task, kind, actor string, from, to Status, summary, next string) Event {
+	return Event{Key: fmt.Sprintf("%s/%020d", v.ID, v.Revision), TaskID: v.ID, Sequence: v.Revision, Type: kind, Actor: actor, At: v.UpdatedAt, FromStatus: from, ToStatus: to, Summary: summary, NextStep: next, Revision: v.Revision}
+}
+
+func mutationSummary(before, after Task, eventType string) string {
+	switch eventType {
+	case "flagged":
+		return after.FlagReason
+	case "unflagged":
+		return before.FlagReason
+	case "check_passed", "check_failed":
+		for _, next := range after.Checks {
+			for _, previous := range before.Checks {
+				if next.ID == previous.ID && (next.Status != previous.Status || next.Evidence != previous.Evidence) {
+					return next.ID + ": " + next.Evidence
+				}
+			}
+		}
+	}
+	return after.ProgressSummary
+}
+
+func clearClaim(v *Task) {
+	v.Owner = ""
+	v.ClaimToken = ""
+	v.ClaimedAt = ""
+	v.LeaseExpiresAt = ""
+	v.HeartbeatAt = ""
+}
+
+const timestampLayout = "2006-01-02T15:04:05.000000000Z"
+
+func stamp(v time.Time) string     { return v.UTC().Format(timestampLayout) }
+func canonicalKey(v string) string { return strings.ToLower(strings.Join(strings.Fields(v), "-")) }
+func taskIDDigest(project, key string) string {
+	sum := sha256.Sum256([]byte(project + "\x00" + key))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func deterministicCheckID(taskID, kind, text string) string {
+	sum := sha256.Sum256([]byte(taskID + "\x00" + kind + "\x00" + canonicalKey(text)))
+	return fmt.Sprintf("chk-%x", sum[:6])
+}
+
+func deterministicCommentID(taskID, key string) string {
+	sum := sha256.Sum256([]byte(taskID + "\x00" + key))
+	return fmt.Sprintf("cmt-%x", sum[:6])
+}
+
+func nonEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func buildChecks(taskID string, acceptance, tests []string) ([]Check, error) {
+	var out []Check
+	seen := map[string]bool{}
+	for _, group := range []struct {
+		kind   string
+		values []string
+	}{{"acceptance", acceptance}, {"test", tests}} {
+		for _, value := range nonEmpty(group.values) {
+			id := deterministicCheckID(taskID, group.kind, value)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, Check{ID: id, Kind: group.kind, Text: value, Status: "pending"})
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("task checks are required")
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func validCommentKind(kind string) bool {
+	switch kind {
+	case "note", "decision", "problem", "lesson", "knowledge":
+		return true
+	default:
+		return false
+	}
+}
+
+func completionViolations(v Task, all []Task) []string {
+	var violations []string
+	kinds := map[string]int{}
+	for _, check := range v.Checks {
+		kinds[check.Kind]++
+		if check.Status != "passed" || strings.TrimSpace(check.Evidence) == "" {
+			violations = append(violations, fmt.Sprintf("%s %s is %s", check.Kind, check.ID, check.Status))
+		}
+	}
+	if kinds["acceptance"] == 0 {
+		violations = append(violations, "task has no acceptance checks")
+	}
+	if kinds["test"] == 0 {
+		violations = append(violations, "task has no test checks")
+	}
+	byID := indexTasks(all)
+	for _, child := range all {
+		if child.ParentID == v.ID && !effectivelyComplete(child, byID, map[string]bool{}) {
+			violations = append(violations, fmt.Sprintf("subtask %s is not validly completed", child.ID))
+		}
+	}
+	sort.Strings(violations)
+	return violations
+}
+
+func effectivelyComplete(v Task, all map[string]Task, seen map[string]bool) bool {
+	if v.Status != StatusCompleted || v.Flagged || seen[v.ID] {
+		return false
+	}
+	seen[v.ID] = true
+	kinds := map[string]bool{}
+	for _, check := range v.Checks {
+		kinds[check.Kind] = true
+		if check.Status != "passed" || strings.TrimSpace(check.Evidence) == "" {
+			return false
+		}
+	}
+	if !kinds["acceptance"] || !kinds["test"] {
+		return false
+	}
+	for _, child := range all {
+		if child.ParentID == v.ID && !effectivelyComplete(child, all, seen) {
+			return false
+		}
+	}
+	delete(seen, v.ID)
+	return true
+}
+
+func uniqueSorted(in []string) []string {
+	m := map[string]bool{}
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			m[v] = true
+		}
+	}
+	out := make([]string, 0, len(m))
+	for v := range m {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+func remove(in []string, want string) []string {
+	out := in[:0]
+	for _, v := range in {
+		if v != want {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+func indexTasks(all []Task) map[string]Task {
+	out := make(map[string]Task, len(all))
+	for _, v := range all {
+		out[v.ID] = v
+	}
+	return out
+}
+func blockedBy(v Task, all map[string]Task) []string {
+	var out []string
+	for _, id := range v.DependsOn {
+		dep, ok := all[id]
+		if !ok || dep.Status != StatusCompleted {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+func decorate(v *Task, all map[string]Task) {
+	v.BlockedBy = blockedBy(*v, all)
+	v.Ready = v.Status == StatusOpen && len(v.BlockedBy) == 0
+}
+func sortTasks(v []Task) {
+	sort.Slice(v, func(i, j int) bool {
+		if v[i].Priority != v[j].Priority {
+			return v[i].Priority < v[j].Priority
+		}
+		if v[i].CreatedAt != v[j].CreatedAt {
+			return v[i].CreatedAt < v[j].CreatedAt
+		}
+		return v[i].ID < v[j].ID
+	})
+}

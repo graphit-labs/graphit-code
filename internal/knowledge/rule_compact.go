@@ -16,13 +16,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	return strings.Join([]string{
 		"# Graphit Knowledge",
 		"",
-		"Use this skill for project documentation, architecture, decisions, specifications, task logs, backlog, provenance, or another project's wiki. Code-structure questions belong to Graphit AST; external systems must be resolved through Graphit Hub first.",
-		"",
-		"## Task log",
-		"",
-		"For implementation work, create `" + docsDir + "/tasks/<task>.md` before the first task action. Record objective, reasoning, approach, task breakdown, acceptance criteria, affected files, trade-offs, debt, and system knowledge. Update it when a step lands, direction changes, a blocker appears, and after every code change. On resume, read the existing log before acting. The log must let another agent continue without conversation history.",
-		"",
-		"Do not manufacture a task log for a read-only factual answer. If the request becomes an implementation task, open the log at that transition.",
+		"Use this skill for project documentation, architecture, decisions, specifications, provenance, or another project's wiki. Task lifecycle and backlog belong to Graphit Task; code structure belongs to Graphit AST; external systems must be resolved through Graphit Hub first.",
 		"",
 		"## Reading knowledge",
 		"",
@@ -36,9 +30,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"The daemon indexes `" + docsDir + "/` after writes. Use `" + brand.MCPToolName("knowledge", "sync") + "` only for knowledge-only freshness and `" + brand.MCPToolName("sync") + "` when all module indexes must be aligned. Check `" + brand.MCPToolName("daemon", "status") + "` on stale/locked reads. `" + brand.MCPToolName("knowledge", "lint") + "`, `schema`, `export`, `install`, and `remove` are administrative operations used only when the task calls for them; `" + brand.MCPToolName("wiki", "embed") + "` repairs semantic coverage.",
 		"",
-		"Use `" + brand.MCPToolName("backlog", "list") + "`, `add`, and `remove` for deferred work. Backlog is independent of Dream state; do not smuggle future work into the current change.",
-		"",
-		"Tool index: `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_export`, `graphit_knowledge_install`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_backlog_list`, `graphit_backlog_add`, `graphit_backlog_remove`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_daemon_stop`, `graphit_sync`.",
+		"Tool index: `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_export`, `graphit_knowledge_install`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_daemon_stop`, `graphit_sync`.",
 	}, "\n") + "\n"
 }
 
@@ -46,14 +38,13 @@ func MandateTrigger() string {
 	return ide.ModuleMandateTrigger(
 		"Knowledge & Documentation",
 		knowledgeSkillName,
-		"project knowledge, documentation, task logs, or backlog",
+		"project knowledge, documentation, architecture, decisions, specifications, or provenance",
 		"",
 		[]string{
-			"starting or resuming implementation work, completing a step, changing direction, or modifying code",
 			"answering why the project works this way or reading architecture, decisions, specifications, or provenance",
 			"searching, reading, creating, or maintaining documentation or another project's wiki",
-			"recording deferred work or requiring proven wiki/index freshness",
+			"requiring proven wiki/index freshness",
 		},
-		[]string{"knowledge_search", "wiki_search", "wiki_source", "wiki_xrefs", "backlog_add"},
+		[]string{"knowledge_search", "wiki_search", "wiki_source", "wiki_xrefs"},
 	)
 }

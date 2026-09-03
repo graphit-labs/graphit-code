@@ -19,6 +19,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"github.com/oklog/ulid/v2"
@@ -262,6 +263,7 @@ func registerLifecycleTools(server *mcp.Server) {
 				ast.InstallSkill,
 				hub.InstallSkill,
 				memory.InstallSkill,
+				graphtask.InstallSkill,
 			} {
 				_ = r(projectDir, targetIDE)
 			}
@@ -317,6 +319,7 @@ func registerLifecycleTools(server *mcp.Server) {
 			ast.InstallSkill,
 			hub.InstallSkill,
 			memory.InstallSkill,
+			graphtask.InstallSkill,
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}
@@ -350,6 +353,7 @@ func registerLifecycleTools(server *mcp.Server) {
 			ast.RemoveSkill,
 			hub.RemoveSkill,
 			memory.RemoveSkill,
+			graphtask.RemoveSkill,
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}

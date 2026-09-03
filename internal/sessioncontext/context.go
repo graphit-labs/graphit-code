@@ -17,6 +17,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 )
 
 // FindProjectRoot walks upward from start until it finds the Graphit lockfile.
@@ -103,6 +104,9 @@ func loadMandateContext(projectDir string, projectCfg config.ConfigMap) string {
 		tag     string
 		content func() string
 	}{
+		{name: "task", tag: "task_rule", content: func() string {
+			return brand.ResolveModuleRuleIn(projectDir, "task", graphtask.MandateTrigger())
+		}},
 		{name: "memory", tag: "mem_rule", content: func() string {
 			return brand.ResolveModuleRuleIn(projectDir, "memory", memory.MandateTrigger())
 		}},

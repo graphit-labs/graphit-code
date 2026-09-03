@@ -1038,49 +1038,28 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 
 ---
 
-## Backlog Tools
+## Task Tools
 
-Tools for recording and managing future project tasks independently of Dream.
+Task tools coordinate all project work through shared LanceDB tables. Agents use them instead of
+native TODO/task mechanisms. The main contracts are:
 
-### `graphit_backlog_list`
+| Tools | Required state and result |
+|---|---|
+| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments. |
+| `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `parent_id`, dependencies, priority, type, and stable `idempotency_key`. |
+| `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
+| `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_release` | Require task ID, current token, and agent identity; progress/release preserve an exact continuation step. |
+| `graphit_task_comment_add` | Requires token, typed `kind`, body, and optional idempotency key. |
+| `graphit_task_check` | Requires token, check ID, pass/fail result, and concrete evidence. |
+| `graphit_task_flag`, `graphit_task_unflag` | Add a required completion-gate reason or remove it after resolution. |
+| `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain explicit, cycle-checked ordering edges. |
+| `graphit_task_complete` | Succeeds only when all checks passed with evidence, every subtask completed, and no flag remains. |
+| `graphit_task_cancel` | Records a terminal cancellation and required reason; cancelling active work also requires its fencing token. |
+| `graphit_task_remove` | Hard-removes only after exact-ID confirmation plus a reason; dependents and subtasks refuse deletion. |
 
-**Description:** List the documentation-backed task backlog.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
-**Returns:** an array of items, each with `slug`, `title`, `body`, `path`, `created_at`, `done`, and `result_path`.
-
----
-
-### `graphit_backlog_add`
-
-**Description:** Record a task for later work.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `title` | string | ✅ | One-line description of the task |
-| `body` | string | | The full brief, written for a reader with no conversation history |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
-Items are written to `backlog.dir` (default `docs/tasks/backlog`). Adding, listing, and removing
-items works regardless of Dream state. Dream never consumes backlog items; it improves project
-knowledge through its own inputs. See
-[Task Backlog](../specs/backlog.md).
-
----
-
-### `graphit_backlog_remove`
-
-**Description:** Remove an item from the task backlog by slug.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `slug` | string | ✅ | Slug of the backlog item to remove |
+Open, unclaimed tasks are backlog. Claims expire or are released by stop hooks so another agent can
+resume from progress, comments, checks, and `next_step`. Direction changes must cancel or remove
+obsolete work immediately instead of leaving open/flagged garbage. See [Task Module](../specs/task_module.md).
 
 ---
 

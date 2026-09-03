@@ -28,12 +28,12 @@ func NewServer() *mcp.Server {
 	registerASTTools(server)
 	registerKnowledgeTools(server)
 	registerMemoryTools(server)
+	registerTaskTools(server)
 	registerHubTools(server)
 	registerWikiTools(server)
 	registerDreamTools(server)
 	registerDaemonTools(server)
 	registerClusterTools(server)
-	registerBacklogTools(server)
 
 	return server
 }

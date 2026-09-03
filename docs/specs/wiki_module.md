@@ -62,7 +62,7 @@ A scope names **one** tree. It briefly also carried a whitelist of sibling direc
 for a single caller: the live search compiling the several documentation sets a user had
 selected into one wiki. That compile no longer exists — a knowledge context now arrives
 already compiled and is read where it was installed — so the whitelist went with it. See
-[Live search sessions own nothing](../tasks/an-ephemeral-session-owns-no-store.md).
+Graphit Task `tsk-976ef4e8973d` records why live search sessions own no store.
 
 `ScopeFor` assembles it from configuration: `Subdir` is `knowledge.docs_dir`, and
 `ExtraFiles` holds the root README unless `knowledge.include_readme` is `false`.

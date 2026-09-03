@@ -4,7 +4,7 @@
 
 <h1 align="center">Graphit Code</h1>
 
-<p align="center"><strong>A system of code intelligence, durable memory, and connected knowledge for coding agents.</strong></p>
+<p align="center"><strong>Code intelligence, durable memory, connected knowledge, and deterministic shared work for coding agents.</strong></p>
 
 <p align="center">
   <a href="https://github.com/graphit-labs/graphit-code/releases/latest"><img src="https://img.shields.io/github/v/release/graphit-labs/graphit-code?style=flat-square&color=b9fb63&labelColor=101311" alt="Latest release"></a>
@@ -29,6 +29,7 @@ Coding agents usually enter a repository with three blind spots:
 
 - source text does not tell them the exact structural relationships in the code;
 - a new session does not remember yesterday's correction or architectural decision;
+- concurrent agents can duplicate work, overwrite ownership, or stop without a resumable checkpoint;
 - documentation, sibling projects, and reusable agent tooling live in disconnected places.
 
 Graphit closes those gaps with one local-first harness:
@@ -38,6 +39,7 @@ Graphit closes those gaps with one local-first harness:
 | **AST** | Language-aware entities and graph relationships | Query callers, imports, inheritance, dependencies, source, and complexity |
 | **Knowledge** | A compiled wiki built from maintained project documentation | Search pages, follow cross-references, and verify provenance |
 | **Memory** | Durable project and user scopes | Reuse corrections, conventions, decisions, and discoveries |
+| **Task** | A shared LanceDB scheduler with claims, subtasks, dependencies, checks, comments, and audit history | Resume safely, avoid duplicate ownership, and prevent partial completion |
 | **Hub** | A registry for shareable agent artifacts and contexts | Install rules, skills, agents, MCP servers, languages, ASTs, and knowledge |
 | **Observatory** | One visual workspace | Explore code, docs, memory, daemon state, Dream, and ecosystem projects |
 
@@ -126,6 +128,10 @@ The knowledge module compiles `docs/` and the root README into a searchable wiki
 
 Project memory captures repository-specific decisions and corrections. User memory captures portable personal conventions. Both are stored outside the checkout and exposed through the same search-and-read workflow.
 
+### Shared work that survives the agent
+
+Graphit Task replaces host-native TODO lists and repository Markdown task logs with one project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, verify structured acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. With S3 configured, every project agent reads and writes the same LanceDB tables directly.
+
 ### Reusable ecosystem context
 
 Registered sibling projects keep their own AST, wiki, and memory. Hub artifacts package reusable capabilities when a project or team intentionally publishes them. Optional S3-compatible storage supports shared catalogs and published contexts; everyday local operation does not require a hosted database.
@@ -133,7 +139,7 @@ Registered sibling projects keep their own AST, wiki, and memory. Hub artifacts 
 ## Security boundary
 
 - Mutable project sources and compiled local stores remain on the machine by default.
-- Hub publication and S3-compatible storage are optional and explicitly configured.
+- Hub publication and S3-compatible storage are optional and explicitly configured; shared Task storage uses the configured S3 location directly.
 - The UI binds according to `ui.host` and has no built-in authentication layer.
 - Remote UI access requires an appropriate firewall, VPN, or authenticated reverse proxy; CORS is not authorization.
 
@@ -149,10 +155,11 @@ Start with the document that matches your intent:
 - [MCP tools reference](docs/guides/mcp_tools_reference.md) — agent-facing tool contracts.
 - [Architecture overview](docs/architecture/architecture_overview.md) — system boundaries and data flow.
 - [Storage layout](docs/architecture/storage_layout.md) — what lives in a project and what lives globally.
+- [Task module](docs/specs/task_module.md) — shared lifecycle, tables, claims, checks, hooks, and takeover guarantees.
 - [UI specification](docs/specs/ui_dashboard.md) — Observatory behavior and backend contract.
 - [Documentation hub](docs/README.md) — the complete maintained documentation map.
 
-Task logs, changelogs, and accepted decisions are retained as historical evidence. The documentation hub separates those records from current operational guidance.
+Task history lives in the authoritative LanceDB tables; changelogs and accepted decisions remain documentation evidence. The documentation hub separates historical records from current operational guidance.
 
 ## Build from source
 

@@ -30,7 +30,7 @@ import (
 // same information the DDL would have to be reconstructed from anyway.
 //
 // THE KNOWN GAPS are recorded with measurements in
-// docs/tasks/hub-em-s3-icebug-e-lancedb.md:
+// Graphit Task tsk-2b2208eee9b1:
 //
 //   - THE NATIVE MULTI-HOP PLAN over a mounted graph enumerates the node table before recursive
 //     expansion and times out on the real corpus. LadybugBackend.Query recognizes a deliberately

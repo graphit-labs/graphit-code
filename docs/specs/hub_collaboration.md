@@ -167,6 +167,10 @@ Memory is mutable and multi-writer, so it is not a versioned Hub artifact. Its a
 table uses the bucket's `memory/<scope>/<id>/` namespace and the direct-write semantics in
 [Memory Module](memory_module.md).
 
+Task is also mutable and multi-writer. Its authoritative LanceDB database uses
+`<task.prefix>/project/<project-id>/`, with scheduler leases and fenced task revisions described in
+[Task Module](task_module.md). It is never a published versioned artifact or repository replica.
+
 ## Security and failure behavior
 
 - Bucket policy and endpoint/network controls are the authorization boundary.

@@ -193,7 +193,7 @@ func (s *HubService) Install(
 	// The graph half carries known gaps, ACCEPTED rather than hidden: multi-hop traversal over a
 	// mounted graph is weaker than over a native one, and a relationship table holds one CSR so
 	// every label is folded into `Entity` with the label as a column. Both are format limits,
-	// measured and recorded in docs/tasks/hub-em-s3-icebug-e-lancedb.md, and stated again in
+	// measured and recorded in Graphit Task tsk-2b2208eee9b1, and stated again in
 	// internal/ast/icebug_transfer.go where a caller will meet them.
 	mountArtifact := s.registry.MountsArtifact(artType)
 	if artType == TypeKnowledge && s.registry.IsReady() && !lancestore.Available() {

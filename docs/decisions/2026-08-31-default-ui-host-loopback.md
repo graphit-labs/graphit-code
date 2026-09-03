@@ -3,7 +3,7 @@
 - **Date:** 2026-08-31
 - **Status:** accepted and implemented
 - **Scope:** `internal/config`, unified UI server defaults, network documentation
-- **Task log:** [`docs/tasks/remove-improvements-module.md`](../tasks/remove-improvements-module.md)
+- **Task history:** Graphit Task `tsk-41dfffae9fc7`
 
 ## Context
 

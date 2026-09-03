@@ -56,6 +56,10 @@ func (t *Table) DeleteByKey(_ context.Context, _ string, _ []string) error {
 	return ErrNotBuilt
 }
 func (t *Table) Upsert(_ context.Context, _ string, _ []Row) error { return ErrNotBuilt }
+func (t *Table) Refresh(_ context.Context) error                   { return ErrNotBuilt }
+func (t *Table) Merge(_ context.Context, _ MergeOptions, _ []Row) (MergeResult, error) {
+	return MergeResult{}, ErrNotBuilt
+}
 func (t *Table) EnsureIndexes(_ context.Context, _ ...Index) error { return ErrNotBuilt }
 func (t *Table) DropIndex(_ context.Context, _ Index) error        { return ErrNotBuilt }
 func (t *Table) Search(_ context.Context, _ Query) ([]Hit, error)  { return nil, ErrNotBuilt }

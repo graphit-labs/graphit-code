@@ -493,6 +493,22 @@ func TestHubPrefixIsNormalised(t *testing.T) {
 	}
 }
 
+func TestTaskPrefixUsesNormalConfigPrecedenceAndNormalisation(t *testing.T) {
+	t.Setenv("GRAPHIT_TASK_PREFIX", "/global-team/tasks/")
+	if got := ResolveTaskPrefix(nil, nil); got != "global-team/tasks" {
+		t.Fatalf("environment task prefix = %q", got)
+	}
+	t.Setenv("GRAPHIT_TASK_PREFIX", "")
+	project := ConfigMap{"task": map[string]any{"prefix": "project/tasks"}}
+	if got := ResolveTaskPrefix(nil, project); got != "project/tasks" {
+		t.Fatalf("project task prefix = %q", got)
+	}
+	inline := ConfigMap{"task": map[string]any{"prefix": "inline/tasks"}}
+	if got := ResolveTaskPrefix(inline, project); got != "inline/tasks" {
+		t.Fatalf("inline task prefix = %q", got)
+	}
+}
+
 // Configured() is the single test for "the Hub has a remote", so a config carrying only a
 // region must not read as configured.
 func TestS3ConfigIsOnlyConfiguredWithABucket(t *testing.T) {

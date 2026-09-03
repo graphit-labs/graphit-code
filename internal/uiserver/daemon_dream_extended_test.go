@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 )
@@ -277,93 +276,13 @@ func TestHandleDreamStatus_WithDreamReportsCount(t *testing.T) {
 	}
 }
 
-func TestHandleBacklogList_WithSubjects(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
+// Title present but no body field (should still work since body is optional)
 
-	for i := 0; i < 3; i++ {
-		_, err := backlog.Add(tmp, fmt.Sprintf("Subject %d", i), fmt.Sprintf("Body %d", i))
-		if err != nil {
-			t.Fatalf("backlog.Add %d: %v", i, err)
-		}
-	}
+// Register without pattern to test slug validation
 
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
+// Empty slug path param
 
-	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var subjects []map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&subjects); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(subjects) != 3 {
-		t.Errorf("expected 3 subjects, got %d", len(subjects))
-	}
-}
-
-func TestHandleBacklogAdd_LongTitle(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	longTitle := strings.Repeat("A very long title ", 20)
-	body := fmt.Sprintf(`{"title":%q,"body":"content"}`, longTitle)
-	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(body))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-}
-
-func TestHandleBacklogAdd_NoBody(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	// Title present but no body field (should still work since body is optional)
-	body := `{"title":"Title Only"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(body))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-}
-
-func TestHandleBacklogRemove_EmptySlug(t *testing.T) {
-	t.Parallel()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	// Register without pattern to test slug validation
-	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleBacklogRemove))
-
-	// Empty slug path param
-	req := httptest.NewRequest(http.MethodDelete, "/test/dream/subject/?project_dir=/tmp", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	// Empty slug should return 404 (no route match) or bad request
-	if w.Code == http.StatusOK {
-		t.Error("expected error for empty slug")
-	}
-}
+// Empty slug should return 404 (no route match) or bad request
 
 func TestHandleDreamReports_SortedByDate(t *testing.T) {
 	t.Parallel()

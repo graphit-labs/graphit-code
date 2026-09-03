@@ -237,8 +237,8 @@ Both delegate to `internal/dream` (`ListReports`, `ReportsSince`, `LoadLastSeen`
 `MarkReportsSeen`) rather than walking the reports directory here. That scanner used to be
 copied into this package, the CLI and the UI server; it now has one owner.
 
-The task backlog is registered independently through the Backlog tools. Dream never consumes or
-reports backlog items; it improves project knowledge from its own sources.
+Task control is registered independently through Task tools. Dream never consumes or executes
+tasks; deterministic ownership belongs to the Task module.
 
 ### 8. Daemon Tools (`tools_daemon.go`)
 
@@ -256,13 +256,18 @@ reports backlog items; it improves project knowledge from its own sources.
 | `graphit_cluster_unset` | Remove a cluster label. |
 | `graphit_cluster_projects` | List all projects in the same cluster, optionally filtered by label key. |
 
-### 10. Backlog Tools (`tools_backlog.go`)
+### 10. Task Tools (`tools_task.go`)
 
 | Tool | Description |
 |---|---|
-| `graphit_backlog_list` | List documentation-backed task backlog items. |
-| `graphit_backlog_add` | Record a task with a title and optional self-contained body. |
-| `graphit_backlog_remove` | Remove a backlog item by slug. |
+| `graphit_task_search`, `graphit_task_get`, `graphit_task_list` | Discover and retrieve current/prior work, audit history, checks, comments, dependencies, and subtasks. |
+| `graphit_task_create` | Idempotently create a robust task specification in shared LanceDB tables. |
+| `graphit_task_claim`, `graphit_task_heartbeat`, `graphit_task_release` | Own and transfer work through leases and fencing tokens. |
+| `graphit_task_progress`, `graphit_task_comment_add` | Preserve resumable checkpoints and typed findings. |
+| `graphit_task_check` | Record acceptance/test pass or failure with evidence. |
+| `graphit_task_flag`, `graphit_task_unflag` | Gate completion with a recorded reason and resolve the gate. |
+| `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain cycle-checked ordering edges. |
+| `graphit_task_complete` | Complete only after flags, checks, and subtasks satisfy deterministic gates. |
 
 ---
 
@@ -292,7 +297,7 @@ Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from han
 | `internal/config` | Configuration resolution, module enable/disable, IDE/CLI resolution. |
 | `internal/daemon` | Background daemon management, PID file, ensure running. |
 | `internal/dream` | Dream module state, reports, configuration. |
-| `internal/backlog` | Task backlog items and their location. |
+| `internal/task` | Shared LanceDB task lifecycle, claims, checks, comments, dependencies, and hooks. |
 | `internal/hub` | Hub registry, artifact management, lockfile operations, global lock. |
 | `internal/knowledge` | Knowledge indexing pipeline, wiki management. |
 | `internal/memory` | Memory service, scoping, wiki, consolidation, GC. |

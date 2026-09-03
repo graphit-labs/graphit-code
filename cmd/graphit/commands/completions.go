@@ -3,7 +3,6 @@ package commands
 import (
 	"os"
 
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	ideAdapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
@@ -66,24 +65,6 @@ func completionInstalledArtifactIDs() func(*cobra.Command, []string, string) ([]
 			ids = append(ids, id)
 		}
 		return ids, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
-func completionBacklogSlugs() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		projectDir, err := os.Getwd()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		items, err := backlog.List(projectDir)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		slugs := make([]string, 0, len(items))
-		for _, item := range items {
-			slugs = append(slugs, item.Slug)
-		}
-		return slugs, cobra.ShellCompDirectiveNoFileComp
 	}
 }
 

@@ -62,6 +62,13 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 	if so := cfg.storageOptions(); len(so) > 0 {
 		opts = &contracts.ConnectionOptions{StorageOptions: so}
 	}
+	if cfg.StrongReadConsistency {
+		if opts == nil {
+			opts = &contracts.ConnectionOptions{}
+		}
+		zero := 0
+		opts.ReadConsistencyInterval = &zero
+	}
 
 	conn, err := lancedb.Connect(ctx, cfg.URI, opts)
 	if err != nil {
@@ -196,7 +203,17 @@ func (s *Store) EnsureTable(ctx context.Context, name string, schema Schema) (*T
 	if !errors.Is(err, ErrNoSuchTable) {
 		return nil, err
 	}
-	return s.CreateTable(ctx, name, schema)
+	t, createErr := s.CreateTable(ctx, name, schema)
+	if createErr == nil {
+		return t, nil
+	}
+	// Two fresh agents may discover a missing S3 table together. Only one
+	// create wins; opening the winner turns that expected race into success
+	// without hiding a genuine create failure.
+	if opened, openErr := s.OpenTable(ctx, name); openErr == nil {
+		return opened, nil
+	}
+	return nil, createErr
 }
 
 func (s *Store) remember(name string, tbl contracts.ITable, schema Schema) *Table {
@@ -360,6 +377,62 @@ func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error 
 		return fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	return nil
+}
+
+// Merge conditionally replaces rows and optionally inserts missing rows in one
+// Lance transaction. Unlike Upsert, the result preserves the zero-updates case:
+// callers use it as compare-and-set instead of guessing from a follow-up read.
+func (t *Table) Merge(ctx context.Context, opts MergeOptions, rows []Row) (MergeResult, error) {
+	if t.store.readOnly {
+		return MergeResult{}, ErrReadOnly
+	}
+	if len(rows) == 0 {
+		return MergeResult{}, nil
+	}
+	if strings.TrimSpace(opts.KeyColumn) == "" {
+		return MergeResult{}, errors.New("lancestore: merge needs a key column")
+	}
+	if _, ok := t.schema.Field(opts.KeyColumn); !ok && len(t.schema.Fields) > 0 {
+		return MergeResult{}, fmt.Errorf("lancestore: %s has no column %q", t.name, opts.KeyColumn)
+	}
+	for _, r := range rows {
+		v, ok := r[opts.KeyColumn]
+		if !ok {
+			return MergeResult{}, fmt.Errorf("lancestore: merge row has no %q", opts.KeyColumn)
+		}
+		if _, ok := v.(string); !ok {
+			return MergeResult{}, fmt.Errorf("lancestore: merge key %q is %T, want string", opts.KeyColumn, v)
+		}
+	}
+	rec, err := recordOf(t.schema, rows)
+	if err != nil {
+		return MergeResult{}, err
+	}
+	defer rec.Release()
+
+	condition := strings.TrimSpace(opts.MatchCondition)
+	what := fmt.Sprintf("merging %d rows into %s", len(rows), t.name)
+	var merged *contracts.MergeResult
+	if err := withCommitRetry(ctx, what, func() error {
+		builder := t.tbl.MergeInsert([]string{opts.KeyColumn})
+		if condition != "" {
+			builder = builder.WhenMatchedUpdateAll(&condition)
+		} else {
+			builder = builder.WhenMatchedUpdateAll(nil)
+		}
+		if opts.InsertIfMissing {
+			builder = builder.WhenNotMatchedInsertAll()
+		}
+		var mergeErr error
+		merged, mergeErr = builder.Execute(ctx, []arrow.Record{rec})
+		return mergeErr
+	}, func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return MergeResult{}, fmt.Errorf("lancestore: %s: %w", what, err)
+	}
+	if merged == nil {
+		return MergeResult{}, nil
+	}
+	return MergeResult{Version: merged.Version, Inserted: merged.NumInsertedRows, Updated: merged.NumUpdatedRows}, nil
 }
 
 const deleteBatch = 256

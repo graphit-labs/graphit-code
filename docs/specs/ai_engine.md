@@ -64,7 +64,7 @@ launcher carries — to ship a file that changes on a completely different sched
 from the code, and it made every CI build and every release pull it again.
 
 Now `graphit setup` downloads it, once, straight into the cache. See
-[The model arrives at setup, not inside the binary](../tasks/model-downloaded-at-setup-not-embedded.md).
+Graphit Task `tsk-9e2cda65510f` records why the model arrives at setup rather than inside the binary.
 
 ### Resolution order
 
@@ -166,7 +166,7 @@ constant, because that width is no longer always 768.
   overrides.
 - **Containment**: `encodeSingle` recovers from panics raised inside the
   tokenizer, marks that one text as unembeddable and keeps the batch aligned. See
-  [the crash-loop task log](../tasks/embedding-crash-loop-due-to-tokenizer-panic.md).
+  Graphit Task `tsk-8cea56818eae`.
 - **Dimensions**: fixed at 768 (`ai.EmbeddingDimensions`).
 
 ### Remote providers

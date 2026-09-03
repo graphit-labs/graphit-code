@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Graphit gives coding agents structural code intelligence, durable memory, connected documentation, and reusable ecosystem context.">
+  <meta name="description" content="Graphit gives coding agents structural code intelligence, durable memory, connected documentation, deterministic shared tasks, and reusable ecosystem context.">
   <meta name="theme-color" content="#101311">
   <title>Graphit Code — A system for coding agents</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
@@ -41,7 +41,7 @@
       <div class="hero-copy reveal">
         <div class="eyebrow"><span class="signal-dot"></span> Local-first agent harness <span class="release">v1.4.0</span></div>
         <h1>Give your coding agent a <em>system</em>, not another prompt.</h1>
-        <p class="hero-lede">Graphit turns a repository into connected code structure, searchable knowledge, durable memory, and reusable context—then exposes it where your agent already works.</p>
+        <p class="hero-lede">Graphit turns a repository into connected code structure, searchable knowledge, durable memory, deterministic shared work, and reusable context—then exposes it where your agent already works.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="#install">Install Graphit <span>↓</span></a>
           <a class="button button-secondary" href="https://github.com/graphit-labs/graphit-code">Explore the source <span>↗</span></a>
@@ -61,7 +61,8 @@
       <div><span>01</span><strong>AST</strong><small>structure & relationships</small></div>
       <div><span>02</span><strong>MEMORY</strong><small>decisions that persist</small></div>
       <div><span>03</span><strong>WIKI</strong><small>connected project knowledge</small></div>
-      <div><span>04</span><strong>HUB</strong><small>reusable ecosystem context</small></div>
+      <div><span>04</span><strong>TASK</strong><small>shared work with safe takeover</small></div>
+      <div><span>05</span><strong>HUB</strong><small>reusable ecosystem context</small></div>
     </section>
 
     <section class="section system-section" id="system">
@@ -74,7 +75,8 @@
         <article class="flow-card reveal"><span>01 / UNDERSTAND</span><h3>Map the code</h3><p>Query symbols, callers, dependencies, imports, inheritance, complexity, and source through a structural graph.</p></article>
         <article class="flow-card reveal"><span>02 / REMEMBER</span><h3>Keep the why</h3><p>Store corrections, decisions, conventions, and discoveries so the next session starts with project context.</p></article>
         <article class="flow-card reveal"><span>03 / CONNECT</span><h3>Compile the docs</h3><p>Turn maintained documentation into a searchable wiki with provenance, confidence, and cross-references.</p></article>
-        <article class="flow-card reveal"><span>04 / OPERATE</span><h3>Bring it to the IDE</h3><p>Install the right rules, skills, MCP tools, languages, and shared artifacts for the active project and assistant.</p></article>
+        <article class="flow-card reveal"><span>04 / COORDINATE</span><h3>Make work resumable</h3><p>Claim shared tasks atomically, track dependencies and subtasks, preserve decisions, and require verified checks before completion.</p></article>
+        <article class="flow-card reveal"><span>05 / OPERATE</span><h3>Bring it to the IDE</h3><p>Install the right rules, skills, MCP tools, languages, and shared artifacts for the active project and assistant.</p></article>
       </div>
     </section>
 
@@ -99,7 +101,8 @@
         <article class="capability-card reveal"><span>AST</span><h3>Structural code exploration</h3><p>Language-aware entities and relationships across Go, TypeScript, Python, Java, C, SQL, and more.</p></article>
         <article class="capability-card reveal"><span>SEARCH</span><h3>Keyword + semantic retrieval</h3><p>Find precise names quickly, then traverse exact graph relationships instead of guessing from text similarity.</p></article>
         <article class="capability-card reveal"><span>MEMORY</span><h3>Project and user scopes</h3><p>Keep repository-specific context separate from reusable personal conventions.</p></article>
-        <article class="capability-card reveal"><span>KNOWLEDGE</span><h3>Living documentation</h3><p>Search active guides, specs, architecture, decisions, and task history with traceable sources.</p></article>
+        <article class="capability-card reveal"><span>KNOWLEDGE</span><h3>Living documentation</h3><p>Search active guides, specs, architecture, and decisions with traceable sources.</p></article>
+        <article class="capability-card reveal"><span>TASK</span><h3>Deterministic multi-agent work</h3><p>Use compact collision-safe IDs with shared LanceDB claims, dependencies, subtasks, cancellation, confirmed cleanup, comments, acceptance checks, and test evidence so any agent can take over safely without obsolete task garbage.</p></article>
         <article class="capability-card reveal"><span>HUB</span><h3>Shareable artifacts</h3><p>Discover and distribute rules, skills, agents, MCP servers, languages, ASTs, and knowledge bundles.</p></article>
         <article class="capability-card reveal"><span>OBSERVATORY</span><h3>One operational UI</h3><p>Inspect project context, explorers, daemon state, Dream, ecosystem projects, and live agent runs.</p></article>
       </div>
@@ -112,7 +115,7 @@
           <h2>Local by default. Shareable when you choose.</h2>
         </div>
         <div class="trust-copy">
-          <p>Mutable code, docs, indexes, and memory sources stay on your machine. Optional S3-compatible storage can publish reusable artifacts across projects and teams.</p>
+          <p>Mutable code, docs, indexes, and memory sources stay on your machine. Optional S3-compatible storage can publish reusable artifacts and host authoritative project tasks shared live across agents.</p>
           <ul>
             <li><strong>Local core</strong><span>No hosted database is required for everyday operation.</span></li>
             <li><strong>Explicit sharing</strong><span>Hub publishing and remote storage are configured separately.</span></li>
@@ -215,7 +218,8 @@ graphit setup</code></pre>
         <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/user_manual.md"><span>02</span><h3>User manual</h3><p>Move from daily commands to explorers, shared artifacts, daemon operation, and troubleshooting.</p><b>Open manual ↗</b></a>
         <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/architecture/architecture_overview.md"><span>03</span><h3>Architecture</h3><p>Understand the launcher, core, local stores, compiled wikis, Hub, UI, and IDE adapters.</p><b>Open architecture ↗</b></a>
         <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"><span>04</span><h3>Run as a server</h3><p>Serve a team from one container: an MCP endpoint any AI agent connects to, plus the Observatory.</p><b>Open server guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/CONTRIBUTING.md"><span>05</span><h3>Contributing</h3><p>Build the project, follow repository conventions, run checks, and propose focused changes.</p><b>Contribute ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/specs/task_module.md"><span>05</span><h3>Task module</h3><p>Understand shared claims, takeover, subtasks, dependencies, comments, flags, and completion checks.</p><b>Open specification ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/CONTRIBUTING.md"><span>06</span><h3>Contributing</h3><p>Build the project, follow repository conventions, run checks, and propose focused changes.</p><b>Contribute ↗</b></a>
       </div>
     </section>
 

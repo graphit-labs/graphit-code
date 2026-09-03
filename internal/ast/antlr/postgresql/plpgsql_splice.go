@@ -12,7 +12,7 @@ import (
 // plpgsql/), vendored under internal/ast/treesitter/plpgsql. Its SQL grammar is
 // code-generated from PostgreSQL's own Bison source; the plpgsql/ grammar is
 // hand-written on top of it, and was verified here (see
-// docs/tasks/postgres-plpgsql-embedding.md) against PERFORM, RAISE, RETURN
+// Graphit Task tsk-0d9b89633953) against PERFORM, RAISE, RETURN
 // QUERY and FOREACH — the constructs that broke the earlier attempt to reuse
 // the PL/SQL parser for this.
 var plpgsqlLang = sitter.NewLanguage(tsPlpgsql.Language())

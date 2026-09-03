@@ -1,6 +1,6 @@
 # System Architecture Overview
 
-Graphit Code is a local-first agent harness written primarily in Go. It combines structural code intelligence, compiled documentation, durable memory, reusable ecosystem artifacts, and one embedded visual workspace.
+Graphit Code is a local-first agent harness written primarily in Go. It combines structural code intelligence, compiled documentation, durable memory, deterministic shared tasks, reusable ecosystem artifacts, and one embedded visual workspace.
 
 ## Topology
 
@@ -17,6 +17,7 @@ flowchart LR
       AST["AST module"]
       Knowledge["Knowledge module"]
       Memory["Memory module"]
+      Task["Task module"]
       Hub["Hub + ecosystem"]
       Live["Live Search"]
     end
@@ -24,10 +25,12 @@ flowchart LR
     CLI --> AST
     CLI --> Knowledge
     CLI --> Memory
+    CLI --> Task
     CLI --> Hub
     MCP --> AST
     MCP --> Knowledge
     MCP --> Memory
+    MCP --> Task
     MCP --> Hub
     Daemon --> AST
     Daemon --> Knowledge
@@ -41,8 +44,10 @@ flowchart LR
     AST --> Global["Global Graphit stores"]
     Knowledge --> Global
     Memory --> Global
+    Task --> Global
     Hub --> Global
     Hub -. optional publish/install .-> S3["S3-compatible object storage"]
+    Task -. authoritative shared tables .-> S3
     UI --> Browser["Graphite Observatory"]
     MCP --> IDE["IDE / agent adapter"]
 ```
@@ -69,6 +74,7 @@ The MCP stdio server exposes the same project capabilities to coding agents. Too
 - source and wiki tools return selected content;
 - AST queries traverse exact graph relationships;
 - memory tools persist structured context.
+- task tools atomically claim, checkpoint, validate, and transfer shared work.
 
 Each concrete IDE adapter installs and removes its own project-local native lifecycle hook whenever that IDE supports project hooks. Hook paths live in each adapter's `FolderConfig` beside its other native paths, while event names, configuration shapes, and hook lifecycle remain in the concrete adapter; the folder-based adapter has no hook routing or IDE identity. Only the semantic protocol and format-neutral payload reconciliation helpers are shared. Generated commands contain no checkout path: hook execution resolves the nearest Graphit project from native `cwd`/workspace-root input or process cwd (OpenCode starts the subprocess with its runtime `directory` as cwd), then reads that project's current module configuration, mandatory memories, and installed Hub `rule` artifacts. Enabled module mandates and rule bodies are composed dynamically; skills remain physical, discoverable artifacts whose full content is loaded only when needed. Graphit does not manage `AGENTS.md`, `CLAUDE.md`, or IDE rule copies for this context.
 
@@ -102,6 +108,13 @@ The knowledge source is the maintained documentation tree plus the root README. 
 
 Project and user memory are independent scopes backed by authoritative LanceDB tables and compiled memory wikis. Project memory belongs to one registered repository identity. User memory follows the user across projects.
 
+### Task
+
+Task is the authoritative project work scheduler. LanceDB tables hold task snapshots, claims,
+dependencies, subtasks, acceptance/test checks, comments, and audit events. Lifecycle hooks
+reconcile projections and release or expire ownership so another agent can resume. With S3
+configured, all agents use the same tables directly; no task Markdown is stored in the checkout.
+
 ### Hub and ecosystem
 
 The ecosystem registry resolves sibling projects already present on the machine. Each sibling retains its own stores and documentation.
@@ -121,13 +134,14 @@ This model:
 - avoids duplicating large stores across repositories;
 - lets several projects reference the same published context;
 - keeps user memory globally available without copying it into each checkout;
+- gives concurrent agents one fenced, resumable project work queue;
 - gives the daemon one canonical store per identity.
 
 See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 
 ## Trust boundaries
 
-- Source and mutable indexes remain local unless an explicit publish or remote configuration is used. With S3 configured, a memory scope's authoritative LanceDB table lives directly at its remote URI.
+- Source and mutable indexes remain local unless an explicit publish or remote configuration is used. With S3 configured, authoritative Memory and Task LanceDB tables live directly at their remote URIs.
 - S3-compatible storage is an optional shared boundary with its own credential and access controls.
 - The UI server is a network boundary and has no built-in authentication.
 - Coding-agent CLIs and IDE adapters are external processes; Graphit prepares their workspace and tool configuration but does not replace their own permission model.
@@ -137,6 +151,7 @@ See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 - [AST Module](../specs/ast_module.md)
 - [Wiki Module](../specs/wiki_module.md)
 - [Memory Module](../specs/memory_module.md)
+- [Task Module](../specs/task_module.md)
 - [Hub Collaboration](../specs/hub_collaboration.md)
 - [Daemon Module](../specs/daemon_module.md)
 - [Dream Module](../specs/dream_module.md)

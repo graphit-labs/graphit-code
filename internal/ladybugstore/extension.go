@@ -20,7 +20,7 @@ const ExtHTTPFS = "httpfs"
 // The extensions travel inside the binary and are loaded from this directory by path. The
 // engine's own INSTALL would fetch them from the extension server at query time, which is a
 // network call in the middle of a user's query and a version that may not be published —
-// see docs/tasks/hub-em-s3-icebug-e-lancedb.md.
+// see Graphit Task tsk-2b2208eee9b1.
 func ExtensionDir() string {
 	d := brand.RuntimeDir(version.Version)
 	if d == "" {

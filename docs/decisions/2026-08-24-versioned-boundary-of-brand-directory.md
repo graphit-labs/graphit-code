@@ -5,7 +5,7 @@
 Accepted and implemented on 2026-08-24.
 
 Scope: `internal/brand`, `internal/dream`, `cmd/graphit/commands`, `.gitignore`.
-Task log: `docs/tasks/map-project-brand-directory-writes.md`.
+Task history: Graphit Task `tsk-14e287f1d171`.
 
 ## Context
 

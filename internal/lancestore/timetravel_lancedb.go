@@ -244,6 +244,14 @@ func (t *Table) refreshToLatest(ctx context.Context) error {
 	return nil
 }
 
+// Refresh advances this table handle to the latest committed manifest.
+// Shared coordination code calls it after acquiring its scheduler lease so a
+// handle opened while another writer owned the lease cannot make a decision
+// from the older snapshot.
+func (t *Table) Refresh(ctx context.Context) error {
+	return t.refreshToLatest(ctx)
+}
+
 // isCommitConflict says whether a failed write lost a commit race, as opposed to being wrong.
 //
 // IT MATCHES ON THE MESSAGE, and that is a real weakness worth stating rather than hiding: the

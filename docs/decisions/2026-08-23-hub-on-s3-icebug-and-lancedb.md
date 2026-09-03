@@ -4,7 +4,7 @@
 - **Status:** accepted and implemented
 - **Scope:** `internal/hub`, `internal/s3store`, `internal/lancestore`, `internal/ast`,
   `internal/wiki`, `internal/memory`, `Makefile`, `.github/workflows`
-- **Task log:** [`docs/tasks/hub-on-s3-icebug-and-lancedb.md`](../tasks/hub-on-s3-icebug-and-lancedb.md)
+- **Task history:** Graphit Task `tsk-c049ad9ad5b7`
 
 ## What changed
 

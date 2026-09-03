@@ -169,7 +169,7 @@ queries:
   # column_definition subtree for that input — the column list comes through as
   # flat terminals — so DB2 columns are not extracted at all, and there is nothing
   # for a value_capture to hang off. Fixing that is a grammar problem, not a query
-  # one. See docs/tasks/declared-values-as-nodes.md.
+  # one. See Graphit Task tsk-b3e3d9570a62.
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition/column_name"

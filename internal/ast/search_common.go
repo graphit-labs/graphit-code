@@ -15,7 +15,7 @@ import (
 // Each of these is a measured decision rather than a chosen one. FUSION IS NOT AMONG
 // THEM any more: ranking belongs to the engine, and the Go-side RRF constant and trigram
 // bag that used to live here went out with it — see
-// docs/tasks/remove-dead-fusion-symbols-from-search-common.md.
+// Graphit Task tsk-5338838de9c4.
 
 // Similarity a semantic neighbour must reach to take part at all.
 //

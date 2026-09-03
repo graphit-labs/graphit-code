@@ -448,20 +448,26 @@ The default reports vault is `.graphit/runtime/dream/`, which is covered by the 
 reports are intended to be reviewed and committed. Existing `.graphit/dream/` reports are
 not moved or deleted automatically.
 
-### `backlog`
-Manages the documentation-backed task backlog independently of Dream.
+### `task`
+Manages deterministic project work in the shared LanceDB task store.
 ```bash
-graphit backlog <subcommand> [flags]
+graphit task <subcommand> [flags]
 ```
 **Subcommands:**
-- `list`: List every registered task.
-- `add [title]`: Add an item.
-  - `--body <body>`: The full brief for whoever picks it up.
-- `rm [slug]`: Remove an item.
+- `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask.
+- `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, or parent.
+- `get`, `search`: Retrieve authoritative history or search task/comment text.
+- `claim`, `heartbeat`, `release`: Own or hand off work with a fenced lease.
+- `progress`, `comment`, `check`: Record checkpoints, typed context, and acceptance/test evidence.
+- `flag`, `unflag`: Add or resolve a completion gate with a reason.
+- `dependency add|remove`: Maintain explicit blocking edges.
+- `complete`: Finish only after every check and subtask passes and no flag remains.
+- `cancel`: Preserve an obsolete task as an audited terminal record with a required reason.
+- `remove` / `rm`: Hard-delete certainly erroneous work with `--confirm <exact-id>` and `--reason`; referenced tasks are refused.
 
-Backlog items are Markdown files under `backlog.dir` (default `docs/tasks/backlog`), so they
-are versioned with the project. Dream never consumes backlog items and its state is irrelevant to CRUD. See
-[Task Backlog](../specs/backlog.md).
+Open, unclaimed tasks are the backlog; no Markdown task files are created. On a direction change,
+cancel or remove obsolete work immediately instead of leaving task garbage. See
+[Task Module](../specs/task_module.md).
 
 ### `cluster`
 Manages project grouping.

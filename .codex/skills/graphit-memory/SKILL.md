@@ -17,7 +17,7 @@ Use project scope by default. Use user scope only for preferences that genuinely
 
 ## Write and maintain
 
-Write with `graphit_memory_insert` when information should survive the session: a correction, durable preference, design choice with rationale, constraint, or non-obvious behavior. Skip transient task state already captured by the task log and facts obvious from code.
+Write with `graphit_memory_insert` when information should survive the session: a correction, durable preference, design choice with rationale, constraint, or non-obvious behavior. Skip transient task state already captured by Graphit Task and facts obvious from code.
 
 Prefer `graphit_memory_update` when the subject already exists. On contradiction, update the current memory so its id/history survives. On duplication, first merge every distinct fact into the survivor, verify it, then call `graphit_memory_delete` on the redundant entry. Never delete unique knowledge. Perform this sanitation when discovered, not as a vague future task.
 

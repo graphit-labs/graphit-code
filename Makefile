@@ -23,10 +23,17 @@ PREFIX       ?= /usr/local/bin
 # Install directory for Windows/MSYS2 (override: make install-windows PREFIX_WIN='C:\Tools\graphit')
 PREFIX_WIN   ?=
 
-ifeq ($(OS),Windows_NT)
-  BUILD_ID ?= $(shell powershell -Command "[System.Guid]::NewGuid().ToString()")
-else
-  BUILD_ID ?= $(shell cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
+# One invocation must stamp the core, MCP proxy and launcher with the SAME id.
+# `?=` creates a recursively-expanded variable, which evaluated `$(shell ...)`
+# once per recipe line and made the freshly installed launcher disagree with
+# its own embedded runtime. Preserve an explicit caller override while making
+# the generated default immediate and stable for this make process.
+ifeq ($(origin BUILD_ID), undefined)
+  ifeq ($(OS),Windows_NT)
+    BUILD_ID := $(shell powershell -Command "[System.Guid]::NewGuid().ToString()")
+  else
+    BUILD_ID := $(shell cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
+  endif
 endif
 
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.Brand=$(BRAND)'

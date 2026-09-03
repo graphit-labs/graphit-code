@@ -82,6 +82,6 @@ columns and exposes page bodies and metadata from the index; it does not materia
 
 ## References
 
-- Task log: `docs/tasks/memory-revision-chain-searchable-history.md`
-- LanceDB-only task: `docs/tasks/lancedb-is-the-only-store-for-knowledge-and-memory.md`
+- Task history: Graphit Task `tsk-e176d076c477`
+- LanceDB-only task: Graphit Task `tsk-1530b62cdc8f`
 - Implementation: `internal/memory/{memory.go,table.go,wiki.go,search.go}`

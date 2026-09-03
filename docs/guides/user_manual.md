@@ -121,11 +121,15 @@ Use it when the answer genuinely spans several sources. Do not use it in place o
 
 The temporary workspace owns no project data store after the session ends. Selected artifacts and the prompt define its scope.
 
-## Dream and backlog
+## Dream and Task
 
 Dream runs during configured idle periods to analyze conversation history and improve project knowledge or reusable agent artifacts. It is a knowledge-improvement process, not a task scheduler.
 
-The task backlog is separate. It records future work as Markdown under the configured backlog directory, normally `docs/tasks/backlog/`. Dream does not consume backlog items.
+Task is separate. Open, unclaimed LanceDB tasks are backlog; agents claim, checkpoint, comment,
+verify checks, hand off, and complete them through Graphit Task rather than host-native TODO tools.
+When direction changes, agents cancel tasks whose history remains useful or explicitly remove
+certainly erroneous, unreferenced tasks; superseded open/flagged garbage is forbidden. Dream does
+not consume or execute tasks.
 
 ## Observatory navigation
 

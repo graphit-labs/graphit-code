@@ -29,6 +29,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/store"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -128,6 +129,8 @@ func refreshModuleSkill(module, projectDir, ideName string) {
 		err = memory.InstallSkill(projectDir, ideName)
 	case "hub":
 		err = hub.InstallSkill(projectDir, ideName)
+	case "task":
+		err = graphtask.InstallSkill(projectDir, ideName)
 	}
 	_ = err
 }
@@ -142,6 +145,8 @@ func getModuleDefaultRule(module string) string {
 		return hub.MandateTrigger()
 	case "memory":
 		return memory.MandateTrigger()
+	case "task":
+		return graphtask.MandateTrigger()
 	default:
 		return ""
 	}
@@ -157,6 +162,8 @@ func getModuleResolvedRule(module string) string {
 		return brand.ResolveModuleRule("hub", hub.MandateTrigger())
 	case "memory":
 		return brand.ResolveModuleRule("memory", memory.MandateTrigger())
+	case "task":
+		return brand.ResolveModuleRule("task", graphtask.MandateTrigger())
 	default:
 		return ""
 	}

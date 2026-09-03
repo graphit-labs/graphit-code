@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 **Scope:** `internal/{ast,hub,knowledge,memory,improvements}/rule.go` and new tests
-**Origin:** step 1 of `docs/tasks/review-skills-and-mandates.md`
+**Origin:** step 1 of Graphit Task `tsk-ee3c758773b8`
 
 ---
 

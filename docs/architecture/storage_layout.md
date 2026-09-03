@@ -108,6 +108,7 @@ Things worth knowing before you set it:
 │   │   └── hub/<context-id>/<version>/  logical version key; Hub data stays at its `s3://` URI
 │   └── memory/<scope>/<scope-id>/       a memory wiki (scope: project | user | <context>)
 ├── memory-table/memory-<scope>-<id>/    authoritative LanceDB memory table in local-only mode
+├── task-table/<task-prefix>/<project-id>/ authoritative LanceDB task tables in local-only mode
 ├── models/coderankembed/                the embedding model — downloaded at setup
 │   ├── model.onnx                           ~132 MB, NOT carried in the binary
 │   └── tokenizer.json
@@ -237,7 +238,7 @@ resolvers ask:
 
 The flag is recorded rather than inferred. "Has no source of its own" would also describe
 a real project on its first day. See
-[An ephemeral session owns no store](../tasks/an-ephemeral-session-owns-no-store.md).
+Graphit Task `tsk-976ef4e8973d` records why an ephemeral session owns no store.
 
 ### Two platform rules the identity has to obey
 
@@ -364,7 +365,7 @@ is derived from it on every read (`store.ASTContextDBPathIn`,
 `store.KnowledgeContextDirIn`). Recording the store instead froze it: the moment the
 sibling ran `init` and re-keyed, the stored path pointed at the old location.
 
-See [One registry for context membership](../tasks/one-registry-for-context-membership.md).
+See Graphit Task `tsk-4840632da67f` for the context-membership registry history.
 
 ---
 
@@ -429,4 +430,4 @@ same commands used to do.
 - [Memory Module](../specs/memory_module.md) — worktree, wiki, and the scopes
 - [Hub Collaboration](../specs/hub_collaboration.md) — artifacts, versions, shared stores
 - [Retrieval Architecture](../guides/retrieval_architecture.md) — which tool reads what
-- [Task log](../tasks/centralize-stores-in-global-dir.md) — the change that produced this layout
+- Graphit Task `tsk-c17ea719bfbf` — the change that produced this layout

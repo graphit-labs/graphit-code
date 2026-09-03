@@ -33,7 +33,7 @@ Ranked matching over the compiled memory wiki, which lives once in the global br
 
 ### Tier 2: Compiled Wiki (BM25 / Semantic, LanceDB)
 
-**Tools:** `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`
+**Tools:** `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_task_search`
 
 Operates on `index.lance/` stores locally or at a mounted Hub `s3://` URI:
 
@@ -42,6 +42,7 @@ Operates on `index.lance/` stores locally or at a mounted Hub `s3://` URI:
 | `knowledge_search` | LanceDB BM25 | local project `index.lance/` or a mounted Hub artifact |
 | `wiki_search` | BM25 + semantic on `index.lance/` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` or `~/.graphit/wiki/memory/project/<project-id>/index.lance/` |
 | `wiki_browse` | LanceDB catalog on `index.lance/` | Same as `wiki_search` |
+| `task_search` | LanceDB BM25 | Authoritative project task specs/check evidence and typed comment bodies |
 
 ```
 ~/.graphit/wiki/
@@ -95,6 +96,7 @@ Uses an AI model to synthesize answers from wiki pages found via BM25 retrieval.
 | `graphit_memory_search` | memory | compiled memory wiki | LanceDB BM25 | No | `scope` (project or user) |
 | `graphit_memory_mandatory` | memory | authoritative live memory table | LanceDB filter, no ranking | No | `scope` (project or user) |
 | `graphit_memory_query` | memory | memory wiki | AI + BM25 | Yes | `scope`, `context` |
+| `graphit_task_search` | task | current/prior task specs and comments | LanceDB BM25 | No | project identity |
 
 > [!NOTE]
 > All tools that return structured data support `ai_optimized: true` to return token-efficient, pre-summarized output optimized for LLM consumption.

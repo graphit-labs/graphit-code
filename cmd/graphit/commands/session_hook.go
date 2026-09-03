@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,8 +9,11 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +33,9 @@ func newSessionHookCmd() *cobra.Command {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
 			projectDir = resolveSessionHookProjectDir(projectDir, input)
+			if err := runTaskSessionHook(cmd.Context(), projectDir, format, input); err != nil {
+				return err
+			}
 			if syncBeforeOutput {
 				if err := dispatchFinalHookSync(projectDir); err != nil {
 					return err
@@ -55,6 +62,37 @@ func newSessionHookCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&syncBeforeOutput, "sync", false, "dispatch a full project sync asynchronously before rendering completion output")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
+}
+
+// runTaskSessionHook performs state maintenance itself; it does not ask the
+// model to infer a lifecycle transition from prose. Unknown host identities are
+// safe: global reconciliation still runs, while no live owner's claim is
+// released or renewed by guesswork.
+func runTaskSessionHook(ctx context.Context, projectDir, format string, input []byte) error {
+	if projectDir == "" || !lancestore.Available() {
+		return nil
+	}
+	projectCfg := loadProjectConfigFromDir(projectDir)
+	if config.IsModuleDisabled("task", nil, projectCfg) {
+		return nil
+	}
+	svc, err := graphtask.Open(projectDir)
+	if err != nil {
+		return fmt.Errorf("opening task lifecycle store: %w", err)
+	}
+	agent := graphtask.AgentIDFromHook(input)
+	switch strings.ToLower(format) {
+	case sessionhook.FormatStop, sessionhook.FormatCursorStop,
+		sessionhook.FormatAfterAgent, sessionhook.FormatAntigravityStop,
+		sessionhook.FormatSessionEnd:
+		return svc.ReleaseOwned(ctx, agent)
+	case sessionhook.FormatPostToolUse, sessionhook.FormatAfterTool,
+		sessionhook.FormatCursorUnit, sessionhook.FormatPlainUnit,
+		sessionhook.FormatPostInvocation:
+		return svc.HeartbeatOwned(ctx, agent, graphtask.DefaultLease)
+	default:
+		return svc.Reconcile(ctx)
+	}
 }
 
 // dispatchFinalHookSync starts the exact installed Graphit runtime and returns

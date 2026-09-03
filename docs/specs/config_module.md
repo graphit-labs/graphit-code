@@ -140,7 +140,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
 | `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
 | `ast.cluster` | Default cluster name for files not matching any `ast.cluster_map` prefix. | (empty — no default cluster) |
-| `backlog.dir` | Relative path to the task backlog. The default is composed from `knowledge.docs_dir`, so it follows the documentation tree. | `docs/tasks/backlog` |
+| `task.prefix` | Namespace for authoritative Task LanceDB tables, nested under `hub.prefix` when S3 is configured. | `tasks` |
 | `dream.reports_dir` | Relative path to the dream reports vault. Move it under `docs/` to commit reports as a matter of course. | `.graphit/runtime/dream` |
 | `dream.idle_timeout` | Inactivity in **seconds** before a dream cycle starts | `7200` (2 hours) |
 | `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
@@ -573,59 +573,25 @@ configuration alone — they have no command line. The flag is merged on top for
 only. So for an extension that no other grammar claims, the key is what makes its files
 visible; the flag alone would leave the parser with nothing to parse.
 
-### The task backlog: `backlog.dir`
+### Shared task tables: `task.prefix`
 
 ```go
-func DefaultBacklogDir(inlineCfg, projectCfg ConfigMap) string
-func ResolveBacklogDir(inlineCfg, projectCfg ConfigMap) string
+func ResolveTaskPrefix(inlineCfg, projectCfg ConfigMap) string
 ```
 
-The task backlog records project work for later execution — see [Task Backlog](backlog.md).
-It used to live at `.graphit/dream/subjects/`,
-and `graphit init` gitignored `.graphit/` wholesale at the time, so deferred work was
-invisible to every other checkout, to review, and to anyone not at the machine that
-recorded it. A backlog item is a project artifact, not machine state, so the default
-moved into the documentation tree — where it still belongs, beside the task logs that
-close it, independently of what the brand directory does or does not ignore today.
-
-Unlike every other `*_dir` key, the **default is composed, not fixed**:
-
-```go
-filepath.Join(ResolveDocsDir(inlineCfg, projectCfg), "tasks", "backlog")
-```
-
-So a project that keeps documentation somewhere else gets its backlog in the
-matching place, with no second key to set:
+The Task module stores backlog and active/history state in one authoritative LanceDB
+database — see [Task Module](task_module.md). The default namespace is `tasks`. With
+S3 configured, it is nested under the Hub prefix and project identity:
 
 ```bash
-# knowledge.docs_dir = documentation  →  backlog defaults to documentation/tasks/backlog
-graphit config knowledge.docs_dir documentation
-
-# or pin the backlog independently of the docs tree
-graphit config backlog.dir ops/queue
-
-# one command only
-GRAPHIT_BACKLOG_DIR=ops/queue graphit backlog list
+graphit config task.prefix engineering/tasks
+graphit config --global task.prefix shared/tasks
+GRAPHIT_TASK_PREFIX=ci/tasks graphit task list
 ```
 
-An explicit `backlog.dir` wins over the composed default, and the value
-is cleaned and converted from slash form, so a Windows path and a POSIX path both
-resolve. Because the default sits under `knowledge.docs_dir`, backlog items are
-**indexed into the knowledge wiki** — intentional: the backlog is then searchable
-next to the task logs it eventually becomes.
-
-The levels above are untouched — `~/.graphit/ast/queries` and the runtime's
-directory stay where they are, because neither is inside a repository.
-
-Two consequences worth knowing:
-
-- A directory inside the tracked tree **is indexed as code**, unlike `.graphit/`,
-  which the AST pipeline excludes by default. Grammar YAMLs will show up in the
-  code graph as `.yaml` files. Add the directory to `.astignore` if that noise is
-  not wanted.
-- Changing the key takes effect on a running daemon within seconds. The loader
-  folds the directory path into the signature it compares, so moving the directory
-  reads like editing the files in it.
+Prefix values are slash-normalized. Normal configuration precedence applies: inline,
+environment, project lockfile, global config, then default. The key changes the table
+location; it does not create a repository directory, replica, or migration workflow.
 
 ### Reading project config without the hub
 

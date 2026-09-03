@@ -41,7 +41,7 @@ import (
 // labels, null where a label does not have one), every edge keeps its properties and its
 // direction, self-loops included, and the label survives as data. What moves is the LABEL
 // side: `MATCH (f:Function)` becomes a filter on `label`, which a reader rewrites — using only
-// predicates measured to work on this storage. See docs/tasks/hub-em-s3-icebug-e-lancedb.md.
+// predicates measured to work on this storage. See Graphit Task tsk-2b2208eee9b1.
 // maxRowGroupLength keeps a table in a single Parquet row group.
 const maxRowGroupLength = 1 << 40
 

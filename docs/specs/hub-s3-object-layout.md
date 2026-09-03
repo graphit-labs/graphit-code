@@ -18,7 +18,7 @@ It replaces the git repository described in
 registry, one orphan branch per artifact version, `refs/events/*` telemetry, rule
 distribution on `main`, and memory worktrees — all map onto key prefixes here. Implemented by
 `internal/hub` over `internal/s3store`; tracked in
-[the migration task log](../tasks/hub-on-s3-icebug-and-lancedb.md).
+the migrated Graphit Task `tsk-c049ad9ad5b7`.
 
 ## Location and credentials
 
@@ -64,6 +64,9 @@ rules/
 
 memory/
   <scope>/<id>/…                                        authoritative LanceDB memory tables
+
+<task.prefix>/
+  project/<id>/…                                        authoritative LanceDB task/control/check/comment tables
 ```
 
 Where:
@@ -76,6 +79,7 @@ Where:
 - `<project>` is the publishing project's remote id, or `_global`.
 - `ast` and `knowledge` omit the `<id>` segment, because a project publishes exactly one of
   each — the same rule `hub.ArtifactBranchName` already applies to branch names today.
+- `<task.prefix>` is the normalized `task.prefix` configuration value and defaults to `tasks`.
 
 ### An artifact version is a prefix, not a file
 

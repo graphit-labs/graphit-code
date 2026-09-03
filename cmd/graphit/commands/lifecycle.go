@@ -27,6 +27,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/updater"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/spf13/cobra"
@@ -43,6 +44,7 @@ func installAllModuleSkills(p *output.Printer, wd, ideName string) {
 		{"AST", ast.InstallSkill},
 		{"Hub", hub.InstallSkill},
 		{"Memory", memory.InstallSkill},
+		{"Task", graphtask.InstallSkill},
 	} {
 		if err := r.skill(wd, ideName); err != nil {
 			p.StepWarn("%s skill: %v", r.name, err)
@@ -59,6 +61,7 @@ func removeAllModuleSkills(p *output.Printer, wd, ide string) {
 		{"AST", ast.RemoveSkill},
 		{"Hub", hub.RemoveSkill},
 		{"Memory", memory.RemoveSkill},
+		{"Task", graphtask.RemoveSkill},
 	} {
 		if err := r.removeSkill(wd, ide); err != nil {
 			p.StepWarn("%s skill cleanup: %v", r.name, err)

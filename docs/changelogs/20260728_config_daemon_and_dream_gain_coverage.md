@@ -3,7 +3,7 @@
 **Date:** 2026-07-28
 **Scope:** `internal/hub/rule.go`, `internal/knowledge/rule.go`, `internal/ast/rule.go`,
 `internal/improvements/{rule,rules}.go` and new tests
-**Origin:** step 2 of `docs/tasks/review-skills-and-mandates.md`
+**Origin:** step 2 of Graphit Task `tsk-ee3c758773b8`
 
 ---
 

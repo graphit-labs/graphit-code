@@ -19,7 +19,7 @@ import (
 // mounts completely. An AST artifact has both, and its GRAPH cannot be mounted yet — the icebug
 // format holds one CSR per relationship table while this graph has ~97 distinct (from,to) pairs,
 // so a mounted graph would silently answer with the same edges counted once per pair. That is a
-// format gap, recorded in docs/tasks/hub-em-s3-icebug-e-lancedb.md, and it is why an AST context
+// format gap, recorded in Graphit Task tsk-2b2208eee9b1, and it is why an AST context
 // still downloads while a knowledge one no longer does.
 
 // MountedWiki is a published wiki index, addressed on object storage.

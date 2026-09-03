@@ -355,7 +355,7 @@ func (s *S3Store) EnsureArtifactLocal(ctx context.Context, artType ArtifactType,
 // DownloadArtifact materialises an artifact prefix locally, including a mountable one.
 //
 // TODO(T9): the mountable types must stop being downloaded — see
-// docs/tasks/hub-em-s3-icebug-e-lancedb.md. Until the graph is mounted with
+// Graphit Task tsk-2b2208eee9b1. Until the graph is mounted with
 // `storage = 's3://…'` and the search index is opened from its prefix, installing an ast or
 // knowledge context still needs the bytes, and this is the one door that provides them.
 // EnsureArtifactLocal is the destination behaviour and refuses them; this is the exception

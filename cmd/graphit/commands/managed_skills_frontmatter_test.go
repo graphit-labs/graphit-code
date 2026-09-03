@@ -15,6 +15,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 )
 
 // A SKILL.md whose frontmatter does not parse is not a degraded skill, it is an
@@ -27,6 +28,7 @@ func TestManagedSkillFrontmatterIsValid(t *testing.T) {
 		"hub":       hub.InstallSkill,
 		"knowledge": knowledge.InstallSkill,
 		"memory":    memory.InstallSkill,
+		"task":      graphtask.InstallSkill,
 	}
 
 	for _, ideName := range ide.SupportedIDEs() {
@@ -101,6 +103,7 @@ func TestManagedSkillDescriptionsStillContainAColon(t *testing.T) {
 		"hub":       hub.InstallSkill,
 		"knowledge": knowledge.InstallSkill,
 		"memory":    memory.InstallSkill,
+		"task":      graphtask.InstallSkill,
 	}
 
 	for module, install := range descriptions {

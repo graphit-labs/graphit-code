@@ -1,7 +1,0 @@
-# Force rebuild discovered 848 files but exported 854 cached shards
-
-Observed on 2026-08-31 while validating docs/tasks/diagnose-post-swap-graph-write-latency.md with a freshly built LanceDB-enabled CLI. `ast index . --reindex -v` reported `Parsing: 848/848 file(s)` but immediately reported `Saving parse cache: 854 file(s)`, `Writing graph: 854 file(s)`, and `Building search index: 854 file(s)`. Earlier real-store probes saw the cache count move from 848 to 849 while a temporary test file existed, then the production run ended at 854 after that file had been removed. This may mean `pruneVanished` failed to remove stale shards on ForceRebuild, or that TotalFiles and ShardCache.Count intentionally count different categories; establish which before changing code.
-
-Relevant code: `internal/ast/pipeline.go` ForceRebuild/pruneVanished selection and the `jsonCache.Count()` progress totals; `internal/ast/shard_cache.go` manifest/remove/save behavior; existing regression `internal/ast/reindex_drops_deleted_files_test.go` proves one deleted file is dropped but may not cover ignored/temporary files or multiple stale manifest entries.
-
-Acceptance: after creating and indexing a temporary source file, removing it, and running ForceRebuild, discovered file count and live shard count agree unless an explicitly documented category explains the difference; the removed path is absent from the Icebug bundle and LanceDB search rows. Add a regression for the measured category and do not weaken the existing survivor assertions.

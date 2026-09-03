@@ -5,7 +5,7 @@
 - **Scope:** `cmd/graphit/commands`, `internal/config`, `internal/s3store`,
   `internal/lancestore`, `internal/ast`, `internal/hub`, `internal/uiserver`,
   `internal/netutil`
-- **Task log:** [`docs/tasks/configure-s3-and-ui-server-network.md`](../tasks/configure-s3-and-ui-server-network.md)
+- **Task history:** Graphit Task `tsk-ba2a127c3b75`
 
 ## Context
 

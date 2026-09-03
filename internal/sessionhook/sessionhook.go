@@ -54,7 +54,7 @@ func CoreInvariant() string {
 // the host exposes. The hook cannot decide whether a semantic unit is complete,
 // so it asks the agent to make that judgment immediately instead of at turn end.
 func UnitCompletionReminder() string {
-	return "Graphit task checkpoint: if the action that just finished completed the smallest independently reportable unit of the current task, update the active task manager and task log now with what landed and what comes next. Do not defer that update until the end."
+	return "Graphit task checkpoint: if the action just finished the smallest independently reportable unit, call `" + brand.MCPToolName("task", "progress") + "` now with what landed and the exact next step. Do not write Markdown task state or defer the checkpoint until the end."
 }
 
 // SubagentProtocol is self-contained because subagents may start with neither

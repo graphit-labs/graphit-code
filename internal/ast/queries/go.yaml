@@ -108,7 +108,7 @@ comment_types:
   - comment
 
 # Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar (see docs/tasks/ for how). "else if" needs no
+# against the actual grammar (see Graphit Task history). "else if" needs no
 # entry of its own — Go re-nests it as another if_statement in the else block.
 complexity:
   node_types:

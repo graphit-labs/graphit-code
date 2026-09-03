@@ -3,14 +3,13 @@
 //
 // TWO MODES, AND THEY ARE NOT SYMMETRIC:
 //
-//   - LOCAL is where a project's own index lives, and it is the only place writes happen in
-//     normal operation. It replaces the SQLite index entirely.
-//   - REMOTE (`s3://…`) is a version PUBLISHED to the Hub. A publisher writes it once, by
-//     extracting from the populated local index; every consumer only ever reads it, over the
-//     network, without downloading a byte.
+//   - LOCAL is where a project's own indexes normally live and replaces SQLite entirely.
+//   - REMOTE (`s3://…`) is read-only by default for published Hub artifacts. Coordination
+//     modules such as Memory and Task opt into remote writes explicitly and read the tables
+//     in place, without downloading a replica.
 //
-// So the write surface is aimed at local use and the query surface at both, and a caller that
-// mixes them up gets an error rather than a surprise — see Store.Remote and ErrReadOnly.
+// A caller must declare remote write intent, so confusing a published artifact with a shared
+// mutable table fails closed — see Config.Writable and ErrReadOnly.
 //
 // WHY THIS PACKAGE OWNS ITS OWN ARROW: lancedb-go is built against
 // `github.com/apache/arrow/go/v17` while the rest of this project uses
@@ -279,6 +278,27 @@ type Query struct {
 	// default and the shipped behaviour — see rerank.go for why.
 	Rerank RerankConfig
 }
+
+// MergeOptions controls one conditional merge transaction.
+//
+// MatchCondition uses Lance SQL and may address the stored row as `target` and
+// the submitted row as `source`. This is the compare-and-set primitive used by
+// shared coordination records: the merge result says whether this writer won.
+type MergeOptions struct {
+	KeyColumn       string
+	MatchCondition  string
+	InsertIfMissing bool
+}
+
+// MergeResult reports what one conditional merge actually changed.
+type MergeResult struct {
+	Version  uint64
+	Inserted uint64
+	Updated  uint64
+}
+
+// Changed reports whether the transaction inserted or updated a row.
+func (r MergeResult) Changed() bool { return r.Inserted+r.Updated > 0 }
 
 // CompactionResult is what the engine reports it actually did, which is the only honest answer
 // to "did compaction help". Counting data files cannot tell you: compaction writes the merged

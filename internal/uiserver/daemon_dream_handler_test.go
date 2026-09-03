@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -414,204 +413,18 @@ func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
 	}
 }
 
-func TestHandleBacklogList_MissingDir(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
+// Should return an empty array, not null
 
-	req := httptest.NewRequest(http.MethodGet, "/api/backlog", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
+// It could be null if backlog.List returns nil
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-}
+// 1. Add an item
 
-func TestHandleBacklogList_EmptyDir(t *testing.T) {
-	tmp := t.TempDir()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
+// The wire contract is snake_case, matching every other result struct and
+// the TypeScript BacklogItem interface.
 
-	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
+// Register using non-pattern route to test method check inside handler
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	// Should return an empty array, not null
-	body := strings.TrimSpace(w.Body.String())
-	if body != "[]" {
-		// It could be null if backlog.List returns nil
-		var subjects []any
-		if err := json.Unmarshal([]byte(body), &subjects); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if len(subjects) != 0 {
-			t.Errorf("expected empty subjects, got %d", len(subjects))
-		}
-	}
-}
-
-func TestHandleBacklogList_AndAddRemove(t *testing.T) {
-	tmp := t.TempDir()
-
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	// 1. Add an item
-	addBody := `{"title":"Optimize imports","body":"Clean all unused packages."}`
-	reqAdd := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(addBody))
-	wAdd := httptest.NewRecorder()
-	mux.ServeHTTP(wAdd, reqAdd)
-
-	if wAdd.Code != http.StatusOK {
-		t.Errorf("add item status = %d; want %d", wAdd.Code, http.StatusOK)
-	}
-
-	reqList := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
-	wList := httptest.NewRecorder()
-	mux.ServeHTTP(wList, reqList)
-
-	if wList.Code != http.StatusOK {
-		t.Errorf("list backlog status = %d; want %d", wList.Code, http.StatusOK)
-	}
-
-	var items []map[string]any
-	if err := json.NewDecoder(wList.Body).Decode(&items); err != nil {
-		t.Fatalf("failed to decode the backlog: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
-	}
-
-	// The wire contract is snake_case, matching every other result struct and
-	// the TypeScript BacklogItem interface.
-	slug, ok := items[0]["slug"].(string)
-	if !ok {
-		t.Fatalf("expected a string \"slug\" key, got %#v", items[0])
-	}
-	if _, ok := items[0]["created_at"]; !ok {
-		t.Errorf("expected a \"created_at\" key, got %#v", items[0])
-	}
-
-	reqRemove := httptest.NewRequest(http.MethodDelete, "/api/backlog/item/"+slug+"?project_dir="+tmp, nil)
-	wRemove := httptest.NewRecorder()
-	mux.ServeHTTP(wRemove, reqRemove)
-
-	if wRemove.Code != http.StatusOK {
-		t.Errorf("remove item status = %d; want %d", wRemove.Code, http.StatusOK)
-	}
-}
-
-func TestHandleBacklogAdd_MissingDir(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	body := `{"title":"Test","body":"Body"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleBacklogAdd_InvalidJSON(t *testing.T) {
-	tmp := t.TempDir()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader("not-json"))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleBacklogAdd_EmptyTitle(t *testing.T) {
-	tmp := t.TempDir()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	body := `{"title":"","body":"Some body"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(body))
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleBacklogAdd_InvalidMethod(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	// Register using non-pattern route to test method check inside handler
-	mux.HandleFunc("/test/dream/subject", corsJSON(h.handleBacklogAdd))
-
-	req := httptest.NewRequest(http.MethodGet, "/test/dream/subject?project_dir=/tmp", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusMethodNotAllowed)
-	}
-}
-
-func TestHandleBacklogRemove_MissingDir(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/backlog/item/test-slug", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleBacklogRemove_InvalidMethod(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	// Register without method pattern to test the handler's own method check
-	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleBacklogRemove))
-
-	req := httptest.NewRequest(http.MethodPost, "/test/dream/subject/test-slug?project_dir=/tmp", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusMethodNotAllowed)
-	}
-}
-
-func TestHandleBacklogRemove_NonexistentSlug(t *testing.T) {
-	tmp := t.TempDir()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/backlog/item/nonexistent-slug-xyz?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusInternalServerError)
-	}
-}
+// Register without method pattern to test the handler's own method check
 
 func TestSplitLastNLocal(t *testing.T) {
 	tests := []struct {
@@ -672,13 +485,6 @@ func TestNewDaemonDreamHandler(t *testing.T) {
 	}
 }
 
-func TestNewDaemonBacklogHandler(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	if h == nil {
-		t.Fatal("NewDaemonBacklogHandler returned nil")
-	}
-}
-
 func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
@@ -700,18 +506,5 @@ func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 		if w.Code == 404 {
 			t.Errorf("route %s %s not registered", ep.method, ep.path)
 		}
-	}
-}
-
-func TestDaemonBacklogHandler_RegisterAPIRoutes(t *testing.T) {
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir=/tmp", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-	if w.Code == http.StatusNotFound {
-		t.Error("backlog route not registered")
 	}
 }

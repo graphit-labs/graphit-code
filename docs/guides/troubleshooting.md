@@ -969,7 +969,7 @@ graphit sync  # Ensures daemon is running
 
 ### Dream reports not generated
 
-**Cause:** The Dream module only activates after an idle timeout (configurable, default varies). Reports contain skill-generation findings, conversation analysis results, and newly created memories or skills. The task backlog is not a Dream input.
+**Cause:** The Dream module only activates after an idle timeout (configurable, default varies). Reports contain skill-generation findings, conversation analysis results, and newly created memories or skills. Graphit Task is not a Dream input.
 
 **Solutions:**
 1. Check dream status for timing:
@@ -977,16 +977,20 @@ graphit sync  # Ensures daemon is running
    graphit dream status
    ```
 
-### A backlog item is not where you expected it
+### Agents do not see the same tasks
 
-**Cause:** The backlog defaults to `docs/tasks/backlog/`, inside the documentation tree, and that default is composed from `knowledge.docs_dir` — so moving where docs live moves the backlog too.
+**Cause:** Agents are resolving different project identities, S3 settings, or `task.prefix` values.
 
 **Solutions:**
 ```bash
-graphit config --get backlog.dir                # the explicit override, if any
-graphit config --get knowledge.docs_dir         # what the default is composed from
+graphit config --get task.prefix
+graphit config --get hub.bucket
+graphit config --get hub.prefix
+graphit task list
 ```
-An environment variable outranks both config files and appears in neither, so also check `GRAPHIT_BACKLOG_DIR`.
+Also compare `graphit.lock.json` project IDs and the `GRAPHIT_TASK_PREFIX`,
+`GRAPHIT_HUB_BUCKET`, and `GRAPHIT_HUB_PREFIX` environment variables. Task has no
+repository Markdown replica to reconcile.
 
 ---
 

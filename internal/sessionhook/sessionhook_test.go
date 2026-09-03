@@ -38,7 +38,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 	t.Parallel()
 
 	reminder := UnitCompletionReminder()
-	for _, want := range []string{"smallest independently reportable unit", "update the active task manager and task log now", "Do not defer"} {
+	for _, want := range []string{"smallest independently reportable unit", "graphit_task_progress", "Do not write Markdown task state", "defer"} {
 		if !strings.Contains(reminder, want) {
 			t.Fatalf("unit reminder missing %q: %s", want, reminder)
 		}

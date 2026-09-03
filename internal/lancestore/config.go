@@ -50,6 +50,11 @@ type Config struct {
 	// A caller that sets it accepts what comes with concurrent writers: a commit can lose the
 	// race and has to be retried. See withCommitRetry.
 	Writable bool
+
+	// StrongReadConsistency makes every read refresh the table manifest first.
+	// Coordination data must enable it: a cached snapshot is acceptable for a
+	// search index, but never for deciding whether a shared lease is free.
+	StrongReadConsistency bool
 }
 
 // ReadOnly reports whether this configuration refuses writes.

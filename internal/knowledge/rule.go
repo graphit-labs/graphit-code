@@ -30,7 +30,7 @@ func InstallSkill(projectDir, ideName string) error {
 	}
 	docsDir := resolveDocsDirFromProject(projectDir)
 	skillContent := brand.ResolveModuleSkill("knowledge", KnowledgeRuleContent(InstalledContextsIn(projectDir), docsDir))
-	frontmatter, err := ide.SkillFrontmatter(knowledgeSkillName, "Knowledge-first: project documentation, wiki retrieval, task logs, architecture, decisions, specifications, provenance, and backlog; use wiki tools before reading documentation files.")
+	frontmatter, err := ide.SkillFrontmatter(knowledgeSkillName, "Knowledge-first: project documentation, wiki retrieval, architecture, decisions, specifications, and provenance; use wiki tools before reading documentation files.")
 	if err != nil {
 		return err
 	}

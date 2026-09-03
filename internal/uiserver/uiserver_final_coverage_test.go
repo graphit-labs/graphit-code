@@ -122,32 +122,7 @@ func TestHandleSearch_FallbackExerciseSnippetBoundaries(t *testing.T) {
 	}
 }
 
-func TestHandleBacklogList_ReturnsEmptyArray(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	// Create the subjects dir but with no files
-	subjectsDir := filepath.Join(tmp, ".graphit", "dream", "subjects")
-	if err := os.MkdirAll(subjectsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	body := strings.TrimSpace(w.Body.String())
-	if body != "[]" {
-		t.Errorf("expected '[]', got %q", body)
-	}
-}
+// Create the subjects dir but with no files
 
 func TestHandleDreamReports_NullResultsCoerced(t *testing.T) {
 	t.Parallel()
@@ -184,37 +159,6 @@ func TestNewWikiHandler(t *testing.T) {
 	}
 }
 
-func TestHandleBacklogRemove_EmptySlugParam(t *testing.T) {
-	t.Parallel()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
+// Register without method pattern to test internal slug check
 
-	// Register without method pattern to test internal slug check
-	mux.HandleFunc("/test/subject/{slug}", corsJSON(h.handleBacklogRemove))
-
-	// Request with a "slug" that resolves to empty
-	req := httptest.NewRequest(http.MethodDelete, "/test/subject/?project_dir=/tmp", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code == http.StatusOK {
-		t.Error("expected error for empty slug")
-	}
-}
-
-func TestHandleBacklogAdd_MethodValidation(t *testing.T) {
-	t.Parallel()
-	h := NewDaemonBacklogHandler()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/test/subject", corsJSON(h.handleBacklogAdd))
-
-	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-		req := httptest.NewRequest(method, "/test/subject?project_dir=/tmp", nil)
-		w := httptest.NewRecorder()
-		mux.ServeHTTP(w, req)
-
-		if w.Code != http.StatusMethodNotAllowed {
-			t.Errorf("method %s: status = %d; want %d", method, w.Code, http.StatusMethodNotAllowed)
-		}
-	}
-}
+// Request with a "slug" that resolves to empty

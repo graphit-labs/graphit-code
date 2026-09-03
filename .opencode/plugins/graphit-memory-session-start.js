@@ -26,7 +26,7 @@ export const GraphitLifecycle = async ({ directory }) => {
     }
   },
   "tool.execute.after": async (_input, output) => {
-    const reminder = "Graphit task checkpoint: if the action that just finished completed the smallest independently reportable unit of the current task, update the active task manager and task log now with what landed and what comes next. Do not defer that update until the end."
+    const reminder = "Graphit task checkpoint: if the action just finished the smallest independently reportable unit, call `graphit_task_progress` now with what landed and the exact next step. Do not write Markdown task state or defer the checkpoint until the end."
     if (typeof output.output === "string" && !output.output.includes(reminder)) output.output += `\n\n${reminder}`
   },
   "experimental.chat.system.transform": async (input, output) => {
