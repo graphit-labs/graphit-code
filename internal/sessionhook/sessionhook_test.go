@@ -169,6 +169,47 @@ func TestRepeatedAgentBoundariesStayCompact(t *testing.T) {
 	}
 }
 
+func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
+	t.Parallel()
+
+	for _, format := range []string{FormatSessionStart, FormatPlainContext, FormatUserPrompt, FormatBeforeAgent, FormatPostToolUse, FormatAfterTool, FormatPlainUnit} {
+		payload, err := Render(format, nil)
+		if err != nil {
+			t.Fatalf("rendering unaffected format %s: %v", format, err)
+		}
+		if strings.Contains(string(payload), "specific hook compensation") {
+			t.Fatalf("unaffected format %s received adapter-specific compensation: %s", format, payload)
+		}
+	}
+
+	cursorStart, err := Render(FormatAdditionalContext, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursorUnit, err := Render(FormatCursorUnit, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, payload := range map[string][]byte{"sessionStart": cursorStart, "postToolUse": cursorUnit} {
+		if !strings.Contains(string(payload), "Cursor-specific hook compensation") || strings.Contains(string(payload), "Antigravity-specific") || len(payload) > 1200 {
+			t.Fatalf("Cursor %s compensation is missing, leaked, or too large (%d bytes): %s", name, len(payload), payload)
+		}
+	}
+
+	for _, invocation := range []string{`{"invocationNum":0}`, `{"invocationNum":1}`} {
+		payload, err := Render(FormatFirstInvocation, []byte(invocation))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(payload), "Antigravity-specific hook compensation") || strings.Contains(string(payload), "Cursor-specific") {
+			t.Fatalf("Antigravity compensation is missing or leaked: %s", payload)
+		}
+		if strings.Contains(invocation, `:1`) && len(payload) > 1200 {
+			t.Fatalf("repeated Antigravity compensation is too large: %d bytes", len(payload))
+		}
+	}
+}
+
 func TestRenderAntigravityBootstrapsFirstAndReassertsInvariantLater(t *testing.T) {
 	t.Parallel()
 

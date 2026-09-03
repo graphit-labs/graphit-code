@@ -8,153 +8,145 @@ tags: [adapters, hooks, mandates, skills, enforcement]
 
 # Adapter hook enforcement
 
-## Objetivo
+## Objective
 
-O Graphit usa hooks para executar garantias observáveis e mantém instruções somente para decisões que exigem interpretação. A fronteira é deliberada:
+Graphit uses hooks for observable guarantees and reserves instructions for decisions that require interpretation. The boundary is deliberate:
 
-- **hook**: evento e entrada são objetivos; a ação pode ser executada ou bloqueada sem julgamento;
-- **mandate**: roteador residente, composto dinamicamente pelo hook apenas para módulos habilitados;
-- **skill**: ensina o fluxo decisório apenas depois que o domínio se torna relevante;
-- **schema da tool**: continua sendo a referência de argumentos; não é copiado para a skill.
+- **hook**: the event and input are objective, so the action can run or be blocked without judgment;
+- **mandate**: a resident router dynamically composed by the hook only for enabled modules;
+- **skill**: teaches the decision workflow only after its domain becomes relevant;
+- **tool schema**: remains the argument reference and is not copied into the skill.
 
-Mais prosa não transforma uma obrigação em garantia. Da mesma forma, um hook não deve bloquear trabalho legítimo com uma classificação que ele não consegue provar.
+More prose does not turn an obligation into a guarantee. Likewise, a hook must not block legitimate work based on a classification it cannot prove.
 
-## Garantias executadas pelos hooks
+## Guarantees executed by hooks
 
-### Bootstrap de memória
+### Memory bootstrap
 
-O comando oculto `_session-hook` lê diretamente as tabelas autoritativas de memória dos escopos `project` e `user`. O conteúdo obrigatório é injetado no primeiro contexto do agente; portanto, a chamada inicial de `graphit_memory_mandatory` não depende mais do modelo. Se a tabela não puder ser aberta, o payload volta ao protocolo MCP e declara a chamada necessária.
+The hidden `_session-hook` command reads the authoritative `project` and `user` memory tables directly. Mandatory content is injected into the agent's first context, so the initial `graphit_memory_mandatory` call no longer depends on the model. If the table cannot be opened, the payload falls back to the MCP protocol and declares the required call.
 
-A busca contextual permanece semântica: a skill manda pesquisar o pedido atual, escolher pelos títulos e ler somente as páginas relevantes. O hook não escolhe memórias por score como se relevância fosse uma certeza mecânica.
+Contextual recall remains semantic: the skill requires a focused search for the current request, selection by title, and reading only the relevant pages. The hook does not choose memories by score as though relevance were mechanically certain.
 
-### Contexto residente dinâmico
+### Dynamic resident context
 
-No mesmo evento, `_session-hook` resolve a raiz em runtime a partir do campo nativo do host: `cwd` em Claude, Codex, Gemini e Kiro; `workspace_roots` no Cursor; e `workspacePaths` no Antigravity. A partir de cada candidato, sobe até o lockfile Graphit mais próximo; o cwd do processo fornece o último candidato. OpenCode inicia o subprocesso com seu `directory` runtime como cwd. `.git` nunca define uma raiz Graphit: projetos sem Git funcionam pelo lockfile, e a ausência do lockfile deixa a raiz não resolvida e ativa apenas o fallback compacto. Nenhum checkout absoluto da máquina que executou o sync é serializado no hook. O flag `--project-dir` permanece somente como ponto inicial explícito para diagnóstico e também precisa alcançar um lockfile.
+In the same event, `_session-hook` resolves the project root at runtime from the host's native field: `cwd` for Claude, Codex, Gemini, and Kiro; `workspace_roots` for Cursor; and `workspacePaths` for Antigravity. It walks upward from every candidate to the nearest Graphit lockfile, with the process working directory as the final candidate. OpenCode starts the subprocess with its runtime `directory` as the working directory. `.git` never defines a Graphit root: projects without Git work through the lockfile, while a missing lockfile leaves the root unresolved and enables only the compact fallback. No absolute checkout path from the machine that ran sync is serialized into the hook. The `--project-dir` flag remains an explicit diagnostic starting point and must also reach a lockfile.
 
-Depois da resolução, o comando lê a configuração e o lockfile desse projeto. Ele compõe, em ordem estável, somente os mandates dos módulos habilitados e os corpos dos artifacts Hub de tipo `rule` instalados. Rules são lidas no artifact autoritativo (`RULE.md`), inclusive links locais; não são copiadas para diretórios de rules da IDE.
+After resolution, the command reads that project's configuration and lockfile. In stable order, it composes only the mandates for enabled modules and the bodies of installed Hub `rule` artifacts. Rules are read from the authoritative artifact (`RULE.md`), including local links; they are not copied into IDE rule directories.
 
-O Graphit não cria nem atualiza `AGENTS.md`, `CLAUDE.md` ou equivalentes para entregar essas instruções. Esses arquivos, quando existem, pertencem ao usuário. Skills continuam físicas nos diretórios nativos porque os hosts precisam descobri-las e carregá-las sob demanda.
+Graphit does not create or update `AGENTS.md`, `CLAUDE.md`, or equivalents to deliver these instructions. Those files belong to the user when present. Skills remain physical in native host directories because hosts must discover and load them on demand.
 
-Agentes externos podem recuperar somente os mandates globais com `graphit_mandates`, sem parâmetros. A tool não resolve projeto nem lê lockfile; em cada chamada, o schema canônico de config resolve ambiente, configuração global e defaults, e o mesmo builder do hook aplica os overrides globais de rules. Memórias obrigatórias, instruções de bootstrap, rules instaladas do Hub e configuração de projeto não fazem parte desse retorno.
+External agents can retrieve only global mandates through parameterless `graphit_mandates`. The tool does not resolve a project or read its lockfile. On every call, the canonical configuration schema resolves environment, global configuration, defaults, and global rule overrides through the same builder used by the hook. Mandatory memories, bootstrap instructions, installed Hub rules, and project configuration are excluded from this response.
 
-### Reinjeção de invariantes
+### Invariant reinjection
 
-O contexto residente completo é reservado para início real de sessão ou subagente e para a reconstrução excepcional após compactação. Limites recorrentes de prompt ou invocação recebem somente `CoreInvariant`, o lembrete curto de precedência Graphit-first; eles não reconstroem nem repetem memória obrigatória, mandates, rules ou o bootstrap inicial. Limites pós-ação recebem somente `UnitCompletionReminder`. Se a MCP tool exigida não estiver disponível no agente atual, ele continua com suas tools nativas padrão. A única substituição proibida é chamar o CLI do Graphit como se fosse MCP.
+Full resident context is reserved for a real session or subagent start and for exceptional reconstruction after compaction. Recurring prompt or invocation boundaries receive only `CoreInvariant`, the short Graphit-first priority reminder; they do not rebuild or repeat mandatory memory, mandates, rules, or the initial bootstrap. When an adapter has a compensable gap, only that adapter's format appends its specific instruction to the invariant or checkpoint. Post-action boundaries without a gap receive only `UnitCompletionReminder`. If a required Graphit MCP tool is unavailable in the current agent, the agent continues with its native tools. The only prohibited substitution is using the Graphit CLI as though it were MCP.
 
-Retomar, reentrar ou continuar trabalho interrompido reaplica essa precedência antes da próxima ação. O hook só reinsere o roteador: a classificação do domínio continua a cargo do agente, que carrega a skill correspondente apenas quando o próximo passo encontra um trigger.
+Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. The hook only restores the router; the agent still classifies the domain and loads the corresponding skill only when the next action matches a trigger.
 
-### Estado de tarefa, checkpoints e finalização
+### Task state, checkpoints, and finalization
 
-O Graphit trata a menor unidade semanticamente reportável como um checkpoint, não como sinônimo mecânico de qualquer tool call. Nos eventos pós-ação disponíveis, o hook pede ao agente que decida se a unidade terminou e, em caso positivo, atualize imediatamente a task Graphit ativa com o que foi entregue e o próximo passo. Nenhum estado é gravado em task logs Markdown. Kiro também possui `PostTaskExec`, que fornece um boundary objetivo de task de spec.
+Graphit treats the smallest semantically reportable unit as a checkpoint, not as a mechanical synonym for every tool call. At available post-action events, the hook asks the agent to decide whether the unit finished and, if so, immediately update the active Graphit task with what landed and the exact next step. No state is written to Markdown task logs. Kiro also exposes `PostTaskExec`, which provides an objective specification-task boundary.
 
-O mesmo hook executa reconciliação determinística nas tabelas LanceDB: restaura projeções de dependências, checks, comentários e eventos interrompidas depois do CAS autoritativo; expira leases; libera a claim do agente parado quando o host fornece identidade; e reabre qualquer conclusão que viole flag, checks evidenciados ou conclusão de subtasks. Eventos pós-tool renovam a lease da única task pertencente ao agente. Essas transições não dependem de interpretação do modelo.
+The same hook performs deterministic reconciliation in the LanceDB tables: it restores dependency, check, comment, and event projections interrupted after the authoritative CAS; expires leases; releases the stopped agent's claim when the host supplies an identity; and reopens any completion that violates a flag, evidenced checks, or subtask completion. Post-tool events renew the single task claim owned by the agent. These transitions do not depend on model interpretation.
 
-Depois da última atualização de tarefa, o evento final dispara `graphit sync` em segundo plano. `_session-hook --sync` inicia o executável Graphit ativo com o argumento `sync`, libera o processo filho e devolve imediatamente o payload nativo de conclusão; não espera indexação, lock ou processo terminar. Falha ao iniciar o dispatcher é erro do hook, mas a sincronização já iniciada não controla nem atrasa a resposta final do agente.
+After the final task update, the final event dispatches `graphit sync` in the background. `_session-hook --sync` starts the active Graphit executable with the `sync` argument, releases the child process, and immediately returns the native completion payload. It does not wait for indexing, a lock, or process completion. Failure to start the dispatcher is a hook error, but an already-started sync does not control or delay the agent's final response.
 
-### Subagentes: três garantias diferentes
+### Subagents: three separate guarantees
 
-Um subagente só está corretamente coberto quando três camadas independentes estão satisfeitas:
+A subagent is covered correctly only when three independent layers hold:
 
-1. **Entrega da instrução** — o contexto isolado recebe o protocolo Graphit. Herança da conversa ou do arquivo de regras nunca é presumida quando o host oferece um boundary próprio.
-2. **Visibilidade da tool** — o runtime inclui os servidores MCP Graphit no registro de tools do filho. Essa camada pertence ao host e pode ser reduzida por `tools`, `disallowedTools`, permissões, `includeMcpJson` ou configuração cloud.
-3. **Roteamento de uso** — hooks entregam a preferência Graphit-first. Uma tool não exposta não pode ser criada por um prompt; por isso a ausência libera as ferramentas padrão do host em vez de bloquear o trabalho.
+1. **Instruction delivery** — the isolated context receives the Graphit protocol. Conversation inheritance or a rules file is never assumed when the host provides a dedicated boundary.
+2. **Tool visibility** — the runtime includes Graphit MCP servers in the child's tool registry. This layer belongs to the host and can be restricted through `tools`, `disallowedTools`, permissions, `includeMcpJson`, or cloud configuration.
+3. **Usage routing** — hooks deliver Graphit-first priority. A prompt cannot create a tool that is not exposed, so the child falls back to the host's native tools instead of blocking.
 
-`SubagentProtocol` é autocontido e marcado por `GRAPHIT_SUBAGENT_PROTOCOL_V1`. Claude e Codex o recebem em `SubagentStart`. Cursor não permite contexto adicional nesse evento, então o adapter tenta injetar o protocolo no input de `Task` por `preToolUse`. Esse hook é deliberadamente fail-open: se a versão do host não aplicar `updated_input`, o filho ainda nasce e usa suas tools nativas.
+`SubagentProtocol` is self-contained and marked with `GRAPHIT_SUBAGENT_PROTOCOL_V1`. Claude and Codex receive it through `SubagentStart`. Cursor cannot add context at that event, so its adapter attempts to inject the protocol into the `Task` input through `preToolUse`. This hook is deliberately fail-open: if a host version does not apply `updated_input`, the child still starts and uses its native tools.
 
-O Graphit preserva allowlists de subagentes pertencentes ao usuário. Alterá-las silenciosamente poderia conceder acesso que foi removido de propósito. Quando uma allowlist exclui Graphit, o subagente mantém o trabalho com as tools permitidas pelo host.
+Graphit preserves user-owned subagent allowlists. Changing them silently could grant access the user intentionally removed. When an allowlist excludes Graphit, the subagent continues with the tools permitted by the host.
 
-Há um limite externo incontornável: quando o host exige confiança ou permite desabilitar hooks, um arquivo do próprio projeto não pode aprovar a si mesmo. Cursor Cloud também executa turnos exploratórios somente leitura antes de carregar hooks do repositório. Nenhum arquivo do projeto consegue aplicar Graphit-first antes de o próprio host carregá-lo; nesse intervalo, o agente opera normalmente com as capacidades padrão. Para usar Graphit também no cloud, o MCP precisa estar configurado na camada de time/enterprise do host. As ações concretas de confiança, ativação, reload e verificação são documentadas separadamente para cada adapter em [Activate Graphit Hooks in Each Agent](../guides/agent_hook_activation.md); uma ressalva arquitetural genérica não substitui instruções ao usuário.
+An external limit remains: when a host requires trust or allows hooks to be disabled, a project file cannot approve itself. Cursor Cloud also runs read-only exploratory turns before loading repository hooks. No project file can enforce Graphit-first routing before the host loads it; during that interval, the agent operates with its default capabilities. To use Graphit in cloud execution, MCP must be configured at the host's team or enterprise layer. Concrete trust, activation, reload, and verification steps are documented per adapter in [Activate Graphit Hooks in Each Agent](../guides/agent_hook_activation.md).
 
-### Fallback nativo
+### Native fallback
 
-Os adapters não bloqueiam tools nativas. O payload de um hook de tool use não prova que `graphit_ast_*` está realmente exposto naquele agente ou subagente; negar `Grep`, `Glob`, `rg` ou equivalentes poderia impedir todo o trabalho. O mandate e a skill dão precedência ao Graphit quando disponível e autorizam as tools padrão quando ele não está.
+Adapters do not block native tools. A tool-use hook payload does not prove that `graphit_ast_*` is exposed in the current agent or subagent; denying `Grep`, `Glob`, `rg`, or equivalents could block all work. The mandate and skill prioritize Graphit when available and permit the host's standard tools when it is not.
 
-Para código local suportado, a skill ainda orienta AST-first. Conteúdo não indexado, formato não suportado ou indisponibilidade da tool usam descoberta nativa diretamente. Contextos importados continuam sem fallback nativo porque seu source não está no workspace do agente.
+For supported local code, the skill still requires AST-first discovery. Unindexed content, unsupported formats, or unavailable tools use native discovery directly. Imported contexts have no native fallback because their source is not present in the agent's workspace.
 
-## Matriz por adapter
+## Adapter matrix
 
-### Ciclo de trabalho
+### Work lifecycle
 
-| Adapter | Retomada/reinjeção | Menor unidade disponível | Finalização assíncrona |
+| Adapter | Resume/reinjection | Smallest available unit | Asynchronous finalization |
 |---|---|---|---|
-| Claude Code | `SessionStart`/`SubagentStart` carregam o bootstrap; `UserPromptSubmit` reinjeta só o invariant compacto | `PostToolUse` pede avaliação e atualização imediata | `SubagentStop`, `Stop` e `SessionEnd` disparam sync |
-| Codex | `SessionStart`/`SubagentStart` carregam o bootstrap; `UserPromptSubmit` reinjeta só o invariant compacto | `PostToolUse` pede avaliação e atualização imediata | `SubagentStop`, `Stop` e `SessionEnd` disparam sync |
-| Cursor | `sessionStart`; `preToolUse(Task)` inicializa o filho | `postToolUse` pede avaliação e atualização imediata | `subagentStop`, `stop` e `sessionEnd` local disparam sync |
-| Gemini CLI | `SessionStart` carrega o bootstrap; `BeforeAgent` reinjeta só o invariant compacto | `AfterTool` pede avaliação e atualização imediata | `AfterAgent` e `SessionEnd` disparam sync |
-| Kiro | `SessionStart`, `UserPromptSubmit` e `AgentSpawn` | `PostToolUse` avalia a unidade; `PostTaskExec` cobre task de spec | `Stop` dispara sync |
-| Antigravity | `PreInvocation` carrega o bootstrap na invocação zero e só o invariant nas seguintes | `PostInvocation` pede avaliação e atualização imediata | `Stop` dispara sync |
-| OpenCode | transform de system por sessão e hook de compactação | `tool.execute.after` pede avaliação e atualização imediata | `session.idle` e `session.deleted` usam `Bun.spawn(...).unref()` |
+| Claude Code | `SessionStart`/`SubagentStart` load bootstrap; `UserPromptSubmit` reinjects only the compact invariant | `PostToolUse` requests evaluation and immediate progress | `SubagentStop`, `Stop`, and `SessionEnd` dispatch sync |
+| Codex | `SessionStart`/`SubagentStart` load bootstrap; `UserPromptSubmit` reinjects only the compact invariant | `PostToolUse` requests evaluation and immediate progress | `SubagentStop`, `Stop`, and `SessionEnd` dispatch sync |
+| Cursor | `sessionStart`; `preToolUse(Task)` initializes the child | `postToolUse` requests evaluation and immediate progress | local `subagentStop`, `stop`, and `sessionEnd` dispatch sync |
+| Gemini CLI | `SessionStart` loads bootstrap; `BeforeAgent` reinjects only the compact invariant | `AfterTool` requests evaluation and immediate progress | `AfterAgent` and `SessionEnd` dispatch sync |
+| Kiro | `SessionStart`, `UserPromptSubmit`, and `AgentSpawn` | `PostToolUse` evaluates the unit; `PostTaskExec` covers a specification task | `Stop` dispatches sync |
+| Antigravity | `PreInvocation` loads bootstrap at invocation zero and only the invariant afterward | `PostInvocation` requests evaluation and immediate progress | `Stop` dispatches sync |
+| OpenCode | per-session system transform and a compaction hook | `tool.execute.after` requests evaluation and immediate progress | `session.idle` and `session.deleted` use `Bun.spawn(...).unref()` |
 
-Todos os disparos finais são fire-and-forget. O dispatcher usa APIs de processo do runtime; OpenCode usa array de argumentos, e os hosts cujo schema exige uma command string recebem o executável escapado conforme o sistema operacional. Não há script auxiliar dependente de shell, e a configuração gerada não contém paths do checkout; esse é o contrato comum para Linux, Windows e macOS.
+All final dispatches are fire-and-forget. The dispatcher uses runtime process APIs; OpenCode uses an argument array, while hosts whose schema requires a command string receive an executable escaped for the current operating system. There is no shell-dependent helper script, and generated configuration contains no checkout path. This is the common Linux, Windows, and macOS contract.
 
-Os eventos presentes na API não são tratados como cobertura automática. Antigravity oferece `PostToolUse`, mas esse evento aceita somente `{}` como saída e não consegue reinjetar a orientação de gerenciamento da tarefa; por isso o adapter usa `PostInvocation`, que suporta `injectSteps[].ephemeralMessage`, e não instala um `PostToolUse` vazio. Pelo mesmo critério, `beforeSubmitPrompt` do Cursor não substitui um boundary de reinjeção porque sua saída não oferece contexto adicional. Limitações nativas ficam explícitas, em vez de serem mascaradas por hooks sem efeito.
+An event appearing in an API does not automatically count as coverage. Antigravity exposes `PostToolUse`, but its output accepts only `{}` and cannot reinject task-management guidance. The adapter therefore uses `PostInvocation`, which supports `injectSteps[].ephemeralMessage`, and does not install an empty `PostToolUse`. Likewise, Cursor's `beforeSubmitPrompt` cannot replace a reinjection boundary because its output cannot add context. Native limitations remain explicit instead of being hidden behind hooks with no effect.
 
-### Subagentes e visibilidade
+Compensation is strictly adapter-specific. Cursor receives guidance through `sessionStart` and `postToolUse` to reapply Graphit-first routing on every prompt because `beforeSubmitPrompt` cannot inject context and Cloud may omit `sessionStart`; a late reminder governs only subsequent actions. Antigravity receives guidance through `PreInvocation` to apply the checkpoint after each tool despite the context-free `PostToolUse`, and to include the Graphit protocol in delegated prompts because no dedicated subagent-start boundary exists. Neither instruction enters the common `CoreInvariant`, the global mandate preamble, or the other five adapters. Compensation does not create the missing event or turn instruction compliance into native enforcement.
 
-| Adapter | Instrução no subagente | Visibilidade das MCP tools | Fallback e limite |
+### Subagents and visibility
+
+| Adapter | Subagent instruction | MCP tool visibility | Fallback and limit |
 |---|---|---|---|
-| Claude Code | `SubagentStart` injeta `SubagentProtocol`; não depende de `CLAUDE.md`, que alguns built-ins não carregam. | O filho herda as tools do pai, salvo filtros/background e `tools`/`disallowedTools` do agente customizado. | Uma allowlist que remova MCP deixa o filho usar suas tools nativas permitidas. |
-| Codex | `SubagentStart` injeta `SubagentProtocol` como contexto de developer. | O adapter instala MCP no projeto; a disponibilidade no filho ainda depende da superfície Codex que realizou o spawn. | Sem Graphit no registro do filho, permanecem as tools padrão dessa superfície. |
-| Cursor | `preToolUse(Task)` tenta injetar o protocolo sem bloquear o spawn. | Filho local herda todas as tools do pai. Filho cloud usa MCPs configurados para o time, não os MCPs locais. | Ausência de Graphit ou falha de reescrita mantém o subagente nativo; não há gate em `subagentStart`. |
-| Gemini CLI | `BeforeAgent` reaplica o contexto residente em cada turno; o bootstrap principal vem de `SessionStart`. | Agente customizado sem `tools` herda o pai; uma lista explícita pode excluir `mcp_*`/`mcp_server_*`. | Configuração restrita continua com os built-ins configurados. |
-| Kiro | Steering é compartilhado; `SessionStart` cobre IDE e `AgentSpawn` cobre CLI. | Subagentes compartilham MCP e permissões do projeto; perfil customizado pode desligar `includeMcpJson` ou declarar MCPs próprios. | Sem MCP do projeto, o perfil continua com suas tools nativas. |
-| Antigravity | `PreInvocation` injeta bootstrap na invocação zero e contexto residente nas seguintes; a documentação não expõe um evento próprio de subagente. | Clones dinâmicos podem herdar toolset; agente estático controla `tools` e `mcpServers`, vazios por padrão. | Execuções fora dos hooks do projeto ou sem MCP continuam com o toolset definido pelo host. |
-| OpenCode | `experimental.chat.system.transform` inicializa cada `sessionID`, incluindo sessões filhas, e `experimental.session.compacting` preserva o contexto residente na compactação. | A configuração MCP é do projeto, mas permissões específicas do agente podem negar tools MCP. | Permissão que negue MCP mantém as tools permitidas para esse agente; o plugin não bloqueia alternativas. |
+| Claude Code | `SubagentStart` injects `SubagentProtocol`; it does not depend on `CLAUDE.md`, which some built-ins do not load. | The child inherits parent tools except for background restrictions and custom-agent `tools`/`disallowedTools`. | An allowlist that removes MCP leaves the child with its permitted native tools. |
+| Codex | `SubagentStart` injects `SubagentProtocol` as developer context. | The adapter installs MCP in the project; child availability still depends on the Codex surface that performed the spawn. | Without Graphit in the child registry, that surface's standard tools remain available. |
+| Cursor | `preToolUse(Task)` attempts protocol injection without blocking the spawn. | A local child inherits all parent tools. A cloud child uses team-configured MCP, not local MCP configuration. | Missing Graphit or failed input rewriting leaves the native subagent path open; `subagentStart` has no context gate. |
+| Gemini CLI | `BeforeAgent` reapplies compact context on each turn; `SessionStart` provides the main bootstrap. | A custom agent without `tools` inherits its parent; an explicit list can exclude `mcp_*`/`mcp_server_*`. | A restricted configuration continues with its configured built-ins. |
+| Kiro | Steering is shared; `SessionStart` covers the IDE and `AgentSpawn` covers the CLI. | Subagents share project MCP and permissions; a custom profile can disable `includeMcpJson` or declare its own MCP servers. | Without project MCP, the profile continues with native tools. |
+| Antigravity | `PreInvocation` injects bootstrap at invocation zero and compact context afterward; no dedicated subagent event is exposed. | Dynamic clones can inherit the toolset; a static agent controls `tools` and `mcpServers`, which default to empty. | Executions outside project hooks or without MCP continue with the host-defined toolset. |
+| OpenCode | `experimental.chat.system.transform` initializes every `sessionID`, including child sessions, and `experimental.session.compacting` preserves context during compaction. | MCP configuration belongs to the project, but agent-specific permissions can deny MCP tools. | Denied MCP permissions leave the tools permitted for that agent; the plugin does not block alternatives. |
 
-Cada adapter concreto possui sync, remoção, formato e path do seu host. `FolderBasedAdapter` não conhece eventos nem formatos de hooks.
+Each concrete adapter owns synchronization, removal, format, and path behavior for its host. `FolderBasedAdapter` knows nothing about hook events or formats.
 
-## Contrato de sincronização
+## Synchronization contract
 
-`graphit sync` reconcilia cada adapter como uma única unidade de lifecycle: skills/commands/agents físicos, configuração MCP local ao projeto e hooks nativos da IDE. Isso ocorre em toda sincronização, não apenas no `init`. O writer substitui entradas Graphit anteriores pelo estado atual, preserva entradas pertencentes ao usuário e precisa ser idempotente. Artifacts `rule` ficam no cache/lockfile autoritativo e são consumidos no próximo hook; sync não os materializa na IDE.
+`graphit sync` reconciles each adapter as one lifecycle unit: physical skills, commands, and agents; project-local MCP configuration; and native IDE hooks. This happens on every synchronization, not only during `init`. The writer replaces previous Graphit entries with current state, preserves user-owned entries, and must be idempotent. `rule` artifacts remain in the authoritative cache and lockfile and are consumed by the next hook; sync does not materialize them in the IDE.
 
-Há dois contratos de espera distintos: uma invocação explícita de CLI ou MCP reporta seu próprio resultado ao chamador; a invocação automática de finalização apenas a dispara e não espera. Assim, o agente encerra sem ficar preso à indexação, mas todo boundary final suportado inicia uma tentativa completa de reconciliação.
+There are two separate wait contracts. An explicit CLI or MCP invocation reports its result to the caller. Automatic finalization only dispatches synchronization and does not wait. The agent therefore finishes without being blocked by indexing, while every supported final boundary starts a complete reconciliation attempt.
 
-Uma atualização parcial não pode ser anunciada como sucesso. Falhas de resolução ou escrita do MCP, assim como falhas de parsing ou escrita dos hooks, sobem por `SyncIDEAdapter`; tanto o CLI quanto a tool `graphit_sync` devolvem erro. O teste integrado troca o executável Graphit entre duas sincronizações e verifica, nos sete adapters, que MCP e hooks recebem o valor novo e descartam o antigo.
+A partial update cannot be reported as success. MCP resolution or write failures and hook parse or write failures propagate through `SyncIDEAdapter`; both the CLI and `graphit_sync` report the error. The integration test changes the Graphit executable between two synchronizations and verifies that MCP and hooks for all seven adapters receive the new value and discard the old one.
 
-## O que permanece semântico
+## What remains semantic
 
-Não é seguro automatizar sem um modelo:
+The following cannot be automated safely without a model:
 
-- construir uma consulta Cypher adequada, escolher fonte e avaliar impacto de edição;
-- decidir qual artifact do Hub é relevante ou quando documentação externa é necessária;
-- selecionar quais resultados de memória/wiki devem ser lidos;
-- decidir se uma descoberta é durável, duplicada, contraditória ou merece promoção;
-- decidir quando registrar progresso ou comentário tipado de decisão, problema, lição ou conhecimento na task ativa;
-- reconhecer se uma ação concluiu a menor unidade independentemente reportável antes de atualizar a task;
-- decidir quando freshness precisa ser provada antes de uma conclusão.
+- building an appropriate Cypher query, selecting a source, and assessing edit impact;
+- deciding which Hub artifact is relevant or when external documentation is required;
+- selecting which memory or wiki results must be read;
+- deciding whether a discovery is durable, duplicate, contradictory, or important;
+- deciding when to record progress or a typed decision, problem, lesson, or knowledge comment on the active task;
+- recognizing whether an action completed the smallest independently reportable unit before updating the task;
+- deciding when freshness must be proven before a conclusion.
 
-Esses itens permanecem nos mandates/skills, mas sem manuais de schemas, justificativas genéricas ou exemplos repetitivos.
+These responsibilities remain in mandates and skills without duplicating schema manuals, generic justification, or examples.
 
-## Modelo de orçamento
+## Context budget
 
-- O preâmbulo residente tem limite testado de 1.600 bytes e só aparece uma vez no contexto composto.
-- Cada mandate de módulo tem limite próprio e contém apenas request-shapes + tools de entrada.
-- Cada skill compacta tem um teto absoluto testado entre 5 e 6,5 KB; a geração real também é comparada ao baseline abaixo.
-- Toda tool do módulo continua aparecendo uma vez no `Tool index`; detalhes de argumentos vêm do schema publicado pela própria tool.
-- O bootstrap de memória e o contexto dinâmico completo ocorrem apenas no início real de sessão/subagente. Boundaries recorrentes de prompt/invocação recebem só `CoreInvariant`; checkpoints pós-ação recebem só `UnitCompletionReminder`. A compactação pode reconstruir contexto dinâmico porque representa perda efetiva de contexto, não um evento normal de cada turno.
+- The resident preamble has a tested 1,600-byte limit and appears only once in composed context.
+- Recurring payloads that add Cursor- or Antigravity-specific compensation have a tested 1,200-byte limit; adapters without those gaps retain the previous `CoreInvariant` and payloads without additional text.
+- Each module mandate has its own limit and contains only request shapes and entry tools.
+- Each compact skill has an absolute tested limit between 5 and 6.5 KB.
+- Every module tool appears once in the `Tool index`; argument details come from the tool's published schema.
+- Memory bootstrap and full dynamic context occur only at a real session or subagent start. Recurring prompt or invocation boundaries receive only `CoreInvariant`; post-action checkpoints receive only `UnitCompletionReminder`. Compaction may reconstruct dynamic context because it represents actual context loss, not an ordinary turn event.
 
-### Resultado medido
+Bytes are the deterministic regression metric because token counts vary by host tokenizer.
 
-Medição dos artifacts Codex antes/depois da sincronização desta mudança:
-
-| Artifact | Antes | Depois | Redução |
-|---|---:|---:|---:|
-| `graphit-ast/SKILL.md` | 89.269 B | 3.013 B | 96,6% |
-| `graphit-hub/SKILL.md` | 29.611 B | 2.190 B | 92,6% |
-| `graphit-knowledge/SKILL.md` | 70.539 B | 2.941 B | 95,8% |
-| `graphit-memory/SKILL.md` | 38.380 B | 3.010 B | 92,2% |
-
-As quatro skills juntas caíram de 227.799 para 11.154 bytes (95,1%). O antigo artifact residente `AGENTS.md` deixou de existir: o custo agora é o contexto composto no evento nativo, com módulos desabilitados omitidos e sem uma segunda cópia do preâmbulo. Bytes são usados como métrica determinística de regressão; tokens variam conforme o tokenizer do host.
-
-## Fontes oficiais verificadas
+## Verified official sources
 
 - [Claude Code hooks](https://code.claude.com/docs/en/hooks)
 - [Claude Code subagents](https://code.claude.com/docs/en/sub-agents)
 - [OpenAI Codex hooks](https://learn.chatgpt.com/docs/hooks)
-- [Cursor hooks](https://prod.cursor.com/docs/hooks) e [Cursor subagents](https://prod.cursor.com/docs/subagents)
-- [Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/) e [Gemini CLI subagents](https://geminicli.com/docs/core/subagents/)
-- [Kiro hooks](https://kiro.dev/docs/hooks/), [triggers](https://kiro.dev/docs/hooks/types/) e [Kiro subagents](https://kiro.dev/docs/chat/subagents/)
-- [Google Antigravity hooks](https://antigravity.google/docs/ide/hooks/) e [Antigravity subagents](https://www.antigravity.google/docs/subagents/)
-- [OpenCode plugins/hooks](https://opencode.ai/docs/plugins/) e [OpenCode agents](https://opencode.ai/docs/agents/)
+- [Cursor hooks](https://prod.cursor.com/docs/hooks) and [Cursor subagents](https://prod.cursor.com/docs/subagents)
+- [Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/) and [Gemini CLI subagents](https://geminicli.com/docs/core/subagents/)
+- [Kiro hooks](https://kiro.dev/docs/hooks/), [triggers](https://kiro.dev/docs/hooks/types/), and [Kiro subagents](https://kiro.dev/docs/chat/subagents/)
+- [Google Antigravity hooks](https://antigravity.google/docs/ide/hooks/) and [Antigravity subagents](https://www.antigravity.google/docs/subagents/)
+- [OpenCode plugins/hooks](https://opencode.ai/docs/plugins/) and [OpenCode agents](https://opencode.ai/docs/agents/)
 
-As capacidades foram verificadas em 2026-09-03. Mudanças de fornecedor devem alterar primeiro esta matriz e seus testes de adapter; nunca devem ser simuladas por uma abstração comum que o host não suporta.
+These capabilities were verified on 2026-09-03. Vendor changes must update this matrix and its adapter tests first; they must never be simulated through a shared abstraction the host does not support.

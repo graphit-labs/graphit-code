@@ -50,6 +50,14 @@ func CoreInvariant() string {
 	return "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP."
 }
 
+func cursorLifecycleCompensation() string {
+	return "Cursor-specific hook compensation: `beforeSubmitPrompt` cannot inject context, and Cursor Cloud may omit `sessionStart`; on every new or resumed prompt, reapply Graphit-first routing before acting. A reminder received only after a supported boundary governs subsequent actions, not the already-started first action. This is instruction fallback, not native hook enforcement."
+}
+
+func antigravityLifecycleCompensation() string {
+	return "Antigravity-specific hook compensation: `PostToolUse` cannot inject context, so after each tool action independently apply the Graphit task checkpoint even if `PostInvocation` has not run yet. Antigravity exposes no subagent-start context hook; when delegating, include the Graphit-first invariant and task lifecycle obligations in the child prompt. This is instruction fallback, not native hook enforcement."
+}
+
 // UnitCompletionReminder is injected after the smallest objective work boundary
 // the host exposes. The hook cannot decide whether a semantic unit is complete,
 // so it asks the agent to make that judgment immediately instead of at turn end.
@@ -142,7 +150,7 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 			},
 		})
 	case FormatAdditionalContext:
-		return json.Marshal(map[string]any{"additional_context": protocolWithContext(context)})
+		return json.Marshal(map[string]any{"additional_context": protocolWithContext(context) + "\n" + cursorLifecycleCompensation()})
 	case FormatPlainContext:
 		return []byte(protocolWithContext(context)), nil
 	case FormatBeforeAgent:
@@ -185,7 +193,7 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 			},
 		})
 	case FormatCursorUnit:
-		return json.Marshal(map[string]any{"additional_context": UnitCompletionReminder()})
+		return json.Marshal(map[string]any{"additional_context": UnitCompletionReminder() + "\n" + cursorLifecycleCompensation()})
 	case FormatPlainUnit:
 		return []byte(UnitCompletionReminder()), nil
 	case FormatPostInvocation:
@@ -210,9 +218,9 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 		}
 		var injected string
 		if *event.InvocationNum == 0 {
-			injected = protocolWithContext(context)
+			injected = protocolWithContext(context) + "\n" + antigravityLifecycleCompensation()
 		} else {
-			injected = CoreInvariant()
+			injected = CoreInvariant() + "\n" + antigravityLifecycleCompensation()
 		}
 		return json.Marshal(map[string]any{
 			"injectSteps": []any{map[string]any{"ephemeralMessage": injected}},
