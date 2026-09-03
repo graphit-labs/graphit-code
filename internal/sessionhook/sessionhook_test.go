@@ -49,6 +49,39 @@ func TestRenderNativeFormats(t *testing.T) {
 	}
 }
 
+func TestDynamicInstructionsReachBootstrapAndRepeatedAgentBoundaries(t *testing.T) {
+	t.Parallel()
+	context := Context{MandatoryLoaded: true, Instructions: "DYNAMIC MANDATE\nDYNAMIC HUB RULE"}
+	tests := []struct {
+		format string
+		input  []byte
+	}{
+		{FormatSessionStart, nil},
+		{FormatAdditionalContext, nil},
+		{FormatPlainContext, nil},
+		{FormatBeforeAgent, nil},
+		{FormatSubagentStart, nil},
+		{FormatToolContext, nil},
+		{FormatFirstInvocation, []byte(`{"invocationNum":1}`)},
+		{FormatCursorSubagentTask, []byte(`{"tool_input":{"prompt":"work"}}`)},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.format, func(t *testing.T) {
+			t.Parallel()
+			payload, err := RenderWithContext(tc.format, tc.input, context)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"DYNAMIC MANDATE", "DYNAMIC HUB RULE"} {
+				if count := strings.Count(string(payload), want); count != 1 {
+					t.Fatalf("%s contains %q %d times, want exactly once: %s", tc.format, want, count, payload)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderAntigravityBootstrapsFirstAndReassertsInvariantLater(t *testing.T) {
 	t.Parallel()
 

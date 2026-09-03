@@ -47,7 +47,7 @@ The override is total, not partial. Everything named below moves with it:
 | the embedding and reranker models | `ai.ModelsDir()` |
 | the extracted core runtime, `runtime/<version>/` | the launcher, and `brand.RuntimeDir()` |
 | global and Hub rule overrides | `brand.GlobalRulesDir()`, `brand.HubRulesDir()` |
-| `frameworks/`, `artifacts/`, the global `AGENTS.md` | `paths.GetPaths()` |
+| `frameworks/` and cached Hub `artifacts/` | `paths.GetPaths()` and Hub artifact resolvers |
 | user grammar libraries, `grammars/{treesitter,antlr}` | the AST grammar loaders |
 
 Things worth knowing before you set it:
@@ -283,8 +283,7 @@ than asserted.
         ├── daemon/                        daemon.log and dream.state
         ├── cache/skills/<ide>/<skill>/    sync cache
         ├── cache/artifacts/<ide>/<type>/  artifact sync cache
-        ├── mandate.hash
-        ├── sync.stamp
+		├── sync.stamp
         ├── sync.lock
         └── sync-heavy.lock
 ```
@@ -307,13 +306,12 @@ machine-local trees (`**/.graphit/runtime/` and `**/.graphit/grammars/` — see
 | Path | What | Committed? |
 |---|---|---|
 | `ast/queries/` | grammar query overrides, `ast.queries_dir` by default | yes — a grammar override is about the repository |
-| `rules/` | module rule and skill overrides, `session.md` | yes — written by a human for the team |
+| `rules/` | module mandate and skill source overrides | yes — written by a human for the team |
 | `grammars/{treesitter,antlr}` | local parser libraries added or customized for this checkout | **no** — platform-specific binaries; distribute shared grammars through a Hub language artifact |
 | `runtime/ast/export/` | default output of `graphit ast export` | **no** — an explicit `--output` remains user-owned |
 | `runtime/dream/` | default Dream reports, deep-sleep sentinels, and last-seen marker | **no** — set `dream.reports_dir` to publish them elsewhere |
 | `runtime/daemon/` | this project's daemon log, dream state | **no** |
 | `runtime/cache/{skills,artifacts}/` | content hashes that let `sync` skip unchanged artifacts | **no** |
-| `runtime/mandate.hash` | per-trigger hashes for the mandate fast path | **no** |
 | `runtime/sync.stamp`, `runtime/sync.lock`, `runtime/sync-heavy.lock` | the sync's debounce stamp and its two locks | **no** |
 
 Every writer under `runtime/` goes through `brand.ProjectRuntimePath`. That is the point

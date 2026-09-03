@@ -10,8 +10,9 @@ import (
 	"strings"
 )
 
-func sessionHookCommand(format string) string {
-	return strconv.Quote(getGraphitExecutable()) + " _session-hook --format " + format
+func sessionHookCommand(format, projectDir string) string {
+	return strconv.Quote(getGraphitExecutable()) + " _session-hook --format " + format +
+		" --project-dir " + strconv.Quote(projectDir)
 }
 
 func isManagedSessionCommand(value any, format string, legacyAdapters ...string) bool {
@@ -30,11 +31,11 @@ func isManagedSessionCommand(value any, format string, legacyAdapters ...string)
 	return false
 }
 
-func reconcileDirectCommandHook(path, event, format string, legacyAdapters ...string) error {
-	return reconcileDirectCommandHookMatched(path, event, "", format, legacyAdapters...)
+func reconcileDirectCommandHook(path, event, format, projectDir string, legacyAdapters ...string) error {
+	return reconcileDirectCommandHookMatched(path, event, "", format, projectDir, legacyAdapters...)
 }
 
-func reconcileDirectCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
+func reconcileDirectCommandHookMatched(path, event, matcher, format, projectDir string, legacyAdapters ...string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -48,7 +49,7 @@ func reconcileDirectCommandHookMatched(path, event, matcher, format string, lega
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
 	entries = filterDirectCommandHooks(entries, format, legacyAdapters...)
-	entry := map[string]any{"command": sessionHookCommand(format)}
+	entry := map[string]any{"command": sessionHookCommand(format, projectDir)}
 	if matcher != "" {
 		entry["matcher"] = matcher
 	}
@@ -98,11 +99,11 @@ func filterDirectCommandHooks(entries []any, format string, legacyAdapters ...st
 	return remaining
 }
 
-func reconcileGroupedCommandHook(path, event, format string, legacyAdapters ...string) error {
-	return reconcileGroupedCommandHookMatched(path, event, "", format, legacyAdapters...)
+func reconcileGroupedCommandHook(path, event, format, projectDir string, legacyAdapters ...string) error {
+	return reconcileGroupedCommandHookMatched(path, event, "", format, projectDir, legacyAdapters...)
 }
 
-func reconcileGroupedCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
+func reconcileGroupedCommandHookMatched(path, event, matcher, format, projectDir string, legacyAdapters ...string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -119,7 +120,7 @@ func reconcileGroupedCommandHookMatched(path, event, matcher, format string, leg
 	group := map[string]any{
 		"hooks": []any{map[string]any{
 			"type":    "command",
-			"command": sessionHookCommand(format),
+			"command": sessionHookCommand(format, projectDir),
 		}},
 	}
 	if matcher != "" {

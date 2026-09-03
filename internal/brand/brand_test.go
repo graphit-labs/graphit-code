@@ -169,6 +169,9 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	if res != expectedRule {
 		t.Errorf("ResolveModuleRule local = %q; want %q", res, expectedRule)
 	}
+	if explicit := ResolveModuleRuleIn(wd, "mymod", "explicit-default"); explicit != "local-rule-content: explicit-default" {
+		t.Errorf("ResolveModuleRuleIn explicit project = %q", explicit)
+	}
 
 	// Test ResolveModuleSkill from local rules dir
 	resSkill = ResolveModuleSkill("myskill", "default-skill-val")

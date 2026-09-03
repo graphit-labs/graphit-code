@@ -199,7 +199,7 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 		"  const loadBootstrap = () => {\n" +
 		"    let bootstrap = " + fallback + "\n" +
 		"    try {\n" +
-		"      const result = Bun.spawnSync([" + executable + ", \"_session-hook\", \"--format\", \"plain-context\"], { cwd: directory })\n" +
+		"      const result = Bun.spawnSync([" + executable + ", \"_session-hook\", \"--format\", \"plain-context\", \"--project-dir\", directory], { cwd: directory })\n" +
 		"      if (result.exitCode === 0) bootstrap = result.stdout.toString().trim() || bootstrap\n" +
 		"    } catch {}\n" +
 		"    return bootstrap\n" +
@@ -218,7 +218,15 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 		"    else output.system.splice(0, 1, `${output.system[0]}\\n\\n${context}`)\n" +
 		"  },\n" +
 		"  \"experimental.session.compacting\": async (_input, output) => {\n" +
-		"    output.context.push(invariant)\n" +
+		"    let compactContext = invariant\n" +
+		"    try {\n" +
+		"      const result = Bun.spawnSync([" + executable + ", \"_session-hook\", \"--format\", \"tool-context\", \"--project-dir\", directory], { cwd: directory })\n" +
+		"      if (result.exitCode === 0) {\n" +
+		"        const parsed = JSON.parse(result.stdout.toString())\n" +
+		"        compactContext = parsed.additional_context || compactContext\n" +
+		"      }\n" +
+		"    } catch {}\n" +
+		"    output.context.push(compactContext)\n" +
 		"  },\n" +
 		"  }\n" +
 		"}\n"

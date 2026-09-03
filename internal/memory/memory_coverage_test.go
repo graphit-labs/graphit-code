@@ -532,23 +532,6 @@ func TestRuleContent(t *testing.T) {
 	}
 }
 
-// InstallRule, InstallSkill, RemoveRule, RemoveSkill
-
-func TestInstallRule(t *testing.T) {
-	dir := t.TempDir()
-	// InstallRule will call ide.InjectManagedBlock which works on project dirs
-	// We test that it doesn't panic with a valid dir
-	err := InstallRule(dir, "gemini")
-	// May return error if IDE adapter doesn't support the format, that's OK
-	_ = err
-}
-
-func TestInstallRule_EmptyProjectDir(t *testing.T) {
-	// Use a temp dir instead of empty string which would pollute the real project via os.Getwd()
-	err := InstallRule(t.TempDir(), "gemini")
-	_ = err
-}
-
 func TestInstallSkill(t *testing.T) {
 	dir := t.TempDir()
 	err := InstallSkill(dir, "gemini")
@@ -557,17 +540,6 @@ func TestInstallSkill(t *testing.T) {
 
 func TestInstallSkill_EmptyProjectDir(t *testing.T) {
 	err := InstallSkill(t.TempDir(), "gemini")
-	_ = err
-}
-
-func TestRemoveRule(t *testing.T) {
-	dir := t.TempDir()
-	err := RemoveRule(dir, "gemini")
-	_ = err
-}
-
-func TestRemoveRule_EmptyProjectDir(t *testing.T) {
-	err := RemoveRule(t.TempDir(), "gemini")
 	_ = err
 }
 

@@ -30,3 +30,19 @@ func TestModuleMandateTriggerRoutesWithoutDuplicatingSkill(t *testing.T) {
 		t.Fatalf("module trigger is too large: %d bytes", len(content))
 	}
 }
+
+func TestMandateContextIsHookReadyAndDeterministicallyOrdered(t *testing.T) {
+	t.Parallel()
+	content := MandateContext(map[string]string{
+		"doc_rule": "DOC",
+		"mem_rule": "MEM",
+		"ast_rule": "AST",
+	})
+	if !strings.HasPrefix(content, "<GRAPHIT_SYSTEM_MANDATE>") || !strings.HasSuffix(content, "</GRAPHIT_SYSTEM_MANDATE>") {
+		t.Fatalf("mandate wrapper missing: %s", content)
+	}
+	if strings.Index(content, "<mem_rule>") >= strings.Index(content, "<ast_rule>") ||
+		strings.Index(content, "<ast_rule>") >= strings.Index(content, "<doc_rule>") {
+		t.Fatalf("mandates are not in canonical order: %s", content)
+	}
+}

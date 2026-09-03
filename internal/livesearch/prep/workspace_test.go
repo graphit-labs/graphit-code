@@ -93,23 +93,21 @@ func TestPrepareGivesTheProjectANonEmptyIdentityOfItsOwn(t *testing.T) {
 	}
 }
 
-func TestPrepareWritesTheMandateAndTheSkillsAsFiles(t *testing.T) {
-	// This is what makes prompt injection unnecessary: the agent finds the
-	// framework's instructions in its working directory.
+func TestPrepareInstallsSkillsAndConfiguresTheDynamicInstructionHook(t *testing.T) {
 	isolateHome(t)
 	s, progress := newPreparedSession(t, "claude")
 	ws := s.WorkspaceDir()
 
-	if _, err := os.Stat(filepath.Join(ws, "AGENTS.md")); err != nil {
-		t.Fatalf("the mandate was not written: %v (progress: %v)", err, progress)
+	if _, err := os.Stat(filepath.Join(ws, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("the mandate was materialized instead of delivered by hook: %v", err)
 	}
-	mandate, err := os.ReadFile(filepath.Join(ws, "AGENTS.md"))
+	hook, err := os.ReadFile(filepath.Join(ws, ".claude", "settings.json"))
 	if err != nil {
-		t.Fatalf("reading the mandate: %v", err)
+		t.Fatalf("reading lifecycle hook config: %v (progress: %v)", err, progress)
 	}
-	for _, module := range []string{"ast", "memory", "knowledge"} {
-		if !strings.Contains(strings.ToLower(string(mandate)), module) {
-			t.Fatalf("the mandate does not mention the %s module (progress: %v)", module, progress)
+	for _, want := range []string{"SessionStart", "_session-hook", "--project-dir", ws} {
+		if !strings.Contains(string(hook), want) {
+			t.Fatalf("dynamic hook config missing %q: %s", want, hook)
 		}
 	}
 
@@ -343,22 +341,21 @@ func TestPrepareReportsProgressForEachStage(t *testing.T) {
 		t.Fatal("preparation reported nothing, so a user watching sees a blank screen")
 	}
 	joined := strings.ToLower(strings.Join(progress, " | "))
-	for _, stage := range []string{"ephemeral project", "rules and skills", "graphit tools"} {
+	for _, stage := range []string{"ephemeral project", "framework's skills", "graphit tools"} {
 		if !strings.Contains(joined, stage) {
 			t.Fatalf("no progress mentioned %q: %v", stage, progress)
 		}
 	}
 }
 
-func TestPrepareSaysSoWhenItCannotConfigureMCPLocally(t *testing.T) {
-	// Silence here costs an hour of debugging: the search works over files but the
-	// code graphs are unreachable, and nothing says why.
+func TestPrepareUsesTheCodexAdapterForHooksAndMCP(t *testing.T) {
 	isolateHome(t)
-	_, progress := newPreparedSession(t, "codex")
+	s, progress := newPreparedSession(t, "codex")
 
-	joined := strings.ToLower(strings.Join(progress, " | "))
-	if !strings.Contains(joined, "no project-level mcp configuration is known") {
-		t.Fatalf("an IDE without a known MCP convention was not reported: %v", progress)
+	for _, rel := range []string{filepath.Join(".codex", "config.toml"), filepath.Join(".codex", "hooks.json")} {
+		if _, err := os.Stat(filepath.Join(s.WorkspaceDir(), rel)); err != nil {
+			t.Fatalf("Codex adapter output %s is missing: %v (progress: %v)", rel, err, progress)
+		}
 	}
 }
 

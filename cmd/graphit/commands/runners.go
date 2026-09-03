@@ -58,7 +58,7 @@ func newASTBackendForContextReadOnly(name string) (ast.GraphDB, error) {
 	return ast.NewLadybugDBReadOnly(cfg), nil
 }
 
-func runModuleRuleSet(module, filePath, ideName string, unset bool) error {
+func runModuleRuleSet(module, filePath string, unset bool) error {
 	p := output.NewPrinter("")
 	p.Running("Managing %s rule...", module)
 
@@ -98,14 +98,13 @@ func runModuleRuleSet(module, filePath, ideName string, unset bool) error {
 	if wd != "" {
 		projectCfg := loadProjectConfigFromDir(wd)
 		if config.IsModuleDisabled(module, nil, projectCfg) {
-			p.StepWarn("Module %q is currently disabled — rule will not be injected until re-enabled", module)
+			p.StepWarn("Module %q is currently disabled — its dynamic mandate will not route to this customization until re-enabled", module)
 		}
-		refreshModuleRule(module, wd, ideName)
 	}
 	return nil
 }
 
-func refreshModuleRule(module, projectDir, ideName string) {
+func refreshModuleSkill(module, projectDir, ideName string) {
 	if projectDir == "" {
 		projectDir, _ = os.Getwd()
 	}
@@ -119,38 +118,16 @@ func refreshModuleRule(module, projectDir, ideName string) {
 		ideName = config.ResolveProjectIDE("", nil, projectCfg, lockfileIDEs)
 	}
 
-	disabled := config.IsModuleDisabled(module, nil, projectCfg)
-
 	var err error
 	switch module {
 	case "knowledge":
-		if disabled {
-			_ = knowledge.RemoveRule(projectDir, ideName)
-			err = knowledge.InstallSkill(projectDir, ideName)
-		} else {
-			err = knowledge.InstallRule(projectDir, ideName)
-		}
+		err = knowledge.InstallSkill(projectDir, ideName)
 	case "ast":
-		if disabled {
-			_ = ast.RemoveRule(projectDir, ideName)
-			err = ast.InstallSkill(projectDir, ideName)
-		} else {
-			err = ast.InstallRule(projectDir, ideName)
-		}
+		err = ast.InstallSkill(projectDir, ideName)
 	case "memory":
-		if disabled {
-			_ = memory.RemoveRule(projectDir, ideName)
-			err = memory.InstallSkill(projectDir, ideName)
-		} else {
-			err = memory.InstallRule(projectDir, ideName)
-		}
+		err = memory.InstallSkill(projectDir, ideName)
 	case "hub":
-		if disabled {
-			_ = hub.RemoveRule(projectDir, ideName)
-			err = hub.InstallSkill(projectDir, ideName)
-		} else {
-			err = hub.InstallRule(projectDir, ideName)
-		}
+		err = hub.InstallSkill(projectDir, ideName)
 	}
 	_ = err
 }
@@ -158,16 +135,13 @@ func refreshModuleRule(module, projectDir, ideName string) {
 func getModuleDefaultRule(module string) string {
 	switch module {
 	case "ast":
-		return ast.ASTRuleContent()
+		return ast.MandateTrigger()
 	case "knowledge":
-		contexts := knowledge.InstalledContexts()
-		docsDir := config.ResolveDocsDir(nil, loadProjectConfig())
-		return knowledge.KnowledgeRuleContent(contexts, docsDir)
+		return knowledge.MandateTrigger()
 	case "hub":
-		return hub.HubRuleContent()
+		return hub.MandateTrigger()
 	case "memory":
-		contexts := memory.AllContextDirs()
-		return memory.RuleContent(contexts)
+		return memory.MandateTrigger()
 	default:
 		return ""
 	}
@@ -176,16 +150,13 @@ func getModuleDefaultRule(module string) string {
 func getModuleResolvedRule(module string) string {
 	switch module {
 	case "ast":
-		return brand.ResolveModuleRule("ast", ast.ASTRuleContent())
+		return brand.ResolveModuleRule("ast", ast.MandateTrigger())
 	case "knowledge":
-		contexts := knowledge.InstalledContexts()
-		docsDir := config.ResolveDocsDir(nil, loadProjectConfig())
-		return brand.ResolveModuleRule("knowledge", knowledge.KnowledgeRuleContent(contexts, docsDir))
+		return brand.ResolveModuleRule("knowledge", knowledge.MandateTrigger())
 	case "hub":
-		return brand.ResolveModuleRule("hub", hub.HubRuleContent())
+		return brand.ResolveModuleRule("hub", hub.MandateTrigger())
 	case "memory":
-		contexts := memory.AllContextDirs()
-		return brand.ResolveModuleRule("memory", memory.RuleContent(contexts))
+		return brand.ResolveModuleRule("memory", memory.MandateTrigger())
 	default:
 		return ""
 	}
@@ -1520,7 +1491,7 @@ func runMemoryAdd(title, content string, userScope, linkProject, important, mand
 	p.Success("Memory %q saved [%s]", slug, scopeLabel)
 	p.Step("Wiki: %s", svc.WikiDir())
 
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1538,7 +1509,7 @@ func runMemoryUpdate(id, content, title string, userScope bool) error {
 	}
 	p.Success("Memory %q updated", id)
 
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1589,7 +1560,7 @@ func runMemoryRemove(slug string, userScope bool) error {
 	}
 	p.Success("Memory %q removed", slug)
 
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1723,7 +1694,7 @@ func runMemoryImport(projectID string) error {
 	}
 	task.Done("Import complete. Wiki: %s", svc.WikiDir())
 	p.Step("Query with: %s memory query \"...\" --context %s", brand.BinName(), projectID)
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1794,7 +1765,7 @@ func runMemoryPromote(id string, userScope bool) error {
 	}
 	p.Success("Memory %q promoted to important", id)
 
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1812,7 +1783,7 @@ func runMemoryDemote(id string, userScope bool) error {
 	}
 	p.Success("Memory %q demoted (no longer important)", id)
 
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1832,7 +1803,7 @@ func runMemoryMandatoryChange(id string, userScope, enabled bool) error {
 		return err
 	}
 	p.Success("Memory %q mandatory=%t", id, enabled)
-	refreshModuleRule("memory", "", "")
+	refreshModuleSkill("memory", "", "")
 	return nil
 }
 
@@ -1867,7 +1838,7 @@ func runMemoryRemoveContext(contextName string) error {
 	}
 	p.Success("Removed memory context %q", contextName)
 	wd, _ := os.Getwd()
-	refreshModuleRule("memory", wd, "")
+	refreshModuleSkill("memory", wd, "")
 	return nil
 }
 
@@ -1985,7 +1956,7 @@ func runMemoryConsolidate(userScope, dryRun bool) error {
 	p.Blank()
 	p.Success("%d applied, %d refused, %d failed", len(outcome.Applied), len(outcome.Skipped), len(outcome.Failed))
 	if len(outcome.Applied) > 0 {
-		refreshModuleRule("memory", "", "")
+		refreshModuleSkill("memory", "", "")
 	}
 	return nil
 }
@@ -2123,7 +2094,7 @@ func runKnowledgeRemoveContext(contextName string) error {
 		return fmt.Errorf("removing knowledge context: %w", err)
 	}
 	p.Success("Removed knowledge context %q", contextName)
-	refreshModuleRule("knowledge", wd, "")
+	refreshModuleSkill("knowledge", wd, "")
 	return nil
 }
 

@@ -75,7 +75,7 @@ func NewUnifiedServer(
 	var liveHandler *LiveHandler
 	if agentFeatures {
 		// Each session runs inside an ephemeral project that prep builds for it: a
-		// lockfile, the framework's rules and skills, the MCP server, and the chosen
+		// lockfile, framework skills, lifecycle hooks, MCP servers, and the chosen
 		// artifacts indexed and ready to query.
 		liveMgr := livesearch.NewManagerFromConfig("", prep.Prepare)
 		liveMgr.SetReclaim(prep.Reclaim)

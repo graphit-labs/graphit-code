@@ -158,8 +158,11 @@ func TestAProjectScopedInstallIsStillClaimedByTheProject(t *testing.T) {
 		ID: "demo-rule", Name: "Demo Rule", Type: TypeRule, Latest: "1.0.0",
 	}))
 
-	if _, err := svc.Install(context.Background(), "demo-rule@1.0.0", "", "", TypeRule, "", projectDir); err != nil {
+	if _, err := svc.Install(context.Background(), "demo-rule@1.0.0", "", "claude", TypeRule, "", projectDir); err != nil {
 		t.Fatalf("install failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "rules", "demo-rule.md")); !os.IsNotExist(err) {
+		t.Fatalf("project install materialized a rule instead of leaving it for the hook: %v", err)
 	}
 
 	lf, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))

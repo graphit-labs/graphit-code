@@ -51,11 +51,12 @@ func (a *CursorAdapter) syncSessionStartHook(projectDir string) error {
 		path,
 		"sessionStart",
 		sessionhook.FormatAdditionalContext,
+		projectDir,
 		"cursor",
 	); err != nil {
 		return err
 	}
-	if err := reconcileDirectCommandHookMatched(path, "preToolUse", "Task", sessionhook.FormatCursorSubagentTask); err != nil {
+	if err := reconcileDirectCommandHookMatched(path, "preToolUse", "Task", sessionhook.FormatCursorSubagentTask, projectDir); err != nil {
 		return err
 	}
 	if err := removeDirectCommandHook(path, "subagentStart", "cursor-subagent-gate"); err != nil {

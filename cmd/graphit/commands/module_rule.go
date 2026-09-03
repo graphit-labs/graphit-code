@@ -17,7 +17,7 @@ func newModuleRuleCmd(module string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rule [file]",
 		Short: "Manage or display the rule for the " + module + " module",
-		Long: `Manage the IDE rule block for the ` + module + ` module.
+		Long: `Manage the dynamic mandate for the ` + module + ` module.
 
 Without arguments: outputs the resolved rule content (respecting any user
 customization in ` + brand.GlobalRulesDir() + `/` + module + `.md).
@@ -29,8 +29,9 @@ With a file argument: saves the file as a custom rule override at:
 
   ~/` + brand.DotDir() + `/rules/` + module + `.md
 
-On every ` + binName + ` init or update this file takes precedence over
-the built-in rule. The project IDE rules file is updated immediately.
+The lifecycle hook reads this file dynamically. It takes precedence over the
+built-in mandate on the next session, resume, compaction, or supported agent boundary;
+no IDE instruction file is generated.
 
 Use --unset to delete the custom rule and restore the default.
 
@@ -53,12 +54,11 @@ Examples:
 				return nil
 			}
 
-			ide := resolveIDEFlag(cmd)
 			filePath := ""
 			if len(args) > 0 {
 				filePath = args[0]
 			}
-			return runModuleRuleSet(module, filePath, ide, unset)
+			return runModuleRuleSet(module, filePath, unset)
 		},
 	}
 

@@ -68,19 +68,6 @@ func TestSupportedIDEs(t *testing.T) {
 	}
 }
 
-func TestGlobalRulesFile(t *testing.T) {
-	t.Parallel()
-	for _, ide := range append(SupportedIDEs(), "unknown") {
-		t.Run(ide, func(t *testing.T) {
-			t.Parallel()
-			got := GlobalRulesFile(ide)
-			if got != "AGENTS.md" {
-				t.Errorf("GlobalRulesFile(%q) = %q, want AGENTS.md", ide, got)
-			}
-		})
-	}
-}
-
 func TestGetFileMode(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -121,10 +108,9 @@ func TestArtifactTypePath(t *testing.T) {
 		wantSub string
 		wantErr bool
 	}{
-		{"gemini rule", "gemini", "rule", "my-rule", filepath.Join(".gemini", "rules", "my-rule.md"), false},
+		{"rules have no IDE path", "gemini", "rule", "my-rule", "", true},
 		{"gemini skill", "gemini", "skill", "my-skill", filepath.Join(".gemini", "skills", "my-skill"), false},
 		{"claude command", "claude", "command", "cmd1", filepath.Join(".claude", "commands", "cmd1.md"), false},
-		{"cursor rule ext", "cursor", "rule", "r1", filepath.Join(".cursor", "rules", "r1.mdc"), false},
 		{"workflow maps to commands", "gemini", "workflow", "wf1", filepath.Join(".gemini", "commands", "wf1.md"), false},
 		{"unknown IDE", "no-such-ide", "rule", "x", "", true},
 		{"unknown artType", "gemini", "mcp", "x", "", true},
@@ -654,10 +640,10 @@ func TestFolderBasedAdapter_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify rule was synced
+	// Hub rules are delivered dynamically by the session hook.
 	ruleFile := filepath.Join(dir, ".test-ide", "rules", "rule1.md")
-	if _, err := os.Stat(ruleFile); err != nil {
-		t.Errorf("rule file not created: %v", err)
+	if _, err := os.Stat(ruleFile); !os.IsNotExist(err) {
+		t.Errorf("rule artifact was materialized: %v", err)
 	}
 
 	// Verify skill dir was synced
@@ -756,15 +742,15 @@ func TestFolderBasedAdapter_Remove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(baseDir, "rules", "r1.md")); !os.IsNotExist(err) {
-		t.Error("expected rule file to be removed")
+	if data, err := os.ReadFile(filepath.Join(baseDir, "rules", "r1.md")); err != nil || string(data) != "rule" {
+		t.Errorf("user-owned rule changed during removal: %q, %v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(baseDir, "skills", "s1")); !os.IsNotExist(err) {
 		t.Error("expected skill dir to be removed")
 	}
 }
 
-func TestFolderBasedAdapter_Remove_NilInstalled(t *testing.T) {
+func TestFolderBasedAdapter_Remove_NilInstalledPreservesUserDirectory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	a := NewFolderBasedAdapter(FolderConfig{RootDirName: ".test-ide"})
@@ -778,8 +764,8 @@ func TestFolderBasedAdapter_Remove_NilInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(baseDir); !os.IsNotExist(err) {
-		t.Error("expected base dir to be removed when installed is nil")
+	if data, err := os.ReadFile(filepath.Join(baseDir, "stuff.txt")); err != nil || string(data) != "data" {
+		t.Fatalf("user directory changed when installed artifacts were unavailable: %q, %v", data, err)
 	}
 }
 
@@ -1033,15 +1019,6 @@ func TestRemoveManagedSkill(t *testing.T) {
 	})
 }
 
-func TestBlockMarkerForName(t *testing.T) {
-	t.Parallel()
-	got := blockMarkerForName("memory")
-	expected := strings.ToUpper(brand.Brand) + " MEMORY BLOCK"
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
-
 func TestFolderConfig_AllMCPPaths(t *testing.T) {
 	t.Parallel()
 
@@ -1174,18 +1151,19 @@ func TestClaudeAdapter_Sync(t *testing.T) {
 	}
 
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("user claude context"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Sync(installed, pp, "proj-1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify CLAUDE.md was created with managed block
-	claudeMD := filepath.Join(dir, "CLAUDE.md")
-	data, err := os.ReadFile(claudeMD)
-	if err != nil {
-		t.Fatalf("CLAUDE.md not created: %v", err)
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil || string(data) != "user claude context" {
+		t.Fatalf("Claude user instructions changed: %q, %v", data, err)
 	}
-	if !strings.Contains(string(data), "@AGENTS.md") {
-		t.Error("expected @AGENTS.md reference in CLAUDE.md")
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "rules", "rule1.md")); !os.IsNotExist(err) {
+		t.Fatalf("Hub rule was materialized for Claude: %v", err)
 	}
 }
 
@@ -1195,19 +1173,18 @@ func TestClaudeAdapter_Remove(t *testing.T) {
 	a := NewClaudeAdapter()
 
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("user content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
 	if err := a.Remove(pp, map[string]map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 
-	claudeMD := filepath.Join(dir, "CLAUDE.md")
-	if _, err := os.Stat(claudeMD); err == nil {
-		data, _ := os.ReadFile(claudeMD)
-		content := string(data)
-		if strings.Contains(content, "@AGENTS.md") {
-			t.Error("expected managed block to be removed from CLAUDE.md")
-		}
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil || string(data) != "user content" {
+		t.Fatalf("Claude user instructions changed during removal: %q, %v", data, err)
 	}
 }
 
@@ -1387,25 +1364,20 @@ func TestGeminiAdapter_Sync(t *testing.T) {
 	rulesDir := filepath.Join(dir, ".gemini", "rules")
 	_ = os.MkdirAll(rulesDir, 0o755)
 	_ = os.WriteFile(filepath.Join(rulesDir, "test-rule.md"), []byte("rule"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("user agents context"), 0o644)
 
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
 	if err := a.FolderBasedAdapter.Sync(map[string]map[string]string{}, pp, "proj-1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Now run the full Gemini sync (which includes syncGeminiMD)
 	if err := a.Sync(map[string]map[string]string{}, pp, "proj-1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// AGENTS.md should contain reference to the rule
-	agentsMD := filepath.Join(dir, "AGENTS.md")
-	data, err := os.ReadFile(agentsMD)
-	if err != nil {
-		t.Fatalf("AGENTS.md not created: %v", err)
-	}
-	if !strings.Contains(string(data), "@.gemini/rules/test-rule.md") {
-		t.Error("expected @.gemini/rules/test-rule.md in AGENTS.md")
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil || string(data) != "user agents context" {
+		t.Fatalf("Gemini user instructions changed: %q, %v", data, err)
 	}
 }
 
@@ -1419,8 +1391,9 @@ func TestGeminiAdapter_Sync_NoRules(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// With no rules, AGENTS.md should not contain a managed block
-	// (syncGeminiMD returns nil when ReadDir fails)
+	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("Gemini sync materialized AGENTS.md: %v", err)
+	}
 }
 
 func TestGeminiAdapter_Remove(t *testing.T) {
@@ -1430,22 +1403,18 @@ func TestGeminiAdapter_Remove(t *testing.T) {
 
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
 
-	// Create rules so sync will inject a managed block
-	rulesDir := filepath.Join(dir, ".gemini", "rules")
-	_ = os.MkdirAll(rulesDir, 0o755)
-	_ = os.WriteFile(filepath.Join(rulesDir, "r1.md"), []byte("rule"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("user content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
 	if err := a.Remove(pp, map[string]map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 
-	agentsMD := filepath.Join(dir, "AGENTS.md")
-	if _, err := os.Stat(agentsMD); err == nil {
-		data, _ := os.ReadFile(agentsMD)
-		if strings.Contains(string(data), "@.gemini/rules/r1.md") {
-			t.Error("expected managed block to be removed from AGENTS.md")
-		}
+	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil || string(data) != "user content" {
+		t.Fatalf("Gemini user instructions changed during removal: %q, %v", data, err)
 	}
 }
 
@@ -1746,50 +1715,6 @@ func TestAdapterInterfaceCompliance(t *testing.T) {
 	var _ Adapter = NewGeminiAdapter()
 }
 
-// parseTriggers / assembleTriggers / canonical ordering
-
-func TestParseTriggers(t *testing.T) {
-	t.Parallel()
-
-	t.Run("empty string", func(t *testing.T) {
-		t.Parallel()
-		got := parseTriggers("")
-		if len(got) != 0 {
-			t.Errorf("expected empty map, got %v", got)
-		}
-	})
-
-	t.Run("single trigger", func(t *testing.T) {
-		t.Parallel()
-		inner := "<mem_rule>memory content</mem_rule>"
-		got := parseTriggers(inner)
-		if got["mem_rule"] != "memory content" {
-			t.Errorf("got %q, want %q", got["mem_rule"], "memory content")
-		}
-	})
-
-	t.Run("multiple triggers", func(t *testing.T) {
-		t.Parallel()
-		inner := "<mem_rule>mem</mem_rule>\n<ast_rule>ast</ast_rule>"
-		got := parseTriggers(inner)
-		if got["mem_rule"] != "mem" {
-			t.Errorf("mem_rule: got %q, want %q", got["mem_rule"], "mem")
-		}
-		if got["ast_rule"] != "ast" {
-			t.Errorf("ast_rule: got %q, want %q", got["ast_rule"], "ast")
-		}
-	})
-
-	t.Run("multiline content", func(t *testing.T) {
-		t.Parallel()
-		inner := "<doc_rule>\nline1\nline2\n</doc_rule>"
-		got := parseTriggers(inner)
-		if !strings.Contains(got["doc_rule"], "line1") {
-			t.Error("expected multiline content preserved")
-		}
-	})
-}
-
 func TestAssembleTriggers_CanonicalOrder(t *testing.T) {
 	t.Parallel()
 
@@ -1835,191 +1760,5 @@ func TestAssembleTriggers_UnknownTagsSorted(t *testing.T) {
 	// Unknown tags are sorted among themselves.
 	if aaaPos >= zzzPos {
 		t.Errorf("aaa_rule should come before zzz_rule in sorted unknowns")
-	}
-}
-
-func TestUpsertMandateTrigger_CanonicalOrdering(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	// Call UpsertMandateTrigger in reverse canonical order.
-	calls := []struct{ tag, content string }{
-		{"doc_rule", "DOC"},
-		{"hub_rule", "HUB"},
-		{"ast_rule", "AST"},
-		{"mem_rule", "MEM"},
-	}
-	for _, c := range calls {
-		if err := UpsertMandateTrigger(dir, "claude", c.tag, c.content); err != nil {
-			t.Fatalf("UpsertMandateTrigger(%q): %v", c.tag, err)
-		}
-	}
-
-	data, err := os.ReadFile(filepath.Join(dir, GlobalRulesFile("claude")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-
-	posOf := func(tag string) int { return strings.Index(got, "<"+tag+">") }
-	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule"}
-	for i := 1; i < len(order); i++ {
-		if posOf(order[i-1]) >= posOf(order[i]) {
-			t.Errorf("%s should appear before %s regardless of install order\nfile:\n%s",
-				order[i-1], order[i], got)
-		}
-	}
-}
-
-func TestUpsertMandateTrigger_Idempotent(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	if err := UpsertMandateTrigger(dir, "claude", "mem_rule", "MEM"); err != nil {
-		t.Fatal(err)
-	}
-	if err := UpsertMandateTrigger(dir, "claude", "ast_rule", "AST"); err != nil {
-		t.Fatal(err)
-	}
-
-	data1, _ := os.ReadFile(filepath.Join(dir, GlobalRulesFile("claude")))
-
-	// Second sync with same content must not change the file.
-	if err := UpsertMandateTrigger(dir, "claude", "mem_rule", "MEM"); err != nil {
-		t.Fatal(err)
-	}
-	if err := UpsertMandateTrigger(dir, "claude", "ast_rule", "AST"); err != nil {
-		t.Fatal(err)
-	}
-
-	data2, _ := os.ReadFile(filepath.Join(dir, GlobalRulesFile("claude")))
-
-	if string(data1) != string(data2) {
-		t.Errorf("file changed on second sync with identical content:\nbefore:\n%s\nafter:\n%s",
-			string(data1), string(data2))
-	}
-}
-
-func legacyTestModuleMandateTrigger(t *testing.T) {
-	t.Parallel()
-
-	// A module block carries what VARIES — its domain and the skill covering it. The
-	// invariant policy (precedence, the CLI ban, the integrity clause) was
-	// hoisted into the preamble and stated ONCE; repeating it per module cost five
-	// copies of the same paragraph at the top of every session.
-	t.Run("carries what varies: the domain and its skill", func(t *testing.T) {
-		t.Parallel()
-		got := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory", "", nil, nil)
-		for _, want := range []string{
-			"MCP-FIRST for memory",
-			"graphit-memory",
-		} {
-			if !strings.Contains(got, want) {
-				t.Errorf("expected trigger to contain %q, got:\n%s", want, got)
-			}
-		}
-		for _, unwanted := range []string{
-			"ABSOLUTE PRECEDENCE",
-			"framework integrity violation",
-		} {
-			if strings.Contains(got, unwanted) {
-				t.Errorf("invariant policy %q is back in the per-module block; it belongs to the preamble, once", unwanted)
-			}
-		}
-	})
-
-	// And the policy must still be STATED — once, in the preamble, which always
-	// precedes the blocks. Without this half the test above would approve deleting it.
-	t.Run("the invariant policy is stated exactly once, in the preamble", func(t *testing.T) {
-		t.Parallel()
-		preamble := mandatePreamble()
-		for _, want := range []string{
-			"ABSOLUTE PRECEDENCE",
-			"NEVER via the CLI",
-			"framework integrity violation",
-			"it applies",
-			"never invent arguments",
-		} {
-			if n := strings.Count(preamble, want); n != 1 {
-				t.Errorf("preamble states %q %d times, want exactly 1", want, n)
-			}
-		}
-	})
-
-	t.Run("always clause included when provided", func(t *testing.T) {
-		t.Parallel()
-		got := ModuleMandateTrigger("AST", "graphit-ast", "code exploration", "ALWAYS consult this skill.", nil, nil)
-		if !strings.Contains(got, "ALWAYS consult this skill.") {
-			t.Errorf("expected always clause in output, got:\n%s", got)
-		}
-	})
-
-	t.Run("output is parser-safe (no pseudo-tags)", func(t *testing.T) {
-		t.Parallel()
-		// The trigger is embedded inside <mem_rule>...</mem_rule>; parseTriggers
-		// must recover exactly one trigger and its content unchanged.
-		content := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory",
-			"ALWAYS consult this skill: search memory at session start.",
-			[]string{"the session just started"}, []string{"memory_search"})
-		inner := "<mem_rule>" + content + "</mem_rule>"
-		got := parseTriggers(inner)
-		if len(got) != 1 {
-			t.Fatalf("expected exactly 1 trigger, got %d: %v", len(got), got)
-		}
-		if got["mem_rule"] != content {
-			t.Errorf("content mangled by parser:\ngot:  %q\nwant: %q", got["mem_rule"], content)
-		}
-	})
-}
-
-// A mandate that only names its domain does not fire: an agent asked to "find
-// who calls saveUser" does not necessarily classify that as "structural
-// analysis", and reaches for grep. The trigger list is what turns the mandate
-// from a policy statement into something that actually activates, and the tool
-// list is what lets the agent know an MCP tool exists before it has opened the
-// skill — which is the moment it decides between MCP and a native tool.
-func legacyTestModuleMandateTriggerCarriesTriggersAndTools(t *testing.T) {
-	t.Parallel()
-
-	got := ModuleMandateTrigger("AST", "graphit-ast", "code exploration",
-		"ALWAYS consult this skill.",
-		[]string{
-			"you are about to run grep in order to locate code",
-			"the request names a symbol",
-		},
-		[]string{"ast_search", "ast_query"},
-	)
-
-	for _, want := range []string{
-		"you are about to run grep in order to locate code",
-		"the request names a symbol",
-		"`graphit_ast_search`",
-		"`graphit_ast_query`",
-		"The skill says when and how to call each",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("expected %q in the trigger, got:\n%s", want, got)
-		}
-	}
-
-	// Still parser-safe with the new sections: the whole block is embedded
-	// inside <ast_rule>…</ast_rule> and must survive a round trip unchanged.
-	inner := "<ast_rule>" + got + "</ast_rule>"
-	parsed := parseTriggers(inner)
-	if len(parsed) != 1 || parsed["ast_rule"] != got {
-		t.Errorf("the trigger list broke the mandate parser; got %d triggers", len(parsed))
-	}
-}
-
-// Empty lists must produce no empty sections, so a module that owns no tools
-// does not ship a dangling heading.
-func legacyTestModuleMandateTriggerOmitsEmptySections(t *testing.T) {
-	t.Parallel()
-
-	got := ModuleMandateTrigger("X", "graphit-x", "x", "", nil, nil)
-	for _, unwanted := range []string{"OPEN THE", "MCP tools this module owns"} {
-		if strings.Contains(got, unwanted) {
-			t.Errorf("expected no %q section when the list is empty, got:\n%s", unwanted, got)
-		}
 	}
 }

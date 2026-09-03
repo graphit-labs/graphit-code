@@ -231,13 +231,14 @@ func registerLifecycleTools(server *mcp.Server) {
 			_ = st.SyncRegistry(ctx)
 		}
 
-		// 5. Install unified mandate + skills for all IDEs
+		// 5. Install host-discoverable skills. Mandates and Hub rules are
+		// assembled dynamically by the lifecycle hooks in step 6.
 		for _, targetIDE := range idesToSync {
 			for _, r := range []func(string, string) error{
-				knowledge.InstallRule,
-				ast.InstallRule,
-				hub.InstallRule,
-				memory.InstallRule,
+				knowledge.InstallSkill,
+				ast.InstallSkill,
+				hub.InstallSkill,
+				memory.InstallSkill,
 			} {
 				_ = r(projectDir, targetIDE)
 			}
@@ -269,7 +270,7 @@ func registerLifecycleTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("update"),
-		Description: "Update all installed hub artifacts to their latest version and refresh rules.",
+		Description: "Update all installed Hub artifacts and refresh dynamic hooks and skills.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input updateInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -289,10 +290,10 @@ func registerLifecycleTools(server *mcp.Server) {
 		}
 
 		for _, r := range []func(string, string) error{
-			knowledge.InstallRule,
-			ast.InstallRule,
-			hub.InstallRule,
-			memory.InstallRule,
+			knowledge.InstallSkill,
+			ast.InstallSkill,
+			hub.InstallSkill,
+			memory.InstallSkill,
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}
@@ -322,10 +323,10 @@ func registerLifecycleTools(server *mcp.Server) {
 		_ = hub.OnRemove(ctx, reg, resolvedIDE, projectDir)
 
 		for _, r := range []func(string, string) error{
-			knowledge.RemoveRule,
-			ast.RemoveRule,
-			hub.RemoveRule,
-			memory.RemoveRule,
+			knowledge.RemoveSkill,
+			ast.RemoveSkill,
+			hub.RemoveSkill,
+			memory.RemoveSkill,
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}
@@ -466,6 +467,5 @@ func registerLifecycleTools(server *mcp.Server) {
 }
 
 func removeRetiredImprovementsGuidance(projectDir, ideName string) {
-	_ = ide.RemoveMandateTrigger(projectDir, ideName, "imp_rule")
 	_ = ide.RemoveManagedSkill(projectDir, ideName, brand.SkillDirName("improvements"))
 }

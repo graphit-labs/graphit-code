@@ -22,9 +22,9 @@ related:
 
 # Rule Override Specification
 
-Graphit Code uses a **multi-layer rule override system** that allows users to customize the behavior of every module's rules and skills. Overrides follow a strict precedence hierarchy: the most specific source wins, with each layer falling through to the next until a match is found or the compiled-in default is used.
+Graphit Code uses a **multi-layer instruction override system** that allows users to customize module mandates and skills. Overrides follow a strict precedence hierarchy: the most specific source wins, with each layer falling through to the next until a match is found or the compiled-in default is used.
 
-This system applies uniformly to **all modules**: `ast`, `knowledge`, `memory`, `hub`, and `improvements`.
+This system applies to the four agent-facing modules: `ast`, `knowledge`, `memory`, and `hub`. Dream consumes its own analysis override internally and does not install an agent mandate or skill.
 
 ---
 
@@ -97,7 +97,7 @@ When a module's rule or skill content is resolved, the system checks the followi
 | Global CLI | `~/.graphit/rules/<module>.md` | `~/.graphit/rules/<module>_skill.md` |
 | Hub bucket | `rules/<module>.md` in the Hub bucket | `rules/<module>_skill.md` in the Hub bucket |
 
-Where `<module>` is one of: `ast`, `knowledge`, `memory`, `hub`, `improvements`.
+Where `<module>` is one of: `ast`, `knowledge`, `memory`, or `hub` for agent-facing instructions.
 
 ---
 
@@ -123,7 +123,7 @@ When present in an override file, this placeholder is replaced with the module's
 
 ### Example: Wrapping Default Rules
 
-A custom rule file at `~/.graphit/rules/improvements.md`:
+A custom rule file at `~/.graphit/rules/ast.md`:
 
 ```markdown
 # Custom Engineering Rules
@@ -201,7 +201,7 @@ graphit <module> rule my-custom-rule.md
 graphit <module> rule --unset
 ```
 
-Where `<module>` is one of: `ast`, `knowledge`, `memory`, `hub`, `improvements`.
+Where `<module>` is one of: `ast`, `knowledge`, `memory`, or `hub`.
 
 ### What happens on `--unset`
 
@@ -218,7 +218,7 @@ The `rules/` prefix of the Hub bucket serves as the **team-wide rule distributio
 
 ### How it works
 
-1. An admin publishes rule objects (e.g., `rules/improvements.md`, `rules/ast.md`) to the Hub bucket.
+1. An admin publishes rule objects (for example `rules/memory.md` or `rules/ast.md`) to the Hub bucket.
 2. Each developer refreshes Hub data on `graphit sync` or `graphit update`.
 3. During rule resolution, if no project-level or global CLI override exists, the system checks the Hub `rules/` prefix for a matching file.
 4. If found, that file is used (with placeholder substitution).
@@ -238,8 +238,8 @@ The `rules/` prefix of the Hub bucket serves as the **team-wide rule distributio
 ### Relationship to Hub `rule` type artifacts
 
 Hub `rule` type artifacts are a **different mechanism**:
-- **Hub `rules/` prefix files** are implicit overrides. They customize the behavior of Graphit Code's own modules (ast, knowledge, memory, hub, improvements) and are distributed to all team members through Hub synchronization.
-- **Hub `rule` type artifacts** are versioned installable packages stored under artifact prefixes. They inject additional rule blocks into the IDE rules file and are installed explicitly via `graphit hub install`.
+- **Hub `rules/` prefix files** are implicit overrides. They customize Graphit's own module instruction sources and are distributed to all team members through Hub synchronization.
+- **Hub `rule` type artifacts** are versioned installable packages stored under artifact prefixes. They are installed explicitly via `graphit hub install` and their `RULE.md` bodies are injected dynamically by the lifecycle hook.
 
 Both can coexist. The prefix rule files control how the framework's modules behave, while `rule` artifacts add supplementary content.
 
@@ -252,16 +252,13 @@ Each module follows the same pattern:
 ```
 internal/<module>/rule.go
 ├── *RuleContent()          → generates the compiled-in default rule text
-├── *RouterContent()        → generates the compact router/summary for AGENTS.md
-├── InstallRule()           → installs the resolved rule into the IDE config
-│   └── calls brand.ResolveModuleRule(module, defaultContent)
+├── *MandateTrigger()       → generates the compact resident router
 ├── InstallSkill()          → installs the resolved skill into the IDE skills dir
 │   └── calls brand.ResolveModuleSkill(module, defaultContent)
-├── RemoveRule()            → removes the rule block from the IDE config
 └── RemoveSkill()           → removes the skill from the IDE skills dir
 ```
 
-The `InstallRule()` function in each module calls `brand.ResolveModuleRule()` to get the final content, then injects it into the IDE configuration file (e.g., `AGENTS.md`, `.cursorrules`) as a managed sentinel block.
+At hook execution time, `_session-hook` selects only enabled modules and composes their `MandateTrigger()` output. No module install function writes a mandate into an IDE instruction file.
 
 ---
 
@@ -275,9 +272,8 @@ The skill override system follows the **exact same hierarchy** as rules, but use
 | `knowledge` | `knowledge.md` | `knowledge_skill.md` |
 | `memory` | `memory.md` | `memory_skill.md` |
 | `hub` | `hub.md` | `hub_skill.md` |
-| `improvements` | `improvements.md` | `improvements_skill.md` |
 
-Skills are the detailed instruction files that agents read on-demand (stored in the IDE's skills directory). Rules are the compact summaries injected into the global rules file (e.g., `AGENTS.md`).
+Skills are detailed instruction files that agents read on demand from the IDE's skills directory. Module mandates are compact routing summaries delivered by native lifecycle hooks. Separately installed Hub `rule` artifacts are also hook-delivered and are never copied to an IDE rule directory.
 
 ### Skill Frontmatter
 

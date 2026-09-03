@@ -715,19 +715,6 @@ func TestResolveDocsDirFromProject(t *testing.T) {
 	}
 }
 
-func TestInstallAndRemoveRule(t *testing.T) {
-	dir := t.TempDir()
-	err := InstallRule(dir, "antigravity")
-	if err != nil {
-		t.Fatalf("InstallRule failed: %v", err)
-	}
-
-	err = RemoveRule(dir, "antigravity")
-	if err != nil {
-		t.Fatalf("RemoveRule failed: %v", err)
-	}
-}
-
 func TestInstallAndRemoveSkill(t *testing.T) {
 	dir := t.TempDir()
 	err := InstallSkill(dir, "antigravity")
@@ -741,18 +728,6 @@ func TestInstallAndRemoveSkill(t *testing.T) {
 	}
 }
 
-func TestInstallRuleDefaultProjectDir(t *testing.T) {
-	tempDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	_ = os.Chdir(tempDir)
-	defer func() { _ = os.Chdir(origDir) }()
-
-	err := InstallRule("", "antigravity")
-	if err != nil {
-		t.Fatalf("InstallRule with default dir failed: %v", err)
-	}
-}
-
 func TestInstallSkillDefaultProjectDir(t *testing.T) {
 	tempDir := t.TempDir()
 	origDir, _ := os.Getwd()
@@ -762,18 +737,6 @@ func TestInstallSkillDefaultProjectDir(t *testing.T) {
 	err := InstallSkill("", "antigravity")
 	if err != nil {
 		t.Fatalf("InstallSkill with default dir failed: %v", err)
-	}
-}
-
-func TestRemoveRuleDefaultProjectDir(t *testing.T) {
-	tempDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	_ = os.Chdir(tempDir)
-	defer func() { _ = os.Chdir(origDir) }()
-
-	err := RemoveRule("", "antigravity")
-	if err != nil {
-		t.Fatalf("RemoveRule with default dir failed: %v", err)
 	}
 }
 

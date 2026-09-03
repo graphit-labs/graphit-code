@@ -1,28 +1,9 @@
 package ide
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	gitblk "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
-
-var geminiBlockMarker = brand.ManagedBlockMarker()
-
-func injectGeminiManagedBlock(filePath, content string) error {
-	return gitblk.InjectBlockStyled(filePath, content, geminiBlockMarker, "", gitblk.HTMLBlockStyle)
-}
-
-func removeGeminiManagedBlock(filePath string) error {
-	_, err := gitblk.RemoveBlockStyled(filePath, geminiBlockMarker, true, gitblk.HTMLBlockStyle)
-	return err
-}
 
 type GeminiAdapter struct {
 	*FolderBasedAdapter
@@ -51,9 +32,6 @@ func (a *GeminiAdapter) Sync(installed map[string]map[string]string, pp *paths.P
 	if err := a.FolderBasedAdapter.Sync(installed, pp, projectID); err != nil {
 		return err
 	}
-	if err := a.syncGeminiMD(pp.ActiveProjectDir); err != nil {
-		return err
-	}
 	return a.syncSessionStartHook(pp.ActiveProjectDir)
 }
 
@@ -61,32 +39,7 @@ func (a *GeminiAdapter) Remove(pp *paths.ProjectPaths, installed map[string]map[
 	if err := a.FolderBasedAdapter.Remove(pp, installed); err != nil {
 		return err
 	}
-	if err := removeGeminiManagedBlock(filepath.Join(pp.ActiveProjectDir, "AGENTS.md")); err != nil {
-		return err
-	}
 	return a.removeSessionStartHook(pp.ActiveProjectDir)
-}
-
-func (a *GeminiAdapter) syncGeminiMD(projectDir string) error {
-	rulesDir := filepath.Join(projectDir, ".gemini", "rules")
-	entries, err := os.ReadDir(rulesDir)
-	if err != nil {
-		return nil
-	}
-
-	var imports []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-			imports = append(imports, fmt.Sprintf("@.gemini/rules/%s", e.Name()))
-		}
-	}
-	sort.Strings(imports)
-
-	target := filepath.Join(projectDir, "AGENTS.md")
-	if len(imports) > 0 {
-		return injectGeminiManagedBlock(target, strings.Join(imports, "\n"))
-	}
-	return removeGeminiManagedBlock(target)
 }
 
 func (a *GeminiAdapter) syncSessionStartHook(projectDir string) error {
@@ -98,11 +51,12 @@ func (a *GeminiAdapter) syncSessionStartHook(projectDir string) error {
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
+		projectDir,
 		"gemini",
 	); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent); err != nil {
+	if err := reconcileGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent, projectDir); err != nil {
 		return err
 	}
 	return removeGroupedCommandHook(path, "BeforeTool", "guard-gemini")

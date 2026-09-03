@@ -1,10 +1,48 @@
 package ide
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+// SysReminder is appended to MCP results when a host needs an out-of-band
+// reminder. Hook-delivered context currently makes that unnecessary.
+var SysReminder = ""
+
+var canonicalTriggerOrder = []string{
+	"mem_rule",
+	"ast_rule",
+	"hub_rule",
+	"doc_rule",
+}
+
+func assembleTriggers(triggers map[string]string) string {
+	parts := make([]string, 0, len(triggers))
+	seen := make(map[string]bool, len(triggers))
+	for _, tag := range canonicalTriggerOrder {
+		if content, ok := triggers[tag]; ok {
+			parts = append(parts, "<"+tag+">"+content+"</"+tag+">")
+			seen[tag] = true
+		}
+	}
+	extra := make([]string, 0, len(triggers))
+	for tag := range triggers {
+		if !seen[tag] {
+			extra = append(extra, tag)
+		}
+	}
+	sort.Strings(extra)
+	for _, tag := range extra {
+		parts = append(parts, "<"+tag+">"+triggers[tag]+"</"+tag+">")
+	}
+	return strings.Join(parts, "\n")
+}
+
+func mandateTag() string {
+	return strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
+}
 
 // ModuleMandateTrigger is resident routing, not a second copy of the skill.
 // Keep concrete request shapes here; procedures and edge cases belong in the
@@ -43,4 +81,16 @@ func mandatePreamble() string {
 		"Adapter hooks load mandatory memory and reassert this routing at supported lifecycle boundaries. They cannot classify semantic intent, so these triggers still apply after interruptions, corrections, compaction, handoff, and resumed work.",
 		"The daemon indexes writes asynchronously. Use `" + brand.MCPToolName("sync") + "` only when proven cross-module freshness is required or before completing code-changing work; do not sync after every edit.",
 	}, "\n") + "\n"
+}
+
+// MandateContext renders the resident Graphit router for hook injection.
+// The map is keyed by stable module tags so output remains deterministic even
+// when callers discover enabled modules in a different order.
+func MandateContext(triggers map[string]string) string {
+	body := assembleTriggers(triggers)
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	return "<" + mandateTag() + ">\n" +
+		strings.TrimSpace(mandatePreamble()+"\n"+body) + "\n</" + mandateTag() + ">"
 }

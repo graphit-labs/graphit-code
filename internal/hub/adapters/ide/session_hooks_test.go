@@ -91,6 +91,9 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				t.Fatalf("second sync was not idempotent\nfirst: %s\nsecond: %s", first, second)
 			}
 			configContent := string(second)
+			if tc.adapter != "opencode" && (!strings.Contains(configContent, "--project-dir") || !strings.Contains(configContent, projectDir)) {
+				t.Fatalf("%s hook does not pin the active project: %s", tc.adapter, configContent)
+			}
 			protocolContent := configContent
 			if tc.adapter == "kiro" {
 				payload, err := sessionhook.Render(sessionhook.FormatPlainContext, nil)

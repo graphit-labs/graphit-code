@@ -1,24 +1,9 @@
 package ide
 
 import (
-	"path/filepath"
-
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	gitblk "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
-
-var claudeBlockMarker = brand.ManagedBlockMarker()
-
-func injectClaudeManagedBlock(filePath, content string) error {
-	return gitblk.InjectBlockStyled(filePath, content, claudeBlockMarker, "", gitblk.HTMLBlockStyle)
-}
-
-func removeClaudeManagedBlock(filePath string) error {
-	_, err := gitblk.RemoveBlockStyled(filePath, claudeBlockMarker, true, gitblk.HTMLBlockStyle)
-	return err
-}
 
 type ClaudeAdapter struct {
 	*FolderBasedAdapter
@@ -47,9 +32,6 @@ func (a *ClaudeAdapter) Sync(installed map[string]map[string]string, pp *paths.P
 	if err := a.FolderBasedAdapter.Sync(installed, pp, projectID); err != nil {
 		return err
 	}
-	if err := a.syncClaudeMD(pp.ActiveProjectDir); err != nil {
-		return err
-	}
 	return a.syncSessionStartHook(pp.ActiveProjectDir)
 }
 
@@ -57,15 +39,7 @@ func (a *ClaudeAdapter) Remove(pp *paths.ProjectPaths, installed map[string]map[
 	if err := a.FolderBasedAdapter.Remove(pp, installed); err != nil {
 		return err
 	}
-	if err := removeClaudeManagedBlock(filepath.Join(pp.ActiveProjectDir, "CLAUDE.md")); err != nil {
-		return err
-	}
 	return a.removeSessionStartHook(pp.ActiveProjectDir)
-}
-
-func (a *ClaudeAdapter) syncClaudeMD(projectDir string) error {
-	target := filepath.Join(projectDir, "CLAUDE.md")
-	return injectClaudeManagedBlock(target, "@AGENTS.md")
 }
 
 func (a *ClaudeAdapter) syncSessionStartHook(projectDir string) error {
@@ -77,11 +51,12 @@ func (a *ClaudeAdapter) syncSessionStartHook(projectDir string) error {
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
+		projectDir,
 		"claude",
 	); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart); err != nil {
+	if err := reconcileGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart, projectDir); err != nil {
 		return err
 	}
 	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")

@@ -18,8 +18,8 @@ import (
 // one project while its tools take a project_dir naming another.
 //
 // The bug was not theoretical: graphit_remove was called with a temporary
-// directory and removed the IDE adapter, the rules and the CLAUDE.md of the
-// project the server happened to be running in.
+// directory and removed the IDE adapter of the project the server happened to
+// be running in.
 //
 // So this pins the property that matters — the hook writes to the project it was
 // GIVEN — by pointing it at a temp dir and checking the lockfile there moved.
@@ -171,7 +171,6 @@ func TestSyncIDEAdapterTargetsTheGivenProjectNotTheWorkingDirectory(t *testing.T
 	for _, expected := range []string{
 		filepath.Join(target, ".claude"),
 		filepath.Join(target, ".codex"),
-		filepath.Join(target, "CLAUDE.md"),
 	} {
 		if _, err := os.Stat(expected); err != nil {
 			t.Errorf("expected adapter artifact %s: %v", expected, err)

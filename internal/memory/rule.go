@@ -9,20 +9,6 @@ import (
 
 var memorySkillName = brand.SkillDirName("memory")
 
-func InstallRule(projectDir, ideName string) error {
-	if projectDir == "" {
-		var err error
-		projectDir, err = os.Getwd()
-		if err != nil {
-			return err
-		}
-	}
-	if err := ide.UpsertMandateTrigger(projectDir, ideName, "mem_rule", MandateTrigger()); err != nil {
-		return err
-	}
-	return InstallSkill(projectDir, ideName)
-}
-
 func InstallSkill(projectDir, ideName string) error {
 	if projectDir == "" {
 		var err error
@@ -37,17 +23,6 @@ func InstallSkill(projectDir, ideName string) error {
 		return err
 	}
 	return ide.InstallManagedSkill(projectDir, ideName, memorySkillName, frontmatter+skillContent)
-}
-
-func RemoveRule(projectDir, ideName string) error {
-	if projectDir == "" {
-		var err error
-		projectDir, err = os.Getwd()
-		if err != nil {
-			return err
-		}
-	}
-	return ide.RemoveMandateTrigger(projectDir, ideName, "mem_rule")
 }
 
 func RemoveSkill(projectDir, ideName string) error {

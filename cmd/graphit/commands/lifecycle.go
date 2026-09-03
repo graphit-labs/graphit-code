@@ -32,52 +32,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func installAllRules(p *output.Printer, wd, ideName string) {
-	projectCfg := loadProjectConfigFromDir(wd)
+func installAllModuleSkills(p *output.Printer, wd, ideName string) {
 	removeRetiredImprovementsGuidance(p, wd, ideName)
 
 	for _, r := range []struct {
-		name    string
-		install func(string, string) error
-		remove  func(string, string) error
-		skill   func(string, string) error
+		name  string
+		skill func(string, string) error
 	}{
-		{"Knowledge", knowledge.InstallRule, knowledge.RemoveRule, knowledge.InstallSkill},
-		{"AST", ast.InstallRule, ast.RemoveRule, ast.InstallSkill},
-		{"Hub", hub.InstallRule, hub.RemoveRule, hub.InstallSkill},
-		{"Memory", memory.InstallRule, memory.RemoveRule, memory.InstallSkill},
+		{"Knowledge", knowledge.InstallSkill},
+		{"AST", ast.InstallSkill},
+		{"Hub", hub.InstallSkill},
+		{"Memory", memory.InstallSkill},
 	} {
-		moduleLower := strings.ToLower(r.name)
-		if config.IsModuleDisabled(moduleLower, nil, projectCfg) {
-			if err := r.remove(wd, ideName); err != nil {
-				p.StepWarn("%s rule removal: %v", r.name, err)
-			}
-		} else {
-			if err := r.install(wd, ideName); err != nil {
-				p.StepWarn("%s rule: %v", r.name, err)
-			}
-		}
-
 		if err := r.skill(wd, ideName); err != nil {
 			p.StepWarn("%s skill: %v", r.name, err)
 		}
 	}
 }
 
-func removeAllRules(p *output.Printer, wd, ide string) {
+func removeAllModuleSkills(p *output.Printer, wd, ide string) {
 	for _, r := range []struct {
 		name        string
-		removeRule  func(string, string) error
 		removeSkill func(string, string) error
 	}{
-		{"Knowledge", knowledge.RemoveRule, knowledge.RemoveSkill},
-		{"AST", ast.RemoveRule, ast.RemoveSkill},
-		{"Hub", hub.RemoveRule, hub.RemoveSkill},
-		{"Memory", memory.RemoveRule, memory.RemoveSkill},
+		{"Knowledge", knowledge.RemoveSkill},
+		{"AST", ast.RemoveSkill},
+		{"Hub", hub.RemoveSkill},
+		{"Memory", memory.RemoveSkill},
 	} {
-		if err := r.removeRule(wd, ide); err != nil {
-			p.StepWarn("%s rule cleanup: %v", r.name, err)
-		}
 		if err := r.removeSkill(wd, ide); err != nil {
 			p.StepWarn("%s skill cleanup: %v", r.name, err)
 		}
@@ -86,9 +68,6 @@ func removeAllRules(p *output.Printer, wd, ide string) {
 }
 
 func removeRetiredImprovementsGuidance(p *output.Printer, projectDir, ideName string) {
-	if err := ide.RemoveMandateTrigger(projectDir, ideName, "imp_rule"); err != nil {
-		p.StepWarn("retired Improvements mandate cleanup: %v", err)
-	}
 	if err := ide.RemoveManagedSkill(projectDir, ideName, brand.SkillDirName("improvements")); err != nil {
 		p.StepWarn("retired Improvements skill cleanup: %v", err)
 	}
@@ -246,7 +225,7 @@ func newUpdateCmd() *cobra.Command {
 			}
 
 			wd, _ := os.Getwd()
-			installAllRules(p, wd, ide)
+			installAllModuleSkills(p, wd, ide)
 
 			p.Success("Update complete")
 			return nil
@@ -287,7 +266,7 @@ func newRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			removeAllRules(p, wd, ide)
+			removeAllModuleSkills(p, wd, ide)
 
 			p.Success("%s removed from this project", brand.DisplayName)
 			return nil
@@ -679,8 +658,8 @@ func newSyncCmd() *cobra.Command {
 Phase 1 (synchronous):
   • Pull latest hub repository content
   • Pull latest memory repository content
-  • Re-install all IDE rule blocks
-  • Sync the IDE adapter with the current lockfile
+  • Refresh module skills
+  • Sync IDE hooks and MCP configuration from the current lockfile
   • Sync git hooks
   • Reindex the AST knowledge graph
   • Reindex the docs/knowledge wiki
@@ -1069,11 +1048,11 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		task.Done("Hub registry synced")
 	}
 
-	task = p.StartTask("Updating IDE rules...")
+	task = p.StartTask("Updating IDE skills...")
 	for _, targetIDE := range idesToSync {
-		installAllRules(p, wd, targetIDE)
+		installAllModuleSkills(p, wd, targetIDE)
 	}
-	task.Done("IDE rules updated")
+	task.Done("IDE skills updated")
 
 	task = p.StartTask("Syncing IDE MCP and hooks...")
 	lf, lfErr := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))

@@ -347,7 +347,6 @@ func registerHubTools(server *mcp.Server) {
 			if rerr != nil {
 				return rerr
 			}
-			_ = hub.InstallRule(projectDir, resolvedIDE)
 			return nil
 		})
 		if err != nil {
@@ -379,7 +378,6 @@ func registerHubTools(server *mcp.Server) {
 			if err := svc.Unlink(ctx, input.Name, resolvedIDE, hub.ArtifactType(input.Type), projectDir); err != nil {
 				return err
 			}
-			_ = hub.InstallRule(projectDir, resolvedIDE)
 			return nil
 		})
 		if err != nil {
@@ -441,7 +439,7 @@ func registerHubTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "type-path"),
-		Description: "Resolve the absolute path where an artifact of a given type and name should be created for the current IDE. Use this (not the CLI) before writing a new skill, rule, command, or agent.",
+		Description: "Resolve the absolute IDE path where a physical skill, command, or agent artifact should be created. Hub rules are hook-delivered and intentionally have no IDE path.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubTypePathInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {

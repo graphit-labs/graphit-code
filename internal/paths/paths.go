@@ -18,10 +18,6 @@ type ProjectPaths struct {
 	ModulesDir       string
 	GitignorePath    string
 	RepoHooksDir     string
-	GlobalAgentsMD   string
-	LocalAgentsMD    string
-	LocalAgentsMDRel string
-	LocalRulesFile   string
 	LockFilePath     string
 }
 
@@ -65,10 +61,6 @@ func buildPaths(ide, projectDir string) *ProjectPaths {
 		}
 	}
 
-	localAgentsMD := filepath.Join(projectDir, brand.DotDir(), "AGENTS.md")
-	localAgentsMDRel, _ := filepath.Rel(projectDir, localAgentsMD)
-	localAgentsMDRel = filepath.ToSlash(localAgentsMDRel)
-
 	return &ProjectPaths{
 		IDE:              ide,
 		ActiveProjectDir: projectDir,
@@ -78,10 +70,6 @@ func buildPaths(ide, projectDir string) *ProjectPaths {
 		ModulesDir:       filepath.Join(resourcesDir, "modules"),
 		GitignorePath:    filepath.Join(projectDir, ".gitignore"),
 		RepoHooksDir:     repoHooksDir,
-		GlobalAgentsMD:   filepath.Join(globalDir, "AGENTS.md"),
-		LocalAgentsMD:    localAgentsMD,
-		LocalAgentsMDRel: localAgentsMDRel,
-		LocalRulesFile:   filepath.Join(projectDir, brand.DotDir(), "rules", "session.md"),
 		LockFilePath:     filepath.Join(projectDir, brand.LockFileName()),
 	}
 }

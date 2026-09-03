@@ -896,17 +896,14 @@ func title(prompt string) string {
 
 // systemPrompt is intentionally short.
 //
-// The framework's mandate, its module rules and its skills are not injected here.
-// They are files, written into the workspace by the ephemeral project's init, and
-// an agent CLI reads them from its working directory — which is what makes running
-// the CLI with WorkDir set to the workspace the load-bearing detail it is. Pasting
-// them into the prompt would duplicate a hundred kilobytes the agent is about to
-// read anyway, and would do it in a form it cannot re-read as it works.
+// The framework's mandate and installed Hub rules are not duplicated here. The
+// adapter's native lifecycle hook composes them from the ephemeral project at
+// agent start; skills remain host-discoverable files loaded only when needed.
 const systemPrompt = `You are answering a question inside a workspace prepared for exactly this purpose.
 
 The workspace contains the documentation wikis and code graphs that were selected for
-this search, indexed and reachable through your tools, along with the framework's own
-instructions as files you should read.
+this search, indexed and reachable through your tools. The workspace lifecycle hook
+has supplied the framework's resident instructions and its skills are available on demand.
 
 Ground your answer in what you find there. Say plainly when something is not covered
 by the material available to you, rather than filling the gap from general knowledge.`

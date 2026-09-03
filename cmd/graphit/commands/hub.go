@@ -89,8 +89,6 @@ func newHubInstallCmd() *cobra.Command {
 				p.Success("Installed %s (%s) @%s", result.Name, result.ArtType, result.Version)
 			}
 
-			wd, _ := os.Getwd()
-			_ = hub.InstallRule(wd, ide)
 			return nil
 		},
 	}
@@ -133,8 +131,6 @@ func newHubUninstallCmd() *cobra.Command {
 				// to whoever else still has them installed.
 			}
 
-			wd, _ := os.Getwd()
-			_ = hub.InstallRule(wd, ide)
 			return nil
 		},
 	}
@@ -490,18 +486,17 @@ func newHubTypePathCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "type-path <type> <name>",
-		Short: "Print the IDE artifact path for a given type and name",
+		Short: "Print the IDE path for a physical artifact",
 		Long: `Output the absolute path where an artifact should be created
 for the current IDE and project.
 
-For file-based types (rule, command, agent), returns the full file path
-with the correct extension. For folder-based types (skill), returns the
-directory path.
+For file-based types (command and agent), returns the full file path with
+the correct extension. For folder-based types (skill), returns the directory
+path. Rules have no IDE path because lifecycle hooks load them dynamically.
 
 The output is a single clean path with no extra formatting.`,
 		Args: cobra.ExactArgs(2),
 		Example: `  ` + binName + ` hub type-path skill my-error-patterns
-  ` + binName + ` hub type-path rule no-direct-db-access
   ` + binName + ` hub type-path command pre-deploy-check --ide cursor`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return nil },
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -543,17 +538,20 @@ func newHubLinkCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "link <name>",
-		Short: "Link a local project's artifacts into the current project via symlinks",
-		Long: `Creates symlinks from the current project to a local source project,
-bypassing the hub registry. Useful for local development and testing.
+		Short: "Link a local artifact into the current project",
+		Long: `Links the current project to a local source, bypassing the Hub registry.
+Useful for local development and testing. Rules are read dynamically by lifecycle
+hooks from a directory containing RULE.md; they are never copied into an IDE.
 
 For AST:       .<brand>/ast/<name>       → <path>/.<brand>/ast/project
 For Knowledge: .<brand>/knowledge/<name> → <path>/.<brand>/knowledge/project
+For Rule:      hook context              → <path>/RULE.md
 For IDE types: <ide-dir>/<folder>/<name> → <path>/<ide-dir>/<folder>/<name>
 MCP:           Not supported (requires actual IDE configuration)`,
 		Args: cobra.ExactArgs(1),
 		Example: `  ` + brand.BinName() + ` hub link my-project --path ../my-project --type knowledge
   ` + brand.BinName() + ` hub link my-project --path ../my-project --type ast
+  ` + brand.BinName() + ` hub link review-policy --path ../review-policy --type rule
   ` + brand.BinName() + ` hub link error-patterns --path ../my-project --type skill`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ide := resolveIDEFlag(cmd)
@@ -579,8 +577,6 @@ MCP:           Not supported (requires actual IDE configuration)`,
 			}
 			p.Success("Linked %s (%s)", result.ArtifactID, result.ArtType)
 
-			wd, _ := os.Getwd()
-			_ = hub.InstallRule(wd, ide)
 			return nil
 		},
 	}
@@ -621,8 +617,6 @@ func newHubUnlinkCmd() *cobra.Command {
 			}
 			p.Success("Unlinked %s", args[0])
 
-			wd, _ := os.Getwd()
-			_ = hub.InstallRule(wd, ide)
 			return nil
 		},
 	}

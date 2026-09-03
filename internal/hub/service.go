@@ -277,7 +277,7 @@ func (s *HubService) Install(
 			// global install stops at the clone, which is not a degraded outcome:
 			// the clone in the shared cache IS the artifact, and it is what
 			// hub content serves to a caller that has no checkout to read files from.
-			if ide != "" && !globalInstall {
+			if artType != TypeRule && ide != "" && !globalInstall {
 				targetPath, err := ideAdapter.ArtifactTypePath(pp.ActiveProjectDir, ide, string(artType), localID)
 				if err == nil {
 					if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
@@ -668,7 +668,7 @@ func (s *HubService) Uninstall(
 		s.log().Warn("pre-uninstall hook", "type", artType, "id", entryID, "error", err)
 	}
 
-	if !ideIndependentTypes[artType] && ide != "" {
+	if artType != TypeRule && !ideIndependentTypes[artType] && ide != "" {
 		if targetPath, err := ideArtifactPath(pp.ActiveProjectDir, ide, string(artType), entryID); err == nil {
 			if info, err := os.Lstat(targetPath); err == nil {
 				if info.IsDir() {
@@ -1000,6 +1000,15 @@ func (s *HubService) Link(
 		}
 		result.Links = append(result.Links, artifactName+" → "+sourceKnowledge)
 
+	case TypeRule:
+		// Rules are resident instructions delivered by the lifecycle hook. A local
+		// link therefore points directly at an artifact directory containing
+		// RULE.md; it never creates an IDE-specific file or symlink.
+		if findCanonicalFile(string(TypeRule), absSource) == "" {
+			return nil, fmt.Errorf("source rule not found at %s — expected RULE.md", absSource)
+		}
+		result.Links = append(result.Links, artifactName+" → dynamic hook context from "+absSource)
+
 	case TypeMCP:
 
 		mcpDir := filepath.Join(absSource, dotDir, TypeFolderMap[TypeMCP], artifactName)
@@ -1125,6 +1134,9 @@ func (s *HubService) Unlink(
 
 	case TypeKnowledge:
 		_ = store.RemoveContext(pp.ActiveProjectDir, store.KindKnowledge, artifactName)
+
+	case TypeRule:
+		// Dynamic rule links have no project-local IDE artifact to remove.
 
 	default:
 		if targetPath, err := ideArtifactPath(pp.ActiveProjectDir, ide, string(artType), artifactName); err == nil {

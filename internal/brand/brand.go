@@ -128,10 +128,18 @@ func defaultRulePlaceholder() string {
 }
 
 func ResolveModuleRule(module, defaultContent string) string {
+	wd, _ := os.Getwd()
+	return ResolveModuleRuleIn(wd, module, defaultContent)
+}
+
+// ResolveModuleRuleIn resolves a module mandate for an explicit project. Hook
+// commands use this instead of process cwd because they may run from a nested
+// directory or a host-controlled working directory.
+func ResolveModuleRuleIn(projectDir, module, defaultContent string) string {
 	placeholder := defaultRulePlaceholder()
 
-	if wd, err := os.Getwd(); err == nil {
-		projectPath := filepath.Join(wd, DotDir(), "rules", module+".md")
+	if projectDir != "" {
+		projectPath := filepath.Join(projectDir, DotDir(), "rules", module+".md")
 		if data, err := os.ReadFile(projectPath); err == nil {
 			return strings.ReplaceAll(string(data), placeholder, defaultContent)
 		}

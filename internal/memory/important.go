@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -50,11 +51,28 @@ func ListImportantMemories(scope string) ([]ImportantEntry, error) {
 // memory in stable store order. It deliberately bypasses the compiled wiki so session-start recall
 // cannot miss a newly marked instruction while indexing catches up.
 func ListMandatoryMemories(scope string) ([]MandatoryEntry, error) {
-	return listMemoriesByRelevance(scope, true)
+	wd, _ := os.Getwd()
+	return ListMandatoryMemoriesForProject(wd, scope)
+}
+
+// ListMandatoryMemoriesForProject is the explicit-project form used by IDE
+// hooks. Hook processes are not required to inherit the workspace as their
+// working directory.
+func ListMandatoryMemoriesForProject(projectDir, scope string) ([]MandatoryEntry, error) {
+	return listMemoriesByRelevanceIn(projectDir, scope, true)
 }
 
 func listMemoriesByRelevance(scope string, mandatory bool) ([]ImportantEntry, error) {
-	uri := TableURIForScope(scope)
+	wd, _ := os.Getwd()
+	return listMemoriesByRelevanceIn(wd, scope, mandatory)
+}
+
+func listMemoriesByRelevanceIn(projectDir, scope string, mandatory bool) ([]ImportantEntry, error) {
+	scopeID := resolveScopeIDIn(projectDir, scope)
+	if scopeID == "" {
+		return nil, nil
+	}
+	uri := TableURIFor(scope, scopeID)
 	if uri == "" {
 		return nil, nil
 	}

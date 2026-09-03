@@ -7,6 +7,12 @@ import (
 	"os"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hub"
+	ideadapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 	"github.com/spf13/cobra"
@@ -14,6 +20,7 @@ import (
 
 func newSessionHookCmd() *cobra.Command {
 	var format string
+	var projectDir string
 
 	cmd := &cobra.Command{
 		Use:    "_session-hook",
@@ -21,20 +28,22 @@ func newSessionHookCmd() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if projectDir == "" {
+				projectDir, _ = os.Getwd()
+			}
 			input, err := readSessionHookInput(cmd.InOrStdin(), format)
 			if err != nil {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
-			mandatory, loaded := "", false
-			if hookInputNeedsMandatory(format, input) {
-				mandatory, loaded = loadMandatoryHookContext()
+			projectCfg := loadProjectConfigFromDir(projectDir)
+			context := sessionhook.Context{
+				Instructions:   loadHookInstructionContext(projectDir, projectCfg),
+				MemoryDisabled: config.IsModuleDisabled("memory", nil, projectCfg),
 			}
-			var payload []byte
-			if loaded {
-				payload, err = sessionhook.RenderWithMandatory(format, input, mandatory)
-			} else {
-				payload, err = sessionhook.Render(format, input)
+			if !context.MemoryDisabled && hookInputNeedsMandatory(format, input) {
+				context.Mandatory, context.MandatoryLoaded = loadMandatoryHookContext(projectDir)
 			}
+			payload, err := sessionhook.RenderWithContext(format, input, context)
 			if err != nil {
 				return err
 			}
@@ -46,6 +55,7 @@ func newSessionHookCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "", "session hook output format")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "active project directory")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
 }
@@ -66,14 +76,14 @@ func hookInputNeedsMandatory(format string, input []byte) bool {
 	}
 }
 
-func loadMandatoryHookContext() (string, bool) {
-	return loadMandatoryHookContextWith(memory.ListMandatoryMemories)
+func loadMandatoryHookContext(projectDir string) (string, bool) {
+	return loadMandatoryHookContextWith(projectDir, memory.ListMandatoryMemoriesForProject)
 }
 
-func loadMandatoryHookContextWith(list func(string) ([]memory.MandatoryEntry, error)) (string, bool) {
+func loadMandatoryHookContextWith(projectDir string, list func(string, string) ([]memory.MandatoryEntry, error)) (string, bool) {
 	var sections []string
 	for _, scope := range []string{"project", "user"} {
-		entries, err := list(scope)
+		entries, err := list(projectDir, scope)
 		if err != nil {
 			return "", false
 		}
@@ -82,6 +92,46 @@ func loadMandatoryHookContextWith(list func(string) ([]memory.MandatoryEntry, er
 		}
 	}
 	return strings.Join(sections, "\n\n"), true
+}
+
+func loadHookInstructionContext(projectDir string, projectCfg config.ConfigMap) string {
+	triggers := map[string]string{}
+	for _, module := range []struct {
+		name    string
+		tag     string
+		content func() string
+	}{
+		{name: "memory", tag: "mem_rule", content: func() string {
+			return brand.ResolveModuleRuleIn(projectDir, "memory", memory.MandateTrigger())
+		}},
+		{name: "ast", tag: "ast_rule", content: func() string {
+			return brand.ResolveModuleRuleIn(projectDir, "ast", ast.MandateTrigger())
+		}},
+		{name: "hub", tag: "hub_rule", content: func() string {
+			return brand.ResolveModuleRuleIn(projectDir, "hub", hub.MandateTrigger())
+		}},
+		{name: "knowledge", tag: "doc_rule", content: func() string {
+			return brand.ResolveModuleRuleIn(projectDir, "knowledge", knowledge.MandateTrigger())
+		}},
+	} {
+		if !config.IsModuleDisabled(module.name, nil, projectCfg) {
+			triggers[module.tag] = module.content()
+		}
+	}
+
+	sections := make([]string, 0, 3)
+	if mandate := ideadapter.MandateContext(triggers); mandate != "" {
+		sections = append(sections, mandate)
+	}
+	rules, err := hub.InstalledRuleContext(projectDir)
+	if rules != "" {
+		sections = append(sections, rules)
+	}
+	if err != nil {
+		sections = append(sections,
+			"Graphit could not load every installed Hub rule ("+err.Error()+"). Before rule-dependent work, use `graphit_hub_content` when available; otherwise continue with the agent's native capabilities.")
+	}
+	return strings.Join(sections, "\n\n")
 }
 
 func readSessionHookInput(input io.Reader, format string) ([]byte, error) {

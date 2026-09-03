@@ -30,10 +30,9 @@ import (
 
 // The ephemeral project is a real project that nothing knows about.
 //
-// It gets a lockfile, an identity, the framework's rules and skills, and an MCP
-// server — everything an agent CLI looks for when it starts, because the agent
-// discovers all of it from its working directory and would otherwise find an empty
-// folder. What it deliberately does not get is a place in the ecosystem: no entry in
+// It gets a lockfile, an identity, the framework's skills, native lifecycle hooks,
+// and an MCP server — everything an agent CLI needs when it starts. What it
+// deliberately does not get is a place in the ecosystem: no entry in
 // the global lock, no registration, no telemetry event. It exists for one search and
 // is deleted with the session.
 //
@@ -61,7 +60,7 @@ func Prepare(ctx context.Context, s *livesearch.Session, progress func(string)) 
 		return err
 	}
 
-	progress("installing the framework's rules and skills")
+	progress("installing the framework's skills")
 	installGuidance(ws, ideName, progress)
 	if err := ctx.Err(); err != nil {
 		return err
@@ -227,29 +226,25 @@ func writeLockfile(ws, ideName, sessionID string) error {
 	return nil
 }
 
-// guidanceModule is one of the framework's five modules, in the form the installers
-// take.
+// guidanceModule is one of the framework modules whose skill must remain a
+// physical, host-discoverable artifact.
 type guidanceModule struct {
 	name  string
-	rule  func(projectDir, ide string) error
 	skill func(projectDir, ide string) error
 }
 
 func guidanceModules() []guidanceModule {
 	return []guidanceModule{
-		{"knowledge", knowledge.InstallRule, knowledge.InstallSkill},
-		{"ast", ast.InstallRule, ast.InstallSkill},
-		{"hub", hub.InstallRule, hub.InstallSkill},
-		{"memory", memory.InstallRule, memory.InstallSkill},
+		{"knowledge", knowledge.InstallSkill},
+		{"ast", ast.InstallSkill},
+		{"hub", hub.InstallSkill},
+		{"memory", memory.InstallSkill},
 	}
 }
 
-// installGuidance writes the module rules and skills into the workspace, and the
-// mandate with them — InstallRule upserts it.
-//
-// This is the part that makes injecting instructions into the prompt unnecessary:
-// the agent reads them from the working directory, as files, the same way it would
-// in a real project, and can re-read them as it works.
+// installGuidance writes only module skills. Resident mandates are composed from
+// current config by the lifecycle hook, and installed Hub rules are read from
+// their authoritative artifact by that same hook.
 //
 // A module that fails to install is reported and skipped rather than fatal. Four
 // skills still make a working search, and a session refused because one rule file
@@ -262,9 +257,6 @@ func installGuidance(ws, ideName string, progress func(string)) {
 		// rule the user turned off would reintroduce it for this search only.
 		if config.IsModuleDisabled(m.name, nil, nil) {
 			continue
-		}
-		if err := m.rule(ws, ideName); err != nil {
-			progress(fmt.Sprintf("the %s rule could not be installed: %v", m.name, err))
 		}
 		if err := m.skill(ws, ideName); err != nil {
 			progress(fmt.Sprintf("the %s skill could not be installed: %v", m.name, err))
@@ -287,26 +279,6 @@ func mcpServers(ws, ideName string) map[string]any {
 	return ide.DesiredMCPServers(installed)
 }
 
-// localMCPFile is where an IDE reads MCP servers that belong to a project.
-//
-// Normal projects receive these paths through their IDE adapter. Live search writes
-// its minimal configuration directly because the ephemeral workspace does not need
-// the adapter's complete artifact and hook lifecycle. In either case, the target is
-// project-local and never the user's home-level IDE configuration.
-//
-// Only the IDEs whose project-level convention is known are listed. An IDE that is
-// missing is reported rather than guessed at, because a config written to the wrong
-// path is indistinguishable from one that was never written, and costs an hour to
-// find. A session without local MCP still works: the wikis and the memory are
-// markdown in the workspace, which the agent can read with its own tools. Only the
-// code graphs strictly need the MCP server, since a graph database is not a file you
-// can read.
-var localMCPFile = map[string]string{
-	"claude": ".mcp.json",
-	"cursor": filepath.Join(".cursor", "mcp.json"),
-	"kiro":   filepath.Join(".kiro", "settings", "mcp.json"),
-}
-
 // localPermissionsFile is where an IDE reads which tools may be used without asking.
 //
 // Same rule as localMCPFile: only what is known. An agent told not to wait for
@@ -317,13 +289,11 @@ var localPermissionsFile = map[string]string{
 }
 
 func configureTools(ws, ideName string, progress func(string)) {
-	rel, ok := localMCPFile[ideName]
-	if !ok {
-		progress(fmt.Sprintf(
-			"no project-level MCP configuration is known for %s, so the agent will use whatever it already has; "+
-				"documentation still reads as files, code graphs need the graphit MCP server", ideName))
-	} else if err := writeMCPConfig(filepath.Join(ws, rel), mcpServers(ws, ideName)); err != nil {
-		progress(fmt.Sprintf("the MCP configuration could not be written: %v", err))
+	lf, err := hub.LoadLockfile(filepath.Join(ws, brand.LockFileName()))
+	if err != nil || lf == nil {
+		progress(fmt.Sprintf("the project lockfile could not be read while configuring hooks and MCP: %v", err))
+	} else if err := hub.SyncIDEAdapter(ideName, ws, lf); err != nil {
+		progress(fmt.Sprintf("the IDE hooks and MCP configuration could not be written: %v", err))
 	}
 
 	permRel, ok := localPermissionsFile[ideName]
@@ -333,25 +303,6 @@ func configureTools(ws, ideName string, progress func(string)) {
 	if err := writeToolPermissions(filepath.Join(ws, permRel), ideName, mcpServers(ws, ideName)); err != nil {
 		progress(fmt.Sprintf("the tool permissions could not be written: %v", err))
 	}
-}
-
-func writeMCPConfig(path string, servers map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("creating the MCP configuration directory: %w", err)
-	}
-	// No managed-keys bookkeeping and no merge: this file is created with the
-	// project and deleted with it, so there is no other owner to reconcile with and
-	// nothing to reference-count. That bookkeeping exists for shared, long-lived
-	// configuration, which this is the opposite of.
-	body := map[string]any{"mcpServers": servers}
-	data, err := json.MarshalIndent(body, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding the MCP configuration: %w", err)
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return fmt.Errorf("writing the MCP configuration: %w", err)
-	}
-	return nil
 }
 
 // writeToolPermissions allows every MCP server this project declares, plus the

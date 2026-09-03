@@ -348,9 +348,9 @@ func TestThePreparedWorkspaceIsSelfDescribing(t *testing.T) {
 	}
 
 	for _, rel := range []string{
-		"AGENTS.md",
 		brand.LockFileName(),
 		".mcp.json",
+		filepath.Join(".claude", "settings.json"),
 		filepath.Join(".claude", "settings.local.json"),
 	} {
 		if _, err := os.Stat(filepath.Join(ws, rel)); err != nil {

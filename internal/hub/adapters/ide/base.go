@@ -130,7 +130,12 @@ func (a *FolderBasedAdapter) Sync(
 		localName := eid
 
 		switch artType {
-		case "rule", "command", "workflow":
+		case "rule":
+			// Rule artifacts are read from their installed Hub source by the
+			// session hook. They are never copied into host rule directories.
+			continue
+
+		case "command", "workflow":
 			typeDir := a.getTypeDir(artType)
 			if typeDir == "" {
 				continue
@@ -199,6 +204,9 @@ func (a *FolderBasedAdapter) Remove(pp *paths.ProjectPaths, installed map[string
 	if installed != nil {
 		for eid, edata := range installed {
 			artType := edata["type"]
+			if artType == "rule" {
+				continue
+			}
 			localName := eid
 			typeDir := a.getTypeDir(artType)
 			if typeDir == "" {
@@ -228,8 +236,6 @@ func (a *FolderBasedAdapter) Remove(pp *paths.ProjectPaths, installed map[string
 		if info, err := os.ReadDir(baseDir); err == nil && len(info) == 0 {
 			_ = os.Remove(baseDir)
 		}
-	} else if baseDir != "" {
-		_ = os.RemoveAll(baseDir)
 	}
 
 	if a.cfg.AgentsFile != "" {
@@ -505,7 +511,7 @@ func (a *FolderBasedAdapter) getTypeDir(artType string) string {
 }
 
 func (a *FolderBasedAdapter) typeDirs() []string {
-	return []string{a.cfg.RulesDir, a.cfg.CommandsDir, a.cfg.SkillsDir, a.cfg.AgentsDir}
+	return []string{a.cfg.CommandsDir, a.cfg.SkillsDir, a.cfg.AgentsDir}
 }
 
 func (a *FolderBasedAdapter) getFileMode(artType string) FileMode {

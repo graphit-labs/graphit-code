@@ -86,7 +86,7 @@ func TestHubService_Uninstall_WithInstalledBy(t *testing.T) {
 	})
 }
 
-func TestHubService_Uninstall_IDEArtifactRemoval(t *testing.T) {
+func TestHubService_UninstallRulePreservesIDEFiles(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -113,6 +113,9 @@ func TestHubService_Uninstall_IDEArtifactRemoval(t *testing.T) {
 	err := svc.Uninstall(context.Background(), "my-rule", TypeRule, true, "claude", dir)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+	if data, readErr := os.ReadFile(filepath.Join(artDir, "RULE.md")); readErr != nil || string(data) != "# Rule" {
+		t.Fatalf("rule file is not owned by Graphit and must be preserved: %q, %v", data, readErr)
 	}
 }
 
@@ -214,6 +217,53 @@ func TestHubService_Link_Knowledge(t *testing.T) {
 	}
 	if result.ArtType != TypeKnowledge {
 		t.Errorf("expected TypeKnowledge, got %q", result.ArtType)
+	}
+}
+
+func TestHubService_Link_RuleUsesDynamicSource(t *testing.T) {
+	dir := t.TempDir()
+	sourceDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sourceDir, "RULE.md"), []byte("# Local rule"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lf := &Lockfile{
+		Project:   ProjectIdentity{ID: "test-id", Name: "Test"},
+		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
+	}
+	lockPath := filepath.Join(dir, brand.LockFileName())
+	if err := SaveLockfile(lockPath, lf); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &HubService{registry: &RegistryManager{
+		entries:  make(map[ArtifactType]map[string]*Entry),
+		projects: make(map[string]*Project),
+	}}
+	result, err := svc.Link(context.Background(), "review-policy", sourceDir, "claude", TypeRule, dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Links) != 1 || !strings.Contains(result.Links[0], "dynamic hook context") {
+		t.Fatalf("unexpected rule link result: %#v", result.Links)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "rules", "review-policy.md")); !os.IsNotExist(err) {
+		t.Fatalf("rule link materialized an IDE file: %v", err)
+	}
+
+	updated, err := LoadLockfile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Artifacts[TypeRule]["review-policy"].LinkSource; got != sourceDir {
+		t.Fatalf("link source = %q, want %q", got, sourceDir)
+	}
+	contextText, err := InstalledRuleContext(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(contextText, "# Local rule") {
+		t.Fatalf("dynamic rule context did not read the linked artifact: %q", contextText)
 	}
 }
 

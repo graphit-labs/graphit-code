@@ -70,7 +70,7 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 		"trigger":     "SessionStart",
 		"action": map[string]any{
 			"type":    "command",
-			"command": sessionHookCommand(sessionhook.FormatPlainContext),
+			"command": sessionHookCommand(sessionhook.FormatPlainContext, projectDir),
 		},
 	})
 	hooks = append(hooks, map[string]any{
@@ -80,7 +80,7 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 		"trigger":     "AgentSpawn",
 		"action": map[string]any{
 			"type":    "command",
-			"command": sessionHookCommand(sessionhook.FormatPlainContext),
+			"command": sessionHookCommand(sessionhook.FormatPlainContext, projectDir),
 		},
 	})
 	root["version"] = "v1"

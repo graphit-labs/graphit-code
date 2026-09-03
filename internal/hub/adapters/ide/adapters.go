@@ -40,10 +40,6 @@ func SupportedIDEs() []string {
 	return []string{"antigravity", "cursor", "claude", "kiro", "codex", "opencode", "gemini"}
 }
 
-func GlobalRulesFile(ide string) string {
-	return "AGENTS.md"
-}
-
 // SkillFrontmatter builds the YAML frontmatter block that opens a managed
 // SKILL.md: the `name`, which must match the skill's directory, and the
 // `description`, which is what an IDE matches a request against.
@@ -228,6 +224,9 @@ func removeSkillForAdapter(adapter Adapter, projectDir, skillName string) error 
 }
 
 func ArtifactTypePath(projectDir, ideName, artifactType, artifactName string) (string, error) {
+	if artifactType == "rule" {
+		return "", fmt.Errorf("rule artifacts are delivered dynamically by lifecycle hooks and have no IDE path")
+	}
 	adapter := GetAdapter(ideName)
 	if adapter == nil {
 		return "", fmt.Errorf("unknown IDE: %s", ideName)

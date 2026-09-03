@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
@@ -27,10 +30,104 @@ func TestSessionHookCommandRendersFormatPayload(t *testing.T) {
 	}
 }
 
+func TestSessionHookLoadsEnabledMandatesAndInstalledHubRulesDynamically(t *testing.T) {
+	projectDir := t.TempDir()
+	ruleDir := filepath.Join(t.TempDir(), "rule")
+	if err := os.MkdirAll(ruleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ruleDir, "RULE.md"), []byte("DYNAMIC HUB RULE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf := &hub.Lockfile{
+		Artifacts: map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta{
+			hub.TypeRule: {"dynamic-rule": {LinkSource: ruleDir}},
+		},
+		Config: map[string]any{"modules": map[string]any{"ast": "false"}},
+	}
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSessionHookCmd()
+	cmd.SetArgs([]string{"--format", "additional-context", "--project-dir", projectDir})
+	cmd.SetIn(strings.NewReader("{}"))
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"GRAPHIT_SYSTEM_MANDATE", "graphit-memory", "DYNAMIC HUB RULE"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("dynamic hook context missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "graphit-ast`") {
+		t.Fatalf("disabled AST mandate was injected: %s", got)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("hook materialized AGENTS.md: %v", err)
+	}
+}
+
+func TestSessionHookOmitsMemoryBootstrapWhenModuleIsDisabled(t *testing.T) {
+	projectDir := t.TempDir()
+	lf := &hub.Lockfile{
+		Artifacts: map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta{},
+		Config:    map[string]any{"modules": map[string]any{"memory": "false"}},
+	}
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSessionHookCmd()
+	cmd.SetArgs([]string{"--format", "additional-context", "--project-dir", projectDir})
+	cmd.SetIn(strings.NewReader("{}"))
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	if strings.Contains(got, "graphit_memory_") || strings.Contains(got, "Graphit session bootstrap") || strings.Contains(got, "graphit-memory`") {
+		t.Fatalf("disabled memory module leaked into hook context: %s", got)
+	}
+}
+
+func TestSessionHookLoadsProjectMandateOverrideFromPinnedDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	rulesDir := filepath.Join(projectDir, brand.DotDir(), "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rulesDir, "ast.md"), []byte("PINNED AST MANDATE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &hub.Lockfile{}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSessionHookCmd()
+	cmd.SetArgs([]string{"--format", "additional-context", "--project-dir", projectDir})
+	cmd.SetIn(strings.NewReader("{}"))
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "PINNED AST MANDATE") {
+		t.Fatalf("hook ignored project-pinned mandate override: %s", output.String())
+	}
+}
+
 func TestLoadMandatoryHookContextReadsBothAuthoritativeScopes(t *testing.T) {
 	t.Parallel()
 
-	context, loaded := loadMandatoryHookContextWith(func(scope string) ([]memory.MandatoryEntry, error) {
+	context, loaded := loadMandatoryHookContextWith("/project", func(projectDir, scope string) ([]memory.MandatoryEntry, error) {
+		if projectDir != "/project" {
+			t.Fatalf("project dir = %q", projectDir)
+		}
 		return []memory.MandatoryEntry{{Title: scope + " policy", Content: "content for " + scope}}, nil
 	})
 	if !loaded || !strings.Contains(context, "### project memory: project policy") || !strings.Contains(context, "### user memory: user policy") {
@@ -41,7 +138,7 @@ func TestLoadMandatoryHookContextReadsBothAuthoritativeScopes(t *testing.T) {
 func TestLoadMandatoryHookContextFallsBackWhenAStoreCannotOpen(t *testing.T) {
 	t.Parallel()
 
-	_, loaded := loadMandatoryHookContextWith(func(string) ([]memory.MandatoryEntry, error) {
+	_, loaded := loadMandatoryHookContextWith("/project", func(string, string) ([]memory.MandatoryEntry, error) {
 		return nil, errors.New("store unavailable")
 	})
 	if loaded {
@@ -82,8 +179,8 @@ func TestSessionHookCommandFirstInvocationReadsPipedPayload(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "Graphit invariant") || strings.Contains(output.String(), "Graphit session bootstrap") {
-		t.Fatalf("non-first invocation did not contain only the invariant: %s", output.String())
+	if !strings.Contains(output.String(), "GRAPHIT_SYSTEM_MANDATE") || strings.Contains(output.String(), "Graphit session bootstrap") {
+		t.Fatalf("non-first invocation did not contain only resident instructions: %s", output.String())
 	}
 }
 
