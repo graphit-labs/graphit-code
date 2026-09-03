@@ -9,21 +9,12 @@ import (
 	"unicode/utf8"
 )
 
-// A file with malformed bytes must not be able to take the index write down with it.
-//
-// Arrow rejects a whole record batch containing invalid UTF-8, so one bad file fails the append
-// for every file batched with it. This used to be handled by accident — the text reached the
-// index through a JSON shard, and encoding/json substitutes U+FFFD — until the text started
-// being read from the working tree directly. OBSERVED on a corpus of XML reports:
-// `Invalid UTF8 sequence at string index 1 ... invalid utf-8 sequence of 1 bytes`.
 func TestSourceOfReturnsValidUTF8ForAMalformedFile(t *testing.T) {
 	root := t.TempDir()
 	const rel = "reports/broken.xml"
 	if err := os.MkdirAll(filepath.Join(root, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A latin-1 byte in the middle of otherwise valid XML, which is what a legacy report
-	// exported without an encoding declaration looks like.
 	raw := append([]byte("<report><title>Rela"), 0xE7, 0xE3, 'o')
 	raw = append(raw, []byte("</title></report>\n")...)
 	if utf8.Valid(raw) {

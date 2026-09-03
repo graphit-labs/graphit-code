@@ -77,15 +77,10 @@ func TestLadybugFTSUpdateSemantics(t *testing.T) {
 	if err := run("LOAD EXTENSION fts"); err != nil {
 		t.Skipf("fts unavailable: %v", err)
 	}
-	// snake_case on purpose: the tokenizer splits on separators, so "alpha" is a real
-	// token of "alpha_token". A camelCase name would be a single token and every query
-	// below would correctly return nothing, measuring the tokenizer instead of update
-	// semantics — which is how a first version of this probe misread the result.
 	if err := run("CREATE NODE TABLE T(uid STRING, name STRING, PRIMARY KEY(uid))"); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// (1) Index created on an empty table, rows inserted afterwards.
 	if err := run("CALL CREATE_FTS_INDEX('T','idx_before',['name'])"); err != nil {
 		t.Fatalf("CREATE_FTS_INDEX on empty table: %v", err)
 	}
@@ -98,7 +93,6 @@ func TestLadybugFTSUpdateSemantics(t *testing.T) {
 	t.Logf("(1) index created BEFORE inserts, query 'alpha' -> %v (err=%v)", before, err)
 	indexSeesLaterInserts := len(before) > 0
 
-	// (2) Index created after the rows exist, then one more row inserted.
 	if err := run("CALL CREATE_FTS_INDEX('T','idx_after',['name'])"); err != nil {
 		t.Fatalf("CREATE_FTS_INDEX after inserts: %v", err)
 	}
@@ -115,11 +109,9 @@ func TestLadybugFTSUpdateSemantics(t *testing.T) {
 	t.Logf("(2b) row inserted AFTER index creation, query 'gamma' -> %v (err=%v)", later, err)
 	incrementalInsertVisible := len(later) > 0
 
-	// (3) Delete a row the index never indexed.
 	deleteErr := run("MATCH (t:T {uid:'e0'}) DELETE t")
 	t.Logf("(3) DELETE of a row missing from an index -> err=%v", deleteErr)
 
-	// (4) Recovery by dropping and recreating.
 	dropErr := run("CALL DROP_FTS_INDEX('T','idx_after')")
 	recreateErr := run("CALL CREATE_FTS_INDEX('T','idx_after',['name'])")
 	after, queryErr := hits("idx_after", "gamma")
@@ -130,10 +122,6 @@ func TestLadybugFTSUpdateSemantics(t *testing.T) {
 	t.Logf("SUMMARY: index sees inserts made after creation = %v / %v; DROP+CREATE recovers = %v",
 		indexSeesLaterInserts, incrementalInsertVisible, recovers)
 
-	// The design consequence, asserted so it cannot be quietly forgotten: if inserts
-	// are invisible to an existing index, then both the full rebuild and every
-	// incremental update must (re)create the FTS indexes after writing, and the plan's
-	// claim that FTS updates in place is wrong.
 	if !incrementalInsertVisible && !recovers {
 		t.Fatal("rows inserted after index creation are invisible AND DROP+CREATE does not recover — " +
 			"Ladybug FTS could not back this index at all")

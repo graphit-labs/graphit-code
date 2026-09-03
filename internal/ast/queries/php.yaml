@@ -1,15 +1,13 @@
 language: php
 grammar: tree-sitter-php
 extensions: [".php"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Method, Package] }
   READS_FIELD: { labels: [Field] }
   WRITES_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition name: (name) @name)'
@@ -32,7 +30,6 @@ queries:
     graph_label: Constant
     pattern: '(const_declaration (const_element (name) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: constants
     graph_label: Constant
     pattern: '(const_element (name) @name [(integer) (float) (boolean) (null) (string) (encapsed_string)] @value)'
@@ -59,7 +56,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -97,17 +93,13 @@ queries:
     relation_type: DECORATOR
     pattern: '(attribute (name) @name)'
 
-# Export detection strategy — PHP uses visibility modifiers
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["$this->"]
 
-# Parent context type mapping — PHP tree-sitter node types only
-# Used by resolveParentContext() to walk up the AST and find enclosing scope.
 context_types:
   class_declaration: Class
   interface_declaration: Interface
@@ -117,13 +109,10 @@ context_types:
   function_definition: Function
   method_declaration: Method
 
-# PHP has anonymous_function (closure) and arrow_function (fn() =>) as anon types
 anon_func_types:
   - anonymous_function
   - arrow_function
 
-# Declaration node types that can have docstrings (comments immediately above).
-# PHP tree-sitter uses these exact node types.
 declaration_types:
   - function_definition
   - method_declaration
@@ -135,14 +124,9 @@ declaration_types:
   - const_declaration
   - property_declaration
 
-# PHP tree-sitter uses a single "comment" node type for //, /* */, and /** */ comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. else_if_clause is its own node (PHP does not
-# nest "elseif" as another if_statement), and case_statement is cleanly
-# separate from default_statement here, unlike C/C++/Java.
 complexity:
   node_types:
     - if_statement
@@ -154,10 +138,6 @@ complexity:
     - conditional_expression
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Interface

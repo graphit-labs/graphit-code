@@ -14,9 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/output"
 )
 
-// feed replays a download through the throttle and returns the lines it decided
-// were worth saying, the way ModelManager reports one: an opening call at zero,
-// then one per read.
 func feed(r *modelProgress, file string, total int64, reads int, gap time.Duration) []string {
 	var lines []string
 	at := time.Now()
@@ -43,7 +40,6 @@ func TestNonTTYProgressSpeaksInTenthsNotPerRead(t *testing.T) {
 
 	lines := feed(r, "model.onnx", 132<<20, 4000, 0)
 
-	// One opening line plus at most one per ten percent.
 	if len(lines) > 1+11 {
 		t.Errorf("emitted %d lines for 4000 reads; want at most 12", len(lines))
 	}
@@ -88,7 +84,6 @@ func TestProgressReAnnouncesOnANewFile(t *testing.T) {
 func TestTTYProgressIsRateLimited(t *testing.T) {
 	r := &modelProgress{tty: true}
 
-	// Reads arriving far faster than the refresh interval.
 	lines := feed(r, "model.onnx", 1000, 100, modelRefreshInterval/50)
 
 	if len(lines) > 10 {
@@ -104,7 +99,6 @@ func TestTTYProgressRefreshesOnceTheIntervalPasses(t *testing.T) {
 
 	lines := feed(r, "model.onnx", 1000, 10, modelRefreshInterval*2)
 
-	// Every read is far enough apart to earn its own repaint.
 	if len(lines) != 11 {
 		t.Errorf("emitted %d refreshes for 11 well-spaced updates; want 11", len(lines))
 	}
@@ -145,9 +139,6 @@ func TestProgressRecordsSpokeEvenWhenThrottled(t *testing.T) {
 	}
 }
 
-// isolateHome points os.UserHomeDir at dir on this platform, and reports whether
-// it took. Windows reads USERPROFILE where the rest read HOME, and a test that
-// silently failed to isolate would reach the real cache — and the network.
 func isolateHome(t *testing.T, dir string) bool {
 	t.Helper()
 
@@ -168,9 +159,6 @@ func isolateHome(t *testing.T, dir string) bool {
 // The download is fatal to setup, so the error has to reach the caller rather
 // than being absorbed into a warning.
 func TestEnsureEmbeddingModelReturnsTheErrorItCannotRecoverFrom(t *testing.T) {
-	// A regular file where the home directory should be: the cache path resolves
-	// fine, and creating it fails immediately, before anything touches the
-	// network.
 	dir := t.TempDir()
 	notADir := filepath.Join(dir, "home-is-a-file")
 	if err := os.WriteFile(notADir, nil, 0o644); err != nil {
@@ -191,8 +179,6 @@ func TestEnsureEmbeddingModelReturnsTheErrorItCannotRecoverFrom(t *testing.T) {
 		t.Error("reported a download that never started")
 	}
 
-	// The caller names this directory in the failure message, so it has to come
-	// back even though EnsureModel produced no path.
 	if gotDir == "" {
 		t.Error("no cache directory returned; the failure message has nothing to point at")
 	}
@@ -216,7 +202,6 @@ func TestEnsureEmbeddingModelReportsACacheHitAsSuchAndDoesNotFail(t *testing.T) 
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Size is the whole of the validity check, so sparse files are enough.
 	for name, size := range map[string]int64{
 		"model.onnx":     150_000_000,
 		"tokenizer.json": 600_000,

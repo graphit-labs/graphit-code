@@ -1,15 +1,3 @@
-// Package projectlock owns the on-disk format of a project's lockfile — the
-// `graphit.lock.json` at the root of a project, not to be confused with
-// internal/lockfile, which is advisory file locking.
-//
-// It is a leaf: it knows the format and nothing about what the entries mean. That is
-// why it exists separately from internal/hub, which used to own the format and cannot
-// be imported by the packages that need to read it — hub imports ast, knowledge and
-// memory, so any of those importing hub back would be a cycle.
-//
-// The lockfile is the project's single record of what belongs to it: its identity, the
-// IDEs it targets, its configuration, and every artifact it has installed, imported or
-// linked. There is no second registry beside it.
 package projectlock
 
 import (
@@ -69,22 +57,6 @@ type ArtifactMeta struct {
 	LinkSource       string `json:"link_source,omitempty"`
 	RequestedVersion string `json:"requested_version,omitempty"`
 
-	// SourcePath is the directory a local import was indexed from, or the sibling
-	// project a link points at.
-	//
-	// It is stored RELATIVE TO THE PROJECT, always. The lockfile is committed and
-	// shared, and an absolute path is only true on the machine that wrote it — a
-	// teammate cloning the repository would get a record pointing at somebody else's
-	// home directory. Relative survives the clone whenever the sibling sits at the
-	// same relative place, which is the normal arrangement.
-	//
-	// Slash-separated on every platform, so a lockfile written on Windows resolves on
-	// Linux. Use SourceDir to read it back; do not join it by hand.
-	//
-	// Nothing else is recorded for such a context. The store location used to be
-	// written down beside this and was always derivable from it, which made it a
-	// second copy of one fact — and a copy that went stale the moment the sibling ran
-	// `init` and re-keyed its store.
 	SourcePath string `json:"source_path,omitempty"`
 }
 

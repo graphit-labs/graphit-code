@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// svcWithTable is a service whose store is a temporary local table.
-//
-// It sets `tableURI` explicitly, which is what that field is FOR: without it the service derives the
-// machine's real store location, and a test would write into it.
 func svcWithTable(t *testing.T, records ...MemoryRecord) *MemoryService {
 	t.Helper()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
@@ -35,13 +31,6 @@ func svcWithTable(t *testing.T, records ...MemoryRecord) *MemoryService {
 	return svc
 }
 
-// ListMemories is the catalogue of LIVE memories, with their classification.
-//
-// This replaces three directory-shaped tests. What they actually proved survives — the flag, the
-// title and the id come back per memory, and an archived revision is not catalogued — while their
-// subjects did not: there is no directory to be missing, and no `.md` extension or subdirectory to
-// skip. What DID need proving instead is that a superseded row is excluded, which the directory
-// version could not check because history lived in a subdirectory it skipped for a different reason.
 func TestListMemoriesReturnsLiveMemoriesWithTheirClassification(t *testing.T) {
 	svc := svcWithTable(t,
 		MemoryRecord{
@@ -97,8 +86,6 @@ func TestListMemoriesReturnsLiveMemoriesWithTheirClassification(t *testing.T) {
 	}
 }
 
-// An empty scope lists nothing and is not an error. A scope with no memories is the normal state of
-// a fresh project, and it used to be expressed as a missing directory.
 func TestListMemoriesOnAnEmptyScope(t *testing.T) {
 	svc := svcWithTable(t)
 	memories, err := svc.ListMemories()

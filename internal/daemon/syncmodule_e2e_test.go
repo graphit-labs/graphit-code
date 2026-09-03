@@ -13,27 +13,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// End-to-end exercise of the daemon's sync module, which until now had never been run the
-// way it runs in production.
-//
-// Everything below the module was covered in isolation — the watcher has its own tests, the
-// pipeline has its own, the search index has its own — but the wiring between them had not
-// been: a real write to a real file, delivered by the OS to fswatch, debounced, classified,
-// and turned into a scoped reindex whose result is visible to search. That chain is where
-// the interesting failures live, and it is the one gap where production code had never
-// executed end to end.
-//
-// The test drives the module through its public Start, not through handleBatch, so the
-// watcher and the debounce are part of what is verified.
-
 const (
-	// The module debounces for 1s and caps at 5s; reindexing a tiny project is fast, so
-	// this budget is dominated by the debounce.
 	e2eSettle = 25 * time.Second
 	e2ePoll   = 200 * time.Millisecond
 )
 
-// plsqlFunction returns a small PL/SQL unit with a distinctive function name.
 func plsqlFunction(name string) string {
 	return "CREATE OR REPLACE FUNCTION " + name + `
  (P_ID_ENTRADA IN NUMBER)
@@ -47,20 +31,12 @@ END;
 `
 }
 
-// searchFinds reports whether the project's search index currently returns an entity with
-// the given name. It opens the index fresh on every call: the daemon writes it from another
-// goroutine, and holding a handle open across a rebuild would read a stale one.
 func searchFinds(t *testing.T, projectDir, query, want string) bool {
 	t.Helper()
 	idxPath := store.ASTProjectDir(projectDir)
 	if _, err := os.Stat(filepath.Join(idxPath, "graph.icebug", "schema.cypher")); err != nil {
 		return false
 	}
-	// READ-ONLY, and retried once. Read-only because the search tables live in the graph
-	// store and the daemon holds its write slot — opening read-write here would lock the
-	// thing under test out of its own database. Retried because the daemon republishes
-	// that store by renaming a file over it, and a read landing in that window fails to
-	// open; reporting that as "not found" would make every assertion below turn on timing.
 	si, err := ast.OpenSearchIndex(context.Background(), idxPath)
 	if err != nil {
 		time.Sleep(150 * time.Millisecond)
@@ -83,7 +59,6 @@ func searchFinds(t *testing.T, projectDir, query, want string) bool {
 	return false
 }
 
-// waitFor polls until cond holds or the budget runs out, reporting how long it took.
 func waitFor(t *testing.T, what string, cond func() bool) bool {
 	t.Helper()
 	start := time.Now()
@@ -106,10 +81,6 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 
 	projectDir := t.TempDir()
 
-	// Precondition: this machine can extract entities from the files the test writes. The
-	// query definitions live in the runtime directory rather than in the binary, so a
-	// machine without them would index nothing and every assertion below would fail for a
-	// reason that has nothing to do with the daemon.
 	probe := filepath.Join(projectDir, "probe.sql")
 	if err := os.WriteFile(probe, []byte(plsqlFunction("PROBE_FUNCTION")), 0o644); err != nil {
 		t.Fatal(err)
@@ -123,8 +94,6 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A file that exists before the watcher starts, so later assertions can tell
-	// "untouched" from "lost".
 	existing := filepath.Join(projectDir, "existing.sql")
 	if err := os.WriteFile(existing, []byte(plsqlFunction("FUNCAO_EXISTENTE")), 0o644); err != nil {
 		t.Fatal(err)
@@ -135,11 +104,6 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 
 	mod := NewSyncModule(projectDir, store.ASTProjectDir(projectDir))
 
-	// Seed the index the way production does. The daemon never scans a project it
-	// adopts — it only applies changes from the moment it starts watching — so an
-	// index exists because `ast index` built one. Starting the module against an
-	// empty project would make every "is the rest of the index still there?"
-	// assertion below vacuously true.
 	mod.reindexAST(ctx, nil, nil, nil)
 	if !searchFinds(t, projectDir, "FUNCAO_EXISTENTE", "FUNCAO_EXISTENTE") {
 		t.Fatal("seeding the index did not index existing.sql; the daemon cannot be judged from here")
@@ -148,7 +112,6 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- mod.Start(ctx) }()
 
-	// Give the watcher a moment to arm before generating events it must not miss.
 	time.Sleep(500 * time.Millisecond)
 	select {
 	case err := <-errCh:
@@ -167,8 +130,6 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 		t.Error("a file created while the daemon was watching never reached the search index")
 	}
 
-	// The pre-existing file must also be indexed: a scoped reindex that only knows about
-	// the changed path must not drop everything else.
 	if !searchFinds(t, projectDir, "FUNCAO_EXISTENTE", "FUNCAO_EXISTENTE") {
 		t.Error("the file that existed before the first reindex is missing from the index — " +
 			"a scoped reindex dropped content it was not asked to touch")

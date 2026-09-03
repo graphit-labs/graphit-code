@@ -138,8 +138,6 @@ func lastSeenPath(projectDir string) string {
 	return filepath.Join(ReportsDir(projectDir), lastSeenFile)
 }
 
-// reportTitle reads `title:` out of a report's YAML frontmatter, returning ""
-// when the file has no frontmatter or no title.
 func reportTitle(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {

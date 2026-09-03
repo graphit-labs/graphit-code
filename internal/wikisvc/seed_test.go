@@ -33,8 +33,6 @@ func TestMain(m *testing.M) {
 
 var seedCounter atomic.Int64
 
-// projectStoreID gives a project an identity, because that identity is what its
-// stores are keyed by. A directory that already has a lockfile keeps its own id.
 func projectStoreID(t *testing.T, projectDir string) string {
 	t.Helper()
 	if id := store.ProjectID(projectDir); id != "" {
@@ -51,14 +49,11 @@ func projectStoreID(t *testing.T, projectDir string) string {
 	return id
 }
 
-// knowledgeWikiDirFor is where a project's documentation wiki lives — in the global
-// store, keyed by the project's id. Nothing is created inside the project.
 func knowledgeWikiDirFor(t *testing.T, projectDir string) string {
 	t.Helper()
 	return store.KnowledgeProjectDirByID(projectStoreID(t, projectDir))
 }
 
-// memoryWikiDirFor is the same for a project's memory wiki.
 func memoryWikiDirFor(t *testing.T, projectDir string) string {
 	t.Helper()
 	return store.MemoryWikiDir("project", projectStoreID(t, projectDir))

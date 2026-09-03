@@ -8,27 +8,12 @@ import (
 	"testing"
 )
 
-// TestOracleCorpusExtraction checks that the real corpus yields entities at all.
-//
-// The end-to-end run reports "empty=799 errors=0" for 799 Oracle .sql files: every file
-// parsed, none produced a single entity. A search index built from that is empty, which
-// means every timing measured through it — full rebuild, incremental, search latency —
-// describes an empty index rather than the corpus.
-//
-// The pipeline is not the place to find out why: it tries tree-sitter first and falls back
-// to ANTLR when extraction is empty (CompositeParser.Parse), so a zero at the end could
-// come from either engine, from grammar resolution, or from the queries. This parses ONE
-// real file per engine and reports what each produced.
-//
-// Set GRAPHIT_E2E_SQL_DIR to the corpus. Skips otherwise, so it is inert in CI.
 func TestOracleCorpusExtraction(t *testing.T) {
 	src := os.Getenv("GRAPHIT_E2E_SQL_DIR")
 	if src == "" {
 		t.Skip("set GRAPHIT_E2E_SQL_DIR to a corpus directory")
 	}
 
-	// A handful of files from different object types, since one type failing to extract
-	// is a query gap while all of them failing is a wiring problem.
 	var samples []string
 	seenDir := map[string]bool{}
 	_ = filepath.WalkDir(src, func(p string, d fs.DirEntry, e error) error {
@@ -62,7 +47,6 @@ func TestOracleCorpusExtraction(t *testing.T) {
 			rel = "…" + rel[len(rel)-39:]
 		}
 
-		// Composite: what the pipeline actually does, fallback included.
 		comp := NewCompositeParser(filepath.Dir(p), nil)
 		pf, err := comp.Parse(p, false, opts)
 		n, engine := 0, "(nil)"
@@ -74,7 +58,6 @@ func TestOracleCorpusExtraction(t *testing.T) {
 		totals["composite"] += n
 		t.Logf("%-42s | %-22s | %d", rel, engine, n)
 
-		// Each engine pinned, so a zero can be attributed.
 		for _, grammar := range []string{"antlr-plsql", "tree-sitter-sql"} {
 			pinned := NewCompositeParser(filepath.Dir(p), map[string]string{".sql": grammar})
 			pf, err := pinned.Parse(p, false, opts)
@@ -94,9 +77,6 @@ func TestOracleCorpusExtraction(t *testing.T) {
 	t.Logf("entities over %d files: composite=%d antlr-plsql=%d tree-sitter-sql=%d",
 		len(samples), totals["composite"], totals["antlr-plsql"], totals["tree-sitter-sql"])
 
-	// The corpus is Oracle DDL — materialised views, packages, triggers. Extracting
-	// nothing from every file by every engine is a wiring or query failure, not a
-	// property of the corpus, and it invalidates any measurement taken through the index.
 	if totals["composite"] == 0 {
 		t.Errorf("the composite parser extracted NO entities from %d real Oracle files — "+
 			"every measurement taken through the search index describes an empty index",

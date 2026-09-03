@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// The daemon's MCP listener, and whether the daemon also serves a UI.
-//
-// Both exist for the same reason: the daemon is the process a container runs as PID 1, because it
-// is what brings the MCP server up. Outside a container the defaults below reproduce exactly the
-// behaviour that existed before they were configurable.
-
 const (
 	// DefaultMCPHost keeps the MCP listener on the loopback interface. The daemon's MCP endpoint
 	// is authenticated by a bearer key, but a key is not a reason to publish a port: the stdio

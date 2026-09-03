@@ -137,7 +137,6 @@ func registerMemoryTools(server *mcp.Server) {
 
 			assocProject := ""
 			if userScope && input.LinkProject {
-				// We can get Project ID from memory service helper
 				_, pID, _ := newMemorySvcDetails(false, projectDir)
 				assocProject = pID
 			}
@@ -270,8 +269,6 @@ func registerMemoryTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		// resolveWikiDir applies the ephemeral redirect itself, so scope stays as
-		// asked and the notice is what tells the caller it was not honoured.
 		wikiDir := resolveWikiDir("memory", projectDir, scope)
 		if wikiDir == "" {
 			if notice != "" {
@@ -489,10 +486,6 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		// An imported memory context is a prefix of the shared memory store, so what is
-		// dropped is this machine's copy of it: its local table directory and its compiled
-		// wiki, both global. With a bucket configured the table is remote and is NOT dropped —
-		// it belongs to the project that published it, and this only un-imports it here.
 		_ = projectDir
 		if err := os.RemoveAll(memory.TableDirFor(cleanCtx, cleanCtx)); err != nil {
 			return errResult(err)

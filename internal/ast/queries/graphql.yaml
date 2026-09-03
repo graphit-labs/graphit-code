@@ -2,7 +2,7 @@ language: graphql
 grammar: tree-sitter-graphql
 extensions: [".graphql", ".gql"]
 queries:
-  # === Entity queries ===
+
   - data_key: object_types
     graph_label: ObjectType
     pattern: '(object_type_definition (name) @name)'
@@ -43,7 +43,6 @@ queries:
     graph_label: GraphQLField
     pattern: '(field_definition (name) @name)'
 
-  # === Relation queries ===
   - data_key: implements
     type: relation
     relation_type: IMPLEMENTS
@@ -53,22 +52,17 @@ queries:
     relation_type: INHERITS
     pattern: '(union_member_types (named_type) @name)'
 
-# GraphQL is a schema definition language — no export concept
 exports:
   strategy: none
 
 self_keywords: []
 
-# Parent context for fields within types
 context_types:
   object_type_definition: ObjectType
   interface_type_definition: InterfaceType
   enum_type_definition: EnumType
   input_object_type_definition: InputType
 
-# tree-sitter-graphql keeps a definition's name in a child of KIND `name`, not in a field
-# by that name — and the grammar defines no "name" field at all, so every context here was
-# transparent and each field_definition fell back to the File.
 context_name_paths:
   object_type_definition: name
   interface_type_definition: name
@@ -88,17 +82,9 @@ declaration_types:
   - fragment_definition
   - operation_definition
 
-# GraphQL tree-sitter uses "comment" for # comments
 comment_types:
   - comment
 
-# No cyclomatic complexity: GraphQL is a schema/query language with no
-# control flow of its own.
-
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - ObjectType
   - InterfaceType

@@ -10,14 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// The global scope is what an agent with no checkout gets: an empty project_dir, and a
-// Hub artifact named by its qualified identifier instead of by a project.
-//
-// The property these tests pin is that "no project" never silently becomes "whatever
-// project this server is sitting in". That failure mode does not raise: it answers
-// confidently about the wrong project, or resolves a store keyed by the hash of an
-// empty path and reports it as empty.
-
 func TestResolveProjectDirOptionalAcceptsAbsenceAndStillRejectsNonsense(t *testing.T) {
 	got, err := resolveProjectDirOptional("")
 	if err != nil {
@@ -105,8 +97,6 @@ func TestTheGlobalScopeReadsNoProjectConfiguration(t *testing.T) {
 	if cfg, ides := loadProjectLockInfo(""); cfg != nil || ides != nil {
 		t.Errorf("loadProjectLockInfo(\"\") = (%v, %v), want (nil, nil)", cfg, ides)
 	}
-	// Sanity: the bystander lockfile IS readable when named, so the test is proving a
-	// guard rather than an unreadable file.
 	if cfg := loadProjectConfig(bystander); cfg == nil {
 		t.Fatal("setup is wrong: the bystander project's config should be readable when named")
 	}
@@ -133,7 +123,6 @@ func TestProjectlessMemoryIsServedFromTheUserScope(t *testing.T) {
 	if notice := memoryScopeNotice(false, ""); !strings.Contains(notice, "no project_dir") {
 		t.Errorf("notice = %q, want it to name the absent project_dir", notice)
 	}
-	// Asking for the user scope outright is not a redirect, so it gets no notice.
 	if notice := memoryScopeNotice(true, ""); notice != "" {
 		t.Errorf("notice = %q, want none when the user scope was requested", notice)
 	}

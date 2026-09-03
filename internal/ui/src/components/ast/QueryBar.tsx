@@ -26,9 +26,7 @@ const EXAMPLE_QUERIES = [
 ]
 
 export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoading, collapsed, onCollapsedClick: _onCollapsedClick }: QueryBarProps) {
-  // With no agent CLI on the server there is no NL mode to offer, and the toggle is not
-  // rendered at all rather than rendered disabled: a control that exists and refuses teaches
-  // nothing, while its absence matches the server's actual shape.
+
   const aiEnabled = agentFeaturesEnabled()
   const [mode, setMode] = useState<Mode>('cypher')
   const [query, setQuery] = useState('')

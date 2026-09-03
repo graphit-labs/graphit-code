@@ -81,9 +81,6 @@ func Execute() {
 
 	err := rootCmd.Execute()
 
-	// Memory used to need a wait here too: a write uploaded its markdown object in the background,
-	// so exiting immediately could lose the memory the command had just reported as saved. A write
-	// is a table commit now, and it is finished before the write path returns.
 	hub.WaitForPendingEvents()
 
 	if err != nil {

@@ -22,9 +22,6 @@ func TestAcquireSyncLockRefusesASecondHolder(t *testing.T) {
 		t.Error("second acquireSyncLock proceeded while the lock was held")
 	}
 
-	// The two phases take separate locks on purpose: `sync` spawns `sync --heavy`
-	// and then returns, so sharing one lock would make the child race its parent's
-	// release.
 	if heavy, proceed := acquireSyncLock(wd, "sync-heavy.lock"); !proceed {
 		t.Error("the heavy lock is contended by the phase 1 lock")
 	} else {
@@ -43,7 +40,6 @@ func TestAcquireSyncLockRefusesASecondHolder(t *testing.T) {
 func TestSyncedWithinOnlySkipsWhatItCanProve(t *testing.T) {
 	wd := t.TempDir()
 
-	// No stamp at all — the tree may never have been synced, so it must run.
 	if syncedWithin(wd, time.Minute) {
 		t.Error("syncedWithin skipped a sync with no stamp on disk")
 	}

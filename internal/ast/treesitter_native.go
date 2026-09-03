@@ -6,7 +6,6 @@ import (
 
 	ts "github.com/tree-sitter/go-tree-sitter"
 
-	// Grammar modules that ship their own Go bindings (bindings/go).
 	tree_sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
 	tree_sitter_c_sharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	tree_sitter_c "github.com/tree-sitter/tree-sitter-c/bindings/go"
@@ -33,7 +32,6 @@ import (
 	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 	tree_sitter_zig "github.com/tree-sitter-grammars/tree-sitter-zig/bindings/go"
 
-	// Vendored grammars (parser.c committed under internal/ast/treesitter/<lang>).
 	tsClojure "github.com/graphit-labs/graphit-code/internal/ast/treesitter/clojure"
 	tsDart "github.com/graphit-labs/graphit-code/internal/ast/treesitter/dart"
 	tsDockerfile "github.com/graphit-labs/graphit-code/internal/ast/treesitter/dockerfile"
@@ -52,10 +50,6 @@ import (
 	tsVue "github.com/graphit-labs/graphit-code/internal/ast/treesitter/vue"
 )
 
-// nativeGrammars maps language names to a function returning the raw tree-sitter
-// language pointer. Keys match the grammar YAML conventions: "go" not "golang",
-// "c-sharp" not "csharp". Pointers are wrapped by NativeLanguage with the
-// official tree-sitter runtime (github.com/tree-sitter/go-tree-sitter).
 var nativeGrammars = map[string]func() unsafe.Pointer{
 	"bash":       tree_sitter_bash.Language,
 	"c":          tree_sitter_c.Language,
@@ -82,7 +76,6 @@ var nativeGrammars = map[string]func() unsafe.Pointer{
 	"xml":        tree_sitter_xml.LanguageXML,
 	"yaml":       tree_sitter_yaml.Language,
 	"zig":        tree_sitter_zig.Language,
-	// Vendored
 	"clojure":    tsClojure.Language,
 	"dart":       tsDart.Language,
 	"dockerfile": tsDockerfile.Language,
@@ -108,7 +101,6 @@ func NativeLanguage(lang string) *ts.Language {
 	if fn, ok := nativeGrammars[lang]; ok {
 		return ts.NewLanguage(fn())
 	}
-	// Try underscore↔hyphen normalisation (e.g. "c_sharp" → "c-sharp").
 	normalised := strings.ReplaceAll(lang, "_", "-")
 	if normalised != lang {
 		if fn, ok := nativeGrammars[normalised]; ok {

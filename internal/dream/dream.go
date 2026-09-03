@@ -317,8 +317,6 @@ func (r *Runner) runMemoryConsolidation(ctx context.Context) []*memory.Consolida
 	var outcomes []*memory.ConsolidationOutcome
 
 	for _, scope := range []string{"project", "user"} {
-		// The gate is the scope's IDENTITY, not a directory: an empty URI means the scope has no id
-		// to resolve yet, which is the only case where there is nothing to consolidate.
 		if memory.TableURIForScope(scope) == "" {
 			continue
 		}
@@ -354,9 +352,6 @@ func (r *Runner) runMemoryConsolidation(ctx context.Context) []*memory.Consolida
 			continue
 		}
 
-		// Counting what was APPLIED, not what was proposed. The previous message
-		// reported the size of the plan and called it "applied", which read as
-		// success for a run that changed nothing.
 		r.log("dream: memory consolidation (%s) — %d applied, %d refused, %d failed (of %d proposed)",
 			scope, len(outcome.Applied), len(outcome.Skipped), len(outcome.Failed), report.TotalActions())
 		outcomes = append(outcomes, outcome)
@@ -374,22 +369,16 @@ func (r *Runner) executeDream(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("creating dream artifact dir: %w", err)
 	}
 
-	// Memory sanitisation runs first and unconditionally, so a session that fails
-	// later still leaves the store consolidated.
 	outcomes := r.runMemoryConsolidation(ctx)
 
 	artifactPath := filepath.Join(dreamArtifactDir, sessionID+reportExt)
 
-	// Recorded before the agent runs: if the agent writes the report itself, that
-	// file is the deliverable and must not be overwritten by a wrapper around its
-	// stdout. Both instructions used to be live at once, and the runner always won.
 	agentReportBefore := reportFingerprint(artifactPath)
 
 	r.log("dream: executing AI agent locally for %s", r.projectDir)
 	prompt := buildDreamPrompt(r.projectDir, sessionID, r.ide, outcomes)
 	result, err := r.executeLocal(ctx, prompt, sessionID)
 	if err != nil {
-		// A failed agent does not discard the consolidation that already happened.
 		if writeErr := r.writeConsolidationOnlyReport(artifactPath, sessionID, outcomes, err); writeErr != nil {
 			r.log("dream: could not record the failed session: %v", writeErr)
 		}
@@ -397,8 +386,6 @@ func (r *Runner) executeDream(ctx context.Context, sessionID string) error {
 	}
 
 	if fp := reportFingerprint(artifactPath); fp != "" && fp != agentReportBefore {
-		// The agent wrote its own report. Keep it and append the audit trail of the
-		// deterministic half, which the agent has no way to know.
 		if err := appendConsolidationAudit(artifactPath, outcomes); err != nil {
 			r.log("dream: could not append the consolidation audit: %v", err)
 		}
@@ -415,8 +402,6 @@ func (r *Runner) executeDream(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// reportFingerprint identifies the report file's current content cheaply, so the
-// runner can tell "the agent wrote this" from "this is what I wrote last cycle".
 func reportFingerprint(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -455,9 +440,6 @@ func appendConsolidationAudit(path string, outcomes []*memory.ConsolidationOutco
 	return err
 }
 
-// writeConsolidationOnlyReport records a session whose agent failed. The
-// consolidation still happened, and a developer needs to see it — silence here
-// would hide real changes to the memory store behind an agent error.
 func (r *Runner) writeConsolidationOnlyReport(path, sessionID string, outcomes []*memory.ConsolidationOutcome, agentErr error) error {
 	audit := consolidationAudit(outcomes)
 	if audit == "" {
@@ -497,12 +479,6 @@ IMPORTANT INSTRUCTIONS:
 		return "", fmt.Errorf("creating AI client: %w", err)
 	}
 
-	// The agentic path, not Complete. Complete carries a preamble that forbids
-	// file edits and shell commands — correct for an analytical call, fatal here,
-	// where every deliverable is a file. It also runs in the caller's working
-	// directory, which for the daemon is not the project: an agent CLI discovers
-	// its rules, skills and MCP servers from the working directory, so without
-	// WorkDir the session would run with the wrong project's configuration.
 	streamer, ok := client.(ai.StreamClient)
 	if !ok {
 		r.log("dream: WARNING — the configured AI client cannot run in agentic mode; " +
@@ -534,8 +510,6 @@ IMPORTANT INSTRUCTIONS:
 	if len(tools) > 0 {
 		r.log("dream: agent used %d distinct tool(s): %s", len(tools), strings.Join(tools, ", "))
 	} else if result.Structured {
-		// Only meaningful when the CLI reports tool activity at all. Without a
-		// structured mode, "no tools observed" says nothing about what happened.
 		diagnostic = toollessRunDiagnostic(result)
 		r.log("dream: WARNING — the agent completed without using any tool, so it " +
 			"almost certainly produced prose instead of artifacts")
@@ -583,18 +557,6 @@ func (r *Runner) saveStateLocked() {
 	_ = os.WriteFile(r.statePath(), data, 0o644)
 }
 
-// generateDreamID returns a session identifier of the form 20060102T150405-abcd:
-// a sortable timestamp plus two random bytes.
-//
-// The format is deliberate. These ids become report filenames, so sorting by name
-// sorts by time, which a ULID would also give — but a ULID is not readable in a
-// directory listing and this is.
-//
-// Everything here used to call it a ULID anyway: the state field, its JSON tag, the
-// parameters, the tests and the specification. That is now fixed, including the
-// on-disk `current_session_id` tag, which means a dream.state written by an older
-// build loses its session id and the next tick opens a new session. That is the
-// correct trade while the format is still moving.
 func generateDreamID() string {
 	now := time.Now().UTC()
 	ts := now.Format("20060102T150405")
@@ -656,22 +618,6 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// toollessRunDiagnostic explains a run that used no tool, for the REPORT.
-//
-// The warning used to exist only in the daemon log, which is the one place the person
-// who wanted the artifact does not look. Meanwhile the run had already spent a full
-// model call and written nothing, and nothing on the way out said why — so the failure
-// repeated every cycle, silently, and looked like the agent simply had nothing to say.
-//
-// The likely cause is nameable, which is what makes this worth writing down: several
-// CLIs need an explicit flag before they will edit files unprompted, that flag is
-// `ai.agent_args`, and it is empty by default on purpose — it differs per CLI, moves
-// between releases, and grants real authority, so guessing it either fails to parse or
-// hands the agent more than was intended.
-//
-// It stays a hypothesis and is worded as one. A CLI can be configured correctly and
-// still decide a session needs no tools, and asserting the cause would send someone to
-// fix a setting that was never wrong.
 func toollessRunDiagnostic(result *ai.StreamResult) string {
 	var b strings.Builder
 	b.WriteString("The agent finished without using a single tool, so this session " +
@@ -694,12 +640,6 @@ func toollessRunDiagnostic(result *ai.StreamResult) string {
 	return b.String()
 }
 
-// nonAgenticDiagnostic is the report's version of "this client cannot create anything".
-//
-// A client with no agentic mode cannot edit a file at all, so the session was prose
-// before it started. That is a harder fact than the toolless case and deserves saying
-// in the report rather than only in the daemon log, for the same reason: the person
-// waiting for artifacts reads the report.
 func nonAgenticDiagnostic() string {
 	return "The configured AI client has no agentic mode, so it cannot create or edit " +
 		"files at all. Nothing below is an artifact, and only the memory consolidation " +

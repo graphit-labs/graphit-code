@@ -12,16 +12,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
-// The canonical layout is what the icebug format was designed around, and what the docs
-// describe: one NODE TABLE per label with its own columns and primary key, and one REL TABLE
-// per (type, from, to) pair declared over the real endpoints. There is no folded `Entity`
-// table and no label transpilation; a relationship type that connects N pairs becomes N
-// physical tables whose names encode the pair, because MEASURED, the format has nowhere else
-// to put a second CSR (icebug-format doc/spec.md; TestIcebugMultiPairRelTableCannotWork).
-//
-// Everything the engine needs lives in schema.cypher. Everything only our reader needs —
-// which logical TYPE each physical table belongs to — lives in this manifest.
-
 const canonicalFormat = "icebug-canonical"
 
 const canonicalSchemaFile = "schema.cypher"
@@ -56,8 +46,6 @@ type CanonicalRelGroup struct {
 }
 
 type CanonicalInvariants struct {
-	// IndptrRowGroups is always exactly one: MEASURED, a fragmented indptr truncates rel
-	// scans silently (6000 edges read as 5049). Indices files may stream multiple row groups.
 	IndptrRowGroups int `json:"indptr_row_groups"`
 	// SelfLoops documents where a source==target edge lives: once, in the forward member's
 	// CSR. Mirrors never duplicate it.
@@ -77,7 +65,6 @@ type CanonicalManifest struct {
 	RepairedStrings int64                `json:"repaired_strings"`
 	Invariants      CanonicalInvariants  `json:"invariants"`
 }
-
 
 // ExportIcebugCanonical writes the store as a CANONICAL icebug-disk directory: real node
 // tables per label, one rel table per (type, from, to) pair over the real endpoints,
@@ -117,9 +104,6 @@ func ExportIcebugCanonical(c Conn, outDir string, opts IcebugOptions) (*Canonica
 		},
 	}
 
-	// labelIDs holds every label's dense id map, built ONCE per label so that edge queries
-	// resolve endpoints against the same snapshot the node files were written from. A second
-	// scan could observe a different store.
 	labelIDs := map[string]map[int64]uint64{}
 
 	for _, label := range labels {
@@ -152,7 +136,7 @@ func ExportIcebugCanonical(c Conn, outDir string, opts IcebugOptions) (*Canonica
 			srcIDs, okS := labelIDs[p.src]
 			dstIDs, okD := labelIDs[p.dst]
 			if !okS || !okD {
-				continue // the pair references labels this export does not carry
+				continue
 			}
 			for _, m := range []*struct{ from, to string }{{p.src, p.dst}, {p.dst, p.src}} {
 				name := canonicalMemberName(relType, m.from, m.to)
@@ -205,9 +189,6 @@ func ExportIcebugCanonical(c Conn, outDir string, opts IcebugOptions) (*Canonica
 	return man, nil
 }
 
-// exportCanonicalNodes writes one label's node table and returns its dense id map keyed by
-// the engine's internal offset — the identity the folded exporter keys on too, because
-// MEASURED, declared primary keys repeat inside a live store while offsets do not.
 func exportCanonicalNodes(c Conn, outDir, label string) (*CanonicalNodeTable, map[int64]uint64, error) {
 	cols, pk, err := icebugColumns(c, label)
 	if err != nil {
@@ -228,8 +209,6 @@ func exportCanonicalNodes(c Conn, outDir, label string) (*CanonicalNodeTable, ma
 	for _, r := range rows {
 		off := Int64(r[icebugOffsetAlias])
 		if _, clash := ids[off]; clash {
-			// Same refusal as the folded exporter: a repeated offset means the store moved
-			// under the read, and publishing half of two snapshots would be lying twice.
 			return nil, nil, fmt.Errorf("icebug: %s returned internal offset %d twice — the store is being written while it is read",
 				label, off)
 		}
@@ -266,9 +245,6 @@ func exportCanonicalNodes(c Conn, outDir, label string) (*CanonicalNodeTable, ma
 	}, ids, nil
 }
 
-// exportCanonicalPair writes one (type, from, to) member's forward CSR plus its mirror, and
-// returns their descriptors. The forward CSR keeps self-loops once; the mirror excludes them
-// (its mirror would be itself).
 func exportCanonicalPair(c Conn, outDir, relType, from, to string, props []Field,
 	srcIDs, dstIDs map[int64]uint64, nsrc, ndst int,
 	opts IcebugOptions) (*CanonicalMember, *CanonicalMember, error) {
@@ -347,9 +323,6 @@ func arrowFieldsFor(props []Field) []arrow.Field {
 	return fields
 }
 
-// canonicalMemberName encodes the pair into a physical table name: lower-case type and
-// endpoints joined by underscores, anything outside [a-z0-9_] collapsed. Two distinct pairs
-// collapsing into one name would merge their CSRs under one declaration, so it refuses.
 func canonicalMemberName(relType, from, to string) string {
 	clean := func(s string) string {
 		var b strings.Builder

@@ -72,38 +72,3 @@ func TestSearchToolSchemasExposeIndependentPagination(t *testing.T) {
 		}
 	}
 }
-
-type mcpJSONPage struct {
-	Results    []map[string]any `json:"results"`
-	NextCursor string           `json:"next_cursor"`
-}
-
-func callJSONPage(t *testing.T, session *mcp.ClientSession, tool string, args map[string]any) mcpJSONPage {
-	t.Helper()
-	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: tool, Arguments: args})
-	if err != nil {
-		t.Fatal(err)
-	}
-	text, ok := result.Content[0].(*mcp.TextContent)
-	if !ok {
-		t.Fatalf("%s result is %T", tool, result.Content[0])
-	}
-	if result.IsError {
-		t.Fatalf("%s returned an error: %v text=%s", tool, result.GetError(), text.Text)
-	}
-	var page mcpJSONPage
-	if err := json.Unmarshal([]byte(text.Text), &page); err != nil {
-		t.Fatalf("decode %s response: %v\n%s", tool, err, text.Text)
-	}
-	return page
-}
-
-func pageNames(page mcpJSONPage) []string {
-	out := make([]string, 0, len(page.Results))
-	for _, result := range page.Results {
-		if name, ok := result["name"].(string); ok {
-			out = append(out, name)
-		}
-	}
-	return out
-}

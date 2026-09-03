@@ -27,8 +27,6 @@ type QueryService struct {
 	embeddingClient ai.EmbeddingClient
 	searchIndex     *SearchIndex
 
-	// searchUnavailable is why there is no index, when there is none. It is REPORTED rather
-	// than swallowed — see NewQueryService.
 	searchUnavailable error
 }
 
@@ -39,22 +37,9 @@ func NewQueryService(db GraphDB) *QueryService {
 	}
 	if lb, ok := db.(*LadybugBackend); ok {
 		qs.dbPath = lb.StoreDir()
-		// A second store, and a second handle. Nothing here contends with the graph handle this
-		// service already holds: Lance is multi-version, so this reader sees a consistent
-		// snapshot while the daemon writes the same directory — which is what makes an in-place
-		// update safe to read through.
-		//
-		// A failure is not fatal: a project with no index yet, or one whose index is mid-rebuild,
-		// still answers structural queries. searchIndex stays nil and the search entry points
-		// return nothing rather than an error.
 		if si, err := OpenSearchIndex(context.Background(), lb.StoreDir()); err == nil {
 			qs.searchIndex = si
 		} else {
-			// Kept, so the search entry points can tell "no index yet" from "this binary
-			// cannot search at all". Returning no results for the second is the trap the
-			// fts5 guard file existed to close: a build without the engine answered every
-			// query with silence, and silence is indistinguishable from a correct empty
-			// result.
 			qs.searchUnavailable = err
 		}
 	}
@@ -72,13 +57,6 @@ func (q *QueryService) SetEmbeddingClient(client ai.EmbeddingClient) {
 	q.embeddingClient = client
 }
 
-// fitVectorWidth forces vec to exactly dim, which is the width the search index's vector
-// column was built with (ai.ResolveConfiguredEmbeddingDimensions at schema time). It should be
-// a no-op in normal operation, since a query is embedded by the same configured client that
-// produced the index — this only guards a provider returning a vector that does not match its
-// own declared Dimensions(), and truncating a non-Matryoshka embedding is lossy, so a caller
-// hitting this path routinely is a sign ai.embedding.provider or .model was changed without a
-// reindex, not something to rely on.
 func fitVectorWidth(vec []float32, dim int) []float32 {
 	if len(vec) == dim {
 		return vec

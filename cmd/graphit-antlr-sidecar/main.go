@@ -20,8 +20,6 @@ import (
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
 )
 
-// drivers maps grammar names to their ANTLR GrammarDriver implementations.
-// Populated by init() functions in driver_*.go files, selected by build tags.
 var drivers = map[string]antlrcommon.GrammarDriver{}
 
 const (
@@ -34,7 +32,7 @@ func main() {
 		grammar, src, err := readRequest(os.Stdin)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				os.Exit(0) // Clean shutdown: parent closed stdin.
+				os.Exit(0)
 			}
 			writeErrorResponse(os.Stdout, fmt.Sprintf("read request: %v", err))
 			os.Exit(1)
@@ -52,11 +50,6 @@ func main() {
 			continue
 		}
 
-		// This process is long-lived and parses request after request, so the
-		// grammars' package-level DFA / prediction-context caches would grow
-		// unbounded exactly as they do in the indexer. Release them whenever the
-		// heap passes the machine-derived budget. Safe here without a barrier:
-		// the loop parses one request at a time (and ResetAllCaches locks anyway).
 		releaseCachesUnderPressure()
 
 		payload, err := json.Marshal(tree)
@@ -69,9 +62,6 @@ func main() {
 	}
 }
 
-// readRequest reads a single request from r.
-// Format: [4 bytes length LE uint32][grammar name null-terminated][source bytes]
-// The length covers everything after the 4-byte header.
 func readRequest(r io.Reader) (grammar string, src []byte, err error) {
 	var length uint32
 	if err = binary.Read(r, binary.LittleEndian, &length); err != nil {
@@ -83,7 +73,6 @@ func readRequest(r io.Reader) (grammar string, src []byte, err error) {
 		return "", nil, fmt.Errorf("read payload (%d bytes): %w", length, err)
 	}
 
-	// Find null terminator separating grammar name from source.
 	idx := bytes.IndexByte(buf, 0)
 	if idx < 0 {
 		return "", nil, fmt.Errorf("no null terminator in request payload")
@@ -94,16 +83,13 @@ func readRequest(r io.Reader) (grammar string, src []byte, err error) {
 	return grammar, src, nil
 }
 
-// writeResponse writes a response frame to w.
-// Format: [4 bytes length LE uint32][1 byte status][payload]
 func writeResponse(w io.Writer, status byte, payload []byte) {
-	length := uint32(1 + len(payload)) // status byte + payload
+	length := uint32(1 + len(payload))
 	_ = binary.Write(w, binary.LittleEndian, length)
 	_, _ = w.Write([]byte{status})
 	_, _ = w.Write(payload)
 }
 
-// writeErrorResponse writes an error response frame.
 func writeErrorResponse(w io.Writer, msg string) {
 	writeResponse(w, statusError, []byte(msg))
 }

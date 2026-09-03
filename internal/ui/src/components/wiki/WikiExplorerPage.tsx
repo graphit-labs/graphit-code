@@ -4,9 +4,7 @@ import {
   fetchModules, fetchPages, fetchPage, searchWiki, aiSearchWiki,
   WikiModule, WikiPageMeta, WikiPageContent, SearchResult, AISearchResponse,
 } from '@/api/wiki'
-// The explorer browses pages and runs the single-wiki AI search that lives with the
-// wiki routes. Agentic search over several sources — with its own sessions, its own
-// streaming and follow-up turns — is the live search, on its own page.
+
 import {
   BookOpen, FileText, BarChart3, Hash, Search, ChevronRight, ChevronLeft,
   RefreshCw, ExternalLink, Clock, Layers, Users, Zap, GitBranch, ArrowLeft, ArrowRight,
@@ -20,7 +18,7 @@ const LS = {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
   },
   set(key: string, value: unknown) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full */ }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignored */ }
   },
 }
 
@@ -102,9 +100,7 @@ function preprocessContent(raw: string, title: string, type?: string): string {
     if (line === '## Content') { i++; break }
     if (line === '## Cross-References') { i++; continue }
     if (preambleRe.test(line)) { i++; continue }
-    // The Cross-References list the generator writes above `## Content`. It was `- [[slug]]`
-    // before the OKF move and is `- [Title](slug.md)` after it (spec §6.1); matching only the
-    // old form let the whole list leak into the rendered body, duplicating the sidebar.
+
     if (/^-\s+\[\[/.test(line) || /^-\s+\[[^\]]*\]\([^)]*\)/.test(line)) { i++; continue }
     break
   }
@@ -119,8 +115,6 @@ function preprocessContent(raw: string, title: string, type?: string): string {
   return out.join('\n')
 }
 
-// The page types this explorer treats structurally rather than as concepts. Everything
-// else is a concept page carrying its own OKF `type` (spec §4.1), which is a free string.
 const SPECIAL_TYPES = new Set(['index', 'log', 'community', 'god-node'])
 
 const TYPE_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -347,9 +341,7 @@ function StatsBar({ pages }: { pages: WikiPageMeta[] }) {
   const total = pages.length
   const communities = pages.filter(p => p.type === 'community').length
   const godNodes = pages.filter(p => p.type === 'god-node').length
-  // OKF makes `type` producer-defined (spec §4.1), so a concept page reports whatever the
-  // bundle called it — 'specification', 'decision', 'convention'. Counting `type === 'entity'`
-  // counted the pages nobody had classified.
+
   const entities = pages.filter(p => !SPECIAL_TYPES.has(p.type)).length
   const uniqueLinks = new Set<string>()
   pages.forEach(p => {
@@ -413,8 +405,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [view, setView] = useState<'browse' | 'search' | 'ai-search'>('browse')
-  // One flag covers both the knowledge and the memory explorer, because they are one component
-  // over one route: /api/wiki/ai-search, reached with a different moduleFilter.
+
   const aiEnabled = agentFeaturesEnabled()
   const [searchMode, setSearchMode] = useState<'keyword' | 'ai'>('keyword')
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -427,7 +418,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
     const hasH1 = processed.trim().startsWith('# ')
     return { processedMarkdown: processed, hasH1 }
   }, [pageContent])
-  
+
   const left = useResizable(280, 200, 480, 'right', 'graphit_wiki_left_width')
   const [leftCollapsed, setLeftCollapsed] = useState(
     () => window.matchMedia('(max-width: 767px)').matches || LS.get<boolean>('graphit_wiki_left_collapsed', false)
@@ -475,7 +466,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
         )
       }
       setModules(filtered)
-      
+
       filtered.forEach(m => {
         fetchPages(m.path).then(ps => {
           setAllModulePages(prev => ({ ...prev, [m.id]: ps ?? [] }))
@@ -554,7 +545,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
 
   const handleRefresh = useCallback(async () => {
     if (!selectedModule) return
-    
+
     try {
       const ps = await fetchPages(selectedModule.path)
       setPages(ps ?? [])
@@ -1108,13 +1099,10 @@ function SearchResultsView({ results, onSelect }: { results: SearchResult[]; onS
   )
 }
 
-// Follow-up turns belong to the live search, which has sessions, streaming and a
-// transcript. This view shows one single-wiki answer and the pages behind it.
 function AISearchResultsView({ response, loading, onSelect, onWikiLink }: {
   response: AISearchResponse | null; loading: boolean
   onSelect: (path: string) => void; onWikiLink: (target: string) => void
 }) {
-
 
   if (loading) {
     return (
@@ -1144,7 +1132,7 @@ function AISearchResultsView({ response, loading, onSelect, onWikiLink }: {
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-8 py-8 animate-in fade-in duration-300">
-          
+
           {response.answer && (
             <article className="prose-wiki mb-8">
               <div className="flex items-center gap-3 mb-6 pb-4 border-b border-primary/20">
@@ -1162,7 +1150,6 @@ function AISearchResultsView({ response, loading, onSelect, onWikiLink }: {
             </article>
           )}
 
-          
           {(response.results ?? []).length > 0 && (
             <div className="mt-8 pt-6 border-t border-border/40">
               <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-3">
@@ -1182,10 +1169,6 @@ function AISearchResultsView({ response, loading, onSelect, onWikiLink }: {
             </div>
           )}
 
-          
-
-          
-
           {(response.results ?? []).length === 0 && !response.answer && (
             <p className="text-sm text-muted-foreground text-center py-8">No relevant pages found.</p>
           )}
@@ -1193,7 +1176,6 @@ function AISearchResultsView({ response, loading, onSelect, onWikiLink }: {
         </div>
       </div>
 
-      
     </div>
   )
 }

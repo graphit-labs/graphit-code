@@ -52,13 +52,6 @@ func CollectComments(tokens *antlr.CommonTokenStream, symbolicNames []string) []
 	return out
 }
 
-// isCommentToken decides by the token's own name in the grammar.
-//
-// The hidden channel carries whitespace and, in some of these grammars,
-// directives and line markers too, so "not on the default channel" is too broad
-// to mean "is a comment". Every grammar in use names its comment tokens with
-// COMMENT in them (COMMENT, SINGLE_LINE_COMMENT, MULTILINE_COMMENT), which is
-// the only signal available without a per-grammar table.
 func isCommentToken(tok antlr.Token, symbolicNames []string) bool {
 	t := tok.GetTokenType()
 	if t < 0 || t >= len(symbolicNames) {

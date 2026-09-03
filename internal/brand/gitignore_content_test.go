@@ -34,7 +34,6 @@ func TestGitignoreContentIgnoresRuntimeAndGrammarsAtAnyDepthAndNothingElse(t *te
 		filepath.Join("grammars", "treesitter", "tree-sitter-go.so"),
 		filepath.Join("grammars", "antlr", "antlr-plsql.grammar"),
 	}
-	// Repository-owned source overrides remain visible.
 	tracked := []string{
 		filepath.Join("ast", "queries", "go.yaml"),
 		filepath.Join("rules", "ast.md"),

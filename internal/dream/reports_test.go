@@ -10,7 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// writeReport puts a report file in the project's reports directory.
 func writeReport(t *testing.T, projectDir, name, content string) string {
 	t.Helper()
 	dir := ReportsDir(projectDir)
@@ -77,8 +76,6 @@ func TestReportTitle(t *testing.T) {
 func TestListReports(t *testing.T) {
 	t.Parallel()
 
-	// A project that never dreamed has no reports directory. That is not an
-	// error — it is the normal state before the first session.
 	t.Run("missing reports dir", func(t *testing.T) {
 		t.Parallel()
 		reports, err := ListReports(t.TempDir())
@@ -151,8 +148,6 @@ func TestListReports(t *testing.T) {
 		}
 	})
 
-	// The last-seen marker is a .json file in the same directory, so it must not
-	// be mistaken for a report.
 	t.Run("skips the last-seen marker", func(t *testing.T) {
 		t.Parallel()
 		projectDir := t.TempDir()
@@ -186,8 +181,6 @@ func TestListReports(t *testing.T) {
 		}
 	})
 
-	// Every caller wants newest-first, so the ordering is part of the contract
-	// rather than something each of them re-sorts.
 	t.Run("newest first", func(t *testing.T) {
 		t.Parallel()
 		projectDir := t.TempDir()
@@ -280,8 +273,6 @@ func TestLastSeenRoundTrip(t *testing.T) {
 		}
 	})
 
-	// MarkReportsSeen creates the directory itself, so it works on a project
-	// where the dream module has never run.
 	t.Run("MarkReportsSeen creates the directory", func(t *testing.T) {
 		t.Parallel()
 		projectDir := t.TempDir()

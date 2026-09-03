@@ -7,23 +7,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// Hub-installed AST contexts live once per version in the global brand directory:
-//
-//	~/.<brand>/ast/hub/<project-id>/<version>/
-//	  graph.icebug/  …when materialized locally    schema.cypher  …the mounted DDL
-//
-// A published AST artifact is immutable at a given version — the graph was built
-// upstream and nothing in a consuming project can change it — so a copy per
-// project bought nothing and cost a full graph plus its search index every time
-// another project installed the same dependency. One store per version serves
-// every project that asks for that version, and two projects pinned to different
-// versions still get their own.
-//
-// A project's claim on a store is recorded in its lockfile, and that record is what
-// resolution reads. Every other store in this framework now works the same way: a
-// graph is never read as files, so it does not have to sit anywhere the agent can
-// see. See internal/store for the full layout.
-
 // HubContextsRoot is the parent of every version-scoped Hub AST store.
 func HubContextsRoot() string { return store.ASTHubRoot() }
 
@@ -62,7 +45,6 @@ func IsUnderHubContextsRoot(path string) bool {
 	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		// Different volumes on Windows — not under the root by definition.
 		return false
 	}
 	if rel == "." || rel == ".." {

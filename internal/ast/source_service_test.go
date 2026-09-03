@@ -12,11 +12,9 @@ func TestFormatMatches_Basic(t *testing.T) {
 	}
 	got := formatMatches(matches)
 
-	// All consecutive, no separator expected
 	if got == "" {
 		t.Fatal("expected non-empty output")
 	}
-	// Check match markers
 	if !contains(got, ">    1: package main") {
 		t.Errorf("expected match marker for line 1, got:\n%s", got)
 	}
@@ -31,7 +29,7 @@ func TestFormatMatches_Basic(t *testing.T) {
 func TestFormatMatches_SeparatorOnGap(t *testing.T) {
 	matches := []SourceMatch{
 		{LineNumber: 1, Line: "first", IsMatch: true},
-		{LineNumber: 5, Line: "fifth", IsMatch: true}, // gap between 1 and 5
+		{LineNumber: 5, Line: "fifth", IsMatch: true},
 	}
 	got := formatMatches(matches)
 	if !contains(got, "---") {
@@ -93,11 +91,6 @@ func TestFormatWithLineNumbers(t *testing.T) {
 	}
 }
 
-// The hand-rolled insertion sort this file used to carry is gone: the index
-// sorting moved to textslice, which uses sort.Ints. Nothing here to test.
-
-// SourceRequest / SourceResult types sanity
-
 func TestSourceRequestDefaults(t *testing.T) {
 	req := SourceRequest{}
 	if req.Path != "" {
@@ -107,8 +100,6 @@ func TestSourceRequestDefaults(t *testing.T) {
 		t.Error("expected zero head/tail")
 	}
 }
-
-// helpers
 
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchSubstring(s, substr)

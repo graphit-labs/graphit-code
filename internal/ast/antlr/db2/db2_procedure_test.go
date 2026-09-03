@@ -6,16 +6,6 @@ import (
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
 )
 
-// TestCreateProcedureBodyParsesControlFlow guards the Db2Parser.g4 fix:
-// sql_procedure_body used to reach sql_procedure_statement, which was
-// `CALL | FOR | IF | todo` — four bare keywords carrying no body — so a real
-// IF/WHILE/CASE inside a CREATE PROCEDURE only ever reached
-// sql_constrol_statement's actually-complete rules by accident, through
-// error recovery. compound_sql_inlined was completed, declare_variable_
-// statement and assignment_statement were added (neither existed at all),
-// and a duplicate alternative in sql_schema_statement — the one that
-// silently dropped the whole body once IF, WHILE and CASE all appeared
-// together — was removed. This is the case that reproduced that bug.
 func TestCreateProcedureBodyParsesControlFlow(t *testing.T) {
 	src := `
 CREATE PROCEDURE f (IN x INT)

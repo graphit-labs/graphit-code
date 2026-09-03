@@ -15,17 +15,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
 )
 
-// isolateHome points HOME at a temporary directory.
-//
-// Every test in this package needs it: the installers resolve the global config and
-// the artifacts directory from the home directory, so without this the suite would
-// read — and could write — the developer's real ~/.graphit while asserting about a
-// throwaway project.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home) // Windows
+	t.Setenv("USERPROFILE", home)
 	return home
 }
 
@@ -76,7 +70,6 @@ func TestPrepareGivesTheProjectANonEmptyIdentityOfItsOwn(t *testing.T) {
 		t.Fatalf("decoding the lockfile: %v", err)
 	}
 
-	// The ephemeral project still needs an identity for its lockfile-backed stores.
 	if lf.Project.ID == "" {
 		t.Fatal("the ephemeral project has no ID")
 	}
@@ -86,8 +79,6 @@ func TestPrepareGivesTheProjectANonEmptyIdentityOfItsOwn(t *testing.T) {
 	if len(lf.IDEs) != 1 || lf.IDEs[0] != "claude" {
 		t.Fatalf("the lockfile records IDEs %v, want [claude]", lf.IDEs)
 	}
-	// The name must not have been derived by asking git, which would have walked
-	// up out of the workspace.
 	if !strings.Contains(lf.Project.Name, "live-search-") {
 		t.Fatalf("the project name is %q, want it to name itself a live search", lf.Project.Name)
 	}
@@ -164,8 +155,6 @@ func TestPrepareWritesAProjectLocalMCPConfigNotAGlobalOne(t *testing.T) {
 		t.Fatal("the server has no command")
 	}
 
-	// The user's real configuration must be untouched. The ephemeral workspace owns
-	// its MCP file and concurrent sessions must never rewrite a real project's file.
 	for _, global := range []string{
 		filepath.Join(home, ".claude.json"),
 		filepath.Join(home, ".cursor", "mcp.json"),
@@ -194,8 +183,6 @@ func TestPrepareAllowsTheGraphitToolsWithoutNamingEachOne(t *testing.T) {
 		t.Fatalf("decoding the permissions: %v", err)
 	}
 
-	// Server level, not tool level: the list would be wrong the first time a tool
-	// was added, and the failure is an agent stopping to ask in an unattended run.
 	want := "mcp__" + brand.MCPServerName("code-stdio")
 	var allowed bool
 	for _, a := range settings.Permissions.Allow {
@@ -209,7 +196,6 @@ func TestPrepareAllowsTheGraphitToolsWithoutNamingEachOne(t *testing.T) {
 	if !allowed {
 		t.Fatalf("the graphit server is not allowed: %v", settings.Permissions.Allow)
 	}
-	// Reading is the other half of searching.
 	for _, tool := range []string{"Read", "Grep", "Glob"} {
 		var found bool
 		for _, a := range settings.Permissions.Allow {
@@ -223,8 +209,6 @@ func TestPrepareAllowsTheGraphitToolsWithoutNamingEachOne(t *testing.T) {
 	}
 }
 
-// snapshotTree records every file under a root, so a test can assert that an
-// operation added nothing.
 func snapshotTree(t *testing.T, root string) map[string]bool {
 	t.Helper()
 	seen := map[string]bool{}
@@ -241,13 +225,6 @@ func snapshotTree(t *testing.T, root string) map[string]bool {
 }
 
 func TestTheProjectScaffoldingWritesNothingOutsideTheWorkspace(t *testing.T) {
-	// Scoped to the scaffolding on purpose. "Not one new file under the home
-	// directory" is the right assertion for writing a lockfile, rules and tool
-	// configuration — none of that has any business outside the project. It is the
-	// wrong assertion for the whole of Prepare, because preparing the indexes
-	// initialises the *user's own* memory store, which lives under the home
-	// directory and belongs to every project. See the session-ID test below for the
-	// guarantee that does cover all of Prepare.
 	home := isolateHome(t)
 
 	mgr := livesearch.NewManager(t.TempDir(), nil, nil)
@@ -276,18 +253,12 @@ func TestTheProjectScaffoldingWritesNothingOutsideTheWorkspace(t *testing.T) {
 		t.Fatalf("the scaffolding wrote into the user's home: %v", added)
 	}
 
-	// And it did do its job, so the emptiness above is not just a no-op.
 	if _, err := os.Stat(filepath.Join(ws, brand.LockFileName())); err != nil {
 		t.Fatalf("the workspace was not prepared at all: %v", err)
 	}
 }
 
 func TestNothingOutsideTheSessionEverLearnsItsID(t *testing.T) {
-	// This is what "anonymous" reduces to once preparation legitimately touches
-	// shared state: the ephemeral project may use the user's caches and stores, but
-	// nothing permanent may end up *naming* it. A session ID in the global lock, in
-	// a hub event, or in any file under the home directory would outlive the session
-	// and point at a project that no longer exists.
 	home := isolateHome(t)
 
 	mgr := livesearch.NewManager(t.TempDir(), nil, nil)
@@ -313,8 +284,6 @@ func TestNothingOutsideTheSessionEverLearnsItsID(t *testing.T) {
 		if d.IsDir() {
 			return nil
 		}
-		// Only text worth scanning; a git object store is compressed and cannot be
-		// searched this way, but nothing writes a project ID into one.
 		data, err := os.ReadFile(path)
 		if err != nil || len(data) > 1<<20 {
 			return nil //nolint:nilerr
@@ -328,7 +297,6 @@ func TestNothingOutsideTheSessionEverLearnsItsID(t *testing.T) {
 		t.Fatalf("the ephemeral session was recorded outside itself: %v", offenders)
 	}
 
-	// The ID really is in use, so the absence above means something.
 	lockData, err := os.ReadFile(filepath.Join(s.WorkspaceDir(), brand.LockFileName()))
 	if err != nil {
 		t.Fatalf("reading the workspace lockfile: %v", err)
@@ -367,7 +335,6 @@ func TestPrepareUsesTheCodexAdapterForHooksAndMCP(t *testing.T) {
 func TestPrepareIsHonestAboutAModuleThatFailsToInstall(t *testing.T) {
 	isolateHome(t)
 
-	// A read-only workspace makes every installer fail.
 	mgr := livesearch.NewManager(t.TempDir(), nil, nil)
 	t.Cleanup(mgr.CloseAll)
 	s, err := mgr.Create(livesearch.Options{IDE: "claude"})
@@ -412,8 +379,6 @@ func TestValidateIDEAcceptsWhatTheFrameworkSupportsAndRefusesTheRest(t *testing.
 			t.Fatalf("ValidateIDE(%q) refused a supported IDE: %v", good, err)
 		}
 	}
-	// cursor-agent is a CLI, not an IDE — a distinction worth keeping, because the
-	// wrong one produces a project laid out for nobody.
 	for _, bad := range []string{"cursor-agent", "vscode", "", "   "} {
 		if err := ValidateIDE(bad); !errors.Is(err, ErrUnsupportedIDE) {
 			t.Fatalf("ValidateIDE(%q) returned %v, want ErrUnsupportedIDE", bad, err)
@@ -422,8 +387,6 @@ func TestValidateIDEAcceptsWhatTheFrameworkSupportsAndRefusesTheRest(t *testing.
 }
 
 func TestCanonicalIDEResolvesAliases(t *testing.T) {
-	// A slice rather than a map because one of the inputs is deliberately padded
-	// with spaces, which is the case being tested.
 	cases := []struct{ in, want string }{
 		{"claude-code", "claude"},
 		{"claude", "claude"},
@@ -437,5 +400,4 @@ func TestCanonicalIDEResolvesAliases(t *testing.T) {
 	}
 }
 
-// sleepBriefly keeps the polling loop readable.
 func sleepBriefly() { time.Sleep(2 * time.Millisecond) }

@@ -8,8 +8,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// memoryStatusEx mirrors the Win32 MEMORYSTATUSEX structure. golang.org/x/sys
-// does not wrap GlobalMemoryStatusEx, so it is called through kernel32 directly.
 type memoryStatusEx struct {
 	Length               uint32
 	MemoryLoad           uint32
@@ -37,6 +35,4 @@ func physicalMemoryBytes() uint64 {
 	return ms.TotalPhys
 }
 
-// cgroupMemoryLimitBytes has no Windows equivalent. Windows containers enforce
-// limits via job objects, which are reflected in GlobalMemoryStatusEx.
 func cgroupMemoryLimitBytes() uint64 { return 0 }

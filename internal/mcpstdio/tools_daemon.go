@@ -88,7 +88,6 @@ func registerDaemonTools(server *mcp.Server) {
 			}
 		}
 
-		// Fallback to SIGKILL
 		if err := pid.Signal(syscall.SIGKILL); err != nil {
 			return errResult(fmt.Errorf("sending SIGKILL: %w", err))
 		}

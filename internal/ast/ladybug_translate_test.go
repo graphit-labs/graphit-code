@@ -9,10 +9,6 @@ import (
 	"testing"
 )
 
-// translateLadybug had no tests at all, which is why two defects in it survived:
-// the label-predicate rewrite was dead for every label the escaper knew, and the
-// escaper's list of labels had drifted 64 labels behind the grammars.
-
 func translated(t *testing.T, q string) string {
 	t.Helper()
 	out, _ := translateLadybug(q, nil)
@@ -58,8 +54,6 @@ func TestTranslateRewritesEveryAlternativeInAParenthesisedGroup(t *testing.T) {
 	if strings.Contains(got, "fn:") {
 		t.Errorf("a label predicate survived, which is the shape the parser rejects:\n  %s", got)
 	}
-	// The pattern labels in the same query are a different thing and must stay,
-	// escaped.
 	for _, want := range []string{"(f:`File`)", "[:`CONTAINS`]"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("pattern label lost or unescaped, missing %s:\n  %s", want, got)
@@ -104,11 +98,6 @@ func TestTranslateEscapesLabelsByPositionNotByName(t *testing.T) {
 	}
 }
 
-// A relationship type alternation carries the colon only on the first alternative,
-// so the rest used to be walked past unescaped — fine until one of them collides
-// with a keyword. The pipe is not enough to identify them on its own: a list
-// comprehension has one too, inside brackets, and rewriting there would corrupt the
-// query.
 func TestTranslateEscapesEveryRelationshipTypeAlternative(t *testing.T) {
 	t.Parallel()
 
@@ -127,8 +116,6 @@ func TestTranslateEscapesEveryRelationshipTypeAlternative(t *testing.T) {
 		}
 	}
 
-	// Not a relationship pattern: no colon opening the bracket, so nothing in it is
-	// a type name.
 	for _, q := range []string{
 		"MATCH (n:Function) RETURN [x IN [1, 2] | x] AS xs",
 		"RETURN [a IN labels | a] AS ls",
@@ -185,9 +172,6 @@ func TestTranslateLeavesStringLiteralsAlone(t *testing.T) {
 	}
 }
 
-// Searching the codebase for the text of a DDL statement is a normal thing to want,
-// and it used to return the number 1: the check was strings.Contains over the whole
-// query, so a literal mentioning CREATE INDEX was treated as one.
 func TestTranslateNoopsOnlyRealDDLStatements(t *testing.T) {
 	t.Parallel()
 
@@ -210,7 +194,6 @@ func TestTranslateNoopsOnlyRealDDLStatements(t *testing.T) {
 	}
 }
 
-// labels(x)[0] used to be a literal string replace pinned to the variable name n.
 func TestTranslateRewritesLabelsIndexForAnyVariable(t *testing.T) {
 	t.Parallel()
 
@@ -238,8 +221,6 @@ func TestTranslateLeavesNodeTableDDLIntact(t *testing.T) {
 	}
 }
 
-// shippedGraphLabels reads every `graph_label:` declared by the grammar files in the
-// repository — the canonical statement of what labels can reach the graph.
 func shippedGraphLabels(t *testing.T) []string {
 	t.Helper()
 

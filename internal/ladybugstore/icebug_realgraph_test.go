@@ -18,11 +18,6 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 )
 
-// realStore opens the store under GRAPHIT_REAL_STORE once for the whole package.
-//
-// Each test used to open and close it itself, and running several in one process then produced
-// failures that vanished when a test ran alone — repeated opens of the same file interfere.
-// One handle for the package removes that, and is faster.
 var (
 	realStoreOnce sync.Once
 	realStore     *Store
@@ -78,7 +73,6 @@ func TestIcebugAgainstARealGraph(t *testing.T) {
 
 	mounted := mountIcebug(t, out)
 
-	// Every label, node for node, counted the way a reader counts on the folded table.
 	for _, l := range man.Labels {
 		want := scalar(t, src, fmt.Sprintf("MATCH (x:%s) RETURN count(x) AS c", QuoteIdent(l.Label)))
 		if want != l.Rows {
@@ -93,8 +87,6 @@ func TestIcebugAgainstARealGraph(t *testing.T) {
 		t.Errorf("folded table holds %d nodes, manifest says %d", total, man.NodeCount)
 	}
 
-	// Every relationship type, edge for edge. One table per type, so the query is identical on
-	// both sides — no alternatives, which is what the folded layout is for.
 	types := make([]string, 0, len(man.Rels))
 	byType := map[string]int64{}
 	for _, r := range man.Rels {
@@ -120,13 +112,6 @@ func TestIcebugAgainstARealGraph(t *testing.T) {
 		t.Errorf("manifest counts %d edges, source has %d", man.EdgeCount, totalWant)
 	}
 
-	// Self-loops in the real corpus — recursive calls — verified in the CSR ITSELF.
-	//
-	// Not through a query: MEASURED, a mounted icebug graph cannot answer "are these the same
-	// node" in any form tried — `a.entity_id = b.entity_id`, a range comparison on it, a
-	// repeated variable `(a)-[r]->(a)`, and even a comparison of the non-key uid all return
-	// zero while the edges are demonstrably present. That is a reader limitation; reading the
-	// Parquet is what tests the EXPORT rather than the query planner.
 	selfLoops := scalar(t, src,
 		"MATCH (a)-[r:CALLS]->(b) WHERE offset(id(a)) = offset(id(b)) AND label(a) = label(b) RETURN count(r) AS c")
 	inCSR, err := countSelfLoopsInCSR(out, "CALLS")
@@ -176,7 +161,6 @@ func TestIcebugRealGraphQueryCost(t *testing.T) {
 	}
 	mounted := mountIcebug(t, out)
 
-	// Byte cost of the artifact, which is what a remote read pays for.
 	var bytes int64
 	entries, _ := os.ReadDir(out)
 	for _, e := range entries {
@@ -227,10 +211,6 @@ func TestIcebugRealGraphQueryCost(t *testing.T) {
 			folded: "MATCH ()-[r:CALLS]->() RETURN count(r) AS c",
 		},
 		{
-			// count(*) rather than count(a): MEASURED, `count(<node variable>)` is wrong on
-			// icebug storage (53781 against 54823) while count(r) and count(*) are exact. That
-			// is an engine defect with a precise workaround, not a data problem — see
-			// TestIcebugCountOfANodeVariableIsWrong.
 			what:   "one-hop with bound endpoints",
 			native: "MATCH (a)-[r:CALLS]->(b) RETURN count(*) AS c",
 			folded: "MATCH (a)-[r:CALLS]->(b) RETURN count(*) AS c",
@@ -497,11 +477,6 @@ func TestIcebugRealGraphManifestCoversEveryLabel(t *testing.T) {
 	}
 }
 
-// countSelfLoopsInCSR walks a relationship type's CSR and counts edges whose target is their
-// own source.
-//
-// It exists because the engine cannot answer that question on mounted icebug storage, so the
-// only way to verify the export preserved a self-loop is to read what the export wrote.
 func countSelfLoopsInCSR(dir, relType string) (int64, error) {
 	targets, err := readUint64Column(filepath.Join(dir, "indices_"+relType+".parquet"), "target")
 	if err != nil {
@@ -567,9 +542,6 @@ func readUint64Column(path, column string) ([]uint64, error) {
 	return out, nil
 }
 
-// REGRESSION GUARD. This once failed — count(<node variable>) reported 53781 against 54823 —
-// and it was NOT an engine defect: the export was writing many Parquet row groups. With one row
-// group per file every form agrees. See TestIcebugWritesOneRowGroupPerFile.
 func TestIcebugCountOfANodeVariableAgrees(t *testing.T) {
 	storePath := os.Getenv("GRAPHIT_REAL_STORE")
 	if storePath == "" {
@@ -590,7 +562,6 @@ func TestIcebugCountOfANodeVariableAgrees(t *testing.T) {
 
 	want := scalar(t, src, "MATCH ()-[r:CALLS]->() RETURN count(r) AS c")
 
-	// The forms that are correct, and must stay correct.
 	for _, q := range []string{
 		"MATCH ()-[r:CALLS]->() RETURN count(r) AS c",
 		fmt.Sprintf("MATCH (a:%s)-[r:CALLS]->(b:%s) RETURN count(r) AS c", IcebugEntityTable, IcebugEntityTable),
@@ -609,11 +580,6 @@ func TestIcebugCountOfANodeVariableAgrees(t *testing.T) {
 	}
 }
 
-// REGRESSION GUARD, and the most expensive lesson in this whole export.
-//
-// This once returned 0 where the graph has 583 edges, and I attributed it to the engine. It was
-// the export: many Parquet row groups. A pattern anchored on either side then failed to resolve
-// its node while the anonymous count stayed exact — silently. One row group per file fixes it.
 func TestIcebugFiltersOnBothSidesOfAPattern(t *testing.T) {
 	storePath := os.Getenv("GRAPHIT_REAL_STORE")
 	if storePath == "" {
@@ -640,9 +606,6 @@ func TestIcebugFiltersOnBothSidesOfAPattern(t *testing.T) {
 	}
 	callee := Str(callees[0]["n"])
 
-	// The baselines are taken with the SAME expression the mounted side is checked with. A
-	// grouped aggregate and a filtered count can differ by one on this engine, and that
-	// difference is the test's, not the export's.
 	callerEdges := scalar(t, src, fmt.Sprintf(
 		"MATCH (a)-[r:CALLS]->(b) WHERE a.name = '%s' RETURN count(*) AS c", caller))
 	calleeEdges := scalar(t, src, fmt.Sprintf(

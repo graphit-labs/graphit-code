@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// serveBytes hands out n zero bytes, declaring the length only when told to.
-// A server that declares none is not an error case: download has to keep
-// working, and the progress hook has to say so rather than invent a total.
 func serveBytes(t *testing.T, n int64, declareLength bool) string {
 	t.Helper()
 
@@ -55,8 +52,6 @@ func TestDownloadReportsProgressFromZeroToTheFullSize(t *testing.T) {
 		t.Fatalf("got %d progress calls; want an opening one plus at least one read", len(calls))
 	}
 
-	// The opening call exists so a caller can announce the download before
-	// there is anything to report.
 	if first := calls[0]; first.downloaded != 0 || first.total != size {
 		t.Errorf("first call = %+v; want downloaded 0 and total %d", first, int64(size))
 	}
@@ -72,8 +67,6 @@ func TestDownloadReportsProgressFromZeroToTheFullSize(t *testing.T) {
 		}
 		prev = c.downloaded
 
-		// The bytes land in a .tmp file, but the caller is showing this to a
-		// person who asked for a model.
 		if c.file != modelFileName {
 			t.Errorf("call %d reported file %q; want %q", i, c.file, modelFileName)
 		}

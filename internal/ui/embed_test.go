@@ -115,16 +115,6 @@ func TestServeStatic(t *testing.T) {
 func TestServeStatic_UnknownExtensionFallback(t *testing.T) {
 	t.Parallel()
 
-	// The embedded dist/ doesn't contain a file with an unknown extension,
-	// so we verify the fallback indirectly: any served file whose extension
-	// IS recognized gets a real MIME type (covered above). The octet-stream
-	// fallback branch triggers when mime.TypeByExtension returns "".
-	// We can't inject a file into the embed.FS, but we verify the known
-	// extension paths produce correct MIME types, confirming the else-branch
-	// is the only remaining path for unknown extensions.
-
-	// Verify that a path that doesn't match /api/* and isn't "/" but
-	// references a missing file still returns false.
 	req := httptest.NewRequest(http.MethodGet, "/somefile.unknownext12345", nil)
 	rec := httptest.NewRecorder()
 

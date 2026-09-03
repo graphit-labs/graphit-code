@@ -12,21 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// The embedding cache exists so that a rebuild does not have to recompute what the model
-// already produced. It is NOT where a query reads a vector from — that is the entity's row in
-// the search index — and it is not a second opinion about which vector is current: a shard's
-// entry is keyed on the file's content hash, so a changed file invalidates its own vectors.
-//
-// It is written as BINARY, and the reason is measured rather than stylistic. The same 39,762
-// vectors of 768 float32 occupy 122 MB as raw little-endian float32 and 381 MB as the JSON
-// decimal text this replaced — a 3.1x inflation from serialisation alone, on what was 55% of
-// the whole store.
-//
-// Halving it again by storing float16 is available and deliberately not taken: the cache is
-// what a rebuild restores INTO the search index, so a lossy cache would make a store's vectors
-// differ before and after a rebuild. That is a change to search behaviour and would need a
-// measurement, not an assumption.
-
 const shardEmbVersion = 5
 
 type ShardEmbCache struct {
@@ -69,8 +54,6 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 
 		loaded, loadErr := readEmbShard(path)
 		if loadErr != nil {
-			// An unreadable cache is dropped rather than carried.
-			// The vectors are recomputable, which is the whole reason this is a cache.
 			_ = os.Remove(path)
 			return nil
 		}
@@ -153,15 +136,6 @@ func (ec *ShardEmbCache) shardPath(relPath string) string {
 	return filepath.Join(ec.dir, "shards", relPath+shardEmbSuffix)
 }
 
-// ---------- the on-disk format ----------
-//
-// One independent Zstandard frame containing:
-// version u16 | dim u16 | hash len u16 | hash | count u32
-// then count records of: uid len u16 | uid | dim x float32 little-endian.
-//
-// Fixed dimension in the header rather than per record: every vector this model produces has
-// the same width, and storing it once is what makes a record exactly len(uid)+2+dim*4 bytes.
-
 func writeEmbShard(path string, emb *shardEmb) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -208,8 +182,6 @@ func encodeEmbShard(w io.Writer, emb *shardEmb) error {
 	put(uint32(countWritable(emb.Embeddings, dim)))
 
 	for uid, vec := range emb.Embeddings {
-		// A vector of the wrong width would desynchronise every record after it, since the
-		// reader takes the width from the header. countWritable excluded it from the count.
 		if len(vec) != dim {
 			continue
 		}

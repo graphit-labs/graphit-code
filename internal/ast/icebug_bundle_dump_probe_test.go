@@ -36,7 +36,6 @@ func TestDumpBundle(t *testing.T) {
 		base := filepath.Base(path)
 		if !strings.HasSuffix(base, ".parquet") {
 			raw, _ := os.ReadFile(path)
-			// storage URI is a temp dir; normalise it away
 			text := strings.ReplaceAll(string(raw), bundleDir, "<BUNDLE>")
 			fmt.Fprintf(&out, "== %s ==\n%s\n", base, text)
 			continue

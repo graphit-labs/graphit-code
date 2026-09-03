@@ -1,16 +1,11 @@
 language: clojure
 grammar: tree-sitter-clojure
 extensions: [".clj", ".cljs", ".cljc", ".edn"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Macro] }
 queries:
-  # === Entity queries ===
-  # Clojure is homoiconic — all code is nested list literals.
-  # Definitions like (defn name ...) are list_lit where the first sym_lit
-  # is the defining form and the second sym_lit is the name.
+
   - data_key: functions
     graph_label: Function
     pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#match? @_def "^defn-?$"))'
@@ -33,53 +28,32 @@ queries:
     graph_label: Namespace
     pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "ns"))'
 
-  # === Relation queries ===
-  # Function calls: first element of a list_lit is the function being called
   - data_key: calls
     type: relation
     relation_type: CALLS
     pattern: '(list_lit (sym_lit) @name)'
-  # Require/use/import forms for dependency tracking
+
   - data_key: imports
     type: relation
     relation_type: IMPORTS
     pattern: '(list_lit (sym_lit) @_req (sym_lit) @name (#match? @_req "^(require|use|import)$"))'
 
-# Clojure uses metadata ^:private — no simple keyword-based detection
 exports:
   strategy: none
 
-# Clojure has no self/this keyword — functions are values
 self_keywords: []
 
-# Clojure doesn't have traditional scoping via tree-sitter context
 context_types: {}
 
 anon_func_types:
   - anon_fn_lit
 
-# Declaration types for docstring attachment
 declaration_types:
   - list_lit
 
-# Clojure tree-sitter uses "comment" for ; comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar's SHAPE, not just its node kinds: every form
-# (if, when, cond, case, and, or, ...) is the same generic list_lit — `(`
-# then the head symbol then the rest — so a branch is a list_lit whose first
-# named child (the head symbol, skipping the anonymous `(`) reads one of
-# these names (see head_calls).
-#
-# cond and case count once per CLAUSE, not once per form — pair_names/
-# subject_pair_names, because their clauses are plain alternating children,
-# not a node of their own the way switch_case is in other languages. cond
-# has no subject before its test/result pairs; case does (the value being
-# matched), so its pair count is one less. condp is left at a flat +1 in
-# names: it has extra parenthesized args before the pairs whose count is not
-# fixed, so "clauses = (n-1)/2" would be wrong for it specifically.
 complexity:
   head_calls:
     node_type: list_lit
@@ -87,10 +61,6 @@ complexity:
     pair_names: [cond]
     subject_pair_names: ["case"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Namespace
   - Protocol

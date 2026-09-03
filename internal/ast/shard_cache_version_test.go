@@ -39,8 +39,6 @@ func TestShardCacheIgnoresAManifestFromAnotherVersion(t *testing.T) {
 	}
 	defer func() { _ = sc.Close() }()
 
-	// Same path, same hash — and it must still count as changed, or the file is never
-	// reparsed and never sees the new conversion logic.
 	if !sc.HasChanged("main.go", "abc123") {
 		t.Error("a manifest from an older version was trusted; nothing would be reparsed")
 	}

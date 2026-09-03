@@ -2,12 +2,6 @@ package ast
 
 import "testing"
 
-// The object names here are synthetic: this test parses a fixture, not a corpus.
-
-// An index used to be a NAME and nothing else — no table, no columns, no uniqueness.
-// That leaves unanswered the one question an index exists to answer: **is this rule
-// enforced by the database, or only by the application?** In a real analysis the verdict
-// on a race between threads depended on it and had to come from `grep` over the DDL.
 func TestUniqueIndexCarriesItsTableColumnsAndUniqueness(t *testing.T) {
 	pf := plsqlFixture(t, "ix.sql", `
 CREATE UNIQUE INDEX IU_PEDIDO_PROD ON PEDIDO_ITEM (ORDER_ID, ID_PROD);
@@ -18,14 +12,11 @@ CREATE UNIQUE INDEX IU_PEDIDO_PROD ON PEDIDO_ITEM (ORDER_ID, ID_PROD);
 		t.Fatalf("no Index entity; got labels %v", entityLabelsOf(pf))
 	}
 
-	// UNIQUE is a KEYWORD, not a rule — the capture reaches it because ChildByRule
-	// falls back to the token when no rule matches.
 	if got := getProperty(idx.Properties, "value"); got != "UNIQUE" {
 		t.Errorf("index value = %q, want UNIQUE; without it the graph cannot say whether "+
 			"the database enforces this", got)
 	}
 
-	// The covered columns, in order — in a composite index the order is semantic.
 	var cols []string
 	for _, c := range entitiesOfLabel(pf, "Column") {
 		if c.Context == "IU_PEDIDO_PROD" {
@@ -36,7 +27,6 @@ CREATE UNIQUE INDEX IU_PEDIDO_PROD ON PEDIDO_ITEM (ORDER_ID, ID_PROD);
 		t.Errorf("index columns = %v, want [ORDER_ID ID_PROD] in that order", cols)
 	}
 
-	// And the table, as a reference leaving the index.
 	found := false
 	for _, r := range pf.References {
 		if r.TargetName == "PEDIDO_ITEM" && r.SourceName == "IU_PEDIDO_PROD" {
@@ -68,7 +58,6 @@ CREATE INDEX IX_PEDIDO_DT ON PEDIDO_ITEM (DT_CRIACAO);
 		t.Errorf("non-unique index carries value %q, want empty", got)
 	}
 
-	// But it still knows its table and column: the marker is what changes, not the rest.
 	var cols []string
 	for _, c := range entitiesOfLabel(pf, "Column") {
 		if c.Context == "IX_PEDIDO_DT" {
@@ -120,8 +109,6 @@ func TestEverySQLDialectGivesAnIndexItsTableColumnsAndUniqueness(t *testing.T) {
 					}
 					return pf
 				}
-				// PURE tree-sitter: over CompositeParser this test would start
-				// lying, because it falls back to ANTLR on seeing zero entities.
 				cfg, ok := tsLangConfigByName(proj, c.lang)
 				if !ok {
 					t.Skip("grammar unavailable")
@@ -169,8 +156,6 @@ func TestEverySQLDialectGivesAnIndexItsTableColumnsAndUniqueness(t *testing.T) {
 				t.Errorf("no index→table reference; references: %v", got)
 			}
 
-			// The control, in EVERY dialect: a non-unique index must not gain the
-			// marker. "The database enforces this" must never be invented.
 			plain := parse(c.plain)
 			pidx, ok := entityAt(plain, "Index", "IX_Y")
 			if !ok {

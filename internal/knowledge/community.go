@@ -21,14 +21,13 @@ func DetectKnowledgeCommunities(graph *wiki.CrossRefGraph) []KnowledgeCommunity 
 		return nil
 	}
 
-	// Build undirected adjacency from Outbound refs
 	adj := make(map[string][]string)
 	for slug := range graph.AllPages {
-		adj[slug] = nil // ensure every page appears
+		adj[slug] = nil
 	}
 	for src, targets := range graph.Outbound {
 		for _, dst := range targets {
-			if graph.AllPages[dst] { // only include valid targets
+			if graph.AllPages[dst] {
 				adj[src] = append(adj[src], dst)
 				adj[dst] = append(adj[dst], src)
 			}
@@ -37,13 +36,11 @@ func DetectKnowledgeCommunities(graph *wiki.CrossRefGraph) []KnowledgeCommunity 
 
 	assignment := wiki.Louvain(adj)
 
-	// Group by community
 	byComm := make(map[int][]string)
 	for slug, cid := range assignment {
 		byComm[cid] = append(byComm[cid], slug)
 	}
 
-	// Sort communities by size (largest first)
 	type cidMembers struct {
 		cid     int
 		members []string
@@ -51,7 +48,7 @@ func DetectKnowledgeCommunities(graph *wiki.CrossRefGraph) []KnowledgeCommunity 
 	var sorted []cidMembers
 	for cid, members := range byComm {
 		if len(members) < 2 {
-			continue // exclude singletons
+			continue
 		}
 		sort.Strings(members)
 		sorted = append(sorted, cidMembers{cid, members})
@@ -62,7 +59,6 @@ func DetectKnowledgeCommunities(graph *wiki.CrossRefGraph) []KnowledgeCommunity 
 
 	var result []KnowledgeCommunity
 	for newID, cm := range sorted {
-		// Name cluster by the hub node (most connected page)
 		label := cm.members[0]
 		bestDeg := 0
 		for _, slug := range cm.members {

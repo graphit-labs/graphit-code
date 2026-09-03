@@ -5,19 +5,6 @@ import (
 	"time"
 )
 
-// Streaming exists because the live search stopped being one question and one answer.
-// It runs an agent in a prepared project for minutes: downloading artifacts, compiling
-// indexes, then a multi-turn agentic session. Buffering all of that into a single
-// string — which Complete does — means the caller has nothing to show until it is over,
-// and no way to tell a slow run from a hung one.
-//
-// Coverage is by construction, not by enumeration. Every CLI in knownCLIs writes its
-// answer to stdout, so reading stdout incrementally streams *all* of them without
-// knowing anything about any of them, and without changing a single argument — so no
-// invocation that works today can break. A CLI that can do better declares a
-// structured mode in its spec and gets tool-call events and a captured session ID on
-// top. Nothing is required to declare one.
-
 // EventKind classifies a stream event.
 type EventKind string
 
@@ -129,19 +116,6 @@ type StreamClient interface {
 	SupportsStructuredStream() bool
 }
 
-// agenticPreamble replaces nonInteractivePreamble when AllowTools is set.
-//
-// The two exist separately on purpose. nonInteractivePreamble forbids tool use to
-// keep an agent that has no business acting from acting — it was chosen over
-// --yolo/--dangerously-skip-permissions precisely so that a prompt, not a flag,
-// draws the line. That is right for a one-shot question against a real project.
-//
-// It is wrong for the live search, whose entire premise is an agent working inside
-// a throwaway project that was prepared for it: the graphs, the wikis and the MCP
-// server are there to be queried, and an agent told not to use tools answers "I
-// would query the graph" instead of querying it. So this preamble permits the
-// tools and keeps every other constraint — no questions, no TUI, no waiting for a
-// human — because the run is still unattended.
 const agenticPreamble = `You are running in non-interactive, autonomous mode inside a prepared workspace.
 Constraints you MUST follow:
 - Do NOT ask the user any questions or request clarification. Nobody is watching this run.

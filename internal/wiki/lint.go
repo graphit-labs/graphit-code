@@ -8,13 +8,6 @@ import (
 	"time"
 )
 
-// LintConfig is what the audit can be told to do differently. Only staleness is a choice: every
-// other finding is read off the index, which either has the edge or does not.
-//
-// There is deliberately no repair option. The one mechanically repairable finding used to be a
-// page missing the `## Backlinks` section its inbound references entitled it to; there is no page
-// to repair now, and the `xrefs` table cannot be missing an edge the graph knows about, because
-// the graph is built FROM it.
 type LintConfig struct {
 	StaleDays int
 }
@@ -76,9 +69,6 @@ func LintWikiFrom(ctx context.Context, db *WikiDB, source string, cfg LintConfig
 	if err != nil {
 		return nil, fmt.Errorf("reading the indexed pages: %w", err)
 	}
-	// An empty index is REFUSED rather than reported as a clean wiki. Opening a store creates it,
-	// so a lint pointed at a directory that holds no wiki would otherwise answer
-	// "0 pages — no issues found", which is the most misleading answer available here.
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("the wiki at %s holds no pages — index it first", source)
 	}
@@ -147,7 +137,6 @@ func missingRequiredChunkFields(c WikiChunk) []string {
 	return missing
 }
 
-// missingRecommendedChunkFields reports the quality hints, which are never counted as errors.
 func missingRecommendedChunkFields(c WikiChunk) []string {
 	var missing []string
 	if strings.TrimSpace(c.Title) == "" {
@@ -159,14 +148,6 @@ func missingRecommendedChunkFields(c WikiChunk) []string {
 	return missing
 }
 
-// chunkIsStale answers the two questions the frontmatter readers asked, in the order OKF gives
-// them: an explicit staleness instant wins, and age is the fallback.
-//
-// `stale_since` is what the compiler concluded — the source or a dependency changed — so it is a
-// decision, not a date to compare against a window, and a page carrying one is stale at any
-// staleDays. `updated` is the source's own date, and a page with none is NOT reported: §11 forbids
-// rejecting a concept over a missing optional field, and a page whose age is unknown is not a page
-// known to be old.
 func chunkIsStale(c WikiChunk, staleDays int) bool {
 	if strings.TrimSpace(c.StaleSince) != "" {
 		return true
@@ -178,11 +159,6 @@ func chunkIsStale(c WikiChunk, staleDays int) bool {
 	return time.Since(t).Hours() > float64(staleDays*24)
 }
 
-// parseFMInstant reads the date shapes a page's `updated` column can carry.
-//
-// It is what is left of a family of frontmatter regexes — `generated`, inline and block,
-// `stale_after`, `updated` — that parsed a rendered page to recover facts the compiler already
-// knew. The compiler writes them as columns now, so only the date parsing survived.
 func parseFMInstant(raw string) (time.Time, bool) {
 	s := strings.TrimSpace(raw)
 	s = strings.Trim(s, "\"'")

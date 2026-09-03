@@ -8,28 +8,19 @@ import (
 
 const openAIDefaultBaseURL = "https://api.openai.com/v1"
 
-// openAIDimensionsCapableModels are the OpenAI embedding models trained with Matryoshka
-// representation learning, which is what makes a request-time `dimensions` truncation valid.
-// text-embedding-ada-002 predates this and has no such support — asking it for a narrower vector
-// is simply not a thing its API accepts, so it is deliberately absent here.
 var openAIDimensionsCapableModels = map[string]bool{
 	"text-embedding-3-small": true,
 	"text-embedding-3-large": true,
 }
 
-// openAIEmbeddingConfig configures the client for BOTH provider "openai" and provider
-// "openai-compatible" — they are the same wire format. This literally IS the OpenAI
-// /v1/embeddings shape, which is what "compatible" means: Ollama, vLLM, LM Studio, TEI, Together
-// AI and friends all speak it. One client type serves both; requireKey and model are what differ.
 type openAIEmbeddingConfig struct {
-	provider   string // "openai" or "openai-compatible"
+	provider   string
 	baseURL    string
 	apiKey     string
 	requireKey bool
 	model      string
 }
 
-// openAIEmbeddingClient implements EmbeddingClient over the OpenAI /v1/embeddings shape.
 type openAIEmbeddingClient struct {
 	provider string
 	baseURL  string
@@ -38,7 +29,7 @@ type openAIEmbeddingClient struct {
 	dim      int
 }
 
-const openAIEmbedBatchLimit = 2048 // OpenAI's documented request limit for /v1/embeddings.
+const openAIEmbedBatchLimit = 2048
 
 type openAIEmbedRequest struct {
 	Model      string   `json:"model"`
@@ -75,16 +66,6 @@ func newOpenAIEmbeddingClient(cfg openAIEmbeddingConfig) (EmbeddingClient, error
 func (c *openAIEmbeddingClient) ModelName() string { return c.model }
 func (c *openAIEmbeddingClient) Dimensions() int   { return c.dim }
 
-// requestDimensions returns the width to ask the API to truncate to via the request-time
-// `dimensions` field, or 0 to omit it.
-//
-// It only applies to provider "openai" (an openai-compatible server's actual model is unknown to
-// this code, so sending a field it may not support risks a 400 for no benefit — the operator can
-// truncate on their own end if their server supports it) and only to the two v3 models that
-// support Matryoshka truncation. It fires when the resolved width differs from that model's
-// native table width, which is exactly the case where ai.embedding.dimensions was set to
-// something other than the default — sending it lets OpenAI truncate server-side, which is
-// strictly better than truncating the vector after the fact.
 func (c *openAIEmbeddingClient) requestDimensions() int {
 	if c.provider != "openai" || !openAIDimensionsCapableModels[c.model] {
 		return 0

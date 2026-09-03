@@ -13,8 +13,6 @@ import (
 	"testing"
 )
 
-// handleMultiSearch extended tests
-
 func TestHandleSearch_CaseInsensitive(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -26,7 +24,6 @@ func TestHandleSearch_CaseInsensitive(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/wiki/search", corsJSON(h.handleSearch))
 
-	// Search with lowercase should find uppercase content
 	req := httptest.NewRequest(http.MethodGet, "/api/wiki/search?dir="+tmp+"&q=world", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -43,7 +40,6 @@ func TestHandleSearch_CaseInsensitive(t *testing.T) {
 func TestHandleSearch_SnippetBoundary(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	// Place query token at the very beginning of the file
 	content := "uniquestart this is some content after the token"
 	if err := indexPage(t, tmp, "start.md", content); err != nil {
 		t.Fatal(err)
@@ -72,7 +68,6 @@ func TestHandleSearch_SnippetBoundary(t *testing.T) {
 func TestHandleSearch_ResultsCapped(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	// Create 35 pages that all match, to test the cap at 30
 	for i := 0; i < 35; i++ {
 		name := fmt.Sprintf("page%03d.md", i)
 		content := fmt.Sprintf("# Page %d\n\nThis is about xcaptest topic", i)
@@ -174,23 +169,15 @@ func TestHandlePage_AbsolutePathTraversal(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/wiki/page", corsJSON(h.handlePage))
 
-	// Try absolute path traversal
 	req := httptest.NewRequest(http.MethodGet, "/api/wiki/page?dir="+wikiDir+"&path=/etc/passwd", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	// Should not return 200 OK
 	if w.Code == http.StatusOK {
 		t.Error("absolute path traversal should be blocked")
 	}
 }
 
-// A WIKI IS FLAT, so a path-shaped reference addresses nothing.
-//
-// This test used to assert the opposite: it wrote `sub/deep/deep.md` under the wiki directory and
-// asked for it by that relative path, because the handler joined the path onto the directory and read
-// the file. There is no directory and no nesting — `path` is a slug, a key in a column — so the
-// nested form is a 404 and the slug is what resolves.
 func TestHandlePage_APathIsNotASlug(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -227,13 +214,6 @@ func TestHandlePage_APathIsNotASlug(t *testing.T) {
 	}
 }
 
-// handleHubKnowledge extended tests
-
-// TestHandleModules_WithWikiContent used to create `<project>/.graphit/knowledge/project`
-// and assert the endpoint found it. It cannot: a wiki inside the project is no longer a
-// wiki. See TestHandleModulesServesTheResolvedWikisSorted in wiki_modules_test.go, which
-// asserts the same endpoint against the store the wikis actually live in.
-
 func TestHandleAISearch_EmptyDir(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -256,7 +236,6 @@ func TestHandleAISearch_EmptyDir(t *testing.T) {
 func TestHandleAISearch_ManyPages(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	// Create many pages to test catalog building with content truncation
 	for i := 0; i < 5; i++ {
 		name := fmt.Sprintf("page%d.md", i)
 		content := fmt.Sprintf("---\ntags: [test]\n---\n# Page %d\n\n%s", i, strings.Repeat("word ", 100))
@@ -288,8 +267,6 @@ func TestHandleAISearch_ManyPages(t *testing.T) {
 	}
 }
 
-// Utility function tests
-
 func TestResolveDir_ExistingDir(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -297,7 +274,6 @@ func TestResolveDir_ExistingDir(t *testing.T) {
 	if result == "" {
 		t.Error("resolveDir returned empty for existing dir")
 	}
-	// Should return an absolute path
 	if !filepath.IsAbs(result) {
 		t.Errorf("resolveDir returned non-absolute path: %q", result)
 	}
@@ -310,11 +286,9 @@ func TestCorsJSON_NoOrigin(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	// No Origin header
 	w := httptest.NewRecorder()
 	handler(w, req)
 
-	// Should still work, CORS header may or may not be set for same-origin
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
 	}

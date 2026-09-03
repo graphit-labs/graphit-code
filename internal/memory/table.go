@@ -13,16 +13,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// The memory STORE, as a table.
-//
-// This is the authored data — what a unit writes when it records a memory — and it is deliberately
-// NOT the wiki index. The two have different lifecycles: this table is authoritative and may live
-// directly on S3, while the wiki is a disposable local query projection synchronized row by row.
-
 const memoryTableName = "memories"
 
-// memoryReadPageSize bounds each engine batch, not the result set. Tests lower it to prove that
-// the public complete reads walk every page.
 var memoryReadPageSize = 1024
 
 // MemoryRecord is one memory, live or archived, with every field the markdown file carried.
@@ -58,7 +50,6 @@ type MemoryRecord struct {
 	ScopeID   string
 	ProjectID string
 
-	// ContentHash is the stable hash used to synchronize the compiled wiki.
 	ContentHash string
 
 	// Embedding is the memory's vector, carried in the store so it TRAVELS.
@@ -67,11 +58,6 @@ type MemoryRecord struct {
 	Embedding []float32
 }
 
-// Key is the row key: the id for a live memory, `<id>/<revision_id>` for an archived revision.
-//
-// One column, because `lancestore.Table.Upsert` and `DeleteByKey` take exactly one — and a
-// compound value rather than two columns because a revision is addressed as a whole. It mirrors what
-// the filesystem encoded in `history/<id>/<rev>.md`, minus the extension.
 func (r MemoryRecord) Key() string {
 	if r.RevisionID == "" {
 		return r.ID
@@ -112,9 +98,6 @@ func memoryTableSchema(vectorDim int) lancestore.Schema {
 		{Name: "title", Type: lancestore.FieldString, Nullable: true},
 		{Name: "body", Type: lancestore.FieldString, Nullable: true},
 		{Name: "type", Type: lancestore.FieldString, Nullable: true},
-		// Tags are JSON in one column. A column store has no natural place for a variable-length
-		// list of strings that is only ever read whole, and modelling them as rows would make a
-		// memory a join — the same reasoning the wiki's sync log uses for its three slug lists.
 		{Name: "tags_json", Type: lancestore.FieldString, Nullable: true},
 		{Name: "important", Type: lancestore.FieldBool},
 		{Name: "mandatory", Type: lancestore.FieldBool},
@@ -136,8 +119,6 @@ func memoryTableIndexes() []lancestore.Index {
 	return []lancestore.Index{
 		{Column: "key", Kind: lancestore.IndexScalarBTree},
 		{Column: "id", Kind: lancestore.IndexScalarBTree},
-		// Two values, one of which selects nearly the whole table — the case a bitmap is for. It is
-		// what makes "the live memories only" a scan the engine skips.
 		{Column: "superseded", Kind: lancestore.IndexScalarBitmap},
 		{Column: "important", Kind: lancestore.IndexScalarBitmap},
 		{Column: "mandatory", Kind: lancestore.IndexScalarBitmap},
@@ -172,8 +153,6 @@ func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
 		return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
 	}
 	if !tbl.Schema().Equal(expected) {
-		// Development-stage contract: test data is disposable and no schema migration survives. A
-		// writable S3 memory table follows the same rule as a local one.
 		_ = tbl.Close()
 		if err := st.DropTable(ctx, memoryTableName); err != nil {
 			_ = st.Close()
@@ -280,12 +259,6 @@ func (t *MemoryTable) Mandatory(ctx context.Context) ([]MemoryRecord, error) {
 	return out, nil
 }
 
-// Revisions reads one chain's archived revisions, oldest first.
-//
-// The order used to come from the lexicographic order of file names under `history/<id>/`, which was
-// correct for both naming schemes — a zero-padded counter and a ULID are each ordered by age, and
-// "0001" precedes every ULID. Sorting by `revision_id` preserves exactly that, which is what lets a
-// forward walk keep working for legacy archives.
 func (t *MemoryTable) Revisions(ctx context.Context, id string) ([]MemoryRecord, error) {
 	out, err := t.readAll(ctx, fmt.Sprintf("id = %s AND superseded = true", sqlQuoteMemory(id)))
 	if err != nil {
@@ -315,19 +288,6 @@ func (t *MemoryTable) readAll(ctx context.Context, filter string) ([]MemoryRecor
 	}
 }
 
-// Maintain folds new rows into the indexes and reclaims what a rewrite left behind.
-//
-// Best-effort, and it must be: every failure here costs disk or query latency, never correctness.
-//
-// 🔒 THE RETENTION IS `memory.version_retention`, NOT THE WIKI'S, and the first version of this
-// function got that wrong by reusing `config.WikiVersionRetention()`. The two numbers answer
-// different questions: the wiki's fifteen minutes is a margin for in-flight readers of a DERIVED
-// index, where a pruned version costs a rebuild and nothing more. This store is the only copy of
-// what it holds — the markdown raw store that was its second copy is being retired — so its version
-// history is the recovery path D2 accepted, and the retention is the length of the safety net.
-// (The markdown store that was that second copy is now gone entirely.)
-// Sharing one key would have honoured D2's letter while breaking it in fact: a bad pass noticed the
-// next morning would have found nothing left to roll back to.
 func (t *MemoryTable) Maintain(ctx context.Context) error {
 	if err := t.table.FoldNewRowsIntoIndexes(ctx); err != nil {
 		return err
@@ -345,7 +305,6 @@ func (t *MemoryTable) EnsureIndexes(ctx context.Context) error {
 	return t.table.EnsureIndexes(ctx, memoryTableIndexes()...)
 }
 
-// sortMemoryRecords puts live memories before archived revisions, then orders by key.
 func sortMemoryRecords(rs []MemoryRecord) {
 	sort.Slice(rs, func(i, j int) bool {
 		if rs[i].Superseded != rs[j].Superseded {
@@ -394,9 +353,6 @@ func memoryRow(r MemoryRecord) (lancestore.Row, error) {
 		"content_hash": r.ContentHash,
 		"embedding":    nil,
 	}
-	// A failed embed reports as an empty vector, and that is the only case to tell apart from a real
-	// one — checking a fixed width instead would lose the vectors of every provider whose dimension
-	// is not the local model's.
 	if len(r.Embedding) > 0 {
 		row["embedding"] = r.Embedding
 	}
@@ -431,18 +387,6 @@ func recordFromRow(row map[string]any) MemoryRecord {
 	return r
 }
 
-// recordFromMarkdown parses one memory file into a record.
-//
-// `rel` is its path relative to the scope directory, and it is read for exactly one thing the
-// frontmatter cannot be trusted about: whether this is an archived revision. A file under
-// `history/` IS one, even when it predates `revision_id` and says nothing about itself — location
-// could not be wrong, and that is what kept legacy archives compiling correctly without a migration.
-// This is the last place that rule applies, because a row has no location: the migration resolves it
-// once and `superseded` becomes explicit from then on.
-//
-// ok is false when the frontmatter could not be read AT ALL. The caller must skip and report rather
-// than write a record built from an empty struct — re-rendering from a failed parse is what
-// destroyed 20 archives before that guard existed.
 func recordFromMarkdown(rel string, data []byte) (MemoryRecord, bool) {
 	content := string(data)
 	fm, parsed := ParseMemoryFrontmatterOK(content)
@@ -501,10 +445,6 @@ func chainIDFromHistoryPath(rel string) string {
 	return parts[len(parts)-2]
 }
 
-// sqlQuoteMemory renders a string literal for the engine's filter dialect.
-//
-// SAFETY: single quotes, doubled to escape. A memory id is a ULID and a revision id usually is too,
-// but a legacy revision name is whatever the filesystem held, so the quoting is not optional.
 func sqlQuoteMemory(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

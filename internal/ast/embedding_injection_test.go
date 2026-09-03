@@ -54,8 +54,6 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A vector for SOME entities, not all — partial coverage is the normal case, since the
-	// grammar's embed_labels list decides who gets one.
 	var embedded []cachedEntity
 	var vecs [][]float32
 	for f := 0; f < files; f++ {
@@ -78,9 +76,6 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 	}
 	wantVectors := len(embedded)
 
-	// Production order: the store is indexed FIRST, while no vector exists yet, and the
-	// embedding cycle writes them afterwards. Asserting on a single rebuild that already
-	// had the vectors in hand would exercise a different path.
 	storeDir := filepath.Join(tmp, "store")
 	bundleDir := filepath.Join(storeDir, "graph.icebug")
 	entries := make(map[string]*parseCacheEntry, cache.Count())
@@ -96,7 +91,6 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 		t.Fatalf("initial search index: %v", err)
 	}
 
-	// And this is the call under test — the one the embedding loop makes.
 	writer, err := OpenSearchIndex(context.Background(), storeDir)
 	if err != nil {
 		t.Fatalf("open search index: %v", err)
@@ -108,7 +102,6 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 		t.Fatalf("close writer: %v", err)
 	}
 
-	// A fresh handle, deliberately — see the doc comment.
 	idx, err := OpenSearchIndex(context.Background(), storeDir)
 	if err != nil {
 		t.Fatalf("reopen search index: %v", err)
@@ -128,15 +121,6 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 			"published store", vectors, wantVectors)
 	}
 
-	// THE DEFECT THIS PART GUARDED CANNOT HAPPEN ANY MORE, and that is worth stating rather than
-	// deleting silently. Under SQLite there were TWO structures — entity_emb held the durable copy
-	// and entity_vec the searchable one, built from it — so a rebuild could fill the first and
-	// skip the second, leaving semantic search answering nothing while every count still looked
-	// right. Here the embedding is a column of the entity: there is one place for it to be, so
-	// stored and searchable are the same fact and cannot disagree.
-	//
-	// What remains checkable is that the vectors are reachable through a search, which is the
-	// property the two-table check was standing in for.
 	hits, err := idx.entities.Search(context.Background(), lancestore.Query{
 		Filter: lanceVectorColumn + " IS NOT NULL", Limit: 1,
 	})

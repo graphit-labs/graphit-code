@@ -21,7 +21,6 @@ import (
 func TestTryFallbackCLIAndComplete(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Create dummy "grok" shell script that consumes stdin
 	dummyGrok := filepath.Join(tempDir, "grok")
 	grokScript := `#!/bin/sh
 cat > /dev/null; echo "grok completed"
@@ -72,7 +71,6 @@ func TestNewClientFromConfigError(t *testing.T) {
 func TestCompleteAllCLIBranches(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Stdin-based CLIs: consume stdin then echo
 	stdinBinaries := []string{
 		"claude", "gemini", "agy", "grok",
 		"cursor-agent", "agent",
@@ -88,17 +86,14 @@ func TestCompleteAllCLIBranches(t *testing.T) {
 		}
 	}
 
-	// File-input CLIs: read from file passed as arg, echo
 	fileBinaries := []string{"goose", "openhands"}
 	for _, bin := range fileBinaries {
-		// The file path will be the last argument; just echo ok
 		script := fmt.Sprintf("#!/bin/sh\necho \"%s ok\"\n", bin)
 		if err := os.WriteFile(filepath.Join(tempDir, bin), []byte(script), 0755); err != nil {
 			t.Fatalf("failed to write dummy %s: %v", bin, err)
 		}
 	}
 
-	// Arg-input CLIs: prompt as positional arg, just echo
 	argBinaries := []string{"opencode", "cline"}
 	for _, bin := range argBinaries {
 		script := fmt.Sprintf("#!/bin/sh\necho \"%s ok\"\n", bin)
@@ -152,10 +147,8 @@ func TestCompleteWithSystemPrompt(t *testing.T) {
 
 func TestCompleteAlwaysUsesStdin(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that verifies it receives stdin and outputs confirmation
 	script := "#!/bin/sh\nread -r line; echo \"stdin ok\"\n"
 
-	// Only test stdin-mode CLIs
 	binaries := []string{"claude", "codex", "kiro-cli", "cursor-agent"}
 	for _, bin := range binaries {
 		bp := filepath.Join(tempDir, bin)
@@ -164,7 +157,6 @@ func TestCompleteAlwaysUsesStdin(t *testing.T) {
 		}
 	}
 
-	// Even a small prompt should use stdin
 	for _, bin := range binaries {
 		t.Run(bin, func(t *testing.T) {
 			c := &cliClient{executablePath: filepath.Join(tempDir, bin), binaryName: bin}
@@ -181,7 +173,6 @@ func TestCompleteAlwaysUsesStdin(t *testing.T) {
 
 func TestNonInteractivePreamble(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that captures full stdin and echoes it
 	script := "#!/bin/sh\ncat\n"
 
 	t.Run("stdin_mode", func(t *testing.T) {
@@ -204,7 +195,6 @@ func TestNonInteractivePreamble(t *testing.T) {
 	})
 
 	t.Run("file_mode", func(t *testing.T) {
-		// Script that reads the file content and outputs it
 		fileScript := "#!/bin/sh\nfor arg; do last=$arg; done; cat \"$last\"\n"
 		bp := filepath.Join(tempDir, "goose")
 		if err := os.WriteFile(bp, []byte(fileScript), 0755); err != nil {
@@ -245,7 +235,6 @@ func TestNonInteractivePreamble(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Preamble should come first, then system prompt, then user prompt
 		preambleIdx := strings.Index(resp, "non-interactive, autonomous mode")
 		systemIdx := strings.Index(resp, "You are a helpful assistant.")
 		userIdx := strings.Index(resp, "analyze this")
@@ -260,7 +249,6 @@ func TestNonInteractivePreamble(t *testing.T) {
 
 func TestCompleteFileInput(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that reads the file argument and outputs its content
 	script := "#!/bin/sh\n" +
 		"# Find the last argument (the temp file path)\n" +
 		"for arg; do last=$arg; done\n" +
@@ -329,7 +317,6 @@ func TestWriteTempPrompt(t *testing.T) {
 		t.Errorf("got %q; want %q", data, "test content")
 	}
 
-	// Verify file permissions are restricted
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +329,6 @@ func TestWriteTempPrompt(t *testing.T) {
 
 func TestTempPromptCleanup(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that echoes ok — the file should be cleaned up after
 	script := "#!/bin/sh\necho \"ok\"\n"
 	binPath := filepath.Join(tempDir, "goose")
 	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
@@ -355,7 +341,6 @@ func TestTempPromptCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify temp files are cleaned up (no graphit-prompt-* files left)
 	matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "graphit-prompt-*"))
 	for _, m := range matches {
 		t.Errorf("temp prompt file not cleaned up: %s", m)
@@ -391,7 +376,6 @@ func TestSupportsSession(t *testing.T) {
 
 func TestCompleteWithSession(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that consumes stdin and echoes confirmation
 	script := "#!/bin/sh\ncat > /dev/null; echo \"session ok\"\n"
 	binPath := filepath.Join(tempDir, "agy")
 	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
@@ -502,7 +486,7 @@ func TestTryFallbackCLI_AllProviders(t *testing.T) {
 }
 
 func TestTryFallbackCLI_NoneFound(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // empty dir
+	t.Setenv("PATH", t.TempDir())
 	oldIDEToCLI := ideToCLI
 	defer func() { ideToCLI = oldIDEToCLI }()
 	ideToCLI = func(ide string) string { return "" }
@@ -573,7 +557,6 @@ func TestTryFallbackCLI_IDEEquivalentSameAsUser(t *testing.T) {
 
 	oldIDEToCLI := ideToCLI
 	defer func() { ideToCLI = oldIDEToCLI }()
-	// IDE equivalent returns same as userCLI - should not duplicate
 	ideToCLI = func(ide string) string { return "mybin" }
 
 	client := tryFallbackCLI("google", "mybin")
@@ -822,7 +805,6 @@ func TestLazyEmbeddingClient_ModelName_BeforeInit(t *testing.T) {
 
 func TestLazyEmbeddingClient_ModelName_AfterInit(t *testing.T) {
 	lazy := NewLazyEmbeddingClient()
-	// Simulate a loaded client
 	lazy.client = &localEmbeddingClient{}
 	name := lazy.ModelName()
 	if name != localModelName {
@@ -830,14 +812,6 @@ func TestLazyEmbeddingClient_ModelName_AfterInit(t *testing.T) {
 	}
 }
 
-// failedLazyClient returns a client whose lazy initialisation has already run and
-// failed.
-//
-// Consuming the sync.Once is the only way to inject the failure: init() runs the
-// real NewLocalEmbeddingClient inside once.Do and assigns over l.err, so setting
-// l.err beforehand has no effect. Tests that relied on the model simply being
-// absent from the environment passed for the wrong reason — they went red the
-// moment the ONNX runtime actually worked.
 func failedLazyClient(t *testing.T, cause error) *LazyEmbeddingClient {
 	t.Helper()
 	lazy := NewLazyEmbeddingClient()
@@ -874,13 +848,11 @@ func TestLazyEmbeddingClient_InitError(t *testing.T) {
 }
 
 func TestFindORTLibrary_NoLibrary(t *testing.T) {
-	// With a clean env, findORTLibrary should return "" when no library exists
 	t.Setenv("LD_LIBRARY_PATH", "")
 	t.Setenv("DYLD_LIBRARY_PATH", "")
 	t.Setenv("PATH", t.TempDir())
 
 	result := findORTLibrary()
-	// We just verify it doesn't panic and returns a string
 	_ = result
 }
 
@@ -900,11 +872,7 @@ func TestFindORTLibrary_InEnvPath(t *testing.T) {
 }
 
 func TestInitONNXRuntime(t *testing.T) {
-	// We can't actually initialize ONNX runtime in tests
-	// but we can verify the function doesn't panic on repeated calls
-	// (it uses sync.Once so subsequent calls just return the cached error)
 	err := initONNXRuntime()
-	// It might succeed or fail depending on environment — just ensure no panic
 	_ = err
 }
 
@@ -962,10 +930,8 @@ func TestModelManager_isValid(t *testing.T) {
 
 func TestModelManager_findBundledModels(t *testing.T) {
 	mgr := &ModelManager{}
-	// Calling findBundledModels - it checks next to the executable
-	// In test mode, this will typically return ""
 	result := mgr.findBundledModels()
-	_ = result // Just verify no panic
+	_ = result
 }
 
 func TestModelManager_download(t *testing.T) {
@@ -1061,7 +1027,6 @@ func TestModelManager_EnsureModel_BundledModels(t *testing.T) {
 func TestModelManager_EnsureModel_CachedModels(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create large enough fake model files in the cache dir
 	modelPath := filepath.Join(tmpDir, modelFileName)
 	tokenizerPath := filepath.Join(tmpDir, tokenizerFileName)
 
@@ -1088,9 +1053,6 @@ func TestModelManager_EnsureModel_CachedModels(t *testing.T) {
 	}
 }
 
-// A server that answers 200 with a body below the minimum size. This used to
-// build exactly that server and then never point EnsureModel at it, so what was
-// really being measured was huggingface.co.
 func TestModelManager_EnsureModel_DownloadModel(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping heavy model download in -short mode")
@@ -1140,23 +1102,18 @@ func TestModelManager_EnsureModel_DownloadSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// We can't override the hardcoded URLs in EnsureModel, but we can test the
-	// download function directly and the path validation.
 	mgr := &ModelManager{cacheDir: tmpDir}
 
-	// Download model
 	modelDest := filepath.Join(tmpDir, modelFileName)
 	if err := mgr.download(context.Background(), srv.URL+"/model.onnx", modelDest); err != nil {
 		t.Fatalf("download model failed: %v", err)
 	}
 
-	// Download tokenizer
 	tokenizerDest := filepath.Join(tmpDir, tokenizerFileName)
 	if err := mgr.download(context.Background(), srv.URL+"/tokenizer.json", tokenizerDest); err != nil {
 		t.Fatalf("download tokenizer failed: %v", err)
 	}
 
-	// Now EnsureModel should find cached files
 	mp, tp, err := mgr.EnsureModel(context.Background())
 	if err != nil {
 		t.Fatalf("EnsureModel failed: %v", err)
@@ -1208,9 +1165,6 @@ func TestModelManager_EnsureModel_NeedDownloadModelTooSmall(t *testing.T) {
 }
 
 func TestNewLocalEmbeddingClient_Fails(t *testing.T) {
-	// Without a real ONNX model this should fail. The seeded cache is the right
-	// size and the wrong content, so it still fails — at the ONNX load, which is
-	// the step under test, rather than after a 132 MB download.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	seedModelCache(t, home)
@@ -1219,8 +1173,6 @@ func TestNewLocalEmbeddingClient_Fails(t *testing.T) {
 		t.Log("NewLocalEmbeddingClient succeeded - model may be cached in default location")
 	}
 }
-
-// localEmbeddingClient tests (unit-testable parts)
 
 func TestLocalEmbeddingClient_ModelName(t *testing.T) {
 	c := &localEmbeddingClient{}
@@ -1231,7 +1183,6 @@ func TestLocalEmbeddingClient_ModelName(t *testing.T) {
 
 func TestLocalEmbeddingClient_Close(t *testing.T) {
 	c := &localEmbeddingClient{}
-	// Close with nil session - should not panic
 	c.Close()
 }
 
@@ -1242,11 +1193,10 @@ func TestNormalization(t *testing.T) {
 	for _, v := range vec {
 		norm += float64(v) * float64(v)
 	}
-	norm = math.Sqrt(norm) // 5
+	norm = math.Sqrt(norm)
 	if math.Abs(norm-5.0) > 1e-9 {
 		t.Errorf("norm = %f; want 5.0", norm)
 	}
-	// Normalized vector should be [0.6, 0.8]
 	normalized := make([]float32, len(vec))
 	for i, v := range vec {
 		normalized[i] = float32(float64(v) / norm)
@@ -1259,7 +1209,6 @@ func TestNormalization(t *testing.T) {
 func TestLazyEmbeddingClient_MultipleCalls(t *testing.T) {
 	lazy := failedLazyClient(t, errors.New("init error"))
 
-	// Multiple Embed calls should all fail with same error
 	_, err1 := lazy.Embed(context.Background(), "test1")
 	_, err2 := lazy.EmbedBatch(context.Background(), []string{"test2"})
 	_, err3 := lazy.EmbedQuery(context.Background(), "test3")

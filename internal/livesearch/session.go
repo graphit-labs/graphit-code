@@ -60,13 +60,6 @@ var (
 	ErrClosed    = errors.New("session is closed")
 )
 
-// workspaceDirName is the subdirectory the ephemeral project lives in.
-//
-// The project is a level below the session directory rather than being it, because
-// the session's own bookkeeping — session.json, events.jsonl — sits in that
-// directory, and the preparation step runs the AST and knowledge indexers over the
-// project root. Sharing one directory would have the session indexing its own
-// transcript and then answering questions about it.
 const workspaceDirName = "workspace"
 
 const (
@@ -74,7 +67,6 @@ const (
 	eventsFileName = "events.jsonl"
 )
 
-// tailBuffer is how many events a subscriber may fall behind before it is dropped.
 const tailBuffer = 256
 
 // Artifact is one Hub artifact the user chose for this session. Any type is
@@ -147,28 +139,19 @@ type Session struct {
 	client  ai.StreamClient
 	prepare PrepareFunc
 
-	// ctx is the session's own, derived from Background so that no request can
-	// cancel it, and cancelled by Cancel or Close.
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	log *eventLog
 
-	// initialPrompt is asked once, when preparation succeeds. Written at
-	// construction and read only by the preparation goroutine.
 	initialPrompt string
 
-	// mu guards the session's mutable state.
 	mu           sync.Mutex
 	state        State
 	meta         Meta
 	turnCancel   context.CancelFunc
 	cliSessionID string
 
-	// work counts the goroutines that write inside the session directory: the
-	// preparation, and each turn. Close waits on it so that when Close returns,
-	// nothing is still writing — which is what makes deleting the directory
-	// afterwards safe rather than merely usually safe.
 	work sync.WaitGroup
 
 	// subMu guards the subscriber set and serialises appending to the log with
@@ -181,11 +164,6 @@ type Session struct {
 	closed  bool
 }
 
-// closeGrace bounds how long Close waits for work to stop.
-//
-// Cancelling the context kills the agent subprocess, so the wait is normally
-// instant. The bound exists for the case where it is not: a remove button that can
-// hang forever is a remove button nobody trusts.
 const closeGrace = 10 * time.Second
 
 // ID returns the session identifier.
@@ -408,15 +386,6 @@ func (m *Manager) Meta(id string) (Meta, error) {
 	return m.metaFromDisk(id)
 }
 
-// Replay yields the recorded events of a session, whether or not it is live here.
-//
-// This is what the durable log is for. A session's story is on disk, so a process that
-// never ran it can still tell it — and without this, a client that listed sessions
-// after a restart could see one and not be allowed to read it, which is the log's
-// entire purpose refused on a technicality.
-//
-// Only history: a session with no goroutine behind it will never gain another event,
-// so there is nothing to follow.
 func (m *Manager) Replay(id string, after int64, fn func(Event) error) error {
 	if !validSessionID(id) {
 		return ErrNotFound
@@ -425,13 +394,9 @@ func (m *Manager) Replay(id string, after int64, fn func(Event) error) error {
 	if _, err := os.Stat(path); err != nil {
 		return ErrNotFound
 	}
-	// Constructed rather than opened: opening for append would create the file and
-	// rewrite its last line, which is not a read.
 	return (&eventLog{path: path}).replay(after, 0, fn)
 }
 
-// metaFromDisk loads persisted metadata and corrects the states that cannot be
-// true of a session with no process behind it.
 func (m *Manager) metaFromDisk(id string) (Meta, error) {
 	meta, err := loadMeta(filepath.Join(m.root, id, metaFileName))
 	if err != nil {
@@ -457,9 +422,6 @@ func (m *Manager) Remove(id string) error {
 
 	dir := filepath.Join(m.root, id)
 	if live {
-		// Close before deleting, and not only for tidiness: Windows refuses to
-		// remove a file that still has an open handle, so a session removed while
-		// its log was open would fail there and succeed everywhere else.
 		_ = s.Close()
 		dir = s.dir
 	}
@@ -490,8 +452,6 @@ func (m *Manager) CloseAll() {
 	m.sessions = make(map[string]*Session)
 	m.mu.Unlock()
 
-	// In parallel, because each Close waits for its own session's work to stop and
-	// closing serially would add those waits together on the way out.
 	var wg sync.WaitGroup
 	for _, s := range all {
 		wg.Add(1)
@@ -503,15 +463,6 @@ func (m *Manager) CloseAll() {
 	wg.Wait()
 }
 
-// Subscribe returns a stream of events after the given sequence number, history
-// first and then live ones, plus a function to stop listening.
-//
-// The ordering here is the reason this is not two calls. Reading the history and
-// then registering for new events loses whatever arrives in between; registering
-// and then reading the history delivers those twice. So registration and the
-// snapshot of "how far the history goes" happen under one lock, and the events in
-// between are attributed to exactly one phase: the file replay stops at the
-// snapshot, and the live channel skips anything at or below it.
 func (s *Session) Subscribe(after int64) (<-chan Event, func()) {
 	s.subMu.Lock()
 	tail := make(chan Event, tailBuffer)
@@ -551,20 +502,16 @@ func (s *Session) Subscribe(after int64) (<-chan Event, func()) {
 			}
 		}
 		if closed {
-			// Nothing will ever be appended, so waiting on the tail would hang a
-			// client that only wanted the history of a removed session.
 			return
 		}
 		for {
 			select {
 			case ev, ok := <-tail:
 				if !ok {
-					// Dropped for falling behind. The client reconnects with
-					// Last-Event-ID and picks up from the log.
 					return
 				}
 				if ev.Seq <= upto {
-					continue // already delivered by the replay
+					continue
 				}
 				select {
 				case out <- ev:
@@ -589,7 +536,6 @@ func (s *Session) unsubscribe(id int64) {
 	delete(s.subs, id)
 }
 
-// emit records an event and hands it to every subscriber.
 func (s *Session) emit(ev Event) {
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
@@ -640,8 +586,6 @@ func (s *Session) runPreparation() {
 	if s.initialPrompt == "" {
 		return
 	}
-	// The question the session was created for. A failure to start it is recorded
-	// and left there: the session is ready, so the client can simply ask again.
 	if err := s.Send(s.initialPrompt); err != nil {
 		s.emit(Event{Kind: KindError, Text: err.Error()})
 	}
@@ -666,9 +610,6 @@ func (s *Session) fail(cause error) {
 
 func (s *Session) setState(st State) {
 	s.mu.Lock()
-	// Closed is terminal. Close waits for the turn to unwind, and a turn unwinding
-	// reports itself ready — without this it would resurrect the session it was
-	// just torn down with, and the persisted metadata would outlive the directory.
 	if s.state == st || s.state == StateClosed {
 		s.mu.Unlock()
 		return
@@ -725,9 +666,6 @@ func (s *Session) Send(prompt string) error {
 	}
 	_ = s.persistLocked()
 	cliSessionID := s.cliSessionID
-	// Counted before the lock is released, not inside the goroutine: a Close that
-	// arrives in between would otherwise see no work pending, return, and let a
-	// turn start on a session it had already torn down.
 	s.work.Add(1)
 	s.mu.Unlock()
 
@@ -771,11 +709,6 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, cliSes
 
 	s.emit(Event{Kind: KindTurnDone})
 
-	// A failed turn returns the session to ready rather than failing it. The
-	// expensive part — the prepared project — is still valid, and the user can ask
-	// again; the error is in the log either way. StateFailed is reserved for a
-	// session that cannot work at all. A session closed underneath us stays closed,
-	// which setState enforces.
 	s.setState(StateReady)
 }
 
@@ -818,8 +751,6 @@ func (s *Session) Close() error {
 	return s.log.close()
 }
 
-// waitForWork blocks until the preparation and any turn have stopped, or until the
-// grace period expires.
 func (s *Session) waitForWork() {
 	done := make(chan struct{})
 	go func() {
@@ -894,11 +825,6 @@ func title(prompt string) string {
 	return t
 }
 
-// systemPrompt is intentionally short.
-//
-// The framework's mandate and installed Hub rules are not duplicated here. The
-// adapter's native lifecycle hook composes them from the ephemeral project at
-// agent start; skills remain host-discoverable files loaded only when needed.
 const systemPrompt = `You are answering a question inside a workspace prepared for exactly this purpose.
 
 The workspace contains the documentation wikis and code graphs that were selected for

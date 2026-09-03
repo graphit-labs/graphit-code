@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// legacyResolveReceiverTypes is the previous implementation (full source split),
-// used as the oracle for the differential test.
 func legacyResolveReceiverTypes(result *ParsedFile, src []byte, lang string, langConfig *ExternalQueryFile) {
 	if len(result.CallSites) == 0 {
 		return
@@ -61,11 +59,10 @@ func makeReceiverFixture(rng *rand.Rand) (*ParsedFile, *ParsedFile, []byte) {
 		case 2:
 			b.WriteString("  plain line\n")
 		default:
-			b.WriteString("\n") // empty lines, incl. trailing-newline edge cases
+			b.WriteString("\n")
 		}
 	}
 	if rng.Intn(2) == 0 && b.Len() > 0 {
-		// sometimes no trailing newline
 		s := b.String()
 		b.Reset()
 		b.WriteString(strings.TrimSuffix(s, "\n"))
@@ -81,8 +78,7 @@ func makeReceiverFixture(rng *rand.Rand) (*ParsedFile, *ParsedFile, []byte) {
 				Name:       "doThing",
 				SourceName: []string{"doThing", "", "other"}[rng.Intn(3)],
 				FullName:   []string{"", "new:Widget", "x"}[rng.Intn(3)],
-				// Deliberately include out-of-range lines (0, negative, beyond EOF).
-				Line: rng.Intn(nLines+4) - 1,
+				Line:       rng.Intn(nLines+4) - 1,
 			})
 		}
 		return pf

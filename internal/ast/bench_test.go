@@ -10,7 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
 )
 
-// Fixture: Go source (~200 lines)
 const goSource = `package server
 
 import (
@@ -206,7 +205,6 @@ func RecoveryMiddleware(logger Logger) Middleware {
 var _ Logger = (*stdLogger)(nil)
 `
 
-// Fixture: Python source (~200 lines)
 const pythonSource = `"""
 Data processing pipeline with multiple stages.
 """
@@ -401,7 +399,6 @@ if __name__ == "__main__":
         print("Usage: pipeline.py <input.json>")
 `
 
-// Fixture: JavaScript source (~200 lines)
 const jsSource = `/**
  * Event-driven message bus with middleware support.
  * @module MessageBus
@@ -589,7 +586,6 @@ export { MessageBus, EventEmitter, Middleware, createLogger, withRetry };
 export default MessageBus;
 `
 
-// Fixture: PL/SQL source (~100 lines)
 const plsqlSource = `CREATE OR REPLACE PROCEDURE process_employee_records(
     p_department_id IN NUMBER,
     p_effective_date IN DATE DEFAULT SYSDATE,
@@ -681,7 +677,6 @@ END process_employee_records;
 /
 `
 
-// Fixture: PostgreSQL source (~80 lines)
 const pgSource = `CREATE TABLE IF NOT EXISTS orders (
     order_id     SERIAL PRIMARY KEY,
     customer_id  INTEGER NOT NULL REFERENCES customers(customer_id),
@@ -760,7 +755,6 @@ ORDER BY s.total_spent DESC
 LIMIT 50;
 `
 
-// Tree-sitter query patterns for Go (from queries/go.yaml)
 const goQueryPattern = `
 (function_declaration name: (identifier) @name)
 (method_declaration name: (field_identifier) @name)
@@ -773,8 +767,6 @@ const goQueryPattern = `
 (call_expression function: (identifier) @name)
 (call_expression function: (selector_expression field: (field_identifier) @name))
 `
-
-// Tree-sitter Benchmarks
 
 // BenchmarkTS_Native_FullParse_Go parses a ~200-line Go file from scratch
 // (parser creation + language set + parse) on every iteration.
@@ -796,7 +788,6 @@ func BenchmarkTS_Native_FullParse_Go(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Native_FullParse_Python parses a ~200-line Python file.
 func BenchmarkTS_Native_FullParse_Python(b *testing.B) {
 	src := []byte(pythonSource)
 	lang := NativeLanguage("python")
@@ -815,7 +806,6 @@ func BenchmarkTS_Native_FullParse_Python(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Native_FullParse_JavaScript parses a ~200-line JavaScript file.
 func BenchmarkTS_Native_FullParse_JavaScript(b *testing.B) {
 	src := []byte(jsSource)
 	lang := NativeLanguage("javascript")
@@ -834,8 +824,6 @@ func BenchmarkTS_Native_FullParse_JavaScript(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Native_ParseReuse_Go measures parse-only performance with a
-// pre-created parser (no parser creation overhead).
 func BenchmarkTS_Native_ParseReuse_Go(b *testing.B) {
 	src := []byte(goSource)
 	p := sitter.NewParser()
@@ -853,7 +841,6 @@ func BenchmarkTS_Native_ParseReuse_Go(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Native_ParseReuse_Python measures parse-only with parser reuse.
 func BenchmarkTS_Native_ParseReuse_Python(b *testing.B) {
 	src := []byte(pythonSource)
 	p := sitter.NewParser()
@@ -871,7 +858,6 @@ func BenchmarkTS_Native_ParseReuse_Python(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Native_ParseReuse_JavaScript measures parse-only with parser reuse.
 func BenchmarkTS_Native_ParseReuse_JavaScript(b *testing.B) {
 	src := []byte(jsSource)
 	p := sitter.NewParser()
@@ -889,8 +875,6 @@ func BenchmarkTS_Native_ParseReuse_JavaScript(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Native_QueryExec_Go measures tree-sitter query compilation +
-// execution against a pre-parsed Go AST.
 func BenchmarkTS_Native_QueryExec_Go(b *testing.B) {
 	src := []byte(goSource)
 	lang := NativeLanguage("go")
@@ -928,8 +912,6 @@ func BenchmarkTS_Native_QueryExec_Go(b *testing.B) {
 	b.StopTimer()
 }
 
-// BenchmarkTS_Native_QueryExecReuse_Go measures query execution only,
-// with a pre-compiled query (no compilation overhead per iteration).
 func BenchmarkTS_Native_QueryExecReuse_Go(b *testing.B) {
 	src := []byte(goSource)
 	lang := NativeLanguage("go")
@@ -968,8 +950,6 @@ func BenchmarkTS_Native_QueryExecReuse_Go(b *testing.B) {
 	b.StopTimer()
 }
 
-// BenchmarkTS_LangLookup_Native measures the cost of calling a native
-// GetLanguage() function (current static approach).
 func BenchmarkTS_LangLookup_Native(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -991,7 +971,6 @@ func BenchmarkTS_LangLookup_Dynamic(b *testing.B) {
 	)
 	defer loader.Close()
 
-	// Warm up: first call loads the shared lib.
 	if _, err := loader.Load("go"); err != nil {
 		b.Skipf("dynamic Go grammar not available: %v", err)
 	}
@@ -1052,7 +1031,6 @@ func BenchmarkTS_Pool_FullParse_Go(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Pool_FullParse_Python measures pool parse for Python.
 func BenchmarkTS_Pool_FullParse_Python(b *testing.B) {
 	src := []byte(pythonSource)
 	lang := NativeLanguage("python")
@@ -1073,7 +1051,6 @@ func BenchmarkTS_Pool_FullParse_Python(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Pool_FullParse_JavaScript measures pool parse for JS.
 func BenchmarkTS_Pool_FullParse_JavaScript(b *testing.B) {
 	src := []byte(jsSource)
 	lang := NativeLanguage("javascript")
@@ -1094,7 +1071,6 @@ func BenchmarkTS_Pool_FullParse_JavaScript(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkTS_Pool_QueryExec_Go measures query cursor pool performance.
 func BenchmarkTS_Pool_QueryExec_Go(b *testing.B) {
 	src := []byte(goSource)
 	lang := NativeLanguage("go")
@@ -1155,7 +1131,6 @@ func BenchmarkANTLR_Native_PLSQL(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkANTLR_Native_PostgreSQL parses a PostgreSQL script using the postgresql Driver.
 func BenchmarkANTLR_Native_PostgreSQL(b *testing.B) {
 	src := []byte(pgSource)
 	drv := &postgresql.Driver{}
@@ -1174,8 +1149,6 @@ func BenchmarkANTLR_Native_PostgreSQL(b *testing.B) {
 	b.ReportMetric(float64(len(src))*float64(b.N)/(1024*1024*b.Elapsed().Seconds()), "MB/s")
 }
 
-// BenchmarkANTLR_Native_PLSQL_Preprocess measures just the PL/SQL
-// preprocessor overhead (without the actual parse).
 func BenchmarkANTLR_Native_PLSQL_Preprocess(b *testing.B) {
 	src := plsqlSource
 	b.ReportAllocs()

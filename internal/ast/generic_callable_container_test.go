@@ -2,15 +2,6 @@ package ast
 
 import "testing"
 
-// These three grammars declare a callable from a GENERIC node — clojure's `list_lit`,
-// julia's `assignment`, r's `binary_operator` — which is why
-// TestEveryCallableContainerIsDeclaredAsAContext exempts them instead of demanding
-// they be contexts: making a bare list or a bare assignment a container would name the
-// wrong owner for everything nested in one.
-//
-// The exemptions each claim that nothing is lost anyway. These tests are that claim,
-// checked against the real grammars rather than asserted in a comment.
-
 // r resolves a parameter through function_definition, which IS a declared context,
 // even though the Function entity is named from the binary_operator around it.
 func TestRParametersBelongToTheirFunction(t *testing.T) {
@@ -216,14 +207,6 @@ port = 8080
 	assertNoDanglingContains(t, pf, projectDir)
 }
 
-// The five grammars below shipped with every context INERT: the grammar defines no field
-// called "name", the query file declared no context_name_paths, so nameNodeOf returned nil
-// for every container and each one was skipped. Every entity fell back to the File.
-//
-// They were found by TestNamelessContextsDeclareANamePath, which infers it from the
-// grammar rather than from a fixture: no "name" field in the grammar means no node can
-// have one. These tests are the confirmation, and the regression net.
-
 func TestProtobufMembersBelongToTheirContainer(t *testing.T) {
 	projectDir := stageGrammar(t, "protobuf", "tree-sitter-proto", ".proto", "protobuf.yaml")
 	pf := parseFixture(t, projectDir, "pay.proto", `message Charge {
@@ -378,17 +361,6 @@ end
 	assertNoDanglingContains(t, pf, projectDir)
 }
 
-// assertNoDanglingContains is the check that would have caught two of my own fixes.
-//
-// ConvertToCache does not verify that a context names something real: when it cannot find
-// the parent among the entities it SYNTHESIZES a UID (entityUID(relPath, e.Context, "")) and
-// emits the edge anyway. The result is a CONTAINS edge to a node that is never created —
-// the same shape as the historical "Table does not exist" failure that took a whole rebuild
-// down, and now more dangerous, because a failed COPY aborts the rebuild instead of being
-// logged.
-//
-// So a context_name_paths entry is only correct if the name it resolves EQUALS the name of
-// an entity the queries actually produce.
 func assertNoDanglingContains(t *testing.T, pf *ParsedFile, projectDir string) {
 	t.Helper()
 
@@ -500,7 +472,6 @@ func TestParsePathSegment(t *testing.T) {
 		{"string_lit[0]", "string_lit", 0},
 		{"string_lit[1]", "string_lit", 1},
 		{"string_lit[10]", "string_lit", 10},
-		// Malformed, and each must degrade to "no index" rather than to a wrong one.
 		{"string_lit[", "string_lit[", -1},
 		{"string_lit]", "string_lit]", -1},
 		{"string_lit[]", "string_lit[]", -1},

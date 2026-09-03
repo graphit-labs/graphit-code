@@ -60,10 +60,6 @@ func TestStagePublishedIndexCopiesAQueryableWiki(t *testing.T) {
 		t.Error("the sync log did not survive publication")
 	}
 
-	// The index has to ANSWER, not merely exist. What changed is why that is a real test: it is no
-	// longer rebuilt on this side. The inverted and vector indexes travelled inside the directory,
-	// so a search working here proves the copied structure is usable — which a rebuild would have
-	// masked by regenerating whatever arrived broken.
 	results, err := dst.Search(ctx, "credenciais", 5)
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -72,7 +68,6 @@ func TestStagePublishedIndexCopiesAQueryableWiki(t *testing.T) {
 		t.Fatal("full-text search returned nothing after the round trip")
 	}
 
-	// And a whole row, field by field, against what went in.
 	var want WikiChunk
 	for _, c := range chunks {
 		if c.Slug == "autenticacao" {

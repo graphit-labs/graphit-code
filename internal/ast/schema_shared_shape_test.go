@@ -38,20 +38,16 @@ func TestSchemaTextGroupsLabelsThatShareAPropertySet(t *testing.T) {
 		t.Fatalf("entity labels were not grouped; schema still repeats the property list:\n%s", text)
 	}
 
-	// The proof grouping hid nothing: the entity properties and File's own shape
-	// stay readable in the text.
 	for _, want := range []string{"line_number", "cyclomatic_complexity", "is_stub", "relative_path"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("property %q disappeared from the schema output", want)
 		}
 	}
 
-	// File has a shape of its own and must not have been swept into the group.
 	if !strings.Contains(text, "- File(") {
 		t.Errorf("File lost its own line; its property set differs and that difference is load-bearing:\n%s", text)
 	}
 
-	// And the repetition really is gone: the entity property list appears ONCE.
 	if n := strings.Count(text, "cyclomatic_complexity, context, context_type"); n != 1 {
 		t.Errorf("the shared entity property list appears %d times, want exactly 1", n)
 	}

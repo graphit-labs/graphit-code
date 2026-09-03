@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// countingEmptyDB answers every query with no rows, and records that it was asked.
 type countingEmptyDB struct {
 	emptyGraphDB
 	queries int
@@ -21,12 +20,6 @@ func (d *countingEmptyDB) Query(ctx context.Context, q string, p map[string]any)
 	return d.emptyGraphDB.Query(ctx, q, p)
 }
 
-// writeSearchIndexSource builds a real store holding one file, so the test reads the
-// same SearchFile rows the search tool does.
-//
-// The store is closed before returning. Readers open it read-only, which the engine
-// allows alongside a live writer, but leaving the write handle open would make every
-// test in this file depend on that rather than state it.
 func writeSearchIndexSource(t *testing.T, relPath, src string) string {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "ladybugdb")
@@ -36,22 +29,12 @@ func writeSearchIndexSource(t *testing.T, relPath, src string) string {
 		t.Fatalf("open search index: %v", err)
 	}
 	putFileRow(t, idx, relPath, src)
-	// No index build step: source reads go through a predicate on the path, not through the
-	// inverted index, so a file's text is readable the moment the row lands. Under SQLite the FTS
-	// tables had to be rebuilt here or the row was invisible.
 	if err := idx.Close(); err != nil {
 		t.Fatalf("close search index: %v", err)
 	}
 	return dbPath
 }
 
-// TestSourceComesFromTheSearchIndexAlone pins the store that owns file text.
-//
-// It used to live in two places: File.source in the graph and file_fts in the search
-// index. That cost a COPY of the whole repository on every rebuild — 2.4 GB on a
-// 36k-file export — and when that COPY failed the graph published File nodes with no
-// text while answering "source not found", which read as missing code rather than as a
-// failed load. Only the index copy was ever queryable, so it is now the only copy.
 func TestSourceComesFromTheSearchIndexAlone(t *testing.T) {
 	const rel = "schema/packages/PCK_X.sql"
 	const body = "CREATE PACKAGE PCK_X AS\n PROCEDURE P;\nEND;"
@@ -92,15 +75,6 @@ func TestFileRowsCarryNoSource(t *testing.T) {
 	}
 }
 
-// SAFETY regression: reading a source must not mutate the store it reads from.
-//
-// The hazard is that OpenSearchIndex runs the schema migration, which DROPs and recreates
-// every table on a version mismatch — so a read that opened read-write could destroy the
-// index it came to read. FileSourceAt opens read-only, which cannot migrate.
-//
-// It stats the INDEX rather than the graph store: this test seeds a search index and no
-// graph at all, which is also the arrangement that catches the mistake of stat-ing the
-// wrong one — the graph path would simply not exist.
 func TestFileSourceAtDoesNotMutateTheStore(t *testing.T) {
 	const rel = "keep/me.sql"
 	dbPath := writeSearchIndexSource(t, rel, "SELECT 1 FROM DUAL;")
@@ -114,7 +88,6 @@ func TestFileSourceAtDoesNotMutateTheStore(t *testing.T) {
 	if _, ok := FileSourceAt(context.Background(), dbPath, rel); !ok {
 		t.Fatal("the seeded file must be readable")
 	}
-	// Twice: a read that destroyed what it read would still answer the first call.
 	if _, ok := FileSourceAt(context.Background(), dbPath, rel); !ok {
 		t.Error("the second read failed — reading the store damaged it")
 	}
@@ -215,9 +188,6 @@ func TestBuildSearchIndexForMakesAContextSearchable(t *testing.T) {
 	}
 	defer func() { _ = cache.Close() }()
 
-	// A search index is only ever built from shards LOCALLY, where the tree the shards
-	// were parsed from is on disk — shards do not travel, and a store installed from
-	// elsewhere arrives with its index already built. So the fixture has a tree.
 	const rel = "svc/handler.go"
 	const body = "package svc\n\nfunc HandlePayment() {}\n"
 	repoRoot := t.TempDir()

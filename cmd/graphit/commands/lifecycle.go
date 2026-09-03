@@ -683,11 +683,6 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 			wd, _ := os.Getwd()
 
 			if heavy, _ := cmd.Flags().GetBool("heavy"); heavy {
-				// Phase 2 saturates the machine: embeddings drive an ONNX session
-				// sized to the whole CPU budget, and the memory GC that follows
-				// reindexes both wikis. A second copy does not halve the work, it
-				// doubles the contention — so the loser exits rather than queueing.
-				// Everything it would have done, the winner is already doing.
 				lock, proceed := acquireSyncLock(wd, "sync-heavy.lock")
 				if !proceed {
 					return nil
@@ -702,9 +697,6 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 			p := output.NewPrinter("")
 			ctx := context.Background()
 
-			// The git hooks fire this on post-commit, pre-push and post-merge, so a
-			// commit followed by a push used to pay for two full reindexes of a tree
-			// that changed once. The window collapses the burst into one sync.
 			debounce, _ := cmd.Flags().GetDuration("debounce")
 			if syncedWithin(wd, debounce) {
 				return nil
@@ -712,8 +704,6 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 
 			lock, proceed := acquireSyncLock(wd, "sync.lock")
 			if !proceed {
-				// Hook-driven runs are silent by contract; an interactive one says
-				// why it did nothing.
 				if debounce == 0 {
 					p.StepWarn("Another sync is already running — skipping")
 				}
@@ -756,9 +746,6 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 	return cmd
 }
 
-// syncStateFile locates one of the sync's coordination files inside the project's
-// runtime directory — the same tree the daemon already writes its log to, so
-// nothing new needs ignoring or cleaning up.
 func syncStateFile(wd, name string) string {
 	return brand.ProjectRuntimePath(wd, name)
 }
@@ -785,9 +772,6 @@ func acquireSyncLock(wd, name string) (*lockfile.Lock, bool) {
 	}
 }
 
-// syncedWithin reports whether a full sync finished less than window ago. A missing or
-// unreadable stamp reads as "no idea", which runs the sync — the debounce may only
-// ever skip work it can prove is redundant.
 func syncedWithin(wd string, window time.Duration) bool {
 	if window <= 0 {
 		return false
@@ -803,11 +787,6 @@ func syncedWithin(wd string, window time.Duration) bool {
 	return time.Since(last) < window
 }
 
-// stampSync records that Phase 1 completed, which is what syncedWithin reads.
-//
-// It is written after Phase 1 and not after Phase 2 on purpose: Phase 1 is the part a
-// git hook exists to trigger, and Phase 2 is fire-and-forget by design, so waiting for
-// it would leave the window open for the whole length of an embedding run.
 func stampSync(wd string) {
 	path := syncStateFile(wd, "sync.stamp")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -910,7 +889,6 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 			}
 		}
 
-		// Ensure language artifacts are materialized in global dirs.
 		lockPath := filepath.Join(wd, brand.LockFileName())
 		if err := hub.EnsureGlobalLanguageArtifacts(lockPath); err != nil {
 			syncLogError("hub-lang-global", "ensure global language: %v", err)
@@ -929,9 +907,6 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 	}
 }
 
-// runSyncPhase1 runs the synchronous sync tasks (AST reindex, knowledge/memory
-// wiki reindex, hub/memory repo sync, IDE rules & adapter, git hooks).
-// It is used by both the "init" and "sync" commands.
 func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *output.Printer) error {
 	projectCfg := loadProjectConfigFromDir(wd)
 	var adapterSyncErr error
@@ -970,8 +945,6 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		task := p.StartTask("Reindexing knowledge wiki...")
 		scope := knowledge.ScopeFor(wd, nil, projectCfg)
 		_, docsErr := os.Stat(filepath.Join(wd, scope.Subdir))
-		// A project with no docs tree yet still has a README to index, so the
-		// missing directory is only the end of the story when there is nothing else.
 		if docsErr == nil || len(scope.ExtraFiles) > 0 {
 			wikiDir := knowledge.WikiDir()
 			cfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
@@ -1103,7 +1076,6 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 }
 
 func spawnBackgroundSync(wd, ide string) {
-	// Prefer the launcher — after an upgrade the old graphit-core may be gone.
 	exe := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
 	if exe == "" {
 		var err error
@@ -1131,7 +1103,7 @@ func spawnBackgroundSync(wd, ide string) {
 		return
 	}
 
-	go func() { _ = cmd.Wait() }() // reap child to avoid zombie
+	go func() { _ = cmd.Wait() }()
 }
 
 func syncLogError(module, format string, args ...any) {
@@ -1149,21 +1121,6 @@ func syncLogError(module, format string, args ...any) {
 	_, _ = fmt.Fprintf(f, "%s [sync:%s] %s\n", time.Now().UTC().Format(time.RFC3339), module, msg)
 }
 
-// runMemoryMaintenance regenerates the memory wiki for each scope.
-//
-// It used to garbage-collect first: RunGC(90) followed by os.Remove straight into
-// the worktree. That is gone deliberately. Deleting memories is not maintenance —
-// it was destructive work with no report, no confirmation and no undo, triggered
-// by a command a developer runs to *index* things, bypassing MemoryService so
-// neither git nor the wiki knew a memory had ever existed. Age is also the weakest
-// possible evidence: the memories that sit unread for months are exactly the
-// conventions and corrections that later stop a repeated mistake.
-//
-// Sanitising the store is consolidation's job — the dream module on idle, or
-// `memory consolidate` on demand. There the model judges what actually duplicates or
-// contradicts what, every removal carries the content into a survivor first, and the
-// result is a report the developer can read. Deletion by age is gone entirely: GC was
-// removed rather than relocated.
 func runMemoryMaintenance(ctx context.Context, projectDir string) {
 	_ = projectDir
 	for _, scope := range []string{"project", "user"} {

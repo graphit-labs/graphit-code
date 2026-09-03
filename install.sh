@@ -1,21 +1,12 @@
 #!/usr/bin/env sh
-# Graphit Code Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
-# Or:    curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash -s -- --dir ~/.local/bin
-# Or:    curl -fsSL .../install.sh | VERSION=v1.4.0 bash -s -- --dir /usr/local/bin
 set -e
 
 REPO="graphit-labs/graphit-code"
 BIN_NAME="graphit"
 INSTALL_DIR="${HOME}/.local/bin"
 
-# VERSION pins the release tag. Empty means "resolve the latest tag from the GitHub API",
-# which is what an interactive install wants and what a reproducible one — a container image,
-# a pipeline — must be able to opt out of. A pinned tag still goes through checksum
-# verification below; pinning selects WHICH artifact, it does not skip verifying it.
 VERSION="${VERSION:-}"
 
-# ── Parse arguments ───────────────────────────────────────────────────────────
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dir)
@@ -56,7 +47,6 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# ── Color helpers ────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
   BOLD='\033[1m'
   GREEN='\033[0;32m'
@@ -73,7 +63,6 @@ success() { printf "${GREEN}  ✓${RESET} %s\n" "$*"; }
 warn()    { printf "${YELLOW}  ⚠${RESET} %s\n" "$*"; }
 error()   { printf "${RED}  ✗${RESET} %s\n" "$*" >&2; exit 1; }
 
-# ── Platform detection ───────────────────────────────────────────────────────
 detect_platform() {
   OS="$(uname -s)"
   ARCH="$(uname -m)"
@@ -97,7 +86,6 @@ detect_platform() {
   esac
 }
 
-# ── Dependency check ─────────────────────────────────────────────────────────
 check_deps() {
   for cmd in curl tar; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -106,7 +94,6 @@ check_deps() {
   done
 }
 
-# ── Fetch latest release tag ─────────────────────────────────────────────────
 fetch_latest_version() {
   LATEST_URL="https://api.github.com/repos/${REPO}/releases/latest"
   VERSION="$(curl -fsSL "$LATEST_URL" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
@@ -115,7 +102,6 @@ fetch_latest_version() {
   fi
 }
 
-# ── Check if dir is in PATH ───────────────────────────────────────────────────
 check_path() {
   _dir="$1"
   case ":${PATH}:" in
@@ -124,7 +110,6 @@ check_path() {
   esac
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}Graphit Code Installer${RESET}\n"
 printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
 
@@ -148,7 +133,6 @@ TMP_DIR="$(mktemp -d)"
 TMP_ARCHIVE="${TMP_DIR}/${ARCHIVE_NAME}"
 TMP_CHECKSUM="${TMP_DIR}/checksums.sha256"
 
-# cleanup on exit
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 info "Downloading ${ARCHIVE_NAME}..."
@@ -183,7 +167,6 @@ success "Checksum verified"
 info "Extracting archive..."
 tar -xzf "$TMP_ARCHIVE" -C "$TMP_DIR"
 
-# Find the extracted binary (may be named graphit-linux-amd64 or graphit)
 TMP_BIN=""
 for candidate in "${TMP_DIR}/${BIN_NAME}-${PLATFORM}" "${TMP_DIR}/${BIN_NAME}"; do
   if [ -f "$candidate" ]; then
@@ -197,7 +180,6 @@ fi
 chmod +x "$TMP_BIN"
 success "Archive extracted"
 
-# ── Install ──────────────────────────────────────────────────────────────────
 DLBIN="${INSTALL_DIR}/${BIN_NAME}"
 info "Installing to ${DLBIN}..."
 
@@ -212,22 +194,16 @@ else
 fi
 success "Installed to ${DLBIN}"
 
-# ── macOS: remove quarantine flag and ad-hoc sign ────────────────────────────
-# The quarantine xattr is set by GUI downloads (Safari, Finder) — not by curl.
-# The codesign is needed for cross-compiled darwin-arm64 binaries (no native signature).
-# Both are no-ops when unnecessary, so keeping them is safe for future distribution methods.
 if [ "$(uname -s)" = "Darwin" ]; then
   xattr -d com.apple.quarantine "$DLBIN" 2>/dev/null || true
   codesign --sign - --force "$DLBIN" 2>/dev/null || true
 fi
 
-# ── Verify ───────────────────────────────────────────────────────────────────
 if command -v graphit >/dev/null 2>&1; then
   INSTALLED_VER="$(graphit version 2>/dev/null | head -1 || echo "$VERSION")"
   success "Verified: $INSTALLED_VER"
 fi
 
-# ── PATH check ───────────────────────────────────────────────────────────────
 printf "\n"
 if ! check_path "$INSTALL_DIR"; then
   warn "${INSTALL_DIR} is not in your PATH."
@@ -240,7 +216,6 @@ if ! check_path "$INSTALL_DIR"; then
   printf "    ${BOLD}fish_add_path ${INSTALL_DIR}${RESET}\n\n"
 fi
 
-# ── Next steps ───────────────────────────────────────────────────────────────
 printf "${BOLD}${GREEN}Installation complete!${RESET}\n\n"
 printf "  Next steps:\n\n"
 printf "  ${CYAN}1.${RESET} Run initial setup:\n"

@@ -54,7 +54,6 @@ func TestTokenizeQuery(t *testing.T) {
 			query: "myFunction",
 			check: func(t *testing.T, tokens []string) {
 				assertContains(t, tokens, "myFunction")
-				// Should also have split parts
 				if len(tokens) < 2 {
 					t.Errorf("expected camelCase split, got %v", tokens)
 				}
@@ -117,8 +116,6 @@ func TestStripQuerySpecialChars(t *testing.T) {
 		{`clean`, `clean`},
 		{``, ``},
 		{`"*^(){}:"`, ``},
-		// Added with the engine change: a quote or a hyphen reaching LadybugDB's
-		// query parser is a syntax error rather than a search for the literal.
 		{`it's`, `its`},
 		{`well-known`, `wellknown`},
 	}
@@ -149,8 +146,6 @@ func TestDeduplicationKey(t *testing.T) {
 	}
 }
 
-// test helpers
-
 func assertContains(t *testing.T, tokens []string, expected string) {
 	t.Helper()
 	for _, tok := range tokens {
@@ -171,12 +166,6 @@ func assertNotContains(t *testing.T, tokens []string, unexpected string) {
 	}
 }
 
-// putFileRow writes one file row straight into the index, without going through a parse cache.
-//
-// Several tests need nothing but "an index that has this file's text in it" — the source service,
-// the file handler, the bundle writer — and building a ShardCache to say so would put the thing
-// under test behind a second thing under test. It goes through the SAME row constructor production
-// uses, so what these tests get is a real index row and not a fixture that only looks like one.
 func putFileRow(t *testing.T, idx *SearchIndex, relPath, source string) {
 	t.Helper()
 	ctx := context.Background()

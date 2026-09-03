@@ -9,16 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// Query files are re-read while the daemon runs. Grammar libraries are not, and
-// cannot be: resolveTreeSitterLang memoises each language for the life of the
-// process because a *sitter.Language backs live parse state, and swapping one
-// under a parse in flight is not something a lock makes safe.
-//
-// So installing a grammar into a daemon that has been up for days used to do
-// nothing at all until someone restarted it by hand. The daemon already exits
-// for replacement when the launcher stamp moves; a new grammar now goes through
-// that same door.
-
 func withGrammarSigs(t *testing.T, seed map[string]string) *Daemon {
 	t.Helper()
 	d := &Daemon{grammarSigs: map[string]string{}}
@@ -42,7 +32,6 @@ func installFakeGrammar(t *testing.T, projectDir, name string) {
 func TestGrammarInstallTriggersReplacement(t *testing.T) {
 	projectDir := t.TempDir()
 
-	// The daemon has already accepted this project's grammar directory as it was.
 	d := withGrammarSigs(t, map[string]string{
 		"":         ast.GrammarSignature(""),
 		projectDir: ast.GrammarSignature(projectDir),
@@ -66,7 +55,6 @@ func TestGrammarInstallTriggersReplacement(t *testing.T) {
 		t.Errorf("reported %q as the changed location, want %q", where, projectDir)
 	}
 
-	// The signature is updated when it fires, so it does not fire forever.
 	if _, again := d.grammarsChanged(); again {
 		t.Error("the same install asked for a second replacement")
 	}
@@ -86,7 +74,6 @@ func TestNewlyDiscoveredProjectDoesNotTriggerReplacement(t *testing.T) {
 	if _, changed := d.grammarsChanged(); changed {
 		t.Error("a project that already had grammars when it was discovered forced a restart")
 	}
-	// Having been recorded, a later install in it must still fire.
 	installFakeGrammar(t, projectDir, "libtree-sitter-nim.so")
 	if _, changed := d.grammarsChanged(); !changed {
 		t.Error("an install after discovery was missed")

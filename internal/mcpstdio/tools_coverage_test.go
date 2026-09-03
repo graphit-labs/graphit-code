@@ -35,7 +35,6 @@ func TestResolveIDEFromProject(t *testing.T) {
 	t.Run("no lockfile returns default", func(t *testing.T) {
 		tmp := t.TempDir()
 		got := resolveIDEFromProject("", tmp)
-		// Without a lockfile, the IDE resolution falls back to defaults
 		if got == "" {
 			t.Error("expected non-empty IDE default")
 		}

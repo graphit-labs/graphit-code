@@ -1,6 +1,5 @@
-# T-SQL — ANTLR v4 grammar for Microsoft SQL Server / Azure SQL
-# Comprehensive extraction: DDL, DML, stored procedures, functions, triggers,
-# types, indexes, sequences, parameters, columns, constraints, and relations.
+
+
 language: tsql
 parser: antlr4
 grammar: antlr-tsql
@@ -8,11 +7,6 @@ start_rule: tsql_file
 extensions: [".sql", ".tsql"]
 exclusive: true
 
-# Target resolution: a DML/DDL relation captures its object by NAME, and the name
-# alone does not say what kind of thing it is. A target this corpus never declares is
-# still a table — whoever reads a schema they do not own depends on it for real — and
-# that is why `fallback: Table` is declared here instead of being the engine's default
-# for every reference of every language.
 target_rules:
   CALLS: { labels: [Function, StoredProcedure, Trigger] }
   SELECTS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
@@ -24,10 +18,7 @@ target_rules:
   CREATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
   TRUNCATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
   REFERENCES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
-  # COLUMN grain — types of their own, and a target that is always QUALIFIED
-  # (`TABLE.COLUMN`). A bare column name lives in dozens of tables and resolves to
-  # none; qualified it resolves to one, and the qualified stub records ONE column of
-  # ONE table instead of merging every table's.
+
   READS_COLUMN: { labels: [Column], fallback: Column }
   WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
@@ -45,43 +36,30 @@ queries:
     type: relation
     relation_type: WRITES_COLUMN
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # STORED PROCEDURES & FUNCTIONS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # CREATE [OR ALTER] PROCEDURE proc_name
   - data_key: procedures
     graph_label: StoredProcedure
     pattern: "//create_or_alter_procedure/func_proc_name_schema"
     name_capture: name
     type: entity
 
-  # CREATE [OR ALTER] FUNCTION func_name
   - data_key: functions
     graph_label: Function
     pattern: "//create_or_alter_function/func_proc_name_schema"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TRIGGERS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # DML trigger (CREATE TRIGGER name ON table_name)
   - data_key: triggers
     graph_label: Trigger
     pattern: "//create_or_alter_dml_trigger/simple_name"
     name_capture: name
     type: entity
 
-  # DDL trigger
   - data_key: triggers
     graph_label: Trigger
     pattern: "//create_or_alter_ddl_trigger/simple_name"
     name_capture: name
     type: entity
 
-  # DML trigger → table reference
   - data_key: trigger_tables
     graph_label: ""
     pattern: "//create_or_alter_dml_trigger/table_name"
@@ -89,34 +67,18 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATABASE OBJECTS — DDL
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Tables
   - data_key: tables
     graph_label: Table
     pattern: "//create_table/table_name"
     name_capture: name
     type: entity
 
-  # Views
   - data_key: views
     graph_label: View
     pattern: "//create_view/simple_name"
     name_capture: name
     type: entity
 
-  # Indexes
-  # The shape of an index: its TABLE (an edge), the COLUMNS it covers in order
-  # (semantic in a composite index) and UNIQUENESS, which answers "does the database
-  # enforce this, or only the application?". Without them an index is a name and the
-  # question has no answer in the graph.
-  #
-  # Uniqueness comes from `value_capture` and needs NO guard: the capture returns empty
-  # when the marker is absent, so a non-unique index simply keeps an empty `value`.
-  # Where the marker is a TOKEN, the capture reaches it because ChildByRule falls back
-  # to the token when no rule matches.
   - data_key: indexes
     graph_label: Index
     pattern: "//create_index"
@@ -125,50 +87,36 @@ queries:
     value_label: Value
     type: entity
 
-  # The table the index is on.
   - data_key: index_table
     pattern: "//create_index/table_name"
     name_capture: name
     type: relation
     relation_type: REFERENCES
 
-  # As colunas cobertas.
   - data_key: columns
     graph_label: Column
     pattern: "//create_index/column_name_list_with_order/id_"
     name_capture: name
     type: entity
 
-  # Sequences
   - data_key: sequences
     graph_label: Sequence
     pattern: "//create_sequence/full_table_name"
     name_capture: name
     type: entity
 
-  # Types
   - data_key: types
     graph_label: Type
     pattern: "//create_type/simple_name"
     name_capture: name
     type: entity
 
-  # Schemas
   - data_key: schemas
     graph_label: Schema
     pattern: "//create_schema/id_"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # COLUMNS & PARAMETERS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Column definitions (inside CREATE TABLE)
-  # Declared DEFAULT. The value becomes a node contained by the column, so "qual
-  # column is born with this value" a traversal. The path goes through
-  # column_definition_element on purpose: a computed column's `AS expression` is a
-  # direct child of column_definition and is not a default.
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition"
@@ -183,25 +131,18 @@ queries:
     name_capture: name
     type: entity
 
-  # Procedure/function parameters
   - data_key: parameters
     graph_label: Parameter
     pattern: "//procedure_param/id_"
     name_capture: name
     type: entity
 
-  # Variable declarations (DECLARE @var)
   - data_key: variables
     graph_label: Variable
     pattern: "//declare_local/LOCAL_ID"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # FUNCTION/PROCEDURE CALLS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # EXECUTE procedure_name
   - data_key: calls
     graph_label: ""
     pattern: "//execute_body/func_proc_name_server_database_schema"
@@ -209,7 +150,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # Function calls in expressions
   - data_key: calls
     graph_label: ""
     pattern: "//function_call//func_proc_name_server_database_schema"
@@ -217,7 +157,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # Scalar function calls
   - data_key: calls
     graph_label: ""
     pattern: "//function_call/scalar_function_name"
@@ -225,11 +164,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DML TABLE REFERENCES
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SELECT ... FROM table
   - data_key: selects
     graph_label: ""
     pattern: "//table_source_item/full_table_name"
@@ -237,7 +171,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # INSERT INTO table
   - data_key: inserts
     graph_label: ""
     pattern: "//insert_statement/full_table_name"
@@ -245,7 +178,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # UPDATE table
   - data_key: updates
     graph_label: ""
     pattern: "//update_statement//full_table_name"
@@ -253,7 +185,6 @@ queries:
     type: relation
     relation_type: UPDATES
 
-  # DELETE FROM table
   - data_key: deletes
     graph_label: ""
     pattern: "//delete_statement_from//full_table_name"
@@ -261,7 +192,6 @@ queries:
     type: relation
     relation_type: DELETES
 
-  # MERGE INTO table
   - data_key: merges
     graph_label: ""
     pattern: "//merge_statement//full_table_name"
@@ -269,11 +199,6 @@ queries:
     type: relation
     relation_type: UPDATES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DDL OPERATIONS (ALTER, DROP, TRUNCATE)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # ALTER TABLE
   - data_key: alters
     graph_label: ""
     pattern: "//alter_table/table_name"
@@ -281,7 +206,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # DROP TABLE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_table/table_name"
@@ -289,7 +213,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP INDEX
   - data_key: drops
     graph_label: ""
     pattern: "//drop_index//id_"
@@ -297,7 +220,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP VIEW
   - data_key: drops
     graph_label: ""
     pattern: "//drop_view/simple_name"
@@ -305,7 +227,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP FUNCTION
   - data_key: drops
     graph_label: ""
     pattern: "//drop_function/func_proc_name_schema"
@@ -313,7 +234,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP PROCEDURE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_procedure/func_proc_name_schema"
@@ -321,7 +241,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP TRIGGER
   - data_key: drops
     graph_label: ""
     pattern: "//drop_trigger/simple_name"
@@ -329,7 +248,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP SCHEMA
   - data_key: drops
     graph_label: ""
     pattern: "//drop_schema/id_"
@@ -337,7 +255,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP SEQUENCE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_sequence/full_table_name"
@@ -345,7 +262,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP TYPE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_type/simple_name"
@@ -353,7 +269,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP DATABASE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_database/id_"
@@ -361,17 +276,12 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # TRUNCATE TABLE
   - data_key: truncates
     graph_label: ""
     pattern: "//truncate_table/table_name"
     name_capture: name
     type: relation
     relation_type: DROPS
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DCL — GRANT & REVOKE
-  # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: grants
     graph_label: ""
@@ -387,11 +297,9 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-# No export detection for T-SQL
 exports:
   strategy: none
 
-# T-SQL parent context types
 context_types:
   create_or_alter_function: Function
   create_or_alter_procedure: StoredProcedure
@@ -403,19 +311,16 @@ context_types:
   create_type: Type
   create_index: Index
 
-# Where a context's name is NOT the statement's first terminal — that would be CREATE.
 context_name_paths:
   create_or_alter_function: func_proc_name_schema
   create_or_alter_procedure: func_proc_name_schema
   create_schema: id_
   create_index: id_
 
-# ANTLR comment token types
 comment_types:
   - SINGLE_LINE_COMMENT
   - BLOCK_COMMENT
 
-# T-SQL declaration types for docstring attachment
 declaration_types:
   - create_or_alter_procedure
   - create_or_alter_function
@@ -428,13 +333,6 @@ declaration_types:
   - create_type
   - create_schema
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the real ANTLR parse tree (rule names, not guessed). T-SQL has no
-# FOR statement (only WHILE) and try_catch_statement fires once for the
-# TRY/CATCH pair, not twice. switch_section is counted per WHEN, not once for
-# the whole CASE. AND/OR are real keyword tokens ('AND', 'OR' in the grammar,
-# text "AND"/"OR"), matched like every other ANTLR operator here — by the
-# terminal's own text.
 complexity:
   node_types:
     - if_statement
@@ -443,10 +341,6 @@ complexity:
     - switch_section
   operators: ["AND", "OR"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - StoredProcedure
   - Function

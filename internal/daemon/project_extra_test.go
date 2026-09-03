@@ -37,8 +37,6 @@ func TestProjectSupervisor_Start_CreatesLogDir(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify the project log dir was created, inside the runtime directory — the
-	// one part of the brand directory the generated .gitignore covers.
 	logDir := brand.ProjectRuntimePath(projectDir, "daemon")
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		t.Error("expected daemon log dir to be created")
@@ -48,10 +46,7 @@ func TestProjectSupervisor_Start_CreatesLogDir(t *testing.T) {
 	<-doneCh
 }
 
-// ProjectSupervisor — Start: logDir creation fail doesn't crash
-
 func TestProjectSupervisor_Start_LogDirFailDoesNotCrash(t *testing.T) {
-	// Create a project dir where .graphit is a file, blocking MkdirAll.
 	projectDir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(projectDir, ".graphit"), []byte("block"), 0o600)
 
@@ -78,7 +73,6 @@ func TestProjectSupervisor_Start_LogDirFailDoesNotCrash(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-doneCh
-	// Test passes if no panic occurs.
 }
 
 func TestSupervise_StableModuleResetsRestarts(t *testing.T) {
@@ -89,9 +83,6 @@ func TestSupervise_StableModuleResetsRestarts(t *testing.T) {
 		name: "stable-then-crash",
 		startFn: func(ctx context.Context) error {
 			crashCount++
-			// Module is "stable" if it runs > stableAfter.
-			// We can't wait 60s in a test, so we just verify the
-			// crash and restart counter logic works with fast crashes.
 			return errors.New("crash!")
 		},
 	}
@@ -116,12 +107,7 @@ func TestSupervise_StableModuleResetsRestarts(t *testing.T) {
 }
 
 func TestSupervise_BackoffIsCapped(t *testing.T) {
-	// Verify that the backoff calculation caps at maxBackoff.
-	// The formula is: 1<<restarts * second, capped at maxBackoff (30s).
-	// For restarts >= 5: 1<<5 = 32s > 30s, so it should be capped.
 
-	// We test this indirectly by verifying the module can crash
-	// multiple times and eventually reach the cap.
 	projectDir := t.TempDir()
 
 	crashCount := 0
@@ -143,7 +129,6 @@ func TestSupervise_BackoffIsCapped(t *testing.T) {
 		close(doneCh)
 	}()
 
-	// Let it crash a couple of times (first backoff is 2s)
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-doneCh
@@ -158,7 +143,6 @@ func TestProjectSupervisor_Stop_Idempotent(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	ps.cancel = cancel
 
-	// Stop twice should not panic.
 	ps.Stop()
 	ps.Stop()
 
@@ -166,8 +150,6 @@ func TestProjectSupervisor_Stop_Idempotent(t *testing.T) {
 		t.Error("expected stopped to be true")
 	}
 }
-
-// ProjectSupervisor — projectLog with both file and global fn
 
 func TestProjectSupervisor_ProjectLog_BothFileAndGlobal(t *testing.T) {
 	tmp := t.TempDir()

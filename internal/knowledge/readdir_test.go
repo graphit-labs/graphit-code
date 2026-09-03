@@ -9,9 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// seedContext registers a knowledge context against a project and gives it a
-// directory, which InstalledContextsIn requires — a claim on a context whose store is
-// gone is deliberately not reported.
 func seedContext(t *testing.T, projectDir, name string) string {
 	t.Helper()
 	dir := store.KnowledgeContextDir(name)
@@ -49,9 +46,6 @@ func TestANormalProjectReadsItsOwnWiki(t *testing.T) {
 }
 
 func TestAnEphemeralSessionHasNoWikiToReadWithoutNamingOne(t *testing.T) {
-	// The same shape the code graph has. A session queries what it selected, by name;
-	// there is no store of its own to fall back to, and falling back to one would
-	// create it the moment anything compiled there.
 	isolateHome(t)
 	session := newProjectDir(t, true)
 	seedContext(t, session, "alpha-docs")

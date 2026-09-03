@@ -9,22 +9,6 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// The corpus and the raw-engine probes that decided the move off SQLite.
-//
-// TestConsolidationQualityGate used to live here: it built the same corpus twice, once
-// through a hand-rolled Ladybug FTS index and once through the SQLite one, and refused the
-// migration unless Ladybug ranked at least as well. It is gone because there is no second
-// engine to compare against — the SQLite index no longer exists — and a differential test
-// with one side removed compares an implementation to a toy.
-//
-// What replaced it is TestSearchIndexQualityFloor, which asserts an absolute floor on the
-// same corpus and the same probes, with the number the differential run measured written
-// into it as the bar.
-//
-// What stays here is the corpus itself, shared by every search test, and
-// TestLadybugFTSFeatureParity — the probe that the capabilities the migration needed are
-// really in the engine, rather than assumed.
-
 type gateEntity struct {
 	uid, name, docstring, entityType, path string
 }
@@ -44,8 +28,6 @@ func gateCorpus() []gateEntity {
 	}
 }
 
-// gateQueries are the probes; each names the entity a developer would expect
-// first, so the comparison measures usefulness rather than raw overlap.
 func buildLadybugFTS(t *testing.T, dir string) *lbug.Connection {
 	t.Helper()
 	db, err := lbug.OpenDatabase(filepath.Join(dir, "lbfts"), lbug.DefaultSystemConfig())
@@ -96,8 +78,6 @@ func TestLadybugFTSFeatureParity(t *testing.T) {
 	dir := t.TempDir()
 	conn := buildLadybugFTS(t, dir)
 
-	// Per-field weighting: a dedicated index per field lets the caller apply its
-	// own weights, replacing FTS5's bm25(...) column weights.
 	for _, ddl := range []string{
 		"CALL CREATE_FTS_INDEX('Ent', 'idx_name_only', ['name'])",
 		"CALL CREATE_FTS_INDEX('Ent', 'idx_doc_only', ['docstring'])",
@@ -117,8 +97,6 @@ func TestLadybugFTSFeatureParity(t *testing.T) {
 	}
 	res.Close()
 
-	// Substring matching without a trigram tokenizer. Note this is a scan, not an
-	// index lookup: availability is proven here, cost at scale is not.
 	res, err = conn.Query("MATCH (n:Ent) WHERE n.name CONTAINS 'onfig' RETURN n.name")
 	if err != nil {
 		t.Fatalf("CONTAINS unavailable, substring search cannot be reconstructed: %v", err)
@@ -134,7 +112,6 @@ func TestLadybugFTSFeatureParity(t *testing.T) {
 		t.Error("CONTAINS returned nothing for a substring that exists — substring parity not demonstrated")
 	}
 
-	// BM25 tuning knobs.
 	res, err = conn.Query("CALL QUERY_FTS_INDEX('Ent','idx_name_only','configuration', K := 1.2, B := 0.75) RETURN node.name LIMIT 1")
 	if err != nil {
 		t.Logf("BM25 tuning options rejected (not required for parity): %v", err)

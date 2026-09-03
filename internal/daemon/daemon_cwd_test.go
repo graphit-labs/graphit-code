@@ -33,8 +33,6 @@ func TestDaemonLeavesTheDirectoryItWasSpawnedFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd after chdir: %v", err)
 	}
-	// EvalSymlinks on both sides: macOS reports /private/var for /var, so a plain
-	// string compare fails there for a directory that is in fact the same one.
 	gotReal, _ := filepath.EvalSymlinks(got)
 	spawnReal, _ := filepath.EvalSymlinks(spawnDir)
 	if gotReal == spawnReal {
@@ -48,11 +46,6 @@ func TestDaemonLeavesTheDirectoryItWasSpawnedFrom(t *testing.T) {
 			t.Errorf("cwd = %s, want the brand global dir %s", got, want)
 		}
 	}
-	// "Under the system temp dir" was a proxy for "a directory someone is about to
-	// delete", and it stopped being one: a test binary puts the brand global dir
-	// itself under the temp dir (internal/brand/testhome.go), so the plain prefix
-	// check now contradicts the assertion directly above it. The global dir is the
-	// one directory in there that outlives the test, so it is the exemption.
 	if strings.HasPrefix(gotReal, os.TempDir()) && gotReal != globalReal {
 		t.Errorf("cwd %s is under the temp dir, which is exactly what must not happen", got)
 	}

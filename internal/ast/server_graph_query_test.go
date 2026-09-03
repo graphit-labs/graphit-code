@@ -9,18 +9,6 @@ import (
 	"testing"
 )
 
-// The explorer's default query has to bound the NODES it reads, not the rows it
-// returns.
-//
-// It used to read `MATCH (n) OPTIONAL MATCH (n)-[r]->(m) ... LIMIT 300`, which asks
-// the engine to expand every node against every outgoing edge and only then keep
-// 300 rows. Invisible on a small graph. On a 2.5M-node one the intermediate result
-// exhausted the buffer pool and /api/graph answered 500 with "Buffer manager
-// exception: Unable to allocate memory".
-//
-// A unit test cannot hold 2.5M nodes, so what is pinned here is the property that
-// made the difference: the limit binds the scan, and it is the first thing the query
-// does.
 func TestDefaultGraphQueryBoundsTheScan(t *testing.T) {
 	q := defaultGraphQueryText()
 
@@ -34,16 +22,6 @@ func TestDefaultGraphQueryBoundsTheScan(t *testing.T) {
 	}
 }
 
-// The node sample answers "what is in this graph" and must not expand, because the
-// expansion is where the cost is and it is not a data cost.
-//
-// Measured on a 2M-node graph: with `OPTIONAL MATCH (n)-[r]->(m) WHERE id(m) IN
-// sample_ids` the sample took 0.45s — and took the same 0.35s on a graph 34x
-// smaller, which is what proves it is fan-out over the tables and an IN filter per
-// row rather than anything an index could reach. Without the expansion: 0.01s.
-//
-// Connectivity is defaultGraphEdgeQuery's job. Reintroducing an expansion here
-// brings the 0.45s back for edges that query already covers.
 func TestDefaultGraphQueryDoesNotExpand(t *testing.T) {
 	q := defaultGraphQueryText()
 

@@ -2,10 +2,6 @@ package antlrcommon
 
 import "testing"
 
-// term, from qualified_name_test.go, builds a terminal node. A TreeNode is a
-// terminal only when Token is set — Text alone leaves it a rule node with no
-// children, which no guard can see.
-
 // A grammar can spell two different things with one rule, and then the rule name
 // alone cannot tell them apart. Oracle is the case that forced this: there is no
 // constant_declaration rule, a constant is a variable_declaration carrying the
@@ -23,7 +19,7 @@ func TestKeywordGuard(t *testing.T) {
 		}},
 		{Rule: "decl", Children: []*TreeNode{
 			{Rule: "id", Children: []*TreeNode{term("C_MIN")}},
-			term("constant"), // lower case: SQL keywords come both ways
+			term("constant"),
 		}},
 	}}
 
@@ -34,7 +30,7 @@ func TestKeywordGuard(t *testing.T) {
 		{"//decl", []string{"C_MAX", "V_URL", "C_MIN"}},
 		{"//decl[CONSTANT]", []string{"C_MAX", "C_MIN"}},
 		{"//decl[!CONSTANT]", []string{"V_URL"}},
-		{"//decl[constant]", []string{"C_MAX", "C_MIN"}}, // guard is case-insensitive
+		{"//decl[constant]", []string{"C_MAX", "C_MIN"}},
 		{"//decl[CONSTANT]/id", []string{"C_MAX", "C_MIN"}},
 	} {
 		p, err := CompilePattern(tc.pattern)
@@ -66,11 +62,11 @@ func equalStrings(a, b []string) bool {
 
 func TestKeywordGuardRejectsMalformedPatterns(t *testing.T) {
 	for _, pattern := range []string{
-		"//decl[CONSTANT", // unterminated
-		"//decl[]",        // empty guard
-		"//decl[!]",       // empty negated guard
-		"//[CONSTANT]",    // no rule name
-		"//decl[ ! ]",     // whitespace-only guard
+		"//decl[CONSTANT",
+		"//decl[]",
+		"//decl[!]",
+		"//[CONSTANT]",
+		"//decl[ ! ]",
 	} {
 		if _, err := CompilePattern(pattern); err == nil {
 			t.Errorf("CompilePattern(%q) accepted a malformed pattern", pattern)
@@ -94,7 +90,6 @@ func TestKeywordGuardIgnoresNestedTerminals(t *testing.T) {
 	if got := p.Match(tree); len(got) != 0 {
 		t.Errorf("a CONSTANT nested under `inner` satisfied the guard on `decl`")
 	}
-	// The negated form is the mirror image: it must accept this node.
 	p, err = CompilePattern("//decl[!CONSTANT]")
 	if err != nil {
 		t.Fatalf("compile: %v", err)

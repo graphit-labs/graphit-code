@@ -52,14 +52,6 @@ func NewWatcher(db GraphDB, rootPath string, cfg WatcherConfig) (*Watcher, error
 	}, nil
 }
 
-// Start reindexes on filesystem notifications until ctx is cancelled.
-//
-// This used to poll `git status` every two seconds, which walked the whole
-// worktree per tick and required the project to be a git repository. Watching
-// the OS is idle until something changes and names the exact paths, so the
-// reindex can skip discovery (RunPipelineForPaths) instead of re-walking and
-// re-stating every file. Ignore rules (.gitignore plus .astignore) are applied
-// both when registering watches and when filtering events.
 func (w *Watcher) Start(ctx context.Context) error {
 	fw, err := fswatch.New(fswatch.Config{
 		Root:        w.rootPath,
@@ -102,7 +94,6 @@ func (w *Watcher) reindex(ctx context.Context, batch fswatch.Batch) {
 		GrammarOverrides: w.cfg.GrammarOverrides,
 	}
 
-	// Dropped events mean the picture is incomplete; only a full scan is safe.
 	if batch.Rescan {
 		_, _ = RunPipeline(ctx, w.db, w.rootPath, pipeOpts)
 		return
@@ -114,9 +105,6 @@ func (w *Watcher) reindex(ctx context.Context, batch fswatch.Batch) {
 			removed = append(removed, filepath.ToSlash(rel))
 		}
 	}
-	// Changed goes through the same conversion as removed. The pipeline normalizes either
-	// form, but handing it two lists that mean different things is how the absolute-path
-	// duplicate File node got in.
 	changed := repoRelativePaths(w.rootPath, batch.Changed)
 	if len(changed) == 0 && len(removed) == 0 {
 		return

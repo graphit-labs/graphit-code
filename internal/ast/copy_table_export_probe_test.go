@@ -34,8 +34,6 @@ func TestCopyWholeTableExport(t *testing.T) {
 		t.Fatalf("load vector: %v", err)
 	}
 
-	// A shape like the real thing: mixed types, plus the embedding column and rows that
-	// have no vector.
 	ddl := fmt.Sprintf(`CREATE NODE TABLE %%s(id INT64, name STRING, path STRING,
 		line INT64, is_exported BOOLEAN, emb FLOAT[%d], PRIMARY KEY(id))`,
 		ai.EmbeddingDimensions)
@@ -72,8 +70,6 @@ func TestCopyWholeTableExport(t *testing.T) {
 		}
 		fi, _ := os.Stat(out)
 
-		// Round trip into a table with the SAME ddl, and check the values landed in the
-		// right columns rather than merely landing.
 		tbl := fmt.Sprintf("Dst%d", i)
 		if derr := st.Exec(fmt.Sprintf(ddl, tbl), nil); derr != nil {
 			t.Logf("%-18s -> dst ddl failed: %v", f.label, derr)

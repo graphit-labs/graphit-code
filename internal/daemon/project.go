@@ -28,15 +28,12 @@ type ProjectSupervisor struct {
 	modules        []*moduleEntry
 	closers        []io.Closer
 	cancel         context.CancelFunc
-	mu             sync.RWMutex // protects stopped, cancel
-	logMu          sync.Mutex   // protects projectLogFile writes (separate to avoid deadlock)
+	mu             sync.RWMutex
+	logMu          sync.Mutex // protects projectLogFile writes (separate to avoid deadlock)
 	stopped        bool
 	projectLogFile *os.File
 	globalLogFn    func(string, ...any)
 
-	// lastActivity is a UnixNano timestamp, touched by modules implementing
-	// ActivityReporter whenever they observe a filesystem change. reconcileProjects
-	// parks a supervisor once IdleFor() exceeds the configured activity window.
 	lastActivity atomic.Int64
 }
 
@@ -148,14 +145,6 @@ func (ps *ProjectSupervisor) supervise(ctx context.Context, entry *moduleEntry) 
 	superviseModule(ctx, entry, ps.projectLog)
 }
 
-// superviseModule runs one module and keeps it running: panics become errors with their stack,
-// a crash is retried with exponential backoff, and a module that survives long enough has its
-// restart counter forgiven.
-//
-// It takes its log function rather than a supervisor because the modules that most need this
-// are not per-project. A global module started as a bare `go func() { _ = mod.Start(ctx) }()`
-// has no restart, discards the error, and logs neither its start nor its death — so a watcher
-// that dies takes its whole responsibility with it and nothing says so.
 func superviseModule(ctx context.Context, entry *moduleEntry, logf func(string, ...any)) {
 	modName := entry.mod.Name()
 
@@ -220,10 +209,6 @@ func superviseModule(ctx context.Context, entry *moduleEntry, logf func(string, 
 func runProtected(ctx context.Context, entry *moduleEntry) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			// The stack, not just the value: a module that crash-loops writes one
-			// line per restart, and "panic: slice bounds out of range" names no
-			// file, no function and no line. Sixty-six of those accumulated over
-			// twelve days here without ever saying where to look.
 			retErr = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
 		}
 	}()

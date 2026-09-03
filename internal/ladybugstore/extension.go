@@ -38,21 +38,6 @@ func ExtensionPath(name string) string {
 	return filepath.Join(dir, name+".lbug_extension")
 }
 
-// LoadExtensions loads each named extension from the launcher payload and verifies that it
-// actually loaded.
-//
-// SAFETY: LOAD EXTENSION reports success when it loaded nothing. Measured on liblbug 0.18.2
-// (internal/ladybugstore/httpfs_probe_test.go): both `INSTALL httpfs` and
-// `LOAD EXTENSION httpfs` returned no error while show_loaded_extensions() stayed empty and
-// the extension's functions did not exist. The verification below is the ONLY thing that
-// separates a loaded extension from a silent no-op, and without it the failure surfaces
-// much later as a missing function or an unreadable remote table.
-// ExtensionLoadStatement validates an extension binary and returns the statement that loads it.
-//
-// Exposed so a caller with its own connection — internal/ast has one, and it is not a Store —
-// runs the SAME validation instead of writing `LOAD EXTENSION` itself. That validation is not
-// optional: pointing LOAD EXTENSION at a small HTML file, which is what a 404 produces, kills the
-// process with SIGBUS inside cgo and no Go recover can catch it.
 func ExtensionLoadStatement(name string) (string, error) {
 	path := ExtensionPath(name)
 	if path == "" {
@@ -120,13 +105,6 @@ func (s *Store) LoadExtensions(names ...string) error {
 	return nil
 }
 
-// validateExtensionFile refuses anything that is not a native object file.
-//
-// SAFETY: this check cannot be skipped and cannot be replaced by handling the error from
-// LOAD EXTENSION. Measured: pointing LOAD EXTENSION at a small HTML file — exactly what a
-// 404 from the extension server produces — does not return an error, it kills the process
-// with SIGBUS inside cgo, which no Go recover can catch. The build fetches with `curl -f`
-// for the same reason; this is the second line of the same defence.
 func validateExtensionFile(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -152,19 +130,17 @@ func validateExtensionFile(path string) error {
 	return nil
 }
 
-// minExtensionBytes is far below the smallest real extension (the published httpfs binaries
-// range from ~780 KB to ~14 MB) and far above any error page.
 const minExtensionBytes = 64 << 10
 
 func isObjectFileMagic(m [4]byte) bool {
 	switch {
-	case m[0] == 0x7f && m[1] == 'E' && m[2] == 'L' && m[3] == 'F': // ELF
+	case m[0] == 0x7f && m[1] == 'E' && m[2] == 'L' && m[3] == 'F':
 		return true
-	case m[0] == 'M' && m[1] == 'Z': // PE
+	case m[0] == 'M' && m[1] == 'Z':
 		return true
-	case m == [4]byte{0xfe, 0xed, 0xfa, 0xce}, m == [4]byte{0xfe, 0xed, 0xfa, 0xcf}, // Mach-O
+	case m == [4]byte{0xfe, 0xed, 0xfa, 0xce}, m == [4]byte{0xfe, 0xed, 0xfa, 0xcf},
 		m == [4]byte{0xce, 0xfa, 0xed, 0xfe}, m == [4]byte{0xcf, 0xfa, 0xed, 0xfe},
-		m == [4]byte{0xca, 0xfe, 0xba, 0xbe}, m == [4]byte{0xbe, 0xba, 0xfe, 0xca}: // Mach-O fat
+		m == [4]byte{0xca, 0xfe, 0xba, 0xbe}, m == [4]byte{0xbe, 0xba, 0xfe, 0xca}:
 		return true
 	}
 	return false
@@ -194,15 +170,7 @@ type S3Credentials struct {
 	SecretAccessKey string
 	SessionToken    string
 	Region          string
-	// Endpoint is host[:port], WITHOUT a scheme. The engine prepends one; DisableSSL chooses it.
-	//
-	// MEASURED, because guessing cost three wrong attempts: passing the scheme in the endpoint is
-	// ACCEPTED and then produces `https://http://localhost:9000/…`, so the engine prefixes
-	// unconditionally. And the option is not called what you would expect — `s3_use_ssl`,
-	// `s3_ssl`, `http_use_ssl`, `s3_scheme`, `s3_protocol`, `s3_insecure`, `s3_verify_ssl` and
-	// `s3_use_tls` all return `Binder exception: Invalid option name`. The one that exists is
-	// `s3_disable_ssl`.
-	Endpoint string
+	Endpoint        string
 	// DisableSSL reaches a plain-HTTP endpoint, such as a local MinIO.
 	DisableSSL bool
 	// PathStyle addresses the bucket in the path rather than the host, which MinIO and most
@@ -210,12 +178,6 @@ type S3Credentials struct {
 	PathStyle bool
 }
 
-// ConfigureS3 applies the credentials httpfs reads when it resolves an s3:// URI.
-//
-// The documented `CALL s3_credential(key_id=..., secret=..., region=...)` does NOT bind in
-// this engine — measured: "Catalog exception: function s3_credential does not exist". S3
-// settings are extension OPTIONS, one statement each, in the same shape as the documented
-// `CALL http_cache_file=true`.
 func (s *Store) ConfigureS3(creds S3Credentials) error {
 	options := []struct {
 		key, value string
@@ -231,7 +193,6 @@ func (s *Store) ConfigureS3(creds S3Credentials) error {
 			continue
 		}
 		if err := s.Exec(fmt.Sprintf("CALL %s='%s'", o.key, EscapeLiteral(o.value)), nil); err != nil {
-			// The key is safe to name; the value is not.
 			return fmt.Errorf("setting %s: %w", o.key, err)
 		}
 	}

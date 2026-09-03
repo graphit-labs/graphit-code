@@ -45,7 +45,6 @@ func DetectStalePages(old, current *Manifest, graph *wiki.CrossRefGraph) map[str
 		return stale
 	}
 
-	// Find slugs whose source content changed
 	changedSlugs := make(map[string]bool)
 	for slug, sourcePath := range current.PageSources {
 		newHash, hasNew := current.SourceHashes[sourcePath]
@@ -59,7 +58,6 @@ func DetectStalePages(old, current *Manifest, graph *wiki.CrossRefGraph) map[str
 		}
 	}
 
-	// Propagate staleness to pages that reference changed pages
 	if graph != nil {
 		for changedSlug := range changedSlugs {
 			for _, dependent := range graph.Inbound[changedSlug] {

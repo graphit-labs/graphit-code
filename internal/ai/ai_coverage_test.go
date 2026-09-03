@@ -47,9 +47,7 @@ func TestModelManager_FindBundledModels(t *testing.T) {
 	t.Parallel()
 	mm := &ModelManager{cacheDir: t.TempDir()}
 
-	// With test binary, models dir unlikely to exist next to it
 	result := mm.findBundledModels()
-	// Just verify it doesn't panic — may be empty
 	_ = result
 }
 
@@ -120,7 +118,6 @@ func TestModelManager_EnsureModel_Cached(t *testing.T) {
 	cacheDir := t.TempDir()
 	mm := &ModelManager{cacheDir: cacheDir}
 
-	// Create valid cached files
 	modelPath := filepath.Join(cacheDir, modelFileName)
 	tokPath := filepath.Join(cacheDir, tokenizerFileName)
 
@@ -145,7 +142,6 @@ func TestModelManager_EnsureModel_Cached(t *testing.T) {
 
 func TestModelManager_EnsureModel_DownloadTooSmall(t *testing.T) {
 	t.Parallel()
-	// Mock server returns small file
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("tiny"))
 	}))
@@ -154,9 +150,6 @@ func TestModelManager_EnsureModel_DownloadTooSmall(t *testing.T) {
 	cacheDir := t.TempDir()
 	_ = &ModelManager{cacheDir: cacheDir}
 
-	// Override URLs is not possible directly, but EnsureModel will try to download from
-	// hardcoded HuggingFace URLs which will likely fail in test env.
-	// This test verifies the cached path works.
 }
 
 func TestNewModelManager_Coverage(t *testing.T) {
@@ -176,7 +169,6 @@ func TestNewModelManager_Coverage(t *testing.T) {
 func TestLocalEmbeddingClient_Close_NilSession(t *testing.T) {
 	t.Parallel()
 	c := &localEmbeddingClient{}
-	// Close with nil session should be a no-op
 	c.Close()
 }
 
@@ -191,25 +183,17 @@ func TestLocalEmbeddingClient_ModelName_Coverage(t *testing.T) {
 
 func TestInitONNXRuntime_NoLibrary(t *testing.T) {
 	t.Parallel()
-	// In test env without ORT library, this should fail gracefully
-	// or succeed if lib is installed
 	err := initONNXRuntime()
-	// Either outcome is fine — just don't panic
 	_ = err
 }
 
 func TestNewEmbeddingClientFromConfig_NoProxy(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	// The no-proxy branch is the subject; the seeded cache keeps EnsureModel off
-	// the network on the way to it.
 	seedModelCache(t, home)
 
 	client, err := NewEmbeddingClientFromConfig()
-	// Without a proxy or ONNX, this may return either a lazy client or an error
-	// depending on whether ONNX runtime is available
 	if err != nil {
-		// Error is acceptable — ONNX runtime not available
 		return
 	}
 	if client == nil {

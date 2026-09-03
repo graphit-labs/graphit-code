@@ -34,18 +34,15 @@ func TestSanitizeSegment(t *testing.T) {
 		"1.0.0+build7":  "1.0.0+build7",
 		"../../etc":     "etc",
 		"a/b":           "a-b",
-		// Windows separators and the characters Windows forbids outright must be
-		// neutralised on every platform, so one artifact resolves to one directory
-		// name everywhere rather than to a per-platform variant.
-		`..\..\etc`: "etc",
-		`a\b`:       "a-b",
-		"C:1.0":     "C-1.0",
-		"a*b?c<d>e": "a-b-c-d-e",
-		"trail. ":   "trail",
-		"  1.0.0  ": "1.0.0",
-		"":          "unversioned",
-		"...":       "unversioned",
-		"/////":     "unversioned",
+		`..\..\etc`:     "etc",
+		`a\b`:           "a-b",
+		"C:1.0":         "C-1.0",
+		"a*b?c<d>e":     "a-b-c-d-e",
+		"trail. ":       "trail",
+		"  1.0.0  ":     "1.0.0",
+		"":              "unversioned",
+		"...":           "unversioned",
+		"/////":         "unversioned",
 	}
 	for in, want := range tests {
 		if got := SanitizeSegment(in); got != want {
@@ -56,8 +53,6 @@ func TestSanitizeSegment(t *testing.T) {
 
 func TestDefuseReservedName(t *testing.T) {
 	t.Parallel()
-	// Windows refuses these as directory names; the suffix is applied on every
-	// platform so the path does not differ between them.
 	for _, reserved := range []string{"nul", "NUL", "con", "com1", "LPT9", "aux.tar"} {
 		if got := DefuseReservedName(reserved); got != reserved+"_" {
 			t.Errorf("DefuseReservedName(%q) = %q, want %q", reserved, got, reserved+"_")
@@ -146,15 +141,12 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 			len(rel) >= 3 && rel[:3] == ".."+string(filepath.Separator) {
 			t.Errorf("%s = %q, which is not under %q", label, got, global)
 		}
-		// Nothing may resolve into the project itself: that is the whole point.
 		if inside, _ := filepath.Rel(projectDir, got); inside != "" && !filepath.IsAbs(inside) &&
 			inside != ".." && len(inside) >= 3 && inside[:3] != ".."+string(filepath.Separator) {
 			t.Errorf("%s = %q leaks into the project directory", label, got)
 		}
 	}
 
-	// The exact shapes, so a rename of the layout is a deliberate decision rather
-	// than a silent one that orphans every store on every machine.
 	want := map[string]string{
 		ASTProjectIcebugDir(projectDir):     filepath.Join(global, "ast", "project", "01ACME", "graph.icebug"),
 		ASTContextIcebugDir("Other Repo"):   filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
@@ -170,9 +162,6 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 		}
 	}
 
-	// The ABSENCE of the retired one, alongside the presence of its replacement. A raw markdown
-	// store used to sit under `memory-raw`, and asserting only that the table is where it should be
-	// would stay green if something started writing the old root again beside it.
 	for label, got := range cases {
 		if strings.Contains(got, "memory-raw") {
 			t.Errorf("%s = %q resolves into the retired raw memory store", label, got)
@@ -180,13 +169,8 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	}
 }
 
-// platform semantics
-
 func TestProjectStoreIDFoldsCaseOnlyWhereTheFilesystemDoes(t *testing.T) {
 	t.Parallel()
-	// Both behaviours are asserted on every host, because the one that matters here
-	// is the one this machine does NOT have: a Linux CI would otherwise never
-	// exercise the Windows and macOS path at all.
 	const lower = "/home/dev/proj"
 	const upper = "/home/dev/PROJ"
 
@@ -197,13 +181,11 @@ func TestProjectStoreIDFoldsCaseOnlyWhereTheFilesystemDoes(t *testing.T) {
 		t.Errorf("with folding off, %q and %q are different directories and must not share a store id", lower, upper)
 	}
 
-	// And the platform picks the right one.
 	wantFold := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 	if caseInsensitivePaths != wantFold {
 		t.Errorf("caseInsensitivePaths = %v on %s, want %v", caseInsensitivePaths, runtime.GOOS, wantFold)
 	}
 
-	// A real directory still resolves, folded or not.
 	dir := t.TempDir()
 	if id := ProjectStoreID(dir); !strings.HasPrefix(id, "path-") {
 		t.Errorf("ProjectStoreID = %q, want a path- prefix", id)
@@ -259,7 +241,6 @@ func TestNoStorePathCarriesACharacterWindowsForbids(t *testing.T) {
 	projectDir := t.TempDir()
 	writeLockfile(t, projectDir, "01ACME")
 
-	// A hostile name: separators, device name, wildcards, colon, trailing dot.
 	hostile := `../..\nul*?<>|:x. `
 
 	paths := map[string]string{

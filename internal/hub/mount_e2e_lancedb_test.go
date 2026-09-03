@@ -13,33 +13,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// THE WHOLE POINT, END TO END: a wiki is published to object storage and then READ FROM THERE.
-//
-// No local copy of the published artifact exists at any point after the upload — the directory it
-// was built in is not the directory it is read from, and the read goes through an `s3://` URI. If
-// this passes, "installing stops downloading" is a fact rather than a plan.
-//
-//	GRAPHIT_LANCE_S3_ENDPOINT=http://localhost:9000 GRAPHIT_LANCE_S3_BUCKET=graphit-hub \
-//	AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… \
-//	  go test -tags lancedb -run TestPublishedWikiIsRead ./internal/hub/ -v
-//
-// It needs a REAL object store, not the in-memory fake: the engine's reader is the Rust
-// object_store crate, and what it asks of a bucket — listing with delimiters, conditional reads —
-// is more than the fake implements. Measured: against the fake the upload lands correctly and the
-// engine then reports `no such table`, which says nothing about our code. The upload half is
-// asserted separately in TestPublishedWikiCarriesItsIndexes, which does run everywhere.
 func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 	ctx := context.Background()
 
-	// TWO TRANSPORTS, ONE CODE PATH. With a bucket configured this is the real thing: objects on
-	// S3, read over the network. Without one it runs the identical wiring — publish, resolve the
-	// mount, open it, search it, read a page, walk the cross-references — over a local URI.
-	//
-	// The weaker run is worth having rather than skipping, because what it covers is where the
-	// bugs were: the read going through a WRITE path (EnsureTable creates, and creating is refused
-	// on a published store), and the mount addressing a directory the publisher did not write to.
-	// Both are transport-independent, and both were real. Object-store behaviour itself is proven
-	// separately in lancestore.TestRemoteStoreIsQueriedOnTheFly.
 	endpoint := os.Getenv("GRAPHIT_LANCE_S3_ENDPOINT")
 	bucket := os.Getenv("GRAPHIT_LANCE_S3_BUCKET")
 	overS3 := endpoint != "" && bucket != ""
@@ -54,7 +30,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 			"Set GRAPHIT_LANCE_S3_ENDPOINT and GRAPHIT_LANCE_S3_BUCKET for the network run.")
 	}
 
-	// ---- build a wiki locally, as a publisher would ----
 	srcDir := t.TempDir()
 	src, err := wiki.OpenWikiDB(ctx, srcDir)
 	if err != nil {
@@ -79,7 +54,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 	}
 	_ = src.Close()
 
-	// ---- publish it: the index directory travels as itself ----
 	stage := t.TempDir()
 	if _, err := wiki.StagePublishedIndex(ctx, srcDir, stage); err != nil {
 		t.Fatalf("export for publishing: %v", err)
@@ -88,7 +62,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 		t.Fatalf("publish: %v", err)
 	}
 
-	// ---- read it back, with NO local copy of what was published ----
 	mount, ok := st.MountedWikiAt("acme-docs", "1.0.0", "acme")
 	if !ok {
 		t.Fatal("no mount for the artifact just published")
@@ -96,9 +69,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 
 	cfg := mount.Config
 	if !overS3 {
-		// The published bytes, addressed where the fake bucket mirrored them — a directory this
-		// test did not build and does not write to. The store's read-only flag is set by hand
-		// because the local scheme cannot imply it, and it is the flag every write path consults.
 		cfg = lancestore.Config{URI: wiki.WikiIndexPath(stage)}
 	}
 	t.Logf("reading on-the-fly from %s", cfg.URI)
@@ -113,7 +83,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 		t.Error("a wiki opened on s3:// does not report itself remote, so writes would be allowed")
 	}
 
-	// Search, over the network, against objects nothing downloaded.
 	hits, err := remote.Search(ctx, "artifact bucket layout", 5)
 	if err != nil {
 		t.Fatalf("searching the published wiki: %v", err)
@@ -128,7 +97,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 		t.Errorf("the published wiki did not answer a search for its own content: %+v", hits)
 	}
 
-	// And the PAGE TEXT, which is the part that used to need a file on disk.
 	page, err := wiki.ReadPageFrom(ctx, remote, "memory-scopes", textsliceNone())
 	if err != nil {
 		t.Fatalf("reading a page from the published index: %v", err)
@@ -140,7 +108,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 		t.Error("the page came back empty — the body did not survive publication")
 	}
 
-	// A slug that is not there names what is, instead of failing blankly.
 	if _, err := wiki.ReadPageFrom(ctx, remote, "does-not-exist", textsliceNone()); err == nil {
 		t.Error("reading a missing page from a published wiki succeeded")
 	}
@@ -148,7 +115,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 		t.Errorf("the published wiki lists %d pages, want 2: %v", len(pages), pages)
 	}
 
-	// Cross-references survived, and they are what `wiki_xrefs` answers from.
 	refs, err := remote.FindXRefs(ctx, "hub-s3-layout", 1)
 	if err != nil {
 		t.Fatalf("cross-references on the published wiki: %v", err)
@@ -158,7 +124,6 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 	}
 }
 
-// textsliceNone is "the whole page", which is what a caller that only wants the text passes.
 func textsliceNone() textslice.Request { return textslice.Request{} }
 
 // A published wiki is READ-ONLY, and the refusal has to come from the store rather than from a
@@ -182,11 +147,8 @@ func TestPublishedWikiRefusesWrites(t *testing.T) {
 	}
 }
 
-// newRealS3Store builds a store against a live S3-compatible endpoint.
 func newRealS3Store(t *testing.T, endpoint, bucket string) *S3Store {
 	t.Helper()
-	// Configured the way the store actually reads its settings — the same env keys the fake-backed
-	// helper beside this one uses, rather than a config map shape guessed at from the outside.
 	t.Setenv("GRAPHIT_HUB_BUCKET", bucket)
 	t.Setenv("GRAPHIT_HUB_REGION", "us-east-1")
 	t.Setenv("GRAPHIT_HUB_ENDPOINT", endpoint)
@@ -202,13 +164,6 @@ func newRealS3Store(t *testing.T, endpoint, bucket string) *S3Store {
 	return st
 }
 
-// WHAT RUNS EVERYWHERE: the published artifact carries its own indexes.
-//
-// This is the half that does not need a live object store, and it is the half that proves the
-// change of behaviour: installing used to REBUILD the inverted and vector indexes because engine
-// structure did not travel in a Parquet bundle. A Lance directory carries them, so they appear in
-// the uploaded object list — and if they ever stop appearing, every consumer silently goes back to
-// paying for a rebuild.
 func TestPublishedWikiCarriesItsIndexes(t *testing.T) {
 	ctx := context.Background()
 	st, _ := newTestS3Store(t)
@@ -266,8 +221,6 @@ func TestPublishedWikiCarriesItsIndexes(t *testing.T) {
 		}
 	}
 
-	// The mount points at what was actually uploaded, rather than at a path assembled by a
-	// different rule. A mismatch here is the failure mode that reads as "no such table".
 	mount, ok := st.MountedWikiAt("acme-docs", "2.0.0", "acme")
 	if !ok {
 		t.Fatal("no mount for the artifact just published")

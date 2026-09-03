@@ -74,24 +74,14 @@ type Daemon struct {
 	pid         *PIDFile
 	builder     ProjectModuleBuilder
 	supervisors map[string]*ProjectSupervisor
-	// parked holds registered projects that are not currently supervised —
-	// either newly discovered but quiet, or demoted after their supervisor's
-	// IdleFor() exceeded cfg.ProjectActivityWindow. Only populated when that
-	// window is non-zero. Guarded by mu, same as supervisors.
-	parked    map[string]ProjectInfo
-	logFile   *os.File
-	mu        sync.RWMutex // protects supervisors and parked maps
-	logMu     sync.Mutex   // protects logFile writes (separate to avoid deadlock)
-	bootStamp string
+	parked      map[string]ProjectInfo
+	logFile     *os.File
+	mu          sync.RWMutex
+	logMu       sync.Mutex // protects logFile writes (separate to avoid deadlock)
+	bootStamp   string
 
-	// grammarSigs records what each grammar directory looked like when this
-	// process last accepted it: "" for the global pair, one entry per supervised
-	// project. Guarded by mu.
 	grammarSigs map[string]string
 
-	// globalModules belong to the machine rather than to a project — for example the embedding
-	// server, whose ONNX session every process on the machine shares, and the optional unified UI.
-	// They are supervised like a project's modules.
 	globalModules []WatchModule
 }
 
@@ -193,10 +183,6 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 				return ErrReplace
 			}
 			if where, changed := d.grammarsChanged(); changed {
-				// Query files reload in place; grammar libraries cannot. A
-				// *sitter.Language backs live parse state and is memoised for
-				// the life of the process, so the only way to pick up a newly
-				// installed one is the same exit the launcher already handles.
 				d.log("grammar libraries changed in %s — shutting down for replacement", where)
 				d.event("warn", "New grammar installed — replacing daemon process")
 				d.shutdown()
@@ -240,10 +226,6 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 		d.parked = make(map[string]ProjectInfo)
 	}
 
-	// A supervised project that has gone quiet for longer than the activity
-	// window is parked: its fs watch, embedding loop and dream runner all
-	// stop, and it falls back to the periodic mtime probe below until it has
-	// something to reindex again.
 	if window > 0 {
 		for id, sup := range d.supervisors {
 			if idle := sup.IdleFor(); idle < window {
@@ -375,13 +357,6 @@ func (d *Daemon) stampChanged() bool {
 	return current != d.bootStamp
 }
 
-// grammarsChanged reports whether a grammar directory this process already
-// accepted now looks different, and which one.
-//
-// A directory seen for the first time is recorded, not acted on: a project
-// discovered with grammars already installed is not a reason to restart, and
-// treating it as one would make the daemon bounce every time a new project
-// appeared.
 func (d *Daemon) grammarsChanged() (string, bool) {
 	dirs := []string{""}
 	d.mu.RLock()

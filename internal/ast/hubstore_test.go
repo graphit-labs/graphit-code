@@ -10,8 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// withHome points brand.GlobalDir() at a temporary directory for the duration of a
-// test, so the assertions below never touch the developer's real ~/.graphit.
 func withHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -38,8 +36,6 @@ func TestHubContextDir_IsVersionScopedUnderGlobalDir(t *testing.T) {
 func TestHubContextDir_SeparatesVersions(t *testing.T) {
 	withHome(t)
 
-	// The whole point of the shared store is that two projects on the same version
-	// share one directory while two versions never collide.
 	a := HubContextDir("proj", "1.0.0")
 	b := HubContextDir("proj", "2.0.0")
 	if a == b {
@@ -63,8 +59,6 @@ func TestIsUnderHubContextsRoot(t *testing.T) {
 	if IsUnderHubContextsRoot(filepath.Join(root, "..", "elsewhere")) {
 		t.Error("a path escaping the root must be rejected")
 	}
-	// A sibling whose name merely starts with the root's is the case a string
-	// prefix check gets wrong.
 	if IsUnderHubContextsRoot(root + "-other") {
 		t.Error("a sibling directory sharing the root's prefix must be rejected")
 	}
@@ -92,8 +86,6 @@ func TestContextDirIn_PrefersHubStoreOverLocalDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A directory left over from the previous per-project layout must not win: it is
-	// a stale graph, and the lockfile names the authoritative one.
 	stale := filepath.Join(projectDir, brand.DotDir(), "ast", "shared")
 	if err := os.MkdirAll(filepath.Join(stale, "ladybugdb"), 0o755); err != nil {
 		t.Fatal(err)
@@ -108,9 +100,6 @@ func TestContextDirIn_PrefersHubStoreOverLocalDirectory(t *testing.T) {
 func TestContextDirIn_FallsBackToTheGlobalContextStore(t *testing.T) {
 	withHome(t)
 	projectDir := t.TempDir()
-	// A name the lockfile does not claim resolves to the one store that name can
-	// mean. There is nothing project-local to look for: the store is global and the
-	// project's registry only decides what `ast list` reports.
 	got := ContextDirIn(projectDir, "sibling")
 	if want := store.ASTContextDir("sibling"); got != want {
 		t.Errorf("ContextDirIn = %q, want %q", got, want)
@@ -170,8 +159,6 @@ func TestListImportedContextsIn_IncludesBuiltHubStores(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Only 01ACME has actually been built. 01GHOST is a claim with no store, which
-	// must not be offered as a queryable context.
 	built := HubContextDir("01ACME", "1.0.0")
 	if err := os.MkdirAll(built, 0o755); err != nil {
 		t.Fatal(err)
@@ -209,7 +196,6 @@ func TestListImportedContextsIn_ListsRegisteredContextsWithABuiltStore(t *testin
 	if err := os.MkdirAll(store.ASTContextDir("real-context"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A store counts as built only with the mount schema in place.
 	if err := os.WriteFile(filepath.Join(store.ASTContextDir("real-context"), "schema.cypher"),
 		[]byte("// placeholder mount"), 0o644); err != nil {
 		t.Fatal(err)
@@ -225,12 +211,10 @@ func TestListImportedContextsIn_ListsRegisteredContextsWithABuiltStore(t *testin
 		t.Error("a registered context with no store must not be listed")
 	}
 
-	// Another project shares the same global store and claims nothing.
 	if got := ListImportedContextsIn(t.TempDir()); len(got) != 0 {
 		t.Errorf("a project that imported nothing listed %v", got)
 	}
 
-	// And dropping the claim un-lists it without touching the shared store.
 	if err := RemoveImportedContext(projectDir, "real-context"); err != nil {
 		t.Fatal(err)
 	}
@@ -241,9 +225,6 @@ func TestListImportedContextsIn_ListsRegisteredContextsWithABuiltStore(t *testin
 		t.Error("RemoveImportedContext deleted the shared store")
 	}
 }
-
-// The properties the removed HubContextsForProject / LookupHubContext / HubStoreExists
-// tests used to cover, expressed against the single registry that replaced them.
 
 func TestAHubContextIsNamedAfterItsPublishingProject(t *testing.T) {
 	withHome(t)
@@ -264,7 +245,6 @@ func TestAHubContextIsNamedAfterItsPublishingProject(t *testing.T) {
 	if !rec.IsHub() {
 		t.Error("a versioned hub entry should report itself as a hub context")
 	}
-	// Both names reach it, because callers echo back whichever one they were shown.
 	for _, name := range []string{"01ACME", "acme-graph"} {
 		if _, found := store.LookupContext(projectDir, store.KindAST, name); !found {
 			t.Errorf("LookupContext(%q) found nothing", name)

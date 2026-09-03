@@ -9,8 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// EmbeddingModule — Start (calls ast.RunEmbeddingLoop)
-
 func TestEmbeddingModule_Start_ContextCancelled(t *testing.T) {
 	tmpDir := t.TempDir()
 	cacheDir := filepath.Join(tmpDir, "cache")
@@ -18,16 +16,9 @@ func TestEmbeddingModule_Start_ContextCancelled(t *testing.T) {
 
 	_ = NewEmbeddingModule(tmpDir, 100*time.Millisecond, cacheDir)
 
-	// The Start function calls ast.RunEmbeddingLoop which returns when ctx is cancelled
-	// We can't easily test the full loop without mocking, but we ensure it doesn't panic
-	// and returns on context cancellation
-	// This is covered by the fact that it's called through supervisor tests
 }
 
 func TestDreamModule_Start_ContextCancelled(t *testing.T) {
-	// DreamModule.Start creates a dream.Runner and calls Run(ctx)
-	// Without a real project setup, we test it doesn't panic
-	// The function is called through supervisor tests
 }
 
 func TestLoadProjectConfigFromDir_NoLockfile(t *testing.T) {
@@ -57,7 +48,6 @@ func TestLoadProjectConfigFromDir_EmptyLockfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := loadProjectConfigFromDir(tmpDir)
-	// Empty lockfile has nil Config field
 	if cfg != nil {
 		t.Logf("config from empty lockfile: %v", cfg)
 	}

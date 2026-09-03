@@ -21,7 +21,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// dirHasEntries reports whether a directory exists and holds anything.
 func dirHasEntries(dir string) bool {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -358,9 +357,6 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// The project's own graph is the only AST artifact it can publish. Imported and
-	// linked contexts belong to whoever built them, and every store is global now,
-	// so there is no project directory left to walk for them.
 	if astStore := store.ASTProjectDir(projectDir); dirHasEntries(astStore) {
 		{
 			displayID := projectName
@@ -845,7 +841,7 @@ func isAllowedOriginWithOverride(origin string, allowedOrigins []string) bool {
 
 func isAllowedOrigin(origin string) bool {
 	if origin == "" {
-		return true // same-origin requests have no Origin header
+		return true
 	}
 	return strings.HasPrefix(origin, "http://localhost:") ||
 		strings.HasPrefix(origin, "http://127.0.0.1:") ||

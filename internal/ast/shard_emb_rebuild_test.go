@@ -26,7 +26,6 @@ func TestRebuildRestoresVectorsFromTheCacheInsteadOfRecomputing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A rebuild, exactly as the pipeline performs one.
 	if err := idx.RebuildFromCache(ctx, cache, BuildEmbLookup(cache, embCache)); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}

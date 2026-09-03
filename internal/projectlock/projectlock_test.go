@@ -16,15 +16,12 @@ func TestResolveProjectIdentity(t *testing.T) {
 	if identity.Name == "" {
 		t.Error("expected non-empty Name")
 	}
-	// The name falls back to the directory base when there is no git remote to read.
 	if !strings.Contains(identity.Name, filepath.Base(dir)) {
 		t.Logf("Name %q from dir %q — may have come from a git remote", identity.Name, dir)
 	}
 }
 
 func TestSourcePathRoundTripsThroughTheProject(t *testing.T) {
-	// The property that makes a lockfile shareable: what is written down is relative,
-	// and reading it back yields the absolute directory again.
 	project := filepath.Join(string(filepath.Separator), "home", "someone", "work", "app")
 	sibling := filepath.Join(string(filepath.Separator), "home", "someone", "work", "lib")
 
@@ -54,8 +51,6 @@ func TestASiblingOutsideTheProjectStaysRelative(t *testing.T) {
 }
 
 func TestAnAbsoluteStoredPathIsStillHonoured(t *testing.T) {
-	// The cross-volume fallback writes an absolute path. Reading must not join it onto
-	// the project and produce nonsense.
 	project := filepath.Join(string(filepath.Separator), "w", "app")
 	abs := filepath.Join(string(filepath.Separator), "elsewhere", "lib")
 

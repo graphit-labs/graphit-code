@@ -9,23 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/projectlock"
 )
 
-// Context membership lives in the project's lockfile, and nowhere else.
-//
-// It used to be split in two. A Hub AST artifact was resolved from the lockfile, while
-// a locally imported context, a link, and a Hub KNOWLEDGE artifact were resolved from a
-// separate `contexts.json` beside it. The split followed no principle — it followed the
-// store path: an AST Hub store is keyed by version, so resolving one required reading
-// the version, and the version was in the lockfile. A knowledge store was not keyed by
-// version, so its resolution never needed the lockfile and never learned to read it.
-//
-// That had a consequence nobody chose: a knowledge context was not versioned at all.
-// Two projects pinned to different versions of the same artifact shared one directory
-// and the last install won, while the lockfile recorded a version nothing enforced.
-//
-// So there is one record now. `hub install` already wrote a lockfile entry with a
-// version for every artifact type, which means unification mostly meant deleting the
-// second registry and teaching resolution to read the first.
-
 // ContextRecord is one project's claim on one imported context.
 //
 // It is a view over a lockfile artifact entry, not a separate stored shape.
@@ -93,9 +76,6 @@ func recordFrom(projectDir, artifactID string, meta *projectlock.ArtifactMeta) C
 // An empty map is the normal answer for a project that has claimed nothing, and is not
 // distinguished from a missing lockfile: both mean the same thing.
 func ListContexts(projectDir, kind string) map[string]ContextRecord {
-	// No project means the GLOBAL scope, not "a project with nothing claimed". An
-	// artifact installed with no project records its membership in the global lock,
-	// and that record is the only one there is. See globalcontexts.go.
 	if projectDir == "" {
 		return ListGlobalContexts(kind)
 	}
@@ -149,8 +129,6 @@ func LookupContext(projectDir, kind, name string) (ContextRecord, bool) {
 	if rec, ok := ctxs[SanitizeName(name)]; ok {
 		return rec, true
 	}
-	// Callers echo back whichever name they were shown, and for a Hub artifact that
-	// is sometimes the artifact ID rather than the publishing project.
 	for _, rec := range ctxs {
 		if rec.ArtifactID == name || SanitizeName(rec.ArtifactID) == SanitizeName(name) {
 			return rec, true

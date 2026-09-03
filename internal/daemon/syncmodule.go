@@ -20,9 +20,6 @@ import (
 )
 
 const (
-	// syncDebounce is the quiet period before a burst of filesystem events is
-	// turned into one reindex; syncMaxDebounce caps how long a continuously
-	// busy tree may defer that reindex.
 	syncDebounce    = 1 * time.Second
 	syncMaxDebounce = 5 * time.Second
 )
@@ -45,25 +42,6 @@ func (m *SyncModule) Name() string { return "sync" }
 func (m *SyncModule) SetActivityCallback(cb func()) { m.onActivity = cb }
 
 func (m *SyncModule) Start(ctx context.Context) error {
-	// Filesystem notifications replace the previous `git status` poll: the poll
-	// walked the whole worktree every 5s per project and reported a change up to
-	// ~6s late, while the watcher is idle until something happens and names the
-	// exact paths — which lets the AST reindex skip discovery entirely
-	// (~350ms of a ~1.07s incremental on a 35k-file repository).
-	//
-	// Two consumers, two ignore files, one watch.
-	//
-	// The AST honours .astignore and the wiki honours .wikiignore, each applied
-	// inside its own pipeline. But there is only one watcher, and it used to be
-	// built from the AST checker alone — so .astignore silently decided whether
-	// the wiki got told anything at all. Putting docs/ in .astignore, which is a
-	// reasonable thing to do since the AST does parse markdown, meant the
-	// directory was never watched and editing a document rebuilt nothing.
-	//
-	// The watch now covers the union of what the two care about, and each
-	// consumer applies its own file to what arrives. Both checkers exclude the
-	// brand directory by default, so the union still excludes it and the daemon
-	// does not wake itself up on its own writes.
 	astIgnore := ast.NewAstIgnoreChecker(m.projectDir)
 	wikiIgnore := knowledge.NewKnowledgeIgnoreChecker(m.projectDir)
 
@@ -99,9 +77,6 @@ func (m *SyncModule) Start(ctx context.Context) error {
 	}
 }
 
-// ignoreUnion watches whatever any member wants watched: a path is skipped only
-// when every member skips it. Routing the survivors to the right consumer is
-// classifyBatch's job, using each consumer's own checker.
 type ignoreUnion []fswatch.Ignorer
 
 func (u ignoreUnion) IsIgnored(relPath string, isDir bool) bool {
@@ -138,29 +113,12 @@ func (u ignoreUnion) At(dirRelPath string) fswatch.Ignorer {
 	return next
 }
 
-// batchTargets names the indexers a batch has to reach. The two are
-// independent, not alternatives: .yaml, .json, .xml and .proto are indexed by
-// both the AST pipeline and the knowledge wiki, so one path can set both.
-// Markdown is not among them — no shipped query file claims .md, so a document
-// reaches the wiki and nothing else.
 type batchTargets struct {
 	astChanged []string
 	astRemoved []string
 	knowledge  bool
 }
 
-// classifyBatch routes each path in a batch to the indexers that own it.
-//
-// AST ownership follows the extension and nothing else, which is exactly how a
-// full pipeline scan decides it: a scan indexes docs/schema.proto, so an
-// incremental update of that same file has to as well, or full and incremental
-// runs disagree about what is in the index.
-//
-// Knowledge ownership needs the path to be under the docs directory — or to be
-// one of the documents the scope names explicitly, which is how the root README
-// reaches the wiki when docs_dir is docs/ — *and* to carry an extension the wiki
-// indexes. Location on its own cannot decide it: knowledge.docs_dir can be set to
-// ".", which makes every file in the project "under docs".
 func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeExts map[string]bool,
 	astIgnore, wikiIgnore fswatch.Ignorer, extraDocs []string) batchTargets {
 	var t batchTargets
@@ -183,9 +141,6 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 			ext := strings.ToLower(filepath.Ext(p))
 			slashRel := filepath.ToSlash(rel)
 
-			// Each consumer applies its own ignore file. The watch is the union
-			// of what they want, so a path can arrive that only one of them
-			// claims.
 			if knowledgeExts[ext] && (isUnder(p, docsPath) || isExtraDoc(slashRel)) &&
 				!ignores(wikiIgnore, slashRel) {
 				t.knowledge = true
@@ -197,11 +152,6 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 			if !ast.HasParserForExtensionIn(projectDir, ext) {
 				continue
 			}
-			// Both lists are repo-relative, because that is what the parse cache and the
-			// graph are keyed by. Handing the changed list over absolute used to make the
-			// pipeline store absolute paths and grow a duplicate File node per edited
-			// file; the pipeline normalizes defensively now, and this keeps the two
-			// lists saying the same kind of thing.
 			if removed {
 				t.astRemoved = append(t.astRemoved, filepath.ToSlash(rel))
 				continue
@@ -215,9 +165,6 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 	return t
 }
 
-// handleBatch reindexes whatever the batch touched. AST and knowledge are
-// dispatched independently so a docs-only edit does not reparse code, and vice
-// versa.
 func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	astIgnore, wikiIgnore fswatch.Ignorer) {
 	projectCfg := loadProjectConfigFromDir(m.projectDir)
@@ -227,9 +174,6 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	targets := classifyBatch(batch, m.projectDir, docsPath,
 		config.ResolveKnowledgeExtensions(nil, projectCfg), astIgnore, wikiIgnore, scope.ExtraFiles)
 
-	// Events dropped by the kernel leave the index inconsistent with the tree, and
-	// only a full scan restores the picture — so a rescan is work for both indexers
-	// no matter what the batch happens to name.
 	astWork := !config.IsModuleDisabled("ast", nil, projectCfg) &&
 		(batch.Rescan || len(targets.astChanged) > 0 || len(targets.astRemoved) > 0)
 	knowledgeWork := (targets.knowledge || batch.Rescan) &&
@@ -238,17 +182,9 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 		return
 	}
 
-	// Both reindexers size their pools from the shared CPU budget, which is a budget
-	// for one pipeline — and this process runs one supervisor per active project, so
-	// without the gate N active projects claimed N times the machine. The slot is
-	// taken once for the whole batch rather than once per reindexer: a batch that
-	// touches code and docs should not go back to the end of the queue halfway
-	// through work it already holds a slot to do.
 	askedAt := time.Now()
 	release, err := sysutil.AcquireHeavy(ctx)
 	if err != nil {
-		// Shutting down or being parked. The next batch redoes this, and a rescan
-		// is what a restarted watcher issues anyway.
 		return
 	}
 	defer release()
@@ -272,23 +208,10 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	}
 }
 
-// ignores reports whether a checker rejects a project-relative path.
 func ignores(ig fswatch.Ignorer, relPath string) bool {
 	return ig != nil && ig.IsIgnored(relPath, false)
 }
 
-// insideDotDir reports whether any directory component of a project-relative
-// path starts with a dot.
-//
-// Full-scan discovery skips dot-directories outright (see collectFiles), and the
-// incremental path has to skip them for the same reason plus a sharper one: the
-// daemon writes its shards into .graphit inside the very tree it watches, and a
-// shard is a .json file, for which there is a parser. Indexing one makes the
-// pipeline emit a shard for that shard, whose write is another event, and the
-// batch grows without bound.
-//
-// Only directory components are tested — discovery skips dot-directories, not
-// dotfiles, so a parseable .hidden.sql at the root is still source.
 func insideDotDir(rel string) bool {
 	dir := filepath.ToSlash(filepath.Dir(rel))
 	if dir == "." || dir == "" {
@@ -302,7 +225,6 @@ func insideDotDir(rel string) bool {
 	return false
 }
 
-// isUnder reports whether path is inside dir.
 func isUnder(path, dir string) bool {
 	rel, err := filepath.Rel(dir, path)
 	if err != nil {
@@ -311,9 +233,6 @@ func isUnder(path, dir string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// reindexAST reindexes the project. When changed/removed are supplied the
-// pipeline skips discovery and touches only those paths; passing nil for both
-// runs a full scan.
 func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap, changed, removed []string) {
 	cfg := ast.LadybugConfigFor(m.projectDir)
 	db := ast.NewLadybugDB(cfg)
@@ -345,9 +264,6 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.ConfigMap) {
 	scope := knowledge.ScopeFor(m.projectDir, nil, projectCfg)
 
-	// Nothing to index is not the same as an empty docs tree: a project can have
-	// no docs/ yet and still have a README, which the wiki carries. Bail only when
-	// neither exists, so the pipeline is not run to discover that.
 	if _, err := os.Stat(filepath.Join(m.projectDir, scope.Subdir)); err != nil && len(scope.ExtraFiles) == 0 {
 		return
 	}
@@ -357,18 +273,6 @@ func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.Con
 	_, _ = knowledge.RunIndexPipeline(ctx, m.projectDir, wikiDir, kCfg)
 }
 
-// projectRebuildLogger writes to the project's own daemon.log, the file the supervisor
-// already appends its lifecycle lines to.
-//
-// Without it PipelineOptions.Logger stayed nil, and slogutil.Resolve(nil) returns a NOP
-// handler that DISCARDS every record. That is why a rebuild that failed its File COPY —
-// leaving a graph with no File nodes and no source for any path — left no trace
-// anywhere: the error was logged to a logger that threw it away. The lifecycle lines in
-// daemon.log came from the supervisor, not from the pipeline, which is what made the log
-// look like it was working.
-//
-// Returns a NOP logger and a no-op closer when the file cannot be opened: losing logs is
-// not a reason to skip the reindex.
 func projectRebuildLogger(projectDir string) (*slog.Logger, func()) {
 	dir := brand.ProjectRuntimePath(projectDir, "daemon")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

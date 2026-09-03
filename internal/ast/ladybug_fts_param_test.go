@@ -76,7 +76,6 @@ func TestLadybugFTSQueryAcceptsBoundParameter(t *testing.T) {
 		t.Fatalf("create index: %v", err)
 	}
 
-	// Control: interpolated literal, the form every passing probe uses.
 	res, err := conn.Query(
 		"CALL QUERY_FTS_INDEX('P','p_idx','alpha') RETURN node.name AS n ORDER BY score DESC")
 	if err != nil {
@@ -89,7 +88,6 @@ func TestLadybugFTSQueryAcceptsBoundParameter(t *testing.T) {
 		t.Fatal("the control query matched nothing — the probe is broken, not the parameter binding")
 	}
 
-	// The form the implementation used.
 	stmt, err := conn.Prepare(
 		"CALL QUERY_FTS_INDEX('P','p_idx',$q) RETURN node.name AS n ORDER BY score DESC")
 	if err != nil {

@@ -48,8 +48,6 @@ func TestIcebugCanonicalRoundTrip(t *testing.T) {
 
 	mounted := mountIcebug(t, out)
 
-	// Real endpoints: each pair is its own table, so a File can never bind to a Comment
-	// through the Function member by accident.
 	f2f, err := mounted.Query(
 		"MATCH (f:File)-[:contains__file_function]->(n:Function) RETURN f.path AS p, n.uid AS u ORDER BY p, u", nil)
 	if err != nil {
@@ -67,7 +65,6 @@ func TestIcebugCanonicalRoundTrip(t *testing.T) {
 		t.Fatalf("file->comment rows=%+v want exactly c1", f2c)
 	}
 
-	// Self-loops survive once, in the forward CSR.
 	total, err := mounted.Query("MATCH ()-[r:calls__function_function]->() RETURN count(r) AS c", nil)
 	if err != nil {
 		t.Fatalf("calls total: %v", err)
@@ -84,7 +81,6 @@ func TestIcebugCanonicalRoundTrip(t *testing.T) {
 		t.Fatalf("self loop rows=%+v want exactly fn2", loop)
 	}
 
-	// The mirror is exact AND direction-preserving: two rows, reversed.
 	rev, err := mounted.Query(
 		"MATCH (a:Function)-[:calls__function_function_reverse]->(b:Function) "+
 			"RETURN a.uid AS from_u, b.uid AS to_u ORDER BY from_u", nil)
@@ -108,7 +104,6 @@ func TestIcebugCanonicalRoundTrip(t *testing.T) {
 		}
 	}
 
-	// The published DDL declares REAL endpoints.
 	raw, err := os.ReadFile(filepath.Join(out, "schema.cypher"))
 	if err != nil {
 		t.Fatalf("schema: %v", err)
@@ -164,11 +159,6 @@ func TestCanonicalMemberNameSanitizesAndEncodesPair(t *testing.T) {
 	}
 }
 
-
-// TestIcebugCanonicalPKEqualityReturnsZero pins the MEASURED engine quirk this layout runs
-// into constantly: an equality predicate (map or `=`) against the PRIMARY KEY column of an
-// icebug-disk node table answers zero rows even when the row exists, while an IN list over
-// the same column answers it. The reader layer rewrites the former into the latter.
 func TestIcebugCanonicalPKEqualityReturnsZero(t *testing.T) {
 	src, _ := buildHeterogeneousStore(t)
 	out := t.TempDir()

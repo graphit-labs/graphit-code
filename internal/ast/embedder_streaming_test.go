@@ -80,8 +80,6 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 	projectDir := stageEmbedLabelsGrammar(t, "Function", "Variable", LabelComment)
 
 	src := "package x\n// documents Foo\nfunc Foo() {\n\treturn\n}\nfunc Bar() {}\n"
-	// The snippet is read from the working tree, so the fixture needs a real file —
-	// the shard no longer carries a copy of it.
 	repoRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repoRoot, "a.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -102,8 +100,6 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 	if err := pc.Store("a.go", srcHash, entry); err != nil {
 		t.Fatal(err)
 	}
-	// Persist so StreamEntries reloads from disk after eviction (mirrors the
-	// production embedding loop, which opens a fresh cache from disk).
 	if err := pc.FlushDirty(); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +125,6 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 
 	ctx := context.Background()
 
-	// All 4 entities are embeddable — the comment among them.
 	if got := e.CountPending(ctx); got != 4 {
 		t.Fatalf("CountPending = %d, want 4", got)
 	}
@@ -142,8 +137,6 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Errorf("RunCycle embedded %d, want 4", n)
 	}
 
-	// A vector has to land in BOTH: the entity's row, which is what a query reads, and the
-	// cache, which is what a rebuild replays so the model is not run again.
 	if _, withVector, cErr := idx.Counts(ctx); cErr != nil {
 		t.Fatalf("counts: %v", cErr)
 	} else if withVector != 4 {
@@ -155,12 +148,10 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		}
 	}
 
-	// Warm cache -> nothing pending.
 	if got := e.CountPending(ctx); got != 0 {
 		t.Errorf("CountPending after embedding = %d, want 0", got)
 	}
 
-	// The precomputed snippet (lines 3..5 of src) must appear in an embedding text.
 	wantSnippet := "func Foo() {\n\treturn\n}"
 	found := false
 	for _, txt := range fc.texts {
@@ -173,8 +164,6 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Errorf("expected an embedding text containing Foo's source snippet %q; got %q", wantSnippet, fc.texts)
 	}
 
-	// The comment is embedded by its text, and ONLY by its text: the raw source
-	// line ("// documents Foo") must not be appended on top of the name.
 	commentText := ""
 	for _, txt := range fc.texts {
 		if strings.HasPrefix(txt, "["+LabelComment+"]") {
@@ -213,8 +202,6 @@ func TestEmbedderDuplicateUIDFirstLabelWins(t *testing.T) {
 		Language: lang,
 		Source:   src,
 		Entities: []cachedEntity{
-			// Deliberately list Interface first to prove ordering follows the
-			// grammar's embed_labels, not slice/file order.
 			{Label: "Interface", Lang: lang, UID: "a.ts::Point", Name: "Point", Path: "a.ts", Line: 3, EndLine: 3},
 			{Label: "Class", Lang: lang, UID: "a.ts::Point", Name: "Point", Path: "a.ts", Line: 1, EndLine: 1},
 		},

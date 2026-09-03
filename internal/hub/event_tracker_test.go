@@ -13,7 +13,6 @@ func TestBuildEventKey(t *testing.T) {
 		if key == "" {
 			t.Error("expected non-empty key")
 		}
-		// Should contain type dir and action
 		if len(key) < 10 {
 			t.Errorf("key too short: %q", key)
 		}
@@ -54,7 +53,6 @@ func TestGenerateULID(t *testing.T) {
 		t.Errorf("ULID length = %d, want 26", len(id))
 	}
 
-	// Generate two, should be different
 	id2 := generateULID()
 	if id == id2 {
 		t.Error("expected different ULIDs")
@@ -64,11 +62,9 @@ func TestGenerateULID(t *testing.T) {
 func TestEventTrackerTrackEvent_NilHandling(t *testing.T) {
 	t.Parallel()
 
-	// nil tracker should not panic
 	var tracker *EventTracker
 	tracker.TrackEvent("test", "", nil, nil)
 
-	// tracker with no store should not panic
 	tracker2 := &EventTracker{store: nil}
 	tracker2.TrackEvent("test", "", nil, nil)
 }
@@ -79,12 +75,10 @@ func TestComputeProjectHash(t *testing.T) {
 	if h == "" {
 		t.Error("expected non-empty hash")
 	}
-	// Same input should give same hash
 	h2 := computeProjectHash("test-project")
 	if h != h2 {
 		t.Errorf("expected same hash, got %q and %q", h, h2)
 	}
-	// Different input should give different hash
 	h3 := computeProjectHash("other-project")
 	if h == h3 {
 		t.Error("expected different hash for different input")

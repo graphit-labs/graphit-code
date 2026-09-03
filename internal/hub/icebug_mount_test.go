@@ -22,7 +22,6 @@ func TestIcebugArtifactMountsAndAnswers(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
 
-	// ---- a real graph, from real source ----
 	work := filepath.Join(tmp, "src")
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		t.Fatal(err)
@@ -43,9 +42,6 @@ func helper() {}
 		t.Fatal(err)
 	}
 	db := ast.NewLadybugDB(ast.LadybugConfig{StoreDir: filepath.Dir(filepath.Join(storeDir, "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(storeDir, "ladybugdb")), "graph.icebug")})
-	// IndexSource is opt-in and OFF by default, so it has to be asked for here: the search index
-	// is the only queryable copy of file text, and without it the assertion below would be testing
-	// a store that was never told to keep any.
 	pipelineResult, err := ast.RunPipeline(ctx, db, work,
 		ast.PipelineOptions{CacheDir: storeDir, IndexSource: true})
 	if err != nil {
@@ -63,7 +59,6 @@ func helper() {}
 	}
 	_ = db.Close()
 
-	// ---- publish it, with storage pointing where the consumer will read ----
 	published := filepath.Join(tmp, "published")
 	if err := os.MkdirAll(published, 0o755); err != nil {
 		t.Fatal(err)
@@ -74,7 +69,6 @@ func helper() {}
 	}
 	defer func() { _ = os.RemoveAll(staged) }()
 
-	// The upload, as the Hub would do it: the bundle lands at the location its own DDL names.
 	if err := os.RemoveAll(published); err != nil {
 		t.Fatal(err)
 	}
@@ -87,21 +81,11 @@ func helper() {}
 		t.Fatalf("published schema: %v", err)
 	}
 
-	// ---- mount: a fresh mount cache, and not one byte of graph copied ----
 	mountDir := filepath.Join(tmp, "mounted")
 	if err := ast.MountIcebugGraph(ctx, mountDir, string(schema), nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 
-	// THE DATA DID NOT COME DOWN, asserted by what is absent rather than by size.
-	//
-	// Size was the first thing tried and it proves nothing: a catalog has a floor — one database
-	// page, 16 KiB here — so against a two-function graph the catalog is legitimately the larger
-	// of the two. On a real graph the ratio is the other way round by orders of magnitude, but a
-	// test that only holds for large inputs is a test that will be wrong on someone's fixture.
-	//
-	// What is checkable at any size: the CSR files exist in the published bundle and nowhere under
-	// the mount. Those are the graph.
 	published_files := dataFiles(t, ast.IcebugBundlePath(published))
 	if len(published_files) == 0 {
 		t.Fatal("the published bundle holds no data files; the export produced nothing to mount")
@@ -116,7 +100,6 @@ func helper() {}
 	t.Logf("published graph: %d bytes; local catalog after mounting: %d bytes",
 		treeSize(t, ast.IcebugBundlePath(published)), treeSize(t, mountDir))
 
-	// ---- query the mounted graph ----
 	mounted := ast.NewLadybugDBReadOnly(ast.LadybugConfig{StoreDir: mountDir, IcebugDir: mountDir})
 	defer func() { _ = mounted.Close() }()
 
@@ -133,13 +116,6 @@ func helper() {}
 	}
 	t.Logf("mounted graph answers: %d nodes", nodes)
 
-	// A single-hop traversal, which is what a mounted graph serves. The label is a COLUMN here,
-	// not a table — see internal/ast/icebug_transfer.go for why the fold is forced.
-	// ---- THE SEARCH HALF, which works without being mounted and then answers nothing ----
-	//
-	// A context with a mounted graph and a LOCAL search path traverses perfectly and returns no
-	// search results — indistinguishable from a corpus with no match. So the mount records where
-	// the index is, and this asserts that a search actually reaches it.
 	searchDir := filepath.Join(published, ast.SearchBundleDir)
 	if err := copyTree(filepath.Join(staged, ast.SearchBundleDir), searchDir); err != nil {
 		t.Fatalf("staging the published search index: %v", err)
@@ -147,8 +123,6 @@ func helper() {}
 	if err := ast.WriteSearchMount(mountDir, searchDir); err != nil {
 		t.Fatalf("recording the search mount: %v", err)
 	}
-	// Nothing of the index is beside the store — the local directory the unmounted path would
-	// have used must not exist, or this test could pass on a local copy.
 	if _, err := os.Stat(ast.LanceIndexPath(mountDir)); err == nil {
 		t.Fatal("a local search index exists beside the mounted catalog; this test would prove nothing")
 	}
@@ -175,7 +149,6 @@ func helper() {}
 		t.Logf("mounted search answers: %d hits for \"helper\"", len(hits))
 	}
 
-	// And the file text, which is the only queryable copy there is.
 	if src, ok := idx.FileSource(ctx, "main.go"); !ok || !strings.Contains(src, "func helper") {
 		t.Errorf("the mounted index does not serve file text for main.go (ok=%v, len=%d)", ok, len(src))
 	} else {
@@ -231,8 +204,6 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// dataFiles lists the Parquet files under dir — the CSRs and the node table, which is what the
-// graph actually IS. Anything else in an icebug directory is metadata.
 func dataFiles(t *testing.T, dir string) []string {
 	t.Helper()
 	var out []string

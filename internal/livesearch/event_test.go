@@ -60,9 +60,6 @@ func TestAppendStampsATimeWhenTheCallerDidNot(t *testing.T) {
 }
 
 func TestRecoveryTrustsTheRecordedSequenceNotTheLineCount(t *testing.T) {
-	// A process killed mid-write leaves a partial final line. Counting lines would
-	// hand the next event a number that is already taken, and two events sharing an
-	// SSE id means a reconnecting client silently loses one of them.
 	path := filepath.Join(t.TempDir(), eventsFileName)
 	body := `{"seq":1,"kind":"text","text":"a","at":"2024-01-01T00:00:00Z"}
 {"seq":2,"kind":"text","text":"b","at":"2024-01-01T00:00:00Z"}
@@ -89,7 +86,6 @@ func TestRecoveryTrustsTheRecordedSequenceNotTheLineCount(t *testing.T) {
 		t.Fatalf("the event after recovery got seq %d, want 4", ev.Seq)
 	}
 
-	// The truncated line must not have swallowed the new one.
 	got := collect(t, l, 0, 0)
 	if len(got) != 4 {
 		t.Fatalf("replay yielded %d events, want 4: %+v", len(got), got)
@@ -112,8 +108,6 @@ func TestReplayIsBoundedAtBothEnds(t *testing.T) {
 		t.Fatalf("replay(2,4) yielded %+v, want events 3 and 4", got)
 	}
 
-	// Zero upto means everything after the lower bound, which is what a CLI dumping
-	// a whole session needs.
 	if got := collect(t, l, 0, 0); len(got) != 5 {
 		t.Fatalf("unbounded replay yielded %d events, want 5", len(got))
 	}
@@ -186,9 +180,6 @@ func TestReplayOnAMissingLogIsNotAnError(t *testing.T) {
 }
 
 func TestALargeToolResultSurvivesTheRoundTrip(t *testing.T) {
-	// Tool output is what makes lines big. A line the agent stream accepted must be
-	// a line the log can read back, or the transcript loses exactly the events that
-	// carry the evidence.
 	l := openTestLog(t)
 	big := strings.Repeat("x", 1<<20)
 	if _, err := l.append(Event{Kind: KindToolResult, Tool: "graphit_ast_query", Detail: big}); err != nil {
@@ -257,8 +248,6 @@ func TestEventFromAIMapsWhatSubscribersNeedAndDropsPlumbing(t *testing.T) {
 		{ai.EventToolResult, KindToolResult, true},
 		{ai.EventStderr, KindStderr, true},
 		{ai.EventError, KindError, true},
-		// The agent's own conversation ID is a handle to a live session; publishing
-		// it serves nobody. Its "done" ends one CLI invocation, not the turn.
 		{ai.EventSession, "", false},
 		{ai.EventDone, "", false},
 		{ai.EventKind("something-a-future-release-invented"), "", false},
@@ -281,8 +270,6 @@ func TestEventFromAIMapsWhatSubscribersNeedAndDropsPlumbing(t *testing.T) {
 }
 
 func TestSessionIDIsNeverCopiedIntoAPublishedEvent(t *testing.T) {
-	// Even for a kind that is published: if a CLI ever attaches a session ID to a
-	// text event, it must not ride along into the log.
 	got, ok := eventFromAI(ai.Event{Kind: ai.EventText, Text: "hello", SessionID: "secret-handle"})
 	if !ok {
 		t.Fatal("a text event must be published")

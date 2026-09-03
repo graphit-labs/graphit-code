@@ -37,22 +37,17 @@ type Pattern struct {
 type matchMode int
 
 const (
-	matchDirect    matchMode = iota // /ruleName — direct child only
-	matchRecursive                  // //ruleName — any descendant
+	matchDirect matchMode = iota
+	matchRecursive
 )
 
 type segment struct {
-	rule string
-	mode matchMode
-	// requireTerminal and rejectTerminal hold the keyword guard from a `[KW]` or
-	// `[!KW]` suffix, upper-cased for case-insensitive comparison. Empty when the
-	// segment has no guard.
+	rule            string
+	mode            matchMode
 	requireTerminal string
 	rejectTerminal  string
 }
 
-// matches reports whether a node satisfies this segment: the rule name, and the
-// keyword guard when there is one.
 func (s segment) matches(node *TreeNode) bool {
 	if node == nil || node.Rule != s.rule {
 		return false
@@ -67,8 +62,6 @@ func (s segment) matches(node *TreeNode) bool {
 	return !has
 }
 
-// hasTerminalChild reports whether node has a direct terminal child whose text
-// equals keyword, ignoring case.
 func hasTerminalChild(node *TreeNode, keyword string) bool {
 	for _, child := range node.Children {
 		if child != nil && child.IsTerminal() && strings.EqualFold(child.Text, keyword) {
@@ -78,7 +71,7 @@ func hasTerminalChild(node *TreeNode, keyword string) bool {
 	return false
 }
 
-var patternCache sync.Map // map[string]*Pattern
+var patternCache sync.Map
 
 // CompilePattern parses a rule-path pattern string into a Pattern.
 func CompilePattern(pattern string) (*Pattern, error) {
@@ -143,8 +136,6 @@ func nextSegmentName(s string) (name, remaining string) {
 	return s[:idx], s[idx:]
 }
 
-// parseSegment splits a segment into its rule name and optional `[KW]` /
-// `[!KW]` keyword guard.
 func parseSegment(raw string, mode matchMode, pattern, sep string) (segment, error) {
 	open := strings.IndexByte(raw, '[')
 	if open < 0 {
@@ -231,7 +222,6 @@ func (p *Pattern) MatchWithContext(root *TreeNode, isContext func(rule string) b
 
 	switch first.mode {
 	case matchRecursive:
-		// //rule — search entire tree including root
 		p.walkRecursive(root, nil, ctx, isContext, first, 0, isLast, &results)
 	case matchDirect:
 		// /rule — root itself must match this rule name
@@ -281,10 +271,8 @@ func (p *Pattern) matchSegment(node, parent *TreeNode, ctx *ContextNode, isConte
 
 	switch seg.mode {
 	case matchRecursive:
-		// Find all descendants (including node itself) matching this rule name
 		p.walkRecursive(node, parent, ctx, isContext, seg, segIdx, isLast, results)
 	case matchDirect:
-		// Only check direct children
 		for _, child := range node.Children {
 			if seg.matches(child) {
 				childCtx := ctx

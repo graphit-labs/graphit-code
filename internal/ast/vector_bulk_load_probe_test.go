@@ -11,18 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ladybugstore"
 )
 
-// TestVectorBulkLoadPaths compares the two ways of getting rows with a FLOAT[768] column
-// into the search table, at the same size and with every row carrying a vector.
-//
-// This is the measurement the whole investigation turns on. The search index loads with
-// UNWIND; the graph rebuild stages a file and COPYs. If the two differ by orders of
-// magnitude on the vector column, then the reason a full rebuild takes hours is the write
-// path, not the index, not the copy, and not the FTS.
-//
-// It also checks the end state, not only the clock: a fast load that leaves the vector index
-// unable to answer is not a load.
-//
-// GRAPHIT_VEC_BULK=1 go test -run TestVectorBulkLoadPaths ./internal/ast/ -v -timeout 60m
 func TestVectorBulkLoadPaths(t *testing.T) {
 	if os.Getenv("GRAPHIT_VEC_BULK") == "" {
 		t.Skip("set GRAPHIT_VEC_BULK=1")
@@ -75,7 +63,6 @@ func TestVectorBulkLoadPaths(t *testing.T) {
 		vecs[i] = nextVec()
 	}
 
-	// UNWIND, the path the search index uses today.
 	start := time.Now()
 	batch := make([]any, 0, searchBatchRows)
 	flush := func() {
@@ -100,8 +87,6 @@ func TestVectorBulkLoadPaths(t *testing.T) {
 	t.Logf("UNWIND         %6.2fs  (%.0f us/row)", unwind.Seconds(),
 		float64(unwind.Microseconds())/float64(n))
 
-	// COPY: stage the same rows to Parquet, then load. The staging file is produced by the
-	// engine itself, which is also what a rebuild would do — it already holds the rows.
 	stage := filepath.Join(dir, "vec.parquet")
 	s2 := time.Now()
 	if err := st.Exec(fmt.Sprintf(
@@ -124,7 +109,6 @@ func TestVectorBulkLoadPaths(t *testing.T) {
 		unwind.Seconds()/copyTime.Seconds(),
 		unwind.Seconds()/(copyTime+stageTime).Seconds())
 
-	// The end state has to be usable, not just fast.
 	s4 := time.Now()
 	if err := st.Exec("CALL CREATE_VECTOR_INDEX('ViaCopy','vc_vec','emb')", nil); err != nil {
 		t.Fatalf("index after copy: %v", err)

@@ -58,14 +58,6 @@ func ContextDirIn(projectDir, name string) string {
 	return store.ASTContextDirIn(projectDir, name)
 }
 
-// AddImportedContext records a locally imported graph against a project and returns
-// where its store lives.
-//
-// It creates the store directory and the project's registry entry, and nothing else.
-// It used to also symlink the global directory into `<project>/<dotdir>/ast/<name>`,
-// which existed only so that a directory scan could rediscover the import — a second
-// record of a fact the registry states directly, and one that made `ast list` depend
-// on the working directory.
 func AddImportedContext(projectDir, name, sourcePath string) (ImportedContext, error) {
 	globalDir := store.ASTContextDir(name)
 
@@ -130,16 +122,8 @@ func ListImportedContexts() map[string]ImportedContext {
 func ListImportedContextsIn(projectDir string) map[string]ImportedContext {
 	result := map[string]ImportedContext{}
 	projectNames := loadProjectIDNamesFromRegistry()
-	// One source. This used to merge the lockfile's Hub artifacts with a separate
-	// per-project registry, and the merge needed a rule for which won a name clash.
-	// Membership is one record now, so a clash cannot arise.
 	for name, rec := range store.ListContexts(projectDir, store.KindAST) {
 		storeDir := store.ASTContextDirIn(projectDir, name)
-		// A store is BUILT only once it holds a bundle: either the icebug schema
-		// directly (local contexts) or the mount cache (Hub contexts). The
-		// directory itself is created by registration, so its existence proves
-		// nothing — exactly why the old ladybugdb file check was dropped with the
-		// file-based store.
 		if !contextStoreBuilt(storeDir) {
 			// Claimed but never built, or collected after the last project using it
 			// dropped it. Reporting it would offer a graph that cannot be opened.
@@ -164,8 +148,6 @@ func ListImportedContextsIn(projectDir string) map[string]ImportedContext {
 	return result
 }
 
-// contextStoreBuilt reports whether a context store directory holds a mountable
-// bundle — schema.cypher + icebug.json, either directly or under graph.icebug/.
 func contextStoreBuilt(dir string) bool {
 	for _, p := range []string{
 		filepath.Join(dir, "graph.icebug", "schema.cypher"),

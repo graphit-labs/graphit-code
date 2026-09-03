@@ -26,7 +26,6 @@ func TestHubHashing(t *testing.T) {
 		t.Errorf("expected empty directory error, got: %v", err)
 	}
 
-	// 3. Hash of single file
 	filePath := filepath.Join(tempDir, "file.txt")
 	content := "some file content"
 	_ = os.WriteFile(filePath, []byte(content), 0644)
@@ -45,7 +44,6 @@ func TestHubHashing(t *testing.T) {
 		t.Errorf("expected same hash from HashFile and HashPath: %s vs %s", h1, h2)
 	}
 
-	// 4. Hash of directory containing files
 	dirPath := filepath.Join(tempDir, "dir")
 	_ = os.Mkdir(dirPath, 0755)
 	_ = os.WriteFile(filepath.Join(dirPath, "f1.txt"), []byte("c1"), 0644)

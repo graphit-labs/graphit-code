@@ -28,25 +28,20 @@ func TestXMLKeysAndValuesAreBothNodes(t *testing.T) {
 	wantNode(t, got, "AttributeValue", "prod", "env", "Attribute")
 	wantNode(t, got, "Attribute", "host", "database", "Element")
 	wantNode(t, got, "AttributeValue", "db.example.com", "host", "Attribute")
-	// Self-closing tags carry attributes too.
 	wantNode(t, got, "Attribute", "flag", "empty", "Element")
 	wantNode(t, got, "AttributeValue", "true", "flag", "Attribute")
-	// Character data is the element's value.
 	wantNode(t, got, "Text", "5432", "port", "Element")
 
-	// The quotes tree-sitter-xml leaves on AttValue are not part of the value.
 	for key := range got {
 		if key[0] == "AttributeValue" && (key[1][0] == '"' || key[1][0] == '\'') {
 			t.Errorf("AttributeValue %q kept its delimiters", key[1])
 		}
 	}
-	// Whitespace between tags is not a Text node.
 	for key := range got {
 		if key[0] == "Text" && key[1] != "5432" {
 			t.Errorf("unexpected Text node %q", key[1])
 		}
 	}
-	// The value is also on the key, so a single node answers "what is env set to".
 	if v := got[[2]string{"Attribute", "env"}].value; v != "prod" {
 		t.Errorf("Attribute env has value %q, want %q", v, "prod")
 	}
@@ -67,15 +62,11 @@ func TestJSONKeysAndValuesAreBothNodes(t *testing.T) {
 	wantNode(t, got, "Value", "graphit", "name", "Pair")
 	wantNode(t, got, "Value", "5432", "port", "Pair")
 	wantNode(t, got, "Value", "true", "debug", "Pair")
-	// A nested member is still a Pair with its own value, and it is contained
-	// by the member that encloses it rather than by the file.
 	wantNode(t, got, "Pair", "host", "database", "Pair")
 	wantNode(t, got, "Value", "db.example.com", "host", "Pair")
-	// Array elements belong to the key that names the array.
 	wantNode(t, got, "Value", "alpha", "tags", "Pair")
 	wantNode(t, got, "Value", "beta", "tags", "Pair")
 
-	// The key used to be captured as the whole string literal, quotes included.
 	for key := range got {
 		if key[1][0] == '"' {
 			t.Errorf("%s node %q kept its quotes", key[0], key[1])
@@ -142,17 +133,12 @@ func TestHTMLAttributesAreKeyValueNodes(t *testing.T) {
 	wantNode(t, got, "AttributeValue", "/logo.png", "src", "Attribute")
 	wantNode(t, got, "Text", "Orders", "a", "Element")
 
-	// The `@_attr` capture only exists for the predicate to test. It used to be
-	// emitted as a reference target of its own, so `id="main"` produced a
-	// REFERENCES edge to the literal name `id` next to the one to `main`.
 	for _, r := range pf.References {
 		switch r.TargetName {
 		case "id", "class", "href", "src", "action", "name", "for", "role":
 			t.Errorf("attribute name %q became a REFERENCES target", r.TargetName)
 		}
 	}
-	// The references themselves survive: containment says a value belongs to a
-	// key, not that it points somewhere.
 	var sawHref bool
 	for _, r := range pf.References {
 		if r.TargetName == "/orders" && r.RelType == "REFERENCES" {
@@ -176,8 +162,6 @@ variable "region" {
 }
 `))
 
-	// Only the block name is the entity; the block type and the resource type are
-	// there for the predicate to test.
 	wantNode(t, got, "Resource", "web", "", "")
 	if _, bad := got[[2]string{"Resource", "resource"}]; bad {
 		t.Error("the block-type keyword became a Resource node")
@@ -185,7 +169,6 @@ variable "region" {
 	if _, bad := got[[2]string{"Resource", "aws_instance"}]; bad {
 		t.Error("the resource type became a Resource node")
 	}
-	// A `variable` block is not also an Output, a Module and a Provider.
 	wantNode(t, got, "Variable", "region", "", "")
 	for _, label := range []string{"Output", "Module", "Provider"} {
 		if _, bad := got[[2]string{label, "region"}]; bad {
@@ -193,9 +176,6 @@ variable "region" {
 		}
 	}
 
-	// An attribute belongs to the block INSTANCE — "web", not the type "aws_instance",
-	// which is not an entity at all. Reaching the instance needs the indexed name-path
-	// segment (`string_lit[1]`); the first label would name a node that never exists.
 	wantNode(t, got, "Attribute", "ami", "web", "Resource")
 	wantNode(t, got, "Value", "ami-123", "ami", "Attribute")
 	wantNode(t, got, "Value", "2", "count", "Attribute")
@@ -224,7 +204,6 @@ func TestOversizedAndMultilineValuesAreNotNodes(t *testing.T) {
 	if got := dataText(`'prod'`); got != "prod" {
 		t.Errorf("dataText(%q) = %q, want %q", `'prod'`, got, "prod")
 	}
-	// A lone delimiter is not a pair of them.
 	if got := dataText(`it's`); got != "it's" {
 		t.Errorf("dataText(%q) = %q, want %q", `it's`, got, "it's")
 	}
@@ -292,7 +271,6 @@ func TestDataValuesAreReachableByFullTextSearch(t *testing.T) {
 	}
 	si := buildSearchIndex(t, dir, cache, nil)
 
-	// Each of these is a value, not a key. None of them was findable before.
 	for _, probe := range []string{"OrderRepository", "singleton", "reporting-db"} {
 		res, err := si.Search(context.Background(), probe, 20)
 		if err != nil {
@@ -311,8 +289,6 @@ func TestDataValuesAreReachableByFullTextSearch(t *testing.T) {
 	}
 }
 
-// stageDataFormats stages every data-format grammar into one project so a single
-// index run covers them all.
 func stageDataFormats(t *testing.T) string {
 	t.Helper()
 	projectDir := t.TempDir()
@@ -461,7 +437,6 @@ func TestDataFormatGraphIsQueryable(t *testing.T) {
 		}
 	}
 
-	// The value also sits on the key, so the one-node answer works too.
 	rows, err := db.Query(ctx,
 		"MATCH (p:`Pair`) WHERE p.name = 'version' RETURN p.value AS v", nil)
 	if err != nil {
@@ -479,15 +454,9 @@ func TestDataFormatGraphIsQueryable(t *testing.T) {
 func TestHelperCapturesAreNotEntities(t *testing.T) {
 	cases := []struct {
 		lang, ext, queryFile, file, source string
-		// wantNodes and rejectNodes are {label, name}: the same text can be a
-		// legitimate entity under one label and a helper capture under another.
-		// `defn` really is a call in Clojure — every list's head symbol is —
-		// but it is not a Function.
-		wantNodes   [][2]string
-		rejectNodes [][2]string
-		// rejectRefs are {relation_type, target}: a keyword must not be the
-		// thing an edge points at.
-		rejectRefs [][2]string
+		wantNodes                          [][2]string
+		rejectNodes                        [][2]string
+		rejectRefs                         [][2]string
 	}{
 		{
 			lang: "ruby", ext: ".rb", queryFile: "ruby.yaml", file: "a.rb",

@@ -15,28 +15,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
 )
 
-// daemonUIModule serves the unified UI for as long as the daemon runs.
-//
-// It is a GLOBAL module, not a per-project one, for the same reason the memory sync and the
-// embedding server are: there is one UI, it switches projects from the client, and every handler
-// behind it already takes `project_dir` per request. A per-project instance would mean one port
-// per project and a browser that has to be told which to open.
-//
-// Enabled by `modules.daemon_ui`, which is opt-in — see config.DaemonServesUI for why.
-//
-// NOTE: this lives in the command package, not in internal/daemon, because internal/uiserver
-// already imports internal/daemon (for the daemon status endpoint) and putting it there is an
-// import cycle. Satisfying daemon.WatchModule is all that is required, and that interface is
-// two methods.
-//
-// Being a WatchModule buys the two things a hand-rolled goroutine would have to reimplement:
-// SuperviseGlobal restarts it if it dies, and its failures reach the daemon log instead of a
-// discarded error. It fits because UnifiedServer.Start already has the exact `Start(ctx) error`
-// shape and already blocks until the context is cancelled.
 type daemonUIModule struct {
-	// repoPath is the project the UI opens on. Empty means "resolve it at start time", which is
-	// the normal case: the daemon has chdir'd to the global directory by then, so it cannot use
-	// its working directory.
 	repoPath string
 }
 
@@ -76,12 +55,6 @@ func (m *daemonUIModule) Start(ctx context.Context) error {
 	return srv.Start(ctx)
 }
 
-// resolveDaemonUIRepoPath picks the project the daemon-hosted UI opens on.
-//
-// The daemon deliberately chdirs to the global directory, so os.Getwd is useless here. The first
-// active registered project is the closest thing to "the project the user means"; with none
-// registered, the global directory is a valid neutral root — the UI still serves the Hub, the
-// wiki explorer and the project switcher, and the client sends project_dir on every call anyway.
 func resolveDaemonUIRepoPath() string {
 	if mgr, err := hub.NewGlobalLockManager(); err == nil {
 		if active, err := mgr.ListActiveProjects(); err == nil && len(active) > 0 {
@@ -91,8 +64,6 @@ func resolveDaemonUIRepoPath() string {
 	return brand.GlobalDir()
 }
 
-// daemonUIASTBackend opens the project's graph READ-ONLY, which is what a viewer wants: the
-// daemon's own sync modules are the writers, and two writers on one graph is a lock fight.
 func daemonUIASTBackend(repoPath string) ast.GraphDB {
 	storeDir := store.ASTProjectDir(repoPath)
 	return ast.NewLadybugDBReadOnly(ast.LadybugConfig{

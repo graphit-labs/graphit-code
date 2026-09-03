@@ -28,11 +28,6 @@ var (
 	reTypeParen   = regexp.MustCompile(`\btype\(`)
 	reParamUsage  = regexp.MustCompile(`\$(\w+)`)
 
-	// A label predicate — `WHERE n:Function`, `AND (n:Struct OR n:Method)` — is
-	// Neo4j syntax that LadybugDB's parser rejects outright, so it is rewritten to
-	// `label(n) = 'Function'`, which is the form that parses. The prefix group
-	// swallows an optional NOT and any opening parens, so the first alternative of
-	// a parenthesised group is rewritten like every other one.
 	reLabelPredicate = regexp.MustCompile(`(?i)(\b(?:WHERE|AND|OR|XOR)\s+(?:NOT\s+)?(?:\(\s*)*)([A-Za-z_]\w*):([A-Za-z_]\w*)`)
 
 	// A label in a pattern position — `(n:Label)`, `(:Label)`, `-[r:REL]->`,
@@ -59,31 +54,15 @@ var (
 	reRelBracket  = regexp.MustCompile(`\[[^\[\]]*\]`)
 	reRelAltType  = regexp.MustCompile(`([|]\s*:?\s*)([A-Za-z_]\w*)`)
 
-	// Statements answered with RETURN 1 because the engine has neither secondary
-	// indexes nor constraints. Nothing in this codebase emits them any more —
-	// CreateGraphSchema did, and every one of its statements landed here, which is
-	// what made the whole function dead — so what is left to catch is a hand-written
-	// query in the Neo4j idiom. Anchored at the start so it matches a statement, not
-	// the mention of one.
 	reDDLNoop = regexp.MustCompile(`(?is)^\s*CREATE\s+(CONSTRAINT|INDEX)\b`)
 
 	reLabelsIndex = regexp.MustCompile(`\blabels\((\w+)\)\[0\]`)
 
-	// "Binder exception: Table Import does not exist." — the engine's way of saying
-	// the label or relationship type is not in this graph.
 	reMissingTable = regexp.MustCompile(`Table (\S+?) does not exist`)
 
-	// "Binder exception: Cannot find property line_number for e."
 	reMissingProperty = regexp.MustCompile(`Cannot find property (\S+?) for \S+`)
 )
 
-// mapOutsideStrings applies fn to each stretch of q that sits outside a quoted
-// literal, leaving the literals byte for byte intact.
-//
-// Every rewrite below is a regex over Cypher syntax, and a string can legitimately
-// contain the shapes those regexes look for: a uid reads `internal/x/y.go::Apply`,
-// and a search term can be the text `(n:Function)`. Rewriting inside a literal
-// changes what the query asks for, silently.
 func mapOutsideStrings(q string, fn func(string) string) string {
 	var out, seg strings.Builder
 	var quote byte
@@ -187,16 +166,10 @@ type LadybugBackend struct {
 	mu     sync.Mutex
 	Logger *slog.Logger
 
-	// bufferPool is the ceiling this handle was actually opened with, recorded so a
-	// failure caused by that ceiling can name it. An error that says "the buffer pool
-	// is full" while the machine has tens of gigabytes free is unreadable without it.
 	bufferPool uint64
 
 	stmtCache map[string]*lbug.PreparedStatement
 
-	// canonical holds the v2 manifest of a CANONICAL icebug catalog — real node tables per
-	// label and one rel table per (type, from, to) pair. Loaded from icebug.json beside the
-	// mounted database at connect; nil means the catalog is the folded layout.
 	canonical *ladybug.CanonicalManifest
 }
 
@@ -219,18 +192,6 @@ func NewLadybugDBReadOnly(cfg LadybugConfig) *LadybugBackend {
 	return &LadybugBackend{cfg: cfg, stmtCache: make(map[string]*lbug.PreparedStatement)}
 }
 
-// dbOpenAttempts and dbOpenBackoff bound the retry of a failed open.
-//
-// Opening is not reliably repeatable while another process writes to the same
-// database: a reader can land in the window where the writer is checkpointing
-// the file, and the engine reports that as an opaque status code — its C API has
-// no error message channel for open at all, so every cause arrives as the same
-// "failed to open database with status 1". Measured against a writer committing
-// and checkpointing in a loop, 14 of 80 concurrent read-only opens failed that
-// way, and the same open succeeded milliseconds later.
-//
-// Sleeps total ~750 ms across the attempts, which is the budget a read tool can
-// spend without looking hung.
 const (
 	dbOpenAttempts = 5
 	dbOpenBackoff  = 50 * time.Millisecond
@@ -242,13 +203,6 @@ func (k *LadybugBackend) connect() error {
 	return k.connectLocked()
 }
 
-// connectLocked opens the in-memory catalog, retrying a transient failure. The caller
-// must hold k.mu.
-//
-// A failure is deliberately NOT remembered. This used to run inside a sync.Once
-// that stored the error in a field, so one open landing in a writer's
-// checkpoint window poisoned the backend for the rest of its life: every later
-// call on the same instance returned the stale error without retrying.
 func (k *LadybugBackend) connectLocked() error {
 	if k.conn != nil {
 		return nil
@@ -300,15 +254,12 @@ func (k *LadybugBackend) prepareRemoteAccessLocked() {
 	creds := resolvedLadybugS3Credentials(cfg)
 	for _, s := range ladybug.S3ConfigStatements(creds) {
 		if err := k.execQueryLocked(s); err != nil {
-			// The statement carries a secret in some cases, so only the failure is logged.
 			k.log().Warn("configuring S3 access for the graph engine failed")
 			return
 		}
 	}
 }
 
-// loadCanonicalManifestLocked reads icebug.json and adopts it
-// when it describes a CANONICAL catalog. Absent file -> no icebug manifest.
 func (k *LadybugBackend) loadCanonicalManifestLocked() error {
 	candidates := []string{
 		filepath.Join(k.cfg.IcebugDir, ladybug.IcebugManifestFile),
@@ -341,11 +292,9 @@ func resolvedLadybugS3Credentials(cfg config.S3Config) ladybug.S3Credentials {
 		AccessKeyID:     cfg.AccessKeyID,
 		SecretAccessKey: cfg.SecretAccessKey,
 		Region:          cfg.Region,
-		// The scheme is stripped and re-decided by DisableSSL — see S3Credentials.Endpoint.
-		Endpoint: endpoint,
-		// An explicit endpoint is an S3-compatible server, and those need the bucket in the path.
-		PathStyle:  cfg.Endpoint != "",
-		DisableSSL: strings.HasPrefix(cfg.Endpoint, "http://"),
+		Endpoint:        endpoint,
+		PathStyle:       cfg.Endpoint != "",
+		DisableSSL:      strings.HasPrefix(cfg.Endpoint, "http://"),
 	}
 	if !cfg.HasStaticCredentials() {
 		creds.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
@@ -381,12 +330,9 @@ func (k *LadybugBackend) openOnce() error {
 	k.conn = conn
 
 	k.prepareRemoteAccessLocked()
-	// Mount icebug bundle from schema.cypher (filesystem on-the-fly, :memory: catalog).
 	if err := k.mountLocalIcebugLocked(); err != nil {
-		// No bundle yet on first sync is not an error – caller will build it.
 		k.log().Debug("icebug mount skipped", "dir", k.cfg.IcebugDir, "error", err)
 	}
-	// Load canonical manifest after mount so traversal planner sees it.
 	if err := k.loadCanonicalManifestLocked(); err != nil {
 		return err
 	}
@@ -428,8 +374,6 @@ func (k *LadybugBackend) mountLocalIcebugLocked() error {
 }
 
 func (k *LadybugBackend) initSchema() error {
-	// File text lives in the search index, not on the node — the only copy that
-	// is actually queryable.
 	ddl := []string{
 		"CREATE NODE TABLE IF NOT EXISTS File(path STRING, name STRING, relative_path STRING, is_dependency BOOLEAN, lang STRING, cluster STRING, PRIMARY KEY (path))",
 		"CREATE NODE TABLE IF NOT EXISTS Directory(path STRING, name STRING, cluster STRING, PRIMARY KEY (path))",
@@ -533,11 +477,6 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 		ddl = append(ddl, q)
 	}
 
-	// nodeTables is every label that will have a node table once this DDL runs.
-	// A rel table group naming anything else is not a partial failure: LadybugDB
-	// rejects the whole statement, initSchemaForLabels returns, and the rebuild
-	// aborts before swapping the database in — which after --reset leaves no
-	// database at all.
 	nodeTables := make(map[string]bool, len(labelSet)+4)
 	for l := range labelSet {
 		nodeTables[l] = true
@@ -605,9 +544,6 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 		if len(fieldOwners) > 0 {
 			ddl = append(ddl, "CREATE REL TABLE GROUP IF NOT EXISTS HAS_FIELD("+strings.Join(fieldOwners, ", ")+", source_file STRING, line_number INT64)")
 		}
-		// Field access starts at whatever actually accessed the field — a method as
-		// readily as a function. Function stays in the list unconditionally because
-		// the stub end has to exist even when nothing in this corpus reads a field.
 		accessSources := append([]string{LabelFunction}, info.FieldAccessSourceLabels...)
 		accessSources = append(accessSources, info.CallerLabels...)
 		seenAccess := make(map[string]bool)
@@ -765,9 +701,6 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 		cypher = sanitizeCanonicalPKEquality(k.canonical, cypher)
 		if res, handled, err := k.tryCanonicalBoundedTraversal(ctx, cypher, params); handled {
 			if err != nil {
-				// A refusal already says which rule the query broke and what to write
-				// instead; wrapping it in "ladybug query" would bury that behind a
-				// prefix about a layer the reader cannot act on.
 				var refusal *canonicalRefusal
 				if errors.As(err, &refusal) {
 					return nil, refusal
@@ -776,23 +709,11 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 			}
 			return res, nil
 		}
-		// A query the bounded planner did not recognize falls through to the engine
-		// WHEN it can: a node-only pattern (or one naming a PHYSICAL member table)
-		// runs on the mounted tables exactly as written — but equality against a
-		// PRIMARY KEY is still rewritten to IN, because the icebug engine answers
-		// `path = 'x'` with zero rows even when the row exists. What cannot run is
-		// a traversal that names a LOGICAL relationship type — CALLS, CONTAINS —
-		// whose real member tables the engine has no way to fuse into one type.
-		// That is the same fail-closed contract the Hub had; the planner is the
-		// only route.
 		if namesLogicalRel(k.canonical, cypher) {
 			var members []string
 			for _, g := range k.canonical.RelGroups {
 				members = append(members, g.Type)
 			}
-			// Not a refusal by a named rule: the planner did not recognize the query as a
-			// traversal at all — several MATCH clauses, a WITH, a projected path. So this
-			// one names the shapes that ARE planned instead of a rule that was broken.
 			return nil, fmt.Errorf("canonical catalog: a query over %v must be a single "+
 				"`MATCH (a)-[:TYPE]->(b) [WHERE ...] RETURN DISTINCT b.property | count([DISTINCT] b.uid)`, "+
 				"with one end filtered; this query is not that shape, and the planner is the only route for "+
@@ -947,18 +868,6 @@ func (k *LadybugBackend) tablesWithPropertyLocked(prop string) []string {
 	return holders
 }
 
-// missingTableMessage explains "Table Import does not exist", and returns "" for any
-// other error.
-//
-// A label that no indexed file produced has no table, so matching it is a hard error
-// here where Neo4j would answer zero rows. The raw message reads like the graph is
-// broken, when what it means is narrower and more useful: that name is not in THIS
-// project's graph. Which labels are present is the answer to the next question, so it
-// comes along.
-//
-// It stays an error on purpose. Answering an empty result would be friendlier and
-// worse: a typo would become indistinguishable from an honest absence, and the query
-// would look answered.
 func missingTableMessage(err error, present []string) string {
 	m := reMissingTable.FindStringSubmatch(err.Error())
 	if m == nil {
@@ -1330,11 +1239,6 @@ func normalizeLadybugValue(val any) any {
 func translateLadybug(cypher string, params map[string]any) (string, map[string]any) {
 	q := cypher
 
-	// LadybugDB has no secondary indexes and no constraints, so those statements are
-	// answered without running anything. Anchoring at the start is what makes this a
-	// test on the statement: `strings.Contains` over the whole query also fired on a
-	// literal, so searching the codebase for the text 'CREATE INDEX' returned 1
-	// instead of the comments that contain it.
 	if reDDLNoop.MatchString(q) {
 		return "RETURN 1", map[string]any{}
 	}
@@ -1343,19 +1247,10 @@ func translateLadybug(cypher string, params map[string]any) (string, map[string]
 		seg = reOnCreateSet.ReplaceAllString(seg, "SET")
 		seg = reOnMatchSet.ReplaceAllString(seg, "SET")
 
-		// Neo4j's labels(x)[0] is Ladybug's label(x), for any variable — this used
-		// to be a literal replace of `labels(n)[0]`, so it worked only when the
-		// variable happened to be named n.
 		seg = reLabelsIndex.ReplaceAllString(seg, "label($1)")
 
 		seg = reTypeParen.ReplaceAllString(seg, "label(")
 
-		// The label predicate is rewritten BEFORE any label is escaped. Escaping
-		// first puts a backtick exactly where this regex expects the label name, so
-		// the rewrite never fires — which is how `WHERE n:Function` came to fail
-		// while `WHERE n:Method` worked. Method was missing from the old escape
-		// list, so it was the one form left in a shape this could still match: the
-		// rewrite only worked for labels the escaper did not know about.
 		return reLabelPredicate.ReplaceAllString(seg, "${1}label(${2}) = '${3}'")
 	})
 
@@ -1364,8 +1259,6 @@ func translateLadybug(cypher string, params map[string]any) (string, map[string]
 	q = mapOutsideStrings(q, func(seg string) string {
 		seg = rePatternLabel.ReplaceAllString(seg, "$1`$2`")
 
-		// The alternatives after the first, now that the first one is escaped and no
-		// longer looks like one of them.
 		seg = reRelBracket.ReplaceAllStringFunc(seg, func(bracket string) string {
 			if !reRelTypeList.MatchString(bracket) {
 				return bracket

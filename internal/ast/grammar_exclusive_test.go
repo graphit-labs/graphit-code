@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// An exclusive grammar is registered by NAME and not by extension: nothing
-// reaches it by parsing a file whose extension it claims, and nothing falls back
-// to it when another grammar came back empty. Only an ast.grammar override does.
-
 const exclusiveAntlrQueryFile = `language: dialect_excl
 parser: antlr4
 grammar: antlr-dialect_excl
@@ -128,19 +124,7 @@ func TestMergingQueryFileInheritsExclusive(t *testing.T) {
 	}
 }
 
-// The SQL dialects are the reason this flag exists. A .sql file used to be handed
-// to PL/SQL, PostgreSQL, DB2 and T-SQL in turn whenever tree-sitter came back
-// empty — four full ANTLR parses to guess which dialect the repository is written
-// in. They are now reachable only through ast.grammar.
-//
-// No HOME isolation here: this asserts on the query files this repository ships,
-// which testsupport seeds into the runtime directory.
 func TestShippedSQLDialectsAreExclusive(t *testing.T) {
-	// An earlier test in this package rebuilds the global tables while its own
-	// HOME is still redirected, so they can arrive here built from an empty
-	// runtime directory. InvalidateQueryCaches alone does not fix that:
-	// rebuildExtTables reads queryDirState.cached(), which returns the last
-	// load without re-reading the directory. initTsExtMap is the reload.
 	reloadRuntimeTables := func() {
 		InvalidateQueryCaches()
 		initTsExtMap()
@@ -222,8 +206,6 @@ $$ LANGUAGE plpgsql;
 		t.Fatalf("parser = %q, want antlr4", pf.Parser)
 	}
 
-	// spliced_local lives inside the dollar-quoted body. Without the splice the
-	// body is one opaque string constant and no DECLARE variable exists at all.
 	var names []string
 	for _, e := range pf.Entities["variables"] {
 		names = append(names, e.Name)

@@ -10,41 +10,14 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/projectlock"
 )
 
-// A Hub artifact can be installed with no project at all, and this is the record of
-// those installs.
-//
-// Every compiled store in this framework is already global and keyed by id plus
-// version — ASTHubDir, KnowledgeHubDir, and the Hub's own clone cache. Nothing about
-// the DATA was ever per-project. What is per-project is MEMBERSHIP: the lockfile entry
-// that says this project may reach that store, read back by LookupContext. So an
-// install that belongs to no project needs no new store layout; it needs somewhere
-// other than a project lockfile to record the same membership.
-//
-// That somewhere already existed. The global lock at <global>/global.lock.json has
-// recorded every install per artifact version since it was introduced, carrying the id,
-// the version, the type and the projects that asked for it. An install with no project
-// is one more entry there, claimed by the reserved GlobalOwnerKey instead of by a
-// project id.
-//
-// This file is the READ side, and it is deliberately only that. internal/hub writes the
-// global lock; internal/store cannot import internal/hub — hub imports ast, knowledge
-// and memory, which all import this package — so the few fields needed here are read
-// through an anonymous struct. That is the same asymmetry ProjectID already has with the
-// project lockfile it does not own.
-
 // GlobalOwnerKey is the reserved owner of an install that belongs to no project.
 //
 // It matches the key the Hub already uses for artifacts published outside any project,
 // so the two notions of "global" read the same in the files a user may open.
 const GlobalOwnerKey = "_global"
 
-// globalLockFileName is the global lock's file name. It is duplicated from
-// internal/hub rather than imported, for the dependency reason above.
 const globalLockFileName = "global.lock.json"
 
-// globalArtifactRecord is the slice of a global-lock artifact entry that context
-// resolution needs. The entry carries more — name, description, hash, cache path — and
-// none of it decides where a store lives.
 type globalArtifactRecord struct {
 	ID        string                     `json:"id"`
 	Version   string                     `json:"version"`
@@ -90,9 +63,6 @@ func loadGlobalArtifacts() []globalArtifactRecord {
 	for _, rec := range lock.Artifacts {
 		out = append(out, rec)
 	}
-	// The map iteration order is random, and LookupGlobalContext resolves an
-	// unversioned name by taking the highest version. Sorting here makes both that
-	// choice and ListGlobalContexts deterministic between runs.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].ID != out[j].ID {
 			return out[i].ID < out[j].ID
@@ -184,8 +154,6 @@ func LookupGlobalContext(kind, name string) (ContextRecord, bool) {
 			SanitizeName(cr.Name) != wantSanitized && SanitizeName(cr.ArtifactID) != wantSanitized {
 			continue
 		}
-		// Unqualified: the highest installed version answers, so that a caller who
-		// does not care gets the newest rather than whichever the map yielded first.
 		if found && best.Version > cr.Version {
 			continue
 		}

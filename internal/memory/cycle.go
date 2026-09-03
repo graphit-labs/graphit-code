@@ -21,9 +21,6 @@ func RunCycle(ctx context.Context, scope, tableURI, wikiDir string) *CycleResult
 		return res
 	}
 
-	// There is no existence check ahead of this. The raw directory had one — a scope with no
-	// directory had nothing to compile — but opening a table CREATES it, so the equivalent question
-	// is answered by the row count, and an empty scope compiles to an empty wiki in one query.
 	tbl, err := OpenMemoryTable(ctx, tableURI)
 	if err != nil {
 		res.Err = fmt.Errorf("opening the memory store (%s): %w", scope, err)
@@ -48,13 +45,6 @@ func RunUserCycle(ctx context.Context) *CycleResult {
 	return runScopeCycle(ctx, "user")
 }
 
-// runScopeCycle compiles a scope's table into its wiki.
-//
-// There is one compile and one destination. Two earlier arrangements are gone: it
-// used to compile straight into a project-local replica while the daemon compiled
-// into the global wiki — two files, two inodes, and whichever ran last decided what
-// a project could recall — and then it compiled globally and copied outward, which
-// still meant a copy per reader and a fan-out that could silently fall behind.
 func runScopeCycle(ctx context.Context, scope string) *CycleResult {
 	scopeID := resolveScopeID(scope)
 	if scopeID == "" {
@@ -63,12 +53,6 @@ func runScopeCycle(ctx context.Context, scope string) *CycleResult {
 	return RunCycle(ctx, scope, TableURIFor(scope, scopeID), MemoryWikiGlobalDir(scope, scopeID))
 }
 
-// SyncContextFromMemoryRepo compiles an imported context's wiki from that context's table.
-//
-// It used to DOWNLOAD the context first: a `MemoryStoreProvider` materialised the remote prefix into
-// a local raw directory and the compile then read those files. Both the interface and the download
-// are gone — the table at `memory/project/<name>` is read where it lives, which is the point of the
-// store being in object storage.
 func SyncContextFromMemoryRepo(ctx context.Context, contextName string) *CycleResult {
 	return RunCycle(ctx, contextName, ContextTableURI(contextName), contextWikiDir(contextName))
 }

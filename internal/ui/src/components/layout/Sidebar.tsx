@@ -79,14 +79,7 @@ function NavSection({ title, children }: { title: string; children: React.ReactN
   )
 }
 
-/**
- * A single, visually louder entry that sits at the root of the navigation rather
- * than inside a section.
- *
- * Live Search runs an agent over any artifacts the user selects — documentation,
- * code graphs, rules, whatever the Hub carries — so filing it under one of them
- * misrepresented what it does and buried the entry point most sessions start from.
- */
+
 function PrimaryNavItem({
   to, icon, label, hint, onClick,
 }: {
@@ -183,8 +176,8 @@ export function Sidebar({ onClose }: SidebarProps) {
       <ProjectSwitcher />
 
       <nav className="flex-1 overflow-y-auto px-3.5 py-4 space-y-1 scrollbar-none relative z-10">
-        {/* Live search runs an agent CLI on the server; with none installed the whole page is a
-            dead end, so the entry is not offered rather than offered and broken. */}
+        {
+}
         {agentFeaturesEnabled() && (
           <div className="mb-5">
             <PrimaryNavItem

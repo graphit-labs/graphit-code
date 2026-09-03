@@ -43,7 +43,6 @@ var ErrReadOnly = errors.New("lancestore: this store is a published version and 
 // ErrNoSuchTable is returned when a table does not exist.
 var ErrNoSuchTable = errors.New("lancestore: no such table")
 
-// errRerankerChangedSet is returned when a Reranker gives back a different set than it received.
 var errRerankerChangedSet = errors.New("lancestore: the reranker returned a different set of hits")
 
 // FieldType is the column type of a schema field.
@@ -201,10 +200,6 @@ type Index struct {
 	Text TextIndexOptions
 }
 
-// TextIndexOptions is the engine's inverted-index tuning.
-//
-// Every field maps to a Lance FTS parameter. A zero value leaves the engine's default, so a
-// caller configures only what it has measured a reason to change.
 type TextIndexOptions struct {
 	// Language for stemming and stop words, e.g. "English". Empty leaves the default.
 	Language string
@@ -317,12 +312,6 @@ type PruneResult struct {
 	OldVersions  int64
 }
 
-// Version is one entry in a table's history.
-//
-// Lance is MVCC: every write produces a new immutable version and the previous one stays until
-// it is pruned. That makes the history a RECOVERY MECHANISM and not only a curiosity — a
-// destructive write is undone by restoring the version before it, which is what lets a store
-// with no second copy of its data still be recoverable.
 type Version struct {
 	// Version is the dataset version number, which is what Checkout and Restore take.
 	Version uint64
@@ -332,14 +321,6 @@ type Version struct {
 	Metadata map[string]string
 }
 
-// ErrNoTimeTravel is returned when the backend's table does not implement the optional
-// version-history capability.
-//
-// It is a NAMED error rather than a panic or a generic failure because the capability is
-// genuinely optional in the binding: `contracts.ITableTimeTravel` is layered beside `ITable`
-// and reached by type assertion, so a backend can legitimately lack it. A caller that depends
-// on rollback has to be able to detect that and say so, rather than discovering it as a nil
-// dereference.
 var ErrNoTimeTravel = errors.New("lancestore: this table does not support version history")
 
 // ErrCommitConflict is returned when a write lost a commit race and the retries ran out.
@@ -363,9 +344,6 @@ func (q Query) Mode() string {
 	case q.Text != "":
 		return "fts"
 	case q.Filter != "":
-		// A filter with no ranking channel is a LOOKUP, not a search: read the rows matching a
-		// predicate, in storage order. It is how a caller fetches a known row by key, and how a
-		// test asserts what was actually written rather than what a constructor intended.
 		return "filter"
 	default:
 		return "none"

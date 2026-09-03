@@ -1,13 +1,11 @@
 language: python
 grammar: tree-sitter-python
 extensions: [".py"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition name: (identifier) @name)'
@@ -24,9 +22,6 @@ queries:
     graph_label: Variable
     pattern: '(assignment left: (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name, so
-  # that "who holds this URL" is reachable by search. Literals only: an arbitrary
-  # expression is nobody's name.
   - data_key: variables
     graph_label: Variable
     pattern: '(assignment left: (identifier) @name right: [(integer) (float) (true) (false) (none) (string) (concatenated_string)] @value)'
@@ -45,7 +40,6 @@ queries:
     graph_label: Parameter
     pattern: '(parameters (typed_default_parameter name: (identifier) @name))'
 
-  # === Relation queries ===
   - data_key: decorators
     type: relation
     relation_type: DECORATOR
@@ -71,40 +65,28 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment left: (attribute attribute: (identifier) @name))'
 
-# Export detection strategy — Python treats _prefix names as private
 exports:
   strategy: no_prefix
   config:
     prefix: "_"
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["self."]
 
-# Parent context type mapping — Python tree-sitter node types only
-# Used by resolveParentContext() to walk up the AST and find enclosing scope.
 context_types:
   class_definition: Class
   function_definition: Function
 
-# Python has lambda as an anonymous function expression
 anon_func_types:
   - lambda
 
-# Declaration node types that can have docstrings (comments immediately above).
-# Python tree-sitter uses these exact node types as top-level declaration wrappers.
 declaration_types:
   - function_definition
   - class_definition
   - decorated_definition
 
-# Python tree-sitter uses a single "comment" node type for # comments
-# Python docstrings are expression_statement > string, not comment nodes
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. elif_clause is its own node (not a nested
-# if_statement), so it needs its own entry unlike the C-family languages.
 complexity:
   node_types:
     - if_statement
@@ -115,10 +97,6 @@ complexity:
     - boolean_operator
     - conditional_expression
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Function

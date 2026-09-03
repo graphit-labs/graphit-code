@@ -126,9 +126,6 @@ func TestSkillFrontmatterRejectsWhatAnIDEWouldSilentlyDrop(t *testing.T) {
 		}
 	})
 
-	// The description limit is in characters, not bytes: an em dash is three
-	// bytes, so counting bytes would reject a description that is well inside
-	// the limit.
 	t.Run("multibyte description inside the limit", func(t *testing.T) {
 		t.Parallel()
 		description := strings.Repeat("—", MaxSkillDescriptionLength)

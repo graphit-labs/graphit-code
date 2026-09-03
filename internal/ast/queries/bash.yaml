@@ -1,13 +1,11 @@
 language: bash
 grammar: tree-sitter-bash
 extensions: [".sh", ".bash", ".zsh", ".ksh"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition name: (word) @name)'
@@ -15,15 +13,12 @@ queries:
     graph_label: Variable
     pattern: '(variable_assignment name: (variable_name) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name, so
-  # that "which script exports this endpoint" is reachable by search.
   - data_key: variables
     graph_label: Variable
     pattern: '(variable_assignment name: (variable_name) @name value: [(word) (number) (string) (raw_string) (ansi_c_string)] @value)'
     value_capture: value
     value_label: Value
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -33,32 +28,23 @@ queries:
     relation_type: CALLS
     pattern: '(command_substitution (command name: (command_name (word) @name)))'
 
-# Bash has no native export/visibility system for functions
 exports:
   strategy: none
 
-# Bash does not use self/this
 self_keywords: []
 
-# Parent context type mapping — Bash tree-sitter node types only
 context_types:
   function_definition: Function
 
-# Bash has no anonymous function types
 anon_func_types: []
 
-# Declaration node types for docstring attachment
 declaration_types:
   - function_definition
   - variable_assignment
 
-# Bash tree-sitter uses a single "comment" node type for # comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. elif_clause is its own node (not nested inside
-# if_statement), and && / || are bare anonymous tokens.
 complexity:
   node_types:
     - if_statement
@@ -68,10 +54,6 @@ complexity:
     - case_item
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Function
   - Variable

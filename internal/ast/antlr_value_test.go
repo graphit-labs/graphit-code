@@ -8,20 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// The ANTLR adapter ignored value_capture entirely, so the declared defaults of an
-// enterprise schema were parsed and then dropped: a column told you it existed,
-// never that it is born 'ABERTO'; a PL/SQL constant never that it is 42; a COBOL
-// data item never its VALUE clause, which is how COBOL declares a constant at all.
-//
-// value_capture on this side is a rule path, not a capture name, because an ANTLR
-// match is a subtree rather than a capture list.
-
-// stageAntlr stages an ANTLR query file into a fresh project.
-//
-// parseWithConfig is called directly, as plsqlParse already does: the
-// extension-keyed tables the public entry points consult are built from the
-// runtime and user query directories only, so a project-local grammar is
-// discoverable but not selectable through them.
 func stageAntlr(t *testing.T, queryFile string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("queries", queryFile))
@@ -55,8 +41,6 @@ func parseAntlrFixture(t *testing.T, proj, name, src string, cfg *antlrLangConfi
 	return pf
 }
 
-// antlrValues returns, for each entity name, the value on the entity, and the
-// names of the Value nodes contained by it.
 func antlrValues(pf *ParsedFile) (map[string]string, map[string][]string) {
 	onEntity := map[string]string{}
 	contained := map[string][]string{}
@@ -78,12 +62,8 @@ func TestAntlrDeclaredDefaultsBecomeNodes(t *testing.T) {
 		name, queryFile, file, source string
 		cfg                           *antlrLangConfig
 		want                          map[string]string
-		// reject names that must NOT carry a value: a CHECK constraint is not a
-		// default, and reading one as a default is what a descendant search does.
-		reject []string
-		// wantLabel pins the label a declaration lands under, which for Oracle
-		// depends on a keyword the rule name does not carry.
-		wantLabel map[string]string
+		reject                        []string
+		wantLabel                     map[string]string
 	}{
 		{
 			name: "plsql", queryFile: "plsql.yaml", file: "t.sql",

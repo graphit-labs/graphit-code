@@ -37,7 +37,6 @@ func GetClusterProjects(projectDir string, filterLabel ...string) (map[string]*S
 	projects := make(map[string]*SiblingProject)
 	counts := make(map[string]int)
 
-	// Include the current project itself.
 	if labelKey == "" || hasLabelKey(currentInst, labelKey) {
 		counts[currentID]++
 		projects[currentID] = &SiblingProject{
@@ -126,14 +125,11 @@ func isClusterSibling(current, candidate *InstanceEntry) bool {
 	return false
 }
 
-// hasLabelKey returns true if the instance has the given cluster label key.
 func hasLabelKey(inst *InstanceEntry, key string) bool {
 	vals, ok := inst.Cluster[key]
 	return ok && len(vals) > 0
 }
 
-// sharesLabel returns true if current and candidate share at least one value
-// for the given cluster label key.
 func sharesLabel(current, candidate *InstanceEntry, key string) bool {
 	currentVals, ok := current.Cluster[key]
 	if !ok {

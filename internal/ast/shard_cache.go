@@ -12,72 +12,6 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// shardCacheVersion invalidates every cached shard when it changes: a manifest written
-// under a different version is discarded, so every file looks changed and is parsed
-// again.
-//
-// **Bump it whenever the shape of what gets cached changes** — a new entity kind, a
-// different label, a field added to an entry. Entries are keyed by the file's content
-// hash, so a change in the conversion logic does not move the key: without a bump, the
-// new logic reaches only files that happen to be edited afterwards, and everyone else
-// keeps the old graph while running the new binary.
-//
-// 2: imports became entities (Import / Include / Export) instead of edge records only.
-// 3: captured names are trimmed, so a padded reference target resolves to its declaration.
-// 4: the <script>/<style> body of a single-file component is parsed with its own
-//
-//	grammar, so a .vue or .svelte now yields imports, script entities and CALLS
-//	where it previously yielded only markup.
-//
-// 5: entities, calls and references carry the language that PRODUCED them, not the
-//
-//	host file's, so an embedded block resolves against its own grammar's
-//	declarations and TargetRules. Without the bump, a corpus whose embedded SQL
-//	files are unchanged keeps resolving them as the host format.
-//
-// 6: an embedded block's statements are attributed to the HOST entity that contains
-//
-//	them instead of to the file, so the source of the edge changes for every file
-//	that carries one; and an index now yields its table, its covered columns and a
-//	UNIQUE marker where it used to yield a bare name; and the SQL family emits
-//	column-grain writes whose target is qualified by its table.
-//
-// 7: JavaScript, TypeScript and TSX yield Pair/Value for a config or lookup object and
-//
-//	an Import for require(), so a file whose only content is `export default { … }`
-//	stops being empty — measured on this repository, tailwind.config.js went from 0
-//	entities to 83.
-//
-// 8: the host of an embedded block is the entity that CONTAINS it, not the one crossing
-//
-//	the line above it — so the source of every DML edge from an embedded block moves,
-//	from the sibling element preceding the block to whatever unit the grammar declares
-//	around it (or to the file, when it declares none). Without the bump, a corpus whose
-//	files are unchanged keeps the previous, wrong source.
-//
-// 9: a keyword is no longer indexed as a call target (PL/SQL's `call_statement` makes a
-//
-//	bare identifier a complete call, and its non-reserved keyword list holds BEGIN,
-//	DECLARE, IF and PROCEDURE), a trigger is no longer a possible call target at all, and
-//	an embedded block may declare the wrapping a FRAGMENT needs to parse — which turns a
-//	program unit body from nothing into its procedure and everything it calls.
-//
-// 10: the file's text left the nodes shard. A shard is a LOCAL artifact — it exists to
-//
-//	build the Parquet bundle and the Lance tables, and it never travels — so a copy of
-//	text that is already in the working tree grows the store with the corpus and buys
-//	nothing. A project reads the text from the tree; a store installed from elsewhere
-//	reads it from its search index, which is what the text travels in.
-//
-// 11: the legacy file_row tuple left the nodes shard. It redundantly carried file metadata
-//
-//	and retained source text at index 5 when source indexing was enabled; cluster now has its
-//	own field.
-//
-// 12: node and edge JSON payloads are stored as independent zstd frames. The previous plain JSON
-//
-//	format occupied 4.85 GB for the Linux corpus although the same bytes compress to 281 MB as one
-//	stream; independent frames preserve per-file incremental replacement and bounded reads.
 const shardCacheVersion = 12
 
 const (
@@ -116,8 +50,6 @@ type ShardCache struct {
 	dirty    map[string]bool
 	nodes    map[string]*shardNodes
 	edges    map[string]*shardEdges
-	// interner is corpus-wide and lives as long as the cache: the values it holds are
-	// the ones repeated across files, so a table shared by every file is the point.
 	interner *shardInterner
 }
 
@@ -187,11 +119,6 @@ func NewShardCache(cacheDir string) (*ShardCache, error) {
 		}
 	}
 	if !usable {
-		// The manifest is gone or was written under another version, so every shard
-		// beside it is about to be reparsed and none of them will be read again.
-		// Deleting the directory is what actually returns their bytes: a shard whose
-		// suffix no writer produces any more — `.emb.json`, once a second copy of every
-		// vector — is reachable by nothing and would otherwise sit there forever.
 		_ = os.RemoveAll(filepath.Join(cacheDir, "shards"))
 	}
 
@@ -237,17 +164,6 @@ func (sc *ShardCache) SourceOf(relPath string) string {
 	return toValidUTF8(string(data))
 }
 
-// toValidUTF8 replaces malformed byte sequences the way encoding/json does.
-//
-// SAFETY: this is not cosmetic. The text goes into an Arrow string column, and Arrow REJECTS
-// a batch containing invalid UTF-8 — one bad byte fails the whole append, so a single file
-// takes down the index write for every file batched with it.
-//
-// It used to be handled by accident: the text reached the index through a JSON shard, and
-// Go's encoding/json substitutes U+FFFD on the way in. Reading the file directly removed the
-// round trip and with it the substitution, which surfaced as
-// `Invalid UTF8 sequence at string index 1` on a corpus of XML reports. Same substitution,
-// now on purpose.
 func toValidUTF8(s string) string {
 	if utf8.ValidString(s) {
 		return s
@@ -274,10 +190,10 @@ func (sc *ShardCache) NeedsHash(relPath string, mtime int64) bool {
 	defer sc.mu.Unlock()
 	e, ok := sc.manifest.Files[relPath]
 	if !ok {
-		return true // not in cache at all
+		return true
 	}
 	if e.Mtime == 0 {
-		return true // no mtime stored yet — need to hash and record it
+		return true
 	}
 	return e.Mtime != mtime
 }
@@ -289,7 +205,7 @@ func (sc *ShardCache) StoreMtime(relPath string, mtime int64) {
 	defer sc.mu.Unlock()
 	if e, ok := sc.manifest.Files[relPath]; ok {
 		e.Mtime = mtime
-		sc.dirty[""] = true // manifest changed
+		sc.dirty[""] = true
 	}
 }
 
@@ -356,10 +272,6 @@ func (sc *ShardCache) getEntryLocked(relPath string) *parseCacheEntry {
 	return mergeShards(relPath, n, e, me.Lang, me.Dep)
 }
 
-// adoptShardsLocked compacts freshly decoded shards and puts them in the cache. Either may
-// be nil, meaning that half of the file was already cached. Both halves share one local
-// interner because an identifier a file declares in its nodes is the same identifier its
-// edges point at.
 func (sc *ShardCache) adoptShardsLocked(relPath string, n *shardNodes, e *shardEdges) {
 	if n == nil && e == nil {
 		return
@@ -480,9 +392,6 @@ func (sc *ShardCache) StreamEntries(fn func(relPath string, entry *parseCacheEnt
 	sc.streamEntriesExcept(nil, fn)
 }
 
-// streamEntriesExcept is StreamEntries with a pre-load exclusion set. The skip
-// check happens before GetEntry so a path being reparsed is not decoded only to
-// be replaced moments later.
 func (sc *ShardCache) streamEntriesExcept(skip map[string]bool, fn func(relPath string, entry *parseCacheEntry) bool) {
 	sc.mu.Lock()
 	paths := make([]string, 0, len(sc.manifest.Files))

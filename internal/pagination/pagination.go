@@ -1,4 +1,3 @@
-// Package pagination implements deterministic cursor windows for public query surfaces.
 package pagination
 
 import (

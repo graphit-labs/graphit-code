@@ -36,8 +36,6 @@ func TestCompactionPreservesEveryValue(t *testing.T) {
 		if got == nil {
 			t.Fatalf("%s: not found after reload", relPath)
 		}
-		// Source and legacy FileRow are not persisted in a shard, so they are fields a round-trip
-		// legitimately drops.
 		want.Source = ""
 		want.FileRow = nil
 		if !reflect.DeepEqual(got, want) {
@@ -73,7 +71,6 @@ func TestCompactionSharesRepeatedStrings(t *testing.T) {
 		t.Fatal("entries missing after reload")
 	}
 
-	// The same path repeats once per entity inside a shard and must cost one allocation.
 	if data(a.Entities[0].Path) != data(a.Entities[1].Path) {
 		t.Error("Path repeated inside a file is still two allocations")
 	}
@@ -87,10 +84,6 @@ func TestCompactionSharesRepeatedStrings(t *testing.T) {
 		t.Error("two DIFFERENT paths were folded into one value")
 	}
 
-	// A callee, a base class, and an accessed field are all "pointed at from many files";
-	// interning them per-file (discarded per file) would miss the exact duplication that
-	// happens when two DIFFERENT files reference the same one. These three must be on the
-	// corpus-wide table, like ModuleUID and References.TargetUID already are.
 	if data(a.Calls[0].CalleeUID) != data(b.Calls[0].CalleeUID) {
 		t.Error("CalleeUID referenced by two files is still two allocations")
 	}
@@ -101,9 +94,6 @@ func TestCompactionSharesRepeatedStrings(t *testing.T) {
 		t.Error("FieldAccess.FieldUID referenced by two files is still two allocations")
 	}
 
-	// CallerUID and SourceUID are declared IN the referencing file, not pointed at from
-	// elsewhere — the local (per-file) table is correct for them, and unrelated distinct
-	// UIDs must never collapse into the same allocation regardless of which table holds them.
 	if data(a.Calls[0].CallerUID) == data(b.Calls[0].CallerUID) {
 		t.Error("two DIFFERENT CallerUIDs were folded into one value")
 	}
@@ -168,8 +158,6 @@ func data(s string) uintptr {
 	return uintptr(unsafe.Pointer(unsafe.StringData(s)))
 }
 
-// compactionCorpus exercises every record kind the compaction touches, with values that
-// repeat within a file and across files.
 func compactionCorpus() []*parseCacheEntry {
 	build := func(rel, name string) *parseCacheEntry {
 		return &parseCacheEntry{
@@ -206,13 +194,10 @@ func compactionCorpus() []*parseCacheEntry {
 			},
 			Inheritance: []cachedInheritance{
 				{ChildUID: rel + ":A", ParentUID: rel + ":B", RelType: "INHERITS", Path: rel, Line: 1},
-				// A base class both files inherit from — the cross-file case ParentUID
-				// interning exists for.
 				{ChildUID: rel + ":A", ParentUID: "external:CommonBase", RelType: "INHERITS", Path: rel, Line: 2},
 			},
 			FieldAccess: []cachedFieldAccess{
 				{SourceUID: rel + ":A", FieldUID: rel + ":A:f", IsWrite: true, Path: rel, Line: 2},
-				// A field both files read — the cross-file case FieldUID interning exists for.
 				{SourceUID: rel + ":A", FieldUID: "external:CommonBase.f", IsWrite: false, Path: rel, Line: 3},
 			},
 			References: []cachedReference{

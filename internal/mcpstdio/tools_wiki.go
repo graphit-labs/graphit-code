@@ -103,12 +103,6 @@ func sortWikiResults(results []wiki.WikiSearchResult) {
 	})
 }
 
-// resolveWikiScopeDirContext is resolveWikiScopeDir for an imported context.
-//
-// A context is addressed differently by the two wikis, which is why the name is a
-// single parameter rather than two: for knowledge it names an imported documentation
-// set, and for memory it names the SCOPE — an imported memory context, or "project"
-// when unspecified.
 func resolveWikiScopeDirContext(projectDir, wikiScope, contextName string) (string, error) {
 	switch wikiScope {
 	case "", "project", "knowledge":
@@ -123,22 +117,11 @@ func resolveWikiScopeDirContext(projectDir, wikiScope, contextName string) (stri
 	}
 }
 
-// openWikiForRead opens a wiki index for querying and refuses one with no content.
-//
-// OpenWikiDB CREATES what it opens, so "opened fine" says nothing about whether
-// anything was ever indexed: a fresh project, or a page written in the seconds
-// before the daemon recompiles, yields a perfectly healthy EMPTY index whose every
-// answer is "no results" for a reason that has nothing to do with the query. The
-// markdown-backed search paths were taught this distinction after it cost a whole
-// session of silent no-recall; these tools had not been.
 func openWikiForRead(ctx context.Context, projectDir, wikiScope string) (*wiki.WikiDB, error) {
 	return openWikiForReadContext(ctx, projectDir, wikiScope, "")
 }
 
 func openWikiForReadContext(ctx context.Context, projectDir, wikiScope, contextName string) (*wiki.WikiDB, error) {
-	// A PUBLISHED CONTEXT IS READ WHERE IT LIVES. Nothing was downloaded for it, so there is no
-	// local directory to resolve — the engine queries the objects on S3 directly. Tried first,
-	// because a stale local copy from before the switch would otherwise win silently.
 	if db, mounted, err := openMountedWiki(ctx, projectDir, wikiScope, contextName); mounted {
 		return db, err
 	}
@@ -217,9 +200,6 @@ func registerWikiTools(server *mcp.Server) {
 
 		wikis := input.Wikis
 		if len(wikis) == 0 {
-			// A project-less caller has no project wiki, so the default cannot be
-			// "project" there. Memory is the source it does have: its user scope is
-			// keyed by the machine rather than by a project.
 			if projectDir == "" {
 				wikis = []string{"memory"}
 			} else {
@@ -227,10 +207,6 @@ func registerWikiTools(server *mcp.Server) {
 			}
 		}
 
-		// Every source other than "memory" names a project — "project" itself, and an
-		// ecosystem project ID. Without a project_dir those resolve to nothing, and a
-		// search over nothing answers "no results", which reads as a fact about the
-		// documentation instead of about the request.
 		if projectDir == "" {
 			for _, w := range wikis {
 				if w != "memory" {
@@ -316,13 +292,7 @@ func registerWikiTools(server *mcp.Server) {
 			}
 			return jsonResult(paged)
 
-		default: // hybrid
-			// Try to get embedding client; fall back to FTS-only if unavailable.
-			//
-			// The fallback is deliberate, but it used to be SILENT: with no vectors,
-			// "hybrid" answered from the lexical index and said so nowhere, so a
-			// broken embedder read as a working hybrid search for as long as nobody
-			// checked. The reason is reported alongside the results instead.
+		default:
 			var queryVec []float32
 			var degraded string
 			if embClient, embErr := ai.NewEmbeddingClientFromConfig(); embErr != nil {
@@ -357,7 +327,6 @@ func registerWikiTools(server *mcp.Server) {
 				return errResult(fmt.Errorf("%s", strings.Join(skipped, "; ")))
 			}
 
-			// Sort merged results by score descending and trim.
 			sortWikiResults(allResults)
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
@@ -377,8 +346,6 @@ func registerWikiTools(server *mcp.Server) {
 			return jsonResult(paged)
 		}
 	}))
-
-	// New WikiDB tools
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "browse"),
@@ -582,8 +549,6 @@ func registerWikiTools(server *mcp.Server) {
 		}
 		embedder := wiki.NewWikiEmbedder(embClient, wiki.DefaultWikiEmbedConfig())
 
-		// The same targets the daemon embeds, so a manual run and the background loop
-		// cannot disagree about which copy of a wiki is the one worth embedding.
 		targets := daemon.WikiEmbedTargets(projectDir, nil)
 		if input.Wiki != "" {
 			filtered := targets[:0]
@@ -628,7 +593,6 @@ func registerWikiTools(server *mcp.Server) {
 		case "", "project", "knowledge":
 		case "memory":
 			module = "memory"
-			// The memory wiki is addressed by scope, not by imported context.
 			if contextName == "" {
 				contextName = "project"
 			}
@@ -648,9 +612,6 @@ func registerWikiTools(server *mcp.Server) {
 			LineNumbers: input.LineNumbers,
 		}
 
-		// A PUBLISHED CONTEXT HAS NO PAGE FILES. Nothing was downloaded, so the text comes out of
-		// the index — the same text, because the wiki compiles one chunk per document, so
-		// `chunks.body` is the page rather than a slice of it.
 		if module == "knowledge" {
 			if db, mounted, mErr := openMountedWiki(ctx, projectDir, "knowledge", contextName); mounted {
 				if mErr != nil {
@@ -682,9 +643,6 @@ func registerWikiTools(server *mcp.Server) {
 		wikiDir := resolveWikiDir(module, projectDir, contextName)
 		result, err := wiki.ReadPageAt(ctx, wikiDir, input.Path, slice)
 		if err != nil {
-			// A wrong slug is the common mistake, so name what is actually there
-			// rather than leaving the agent to guess or fall back to a file read.
-			// A refused reference keeps its own reason instead.
 			if pages := wiki.ListPagesAt(ctx, wikiDir); errors.Is(err, wiki.ErrPageNotFound) && len(pages) > 0 {
 				sort.Strings(pages)
 				shown := pages
@@ -706,7 +664,6 @@ func registerWikiTools(server *mcp.Server) {
 	}))
 }
 
-// wikiScopeMatchesTarget maps a user-facing scope name onto one of the embed targets.
 func wikiScopeMatchesTarget(scope, dir string) bool {
 	slashed := filepath.ToSlash(dir)
 	switch scope {

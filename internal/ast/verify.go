@@ -37,52 +37,10 @@ type VerifyReport struct {
 // Clean reports whether the graph agreed with disk everywhere it could be checked.
 func (r VerifyReport) Clean() bool { return len(r.Divergences) == 0 }
 
-// verifyBatch is how many nodes are pulled per query.
 const verifyBatch = 20000
 
-// verifyRecheckDelay is how long the second pass waits before re-reading.
-//
-// It is not politeness, it is the discriminator. The transient corruption is a property
-// of reading while the writer is active, and an immediate re-read is still inside that
-// same window — measured here: an in-process recheck with no pause confirmed 1873
-// "divergences" over a graph that verified clean once the writer went idle. Asking
-// again seconds later is what the failure mode actually responds to.
-//
-// A variable rather than a constant so tests can drop it to zero; nothing else writes it.
 var verifyRecheckDelay = 3 * time.Second
 
-// VerifyGraphAgainstDisk checks that the text the graph holds is the text on disk.
-//
-// It exists for a failure mode nothing else here can see. LadybugDB's string
-// corruption has a SILENT form — a wrong (offset, length) pair that lands on the valid
-// text of ANOTHER row — and the value that comes back is well-formed UTF-8, internally
-// consistent with the rest of its row, and simply wrong. Nothing raises: not the write,
-// not the read, not the FTS build. The one occurrence caught so far was caught by a
-// reviewer who happened to know that a comment about Cypher could not live in a React
-// component.
-//
-// The existing check — `MATCH (n:<Label>) RETURN count(toLower(n.name))` per label —
-// only finds INVALID UTF-8, so it passes clean over a graph corrupted this way. That is
-// not a weaker version of this check; it is a check of something else.
-//
-// The method is the only one available: compare against the file. Text that came FROM a
-// file can be verified against that file without reparsing anything, which is why
-// comments are the primary subject — a Comment's name IS the source text — and why
-// declarations are the secondary one: a declaration's name must appear on the line the
-// graph says it is on.
-//
-// This DETECTS; it cannot repair. The defect is upstream and open, and `graphit sync`
-// will not fix it either: the shard cache is keyed by content hash, so it reports the
-// intact file as up to date and never rewrites the row. Only a reindex or a reset does.
-//
-// TWO PASSES, and the second one is what makes this trustworthy. The same corruption
-// has a TRANSIENT form: a read landing inside the daemon's write window comes back with
-// another row's text and then agrees with disk seconds later. Measured here — a first
-// pass right after a sync reported 1915 divergences over a graph that was intact, and
-// the very next pass reported none. A probe that shouted on that would be switched off
-// within a week, and the durable case would then have nowhere to appear. So anything
-// that fails is re-read and re-compared; only what fails BOTH times is reported as a
-// divergence, and what recovers is counted as transient and named as such.
 func VerifyGraphAgainstDisk(ctx context.Context, db GraphDB, rootPath string) (VerifyReport, error) {
 	var report VerifyReport
 
@@ -94,9 +52,6 @@ func VerifyGraphAgainstDisk(ctx context.Context, db GraphDB, rootPath string) (V
 		return report, nil
 	}
 
-	// One file is read once and checked against every node claiming to come from it.
-	// Grouping by path is what keeps this to seconds on a corpus of tens of thousands
-	// of nodes: the cost is the file reads, not the comparisons.
 	var candidates []Divergence
 	byPath := make(map[string][]graphText)
 	for _, label := range labels {
@@ -173,8 +128,6 @@ func reverify(ctx context.Context, db GraphDB, rootPath string, candidates []Div
 		return nil, 0, nil
 	}
 
-	// One pause for the whole batch, not one per node: what has to change between the
-	// two reads is the writer's state, and that is the same for every candidate.
 	select {
 	case <-ctx.Done():
 		return nil, 0, ctx.Err()
@@ -191,8 +144,6 @@ func reverify(ctx context.Context, db GraphDB, rootPath string, candidates []Div
 			return nil, 0, err
 		}
 		if fresh == "" {
-			// The node is gone between the two passes — a reindex swapped the
-			// database under us. Not a claim this probe can make either way.
 			transient++
 			continue
 		}
@@ -219,7 +170,6 @@ func reverify(ctx context.Context, db GraphDB, rootPath string, candidates []Div
 	return confirmed, transient, nil
 }
 
-// refetchText reads one node's text again, addressed by everything that identifies it.
 func refetchText(ctx context.Context, db GraphDB, d Divergence) (string, error) {
 	q := fmt.Sprintf(
 		"MATCH (n:`%s`) WHERE n.path = $path AND n.line_number = $line RETURN n.name LIMIT 8",
@@ -245,18 +195,6 @@ type graphText struct {
 	isDepend bool
 }
 
-// verifiableLabels are the node labels whose name can be checked against a file.
-//
-// Derived from the live schema rather than listed here, so a grammar that introduces a
-// label gets covered without touching this file. Three groups are excluded, each for a
-// reason that would otherwise turn the probe into noise:
-//
-//   - File, Directory and Module name a path or a dependency, not a span of source.
-//   - Value, AttributeValue and Text are named after their own content, and that
-//     content goes through dataText, which unquotes and truncates it. A truncated name
-//     is not in the file verbatim, and would be reported as a divergence forever.
-//     Comment is content-named too but keeps its text intact, so it stays in.
-//   - anything the graph holds no text for is filtered per row, not per label.
 func verifiableLabels(ctx context.Context, db GraphDB) ([]string, error) {
 	res, err := db.Query(ctx, "CALL show_tables() RETURN *", nil)
 	if err != nil {
@@ -271,7 +209,6 @@ func verifiableLabels(ctx context.Context, db GraphDB) ([]string, error) {
 	var labels []string
 	for _, rec := range res.Records {
 		name, ok1 := rec["name"].(string)
-		// Relationship tables answer show_tables() too, and have no name column.
 		typ, ok2 := rec["type"].(string)
 		if !ok1 || !ok2 || typ != "NODE" || skip[name] {
 			continue
@@ -283,15 +220,11 @@ func verifiableLabels(ctx context.Context, db GraphDB) ([]string, error) {
 }
 
 func fetchGraphText(ctx context.Context, db GraphDB, label string) ([]graphText, error) {
-	// is_stub is excluded in the query rather than filtered afterwards: a stub has no
-	// path and no line by construction, so it is not a thing disk can confirm or deny.
 	q := fmt.Sprintf(
 		"MATCH (n:`%s`) WHERE n.is_stub = false RETURN n.name, n.path, n.line_number, n.end_line, n.is_dependency LIMIT %d",
 		label, verifyBatch)
 	res, err := db.Query(ctx, q, nil)
 	if err != nil {
-		// A label with no such property set is not an error worth aborting the whole
-		// pass for — the next label may still be checkable.
 		return nil, nil
 	}
 
@@ -355,17 +288,6 @@ func windowOf(lines []string, start, end int) ([]string, bool) {
 	return lines[start-1 : end], true
 }
 
-// textSupportedBy reports whether the file window can account for the graph's text.
-//
-// Containment per line rather than equality, and deliberately so. A comment's stored
-// text has been through cleanDocstring — markers stripped, blank lines dropped, lines
-// joined — while a trailing comment shares its line with code, and an entity's name is
-// one token on a line of many. Equality would report all of those, every run, and a
-// probe that cries wolf is worse than no probe: it gets switched off, and then the one
-// real divergence has nowhere to appear.
-//
-// What it does catch is the failure it exists for. Text borrowed from another row does
-// not appear on these lines at all, so every one of its lines fails containment at once.
 func textSupportedBy(graphText string, window []string) bool {
 	joined := strings.Join(window, "\n")
 	for _, line := range strings.Split(graphText, "\n") {

@@ -28,7 +28,7 @@ func TestAntlrConcurrentParseRace(t *testing.T) {
 
 	const (
 		maxFiles = 600
-		maxBytes = 32 * 1024 // skip huge files to keep the -race run bounded
+		maxBytes = 32 * 1024
 	)
 
 	var files []string
@@ -58,8 +58,6 @@ func TestAntlrConcurrentParseRace(t *testing.T) {
 		t.Fatal("native antlr-plsql driver not registered")
 	}
 
-	// Warm the static ATN once so the sync.Once init is not itself the contended
-	// path; the race of interest is the DFA edge cache mutated during parsing.
 	if src, err := os.ReadFile(files[0]); err == nil {
 		_, _ = drv.Parse(src)
 	}
@@ -80,7 +78,6 @@ func TestAntlrConcurrentParseRace(t *testing.T) {
 				if err != nil {
 					continue
 				}
-				// Concurrent parse: exercises the shared static ATN/DFA.
 				_, _ = drv.Parse(src)
 			}
 		}()

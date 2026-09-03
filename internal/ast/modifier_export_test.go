@@ -2,8 +2,6 @@ package ast
 
 import "testing"
 
-// legacyIsExportedByModifier is the previous in-isExported logic, reading the
-// entity's retained Source, kept as the oracle.
 func legacyIsExportedByModifier(strategy, source string, config map[string]string, configList map[string][]string) bool {
 	switch strategy {
 	case "modifier":
@@ -40,8 +38,8 @@ func TestModifierExportVerdictMatchesLegacy(t *testing.T) {
 		"protected final String s;",
 		"static void helper() {}",
 		"func Exported() {}",
-		"publicish notAModifier",   // substring that must NOT count as the modifier
-		"  public   void spaced()", // padding
+		"publicish notAModifier",
+		"  public   void spaced()",
 		"nonpublic",
 		"PUBLIC UPPER",
 		"export default function f(){}",
@@ -52,9 +50,9 @@ func TestModifierExportVerdictMatchesLegacy(t *testing.T) {
 		list map[string][]string
 	}{
 		{"modifier", map[string]string{"keyword": "public"}, nil},
-		{"modifier", map[string]string{}, nil}, // missing keyword
+		{"modifier", map[string]string{}, nil},
 		{"no_modifier", nil, map[string][]string{"keywords": {"private", "protected"}}},
-		{"no_modifier", nil, map[string][]string{}}, // empty list
+		{"no_modifier", nil, map[string][]string{}},
 		{"no_static", nil, nil},
 		{"none", nil, nil},
 		{"unknown_strategy", nil, nil},
@@ -84,8 +82,6 @@ func TestIsExportedUsesPrecomputedVerdict(t *testing.T) {
 	}
 }
 
-// TestNonModifierStrategiesUnaffected confirms strategies that never looked at
-// the body text still behave as before.
 func TestNonModifierStrategiesUnaffected(t *testing.T) {
 	e := &Entity{Name: "Foo"}
 	if !isExported("capitalized_name", e, nil, nil, nil) {

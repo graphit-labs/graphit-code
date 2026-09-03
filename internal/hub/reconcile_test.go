@@ -194,7 +194,6 @@ func TestReconcileManagedArtifacts(t *testing.T) {
 
 	t.Run("no lockfile", func(t *testing.T) {
 		t.Parallel()
-		// Create a fake not-ready registry
 		reg := &RegistryManager{}
 		err := ReconcileManagedArtifacts(reg, "/nonexistent/lock.json")
 		if err != nil {
@@ -213,7 +212,6 @@ func TestReconcileManagedArtifactsFromDir(t *testing.T) {
 	}
 	_ = SaveLockfile(lockPath, lf)
 
-	// nil registry is fine
 	err := ReconcileManagedArtifactsFromDir(nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

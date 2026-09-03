@@ -67,8 +67,6 @@ func TestLadybugStringIntegrityUnderGCPressure(t *testing.T) {
 	r.Close()
 	setup.Close()
 
-	// Accented multi-byte text, so a byte-level mangling lands mid-character and
-	// shows up as invalid UTF-8 rather than as a plausible substitution.
 	unit := "criação de índice não padrão para pedido em açaí — linha "
 	body := func(w, i int) string {
 		s := fmt.Sprintf("w%d-r%d|", w, i)
@@ -81,8 +79,6 @@ func TestLadybugStringIntegrityUnderGCPressure(t *testing.T) {
 	const rows = 3000
 	const batchSize = 32
 
-	// A collector that never rests. Restored before the test returns so the rest
-	// of the package does not inherit it.
 	oldGC := debug.SetGCPercent(1)
 	defer debug.SetGCPercent(oldGC)
 
@@ -101,9 +97,6 @@ func TestLadybugStringIntegrityUnderGCPressure(t *testing.T) {
 		}
 	}()
 
-	// A reader hammering the same table while the writer works. Readers are
-	// allowed concurrently, and a read crossing a write is where a shared buffer
-	// would show.
 	stopRead := make(chan struct{})
 	var readWG sync.WaitGroup
 	readWG.Add(1)

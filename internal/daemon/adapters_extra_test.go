@@ -71,8 +71,6 @@ func TestNewDreamModule_Fields(t *testing.T) {
 	}
 }
 
-// EmbeddingModule.Start — returns error from context (ast.RunEmbeddingLoop)
-
 func TestEmbeddingModule_Start_ReturnsOnCancel(t *testing.T) {
 	tmpDir := t.TempDir()
 	cacheDir := filepath.Join(tmpDir, "cache")
@@ -86,13 +84,10 @@ func TestEmbeddingModule_Start_ReturnsOnCancel(t *testing.T) {
 		errCh <- m.Start(ctx)
 	}()
 
-	// Let it run briefly then cancel.
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 
 	err := <-errCh
-	// The error can be nil or context.Canceled depending on how
-	// ast.RunEmbeddingLoop handles cancellation.
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
 		t.Logf("Start returned: %v (may be expected)", err)
 	}

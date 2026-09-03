@@ -14,9 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// writeProjectSearchIndex lays out a project the way the UI server expects to find
-// one — its global store, with the search index beside the graph — and puts one
-// file's text in that index. Returns the project root.
 func writeProjectSearchIndex(t *testing.T, relPath, src string) string {
 	t.Helper()
 
@@ -35,16 +32,12 @@ func writeProjectSearchIndex(t *testing.T, relPath, src string) string {
 		t.Fatalf("open search index: %v", err)
 	}
 	putFileRow(t, idx, relPath, src)
-	// Closed before returning: the handler opens the same store read-only, and the
-	// engine allows only one writer.
 	if err := idx.Close(); err != nil {
 		t.Fatalf("close search index: %v", err)
 	}
 	return root
 }
 
-// serverRootedAt builds a Server for a project without ever opening its graph:
-// LadybugBackend connects lazily, so DBPath() answers from configuration alone.
 func serverRootedAt(t *testing.T, root string) *Server {
 	t.Helper()
 
@@ -67,13 +60,6 @@ func getFile(t *testing.T, srv *Server, query string) *httptest.ResponseRecorder
 	return rec
 }
 
-// TestHandleFileServesTheProjectTheRequestNames is the regression for a 404 on
-// "view source" that only appeared once you switched projects in the UI.
-//
-// Every explorer call carries project_dir, and /api/graph honours it — so the graph
-// on screen was the other project's. /api/file did not: it asked storePathFor, which
-// only knows the project the server was started in, and answered "File source not
-// found" for a file that is indexed, just not in the store it looked at.
 func TestHandleFileServesTheProjectTheRequestNames(t *testing.T) {
 	const otherRel = "internal/ast/ladybug_gc_pressure_test.go"
 	const otherSrc = "package ast\n\n// the file the user clicked\n"
@@ -138,7 +124,6 @@ func TestHandleFileStillRefusesWhatIsNotIndexed(t *testing.T) {
 
 	srv := serverRootedAt(t, ownRoot)
 
-	// cmd/main.go exists in THIS server's project, and is asked for in the other one.
 	rec := getFile(t, srv, "path=cmd/main.go&project_dir="+otherRoot)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d (%s), want 404 — that project's index does not hold this file",

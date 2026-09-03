@@ -22,7 +22,6 @@ func TestKnowledgePathsAndIgnore(t *testing.T) {
 	_ = os.Setenv("HOME", tempHome)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// 1. Every wiki resolves into the global directory, never into the project.
 	projectDir := t.TempDir()
 	global := filepath.Join(tempHome, brand.DotDir())
 
@@ -47,10 +46,6 @@ func TestKnowledgePathsAndIgnore(t *testing.T) {
 		t.Errorf("expected %s, got %s", expectedOther, wikiCtxOther)
 	}
 
-	// 2. There is ONE shape for a context now: every install path places the compiled
-	// wiki AT the context directory. A `wiki/` subdirectory left inside it is part of
-	// the payload, not an alternative location to be probed for — which is what this
-	// used to have to do, because the branch and the artifact paths disagreed.
 	sub := filepath.Join(wikiCtxOther, "wiki")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -79,7 +74,6 @@ func TestAutoLinking(t *testing.T) {
 
 	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
 
-	// 1. Basic auto-linking
 	content := "This is a document about Daemon Service and how AST Indexer behaves."
 	linked, refs := wiki.AutoLinkContent(content, compiledTargets, "Some_Other_Page")
 	expectedLinked := "This is a document about [Daemon Service](Daemon_Service.md) and how [AST Indexer](AST_Indexer.md) behaves."
@@ -90,7 +84,6 @@ func TestAutoLinking(t *testing.T) {
 		t.Errorf("unexpected refs: %v", refs)
 	}
 
-	// 2. Do not link self
 	contentSelf := "Daemon Service talks to AST Indexer."
 	linkedSelf, refsSelf := wiki.AutoLinkContent(contentSelf, compiledTargets, "Daemon_Service")
 	expectedSelf := "Daemon Service talks to [AST Indexer](AST_Indexer.md)."
@@ -101,7 +94,6 @@ func TestAutoLinking(t *testing.T) {
 		t.Errorf("unexpected refsSelf: %v", refsSelf)
 	}
 
-	// 3. Ignore code blocks and inline code and existing links
 	contentIgnored := "Use `Daemon Service` and block:\n```go\nvar d = Daemon Service\n```\nAnd existing link [Daemon Service](Daemon_Service.md)."
 	linkedIgnored, _ := wiki.AutoLinkContent(contentIgnored, compiledTargets, "Some_Other_Page")
 	if linkedIgnored != contentIgnored {
@@ -114,7 +106,6 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 		"Test Document - Section One": "Test_Document_-_Section_One",
 	}
 
-	// 1. Exact matches and labels
 	body := "Read [[Test Document - Section One]] or look at [[Test Document|Custom Label]]."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	expected := "Read [Test Document - Section One](Test_Document_-_Section_One.md) or look at [Custom Label](Test_Document.md)."
@@ -122,7 +113,6 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, resolved)
 	}
 
-	// 2. Case-insensitive matches
 	bodyCI := "Read [[test document - section one]] or [[TEST DOCUMENT]]."
 	resolvedCI := wiki.ResolveWikiLinksInBody(bodyCI, titlesMap)
 	expectedCI := "Read [test document - section one](Test_Document_-_Section_One.md) or [TEST DOCUMENT](Test_Document.md)."
@@ -130,7 +120,6 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 		t.Errorf("expected %q, got %q", expectedCI, resolvedCI)
 	}
 
-	// 3. Trigram fuzzy matches (typos)
 	bodyFuzzy := "Read [[Test Docment]] or [[Test Document - Sectin One]]."
 	resolvedFuzzy := wiki.ResolveWikiLinksInBody(bodyFuzzy, titlesMap)
 	expectedFuzzy := "Read [Test Docment](Test_Document.md) or [Test Document - Sectin One](Test_Document_-_Section_One.md)."

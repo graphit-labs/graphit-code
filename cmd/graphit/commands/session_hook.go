@@ -64,10 +64,6 @@ func newSessionHookCmd() *cobra.Command {
 	return cmd
 }
 
-// runTaskSessionHook performs state maintenance itself; it does not ask the
-// model to infer a lifecycle transition from prose. Unknown host identities are
-// safe: global reconciliation still runs, while no live owner's claim is
-// released or renewed by guesswork.
 func runTaskSessionHook(ctx context.Context, projectDir, format string, input []byte) error {
 	if projectDir == "" || !lancestore.Available() {
 		return nil
@@ -95,9 +91,6 @@ func runTaskSessionHook(ctx context.Context, projectDir, format string, input []
 	}
 }
 
-// dispatchFinalHookSync starts the exact installed Graphit runtime and returns
-// without waiting. os/exec and Process.Release are portable across Linux,
-// Windows, and macOS; no host shell or platform-specific quoting is involved.
 func dispatchFinalHookSync(projectDir string) error {
 	if projectDir == "" {
 		return fmt.Errorf("no Graphit project lockfile was found from the hook input")

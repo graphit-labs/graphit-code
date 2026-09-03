@@ -138,7 +138,6 @@ func TestLoadFromCacheData(t *testing.T) {
 	}
 	m.loadFromCacheData(cache)
 
-	// _global should be excluded
 	if _, ok := m.projects["_global"]; ok {
 		t.Error("expected _global to be excluded from projects")
 	}
@@ -407,7 +406,6 @@ func TestCopyDir(t *testing.T) {
 		t.Fatalf("copyDir failed: %v", err)
 	}
 
-	// Verify
 	data, err := os.ReadFile(filepath.Join(dst, "file1.txt"))
 	if err != nil {
 		t.Fatalf("read copied file: %v", err)
@@ -550,12 +548,6 @@ func TestCopyFile_ErrorPaths(t *testing.T) {
 	})
 }
 
-// THE SHARD FALLBACK IS GONE, and this is what says so.
-//
-// It used to be that a store with no graph published its parse shards, and the consumer rebuilt
-// the graph from them. That made an artifact's behaviour depend on which shape it happened to
-// carry — mounted or rebuilt — and a consumer had no way to tell which it had got. Publishing now
-// refuses instead, which moves the discovery from every consumer to the one publisher.
 func TestPrepareASTPublishNoLongerFallsBackToShards(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"v":7}`), 0o644); err != nil {
@@ -639,7 +631,6 @@ func TestLoadLocalRegistries_InvalidJSON(t *testing.T) {
 	}
 	m.loadLocalRegistries()
 
-	// Should not panic, just skip
 	if len(m.entries) != 0 {
 		t.Error("expected no entries from invalid JSON")
 	}
@@ -663,16 +654,13 @@ func TestLoadRegistryCache_NotFound(t *testing.T) {
 		projects: make(map[string]*Project),
 	}
 	_, err := m.LoadRegistryCache()
-	// It may or may not exist on the system, but if it doesn't exist, it should return error
 	if err == nil {
-		// Cache exists on the system, that's fine
 		return
 	}
 }
 
 func TestSaveAndLoadRegistryCache(t *testing.T) {
 	t.Parallel()
-	// We can't override RegistryCachePath easily, so we test SaveRegistryCache logic
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
 		projects: make(map[string]*Project),
@@ -683,8 +671,6 @@ func TestSaveAndLoadRegistryCache(t *testing.T) {
 		Projects: map[string]Project{},
 		Entries:  []Entry{},
 	}
-	// SaveRegistryCache writes to RegistryCachePath - this is a global path,
-	// so just validate it doesn't error
 	err := m.SaveRegistryCache(cache)
 	if err != nil {
 		t.Logf("SaveRegistryCache may fail in test env: %v", err)
@@ -709,10 +695,8 @@ func TestLoadProjectDir(t *testing.T) {
 	efData, _ := json.Marshal(ef)
 	_ = os.WriteFile(filepath.Join(dir, "rule_my-entry_1.0.0.json"), efData, 0o644)
 
-	// Create a non-json file (should be skipped)
 	_ = os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("ignored"), 0o644)
 
-	// Create a dir (should be skipped)
 	_ = os.MkdirAll(filepath.Join(dir, "subdir"), 0o755)
 
 	cache := &RegistryCache{
@@ -741,7 +725,6 @@ func TestLoadProjectDir_EntryFillsProjectID(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	// Entry with ProjectID but no project.json
 	ef := entryFile{
 		Version: 1,
 		Entry:   Entry{ID: "my-entry", Type: TypeRule, Name: "My Entry", ProjectID: "from-entry"},
@@ -855,8 +838,6 @@ func TestPersistEntryFile_WithStore(t *testing.T) {
 
 	relPath := projectDir("_global") + "/" + sanitizeEntryFileName(entry)
 
-	// Both sides: the bucket is the truth, and the local mirror is what the registry walk
-	// reads. A write that lands on only one of them is the bug this asserts against.
 	if _, ok := fake.Object("registry/" + relPath); !ok {
 		t.Errorf("entry not written to the bucket; keys: %v", fake.Keys())
 	}
@@ -891,14 +872,12 @@ func TestPersistProjectFile_WithStore(t *testing.T) {
 		baseCtx:  context.Background(),
 	}
 
-	// With non-global project
 	m.projects["my-project"] = &Project{RemoteID: "my-project", Name: "My Proj"}
 	err := m.persistProjectFile("my-project")
 	if err != nil {
 		t.Fatalf("persistProjectFile failed: %v", err)
 	}
 
-	// With empty remoteID (defaults to _global)
 	err = m.persistProjectFile("")
 	if err != nil {
 		t.Fatalf("persistProjectFile with empty ID failed: %v", err)

@@ -16,9 +16,9 @@ func TestIsBundlePageLinkRejectsPathsAndFragments(t *testing.T) {
 	pages := []string{
 		"Storage_Layout",
 		"Storage_Layout.md",
-		"/Storage_Layout.md", // bundle-relative, the form OKF §6.1 recommends
+		"/Storage_Layout.md",
 		"wiki://Storage_Layout",
-		"graphit.lock.json_handling", // a dotted slug is still a slug
+		"graphit.lock.json_handling",
 	}
 	notPages := []string{
 		"docs/tasks/okf-wiki-compliance.md",
@@ -44,12 +44,6 @@ func TestIsBundlePageLinkRejectsPathsAndFragments(t *testing.T) {
 	}
 }
 
-// The 354 phantom broken links are still kept out, one step earlier than before.
-//
-// The graph used to re-extract links by reading the rendered pages, so this filter had to hold
-// inside the graph builder. The builder is handed resolved edges now, and the filter runs where the
-// edges are produced: ExtractCrossRefs → FindWikiLinks → isBundlePageLink. Same guarantee, asserted
-// at the place that can still get it wrong.
 func TestCrossRefExtractionIgnoresProvenanceAndRepoPaths(t *testing.T) {
 	t.Parallel()
 	body := "*Provenance: [docs/specs/a.md](docs/specs/a.md)*\n\n" +
@@ -78,16 +72,12 @@ func TestWriteOKFGeneratedIsAMappingWithAnActor(t *testing.T) {
 	WriteOKFGenerated(&b, OKFActor("knowledge"), "2026-08-29")
 	got := b.String()
 
-	// §5.2: `generated` is a mapping and `generated.by` is REQUIRED inside it. A flat key
-	// literally named `generated.at` is the spec's prose notation, not a field.
 	if strings.HasPrefix(got, "generated.at:") {
 		t.Fatalf("emitted the dotted key that is not an OKF field: %q", got)
 	}
 	if !strings.Contains(got, "by:") || !strings.Contains(got, "at: 2026-08-29") {
 		t.Errorf("generated = %q; want a mapping carrying both by and at", got)
 	}
-	// §5.3 derives the trust tier from the `human:` prefix, so a generated page must not
-	// claim one.
 	if strings.Contains(got, "human:") {
 		t.Errorf("a generated page must not claim a human actor: %q", got)
 	}
@@ -99,7 +89,6 @@ func TestWriteOKFSourcesEmitsResourceEntries(t *testing.T) {
 	WriteOKFSources(&b, "docs/specs/a.md", "", "  ")
 	got := b.String()
 
-	// §5.1: each entry is a mapping whose `resource` is REQUIRED. A bare string is not one.
 	if got != "sources:\n  - resource: docs/specs/a.md\n" {
 		t.Errorf("sources = %q", got)
 	}
@@ -138,7 +127,6 @@ func TestAppendOKFLogEntriesGroupsByDate(t *testing.T) {
 	if n := strings.Count(got, "## 2026-08-29"); n != 1 {
 		t.Errorf("same-day entries must share one heading; got %d", n)
 	}
-	// §9: newest first, and within a day the newest entry leads.
 	iNew, iOld := strings.Index(got, "## 2026-08-29"), strings.Index(got, "## 2026-08-28")
 	if iNew < 0 || iOld < 0 || iNew > iOld {
 		t.Errorf("newest date must come first:\n%s", got)
@@ -211,7 +199,6 @@ func TestFormatBM25ResultsTOONIsTitlesByDefault(t *testing.T) {
 	if strings.Contains(plain, "something long enough") {
 		t.Errorf("a default hit must carry no memory text:\n%s", plain)
 	}
-	// The slug is what wiki_source takes, so the `.md` must not travel with it.
 	if !strings.Contains(plain, "  A_Memory|A Memory|correction|3.2") {
 		t.Errorf("unexpected row:\n%s", plain)
 	}

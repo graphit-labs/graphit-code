@@ -27,7 +27,6 @@ func skipIfNoGrammarSOBench(b *testing.B, path string) {
 	}
 }
 
-// createTestArchive creates a .grammar archive from the Go grammar .so file.
 func createTestArchive(t *testing.T) (archivePath string, originalData []byte) {
 	t.Helper()
 	skipIfNoGrammarSO(t, testGoGrammarSOPath)
@@ -54,7 +53,6 @@ func createTestArchive(t *testing.T) (archivePath string, originalData []byte) {
 	return archivePath, data
 }
 
-// TestGrammarArchive_WriteRead writes a .grammar, reads it back, and verifies metadata.
 func TestGrammarArchive_WriteRead(t *testing.T) {
 	skipIfNoGrammarSO(t, testGoGrammarSOPath)
 
@@ -63,7 +61,6 @@ func TestGrammarArchive_WriteRead(t *testing.T) {
 		t.Fatalf("read Go grammar: %v", err)
 	}
 
-	// Create a multi-platform archive (using same data for both, just testing metadata).
 	platforms := []GrammarPlatform{
 		{OS: "linux", Arch: "amd64", SymbolName: "tree_sitter_go", Data: goData},
 		{OS: "darwin", Arch: "arm64", SymbolName: "tree_sitter_go", Data: goData},
@@ -75,7 +72,6 @@ func TestGrammarArchive_WriteRead(t *testing.T) {
 		t.Fatalf("WriteGrammarArchive: %v", err)
 	}
 
-	// Read it back.
 	archive, err := ReadGrammarArchive(archivePath)
 	if err != nil {
 		t.Fatalf("ReadGrammarArchive: %v", err)
@@ -85,7 +81,6 @@ func TestGrammarArchive_WriteRead(t *testing.T) {
 		t.Fatalf("expected 3 platforms, got %d", len(archive.Platforms))
 	}
 
-	// Verify metadata.
 	expected := []struct{ os, arch, sym string }{
 		{"linux", "amd64", "tree_sitter_go"},
 		{"darwin", "arm64", "tree_sitter_go"},
@@ -99,14 +94,12 @@ func TestGrammarArchive_WriteRead(t *testing.T) {
 		}
 	}
 
-	// Verify archive file is smaller than 3x original (compression works).
 	info, _ := os.Stat(archivePath)
 	originalSize := int64(len(goData)) * 3
 	t.Logf("Archive: %d bytes (3 × %d = %d original, ratio=%.2f%%)",
 		info.Size(), len(goData), originalSize, float64(info.Size())/float64(originalSize)*100)
 }
 
-// TestGrammarArchive_Extract extracts for current platform, verifies file matches original.
 func TestGrammarArchive_Extract(t *testing.T) {
 	archivePath, originalData := createTestArchive(t)
 	cacheDir := filepath.Join(t.TempDir(), "cache")
@@ -121,12 +114,10 @@ func TestGrammarArchive_Extract(t *testing.T) {
 		t.Fatalf("ExtractForCurrentPlatform: %v", err)
 	}
 
-	// Verify extracted file exists.
 	if _, err := os.Stat(extractedPath); err != nil {
 		t.Fatalf("extracted file not found: %v", err)
 	}
 
-	// Verify content matches original.
 	extractedData, err := os.ReadFile(extractedPath)
 	if err != nil {
 		t.Fatalf("read extracted file: %v", err)
@@ -139,7 +130,6 @@ func TestGrammarArchive_Extract(t *testing.T) {
 	t.Logf("Extracted %s (%d bytes)", extractedPath, len(extractedData))
 }
 
-// TestGrammarArchive_CacheHit verifies that second extraction uses cache.
 func TestGrammarArchive_CacheHit(t *testing.T) {
 	archivePath, _ := createTestArchive(t)
 	cacheDir := filepath.Join(t.TempDir(), "cache")
@@ -149,19 +139,16 @@ func TestGrammarArchive_CacheHit(t *testing.T) {
 		t.Fatalf("ReadGrammarArchive: %v", err)
 	}
 
-	// First extraction.
 	path1, err := archive.ExtractForCurrentPlatform(archivePath, cacheDir)
 	if err != nil {
 		t.Fatalf("first extract: %v", err)
 	}
 
-	// Get mod time of cached file.
 	info1, err := os.Stat(path1)
 	if err != nil {
 		t.Fatalf("stat cached file: %v", err)
 	}
 
-	// Second extraction should use cache (no re-write).
 	path2, err := archive.ExtractForCurrentPlatform(archivePath, cacheDir)
 	if err != nil {
 		t.Fatalf("second extract: %v", err)
@@ -171,7 +158,6 @@ func TestGrammarArchive_CacheHit(t *testing.T) {
 		t.Errorf("cache path mismatch: %q vs %q", path1, path2)
 	}
 
-	// Verify file was NOT rewritten (mod time unchanged).
 	info2, err := os.Stat(path2)
 	if err != nil {
 		t.Fatalf("stat cached file (2nd): %v", err)
@@ -184,7 +170,6 @@ func TestGrammarArchive_CacheHit(t *testing.T) {
 	t.Log("Cache hit verified: second extraction returned cached path without rewriting")
 }
 
-// TestGrammarArchive_MissingPlatform verifies error when platform not in archive.
 func TestGrammarArchive_MissingPlatform(t *testing.T) {
 	skipIfNoGrammarSO(t, testGoGrammarSOPath)
 
@@ -193,7 +178,6 @@ func TestGrammarArchive_MissingPlatform(t *testing.T) {
 		t.Fatalf("read Go grammar: %v", err)
 	}
 
-	// Create archive with a platform that doesn't match current OS/arch.
 	platforms := []GrammarPlatform{
 		{OS: "plan9", Arch: "mips", SymbolName: "tree_sitter_go", Data: data},
 	}
@@ -222,7 +206,6 @@ func TestGrammarArchive_MissingPlatform(t *testing.T) {
 func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 	archivePath, _ := createTestArchive(t)
 
-	// Step 1: Extract from archive (this is now a separate step, not done by the loader).
 	archive, err := ReadGrammarArchive(archivePath)
 	if err != nil {
 		t.Fatalf("ReadGrammarArchive failed: %v", err)
@@ -234,7 +217,6 @@ func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 		t.Fatalf("ExtractForCurrentPlatform failed: %v", err)
 	}
 
-	// Step 2: Load the extracted shared library via the loader.
 	loader := NewDynGrammarLoader()
 	defer loader.Close()
 
@@ -246,7 +228,6 @@ func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 		t.Fatal("loaded language is nil")
 	}
 
-	// Parse Go source.
 	parser := sitter.NewParser()
 	_ = parser.SetLanguage(lang)
 
@@ -267,7 +248,6 @@ func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 		t.Error("expected root node to have children")
 	}
 
-	// Compare with native parse to verify correctness.
 	nativeLang := NativeLanguage("go")
 	nativeParser := sitter.NewParser()
 	_ = nativeParser.SetLanguage(nativeLang)
@@ -287,7 +267,6 @@ func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 	}
 }
 
-// TestGrammarArchive_InvalidMagic verifies that a file with wrong magic is rejected.
 func TestGrammarArchive_InvalidMagic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.grammar")
 	if err := os.WriteFile(path, []byte("BADMxxxxxxxx"), 0o644); err != nil {
@@ -301,7 +280,6 @@ func TestGrammarArchive_InvalidMagic(t *testing.T) {
 	t.Logf("Expected error: %v", err)
 }
 
-// TestGrammarArchive_EmptyPlatforms verifies that writing with no platforms is an error.
 func TestGrammarArchive_EmptyPlatforms(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "empty.grammar")
 	err := WriteGrammarArchive(path, nil)
@@ -311,7 +289,6 @@ func TestGrammarArchive_EmptyPlatforms(t *testing.T) {
 	t.Logf("Expected error: %v", err)
 }
 
-// BenchmarkGrammarArchive_Extract measures one-time extraction cost.
 func BenchmarkGrammarArchive_Extract(b *testing.B) {
 	skipIfNoGrammarSOBench(b, testGoGrammarSOPath)
 
@@ -333,7 +310,6 @@ func BenchmarkGrammarArchive_Extract(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		// Each iteration gets a fresh cache dir to measure actual extraction.
 		cacheDir := filepath.Join(b.TempDir(), "cache", fmt.Sprintf("%d", i))
 
 		archive, err := ReadGrammarArchive(archivePath)
@@ -371,7 +347,6 @@ func BenchmarkGrammarArchive_LoadAndParse(b *testing.B) {
 	cacheDir := filepath.Join(b.TempDir(), "cache")
 	src := []byte(testGoSource)
 
-	// Pre-extract to warm the cache (first extraction is separate benchmark).
 	archive, err := ReadGrammarArchive(archivePath)
 	if err != nil {
 		b.Fatalf("ReadGrammarArchive: %v", err)
@@ -381,7 +356,6 @@ func BenchmarkGrammarArchive_LoadAndParse(b *testing.B) {
 		b.Fatalf("initial extract: %v", err)
 	}
 
-	// Pre-load the library (dlopen caches handles).
 	loader := NewDynGrammarLoader()
 	defer loader.Close()
 
@@ -404,7 +378,6 @@ func BenchmarkGrammarArchive_LoadAndParse(b *testing.B) {
 	}
 }
 
-// BenchmarkTS_Parse_NativeImport benchmarks parsing with NativeLanguage("go") (baseline).
 func BenchmarkTS_Parse_NativeImport(b *testing.B) {
 	lang := NativeLanguage("go")
 	src := []byte(testGoSource)
@@ -423,7 +396,6 @@ func BenchmarkTS_Parse_NativeImport(b *testing.B) {
 	}
 }
 
-// BenchmarkTS_Parse_SharedLib benchmarks parsing with CGO dlopen .so directly.
 func BenchmarkTS_Parse_SharedLib(b *testing.B) {
 	skipIfNoGrammarSOBench(b, testGoGrammarSOPath)
 
@@ -473,7 +445,6 @@ func BenchmarkTS_Parse_GrammarArchive(b *testing.B) {
 	cacheDir := filepath.Join(b.TempDir(), "cache")
 	src := []byte(testGoSource)
 
-	// Extract and load once (measures steady-state parse performance).
 	archive, err := ReadGrammarArchive(archivePath)
 	if err != nil {
 		b.Fatalf("ReadGrammarArchive: %v", err)

@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// helpers: MemoryFileName, MemoryIDFromFileName, IsImportantContent
-
 func TestMemoryFileName(t *testing.T) {
 	tests := []struct {
 		id   string
@@ -86,7 +84,7 @@ func TestValidMemoryType(t *testing.T) {
 		{"skill", true},
 		{"invalid", false},
 		{"", false},
-		{"FACT", false}, // case-sensitive
+		{"FACT", false},
 		{"Convention", false},
 	}
 	for _, tc := range tests {
@@ -231,7 +229,6 @@ func TestSafeMemFilename(t *testing.T) {
 func TestUniqueMemSlug(t *testing.T) {
 	used := make(map[string]bool)
 
-	// First use — no collision
 	slug1 := wiki.UniqueSlug("test", used)
 	if slug1 != "test" {
 		t.Errorf("expected 'test', got %q", slug1)
@@ -240,7 +237,6 @@ func TestUniqueMemSlug(t *testing.T) {
 		t.Error("expected 'test' to be marked as used")
 	}
 
-	// Second use — collision → suffix _2
 	slug2 := wiki.UniqueSlug("test", used)
 	if slug2 != "test_2" {
 		t.Errorf("expected 'test_2', got %q", slug2)
@@ -249,7 +245,6 @@ func TestUniqueMemSlug(t *testing.T) {
 		t.Error("expected 'test_2' to be marked as used")
 	}
 
-	// Third use — collision → suffix _3
 	slug3 := wiki.UniqueSlug("test", used)
 	if slug3 != "test_3" {
 		t.Errorf("expected 'test_3', got %q", slug3)
@@ -352,7 +347,6 @@ func TestBuildMemoryFile_NoType(t *testing.T) {
 
 func TestBuildMemoryFile_BodyTrailingNewline(t *testing.T) {
 	content := buildMemoryFile("ID4", "Title", "Body\n", "project", "pid", "", false, "fact", nil)
-	// Body already ends with \n, so buildMemoryFile should NOT add an extra one.
 	if strings.Contains(content, "Body\n\n\n") {
 		t.Error("double newline after body that already ends with newline")
 	}
@@ -415,7 +409,6 @@ func TestParseMemoryType(t *testing.T) {
 
 func TestDetectStaleMemories(t *testing.T) {
 	now := time.Now().UTC()
-	// Past staleAfter (90 days), and comfortably inside it, respectively.
 	oldDate := now.Add(-120 * 24 * time.Hour).Format(time.RFC3339)
 	freshDate := now.Add(-10 * 24 * time.Hour).Format(time.RFC3339)
 
@@ -428,7 +421,6 @@ func TestDetectStaleMemories(t *testing.T) {
 
 	stale := detectStaleMemories(memories)
 
-	// Only old-1 should be stale (old-important is skipped because important, fresh is fresh, no-date is skipped)
 	if len(stale) != 1 {
 		t.Fatalf("expected 1 stale memory, got %d", len(stale))
 	}
@@ -438,7 +430,6 @@ func TestDetectStaleMemories(t *testing.T) {
 	if !strings.Contains(stale[0].Reason, "120 days old") {
 		t.Errorf("expected reason to mention age, got %q", stale[0].Reason)
 	}
-	// Staleness proposes review, never deletion: age means "not revised", not "wrong".
 	if stale[0].Type != ActionUpdate {
 		t.Errorf("stale action type = %q; want %q", stale[0].Type, ActionUpdate)
 	}
@@ -464,8 +455,6 @@ func TestDetectStaleMemories_Empty(t *testing.T) {
 		t.Errorf("expected 0 stale memories for nil input, got %d", len(stale))
 	}
 }
-
-// ListMemories (filesystem-based via MemoryService)
 
 func TestScopePrefix(t *testing.T) {
 	tests := []struct {
@@ -526,9 +515,6 @@ func TestMemoryService_NoGitStore_Errors(t *testing.T) {
 		t.Error("DemoteMemory should error without gitStore")
 	}
 
-	// SyncWiki is deliberately NOT in this list any more. Every call above is a WRITE, and a
-	// write with no store must refuse. SyncWiki only recompiles, and it runs after a write that
-	// already succeeded — erroring there would report a stored memory as unstored.
 	if err := svc.SyncWiki(); err != nil {
 		t.Errorf("recompiling must not fail: %v", err)
 	}

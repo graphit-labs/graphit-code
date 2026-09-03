@@ -66,20 +66,10 @@ func TestLadybugFieldScaleStringIntegrity(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// Values sized like source files, with accented multi-byte text so any
-	// mangling lands mid-character and shows as invalid UTF-8 rather than as a
-	// plausible substitution. The C1 control characters that the real corpus
-	// carries (CP1252 read as Latin-1) are included, since they are legal UTF-8
-	// and were present in the field data.
-	// \u0083 and \u0087 are the C1 control characters the real corpus
-	// carries, from CP1252 text read as Latin-1. They are legal UTF-8 and
-	// were present in the field data, so they belong here — as escapes,
-	// because invisible bytes in a literal are a trap for whoever edits
-	// this next.
 	unit := "cria\u00e7\u00e3o de \u00edndice n\u00e3o padr\u00e3o \u0083 para pedido em a\u00e7a\u00ed \u0087 \u2014 linha "
 	body := func(i int) string {
 		var b strings.Builder
-		lines := 40 + (i*17)%600 // roughly 2 KB to 30 KB, like a source tree
+		lines := 40 + (i*17)%600
 		b.Grow(lines * (len(unit) + 6))
 		for j := 0; j < lines; j++ {
 			fmt.Fprintf(&b, "%s%d\n", unit, j)
@@ -123,14 +113,11 @@ func TestLadybugFieldScaleStringIntegrity(t *testing.T) {
 	flush()
 	t.Logf("wrote %d rows, %d MB", rows, totalBytes/(1<<20))
 
-	// The original failure surfaced here: LOWER refusing the stored bytes while
-	// the index was being built. Building it is part of the probe, not scaffolding.
 	ftsErr := run("CALL CREATE_FTS_INDEX('SearchFile','sf_source',['source'])")
 	if ftsErr != nil {
 		t.Errorf("REPRODUCED at index build: %v", ftsErr)
 	}
 
-	// Independently of the index, scan every row back.
 	res, err := conn.Query("MATCH (s:SearchFile) RETURN s.uid, s.source")
 	if err != nil {
 		t.Fatalf("scan: %v", err)

@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Go module dependencies
+
   - package-ecosystem: gomod
     directory: /
     schedule:
@@ -11,7 +11,6 @@ updates:
     commit-message:
       prefix: "deps(go):"
 
-  # npm dependencies (React UI)
   - package-ecosystem: npm
     directory: /internal/ui
     schedule:
@@ -22,7 +21,6 @@ updates:
     commit-message:
       prefix: "deps(npm):"
 
-  # GitHub Actions versions
   - package-ecosystem: github-actions
     directory: /
     schedule:

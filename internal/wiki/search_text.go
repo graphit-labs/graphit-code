@@ -6,8 +6,6 @@ import (
 	"unicode/utf8"
 )
 
-// Engine-independent snippet handling for wiki search.
-
 // wikiSnippetWidth is how much of a body a search result shows. A chunk is a whole
 // document now, so the head of the body is almost never where the answer is.
 const wikiSnippetWidth = 320
@@ -17,7 +15,6 @@ func truncateSnippet(body string, maxLen int) string {
 	if len(body) <= maxLen {
 		return body
 	}
-	// Try to break at a word boundary.
 	cut := maxLen
 	if idx := strings.LastIndex(body[:maxLen], " "); idx > maxLen/2 {
 		cut = idx
@@ -25,14 +22,6 @@ func truncateSnippet(body string, maxLen int) string {
 	return body[:cut] + "…"
 }
 
-// snippetAround returns a window of body centred on the first query term found in
-// it, falling back to the head of the body when no term occurs.
-//
-// This is the only snippet builder: the compiled index used to return the first N
-// characters of the body while the markdown fallback centred on the match, so the
-// same query produced a useful preview through one engine and a useless one
-// through the other. With a document per chunk, the head of the body is the
-// document's own preamble — never the reason it matched.
 func snippetAround(body, query string, width int) string {
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -43,7 +32,6 @@ func snippetAround(body, query string, width int) string {
 	}
 
 	lowerBody := strings.ToLower(body)
-	// Longest term first: matching "authentication" beats matching "the" inside it.
 	terms := strings.Fields(strings.ToLower(query))
 	sort.Slice(terms, func(i, j int) bool { return len(terms[i]) > len(terms[j]) })
 
@@ -61,7 +49,6 @@ func snippetAround(body, query string, width int) string {
 		return truncateSnippet(body, width)
 	}
 
-	// Centre the window on the hit.
 	start := hit - width/3
 	if start < 0 {
 		start = 0
@@ -106,6 +93,3 @@ func snippetAround(body, query string, width int) string {
 func isASCIISpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
-
-// Browse returns wiki entries matching the given filter.
-// Each slug is returned once, using the chunk with the shortest breadcrumb

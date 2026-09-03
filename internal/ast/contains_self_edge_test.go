@@ -2,17 +2,6 @@ package ast
 
 import "testing"
 
-// Nothing contains itself.
-//
-// An element nested in an element of the SAME name is two distinct tree nodes
-// with identical text, so the node-identity rule in contextResolver.resolve
-// cannot see it: the inner element correctly resolves its parent to the outer
-// one, and both are named "frame". The failure was downstream, in the UID
-// lookup -- nameToUID[e.Name] = uid ran BEFORE the parent lookup, so the inner
-// element overwrote the outer one in the map and then found itself.
-//
-// Measured on a real corpus before the fix: 354 self CONTAINS edges, all from
-// Oracle Reports XML nesting <frame> inside <frame>.
 func TestNestedSameNameElementIsNotItsOwnParent(t *testing.T) {
 	projectDir := stageGrammar(t, "xml", "tree-sitter-xml", ".xml", "xml.yaml")
 	pf := parseFixture(t, projectDir, "a.xml",

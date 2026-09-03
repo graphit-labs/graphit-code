@@ -10,7 +10,7 @@ vi.mock('@/api/hub', () => ({
 
 describe('appStore', () => {
   beforeEach(() => {
-    // Reset state before each test
+
     const store = useAppStore.getState()
     store.setTypeFilter('all')
     store.setProjectFilter('all')
@@ -19,8 +19,7 @@ describe('appStore', () => {
     store.setActiveProjectId('')
     store.setActiveContextId(null)
     store.setProjectName('')
-    
-    // Reset loading state
+
     while (useAppStore.getState().activeRequests > 0) {
       useAppStore.getState().decrementLoading()
     }
@@ -57,30 +56,25 @@ describe('appStore', () => {
     expect(store.activeRequests).toBe(0)
     expect(document.body.classList.contains('is-global-loading')).toBe(false)
 
-    // First request
     store.incrementLoading()
     expect(useAppStore.getState().isGlobalLoading).toBe(true)
     expect(useAppStore.getState().activeRequests).toBe(1)
     expect(document.body.classList.contains('is-global-loading')).toBe(true)
 
-    // Second request
     store.incrementLoading()
     expect(useAppStore.getState().activeRequests).toBe(2)
     expect(document.body.classList.contains('is-global-loading')).toBe(true)
 
-    // Decrement once
     store.decrementLoading()
     expect(useAppStore.getState().isGlobalLoading).toBe(true)
     expect(useAppStore.getState().activeRequests).toBe(1)
     expect(document.body.classList.contains('is-global-loading')).toBe(true)
 
-    // Decrement twice (back to 0)
     store.decrementLoading()
     expect(useAppStore.getState().isGlobalLoading).toBe(false)
     expect(useAppStore.getState().activeRequests).toBe(0)
     expect(document.body.classList.contains('is-global-loading')).toBe(false)
 
-    // Additional decrement should not go below 0
     store.decrementLoading()
     expect(useAppStore.getState().activeRequests).toBe(0)
   })
@@ -115,7 +109,6 @@ describe('appStore', () => {
       { id: '1', name: 'Project One', dir: '/dir/one' },
     ]
 
-    // Setup store with a project dir that exists
     useAppStore.setState({ activeProjectDir: '/dir/one' })
 
     vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
@@ -127,9 +120,8 @@ describe('appStore', () => {
 
     await useAppStore.getState().loadProjects()
     expect(useAppStore.getState().projectName).toBe('Project One')
-    expect(useAppStore.getState().activeIde).toBe('claude') // Default fallback
+    expect(useAppStore.getState().activeIde).toBe('claude')
 
-    // Now test with dir that doesn't match projects, should fallback to current_project_dir
     useAppStore.setState({ activeProjectDir: '/dir/not-exist' })
     vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
       projects: mockProjects,
@@ -160,15 +152,13 @@ describe('appStore', () => {
     useAppStore.setState({ projects: mockProjects })
 
     const store = useAppStore.getState()
-    
-    // Switch to Project One
+
     store.switchProject('/dir/one')
     let state = useAppStore.getState()
     expect(state.activeProjectDir).toBe('/dir/one')
     expect(state.projectName).toBe('Project One')
     expect(state.activeProjectId).toBe('1')
 
-    // Switch to non-matching directory
     store.switchProject('/dir/three')
     state = useAppStore.getState()
     expect(state.activeProjectDir).toBe('/dir/three')

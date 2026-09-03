@@ -154,7 +154,6 @@ func TestSearchIsCaseInsensitiveUnlessRegex(t *testing.T) {
 		t.Errorf("plain pattern must match case-insensitively, got %d matches", len(got.Matches))
 	}
 
-	// A regex is used exactly as written, so case is the caller's business.
 	got, err = Apply(probeText, Request{Pattern: "^GRANADA", IsRegex: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

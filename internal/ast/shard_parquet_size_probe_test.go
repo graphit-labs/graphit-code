@@ -31,14 +31,12 @@ func TestShardParquetSizeByGranularity(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 
-	// The entity rows of a shard, which are the bulk of one.
 	if err := st.Exec(`CREATE NODE TABLE Ent(id INT64, label STRING, uid STRING,
 		name STRING, path STRING, line INT64, end_line INT64, docstring STRING,
 		PRIMARY KEY(id))`, nil); err != nil {
 		t.Fatalf("ddl: %v", err)
 	}
 
-	// 12 and 60 are ordinary source files; 5000 is what a per-TABLE layout would batch.
 	for _, n := range []int{12, 60, 400, 5000} {
 		if err := st.Exec("MATCH (e:Ent) DELETE e", nil); err != nil {
 			t.Fatalf("clear: %v", err)
@@ -88,7 +86,6 @@ func TestShardParquetSizeByGranularity(t *testing.T) {
 			n, jf.Size(), pf.Size(), verdict, ratio)
 	}
 
-	// How many distinct row shapes one shard holds — a Parquet file carries ONE schema.
 	t.Log("um shard guarda: entities, params, fields (nodes) + calls, imports, " +
 		"inheritance, field_access, references, contains (edges) = 9 formas distintas")
 }

@@ -19,13 +19,7 @@ type WikiEmbedConfig struct {
 
 func DefaultWikiEmbedConfig() WikiEmbedConfig {
 	return WikiEmbedConfig{
-		BatchSize: 64,
-		// A chunk is a whole document now, and 800 characters of it was roughly 200
-		// tokens against a 512-token model window — the rest of the window sat unused
-		// while three quarters of every document went unrepresented. This fills it:
-		// ~1600 characters plus the breadcrumb, title and summary that precede the
-		// body in the embedded text. The tokenizer truncates anything over the limit,
-		// so overshooting costs nothing but wasted characters.
+		BatchSize:      64,
 		MaxSourceChars: 1600,
 	}
 }
@@ -44,8 +38,6 @@ func NewWikiEmbedder(client ai.EmbeddingClient, cfg WikiEmbedConfig) *WikiEmbedd
 	return &WikiEmbedder{client: client, cfg: cfg}
 }
 
-// fitVectorWidth forces vec to exactly dim — see the identical helper and its comment in
-// internal/ast/query.go, which this mirrors for the wiki's own vector column.
 func fitVectorWidth(vec []float32, dim int) []float32 {
 	if len(vec) == dim {
 		return vec
@@ -58,12 +50,7 @@ func fitVectorWidth(vec []float32, dim int) []float32 {
 	return padded
 }
 
-// chunkRow is a chunk needing an embedding.
 type chunkRow struct {
-	// NO ID FIELD, deliberately. It used to be the chunk's SQLite rowid, and when the store
-	// changed there was nothing stable to put there — the first port filled it with the loop
-	// index, which LOOKS like an identifier and is not: embed one chunk, and the next call
-	// hands that same number to a different chunk. A test caught it. The slug is the identity.
 	Slug       string
 	Title      string
 	Summary    string
@@ -128,10 +115,6 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 				vec = fitVectorWidth(vec, dim)
 			}
 
-			// Keyed by SLUG, not by a row id. The id used to be the chunk's SQLite rowid,
-			// which only means something inside one build — so a rebuild between the read
-			// and the write attached the vector to whatever now held that number. The slug
-			// identifies the page itself.
 			if err := db.SetChunkVector(ctx, row.Slug, vec); err != nil {
 				e.log().Warn("attach vector", "slug", row.Slug, "error", err)
 				continue
@@ -164,7 +147,6 @@ func (e *WikiEmbedder) CountPending(ctx context.Context, wikiDir string) int {
 	return len(pending)
 }
 
-// buildEmbeddingText creates the text representation for embedding.
 func (e *WikiEmbedder) buildEmbeddingText(row chunkRow) string {
 	var parts []string
 

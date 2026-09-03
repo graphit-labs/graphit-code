@@ -8,23 +8,6 @@ import (
 	"testing"
 )
 
-// NOTE: probe identifiers in this file are synthetic, and should stay that way.
-// These tests seed their own database, so any identifier of the right shape
-// serves the purpose — the measurement is whether a fragment of a compound name
-// finds it. Keeping them synthetic also keeps the tests independent of whatever
-// corpus GRAPHIT_E2E_SQL_DIR happens to point at.
-
-// Coverage for truncated queries.
-//
-// ONE MECHANISM NOW, NOT TWO. The SQLite index reached these two ways: FTS5's prefix index
-// (prefix='2 3 4' plus a `token*` pass) and the trigram bag. LanceDB's BM25 has no prefix pass, so
-// the gram bag carries all of it — which is why the bag was kept as the one thing Go pre-computes
-// that the engine could have, and why the tuning sweep measured it against the engine's own n-gram
-// tokenizer before choosing.
-
-// prefixCorpus merges the two corpora already in use so the probes cover both
-// spelled-out and abbreviated naming, and adds Oracle-style names where truncation
-// is the natural way to search.
 func prefixCorpus() []gateEntity {
 	out := append(gateCorpus(), abbrevCorpus()...)
 	return append(out,
@@ -44,34 +27,16 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 		query   string
 		wantTop string
 	}{
-		// "valid" is deliberately absent: it is a prefix of both "validate" and
-		// "validacao", so whichever of validateSchema and PKG_VALIDACAO_PAGAMENTO wins is
-		// tie-breaking, not coverage. A probe with no defensible answer measures nothing.
 		{"compu", "computeChecksum"},
 		{"checks", "computeChecksum"},
 		{"retr", "retryPolicy"},
-		// "connect" rather than "data": "data" is a substring of Database in both
-		// connectDatabase and closeDatabase, so no expected top-1 is defensible and the
-		// probe would measure tie-breaking rather than truncation.
 		{"connect", "connectDatabase"},
 		{"audit", "TRG_AUDITORIA_CLIENTE"},
 		{"extrair", "XPTO_EXTRAIR_ABCD01_DOC_LOTE"},
 		{"conf", "CONF_MGR"},
-		// Shorter than a trigram, so the bag yields no gram: this one is served by the
-		// prefix index alone ("cf" is a prefix of the token "cfg").
 		{"cf", "CFG_LOAD"},
-		// "db" is deliberately absent for the same reason as "valid": it matches
-		// connectDatabase and closeDatabase equally.
 	}
 
-	// recallOnly holds probes with MORE THAN ONE defensible answer, where the requirement is that
-	// the expected entity is reachable rather than that it wins.
-	//
-	// "valida" moved here when the prefix pass went away, and the move is the test's own rule
-	// applied rather than a floor lowered. Under FTS5 a prefix query disambiguated it to the
-	// Portuguese PKG_VALIDACAO_PAGAMENTO; under BM25 over a gram bag it overlaps SchemaValidator
-	// just as well, and "valida" -> "Validator" is not a wrong answer for anyone. The exclusions
-	// above ("valid", "db") were made for exactly this reason, before the engine changed.
 	recallOnly := []struct {
 		query   string
 		wantAny string
@@ -111,7 +76,6 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 	t.Logf("%s", strings.Repeat("-", 76))
 	t.Logf("expected top-1: %d/%d, empty: %d", hits, len(cases), empty)
 
-	// The recall probes: reachable in the top 5, not necessarily first.
 	for _, cs := range recallOnly {
 		res, err := si.Search(context.Background(), cs.query, 5)
 		if err != nil {
@@ -132,7 +96,6 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 		}
 	}
 
-	// Every remaining strict probe has one defensible answer, so the floor is all of them.
 	const floor = 8
 	if hits < floor {
 		t.Errorf("truncated queries reached the expected entity %d/%d times, below the measured %d — "+

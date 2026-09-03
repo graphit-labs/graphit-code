@@ -32,7 +32,6 @@ func TestChunkedExportMountsAndAnswersBoundPatterns(t *testing.T) {
 		t.Fatalf("export: %v", err)
 	}
 
-	// The test is worthless unless a table actually crossed a chunk boundary.
 	var crossed []string
 	for _, nt := range man.NodeTables {
 		if nt.Rows > int64(parquetChunkRows) {
@@ -87,11 +86,6 @@ func TestChunkedExportMountsAndAnswersBoundPatterns(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// The signature of a multi-row-group bundle: the anonymous pattern counts right and the
-	// bound one does not. These name the PHYSICAL member table rather than the logical CALLS
-	// type, because a logical type only runs through the bounded-reachability planner, and
-	// the planner is not what the row group count breaks — the reader binding a node
-	// variable is.
 	const member = "calls__function_function"
 	anonymous := chunkedScalar(t, db, fmt.Sprintf("MATCH ()-[r:%s]->() RETURN count(r) AS c", member))
 	bound := chunkedScalar(t, db, fmt.Sprintf("MATCH (a:Function)-[r:%s]->(b:Function) RETURN count(a) AS c", member))
@@ -103,14 +97,6 @@ func TestChunkedExportMountsAndAnswersBoundPatterns(t *testing.T) {
 	}
 	t.Logf("edges: %d anonymous, %d through a bound node variable", anonymous, bound)
 
-	// syntheticCorpus has file f's Symbol{f}_{i} call file f+1's Symbol{f+1}_{i}, so each of
-	// these is exactly one edge, and both are the anchored form that resolved to ZERO on a
-	// multi-row-group file while the anonymous count above stayed correct.
-	//
-	// They anchor on uid rather than on name because uid is the primary key: a single row
-	// group removes row-group pruning, so a filter on an ordinary property degenerates into
-	// a full scan per candidate on a corpus this size. That is a planner cost, not the
-	// invariant under test.
 	const callerUID = "internal/pkg5/module5/file5.go:Symbol3"
 	const calleeUID = "internal/pkg6/module6/file6.go:Symbol3"
 	if got := chunkedScalar(t, db, fmt.Sprintf(
@@ -122,12 +108,6 @@ func TestChunkedExportMountsAndAnswersBoundPatterns(t *testing.T) {
 		t.Errorf("target-anchored filter on %s = %d, want 1 — check the row group count", calleeUID, got)
 	}
 
-	// NOT asserted here: the same question through the logical :CALLS type. It returns the
-	// right answer, but `tryCanonicalBoundedTraversal` walks the whole reachable component
-	// even for a one-hop plan, and syntheticCorpus is a call chain spanning every file —
-	// 28.9s at 1500 files, over 180s at 6000. That is a planner cost in a subsystem this
-	// change does not touch, and the bundle it reads is byte-identical to the one the
-	// previous writer produced (see icebug_bundle_dump_probe_test.go).
 }
 
 func chunkedScalar(t *testing.T, db *LadybugBackend, query string) int64 {

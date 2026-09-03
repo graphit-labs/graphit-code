@@ -201,26 +201,11 @@ rather than leaving a half installation reporting success.`,
 	return cmd
 }
 
-// setupAnswer is one answer supplied on the command line. `set` is what separates "the
-// operator did not mention this" from "the operator asked for the empty value", which are
-// different instructions: the first leaves the stored value alone, the second clears it.
 type setupAnswer struct {
 	given string
 	set   bool
 }
 
-// setupAnswers holds every answer `setup` can take as a flag, so a scripted install names what
-// it sets instead of relying on the order of the prompts. It is bound to the command's flags in
-// register and refreshed from them in bind, once, at the start of RunE.
-//
-// There is ONE rule and no mode switch: a question whose flag was supplied is not asked. Answer
-// everything the run reaches and it needs no terminal; answer some of it and it asks about the
-// rest. A separate --non-interactive existed here briefly and was wrong — it made silence
-// achievable without actually answering anything, and it turned "did I supply enough?" into a
-// question the operator had to reason about instead of one the command demonstrates by asking.
-//
-// NOTE: the zero value is a fully interactive session with nothing pre-answered, which is what
-// keeps the prompt helpers testable without constructing a command.
 type setupAnswers struct {
 	hubBucket   setupAnswer
 	hubRegion   setupAnswer
@@ -241,7 +226,6 @@ type setupAnswers struct {
 	rerankAPIKey   setupAnswer
 }
 
-// setupFlagNames maps each answer to its flag, so register and bind cannot drift apart.
 func (a *setupAnswers) fields() map[string]*setupAnswer {
 	return map[string]*setupAnswer{
 		"hub-bucket":            &a.hubBucket,
@@ -283,9 +267,6 @@ func (a *setupAnswers) register(cmd *cobra.Command) {
 	f.String("rerank-api-key", "", secretFlagUsage("Rerank provider API key", "ai.rerank.api_key"))
 }
 
-// secretFlagUsage names the environment variable that supplies a credential, so the help text
-// points at the channel that does not end up in a shell history file, a config file on disk, or a
-// container layer. The variable name comes from config so it cannot drift from the resolver rule.
 func secretFlagUsage(label, configKey string) string {
 	return label + " (prefer " + config.ConfigEnvVar(configKey) + "; a value passed here is stored in the global config in plain text)"
 }
@@ -301,8 +282,6 @@ func (a *setupAnswers) bind(cmd *cobra.Command) {
 	}
 }
 
-// value is promptValue for a setting that has a flag: supplied means applied without asking,
-// unsupplied means asked exactly as before.
 func (answer setupAnswer) value(
 	p *output.Printer, reader *bufio.Reader,
 	label, key, current, compiledDefault, blankHint string,
@@ -329,9 +308,6 @@ func (answer setupAnswer) value(
 	return resolved, nil
 }
 
-// simple is promptSimple for a setting that has a flag. It has no key of its own because its
-// callers persist the value themselves, which is also why an explicitly empty flag keeps the
-// current value here rather than clearing anything.
 func (answer setupAnswer) simple(reader *bufio.Reader, label, current string) string {
 	if !answer.set {
 		return promptSimple(reader, label, current)
@@ -356,10 +332,6 @@ func (answer setupAnswer) secret(
 	return promptSecret(p, reader, label, hint)
 }
 
-// verifyHubBucket reaches the bucket with the credentials the AWS chain resolved. It is
-// fatal on purpose: a bucket that cannot be read is an installation that will fail on its
-// first artifact operation, and saying so here is the difference between one clear error and
-// a confusing one much later.
 func verifyHubBucket(ctx context.Context, p *output.Printer) error {
 	task := p.StartTask("Verifying hub bucket access...")
 
@@ -425,10 +397,6 @@ func promptS3Credentials(p *output.Printer, reader *bufio.Reader, answers setupA
 	return nil
 }
 
-// promptSecret reads a masked value — a password or an API key — from the terminal, falling
-// back to a plain line read when stdin is not a terminal (piped input: tests, CI, scripts have
-// nothing to mask against). hint is the bracketed text shown after the label, e.g. "leave blank
-// to use an environment variable instead".
 func promptSecret(p *output.Printer, reader *bufio.Reader, label, hint string) (string, error) {
 	fmt.Printf("  Enter %s [%s]: ", label, hint)
 	var raw []byte
@@ -447,19 +415,11 @@ func promptSecret(p *output.Printer, reader *bufio.Reader, label, hint string) (
 	return strings.TrimSpace(string(raw)), nil
 }
 
-// embeddingProviders and rerankProviders are shown in the setup prompt so the operator does
-// not have to already know the valid values for ai.embedding.provider / ai.rerank.provider.
 const (
 	embeddingProviderChoices = "local/openai/openai-compatible/cohere/voyage/google"
 	rerankProviderChoices    = "local/cohere/voyage/jina"
 )
 
-// promptEmbeddingProvider asks which embedding backend to use, saving ai.embedding.provider
-// and, for anything other than "local", the model/API key/base URL that provider needs.
-//
-// Local stays the default and downloads nothing here — its one-time model download is the
-// separate, still-mandatory-for-local step later in this command. A remote provider needs no
-// download at all: it is an HTTP client, not a model on disk.
 func promptEmbeddingProvider(p *output.Printer, reader *bufio.Reader, answers setupAnswers) (string, error) {
 	p.Blank()
 	if !answers.embeddingProvider.set {
@@ -572,12 +532,6 @@ func firstNonEmptyString(vals ...string) string {
 	return ""
 }
 
-// promptValue asks for one global setting, offering the current value or the compiled-in
-// default, and unsets the key when the user explicitly clears it with "-".
-//
-// Blank input always accepts the offered default outright — it does not re-ask, since the
-// default was already shown in the prompt itself and asking again is asking the same
-// question twice.
 func promptValue(p *output.Printer, reader *bufio.Reader, label, key, current, compiledDefault, blankHint string) string {
 	fallback := current
 	if fallback == "" {

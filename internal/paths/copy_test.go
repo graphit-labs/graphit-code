@@ -234,7 +234,6 @@ func TestSafeCopyDirRemoveAllError(t *testing.T) {
 	src := filepath.Join(tmp, "src")
 	_ = os.MkdirAll(src, 0755)
 
-	// Make dest a dir that's hard to remove (readonly parent)
 	dst := filepath.Join(tmp, "readonly", "dst")
 	_ = os.MkdirAll(dst, 0755)
 	_ = os.WriteFile(filepath.Join(dst, "file.txt"), []byte("data"), 0644)
@@ -260,17 +259,13 @@ func TestSyncCopyDirSourceIsFile(t *testing.T) {
 
 func TestSyncCopyDirSourceStatError(t *testing.T) {
 	tmp := t.TempDir()
-	// Create a source path that exists but has permission issues
 	src := filepath.Join(tmp, "noperm")
 	_ = os.MkdirAll(src, 0755)
 	_ = os.WriteFile(filepath.Join(src, "file.txt"), []byte("data"), 0644)
 	_ = os.Chmod(src, 0000)
 	defer func() { _ = os.Chmod(src, 0755) }()
 
-	// SyncCopyDir should return error (non-NotExist stat error)
 	err := SyncCopyDir(src, filepath.Join(tmp, "dst"))
-	// On some systems this might fail on stat, on others it might succeed
-	// The point is to exercise the error path
 	_ = err
 }
 
@@ -282,16 +277,13 @@ func TestSyncCopyDirRemovesObsoleteDirs(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(src, "keep", "file.txt"), []byte("keep"), 0644)
 
 	dst := filepath.Join(tmp, "dst")
-	// First sync
 	if err := SyncCopyDir(src, dst); err != nil {
 		t.Fatalf("initial sync failed: %v", err)
 	}
 
-	// Add a dir to dst that doesn't exist in src
 	_ = os.MkdirAll(filepath.Join(dst, "obsolete", "nested"), 0755)
 	_ = os.WriteFile(filepath.Join(dst, "obsolete", "nested", "file.txt"), []byte("delete"), 0644)
 
-	// Re-sync should remove obsolete dir
 	if err := SyncCopyDir(src, dst); err != nil {
 		t.Fatalf("second sync failed: %v", err)
 	}
@@ -308,7 +300,6 @@ func TestSyncCopyDirMkdirError(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(src, "sub"), 0755)
 	_ = os.WriteFile(filepath.Join(src, "sub", "file.txt"), []byte("data"), 0644)
 
-	// Create dst where sub can't be created (make dst a read-only dir)
 	dst := filepath.Join(tmp, "dst")
 	_ = os.MkdirAll(dst, 0755)
 	_ = os.Chmod(dst, 0555)
@@ -345,24 +336,20 @@ func TestCopyDirRecursiveWalkError(t *testing.T) {
 	src := filepath.Join(tmp, "src")
 	_ = os.MkdirAll(filepath.Join(src, "sub"), 0755)
 	_ = os.WriteFile(filepath.Join(src, "sub", "file.txt"), []byte("data"), 0644)
-	// Make sub unreadable so Walk gets an error
 	_ = os.Chmod(filepath.Join(src, "sub"), 0000)
 	defer func() { _ = os.Chmod(filepath.Join(src, "sub"), 0755) }()
 
 	dst := filepath.Join(tmp, "dst")
 	err := copyDirRecursive(src, dst)
-	// walkErr is returned as nil (the function continues), but the file won't be copied
 	_ = err
 }
 
 func TestResolveGitDirWithFile(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Test with .git as a file pointing to another directory (worktree)
 	gitDir := filepath.Join(tmp, "actual-git-dir")
 	_ = os.MkdirAll(gitDir, 0755)
 
-	// Absolute gitdir reference
 	dotGit := filepath.Join(tmp, ".git")
 	_ = os.WriteFile(dotGit, []byte("gitdir: "+gitDir+"\n"), 0644)
 
@@ -389,7 +376,6 @@ func TestResolveGitDirWithFile(t *testing.T) {
 func TestResolveGitDirNotGitdir(t *testing.T) {
 	tmp := t.TempDir()
 
-	// .git is a file but doesn't start with "gitdir: "
 	_ = os.WriteFile(filepath.Join(tmp, ".git"), []byte("some random content"), 0644)
 
 	result := resolveGitDir(tmp)
@@ -402,7 +388,6 @@ func TestResolveGitDirNotGitdir(t *testing.T) {
 func TestResolveGitDirReadFileError(t *testing.T) {
 	tmp := t.TempDir()
 
-	// .git is a file that can't be read
 	dotGit := filepath.Join(tmp, ".git")
 	_ = os.WriteFile(dotGit, []byte("content"), 0644)
 	_ = os.Chmod(dotGit, 0000)
@@ -416,8 +401,6 @@ func TestResolveGitDirReadFileError(t *testing.T) {
 }
 
 func TestGetPathsFallbackToCwd(t *testing.T) {
-	// GetPaths with global=false when not in a git repo
-	// Should fallback to os.Getwd()
 	p := GetPaths("test-ide", false)
 	if p == nil {
 		t.Fatal("expected non-nil paths")
@@ -454,7 +437,6 @@ func TestBuildPathsDefaultIDE(t *testing.T) {
 func TestIsSymlink(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Regular file
 	f := filepath.Join(tmp, "file.txt")
 	_ = os.WriteFile(f, []byte("data"), 0644)
 	if isSymlink(f) {
@@ -475,7 +457,6 @@ func TestIsSymlink(t *testing.T) {
 func TestRemoveIfSymlink(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Test with regular file — should NOT be removed
 	f := filepath.Join(tmp, "regular")
 	_ = os.WriteFile(f, []byte("data"), 0644)
 	removeIfSymlink(f)
@@ -483,7 +464,6 @@ func TestRemoveIfSymlink(t *testing.T) {
 		t.Error("regular file should not be removed")
 	}
 
-	// Test with symlink — should be removed
 	target := filepath.Join(tmp, "target")
 	_ = os.MkdirAll(target, 0755)
 	link := filepath.Join(tmp, "link")
@@ -504,17 +484,14 @@ func TestSyncCopyDir_SkipUnchangedFiles(t *testing.T) {
 	dst := filepath.Join(tmp, "dst")
 	_ = os.MkdirAll(dst, 0o755)
 
-	// First copy to create the dest
 	if err := SyncCopyDir(src, dst); err != nil {
 		t.Fatalf("first SyncCopyDir: %v", err)
 	}
 
-	// Touch the dest file to be newer
 	destFile := filepath.Join(dst, "file.txt")
 	now := time.Now().Add(1 * time.Hour)
 	_ = os.Chtimes(destFile, now, now)
 
-	// Second sync should skip unchanged file
 	if err := SyncCopyDir(src, dst); err != nil {
 		t.Fatalf("second SyncCopyDir: %v", err)
 	}
@@ -532,10 +509,8 @@ func TestSyncCopyDir_MkdirParentError(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(src, "sub"), 0o755)
 	_ = os.WriteFile(filepath.Join(src, "sub", "file.txt"), []byte("data"), 0o644)
 
-	// Create dest with a file blocking the subdirectory path
 	dst := filepath.Join(tmp, "dst")
 	_ = os.MkdirAll(dst, 0o755)
-	// Create "sub" as a file to block MkdirAll
 	_ = os.WriteFile(filepath.Join(dst, "sub"), []byte("blocking"), 0o644)
 
 	err := SyncCopyDir(src, dst)
@@ -553,7 +528,6 @@ func TestSyncCopyDir_CopyFileError(t *testing.T) {
 	src := filepath.Join(tmp, "src")
 	_ = os.MkdirAll(src, 0o755)
 
-	// Create an unreadable source file
 	unreadable := filepath.Join(src, "noperm.txt")
 	_ = os.WriteFile(unreadable, []byte("secret"), 0o000)
 
@@ -561,11 +535,8 @@ func TestSyncCopyDir_CopyFileError(t *testing.T) {
 	_ = os.MkdirAll(dst, 0o755)
 
 	err := SyncCopyDir(src, dst)
-	// On non-root, this should fail because we can't open the source file
-	// On root, it may succeed — accept either
 	_ = err
 
-	// Clean up by making file readable again
 	_ = os.Chmod(unreadable, 0o644)
 }
 
@@ -579,13 +550,9 @@ func TestSyncCopyDir_WalkSourceError(t *testing.T) {
 	dst := filepath.Join(tmp, "dst")
 	_ = os.MkdirAll(dst, 0o755)
 
-	// The walkErr path in SyncCopyDir just returns nil (skips the entry)
-	// We can trigger this by exercising the code path — even if the broken
-	// symlink causes a copy error, the function exercises the walkErr branches
 	brokenLink := filepath.Join(src, "broken")
 	_ = os.Symlink("/nonexistent/target/never/exists", brokenLink)
 
-	// May succeed or fail depending on OS handling of broken symlinks
 	_ = SyncCopyDir(src, dst)
 }
 

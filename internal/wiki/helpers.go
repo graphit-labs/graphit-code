@@ -8,8 +8,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Slug helpers — shared by wiki generators
-
 // SafeSlug converts a title or path into a safe filesystem slug.
 // Replaces spaces/slashes/colons with underscores/dashes, strips non-alphanumeric
 // runes, and collapses repeated separators.
@@ -47,8 +45,6 @@ func UniqueSlug(base string, used map[string]bool) string {
 	used[slug] = true
 	return slug
 }
-
-// Frontmatter helpers — shared by wiki generators
 
 // FrontmatterBlock returns the text of the document's leading YAML frontmatter
 // block, without the --- delimiters. ok is false when the document does not
@@ -127,8 +123,6 @@ func StripFrontmatter(content string) string {
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
-
-// Trigram similarity — shared by search and wiki-link resolution
 
 // CleanForFuzzy normalizes a string for trigram comparison: lowercase, letters
 // and digits only.

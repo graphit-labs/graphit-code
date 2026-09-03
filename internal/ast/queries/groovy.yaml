@@ -1,13 +1,11 @@
 language: groovy
 grammar: tree-sitter-groovy
 extensions: [".groovy", ".gvy", ".gy", ".gsh", ".gradle"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Method] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Method
     pattern: '(function_definition function: (identifier) @name)'
@@ -24,7 +22,6 @@ queries:
     graph_label: Variable
     pattern: '(declaration (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: variables
     graph_label: Variable
     pattern: '(declaration name: (identifier) @name value: [(number_literal) (string) (boolean_literal) (null)] @value)'
@@ -37,7 +34,6 @@ queries:
     graph_label: Import
     pattern: '(groovy_import import: (qualified_name) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -55,40 +51,30 @@ queries:
     relation_type: IMPORTS
     pattern: '(groovy_import import: (qualified_name) @name)'
 
-# Groovy defaults to public — uses Java-style modifiers
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — Groovy tree-sitter node types
 context_types:
   class_definition: Class
   function_definition: Method
   function_declaration: Method
 
-# Groovy has closures as anonymous function types
 anon_func_types:
   - closure
 
-# Declaration node types for docstring attachment
 declaration_types:
   - class_definition
   - function_definition
   - function_declaration
 
-# Groovy tree-sitter comment node types
 comment_types:
   - comment
   - groovy_doc
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. "else if" needs no entry of its own — it
-# re-nests as another if_statement in the else branch. catch is left out:
-# it did not surface as its own node kind in the grammar checked.
 complexity:
   node_types:
     - if_statement
@@ -98,10 +84,6 @@ complexity:
     - ternary_op
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Method

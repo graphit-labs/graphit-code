@@ -15,28 +15,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// An agent that has no checkout cannot read what a rule or a skill SAYS.
-//
-// Every other artifact family is reachable through a query tool: an ast context through
-// the graph, a knowledge context through the wiki. The instruction-carrying types —
-// rule, skill, command, agent — are plain files, and until now the only copy an agent
-// could open was the one materialised into an IDE directory of a project. No project, no
-// copy, and no way to ask what the artifact contains.
-//
-// The clone in the shared cache is the artifact, though, and it is already global and
-// version-keyed. So the content is served from there, and the project is optional: it
-// only ever narrows WHICH version, by way of the project's claim.
-//
-// One artifact is often several files — a skill is exactly that, a SKILL.md plus
-// whatever it references — so the answer is keyed by path rather than concatenated. A
-// concatenation would force the caller to guess where one file ends, and would lose the
-// names that the files refer to each other by.
-
-// contentTypes are the artifact types this serves.
-//
-// ast and knowledge are deliberately absent and are refused by name rather than
-// silently returning nothing: they are MOUNTED, not downloaded, so there is no file
-// tree to hand back — their content comes from the graph and the wiki.
 var contentTypes = map[ArtifactType]bool{
 	TypeRule:    true,
 	TypeSkill:   true,
@@ -54,12 +32,6 @@ func ContentTypeNames() []string {
 	return names
 }
 
-// nonTextMarker stands in for a file whose bytes are not text.
-//
-// An artifact may legitimately carry an image or an archive beside its markdown. Its
-// bytes are useless to a language model and expensive to transport, but its PRESENCE is
-// information — a skill that references an asset is incomplete without it — so the path
-// is reported and the content is not.
 func nonTextMarker(size int64) string {
 	return fmt.Sprintf("<not text: %d bytes — this file is part of the artifact but its content is not returned>", size)
 }
@@ -132,7 +104,6 @@ func unservableTypeError(artType ArtifactType) error {
 	}
 }
 
-// artifactContentDir locates the clone directory of one installed artifact.
 func (s *HubService) artifactContentDir(
 	projectDir, id string, artType ArtifactType, version string,
 ) (dir string, resolvedType ArtifactType, resolvedVersion, notice string, err error) {
@@ -162,10 +133,6 @@ func (s *HubService) artifactContentDir(
 	return dir, art.Type, art.Version, notice, nil
 }
 
-// projectArtifactDir locates the clone of an artifact a project has claimed.
-//
-// The project's lockfile pins the version, which is the point of asking with a project:
-// the answer is what THIS project has, not whatever is newest on the machine.
 func (s *HubService) projectArtifactDir(
 	projectDir, id string, artType ArtifactType, version string,
 ) (string, ArtifactType, string, string, error) {
@@ -200,9 +167,6 @@ func (s *HubService) projectArtifactDir(
 			projectDir, id, resolvedVersion, version)
 	}
 
-	// A linked artifact is developed in place, so its source directory IS its content
-	// and reading the clone cache would answer with whatever was published before the
-	// link. resolveArtifactPath honours LinkSource for the same reason.
 	if meta.Origin == projectlock.OriginLink && meta.SourcePath != "" {
 		return projectlock.SourceDir(projectDir, meta.SourcePath), resolvedType, resolvedVersion, "", nil
 	}
@@ -226,7 +190,6 @@ func (s *HubService) cacheDirFor(artType ArtifactType, id, version, publisherID 
 	return st.ArtifactCacheDir(artType, id, version, publisherID)
 }
 
-// readArtifactFiles walks an artifact directory into a path-keyed map.
 func readArtifactFiles(dir string, artType ArtifactType, only string) (map[string]string, string, error) {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -247,8 +210,6 @@ func readArtifactFiles(dir string, artType ArtifactType, only string) (map[strin
 			return err
 		}
 		if d.IsDir() {
-			// A clone may carry the publisher's version control and per-directory
-			// caches. They are not the artifact and returning them would bury it.
 			if name := d.Name(); path != dir && (name == ".git" || name == ".DS_Store") {
 				return fs.SkipDir
 			}
@@ -324,9 +285,4 @@ func fileTextOrMarker(path string, d fs.DirEntry) string {
 	return string(data)
 }
 
-// maxArtifactFileBytes caps what a whole-artifact read returns per file.
-//
-// The cap exists because this tool returns EVERY file at once, and one oversized file
-// would otherwise crowd out the ones the caller asked about. It is per-file and it is
-// escapable: the `path` parameter reads a single file with no cap.
 const maxArtifactFileBytes = 512 * 1024

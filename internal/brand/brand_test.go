@@ -7,7 +7,6 @@ import (
 )
 
 func TestSimpleBrandFunctions(t *testing.T) {
-	// Backup and restore global brand settings if modified (though here they are static)
 	origBrand := Brand
 	origDisplayName := DisplayName
 	origGitHubRepo := GitHubRepo
@@ -92,7 +91,6 @@ func TestCapitalize(t *testing.T) {
 }
 
 func TestGlobalDirsAndResolvers(t *testing.T) {
-	// Save environment
 	origHome := os.Getenv("HOME")
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
@@ -104,10 +102,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 
 	_ = os.Setenv("HOME", tempDir)
 
-	// Restored, unlike every other Brand reassignment in this file, which all defer it.
-	// Leaving it set leaks "testbrand2" into every test that runs after this one, and
-	// anything deriving a path from Brand then computes it against a brand that does not
-	// exist — silently, because the value is still a valid string.
 	origBrand := Brand
 	defer func() { Brand = origBrand }()
 	Brand = "testbrand2"
@@ -137,7 +131,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Errorf("ResolveModuleSkill fallback = %q; want %q", resSkill, "default-skill-val")
 	}
 
-	// Now set up local rules dir in current working directory
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get wd: %v", err)
@@ -173,14 +166,12 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Errorf("ResolveModuleRuleIn explicit project = %q", explicit)
 	}
 
-	// Test ResolveModuleSkill from local rules dir
 	resSkill = ResolveModuleSkill("myskill", "default-skill-val")
 	expectedSkill := "local-skill-content: default-skill-val"
 	if resSkill != expectedSkill {
 		t.Errorf("ResolveModuleSkill local = %q; want %q", resSkill, expectedSkill)
 	}
 
-	// Clean up local rules file to test global fallback
 	_ = os.RemoveAll(filepath.Join(wd, ".testbrand2"))
 
 	err = os.MkdirAll(expectedGlobalRulesDir, 0755)
@@ -205,16 +196,13 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Errorf("ResolveModuleRule global = %q; want %q", res, expectedRule)
 	}
 
-	// Test ResolveModuleSkill from global rules dir
 	resSkill = ResolveModuleSkill("myskill", "default-skill-val")
 	if resSkill != expectedSkill {
 		t.Errorf("ResolveModuleSkill global = %q; want %q", resSkill, expectedSkill)
 	}
 
-	// Clean up global rules to test Hub fallback
 	_ = os.RemoveAll(expectedGlobalRulesDir)
 
-	// Set up Hub rules dir (simulates main branch of Hub Git repo)
 	err = os.MkdirAll(expectedHubRulesDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to create hub rules dir: %v", err)
@@ -240,14 +228,12 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Errorf("ResolveModuleRule hub = %q; want %q", res, expectedHubRule)
 	}
 
-	// Test ResolveModuleSkill from Hub rules dir
 	resSkill = ResolveModuleSkill("myskill", "default-skill-val")
 	expectedHubSkill := "hub-skill-content: default-skill-val"
 	if resSkill != expectedHubSkill {
 		t.Errorf("ResolveModuleSkill hub = %q; want %q", resSkill, expectedHubSkill)
 	}
 
-	// Test precedence: global CLI override wins over Hub override
 	err = os.MkdirAll(expectedGlobalRulesDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to re-create global rules dir: %v", err)
@@ -272,7 +258,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 }
 
 func TestGlobalDirErr(t *testing.T) {
-	// Save environment and clear HOME/USERPROFILE to cause UserHomeDir failure if possible
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
 	defer func() {
@@ -283,20 +268,14 @@ func TestGlobalDirErr(t *testing.T) {
 	_ = os.Unsetenv("HOME")
 	_ = os.Unsetenv("USERPROFILE")
 
-	// Verify GlobalDir returns empty string on error
-	// Note: on some environments, os.UserHomeDir might still succeed or fail depending on os configuration.
-	// But we test the fallback branch safety.
 	res := GlobalDir()
 	if res == "" {
-		// If it did fail, GlobalRulesDir should also return empty
 		if GlobalRulesDir() != "" {
 			t.Errorf("expected GlobalRulesDir() to be empty when GlobalDir() is empty")
 		}
-		// HubRulesDir should also return empty when GlobalDir is empty
 		if HubRulesDir() != "" {
 			t.Errorf("expected HubRulesDir() to be empty when GlobalDir() is empty")
 		}
-		// RuntimeDir should also return empty when GlobalDir is empty
 		if RuntimeDir("v1.0.0") != "" {
 			t.Errorf("expected RuntimeDir() to be empty when GlobalDir() is empty")
 		}

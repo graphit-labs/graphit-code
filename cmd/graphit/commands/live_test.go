@@ -41,10 +41,10 @@ func TestParseArtifactSpecAcceptsEveryFormAndRefusesTheRest(t *testing.T) {
 	}
 
 	bad := []string{
-		"",             // nothing chosen
-		"   ",          // nothing chosen
-		"banana:thing", // no such artifact type
-		"knowledge:",   // a type and no ID
+		"",
+		"   ",
+		"banana:thing",
+		"knowledge:",
 		"../etc/passwd",
 		"/absolute",
 		"has spaces",
@@ -57,9 +57,6 @@ func TestParseArtifactSpecAcceptsEveryFormAndRefusesTheRest(t *testing.T) {
 }
 
 func TestParseArtifactSpecSplitsTheVersionTheWayTheInstallerWill(t *testing.T) {
-	// An artifact ID may legally contain "@", and hub.Install splits on the first
-	// one. Agreeing with it matters more than being theoretically right: the
-	// artifact this command reports must be the artifact that gets installed.
 	got, err := parseArtifactSpec("scope@name@3.0.0")
 	if err != nil {
 		t.Fatalf("parseArtifactSpec: %v", err)
@@ -90,7 +87,6 @@ func TestTheAnswerIsWrittenRawSoChunksFormOneText(t *testing.T) {
 		r.render(livesearch.Event{Kind: livesearch.KindText, Text: chunk})
 	}
 	if got := buf.String(); got != "The parser lives in internal/ast." {
-		// A prefix or a newline per chunk would land inside a sentence.
 		t.Fatalf("the answer came out as %q", got)
 	}
 }
@@ -176,7 +172,6 @@ func TestTurnDoneIsReportedToTheCaller(t *testing.T) {
 }
 
 func TestJSONModeEmitsTheRecordedEventOnePerLine(t *testing.T) {
-	// A script downstream should see what the log holds, not a summary of it.
 	var buf bytes.Buffer
 	r := newLiveRenderer(&buf, true, false)
 
@@ -197,13 +192,11 @@ func TestJSONModeEmitsTheRecordedEventOnePerLine(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
 		t.Fatalf("line 2 is not JSON: %v", err)
 	}
-	// The embedded newline must have survived as data rather than splitting a line.
 	if second.Text != "line one\nline two" || second.Seq != 2 {
 		t.Fatalf("the event was altered: %+v", second)
 	}
 }
 
-// fakeLiveClient is an ai.StreamClient the live CLI tests drive.
 type fakeLiveClient struct {
 	stream func(ctx context.Context, req ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error)
 }
@@ -262,7 +255,6 @@ func TestTheConversationAsksAgainUntilToldToLeave(t *testing.T) {
 			t.Fatalf("%q is missing: %q", want, out)
 		}
 	}
-	// The blank line between them must not have been sent as a question.
 	if strings.Contains(out, "answer to \n") {
 		t.Fatalf("an empty question was sent: %q", out)
 	}
@@ -275,15 +267,12 @@ func TestEndOfInputLeavesTheConversationWithoutAnError(t *testing.T) {
 	events, stop := s.Subscribe(0)
 	defer stop()
 
-	// No trailing newline and no /exit: a closed pipe, or Ctrl-D.
 	if err := r.converse(context.Background(), s, events, make(chan os.Signal), strings.NewReader("")); err != nil {
 		t.Fatalf("converse: %v", err)
 	}
 }
 
 func TestInterruptingStopsTheAnswerAndKeepsTheSession(t *testing.T) {
-	// Ctrl-C during an answer must cancel the turn, not the session — and must keep
-	// reading, because cancelling is what produces the events that say so.
 	release := make(chan struct{})
 	client := &fakeLiveClient{stream: func(ctx context.Context, _ ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
 		emit(ai.Event{Kind: ai.EventText, Text: "starting"})
@@ -317,7 +306,6 @@ func TestInterruptingStopsTheAnswerAndKeepsTheSession(t *testing.T) {
 	if !strings.Contains(out, "cancelled") {
 		t.Fatalf("the cancellation was not reported: %q", out)
 	}
-	// The session survived and can take another question.
 	deadline := time.Now().Add(5 * time.Second)
 	for s.State() != livesearch.StateReady && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Millisecond)
@@ -353,8 +341,6 @@ func TestASecondInterruptLeaves(t *testing.T) {
 }
 
 func TestLineReaderSplitsInputTheWayATerminalDoes(t *testing.T) {
-	// Including the last line when the input ends without a newline, which is what a
-	// pipe from echo -n produces.
 	lr := newLineReader(strings.NewReader("one\r\ntwo\nthree"))
 	defer lr.stop()
 
@@ -368,8 +354,6 @@ func TestLineReaderSplitsInputTheWayATerminalDoes(t *testing.T) {
 }
 
 func TestLineReaderStopsWithoutLeakingItsGoroutine(t *testing.T) {
-	// A reader that never ends: stopping must return rather than wait for input that
-	// is not coming.
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
 

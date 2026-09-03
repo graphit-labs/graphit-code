@@ -72,8 +72,6 @@ func TestOracleParametersReachTheCache(t *testing.T) {
 	if params == 0 {
 		t.Error("no parameter reached the cache; they are being dropped again")
 	}
-	// Measured 0 lost after the fix, 967 before. A small loss could be legitimate for some
-	// construct, so the bar is well below the old figure rather than exactly zero.
 	if lost*10 > parsed {
 		t.Errorf("%d of %d entities (%.1f%%) did not reach the cache — context resolution has "+
 			"regressed and owner-less parameters are being discarded again",

@@ -8,7 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
-// readmeBaseName is the document every repository has, whatever its extension.
 const readmeBaseName = "readme"
 
 // ScopeFor returns the wiki scope for a project: the configured documentation

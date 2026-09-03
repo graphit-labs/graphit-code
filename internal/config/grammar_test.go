@@ -72,20 +72,16 @@ func TestMergeGrammarOverrides(t *testing.T) {
 
 	result := MergeGrammarOverrides(base, overlay)
 
-	// overlay wins for .sql
 	if result[".sql"] != "tree-sitter-sql" {
 		t.Errorf(".sql: expected tree-sitter-sql, got %q", result[".sql"])
 	}
-	// base kept for .py
 	if result[".py"] != "tree-sitter-python" {
 		t.Errorf(".py: expected tree-sitter-python, got %q", result[".py"])
 	}
-	// overlay adds .ts
 	if result[".ts"] != "tree-sitter-typescript" {
 		t.Errorf(".ts: expected tree-sitter-typescript, got %q", result[".ts"])
 	}
 
-	// original maps not mutated
 	if base[".sql"] != "antlr-plsql" {
 		t.Error("base map was mutated")
 	}
@@ -111,13 +107,11 @@ func TestMergeGrammarOverrides_NilInputs(t *testing.T) {
 }
 
 func TestResolveGrammarOverrides(t *testing.T) {
-	// No config = nil
 	result := ResolveGrammarOverrides(nil, nil)
 	if result != nil {
 		t.Errorf("expected nil with no config, got %v", result)
 	}
 
-	// Project config with grammar key (comma-separated)
 	projectCfg := ConfigMap{
 		"ast": map[string]any{
 			"grammar": ".sql=antlr-plsql,.ts=tree-sitter-typescript",
@@ -134,7 +128,6 @@ func TestResolveGrammarOverrides(t *testing.T) {
 		t.Errorf(".ts: expected tree-sitter-typescript, got %q", result[".ts"])
 	}
 
-	// Inline config takes precedence over project config
 	inlineCfg := ConfigMap{
 		"ast": map[string]any{
 			"grammar": ".sql=tree-sitter-sql",
@@ -144,7 +137,6 @@ func TestResolveGrammarOverrides(t *testing.T) {
 	if result[".sql"] != "tree-sitter-sql" {
 		t.Errorf(".sql: expected tree-sitter-sql from inline, got %q", result[".sql"])
 	}
-	// inline replaces the entire value, so .ts is not present
 	if _, ok := result[".ts"]; ok {
 		t.Error(".ts should not be present when inline overrides")
 	}

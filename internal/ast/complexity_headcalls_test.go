@@ -26,7 +26,7 @@ func TestComplexityHeadCallsClojureAndElixir(t *testing.T) {
 				NodeType: "list_lit",
 				Names:    []string{"if", "when", "cond", "and", "or"},
 			},
-			want: 2, // base 1 + if. The comparison (> x 0) is an ordinary call, not a branch.
+			want: 2,
 		},
 		{
 			lang: "clojure",
@@ -35,7 +35,7 @@ func TestComplexityHeadCallsClojureAndElixir(t *testing.T) {
 				NodeType: "list_lit",
 				Names:    []string{"if", "when", "cond", "and", "or"},
 			},
-			want: 4, // base 1 + when + cond (once, not per clause) + and
+			want: 4,
 		},
 		{
 			lang: "elixir",
@@ -44,7 +44,7 @@ func TestComplexityHeadCallsClojureAndElixir(t *testing.T) {
 				NodeType: "call",
 				Names:    []string{"if", "unless", "case", "cond", "for", "with"},
 			},
-			want: 2, // base 1 + if. def itself is a call too, but not in Names.
+			want: 2,
 		},
 		{
 			lang: "elixir",
@@ -54,33 +54,25 @@ func TestComplexityHeadCallsClojureAndElixir(t *testing.T) {
 				Names:    []string{"if", "unless", "case", "cond", "for", "with"},
 			},
 			operators: []string{"&&", "||", "and", "or"},
-			want:      3, // base 1 + case (once, not per clause) + &&
+			want:      3,
 		},
 		{
-			// cond has no subject: every child after the head is part of a
-			// test/result pair. 3 pairs here, including the :else fallback,
-			// which is an ordinary pair syntactically — nothing marks it as
-			// a default the way other languages' switch/case do.
 			lang: "clojure",
 			src:  "(defn f [x] (cond (> x 0) 1 (< x 0) -1 :else 0))",
 			headCalls: &HeadCallConfig{
 				NodeType:  "list_lit",
 				PairNames: []string{"cond"},
 			},
-			want: 4, // base 1 + 3 pairs
+			want: 4,
 		},
 		{
-			// case's first child after the head is the subject (x), not a
-			// clause — subject_pair_names accounts for it. A trailing
-			// default with no test of its own is naturally dropped by the
-			// integer division, not counted as an extra clause.
 			lang: "clojure",
 			src:  "(defn f [x] (case x 1 :one 2 :two :other))",
 			headCalls: &HeadCallConfig{
 				NodeType:         "list_lit",
 				SubjectPairNames: []string{"case"},
 			},
-			want: 3, // base 1 + 2 pairs (the trailing :other is not a third pair)
+			want: 3,
 		},
 	}
 

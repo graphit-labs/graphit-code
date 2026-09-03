@@ -18,8 +18,6 @@ func TestTryAcquireExcludesASecondHolder(t *testing.T) {
 		t.Fatalf("first TryAcquire: %v", err)
 	}
 
-	// A second open file description on the same path, which is what a second
-	// process gets — flock is held per description, not per process.
 	second, err := TryAcquire(path)
 	if !errors.Is(err, ErrLocked) {
 		second.Release()
@@ -46,10 +44,10 @@ func TestReleaseIsIdempotent(t *testing.T) {
 		t.Fatalf("TryAcquire: %v", err)
 	}
 	lock.Release()
-	lock.Release() // must not panic or double-close
+	lock.Release()
 
 	var nilLock *Lock
-	nilLock.Release() // the acquireSyncLock degraded path defers exactly this
+	nilLock.Release()
 }
 
 func TestTryAcquireCreatesMissingParentDir(t *testing.T) {

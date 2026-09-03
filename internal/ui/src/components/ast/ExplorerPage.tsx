@@ -19,10 +19,10 @@ import { useAppStore } from '@/store/appStore'
 
 const LS = {
   get<T>(key: string, fallback: T): T {
-    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { /* parse error */ return fallback }
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
   },
   set(key: string, value: unknown) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full */ }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignored */ }
   },
 }
 
@@ -163,7 +163,7 @@ export default function ExplorerPage() {
         setSchemaNodes(schema.nodes ?? [])
         setSchemaEdges(schema.edges ?? [])
         setSchemaLangs(schema.langs ?? [])
-        
+
         const defaults: Record<string, string> = {}
         schema.node_labels?.forEach((l) => { defaults[l] = labelColor(l) })
         const saved = LS.get<Record<string, string>>('graphit_node_colors', {})
@@ -176,7 +176,7 @@ export default function ExplorerPage() {
           setProjectName(name)
           setProjectRoot(root)
           if (name) document.title = `Graphit AST — ${name}`
-        } catch { /* non-critical context fetch */ }
+        } catch { /* ignored */ }
       } catch {
         showToast('Failed to load graph', 'error')
       } finally {
@@ -221,10 +221,10 @@ export default function ExplorerPage() {
   const handleNodeClick = useCallback((node: GraphNode | null) => {
     if (!node) { setSelectedNode(null); return }
     setSelectedNode(node)
-    
+
     setLeftTab('tree')
     if (leftCollapsedRef.current) setLeftCollapsed(false)
-    
+
     if (node.file) handleFileClickRef.current(node.file, node.line)
   }, [])
 
@@ -258,7 +258,7 @@ export default function ExplorerPage() {
   useEffect(() => { LS.set('graphit_left_collapsed', leftCollapsed) }, [leftCollapsed])
   useEffect(() => { LS.set('graphit_querybar_collapsed', queryBarCollapsed) }, [queryBarCollapsed])
   useEffect(() => { LS.set('graphit_is3D', is3D) }, [is3D])
-  
+
   const handleReset = async () => {
     setLoading(true)
     setSelectedNode(null)

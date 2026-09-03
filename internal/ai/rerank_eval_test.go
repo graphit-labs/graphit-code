@@ -14,31 +14,6 @@ import (
 	"time"
 )
 
-// THE REAL MEASUREMENT, behind its own build tag because it loads a model and runs inference.
-//
-//	GRAPHIT_RERANK_MODEL_DIR=/path/to/dir/with/model.onnx+tokenizer.json \
-//	  go test -tags "lancedb rerankeval" -run TestRerankEval ./internal/ai/ -v
-//
-// WHY A SEPARATE TAG. This is not a unit test: it downloads nothing but it does load hundreds of
-// megabytes and spend seconds per query. Putting it behind `rerankeval` keeps `go test ./...`
-// fast and network-free while leaving the measurement reproducible by anyone who wants the number.
-//
-// WHAT IT MEASURES, and why the corpus is what it is. The gate in internal/lancestore passes at
-// 100% on nineteen synthetic identifiers, so it cannot show a reranker's contribution — a
-// saturated test measures nothing about a change. This set is built to have headroom instead:
-//
-//   - the candidates are real entities from this repository, with their real docstrings;
-//   - the queries are NATURAL LANGUAGE questions about behaviour, not identifier fragments,
-//     because that is the shape a cross-encoder is supposed to be good at and BM25 is not;
-//   - the expected answer is the entity that actually implements the behaviour asked about, which
-//     is defensible in the sense internal/ast/truncated_query_test.go requires — for each query
-//     there is exactly one right answer and the rest are plausible distractors.
-//
-// The metric is MRR and nDCG@10 rather than top-1, because top-1 cannot see the thing a reranker
-// does: moving the right answer from fourth to second is real improvement that a top-1 count
-// reports as no change at all.
-
-// evalDoc is one candidate, in the shape the search layer would hand to the reranker.
 type evalDoc struct {
 	name, etype, doc, path string
 }
@@ -62,8 +37,6 @@ func splitForEval(s string) string {
 	return string(out)
 }
 
-// evalCorpus is drawn from this repository. Every entry is a real thing with its real purpose, so
-// a reranker that understands the docstrings has something true to find.
 func evalCorpus() []evalDoc {
 	return []evalDoc{
 		{"sortRelsLargestFirst", "Function",
@@ -141,7 +114,6 @@ func evalCorpus() []evalDoc {
 	}
 }
 
-// evalQuery is a natural-language question with the one entity that answers it.
 type evalQuery struct {
 	q    string
 	want string
@@ -185,13 +157,6 @@ func evalQueries() []evalQuery {
 	}
 }
 
-// ---------- retrieval baseline: BM25-ish lexical scoring, standing in for the first stage ----------
-//
-// The point of the measurement is the DELTA the reranker adds, so the baseline has to be a
-// plausible first stage rather than a strawman. This is term-frequency scoring over the same text
-// the engine would index, with inverse document frequency — the same signal BM25 uses, without
-// its length normalisation, which is close enough to rank a 24-document corpus the way the engine
-// would and is not the thing under test.
 func lexicalRank(query string, docs []evalDoc) []int {
 	terms := strings.Fields(strings.ToLower(query))
 	df := make(map[string]int, len(terms))
@@ -252,8 +217,6 @@ func mrrOf(rank int) float64 {
 	return 1 / float64(rank)
 }
 
-// ndcgAt is nDCG for a single relevant document, which is the shape here: one right answer per
-// query, so the ideal DCG is 1 and the measure reduces to the discount at the rank it landed.
 func ndcgAt(rank, k int) float64 {
 	if rank == 0 || rank > k {
 		return 0
@@ -261,7 +224,6 @@ func ndcgAt(rank, k int) float64 {
 	return 1 / math.Log2(float64(rank)+1)
 }
 
-// TestRerankEvalMeasuresTheRealModel is the measurement.
 func TestRerankEvalMeasuresTheRealModel(t *testing.T) {
 	dir := os.Getenv("GRAPHIT_RERANK_MODEL_DIR")
 	if dir == "" {
@@ -289,9 +251,6 @@ func TestRerankEvalMeasuresTheRealModel(t *testing.T) {
 	var baseMRR, rankMRR, baseNDCG, rankNDCG float64
 	var baseTop1, rankTop1, improved, worsened int
 	var totalInference time.Duration
-	// outsideWindow counts answers retrieval never handed to the reranker. See the clamp below:
-	// these are a first-stage recall problem, and charging them to the reranker would credit it
-	// with a loss it had no opportunity to cause.
 	var outsideWindow int
 	var fullCorpusMRR float64
 
@@ -301,22 +260,11 @@ func TestRerankEvalMeasuresTheRealModel(t *testing.T) {
 	for _, q := range queries {
 		order := lexicalRank(q.q, docs)
 
-		// The first stage widens, as it does in production: the reranker only reorders what
-		// retrieval returned.
 		const candidates = 10
 
 		baseRank := rankOf(order, docs, q.want)
 		fullCorpusMRR += mrrOf(baseRank)
 
-		// BOTH SIDES ARE SCORED OVER THE SAME WINDOW, and getting this wrong is how a reranking
-		// benchmark lies about itself.
-		//
-		// MEASURED: one query's answer sits at lexical rank 24 of 24. Scoring the baseline over the
-		// whole corpus gives it credit for 1/24 while the reranked side gets 0 — not because the
-		// reranker demoted it, but because it was never among the ten candidates. That is a
-		// first-stage recall failure being billed to the second stage, and it made bge look worse
-		// than it is. A production pipeline that returns ten results loses that document either
-		// way, so the baseline loses it too.
 		if baseRank > candidates {
 			baseRank = 0
 			outsideWindow++
@@ -389,8 +337,6 @@ func TestRerankEvalMeasuresTheRealModel(t *testing.T) {
 		totalInference.Round(time.Millisecond),
 		(totalInference / time.Duration(len(queries))).Round(time.Millisecond), 10)
 
-	// The eval set must have HEADROOM, or the comparison is meaningless. This is the guard against
-	// the mistake the search gate already made: a baseline at 100% cannot show a change.
 	if baseTop1 == len(queries) {
 		t.Errorf("the lexical baseline already answers every query first — this set has no headroom "+
 			"and cannot measure a reranker (%d/%d)", baseTop1, len(queries))

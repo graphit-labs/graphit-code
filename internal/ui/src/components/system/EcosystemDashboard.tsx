@@ -30,8 +30,7 @@ export default function EcosystemDashboard() {
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
-  
-  // Track which project is currently showing the "add label" inputs
+
   const [activeAddLabelProject, setActiveAddLabelProject] = useState<string | null>(null)
   const [newLabelKey, setNewLabelKey] = useState('')
   const [newLabelValue, setNewLabelValue] = useState('')
@@ -147,7 +146,7 @@ export default function EcosystemDashboard() {
   }
 
   const filteredProjects = projects.filter((p) => {
-    // 1. Search Query filter (matches Name, Path, or any cluster tag key/value)
+
     const query = searchQuery.toLowerCase()
     const matchSearch =
       !query ||
@@ -159,14 +158,12 @@ export default function EcosystemDashboard() {
 
     if (!matchSearch) return false
 
-    // 2. Scope Filter (All vs Cluster Siblings)
     if (scopeFilter === 'siblings') {
-      if (!activeProject) return true // default to showing all if no active project
+      if (!activeProject) return true
 
       const activeHasLabels = activeProject.cluster && Object.keys(activeProject.cluster).length > 0
       const candidateHasLabels = p.cluster && Object.keys(p.cluster).length > 0
 
-      // If an effectiveLabelKeyFilter is selected, we filter by that specific label key sharing
       if (effectiveLabelKeyFilter) {
         const activeVals = activeProject.cluster?.[effectiveLabelKeyFilter]
         const candidateVals = p.cluster?.[effectiveLabelKeyFilter]
@@ -174,12 +171,12 @@ export default function EcosystemDashboard() {
         const shares = activeVals.some(av => candidateVals.includes(av))
         if (!shares) return false
       } else {
-        // Standard cluster sibling resolution
+
         if (!activeHasLabels) {
-          // If active project has no cluster, candidate must also have no cluster (global fallback)
+
           if (candidateHasLabels) return false
         } else {
-          // If active project has cluster, candidate must share at least one value for any key
+
           if (!candidateHasLabels) return false
           let sharesAny = false
           for (const [key, activeVals] of Object.entries(activeProject.cluster || {})) {

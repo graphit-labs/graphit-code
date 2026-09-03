@@ -21,53 +21,16 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-// The AST search index, on LanceDB.
-//
-// WHY THIS IS NOT A SECOND SEARCH BACKEND. It replaces the SQLite sidecar rather than joining it:
-// a published graph on S3 carries no SQLite file and no source text, so the only search that can
-// answer against it is one the engine can run over object storage. Two backends would also mean
-// two relevance behaviours, and the one users hit would depend on where the graph came from.
-//
-// WHAT IS THE SAME AS THE SQLITE INDEX, deliberately, so the port is a port and not a redesign:
-//
-//   - two tables, files and entities, because a file match and an entity match are different
-//     answers and ranking them in one pile buries the entities;
-//   - the row is built in ONE place for both write paths — see buildEntityRow. The SQLite index
-//     learned this the hard way: its incremental INSERT listed every column except name_tri, so
-//     any file touched by an incremental silently lost its trigrams until the next full rebuild;
-//   - the full rebuild indexes AFTER the bulk load, not during it.
-//
-// WHAT IS DIFFERENT, because the engine is:
-//
-//   - no integer row ids. SQLite needed them to join external-content FTS tables to their content;
-//     here the uid is the key and nothing has to be numbered;
-//   - no triggers. Lance keeps appended rows searchable by scanning the fragments that are not in
-//     the index yet, so the incremental does not maintain an index per row — it folds afterwards,
-//     once, for latency. Measured: lancestore.TestFoldIsAboutLatencyNotVisibility;
-//   - no separate vector table and no manual compaction of dead vectors. The embedding is a column
-//     of the entity, so deleting the entity deletes its vector, and the whole class of bug where a
-//     stale vector answers for an entity that no longer exists cannot be expressed.
-
 // LanceIndexDirName is the search index's directory, a sibling of the graph store.
 const LanceIndexDirName = "search.lance"
 
-// The two tables and the columns that carry the search.
 const (
 	lanceFilesTable     = "files"
 	lanceEntitiesTable  = "entities"
 	lanceFileTextColumn = "source"
 
-	// lanceBodyColumn is the single text column the full-text index is built on.
-	//
-	// ONE COLUMN AND NOT SEVEN. The SQLite index queried seven weighted fields separately
-	// (entity name_split at 10.0, docstring at 3.0, etype at 2.0, path at 1.0, and three more for
-	// files) and fused the passes in Go. That is not portable to an engine whose full-text query
-	// takes one column, and reproducing the fusion in Go would be exactly the Go-side search this
-	// project ruled out. So the fields are concatenated into one document and the engine ranks it
-	// with BM25, which already weights by term rarity — the thing the manual weights approximated.
 	lanceBodyColumn = "body"
 
-	// lanceVectorColumn holds the entity embedding, for the vector half of the hybrid query.
 	lanceVectorColumn = "embedding"
 )
 
@@ -79,14 +42,8 @@ type SearchIndex struct {
 
 	rebuildTiming SearchRebuildTiming
 
-	// vectorCount is how many entity rows carry an embedding, read from the embeds
-	// status file beside the index. When it is zero, hybrid and semantic queries
-	// cannot answer — the engine's RRF rank needs a _distance column no row can
-	// produce — so they degrade to keywords instead of failing.
 	vectorCount int64
-	// storeDir is the local store this index was opened from, when there is one.
-	// Remote indexes (S3) have none, and hold vectorCount zero by construction.
-	storeDir string
+	storeDir    string
 
 	Logger *slog.Logger
 }
@@ -133,7 +90,6 @@ func LanceIndexPath(storeDir string) string {
 	return filepath.Join(storeDir, LanceIndexDirName)
 }
 
-// embedsStatusFile records vector coverage and IVF-PQ publication for one corpus generation.
 const (
 	embedsStatusFile       = "embeds.json"
 	embedsStatusLockFile   = "embeds.lock"
@@ -281,8 +237,6 @@ func (s *SearchIndex) Close() error {
 // Remote reports whether this index is a published one, which is read-only.
 func (s *SearchIndex) Remote() bool { return s.store != nil && s.store.Remote() }
 
-// ---------- schema ----------
-
 func lanceFilesSchema() lancestore.Schema {
 	return lancestore.Schema{Fields: []lancestore.Field{
 		{Name: "path", Type: lancestore.FieldString},
@@ -307,20 +261,13 @@ func lanceEntitiesSchema(vectorDim int) lancestore.Schema {
 		{Name: "docstring", Type: lancestore.FieldString, Nullable: true},
 		{Name: "is_dep", Type: lancestore.FieldBool},
 		{Name: lanceBodyColumn, Type: lancestore.FieldString},
-		// Nullable: an entity with no embedding is still searchable by keyword, and refusing to
-		// store it would make the whole index depend on the embedder having run.
 		{Name: lanceVectorColumn, Type: lancestore.FieldVector, Dim: vectorDim, Nullable: true},
 	}}
 }
 
-// lanceEntityIndexes is what has to exist for search to answer.
-//
-// The inverted index is NOT optional: a full-text query without one matches nothing at all, so
-// this is not a performance step that can be deferred to an idle moment.
 func lanceEntityIndexes() []lancestore.Index {
 	return []lancestore.Index{
 		{Column: lanceBodyColumn, Kind: lancestore.IndexInvertedText},
-		// etype has few distinct values across many rows, which is the bitmap's case.
 		{Column: "etype", Kind: lancestore.IndexScalarBitmap},
 		{Column: "path", Kind: lancestore.IndexScalarBTree},
 	}
@@ -337,27 +284,12 @@ func lanceFileIndexes() []lancestore.Index {
 	}
 }
 
-// ---------- the document ----------
-
-// entityBody renders an entity as the one document the full-text index reads.
-//
-// The composition is the one measured in lancestore's tuning sweep — identifier, split form,
-// lowercased variants, docstring, type, and a 2+3-gram bag — and the grams are the one place Go
-// does work the engine could: the sweep measured the engine's own n-gram tokenizer against this
-// and this won. See lancestore.TestSearchTuningSweep for the table.
-//
-// The path is deliberately LAST and unexpanded: it is the weakest evidence of relevance, and
-// expanding it into grams floods the document with directory names that match everything.
 func entityBody(e cachedEntity) string {
 	split := splitCodeIdentifier(e.Name)
 	parts := []string{e.Name}
 	if split != e.Name {
 		parts = append(parts, split)
 	}
-	// The lowercased copies are part of the composition the tuning sweep MEASURED, so they stay
-	// even though the engine's default tokenizer lowercases at index time and they are therefore
-	// probably redundant. Dropping them is a change to a measured configuration, which means
-	// re-running the sweep — not reasoning about it here. Recorded in the backlog.
 	if lower := strings.ToLower(e.Name); lower != e.Name {
 		parts = append(parts, lower)
 	}
@@ -374,7 +306,6 @@ func entityBody(e cachedEntity) string {
 	return strings.Join(nonEmpty(parts), " ")
 }
 
-// fileBody is the same idea for a file: its name carries the signal, its text is corroboration.
 func fileSearchMetadata(relPath string) string {
 	base := filepath.Base(relPath)
 	split := splitCodeIdentifier(base)
@@ -399,10 +330,6 @@ func sourceFromFileSearchDocument(document string) string {
 	return ""
 }
 
-// gramsFor is the 2+3-gram bag of an identifier and of each of its split words.
-//
-// It exists so a truncated query ("resolv") reaches the identifier it was cut from
-// ("resolveHubArtifact"), which BM25 over whole terms cannot do.
 func gramsFor(name, split string) string {
 	seen := make(map[string]bool)
 	var out []string
@@ -421,11 +348,6 @@ func gramsFor(name, split string) string {
 	return strings.Join(out, " ")
 }
 
-// identifierGrams renders an identifier as the bag of its overlapping two- and
-// three-character grams.
-//
-// The bigrams are what let a two-character abbreviation land at all; the sweep measured 2+3 above
-// 3 alone and above the engine's 2-4, which over-matched.
 func identifierGrams(name string) []string {
 	norm := []rune(normalizeForTrigrams(name))
 	var out []string
@@ -473,13 +395,6 @@ func nonEmpty(in []string) []string {
 	return out
 }
 
-// ---------- the rows ----------
-
-// buildEntityRow is the ONLY place an entity row is composed.
-//
-// Both write paths go through it on purpose. The SQLite index had two INSERT statements listing
-// their columns separately, and the incremental one omitted name_tri — so trigram recall silently
-// died for every file an incremental touched. A single constructor makes that unexpressible.
 func buildEntityRow(e cachedEntity, emb []float32) lancestore.Row {
 	row := lancestore.Row{
 		"uid":             e.UID,
@@ -502,7 +417,6 @@ func buildEntityRow(e cachedEntity, emb []float32) lancestore.Row {
 	return row
 }
 
-// buildFileRow is the same, for a file.
 func buildFileRow(relPath, source string) lancestore.Row {
 	return lancestore.Row{
 		"path":   relPath,
@@ -511,27 +425,8 @@ func buildFileRow(relPath, source string) lancestore.Row {
 	}
 }
 
-// ---------- rebuild ----------
-
-// lanceMinRowsForVectorIndex is the engine's own floor for training an IVF-PQ index.
-//
-// MEASURED, not guessed: below it the index build fails with
-//
-//	Unprocessable: Not enough rows to train PQ. Requires 256 rows but only 2 available
-//
-// and that failure took the WHOLE rebuild down. Which means a project with fewer than 256 indexed
-// entities — a new repository, a small service, most test fixtures — could not build a search
-// index at all. Skipping the index below the floor is correct rather than a workaround: a vector
-// query over an unindexed column is answered by scanning, which at this size is what an index
-// would degrade into anyway.
 const lanceMinRowsForVectorIndex = 256
 
-// lanceWriteBatch bounds how many rows are held before they are handed to the engine.
-//
-// The corpus does not fit: file text alone reached 2.4 GB on a 36k-file export, which is what
-// made the SQLite rebuild stream instead of collecting. The same constraint applies here, and a
-// batch is the unit that keeps peak memory flat while still giving the engine enough rows per
-// call to be worth the crossing into Rust.
 const lanceWriteBatch = 8192
 
 // RebuildFromCache replaces the whole index from the parse shards.
@@ -718,19 +613,6 @@ func (w *searchRebuildWriter) Finish() error {
 	return nil
 }
 
-// ---------- incremental ----------
-
-// UpdateIncremental applies a delta: every affected path is removed and every changed one
-// reinserted.
-//
-// This runs IN PLACE, against the index readers are using. Deleting by path and appending is the
-// whole operation — there is no index to maintain per row, because the engine keeps appended rows
-// findable by scanning the fragments it has not folded in yet.
-//
-// The fold at the end is for LATENCY, not correctness: without it those fragments accumulate and
-// the scanned part of every later query grows. Measured in
-// lancestore.TestFoldIsAboutLatencyNotVisibility — the intuition that an unfolded row is
-// invisible is wrong, and building the delete-then-read ordering around it would have been.
 func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 	changedFiles, deletedFiles []string, embLookup func(relPath, uid string) []float32) error {
 	if s.Remote() {
@@ -758,8 +640,6 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		return fmt.Errorf("invalidating vector index: %w", err)
 	}
 
-	// Deleted first, and for BOTH lists: a changed file's old rows have to go before its new ones
-	// arrive, or the index answers with two versions of the same entity.
 	if err := s.entities.DeleteByKey(ctx, "path", affected); err != nil {
 		return fmt.Errorf("removing entities for %d paths: %w", len(affected), err)
 	}
@@ -799,8 +679,6 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		}
 	}
 
-	// Best-effort: a fold that fails leaves the index CORRECT and merely slower, so it must not
-	// fail the reindex that just succeeded.
 	for _, t := range []*lancestore.Table{s.files, s.entities} {
 		if err := t.FoldNewRowsIntoIndexes(ctx); err != nil {
 			s.log().Warn("could not fold new rows into the search index",
@@ -819,8 +697,6 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		vectors, entities := prev.Vectors, prev.Entities
 		switch {
 		case int64(vecCount) > 0:
-			// The delta carried vectors, so the population is now definitely
-			// non-empty; keep the larger count as an estimate.
 			if int64(vecCount) > vectors {
 				vectors = int64(vecCount)
 			}
@@ -828,11 +704,7 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 				entities = int64(len(entRows))
 			}
 		case len(deletedFiles) == 0:
-			// Nothing changed in the population: the new rows carry no vectors and
-			// nothing was removed, so the previous status still holds.
 		default:
-			// Deletes with no new vectors are the only case that can flip the
-			// binary question, so answer it with one cheap probe instead of a scan.
 			if !hasVectorRows(ctx, s.entities) {
 				vectors = 0
 			}
@@ -845,10 +717,6 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 	return nil
 }
 
-// hasVectorRows reports whether any entity row carries an embedding, answering with
-// a filtered probe: WHERE embedding IS NOT NULL LIMIT 1 over a NULL-bearing column
-// is a scan the engine can abort at the first hit and which the null bitmap makes
-// cheap on the non-matching side.
 func hasVectorRows(ctx context.Context, entities *lancestore.Table) bool {
 	hits, err := entities.Search(ctx, lancestore.Query{
 		Filter: "embedding IS NOT NULL", Limit: 1,
@@ -860,7 +728,6 @@ func hasVectorRows(ctx context.Context, entities *lancestore.Table) bool {
 	return ok
 }
 
-// ensureTables opens the two tables, creating them if this is a first write.
 func (s *SearchIndex) ensureTables(ctx context.Context) error {
 	if s.files == nil {
 		t, err := s.store.EnsureTable(ctx, lanceFilesTable, lanceFilesSchema())
@@ -878,8 +745,6 @@ func (s *SearchIndex) ensureTables(ctx context.Context) error {
 	}
 	return nil
 }
-
-// ---------- search ----------
 
 // Search runs the keyword half over both tables.
 //
@@ -921,10 +786,6 @@ func (s *SearchIndex) SemanticSearch(ctx context.Context, vec []float32, topK in
 	}
 	out := entityHitsToResults(hits, "semantic")
 
-	// The engine gives this query a DISTANCE and no score, so the relevance field arrives empty
-	// and has to be derived before anything reads it — including the confidence floor below,
-	// which is expressed as a cosine. See cosineFromSquaredL2 for the measurement and for what
-	// this cost while it was missing.
 	for i := range out {
 		out[i].RelevanceScore = cosineFromSquaredL2(out[i].Distance)
 	}
@@ -985,40 +846,6 @@ func (s *SearchIndex) resolveSearchLimit(ctx context.Context, topK int, includeF
 	return int(n), nil
 }
 
-// search queries entities, then files, and puts entities first.
-//
-// THE TWO PASSES ARE ORDERED SEPARATELY AND CONCATENATED — never sorted together. Sorting the
-// concatenation is what this function used to do, and it is a defect measured on the real index of
-// this project (61,446 entities, 770 files):
-//
-//	query "evictOldestStaged"
-//	  entity pass, keyword only : 156.4  (the method)
-//	  file pass,   keyword only :  29.6  (the file declaring it)
-//	  entity pass, WITH a vector:   1.0  (the engine's FUSED score, normalised to [0,1])
-//
-// So raw BM25 was never the problem — on that channel the entity wins by 5x, which is why every
-// keyword-mode gate passed while the CLI returned nothing but files. The problem is that a hybrid
-// entity pass returns a FUSED score in [0,1] while the file pass, which drops the vector channel
-// because the files table has no embedding column, returns raw BM25 in the tens. One sort over
-// both puts every file above every entity by a factor of twenty to eighty.
-//
-// Normalising the two into one scale is not an option: it would be exactly the weighted fusion in
-// Go that this project deleted along with the SQLite index. And it is not needed — a file match
-// and an entity match are different answers, so precedence between them is the honest rule.
-//
-// The reranker is a THIRD scale, which is why it is propagated rather than dropped: a
-// cross-encoder judges the (query, candidate) pair, so it produces scores that ARE comparable
-// across the two lists — but only if both lists reach it. Passing it to one pass only would rank
-// half the answer with a model and half with BM25, which is this same defect wearing a different
-// number.
-//
-// Each list IS sorted by score internally, and that is safe because the score is now the right
-// column. It was not: a hybrid row carries both _score and _relevance_score, lancestore collapsed
-// them into one field from inside a map range, and the winner was whichever Go visited last — so
-// the entity a query named by name landed anywhere in the list. See the comment on the hit
-// assembly in lancestore/store_lancedb.go. With the columns separated, the fused score is monotone
-// with the engine's own order, so sorting by it agrees with the engine and adds a deterministic
-// tie-break the engine does not give.
 func (s *SearchIndex) search(ctx context.Context, q lancestore.Query, topK int) ([]SearchResult, error) {
 	if err := s.ensureTables(ctx); err != nil {
 		return nil, err
@@ -1126,15 +953,6 @@ func (s *SearchIndex) CountForPath(ctx context.Context, relPath string) (entitie
 	return entities, files
 }
 
-// ---------- file text ----------
-
-// The index is the ONLY queryable copy of a file's text.
-//
-// The graph's File table stopped carrying source, because holding it in both places put the same
-// bytes on disk twice and made the graph the larger of the two. So these are not conveniences:
-// `ast source` reads through them, and an index that failed to build takes source reads down with
-// it — which is why the rebuild path returns that error instead of logging it.
-
 // SearchIndexBuilt reports whether an index exists and has files in it.
 //
 // Populated, not merely present: opening creates, so a store whose build died after the graph has
@@ -1190,12 +1008,6 @@ func (s *SearchIndex) FileSource(ctx context.Context, relPath string) (string, b
 	return src, src != ""
 }
 
-// eachFileSourceBatch bounds how many rows are held at once while walking every file's text.
-//
-// The whole corpus is on the other side of this walk — 2.4 GB on a 36k-file export — and a caller
-// writing into an archive needs one file at a time, not all of them in memory. The SQLite version
-// got this from a streaming cursor; here it is paged explicitly, because the engine returns a
-// materialised batch and asking for the whole table would be the 2.4 GB.
 const eachFileSourceBatch = 200
 
 // EachFileSource calls fn for every indexed file that has text, one at a time and in path order.
@@ -1232,8 +1044,6 @@ func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, sourc
 	if err := s.ensureTables(ctx); err != nil {
 		return err
 	}
-	// One pass to collect the paths, then the text one page at a time. The paths of even a large
-	// corpus are a few megabytes; the text is gigabytes, and that is the whole distinction.
 	pathHits, err := s.files.Search(ctx, lancestore.Query{
 		Filter: "path IS NOT NULL", Limit: 1_000_000,
 	})
@@ -1272,7 +1082,6 @@ func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, sourc
 			document, _ := h.Row["source"].(string)
 			byPath[p] = sourceFromFileSearchDocument(document)
 		}
-		// Emitted in path order, not in whatever order the engine returned the page.
 		for _, p := range page {
 			src := byPath[p]
 			if src == "" {
@@ -1286,10 +1095,6 @@ func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, sourc
 	return nil
 }
 
-// astQuote renders a string literal for the engine's filter dialect.
-//
-// SAFETY: single quotes, doubled to escape. A path can contain an apostrophe, and an unescaped one
-// does not fail the query — it changes which rows match.
 func astQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
@@ -1311,8 +1116,6 @@ func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache, 
 	defer func() { _ = idx.Close() }()
 	return idx.RebuildFromCache(ctx, cache, BuildEmbLookup(cache, embCache))
 }
-
-// ---------- a mounted store's search index ----------
 
 // SearchMountFile records that this store's search index lives on object storage.
 //
@@ -1339,7 +1142,6 @@ func WriteSearchMount(storeDir, uri string) error {
 	return os.WriteFile(filepath.Join(storeDir, SearchMountFile), []byte(uri+"\n"), 0o644)
 }
 
-// searchMountURI reads the recorded URI, or "" when this store's index is local.
 func searchMountURI(storeDir string) string {
 	data, err := os.ReadFile(filepath.Join(storeDir, SearchMountFile))
 	if err != nil {
@@ -1348,15 +1150,12 @@ func searchMountURI(storeDir string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// searchConfigFor decides where a store's search index is, local or mounted.
 func searchConfigFor(storeDir string) lancestore.Config {
 	if uri := searchMountURI(storeDir); uri != "" {
 		return lancestore.Config{URI: uri, S3: config.HubS3Config()}
 	}
 	return lancestore.Config{URI: LanceIndexPath(storeDir)}
 }
-
-// ---------- embeddings live here and nowhere else ----------
 
 // StoreEntityVectors writes a batch of freshly embedded entities back.
 //
@@ -1468,13 +1267,9 @@ func (s *SearchIndex) FinalizeVectorsForGeneration(ctx context.Context, generati
 		}
 	}
 	s.vectorCount = vecCount
-	// An embedding cycle rewrites rows through Upsert — delete then append — so it leaves
-	// exactly the fragmentation and the superseded versions this reclaims.
 	s.Maintain(ctx)
 	return true, nil
 }
-
-// ---------- reclaiming disk ----------
 
 // lanceVersionRetention is how long a superseded dataset version is left alone before pruning.
 //

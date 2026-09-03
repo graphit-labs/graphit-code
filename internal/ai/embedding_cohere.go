@@ -8,9 +8,8 @@ import (
 
 const cohereDefaultBaseURL = "https://api.cohere.com/v2"
 
-const cohereEmbedBatchLimit = 96 // Cohere's documented limit for texts per /embed call.
+const cohereEmbedBatchLimit = 96
 
-// cohereEmbeddingConfig configures a Cohere v2 /embed client.
 type cohereEmbeddingConfig struct {
 	baseURL string
 	apiKey  string

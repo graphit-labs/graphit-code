@@ -1,6 +1,5 @@
-# DB2 — ANTLR v4 grammar for IBM DB2 SQL
-# Comprehensive extraction: DDL, DML, stored procedures, functions, triggers,
-# types, indexes, sequences, parameters, columns, and all relation types.
+
+
 language: db2
 parser: antlr4
 grammar: antlr-db2
@@ -8,11 +7,6 @@ start_rule: db2_file
 extensions: [".sql", ".db2"]
 exclusive: true
 
-# Target resolution: a DML/DDL relation captures its object by NAME, and the name
-# alone does not say what kind of thing it is. A target this corpus never declares is
-# still a table — whoever reads a schema they do not own depends on it for real — and
-# that is why `fallback: Table` is declared here instead of being the engine's default
-# for every reference of every language.
 target_rules:
   CALLS: { labels: [Function, StoredProcedure, Trigger] }
   SELECTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
@@ -24,10 +18,7 @@ target_rules:
   CREATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
   TRUNCATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
   REFERENCES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
-  # COLUMN grain — types of their own, and a target that is always QUALIFIED
-  # (`TABLE.COLUMN`). A bare column name lives in dozens of tables and resolves to
-  # none; qualified it resolves to one, and the qualified stub records ONE column of
-  # ONE table instead of merging every table's.
+
   READS_COLUMN: { labels: [Column], fallback: Column }
   WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
@@ -38,27 +29,17 @@ queries:
     type: relation
     relation_type: WRITES_COLUMN
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # FUNCTIONS & PROCEDURES
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # CREATE [OR REPLACE] FUNCTION function_name(...)
   - data_key: functions
     graph_label: Function
     pattern: "//create_function_statement//function_name"
     name_capture: name
     type: entity
 
-  # CREATE [OR REPLACE] PROCEDURE procedure_name(...)
   - data_key: procedures
     graph_label: StoredProcedure
     pattern: "//create_procedure_statement//procedure_name"
     name_capture: name
     type: entity
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TRIGGERS
-  # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: triggers
     graph_label: Trigger
@@ -66,7 +47,6 @@ queries:
     name_capture: name
     type: entity
 
-  # Trigger → table reference
   - data_key: trigger_tables
     graph_label: ""
     pattern: "//create_trigger_statement/table_name"
@@ -74,34 +54,18 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATABASE OBJECTS — DDL
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Tables
   - data_key: tables
     graph_label: Table
     pattern: "//create_table_statement/table_name"
     name_capture: name
     type: entity
 
-  # Views
   - data_key: views
     graph_label: View
     pattern: "//create_view_statement/view_name"
     name_capture: name
     type: entity
 
-  # Indexes
-  # The shape of an index: its TABLE (an edge), the COLUMNS it covers in order
-  # (semantic in a composite index) and UNIQUENESS, which answers "does the database
-  # enforce this, or only the application?". Without them an index is a name and the
-  # question has no answer in the graph.
-  #
-  # Uniqueness comes from `value_capture` and needs NO guard: the capture returns empty
-  # when the marker is absent, so a non-unique index simply keeps an empty `value`.
-  # Where the marker is a TOKEN, the capture reaches it because ChildByRule falls back
-  # to the token when no rule matches.
   - data_key: indexes
     graph_label: Index
     pattern: "//create_index_statement"
@@ -110,91 +74,66 @@ queries:
     value_label: Value
     type: entity
 
-  # The table the index is on.
   - data_key: index_table
     pattern: "//create_index_statement/table_name"
     name_capture: name
     type: relation
     relation_type: REFERENCES
 
-  # As colunas cobertas.
   - data_key: columns
     graph_label: Column
     pattern: "//create_index_statement/index_col_opts/index_col_opts_item/column_name"
     name_capture: name
     type: entity
 
-  # Sequences
   - data_key: sequences
     graph_label: Sequence
     pattern: "//create_sequence_statement/sequence_name"
     name_capture: name
     type: entity
 
-  # Types
   - data_key: types
     graph_label: Type
     pattern: "//create_type_statement/type_name"
     name_capture: name
     type: entity
 
-  # Schemas
   - data_key: schemas
     graph_label: Schema
     pattern: "//create_schema_statement/schema_name"
     name_capture: name
     type: entity
 
-  # Aliases
   - data_key: aliases
     graph_label: Alias
     pattern: "//create_alias_statement/alias_name"
     name_capture: name
     type: entity
 
-  # Tablespaces
   - data_key: tablespaces
     graph_label: Tablespace
     pattern: "//create_tablespace_statement/tablespace_name"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # COLUMNS & PARAMETERS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Column definitions (inside CREATE TABLE)
-  # NOTE: this query matches nothing on a plain `CREATE TABLE T (C VARCHAR(10)
-  # WITH DEFAULT 'X')`. The DB2 grammar's create_table_statement does not build a
-  # column_definition subtree for that input — the column list comes through as
-  # flat terminals — so DB2 columns are not extracted at all, and there is nothing
-  # for a value_capture to hang off. Fixing that is a grammar problem, not a query
-  # one. See Graphit Task tsk-b3e3d9570a62.
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition/column_name"
     name_capture: name
     type: entity
 
-  # Procedure/function parameters
   - data_key: parameters
     graph_label: Parameter
     pattern: "//parameter_declaration/parameter_name"
     name_capture: name
     type: entity
 
-  # Variable declarations (DECLARE var)
   - data_key: variables
     graph_label: Variable
     pattern: "//declare_variable_statement/variable_name"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # FUNCTION/PROCEDURE CALLS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # CALL procedure_name
   - data_key: calls
     graph_label: ""
     pattern: "//call_statement/procedure_name"
@@ -202,7 +141,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # Function calls in expressions
   - data_key: calls
     graph_label: ""
     pattern: "//function_invocation/function_name"
@@ -210,11 +148,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DML TABLE REFERENCES
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SELECT ... FROM table
   - data_key: selects
     graph_label: ""
     pattern: "//from_clause//table_reference//table_name"
@@ -222,7 +155,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # INSERT INTO table
   - data_key: inserts
     graph_label: ""
     pattern: "//insert_statement/table_name"
@@ -230,7 +162,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # UPDATE table
   - data_key: updates
     graph_label: ""
     pattern: "//update_statement//table_name"
@@ -238,7 +169,6 @@ queries:
     type: relation
     relation_type: UPDATES
 
-  # DELETE FROM table
   - data_key: deletes
     graph_label: ""
     pattern: "//delete_statement//table_name"
@@ -246,11 +176,6 @@ queries:
     type: relation
     relation_type: DELETES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DDL OPERATIONS (ALTER, DROP, TRUNCATE)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # ALTER TABLE
   - data_key: alters
     graph_label: ""
     pattern: "//alter_table_statement/table_name"
@@ -258,7 +183,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # DROP (generic — covers TABLE, VIEW, INDEX, etc.)
   - data_key: drops
     graph_label: ""
     pattern: "//drop_statement//table_name"
@@ -308,17 +232,12 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # TRUNCATE TABLE
   - data_key: truncates
     graph_label: ""
     pattern: "//truncate_statement/table_name"
     name_capture: name
     type: relation
     relation_type: DROPS
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DCL — GRANT & REVOKE
-  # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: grants
     graph_label: ""
@@ -334,11 +253,9 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-# No export detection for DB2
 exports:
   strategy: none
 
-# DB2 parent context types
 context_types:
   create_index_statement: Index
   create_function_statement: Function
@@ -349,12 +266,10 @@ context_types:
   create_type_statement: Type
   create_schema_statement: Schema
 
-# ANTLR comment token types
 comment_types:
   - LINE_COMMENT
   - BLOCK_COMMENT
 
-# DB2 declaration types for docstring attachment
 declaration_types:
   - create_function_statement
   - create_procedure_statement
@@ -366,26 +281,6 @@ declaration_types:
   - create_type_statement
   - create_schema_statement
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the real ANTLR parse tree — and the grammar itself needed a real
-# fix, not just a config, to get here: `sql_procedure_body` reached
-# `sql_procedure_statement`, which was `CALL | FOR | IF | todo` — four bare
-# keywords, none carrying a body, so IF/WHILE/CASE inside a CREATE PROCEDURE
-# were reachable only by accident through error recovery. Db2Parser.g4 was
-# fixed to complete `compound_sql_inlined` (was `BEGIN todo END`, `todo`
-# being this grammar's own placeholder for unwritten sections) with a real
-# statement sequence, add `declare_variable_statement` (local variable
-# declarations had no rule at all) and `assignment_statement` (`SET var =
-# expr` — the single most common statement in a procedure body — likewise
-# had none), and redefine `sql_procedure_statement` around them instead of
-# the four-keyword stub. A further ambiguity in `sql_schema_statement` —
-# `create_procedure_statement` and its own three branches were listed as
-# separate alternatives to the same rule — silently dropped the procedure
-# body under full LL(*) once IF, WHILE and CASE all appeared together in one
-# body (no pair of the three triggered it; bisected in
-# TestDb2FullProcedure); removing the duplicate alternative fixed it.
-# case_statement is counted once per CASE, not once per WHEN — DB2's WHEN
-# clauses repeat within the same rule instance, not as a child of their own.
 complexity:
   node_types:
     - if_statement
@@ -393,10 +288,6 @@ complexity:
     - case_statement
   operators: ["AND", "OR"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Table
   - View

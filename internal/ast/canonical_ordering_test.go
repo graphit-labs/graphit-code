@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-// The tail used to match the ORDER BY keyword without its arguments, so the arguments
-// stayed inside the projection and the query was refused for the wrong reason. Parsing has
-// to carry the clause into the plan instead.
 func TestCanonicalTraversalParsesOrderByAndLimit(t *testing.T) {
 	t.Parallel()
 

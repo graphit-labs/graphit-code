@@ -9,7 +9,6 @@ import (
 	"sync"
 )
 
-// logFile holds the currently open log file so it can be closed on shutdown.
 var (
 	logFile   *os.File
 	logFileMu sync.Mutex

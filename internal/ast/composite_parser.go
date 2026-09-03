@@ -16,7 +16,7 @@ import (
 type CompositeParser struct {
 	treeSitter       *TreeSitterParser
 	antlr            *AntlrParser
-	grammarOverrides map[string]string // ext → grammar name (e.g. ".sql" → "antlr-plsql")
+	grammarOverrides map[string]string
 }
 
 func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *CompositeParser {
@@ -34,7 +34,6 @@ func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *
 func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
 
-	// Grammar override: use the specified grammar directly, no fallback.
 	if grammar, ok := c.grammarOverrides[ext]; ok {
 		return c.parseWithGrammar(path, grammar, isDepend, opts)
 	}
@@ -50,8 +49,6 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 		return pf, err
 	}
 
-	// Both engines support this extension: try tree-sitter first,
-	// fall back to ANTLR if it fails or extracts nothing useful.
 	if hasTS && hasAntlr {
 		pf, err := c.treeSitter.Parse(path, isDepend, opts)
 		if err == nil && pf.EntityCount() > 0 {
@@ -76,7 +73,6 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 	return nil, fmt.Errorf("no parser for %s", ext)
 }
 
-// parseWithGrammar dispatches to the correct backend based on grammar name prefix.
 func (c *CompositeParser) parseWithGrammar(path, grammar string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	if strings.HasPrefix(grammar, "antlr-") {
 		pf, err := c.antlr.ParseWithGrammar(path, grammar, isDepend, opts)

@@ -13,41 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-// A Hub AST artifact is icebug, and it is MOUNTED rather than loaded.
-//
-// This replaces the Parquet path entirely. That path exported the graph table by table and the
-// consumer loaded the rows into a database of its own — which meant the bytes travelled, the
-// indexes were rebuilt per consumer, and every project pinned to a version kept its own copy of
-// the same immutable graph.
-//
-// Icebug inverts it. The publisher writes one CSR per relationship table plus a folded node table,
-// and a `schema.cypher` whose every `CREATE ... WITH (storage = '…', format = 'icebug-disk')`
-// names the location. Installing runs that DDL against an empty local database: the CATALOG is
-// local, the DATA stays where it was published, and a traversal reads the objects it needs.
-//
-// WHAT COMES DOWN ON INSTALL is the schema and the manifest — two files, a few kilobytes. That is
-// metadata, not graph: without the DDL there is nothing to point at the objects, and it is the
-// same information the DDL would have to be reconstructed from anyway.
-//
-// THE KNOWN GAPS are recorded with measurements in
-// Graphit Task tsk-2b2208eee9b1:
-//
-//   - THE NATIVE MULTI-HOP PLAN over a mounted graph enumerates the node table before recursive
-//     expansion and times out on the real corpus. LadybugBackend.Query recognizes a deliberately
-//     narrow, bounded reachability subset and executes it as selective one-hop CSR frontiers;
-//     unsupported recursive Cypher still reaches the upstream planner and may retain that cost.
-//   - A RELATIONSHIP TABLE HOLDS ONE CSR, so it can declare exactly one FROM/TO pair. This graph
-//     has ~97 distinct pairs, which is why every label is folded into one `Entity` table and the
-//     label becomes a column. `MATCH (f:Function)` therefore has to be written
-//     `MATCH (e:Entity {label: 'Function'})` against a mounted context.
-//   - EVERY PARQUET HAS EXACTLY ONE ROW GROUP. Multiple groups make the current Icebug reader
-//     return silently wrong bound-endpoint results at scale. Row-group pruning is therefore not an
-//     available optimization; traversal performance comes from the direct and reverse CSR tables.
-//
-// The trade was made deliberately: an installed context that answers selective bounded traversal
-// over objects nobody downloaded is worth more than one that answers everything after copying a
-// gigabyte, and the alternative on offer was neither.
-
 // IcebugBundleDir is where an artifact keeps its mounted graph, relative to its root.
 const IcebugBundleDir = "graph.icebug"
 
@@ -130,11 +95,6 @@ func splitCypherStatements(src string) []string {
 	return out
 }
 
-// backendConn adapts a LadybugBackend to the transfer package's Conn.
-//
-// It exists so the export can run on a handle the caller already holds: the engine allows
-// exactly one read-write handle per database, so opening a second store on the same path
-// would fail rather than wait.
 type backendConn struct{ be *LadybugBackend }
 
 func (c backendConn) Exec(cypher string, params map[string]any) error {

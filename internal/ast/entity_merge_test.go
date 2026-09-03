@@ -82,11 +82,6 @@ func TestAddOrMergeEntityWithPrePopulatedEntities(t *testing.T) {
 	}
 }
 
-// The regression that froze a 36k-file index. The scan this replaced was O(n) per
-// insert, so a file with this many entities cost ~5e9 comparisons and one worker
-// span for minutes with no I/O and no subprocess -- indistinguishable from a hang.
-// Linear behaviour finishes in milliseconds; the ceiling is generous on purpose so
-// a slow shared runner cannot make it flaky, while quadratic cannot fit under it.
 func TestAddOrMergeEntityIsNotQuadratic(t *testing.T) {
 	const n = 100_000
 	pf := &ParsedFile{}

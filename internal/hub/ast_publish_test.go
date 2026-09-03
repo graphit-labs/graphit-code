@@ -63,9 +63,6 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 		t.Error("shards were staged alongside the graph, doubling the artifact")
 	}
 
-	// THE STORAGE CLAUSE IS THE WHOLE ARTIFACT. Every table has to name the location the CONSUMER
-	// will read from — get it wrong and the artifact mounts against the publisher's own disk,
-	// which works on exactly one machine and fails silently everywhere else.
 	schema, err := os.ReadFile(filepath.Join(ast.IcebugBundlePath(staged), ast.IcebugSchemaFile))
 	if err != nil {
 		t.Fatalf("the published bundle has no %s: %v", ast.IcebugSchemaFile, err)
@@ -81,8 +78,6 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 	if strings.Contains(ddl, staged) || strings.Contains(ddl, storeDir) {
 		t.Errorf("the published schema leaks a local path, so it would only mount here:\n%s", ddl)
 	}
-	// One CREATE per table, and at least the folded node table plus one relationship table —
-	// otherwise the export produced a schema that mounts to nothing.
 	if n := strings.Count(ddl, "CREATE "); n < 2 {
 		t.Errorf("the published schema has %d CREATE statements, want the node table and at "+
 			"least one relationship table:\n%s", n, ddl)
@@ -91,8 +86,6 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 		t.Errorf("the default publication omitted reverse relationship tables:\n%s", ddl)
 	}
 
-	// The reverse policy is a BUILD property now: the bundle is the artifact. A
-	// store built without reverses publishes none — nothing is regenerated.
 	storeDir2 := filepath.Join(tmp, "store2")
 	icebugDir2 := filepath.Join(storeDir2, "graph.icebug")
 	off := false

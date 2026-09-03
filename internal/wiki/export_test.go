@@ -12,10 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The export is where markdown comes from now, so it is where the page renderer's guarantees are
-// asserted. Two of them used to live in internal/knowledge and internal/memory, against a renderer
-// that ran on every build; the guarantees are the same and the subject moved.
-
 func exportChunk(slug, title string) WikiChunk {
 	return WikiChunk{
 		Slug:      slug,
@@ -78,8 +74,6 @@ func TestExportMarkdownWritesAPagePerChunkPlusTheIndex(t *testing.T) {
 	if !strings.Contains(alpha, "## Cross-References") || !strings.Contains(alpha, "[beta](beta.md)") {
 		t.Error("the outbound edge did not reach the page")
 	}
-	// Backlinks are rendered from the graph rather than injected into a stored body: beta is
-	// referenced by alpha, so beta's exported page carries the section.
 	beta := readExported(t, out, "beta.md")
 	if !strings.Contains(beta, backlinksHeader) || !strings.Contains(beta, "(alpha.md)") {
 		t.Errorf("beta has no backlink to alpha:\n%s", beta)
@@ -125,7 +119,6 @@ func TestExportedFrontmatterAlwaysParses(t *testing.T) {
 	if doc["stale_reason"] != "the source changed: twice" {
 		t.Errorf("stale_reason = %v", doc["stale_reason"])
 	}
-	// §5.5: an absolute instant, derived from the moment the page became stale.
 	if doc["stale_after"] != "2026-01-02" {
 		t.Errorf("stale_after = %v, want the stale_since instant", doc["stale_after"])
 	}
@@ -182,7 +175,6 @@ func TestExportedMemoryPageCarriesTheRevisionChain(t *testing.T) {
 			t.Errorf("%s = %v (%T), want %v", key, doc[key], doc[key], want)
 		}
 	}
-	// The banner is the presentation half of the same columns, and it is the part a person reads.
 	if !strings.Contains(page, "Superseded revision") {
 		t.Error("an archived revision must say so in the body")
 	}
@@ -218,9 +210,6 @@ func TestExportMarkdownWritesTheLogFromTheSyncHistory(t *testing.T) {
 	}
 
 	log := readExported(t, out, "log.md")
-	// §9: date-grouped headings, prose entries led by a bold kind word, and no frontmatter — §11
-	// exempts the reserved filenames, and a frontmatter block here would make log.md the one file in
-	// the bundle claiming to be a concept.
 	if strings.HasPrefix(strings.TrimSpace(log), "---") {
 		t.Error("log.md must not carry frontmatter")
 	}

@@ -47,8 +47,6 @@ func TestEmptySearchIndexIsRebuiltFromCacheWithoutReparsing(t *testing.T) {
 		t.Fatalf("first run did not expose graph/search write timing: %+v", first.WritePhases)
 	}
 
-	// The search index goes; the graph and the parse cache stay. This is the shape of a store
-	// carried across an engine change.
 	if err := os.RemoveAll(LanceIndexPath(dbPath)); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +75,6 @@ func TestEmptySearchIndexIsRebuiltFromCacheWithoutReparsing(t *testing.T) {
 		t.Fatal("the search index is still empty after a run that reported success")
 	}
 
-	// The point of the rebuild is that search answers, so assert that rather than the row count.
 	idx, err := OpenSearchIndex(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("open rebuilt index: %v", err)
@@ -116,8 +113,6 @@ func TestSearchIndexThatExistsButIsEmptyIsStillRebuilt(t *testing.T) {
 		t.Skip("this build has no search engine linked (needs -tags lancedb)")
 	}
 
-	// Empty the index but leave the directory, which is what a store created and never
-	// populated looks like — and what os.Stat cannot tell from a healthy one.
 	idxPath := LanceIndexPath(dbPath)
 	if err := os.RemoveAll(idxPath); err != nil {
 		t.Fatal(err)

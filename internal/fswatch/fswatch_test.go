@@ -21,7 +21,6 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-// waitBatch collects batches until the predicate is satisfied or time runs out.
 func waitBatch(t *testing.T, ch <-chan Batch, timeout time.Duration, ok func(Batch) bool) (Batch, bool) {
 	t.Helper()
 	deadline := time.After(timeout)
@@ -120,9 +119,6 @@ func TestRespectsGitignoreAndCustomIgnore(t *testing.T) {
 	ic := ignorer.New(root, root, ".astignore", nil)
 	ch := startWatcher(t, root, ic)
 
-	// Ignored writes first, then an accepted one. The accepted event acts as a
-	// barrier: once it arrives, any ignored event would already have been
-	// delivered had it not been filtered.
 	write(t, filepath.Join(root, "build", "out.go"), "package o // changed\n")
 	write(t, filepath.Join(root, "vendor", "dep.go"), "package d // changed\n")
 	write(t, filepath.Join(root, "app.log"), "noise\n")
@@ -175,8 +171,6 @@ func TestIgnoredDirectoriesAreNotWatched(t *testing.T) {
 	t.Logf("watched %d directories (node_modules excluded)", len(w.watched))
 }
 
-// TestAcceptFilter covers the extension filter used to skip files no parser
-// handles.
 func TestAcceptFilter(t *testing.T) {
 	root := t.TempDir()
 	w, err := New(Config{
@@ -222,7 +216,6 @@ func TestNewDirectoryIsWatched(t *testing.T) {
 		t.Fatal("file created in a brand-new directory was not reported")
 	}
 
-	// A later write in that directory must also be seen, proving the watch stuck.
 	write(t, filepath.Join(sub, "second.go"), "package s\n")
 	if _, ok := waitBatch(t, ch, 3*time.Second, func(b Batch) bool {
 		return contains(b.Changed, "added/deep/second.go")
@@ -231,7 +224,6 @@ func TestNewDirectoryIsWatched(t *testing.T) {
 	}
 }
 
-// TestDebounceCoalesces verifies a burst becomes one batch rather than many.
 func TestDebounceCoalesces(t *testing.T) {
 	root := t.TempDir()
 	ch := startWatcher(t, root, nil)

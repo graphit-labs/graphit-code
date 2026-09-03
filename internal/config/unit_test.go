@@ -26,7 +26,6 @@ func TestUnitIDIsGeneratedOnceAndPersistedInTheGlobalConfig(t *testing.T) {
 		t.Fatal("UnitID returned empty")
 	}
 
-	// It is in the global config file, under unit.id — not in a private sidecar of its own.
 	path, err := globalConfigPath()
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +46,6 @@ func TestUnitIDIsGeneratedOnceAndPersistedInTheGlobalConfig(t *testing.T) {
 		t.Errorf("unit.id in the config is %v, want %q", unit["id"], first)
 	}
 
-	// A fresh process would read it back rather than generate a second one.
 	resetUnitCache()
 	second, err := UnitID()
 	if err != nil {
@@ -75,8 +73,6 @@ func TestUnitIDOverrideWins(t *testing.T) {
 		t.Errorf("UnitID = %q, want the configured override", got)
 	}
 
-	// An override must NOT be persisted as if it had been generated: it comes from the
-	// environment or from a config the operator wrote, and writing it back would freeze it.
 	path, err := globalConfigPath()
 	if err != nil {
 		t.Fatal(err)

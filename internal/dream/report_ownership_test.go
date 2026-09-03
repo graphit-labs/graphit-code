@@ -9,14 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
-// Two instructions used to be live at once: the prompt told the agent to write the
-// report to .<brand>/runtime/dream/<id>.md, and then executeDream wrote its own
-// wrapper to that exact path. The runner always won, so the structured report the
-// envelope spends dozens of lines specifying was overwritten by a wrapper around
-// stdout.
-//
-// reportFingerprint is how the runner now tells the two apart. These tests pin its
-// contract, because the branch it drives decides whether a real report survives.
 func TestReportFingerprintDistinguishesWrittenReports(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

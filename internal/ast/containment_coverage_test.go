@@ -10,11 +10,6 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// flatLanguages are the shipped grammars whose entities genuinely have no
-// enclosing entity, so an empty context is the right answer rather than a
-// forgotten one. Each needs a reason, because "I did not think about it" and
-// "there is nothing to think about" look identical in a query file — and telling
-// them apart is the whole point of this test.
 var flatLanguages = map[string]string{
 	"css": "selectors are declared at the top level of a stylesheet; the entities " +
 		"are the selectors themselves, and a rule_set is named BY them",
@@ -80,8 +75,6 @@ func TestEveryShippedGrammarDeclaresItsContainment(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no query file was checked — the glob or the loader is broken")
 	}
-	// An exemption for a grammar that no longer ships is an exemption nobody is
-	// reading, and it would silently cover a future grammar that reuses the name.
 	for lang := range flatLanguages {
 		if _, err := os.Stat(filepath.Join("queries", lang+".yaml")); err != nil {
 			t.Errorf("flatLanguages exempts %q, which ships no query file", lang)
@@ -90,17 +83,9 @@ func TestEveryShippedGrammarDeclaresItsContainment(t *testing.T) {
 	t.Logf("%d grammars checked, %d declared flat", checked, len(flatLanguages))
 }
 
-// callableContainerExemptions are rules that a query turns into a callable without
-// being the node its parameters hang from, so declaring them as contexts would name
-// the wrong owner rather than a missing one. Keyed "language:rule".
 var callableContainerExemptions = map[string]string{
 	"haskell:data_constructor": "a data constructor's fields are attributed to the " +
 		"data_type around it, which is already a declared context",
-	// These two were exempted on a reason that turned out to be FALSE — that the
-	// parameters resolved through a nearer declared context. They did not: julia lost
-	// them to an empty context and r attributed them to a Function named after the
-	// `function` keyword. Both now state containment with parent_capture on the
-	// Parameter query, which is why the exemption is about the CALLABLE query only.
 	"julia:assignment": "a bare assignment is not a container; the short form's " +
 		"parameters are placed by parent_capture, not by the ancestor walk",
 	"r:binary_operator": "every r binary operator is one of these, so it cannot be a " +
@@ -153,7 +138,6 @@ func TestEveryCallableContainerIsDeclaredAsAContext(t *testing.T) {
 			if strings.EqualFold(q.Type, "relation") || !callable[q.GraphLabel] {
 				continue
 			}
-			// Containment stated in the pattern needs no ancestor walk.
 			if q.ParentCapture != "" {
 				continue
 			}
@@ -165,8 +149,6 @@ func TestEveryCallableContainerIsDeclaredAsAContext(t *testing.T) {
 				checked++
 				continue
 			}
-			// An anonymous function assigned to a name is resolved by anonHit
-			// through the variable_declarator, not by context_types.
 			if patternMentionsAnyKind(q.Pattern, anon) {
 				continue
 			}
@@ -188,9 +170,6 @@ func TestEveryCallableContainerIsDeclaredAsAContext(t *testing.T) {
 	t.Logf("%d callable declarations verified against context_types", checked)
 }
 
-// nonCallableContainerLabels are the labels that own columns, fields, attributes and
-// nested declarations. Undeclared, they misfile that content instead of losing it —
-// which is why they get their own, weaker check.
 var nonCallableContainerLabels = map[string]bool{
 	"Class": true, "Struct": true, "Interface": true, "Trait": true, "Package": true,
 	"Type": true, "Trigger": true, "Table": true, "View": true, "Enum": true,
@@ -201,11 +180,7 @@ var nonCallableContainerLabels = map[string]bool{
 	"ArrayTable": true, "Element": true,
 }
 
-// nonCallableExemptions are rules that produce a container entity without BEING the
-// node its content hangs from. Keyed "language:rule". Every entry states why, because
-// the whole value of this test is telling "considered and fine" apart from "forgotten".
 var nonCallableExemptions = map[string]string{
-	// Wrapper nodes: something nearer IS declared, so the walk stops there first.
 	"c:type_definition":                 "struct_specifier/enum_specifier sit inside and are declared",
 	"cpp:type_definition":               "struct_specifier/class_specifier sit inside and are declared",
 	"go:type_declaration":               "type_spec sits inside and is declared",
@@ -215,26 +190,15 @@ var nonCallableExemptions = map[string]string{
 	"typescript:type_alias_declaration": "a type alias has no nested entities",
 	"tsx:type_alias_declaration":        "a type alias has no nested entities",
 
-	// A package/namespace DECLARATION is a sibling of the declarations it labels, not
-	// their parent node, so making it a context would attribute by file position rather
-	// than by containment.
 	"java:package_declaration": "sibling of the type declarations, not their parent",
 	"kotlin:package_header":    "sibling of the declarations, not their parent",
 	"scala:package_clause":     "sibling of the declarations, not their parent",
 	"protobuf:package":         "sibling of the message declarations, not their parent",
 
-	// A JS/TS pair is captured ONLY when its value is a literal, so a captured pair
-	// never contains another captured pair — unlike json.yaml, which captures every
-	// pair and therefore does declare `pair` as a context. What owns these is the
-	// nearest named declaration, which is why `lexical_declaration` IS a context here:
-	// `const X = { … }` owns its pairs, and a pair under an anonymous `export default`
-	// belongs to the file, which is the honest answer for a config object.
 	"javascript:pair": "only literal-valued pairs are captured, so one never nests in another",
 	"typescript:pair": "only literal-valued pairs are captured, so one never nests in another",
 	"tsx:pair":        "only literal-valued pairs are captured, so one never nests in another",
 
-	// Self-naming tags: the enclosing `element` is the declared context, and resolve()
-	// already skips a container that names the entity itself.
 	"html:start_tag":          "element is the container; resolve() skips the self-name",
 	"html:self_closing_tag":   "a self-closing tag contains nothing",
 	"svelte:start_tag":        "element is the container; resolve() skips the self-name",
@@ -244,7 +208,6 @@ var nonCallableExemptions = map[string]string{
 	"xml:STag":                "element is the container; resolve() skips the self-name",
 	"xml:EmptyElemTag":        "an empty-element tag contains nothing",
 
-	// Nothing nests inside these.
 	"postgresql:createextensionstmt": "CREATE EXTENSION declares no members",
 	"toml:pair":                      "a toml pair holds a value, not nested pairs",
 	"cobol85:entryStatement":         "a statement, not a container",
@@ -312,14 +275,6 @@ func TestEveryNonCallableContainerIsDeclaredAsAContext(t *testing.T) {
 		checked, len(nonCallableExemptions))
 }
 
-// transparentContextGrammars records grammars whose declared contexts cannot be named,
-// leaving every entity inside them attached to the File.
-//
-// It is EMPTY, and that is the point: elixir, graphql, hcl and protobuf were all
-// here, each measured — an `rpc` inside a service came out with context "", attributes
-// inside an hcl `resource` block likewise — and each now declares a context_name_paths
-// entry. An addition here is a regression, not a design choice; the reason must say what
-// is broken, not why it is acceptable.
 var transparentContextGrammars = map[string]string{}
 
 // A declared context whose name cannot be resolved is transparent, which is the same
@@ -378,8 +333,6 @@ func TestNamelessContextsDeclareANamePath(t *testing.T) {
 		"bug, not an exemption", known, len(transparentContextGrammars))
 }
 
-// containerRuleOf names the rule a pattern declares its entity from: the parent
-// segment of an ANTLR XPath, the root node of a tree-sitter s-expression.
 func containerRuleOf(pattern, parser string) string {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
@@ -419,7 +372,6 @@ func stripPredicate(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// patternMentionsAnyKind reports whether the pattern names one of kinds as a node.
 func patternMentionsAnyKind(pattern string, kinds map[string]bool) bool {
 	if len(kinds) == 0 {
 		return false
@@ -432,8 +384,6 @@ func patternMentionsAnyKind(pattern string, kinds map[string]bool) bool {
 	return false
 }
 
-// anyEntityQueryDeclaresParent reports whether the file expresses containment in
-// its patterns rather than through the ancestor walk.
 func anyEntityQueryDeclaresParent(qf ExternalQueryFile) bool {
 	for _, q := range qf.Queries {
 		if strings.EqualFold(q.Type, "relation") {
@@ -481,11 +431,6 @@ func TestDeclaredContextNamePathsResolveAgainstTheGrammar(t *testing.T) {
 				t.Errorf("%s: context_name_paths key %q is not a node kind in %s",
 					filepath.Base(path), kind, grammar)
 			}
-			// A value is one or more ALTERNATIVE paths separated by "|", each a
-			// "/"-separated list of segments, each segment optionally selecting an
-			// occurrence as `kind[n]`. Parsed here exactly as parsePathSegment parses
-			// it, so a typo in the syntax fails the test rather than silently making
-			// the whole context transparent.
 			for _, alt := range strings.Split(p, "|") {
 				alt = strings.TrimSpace(alt)
 				if alt == "" {
@@ -495,16 +440,11 @@ func TestDeclaredContextNamePathsResolveAgainstTheGrammar(t *testing.T) {
 				}
 				for _, raw := range strings.Split(alt, "/") {
 					seg, idx := parsePathSegment(raw)
-					// Segments may be field names, which are not node kinds, so a
-					// segment only has to be one or the other.
 					if lang.IdForNodeKind(seg, true) == 0 && !isFieldName(lang, seg) {
 						t.Errorf("%s: context_name_paths[%s] segment %q is neither a node "+
 							"kind nor a field of %s", filepath.Base(path), kind, seg, grammar)
 						continue
 					}
-					// An index only selects among same-kind children, so it is
-					// meaningless on a field: a field holds exactly one node, and
-					// childBySegment skips the field branch when an index is present.
 					if idx >= 0 && lang.IdForNodeKind(seg, true) == 0 {
 						t.Errorf("%s: context_name_paths[%s] indexes %q, which is a field "+
 							"and not a node kind — an index cannot select among fields",

@@ -72,11 +72,6 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, e
 	return t, nil
 }
 
-// ensureIndexes is intentionally outside openTables. Lifecycle hooks open the
-// six coordination tables on every host boundary, and asking LanceDB to
-// reconcile every index each time turns a deterministic heartbeat into a
-// minute-long operation on object storage. Creation establishes the indexes;
-// search rechecks them before depending on FTS.
 func (t *tables) ensureIndexes(ctx context.Context) error {
 	if err := t.tasks.EnsureIndexes(ctx,
 		lancestore.Index{Column: "id", Kind: lancestore.IndexScalarBTree},

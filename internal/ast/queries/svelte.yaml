@@ -1,20 +1,10 @@
-# Svelte — Tree-sitter grammar for Svelte components
-#
-# Like CSS, the grammar was vendored and registered in treesitter_native.go with no
-# query file, so no extension was ever registered for it: .svelte files were not
-# even discovered, let alone parsed.
-#
-# The tree is HTML-shaped — element, start_tag, attribute — plus `expression`
-# wrapping the `{…}` bindings and if/each blocks. Labels follow html.yaml so a
-# query about markup does not need to know which of the two produced the node.
+
+
 language: svelte
 grammar: tree-sitter-svelte
 extensions: [".svelte"]
 
 queries:
-  # ═══════════════════════════════════════════════════════════════════════════
-  # MARKUP
-  # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: elements
     graph_label: Element
@@ -23,9 +13,6 @@ queries:
     graph_label: Element
     pattern: '(self_closing_tag (tag_name) @name)'
 
-  # Attributes, with their values. `on:click`, `bind:value` and `class:active` are
-  # attribute names as far as the grammar is concerned, which is what makes
-  # "which component listens for this event" answerable.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
@@ -41,7 +28,6 @@ queries:
     value_capture: value
     value_label: AttributeValue
 
-  # `on:click={handle}` — the value is an expression, not a quoted string.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (expression (svelte_raw_text) @value)))'
@@ -57,7 +43,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # Valueless attributes — <input disabled>.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name))'
@@ -69,34 +54,18 @@ queries:
     parent_capture: element
     parent_label: Element
 
-  # Visible text.
   - data_key: element_text
     graph_label: Element
     pattern: '(element (start_tag (tag_name) @name) (text) @value)'
     value_capture: value
     value_label: Text
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TEMPLATE LOGIC
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # `{title}` — what the markup renders, and therefore which value a component
-  # reads. Indexed as a reference: the target is declared in the <script> block.
-  #
-  # The element that renders the binding comes from context_types below, through the
-  # ancestor walk — NOT from a parent_capture on this pattern. Declaring one here
-  # would resolve the same element and additionally opt the name into dataText,
-  # which strips matched quote pairs: `{ "foo" }` would become a reference to the
-  # identifier `foo` instead of the inert literal `"foo"`. Trimming, which is the
-  # only normalisation this needs, is unconditional in the adapter.
   - data_key: bindings
     graph_label: ""
     pattern: '(element (expression (svelte_raw_text) @name))'
     type: relation
     relation_type: REFERENCES
 
-  # `{#if count > 0}` and `{#each items as item}` — the condition is the logic of
-  # the template.
   - data_key: conditions
     graph_label: Condition
     pattern: '(if_start condition: (svelte_raw_text) @name)'
@@ -104,16 +73,6 @@ queries:
     graph_label: Condition
     pattern: '(each_start (svelte_raw_text) @name)'
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # EMBEDDED SCRIPT AND STYLE
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # tree-sitter-svelte hands the body of <script> and <style> over as one raw_text,
-  # so these two queries record it as the element's TEXT. Worth keeping even now
-  # that the body is parsed structurally (see `embedded` below): a ONE-STATEMENT
-  # body becomes a Text node whose name is the statement, so the element's content
-  # stays searchable as content. A multi-statement body yields no Text node at all
-  # — dataText trims the surrounding newlines but rejects any interior one.
   - data_key: element_text
     graph_label: Element
     pattern: '(script_element (start_tag (tag_name) @name) (raw_text) @value)'
@@ -125,23 +84,6 @@ queries:
     value_capture: value
     value_label: Text
 
-# ═════════════════════════════════════════════════════════════════════════════
-# EMBEDDED LANGUAGES
-# ═════════════════════════════════════════════════════════════════════════════
-#
-# The <script> body is JavaScript or TypeScript and the <style> body is CSS, and
-# neither is visible to this grammar. Declaring the blocks here gets each parsed
-# with its own grammar and merged back at absolute line numbers, which is what
-# makes a component contribute IMPORTS edges, script entities and CALLS.
-#
-# `lang` selects the grammar; a value that is not listed is skipped in silence,
-# which is what `lang="scss"` and `lang="postcss"` on a style block get. See
-# docs/specs/embedded_language_parsing.md.
-# Two patterns per block because `lang` is optional: the specific one first, the
-# generic one as the fallback. Order is the tie-break — the first block whose pattern matches
-# a body node claims it — and the claim is at the match, not at language resolution,
-# which is what makes `lang="scss"` be skipped instead of falling back to
-# `default: css`. Mesmo mecanismo de vue.yaml e html.yaml.
 embedded:
   - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
     text_capture: body
@@ -163,20 +105,14 @@ embedded:
     text_capture: body
     default: css
 
-# Svelte's export is `export let`, and it lives in the script block — which the
-# language named in `embedded` above parses, and which decides its own exports.
-# This strategy governs the MARKUP, which has no export of its own.
 exports:
   strategy: none
 
 self_keywords: []
 
-# An element is contained by the element that encloses it. tree-sitter-svelte's
-# `element` has no "name" field -- its name is the tag_name of its start tag.
 context_types:
   element: Element
-  # The queries above read an Element out of script_element and style_element too,
-  # so both are containers — same as html.yaml.
+
   script_element: Element
   style_element: Element
 
@@ -192,15 +128,6 @@ declaration_types: []
 comment_types:
   - comment
 
-# No cyclomatic complexity: the outer Svelte markup has no control flow of
-# its own (Svelte's {#if}/{#each} template blocks are not exercised by this
-# grammar's complexity here) — a <script>'s branches belong to that script's
-# own language and are already counted there.
-
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Element
   - Text

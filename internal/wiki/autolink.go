@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// Pre-compiled regexes for AutoLinkLine — protects existing links and code spans
-// from being double-linked.
 var (
 	reAutoLinkCode = regexp.MustCompile("`[^`]+`")
 	reAutoLinkWiki = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
@@ -19,7 +17,7 @@ var (
 type CompiledTarget struct {
 	Slug  string
 	re    *regexp.Regexp
-	lower string // pre-lowered term for fast strings.Contains pre-filter
+	lower string
 }
 
 // BuildAutoLinkTargets pre-compiles regex targets from a title→slug map.
@@ -69,15 +67,6 @@ func BuildAutoLinkTargets(titles map[string]string) []CompiledTarget {
 	return result
 }
 
-// AutoLinkContent walks body line-by-line and inserts [term](slug.md) markdown links
-// for every CompiledTarget whose term appears in the text, skipping existing
-// wikilinks, markdown links, code spans, fenced code blocks, and frontmatter.
-//
-// The link form is the one OKF specifies for links between concepts (§6.1). Legacy
-// [[wikilinks]] are still RECOGNISED — they are protected from double-linking below, and
-// crossref.go still reads them — but they are no longer PRODUCED.
-//
-// Returns the modified body and a sorted slice of slugs that were auto-linked.
 func AutoLinkContent(body string, targets []CompiledTarget, currentSlug string) (string, []string) {
 	lines := strings.Split(body, "\n")
 	inCodeBlock := false

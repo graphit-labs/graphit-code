@@ -26,7 +26,6 @@ func sanitizeContextName(name string) (string, error) {
 	if clean == "." || clean == ".." || clean == string(os.PathSeparator) {
 		return "", fmt.Errorf("invalid context name %q", name)
 	}
-	// Extra safety: reject if it still contains separators (shouldn't after Base)
 	if strings.ContainsAny(clean, "/\\") {
 		return "", fmt.Errorf("invalid context name %q: must not contain path separators", name)
 	}
@@ -66,14 +65,6 @@ func resolveProjectDirOptional(projectDir string) (string, error) {
 	return resolveProjectDir(projectDir)
 }
 
-// resolveArtifactScope resolves the pair (project_dir, context) for a read that can be
-// served either from a project or from a global install.
-//
-// The rule it enforces is the one an agent gets wrong: without a project there is no
-// "own" graph or wiki to fall back on, so the context is not optional there. Left
-// unchecked, an empty pair does not fail — it resolves to a store keyed by the hash of
-// an empty path and answers with nothing, which reads as "the artifact is empty" rather
-// than "you did not say which artifact".
 func resolveArtifactScope(projectDir, contextName string) (string, error) {
 	abs, err := resolveProjectDirOptional(projectDir)
 	if err != nil {
@@ -90,12 +81,6 @@ func errNeedsArtifactReference() error {
 		"in 'context' by its qualified identifier, for example 'my-artifact@1.2.0'")
 }
 
-// resolveWikiScope is resolveArtifactScope for the wiki tools, where the two wikis
-// differ on whether a project is needed.
-//
-// The memory wiki does not need one: its user scope is keyed by the machine, so a
-// project-less caller has a real scope to read rather than a fallback. The knowledge
-// wiki does, unless a context names the artifact to read instead.
 func resolveWikiScope(projectDir, wikiScope, contextName string) (string, error) {
 	abs, err := resolveProjectDirOptional(projectDir)
 	if err != nil {
@@ -113,12 +98,6 @@ func resolveWikiScope(projectDir, wikiScope, contextName string) (string, error)
 	return "", nil
 }
 
-// errGlobalScopeIsReadOnly is what a write gets in the global scope.
-//
-// Opening a graph or a wiki read-write CREATES it, and a project-less caller has no
-// identity to key one by: the store would be filed under the hash of an empty path,
-// where nothing would ever find it again and nothing would reclaim it. Same reasoning
-// that already refuses an ephemeral workspace a graph of its own.
 func errGlobalScopeIsReadOnly(what string) error {
 	return fmt.Errorf("%s needs a project: without project_dir this server can only READ artifacts "+
 		"installed globally, because writing would create a store with no owner to key it by", what)
@@ -134,10 +113,6 @@ func errGlobalScopeIsReadOnly(what string) error {
 // that case leaves the process somewhere that exists, which is strictly better than
 // where it was.
 func withProjectDir(projectDir string, fn func() error) error {
-	// The global scope has no directory to move into, and moving anywhere would be
-	// worse than staying: the whole reason this function exists is that code below it
-	// resolves things from the working directory, and in the global scope every path
-	// is absolute by construction.
 	if projectDir == "" {
 		return fn()
 	}
@@ -165,28 +140,12 @@ func anchorToProject(projectDir, path string) string {
 	if path == "" || filepath.IsAbs(path) {
 		return path
 	}
-	// Nothing to anchor to in the global scope. Joining with "" is a no-op that LOOKS
-	// harmless and is not: it leaves the path relative, which is precisely the state
-	// this function exists to remove, and the caller then resolves it against the
-	// server's own working directory.
 	if projectDir == "" {
 		return path
 	}
 	return filepath.Join(projectDir, path)
 }
 
-// astConfigForProject builds the Ladybug config for projectDir with a DBPath that
-// does not depend on the working directory.
-//
-// Everything here is resolved against projectDir, and that is the whole point. The
-// project's own graph is keyed by the project's identity, and a context — Hub or
-// locally imported — is claimed by the project's lockfile and registry, so neither
-// is discoverable without knowing which project is asking. Resolving either from the
-// working directory answers for whichever project the server was started in, and it
-// answers silently: a graph opens, it is simply not the one that was requested.
-//
-// The backend connects lazily, on its first query, so a wrong path here is invisible
-// until a write lands in another project's graph and reports success.
 func astConfigForProject(projectDir, contextName string) ast.LadybugConfig {
 	cfg := ast.LadybugConfigForContextIn(projectDir, contextName)
 	cfg.StoreDir = anchorToProject(projectDir, cfg.StoreDir)
@@ -206,9 +165,6 @@ func openASTDB(projectDir, contextName string) (ast.GraphDB, error) {
 	return ast.NewLadybugDBReadOnly(cfg), nil
 }
 
-// errEphemeralHasNoGraph is what a write to an ephemeral session's own code graph
-// gets. Imported contexts are unaffected — reading and installing those is most of
-// what a live search does.
 func errEphemeralHasNoGraph() error {
 	return fmt.Errorf("a live search session has no code graph of its own: its workspace holds no source, and the graphs it can query are the imported contexts — pass one as 'context'")
 }
@@ -249,11 +205,6 @@ func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
 // different question.
 func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, string, bool, error) {
 	redirected := false
-	// The global scope has the same shape as an ephemeral workspace and for the same
-	// reason: a project memory scope is keyed by a project identity, and there is none
-	// here. The user scope is keyed by the machine, so it is available and it is the
-	// only memory such a caller legitimately has — refusing outright would fail the
-	// first call of every session the mandate tells an agent to make.
 	if !userScope && projectDir == "" {
 		userScope = true
 		redirected = true
@@ -271,9 +222,6 @@ func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, stri
 		return memory.MemoryScopeUser, hash, redirected, nil
 	}
 
-	// Unreachable for an empty projectDir — the redirect above already took it — and
-	// guarded anyway, because the join would produce a relative path that resolves
-	// against this server's working directory.
 	if projectDir == "" {
 		return "", "", redirected, fmt.Errorf("a project memory scope is keyed by a project identity, and no project_dir was given")
 	}
@@ -285,8 +233,6 @@ func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, stri
 	return memory.MemoryScopeProject, lf.Project.ID, false, nil
 }
 
-// memoryScopeNotice is the sentence a tool adds when the scope it served was not the
-// scope it was asked for, and "" when it was.
 func memoryScopeNotice(userScope bool, projectDir string) string {
 	if userScope {
 		return ""
@@ -314,35 +260,15 @@ func newMemorySvc(userScope bool, projectDir string) (*memory.MemoryService, err
 	return svc, nil
 }
 
-// resolveWikiDir returns the absolute wiki directory of a module for one project.
-//
-// No chdir, and no anchoring. Both used to be necessary: the resolvers returned
-// ".graphit/knowledge/project" relative to the working directory, and one of them
-// stat'ed a project-local replica to decide whether it existed — so a server serving
-// one project while sitting in another read the wrong project's wiki unless it moved
-// itself first. Every wiki is now global and keyed by identity, so the project is
-// simply an argument.
 func resolveWikiDir(module, projectDir, contextName string) string {
 	switch module {
 	case "knowledge":
-		// ReadDirIn, not WikiDirForContextIn, because an ephemeral session has no
-		// documentation wiki of its own — the sets it can read are the ones it
-		// selected, reached by name. Putting the rule here rather than in each tool
-		// means every knowledge and wiki tool inherits it.
 		return knowledge.ReadDirIn(projectDir, contextName)
 	case "memory":
 		scope := contextName
 		if scope == "" {
 			scope = "project"
 		}
-		// An ephemeral session has no project memory, so a request for one is served
-		// from the user scope — the same redirect memoryScopeFor performs. It has to
-		// happen here too, or the two disagree: a search would return user memory
-		// slugs and reading one of them back would resolve to a directory that does
-		// not exist.
-		//
-		// The global scope redirects for the same reason, and the two conditions are
-		// kept apart because the sentence the caller is shown differs.
 		if scope == "project" && (projectDir == "" || store.IsEphemeralProject(projectDir)) {
 			scope = "user"
 		}
@@ -352,13 +278,6 @@ func resolveWikiDir(module, projectDir, contextName string) string {
 	}
 }
 
-// loadProjectConfig reads one project's configuration out of its lockfile.
-//
-// The empty projectDir guard is not defensive tidiness. filepath.Join("", "<lockfile>")
-// is a RELATIVE path, so without it a global-scope call reads the lockfile of whatever
-// directory this server happens to be sitting in and applies that project's
-// configuration — its Hub bucket, its module switches — to a request that named no
-// project at all.
 func loadProjectConfig(projectDir string) config.ConfigMap {
 	if projectDir == "" {
 		return nil

@@ -17,7 +17,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
-	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher" // registers AI Cypher generator
+	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -169,16 +169,12 @@ func getModuleResolvedRule(module string) string {
 	}
 }
 
-// progressThrottle decides when a progress callback is allowed to print.
 type progressThrottle struct {
 	every time.Duration
 	last  time.Time
 	phase string
 }
 
-// allow reports whether this callback should print. A phase change always
-// prints, however recently the last line went out: that is the part carrying
-// information — the silence has a new reason.
 func (t *progressThrottle) allow(phase string, now time.Time) bool {
 	if phase == t.phase && now.Sub(t.last) < t.every {
 		return false
@@ -187,13 +183,6 @@ func (t *progressThrottle) allow(phase string, now time.Time) bool {
 	return true
 }
 
-// progressInterval says how often the reporter may speak.
-//
-// On a terminal the line is rewritten in place, so refreshing it costs nothing
-// but a redraw and the counter can move like a counter. Redirected to a file,
-// a pipe, or the daemon log there is no cursor to move: every refresh is
-// another line, and 36k files at this rate would be a log of nothing else. So
-// the coarse interval stays exactly where it was for that case.
 func progressInterval(tty bool) time.Duration {
 	if tty {
 		return 200 * time.Millisecond
@@ -201,19 +190,6 @@ func progressInterval(tty bool) time.Duration {
 	return 10 * time.Second
 }
 
-// indexProgressReporter turns the pipeline's per-file callback into a progress
-// line — one that is overwritten on a terminal, and appended anywhere else.
-//
-// The pipeline has emitted progress for a long time and nothing consumed it, so
-// `ast index` printed the grammar overrides and then nothing at all until it
-// finished — 16 minutes of silence on a 36k-file repository, indistinguishable
-// from a hang, which is exactly how a real one was missed.
-//
-// Throttled by time rather than by file count: file cost varies by four orders
-// of magnitude here (a 200-line PL/SQL package against a 1.3 M-line XML), so
-// "every N files" is silent for minutes on the slow ones and a flood on the
-// fast ones. A phase change always prints, however recently the last line went
-// out, because that is the part that says the silence has a new reason.
 func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 	var (
 		mu sync.Mutex
@@ -229,8 +205,6 @@ func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 		case "saving-cache":
 			p.StepProgress("Saving parse cache: %d file(s)", total)
 		case "writing":
-			// current is rows already copied into the graph; it is 0 on the single
-			// line emitted before the phase starts.
 			if current > 0 {
 				p.StepProgress("Writing graph: %d row(s) from %d file(s)", current, total)
 				return
@@ -253,7 +227,6 @@ func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cluster string, clusterPaths []string, noSource bool, grammar string) error {
 	p := output.NewPrinter("")
 
-	// Parse cluster-path mappings
 	clusterPathMap := make(map[string]string)
 	for _, cp := range clusterPaths {
 		parts := strings.SplitN(cp, "=", 2)
@@ -264,7 +237,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		clusterPathMap[path] = parts[1]
 	}
 
-	// Resolve absolute paths
 	absPaths := make([]string, len(targetPaths))
 	for i, tp := range targetPaths {
 		abs, err := filepath.Abs(tp)
@@ -298,7 +270,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		cancel()
 	}()
 
-	// Resolve grammar overrides: config (base) + flag (higher priority)
 	projectCfg := loadProjectConfig()
 	grammarOverrides := config.ResolveGrammarOverrides(nil, projectCfg)
 	if grammar != "" {
@@ -309,7 +280,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		p.Step("Grammar overrides: %v", grammarOverrides)
 	}
 
-	// Load cluster map from config if not provided via CLI
 	if len(clusterPathMap) == 0 {
 		configClusterMap := config.ResolveClusterPathMap(nil, projectCfg)
 		for path, cl := range configClusterMap {
@@ -317,7 +287,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		}
 	}
 
-	// Build display string for cluster info (after loading from config)
 	var clusterInfo strings.Builder
 	if len(clusterPathMap) > 0 {
 		clusterInfo.WriteString(" (clusters: ")
@@ -350,7 +319,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		indexSource = false
 	}
 
-	// Persist cluster settings to config if provided via CLI
 	if len(clusterPaths) > 0 || cluster != "" {
 		if err := persistClusterConfig(clusterPathMap, cluster); err != nil {
 			p.StepWarn("Failed to persist cluster config: %v", err)
@@ -370,15 +338,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		OnProgress:       indexProgressReporter(p),
 	}
 
-	// DECISION: incremental vs. full is NOT decided here. It used to be — an `isIncremental`
-	// flag stat'ed the icebug directory and picked one of two branches — but the two branches
-	// had become byte-for-byte identical, because the only thing that actually distinguishes
-	// the two runs is `ForceRebuild: reset || reindex` above, which the pipeline reads for
-	// itself. Keeping the fork meant a reader had to diff forty lines to discover it said
-	// nothing.
-	//
-	// The pipeline root is the working directory in both cases, so shard paths and cache
-	// keys are relative to the project root and a later incremental run finds them.
 	wd, _ := os.Getwd()
 	projectRoot := wd
 
@@ -400,8 +359,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 
 	finalResult, err := ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
 
-	// The last progress line is transient and nothing after an error path would erase it,
-	// so EndProgress runs BEFORE the error is returned, not after.
 	p.EndProgress()
 	if err != nil {
 		return err
@@ -490,7 +447,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	return nil
 }
 
-// persistClusterConfig saves the cluster and cluster-path settings to the project config.
 func persistClusterConfig(clusterPathMap map[string]string, defaultCluster string) error {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -503,21 +459,19 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 		return fmt.Errorf("load lockfile: %w", err)
 	}
 	if lf == nil {
-		return nil // no lockfile, nothing to persist
+		return nil
 	}
 
 	if lf.Config == nil {
 		lf.Config = make(map[string]any)
 	}
 
-	// Use nested structure for config
 	astConfig, ok := lf.Config["ast"].(map[string]any)
 	if !ok {
 		astConfig = make(map[string]any)
 	}
 
 	if len(clusterPathMap) > 0 {
-		// Build comma-separated string
 		var pairs []string
 		for path, cluster := range clusterPathMap {
 			pairs = append(pairs, fmt.Sprintf("%s=%s", path, cluster))
@@ -555,7 +509,7 @@ func collectFilesForPath(rootPath, projectRoot string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // skip errors
+			return nil
 		}
 		rel, relErr := filepath.Rel(projectRoot, path)
 		if relErr != nil {
@@ -565,9 +519,6 @@ func collectFilesForPath(rootPath, projectRoot string) ([]string, error) {
 			if rel != "." && ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
 				return filepath.SkipDir
 			}
-			// The directory's own ignore files (.gitignore/.astignore in it)
-			// apply to whatever lives under it — git semantics, so a
-			// `.opencode/.gitignore` with `node_modules` scopes to .opencode.
 			if rel != "." {
 				ic = ic.At(rel)
 			}
@@ -577,7 +528,6 @@ func collectFilesForPath(rootPath, projectRoot string) ([]string, error) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		// Check if we have a parser for this extension
 		if ast.HasParserForExtensionIn(rootPath, ext) {
 			files = append(files, path)
 		}
@@ -594,7 +544,6 @@ func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []
 		return fmt.Errorf("invalid path: %w", err)
 	}
 
-	// Parse cluster-path mappings
 	clusterPathMap := make(map[string]string)
 	for _, cp := range clusterPaths {
 		parts := strings.SplitN(cp, "=", 2)
@@ -605,7 +554,6 @@ func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []
 		clusterPathMap[path] = parts[1]
 	}
 
-	// Load cluster map from config if not provided via CLI
 	if len(clusterPathMap) == 0 {
 		projectCfg := loadProjectConfig()
 		configClusterMap := config.ResolveClusterPathMap(nil, projectCfg)
@@ -614,7 +562,6 @@ func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []
 		}
 	}
 
-	// Persist cluster settings to config if provided via CLI
 	if len(clusterPaths) > 0 || cluster != "" {
 		if err := persistClusterConfig(clusterPathMap, cluster); err != nil {
 			p.StepWarn("Failed to persist cluster config: %v", err)
@@ -642,7 +589,6 @@ func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []
 		return fmt.Errorf("watcher init: %w", err)
 	}
 
-	// Build display string for cluster info
 	var clusterInfo strings.Builder
 	if len(clusterPathMap) > 0 {
 		clusterInfo.WriteString(" (clusters: ")
@@ -1229,9 +1175,6 @@ func runKnowledgeQuery(query string, contextName string) error {
 	return nil
 }
 
-// runKnowledgeIndex builds the wiki for root. scope names what under root is
-// read — the configured docs tree plus the root README for a project index, and
-// nothing (meaning "all of it") when the caller pointed at a directory directly.
 func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, reset, useLouvain bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
@@ -1358,8 +1301,6 @@ func runASTVerify(contextName string) error {
 
 	p.Data(ast.FormatVerifyReport(report))
 	if !report.Clean() {
-		// A non-zero status so this can gate a pipeline. The message already said
-		// what to do, so the error stays short.
 		return fmt.Errorf("%d node(s) hold text their file does not contain", len(report.Divergences))
 	}
 	return nil
@@ -1613,15 +1554,6 @@ func runMemoryIndex(userScope, reset bool) error {
 	}
 	defer func() { _ = svc.Close() }()
 
-	// --reset clears the wiki before indexing, matching `ast index --reset` and
-	// `knowledge index --reset`.
-	//
-	// It exists because an ordinary index cannot repair an index that is wrong for a
-	// reason other than a changed memory. The normal incremental path compares the source table
-	// with the wiki table; --reset deliberately discards the derived side before compiling it again.
-	//
-	// Nothing discarded here is source. The memories live in their own store, outside the
-	// wiki; the chunks and the vectors are all derived from them.
 	if reset {
 		if _, rerr := wiki.ResetDir(svc.WikiDir()); rerr != nil {
 			return fmt.Errorf("clearing the memory wiki: %w", rerr)
@@ -1833,10 +1765,6 @@ func runMemoryClean() error {
 
 func runMemoryRemoveContext(contextName string) error {
 	p := output.NewPrinter("")
-	// An imported memory context is a prefix of the shared memory store, so what is
-	// dropped is this machine's copy of it: its local table directory and its compiled wiki,
-	// both global. The remote prefix survives — another unit may still be reading it — and
-	// there is no project-local copy left to remove.
 	if err := os.RemoveAll(memory.TableDirFor(contextName, contextName)); err != nil {
 		return fmt.Errorf("removing memory context table: %w", err)
 	}
@@ -1884,10 +1812,6 @@ func runMemoryConsolidate(userScope, dryRun bool) error {
 		scope = "user"
 	}
 
-	// The same agent CLI the dream module uses. Consolidation only needs judgement
-	// back as text — which memories duplicate or contradict which — so the
-	// analytical client is the right one; every mutation is applied by Go under the
-	// invariants in ApplyConsolidation.
 	aiClient, aiErr := ai.NewClientFromConfig()
 	if aiErr != nil {
 		p.Warn("No AI CLI found — only the deterministic staleness check will run.")
@@ -1943,8 +1867,6 @@ func runMemoryConsolidate(userScope, dryRun bool) error {
 		p.ListItem("%s → %s", a.Type, a.Kept)
 	}
 
-	// Refusals are the interesting output: they are where the invariants stopped a
-	// proposal, and each one is work for a human or an agent with more context.
 	if len(outcome.Skipped) > 0 {
 		p.Blank()
 		p.Header("Refused (%d)", len(outcome.Skipped))
@@ -1999,10 +1921,6 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 		p.Warn("Initial index error: %v", err)
 	}
 
-	// Filesystem notifications instead of polling `git status` every two
-	// seconds: no worktree walk per tick, no git requirement, and changes are
-	// picked up immediately. Ignore rules (.gitignore plus the module's own
-	// ignore file) are honoured when registering watches and filtering events.
 	w, err := fswatch.New(fswatch.Config{
 		Root:        rootPath,
 		Ignore:      ast.NewAstIgnoreChecker(rootPath),
@@ -2095,8 +2013,6 @@ func runASTSync(contextName string) error {
 func runKnowledgeRemoveContext(contextName string) error {
 	p := output.NewPrinter("")
 	wd, _ := os.Getwd()
-	// Only this project's claim. The wiki is global and another project may have
-	// imported the same context.
 	if err := store.RemoveContext(wd, store.KindKnowledge, contextName); err != nil {
 		return fmt.Errorf("removing knowledge context: %w", err)
 	}
@@ -2105,9 +2021,6 @@ func runKnowledgeRemoveContext(contextName string) error {
 	return nil
 }
 
-// runKnowledgeWatch watches root and rebuilds the wiki on change. The watch
-// covers all of root — the README lives outside the docs tree, and an edit to it
-// has to rebuild too — while scope still decides what each rebuild reads.
 func runKnowledgeWatch(root string, scope knowledge.WikiScope, useLouvain bool) error {
 	p := output.NewPrinter("")
 	p.Running("Watching %s for changes…", root)
@@ -2334,7 +2247,6 @@ func runWikiSessions(deleteID string) error {
 	return nil
 }
 
-// openWikiDBForScope resolves the wiki scope to a directory and opens the WikiDB.
 func openWikiDBForScope(ctx context.Context, wikiScope, projectDir string) (*wiki.WikiDB, error) {
 	wikiDir, err := wikiDirForScope(wikiScope, "", projectDir)
 	if err != nil {
@@ -2346,10 +2258,6 @@ func openWikiDBForScope(ctx context.Context, wikiScope, projectDir string) (*wik
 	return wiki.OpenWikiDB(ctx, wikiDir)
 }
 
-// wikiDirForScope resolves the directory holding a wiki's pages and index.
-//
-// No chdir. Every resolver now takes the project explicitly, because the stores are
-// global and keyed by identity rather than found by walking the working directory.
 func wikiDirForScope(wikiScope, contextName, projectDir string) (string, error) {
 	switch wikiScope {
 	case "project", "knowledge", "":
@@ -2387,8 +2295,6 @@ func runWikiSource(page, wikiScope, contextName, projectDir string, req textslic
 
 	result, err := wiki.ReadPageAt(context.Background(), wikiDir, page, req)
 	if err != nil {
-		// Only a mistyped slug is helped by a list of alternatives. A rejected
-		// reference — one escaping the wiki directory — needs its own reason kept.
 		if errors.Is(err, wiki.ErrPageNotFound) {
 			if pages := wiki.ListPagesAt(context.Background(), wikiDir); len(pages) > 0 {
 				sort.Strings(pages)
@@ -2411,11 +2317,6 @@ func runWikiSource(page, wikiScope, contextName, projectDir string, req textslic
 	return nil
 }
 
-// runWikiExport renders a compiled wiki back into Markdown, on demand.
-//
-// The generators no longer write pages, so this is the only thing that produces them — and it
-// produces them where the caller asks rather than inside the wiki directory, which is the
-// difference that keeps the index the single artifact.
 func runWikiExport(wikiScope, contextName, projectDir, outDir string) error {
 	ctx := context.Background()
 	p := output.NewPrinter("")
@@ -2608,7 +2509,6 @@ func runWikiXRefs(query, wikiScope string, depth int, aiOptimized bool) error {
 		return nil
 	}
 
-	// Split into outbound and inbound.
 	var outbound, inbound []wiki.XRefResult
 	for _, r := range refs {
 		if r.Direction == "outbound" {
@@ -2646,11 +2546,6 @@ func runWikiEmbed(wikiScope string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	// The same targets the daemon and the MCP tool embed. This used to build its own
-	// path with a "wiki" subdirectory that does not exist, and since OpenWikiDB
-	// creates what it opens, it embedded an empty database it had just created and
-	// then printed "All wiki chunks already have embeddings" — a success message
-	// about a file with nothing in it.
 	targets := daemon.WikiEmbedTargets(wd, nil)
 	if wikiScope != "" {
 		filtered := targets[:0]

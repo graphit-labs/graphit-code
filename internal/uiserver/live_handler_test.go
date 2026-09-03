@@ -19,7 +19,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
 )
 
-// fakeStreamClient is an ai.StreamClient the tests drive.
 type fakeStreamClient struct {
 	stream func(ctx context.Context, req ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error)
 }
@@ -44,9 +43,6 @@ func answering(text string) *fakeStreamClient {
 	}}
 }
 
-// newLiveTestServer starts the live API over a real listener, which SSE needs: a
-// recorder cannot be disconnected mid-stream, and disconnecting is the behaviour
-// most worth testing here.
 func newLiveTestServer(t *testing.T, client ai.StreamClient, prepare livesearch.PrepareFunc) (*httptest.Server, *livesearch.Manager) {
 	t.Helper()
 	mgr := livesearch.NewManager(t.TempDir(), client, prepare)
@@ -66,7 +62,6 @@ type sseEvent struct {
 	retry string
 }
 
-// openStream subscribes over HTTP and decodes events as they arrive.
 func openStream(t *testing.T, url string, headers map[string]string) (*http.Response, <-chan sseEvent, func()) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
@@ -124,7 +119,6 @@ func nextEvent(t *testing.T, events <-chan sseEvent) (sseEvent, bool) {
 	}
 }
 
-// awaitKind reads until an event of the given kind arrives.
 func awaitKind(t *testing.T, events <-chan sseEvent, kind string) sseEvent {
 	t.Helper()
 	for {
@@ -210,8 +204,6 @@ func TestCreateStartsASessionAndReportsIt(t *testing.T) {
 	if got.IDE != "claude" {
 		t.Fatalf("ide is %q, want claude", got.IDE)
 	}
-	// The prompt becomes the label when none was given, so a session list is
-	// readable without opening anything.
 	if got.Title != "why is startup slow" {
 		t.Fatalf("title is %q, want the prompt", got.Title)
 	}
@@ -228,8 +220,6 @@ func TestCreateRequiresAnIDE(t *testing.T) {
 }
 
 func TestTheInitialPromptRunsWithoutAnyoneAsking(t *testing.T) {
-	// Preparation is the slow part. The question must survive it even if no client
-	// is watching when it ends, or a closed tab wastes the whole preparation.
 	gate := make(chan struct{})
 	prepare := func(context.Context, *livesearch.Session, func(string)) error {
 		<-gate
@@ -241,7 +231,6 @@ func TestTheInitialPromptRunsWithoutAnyoneAsking(t *testing.T) {
 	close(gate)
 	waitForState(t, srv, created.ID, livesearch.StateReady)
 
-	// Connect only now, after the turn already ran, and read it from the log.
 	_, events, closeStream := openStream(t, srv.URL+"/api/live/sessions/"+created.ID+"/stream", nil)
 	defer closeStream()
 
@@ -268,14 +257,10 @@ func TestStreamDeclaresItselfAsEventStream(t *testing.T) {
 	if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("Cache-Control is %q, want no-cache", got)
 	}
-	// Without this a proxy can buffer the whole run and deliver it at the end,
-	// which is indistinguishable from the server hanging.
 	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
 		t.Fatalf("X-Accel-Buffering is %q, want no", got)
 	}
 
-	// The reconnect delay is announced before anything else, so a client that
-	// drops immediately already knows how long to wait.
 	first, ok := nextEvent(t, events)
 	if !ok {
 		t.Fatal("the stream closed immediately")
@@ -326,8 +311,6 @@ func TestEveryEventCarriesItsSequenceAsTheSSEID(t *testing.T) {
 }
 
 func TestTheRunSurvivesTheClientDisconnecting(t *testing.T) {
-	// The reason this subsystem exists. Closing the stream must unsubscribe and
-	// nothing else.
 	release := make(chan struct{})
 	var once sync.Once
 	client := &fakeStreamClient{stream: func(_ context.Context, _ ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
@@ -344,16 +327,13 @@ func TestTheRunSurvivesTheClientDisconnecting(t *testing.T) {
 	_ = resp.Body.Close()
 	waitForState(t, srv, created.ID, livesearch.StateRunning)
 
-	closeStream() // the tab is closed while the agent works
+	closeStream()
 	for range events {
-		// drain whatever was in flight
 	}
 	once.Do(func() { close(release) })
 
 	waitForState(t, srv, created.ID, livesearch.StateReady)
 
-	// Reconnect and read the transcript from the beginning: what happened while
-	// nobody was connected must be there.
 	_, again, closeAgain := openStream(t, srv.URL+"/api/live/sessions/"+created.ID+"/stream", nil)
 	defer closeAgain()
 
@@ -393,8 +373,6 @@ func TestReconnectResumesFromLastEventIDHeader(t *testing.T) {
 }
 
 func TestReconnectResumesFromTheQueryParameterToo(t *testing.T) {
-	// EventSource cannot set headers, so a client resuming after a page reload has
-	// only the query string to say where it got to.
 	srv, _ := newLiveTestServer(t, answering("answer"), nil)
 	created := createSession(t, srv, createLiveSessionRequest{IDE: "claude", Prompt: "ask"})
 	waitForState(t, srv, created.ID, livesearch.StateReady)
@@ -449,8 +427,6 @@ func TestAQuietStreamSendsAHeartbeat(t *testing.T) {
 	heartbeatInterval = 20 * time.Millisecond
 	defer func() { heartbeatInterval = restore }()
 
-	// A session that never becomes ready produces no events at all, which is
-	// exactly the case a proxy would otherwise reap.
 	prepare := func(ctx context.Context, _ *livesearch.Session, _ func(string)) error {
 		<-ctx.Done()
 		return ctx.Err()
@@ -560,8 +536,6 @@ func TestRemoveDeletesTheSession(t *testing.T) {
 }
 
 func TestListIsAlwaysAnArray(t *testing.T) {
-	// An empty list must serialise as [] and not null, or a client that maps over
-	// the response crashes on its first visit.
 	srv, _ := newLiveTestServer(t, answering("hi"), nil)
 
 	resp, err := srv.Client().Get(srv.URL + "/api/live/sessions")
@@ -618,8 +592,6 @@ func TestStreamingAnUnknownSessionIsNotFound(t *testing.T) {
 }
 
 func TestWriteSSEEventKeepsOneEventOnOneDataLine(t *testing.T) {
-	// A newline inside a value would end the event early and leave the rest as a
-	// second, unparseable one.
 	var buf bytes.Buffer
 	err := writeSSEEvent(&buf, livesearch.Event{
 		Seq:  7,
@@ -680,17 +652,11 @@ func TestWriteLiveErrorMapsEachRefusalToItsOwnStatus(t *testing.T) {
 }
 
 func TestATranscriptFromAnotherProcessIsStillReadable(t *testing.T) {
-	// The durable log exists so a session's story survives the process that wrote it:
-	// one created by the CLI, or by a previous run of this server, must still be
-	// readable here. Refusing it because no goroutine is left would make the log
-	// useful only to the process that produced it — and the session list already shows
-	// these sessions, so refusing the stream offers a session that cannot be opened.
 	srv, mgr := newLiveTestServer(t, answering("recorded earlier"), nil)
 
 	created := createSession(t, srv, createLiveSessionRequest{IDE: "claude", Prompt: "what happened?"})
 	waitForState(t, srv, created.ID, livesearch.StateReady)
 
-	// Forget it, exactly as a restart would: the directory stays, the object does not.
 	mgr.CloseAll()
 
 	_, events, closeStream := openStream(t, srv.URL+"/api/live/sessions/"+created.ID+"/stream", nil)
@@ -700,7 +666,7 @@ func TestATranscriptFromAnotherProcessIsStillReadable(t *testing.T) {
 	for {
 		ev, ok := nextEvent(t, events)
 		if !ok {
-			break // the replay ends the stream, because nothing more can arrive
+			break
 		}
 		if ev.kind != string(livesearch.KindText) {
 			continue
@@ -740,7 +706,6 @@ func TestAReplayFromDiskHonoursTheResumePoint(t *testing.T) {
 }
 
 func TestAnUnknownSessionIsStillNotFoundOnDisk(t *testing.T) {
-	// The fallback must not turn every wrong id into an empty but successful stream.
 	srv, _ := newLiveTestServer(t, answering("hi"), nil)
 
 	resp, err := srv.Client().Get(srv.URL + "/api/live/sessions/01ARZ3NDEKTSV4RRFFQ69G5FAV/stream")

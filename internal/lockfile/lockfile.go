@@ -76,8 +76,6 @@ func Acquire(path string, wait time.Duration) (*Lock, error) {
 	}
 }
 
-// pollInterval is how often Acquire retries. flock has no timed variant that is portable
-// across the platforms this builds for, so waiting is polling.
 const pollInterval = 50 * time.Millisecond
 
 // Release drops the lock. Calling it more than once, or on a nil Lock, is a no-op.

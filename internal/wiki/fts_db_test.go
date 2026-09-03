@@ -9,20 +9,6 @@ import (
 	"testing"
 )
 
-// fts.go is 1494 lines holding the wiki's entire storage and retrieval layer, and
-// until this file nothing opened a WikiDB at all. The tests named after search
-// cover the AI-driven loop and pure helpers — trigrams, snippets, query strings —
-// none of which touch SQLite.
-//
-// The sharpest consequence is the build tag. The chunk index is an FTS5 virtual
-// table, so `go build` without -tags lancedb produces a binary whose wiki fails the
-// moment it opens the database. The suite would have stayed green through that.
-//
-// So these tests fail loudly rather than skipping when the engine is unavailable. A skip would
-// restore exactly the blind spot they exist to close — and the shape of that blind spot survived
-// the move off SQLite: a binary built without the `lancedb` tag opens nothing either, it just
-// says so in a different sentence.
-
 func newTestWikiDB(t *testing.T) *WikiDB {
 	t.Helper()
 	db, err := OpenWikiDB(context.Background(), t.TempDir())
@@ -92,8 +78,6 @@ func TestWikiDBOpensAndCreatesFTSIndex(t *testing.T) {
 			filepath.Base(db.DBPath()), WikiIndexDirName)
 	}
 
-	// Search on an empty index must return nothing and no error. An engine that is not linked in
-	// fails here instead.
 	res, err := db.Search(context.Background(), "qualquer coisa", 5)
 	if err != nil {
 		t.Fatalf("Search on an empty index: %v", err)

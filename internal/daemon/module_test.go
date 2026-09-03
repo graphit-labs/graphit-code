@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// moduleEntry — construction and initial state
-
 type fakeModule struct {
 	name    string
 	startFn func(ctx context.Context) error
@@ -58,7 +56,6 @@ func TestModuleEntry_SetError(t *testing.T) {
 		t.Errorf("expected 'something went wrong', got %q", entry.lastError)
 	}
 
-	// nil error should not overwrite
 	entry.setError(nil)
 	if entry.lastError != "something went wrong" {
 		t.Errorf("nil error should not clear LastError, got %q", entry.lastError)
@@ -102,8 +99,6 @@ func TestModuleEntry_Restarts(t *testing.T) {
 	}
 }
 
-// moduleEntry — thread safety
-
 func TestModuleEntry_ConcurrentAccess(t *testing.T) {
 	mod := &fakeModule{name: "concurrent"}
 	entry := newModuleEntry(mod)
@@ -126,8 +121,6 @@ func TestModuleEntry_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-// runProtected — catches panics
 
 func TestRunProtected_NormalReturn(t *testing.T) {
 	mod := &fakeModule{
@@ -169,8 +162,6 @@ func TestRunProtected_Panic(t *testing.T) {
 	if !strings.HasPrefix(got, "panic: boom!") {
 		t.Errorf("expected the error to lead with 'panic: boom!', got %q", got)
 	}
-	// The stack is the point: without it a crash-looping module writes one line per
-	// restart naming no file and no function.
 	if !strings.Contains(got, "runProtected") {
 		t.Errorf("expected the panic error to carry a stack trace, got %q", got)
 	}

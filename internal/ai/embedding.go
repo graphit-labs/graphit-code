@@ -110,10 +110,6 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// resolveAPIKey reads ai.<embedding|rerank>.api_key (project/inline/env/global, via
-// config.ResolveConfig) and, when that is blank, falls back to whichever of the provider's own
-// native environment variables the caller lists — a convenience for users who already export
-// OPENAI_API_KEY, COHERE_API_KEY, and so on, for other tools.
 func resolveAPIKey(configKey string, nativeEnvVars ...string) string {
 	if v := strings.TrimSpace(config.ResolveConfig(configKey, nil, nil)); v != "" {
 		return v

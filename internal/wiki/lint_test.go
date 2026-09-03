@@ -54,11 +54,6 @@ func TestSummary(t *testing.T) {
 	})
 }
 
-// The lint reads the INDEX, so its fixtures are indexed wikis rather than page files. What each
-// check reads is now a column: `doc_type` for OKF's required field, `title`/`summary` for the
-// recommended ones, `word_count` for an empty page, `updated`/`stale_since` for staleness.
-
-// lintChunk is a page that passes every check, so a test can break exactly one thing.
 func lintChunk(slug, title string) WikiChunk {
 	return WikiChunk{
 		Slug:      slug,
@@ -146,9 +141,6 @@ func TestLintWiki(t *testing.T) {
 
 	t.Run("stale_since_beats_the_window", func(t *testing.T) {
 		t.Parallel()
-		// The compiler CONCLUDED this page is stale — its source or a dependency changed — so no
-		// staleDays window makes it fresh. Its `updated` is today, which is exactly the case where
-		// an age-only check would report it as fine.
 		flagged := lintChunk("flagged", "Flagged")
 		flagged.StaleSince = time.Now().Format("2006-01-02")
 		flagged.StaleReason = "source changed"
@@ -165,8 +157,6 @@ func TestLintWiki(t *testing.T) {
 
 	t.Run("no_updated_is_not_stale", func(t *testing.T) {
 		t.Parallel()
-		// A page whose age is unknown is not a page known to be old, and OKF §11 forbids rejecting
-		// a concept over a missing optional field.
 		undated := lintChunk("undated", "Undated")
 		undated.Updated = ""
 		dir := indexedWikiWithXRefs(t, []WikiChunk{undated}, nil)
@@ -216,8 +206,6 @@ func TestLintWiki(t *testing.T) {
 
 	t.Run("missing_recommended_fields_are_not_errors", func(t *testing.T) {
 		t.Parallel()
-		// §11: a consumer MUST NOT reject a document for a missing optional field, so these land in
-		// WeakFields and leave Errors alone.
 		weak := lintChunk("page", "Page")
 		weak.Title = ""
 		weak.Summary = ""
@@ -231,7 +219,6 @@ func TestLintWiki(t *testing.T) {
 		if len(report.WeakFields) != 1 || len(report.WeakFields[0].MissingFields) != 2 {
 			t.Fatalf("WeakFields = %+v, want one page missing title and description", report.WeakFields)
 		}
-		// The only error is the orphan, which a self-reference cannot fix.
 		if report.Errors != len(report.Orphans) {
 			t.Errorf("Errors = %d, want only the %d orphan(s)", report.Errors, len(report.Orphans))
 		}
@@ -239,7 +226,6 @@ func TestLintWiki(t *testing.T) {
 
 	t.Run("no_index_is_refused", func(t *testing.T) {
 		t.Parallel()
-		// Opening a store CREATES it, so a directory with no wiki must not lint as a clean one.
 		_, err := LintWiki(context.Background(), filepath.Join(t.TempDir(), "nonexistent"), LintConfig{})
 		if err == nil {
 			t.Error("expected an error for a wiki that holds no pages")
@@ -281,7 +267,6 @@ func TestFastPathCheckTrustsOnlyTheStoredTable(t *testing.T) {
 	const oldHash = "1111111111111111"
 	const newHash = "2222222222222222"
 
-	// The index holds the document at its OLD hash — the state the last rebuild left.
 	dir := indexedWikiWithXRefs(t, []WikiChunk{{
 		Slug: slug, Title: "Edited", Body: "the previously indexed body", DocType: "document",
 		ContentHash: oldHash, WordCount: 4, ClusterID: -1,
@@ -293,8 +278,6 @@ func TestFastPathCheckTrustsOnlyTheStoredTable(t *testing.T) {
 		t.Fatal("the fast path skipped a sync for an edited document")
 	}
 
-	// And it does skip once the index actually holds that hash, or the check would never let a
-	// genuinely unchanged corpus through and the incremental would be pointless.
 	current := indexedWikiWithXRefs(t, []WikiChunk{{
 		Slug: slug, Title: "Edited", Body: "the freshly read body", DocType: "document",
 		ContentHash: newHash, WordCount: 4, ClusterID: -1,
@@ -304,8 +287,6 @@ func TestFastPathCheckTrustsOnlyTheStoredTable(t *testing.T) {
 	}
 }
 
-// A document the index has never seen, and one it holds that no entry claims, are both changes the
-// fast path has to notice — they used to be two separate conditions and are now one comparison.
 func TestFastPathCheckNoticesAdditionsAndDeletions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

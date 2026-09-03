@@ -114,8 +114,6 @@ func (c *nodeColumn) padTo(n int) {
 
 func (c *nodeColumn) set(row int, v any) {
 	if v == nil {
-		// The key is present with no value: inferTypeFor calls that STRING and the
-		// writer emits a null.
 		c.promoteToString()
 		c.padTo(row + 1)
 		return
@@ -174,8 +172,6 @@ func (c *nodeColumn) cypherType() string {
 	}
 }
 
-// fields is columnsForLabel's answer, derived from the same union of keys: the canonical
-// graph order first for the columns that are present, then the rest alphabetically.
 func (t *nodeColumns) fields(label string) ([]ladybug.Field, []*nodeColumn, string) {
 	ordered := make([]*nodeColumn, 0, len(t.cols))
 	taken := make([]bool, len(t.cols))
@@ -208,8 +204,6 @@ func (t *nodeColumns) primaryKey(label string) string {
 	return "uid"
 }
 
-// sortedOrder is the row order the dense ids are assigned in: primary key ascending,
-// stable, exactly as sorting the row maps by fmt.Sprint(row[pk]) did.
 func (t *nodeColumns) sortedOrder(pk string) ([]int32, []string) {
 	keys := make([]string, t.rows)
 	if ci, ok := t.index[pk]; ok {
@@ -294,8 +288,6 @@ func (t *nodeColumns) appendRowExcept(r map[string]any, skipA, skipB string) {
 	}
 }
 
-// sortedFields orders the columns alphabetically, which is what the edge property columns
-// have always used — unlike a node table, which leads with graphColumnOrder.
 func (t *nodeColumns) sortedFields() ([]ladybug.Field, []*nodeColumn) {
 	ordered := append([]*nodeColumn(nil), t.cols...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].name < ordered[j].name })

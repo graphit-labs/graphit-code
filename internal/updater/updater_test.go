@@ -24,7 +24,6 @@ func TestLatestRelease(t *testing.T) {
 	origTransport := http.DefaultTransport
 	defer func() { http.DefaultTransport = origTransport }()
 
-	// 1. Success case
 	http.DefaultTransport = &mockRoundTripper{
 		roundTripFunc: func(req *http.Request) (*http.Response, error) {
 			jsonResp := `{"tag_name":"v1.2.0","assets":[{"name":"graphit-linux-amd64","browser_download_url":"http://download/binary","size":12345}]}`
@@ -46,7 +45,6 @@ func TestLatestRelease(t *testing.T) {
 		t.Errorf("unexpected assets: %v", rel.Assets)
 	}
 
-	// 2. 404 Not Found case
 	http.DefaultTransport = &mockRoundTripper{
 		roundTripFunc: func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -60,7 +58,6 @@ func TestLatestRelease(t *testing.T) {
 		t.Errorf("expected 404 releases error, got %v", err)
 	}
 
-	// 3. Error case
 	http.DefaultTransport = &mockRoundTripper{
 		roundTripFunc: func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("network error")
@@ -99,7 +96,6 @@ func TestLatestReleaseCustomURL(t *testing.T) {
 		t.Errorf("expected custom URL, got %s", capturedURL)
 	}
 
-	// Verify trailing slash is stripped
 	capturedURL = ""
 	_, _ = LatestRelease("org/repo", "https://my-server.example.com/releases/")
 	if capturedURL != "https://my-server.example.com/releases" {
@@ -184,7 +180,6 @@ func TestDownloadAndChecksum(t *testing.T) {
 
 	destFile := filepath.Join(tempDir, "graphit-bin")
 
-	// 1. Download
 	var progressCalled bool
 	err = Download("http://url/binary", destFile, func(downloaded, total int64) {
 		progressCalled = true
@@ -199,7 +194,6 @@ func TestDownloadAndChecksum(t *testing.T) {
 		t.Error("expected progress callback to be called")
 	}
 
-	// Verify download file content
 	data, _ := os.ReadFile(destFile)
 	if string(data) != mockContent {
 		t.Errorf("expected content %q, got %q", mockContent, string(data))
@@ -214,7 +208,6 @@ func TestDownloadAndChecksum(t *testing.T) {
 		t.Errorf("VerifyChecksum failed: %v", err)
 	}
 
-	// 3. Test verification failure (mismatch)
 	badChecksumFile := filepath.Join(tempDir, "bad_checksums.sha256")
 	badChecksumContent := "badhash  graphit-bin\n"
 	_ = os.WriteFile(badChecksumFile, []byte(badChecksumContent), 0644)
@@ -239,7 +232,6 @@ func TestVerifyChecksumPerAsset(t *testing.T) {
 	binaryFile := filepath.Join(tempDir, ".graphit-update-123456")
 	_ = os.WriteFile(binaryFile, []byte(content), 0644)
 
-	// Format: "hash  filename" (standard sha256sum output)
 	checksumWithName := filepath.Join(tempDir, "graphit-linux-amd64.sha256")
 	_ = os.WriteFile(checksumWithName, []byte(checksumHex+"  graphit-linux-amd64\n"), 0644)
 
@@ -247,7 +239,6 @@ func TestVerifyChecksumPerAsset(t *testing.T) {
 		t.Errorf("VerifyChecksum with hash+filename format failed: %v", err)
 	}
 
-	// Format: hash only
 	checksumHashOnly := filepath.Join(tempDir, "hash-only.sha256")
 	_ = os.WriteFile(checksumHashOnly, []byte(checksumHex+"\n"), 0644)
 
@@ -255,7 +246,6 @@ func TestVerifyChecksumPerAsset(t *testing.T) {
 		t.Errorf("VerifyChecksum with hash-only format failed: %v", err)
 	}
 
-	// Mismatch
 	badChecksum := filepath.Join(tempDir, "bad.sha256")
 	_ = os.WriteFile(badChecksum, []byte("badhash  graphit-linux-amd64\n"), 0644)
 
@@ -289,13 +279,11 @@ func TestAtomicReplace(t *testing.T) {
 		t.Fatalf("AtomicReplace failed: %v", err)
 	}
 
-	// Verify exePath replaced
 	data, _ := os.ReadFile(exePath)
 	if string(data) != "new binary content" {
 		t.Errorf("expected 'new binary content', got %q", string(data))
 	}
 
-	// Verify newPath deleted/removed
 	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
 		t.Error("expected temporary new binary to be cleaned up/removed")
 	}
@@ -503,7 +491,6 @@ func TestDownloadDestFileError(t *testing.T) {
 		},
 	}
 
-	// Dest path doesn't exist (parent dir missing)
 	err := Download("http://example.com/binary", "/nonexistent/dir/file", nil)
 	if err == nil || !strings.Contains(err.Error(), "creating destination file") {
 		t.Errorf("expected dest file error, got %v", err)
@@ -515,7 +502,6 @@ func TestAtomicReplaceMissingCurrent(t *testing.T) {
 	newPath := filepath.Join(tmpDir, "new-exe")
 	_ = os.WriteFile(newPath, []byte("new"), 0755)
 
-	// Current exe doesn't exist — Rename should fail
 	err := AtomicReplace(newPath, filepath.Join(tmpDir, "nonexistent"))
 	if err == nil || !strings.Contains(err.Error(), "backing up") {
 		t.Errorf("expected backing up error, got %v", err)
@@ -527,12 +513,10 @@ func TestAtomicReplaceRenameNewFails(t *testing.T) {
 	exePath := filepath.Join(tmpDir, "current-exe")
 	_ = os.WriteFile(exePath, []byte("old"), 0755)
 
-	// New path doesn't exist — second Rename should fail
 	err := AtomicReplace(filepath.Join(tmpDir, "nonexistent-new"), exePath)
 	if err == nil {
 		t.Error("expected error when new binary doesn't exist")
 	}
-	// Original should be restored
 	data, readErr := os.ReadFile(exePath)
 	if readErr != nil {
 		t.Errorf("expected original restored, got read error: %v", readErr)
@@ -555,7 +539,6 @@ func TestCopyFileDestError(t *testing.T) {
 	src := filepath.Join(tmpDir, "src")
 	_ = os.WriteFile(src, []byte("data"), 0644)
 
-	// Dest path in nonexistent parent dir
 	err := copyFile(src, filepath.Join(tmpDir, "subdir", "dst"))
 	if err == nil {
 		t.Error("expected error when dest dir doesn't exist")
@@ -602,13 +585,11 @@ func TestVerifyChecksumSha256Error(t *testing.T) {
 }
 
 func TestIsCrossDevice(t *testing.T) {
-	// Test with a non-cross-device error
 	regularErr := errors.New("regular error")
 	if isCrossDevice(regularErr) {
 		t.Error("expected false for regular error")
 	}
 
-	// Test with nil-ish cases
 	if isCrossDevice(nil) {
 		t.Error("expected false for nil error")
 	}
@@ -659,7 +640,6 @@ func (r *errorReader) Read(p []byte) (int, error) {
 }
 
 func TestLatestReleaseInvalidURL(t *testing.T) {
-	// Test with invalid URL that causes http.NewRequest to fail
 	_, err := LatestRelease("", "://invalid-url")
 	if err == nil || !strings.Contains(err.Error(), "creating request") {
 		t.Errorf("expected creating request error, got %v", err)
@@ -689,7 +669,6 @@ func TestDownloadWriteError(t *testing.T) {
 		},
 	}
 
-	// /dev/full exists on Linux — writes to it fail with ENOSPC
 	devFull := "/dev/full"
 	if _, err := os.Stat(devFull); err == nil {
 		err := Download("http://example.com/binary", devFull, func(downloaded, total int64) {})

@@ -5,28 +5,6 @@ import (
 	"sort"
 )
 
-// Reranking: the second stage, and it is OPT-IN AND OFF BY DEFAULT.
-//
-// The engine already fuses the dense and the BM25 channel with its own reciprocal-rank-fusion
-// reranker, which is score-based: it combines the rankings it was given. A CROSS-ENCODER is the
-// other family — it discards those scores and reads each (query, candidate) pair to judge
-// relevance directly. That is what LanceDB's own documentation points to for quality beyond
-// fusion, and the Go binding exposes only RRF, so it is a gap this side fills.
-//
-// WHY OFF BY DEFAULT, and this is a measurement rather than caution:
-//
-//   - It costs a second model. The retrieval embedder is 137M/~132 MiB; the reranker chosen for
-//     code is jina-reranker-v2-base-multilingual, which is the only small reranker with
-//     published code-retrieval benchmarks, and it is roughly 1.1 GiB.
-//   - It costs inference ON THE QUERY PATH. An embedding is computed once when a file is indexed
-//     and cached by shard hash; a cross-encoder runs per query, over every candidate.
-//   - And the gate it would have to justify itself against is SATURATED: 11/11 strict and 5/5
-//     recall without it. On that evidence there is nothing to show, so shipping it enabled would
-//     be repeating a best practice as a formula rather than applying it.
-//
-// So the seam exists, the implementation is pluggable, and turning it on is a decision someone
-// makes against a harder evaluation set than the one that currently passes at 100%.
-
 // Reranker reorders candidates by judging each against the query.
 //
 // It receives what the engine retrieved, in the engine's order, and returns its own order. An
@@ -78,11 +56,6 @@ func (rc RerankConfig) candidates(limit int) int {
 	return n
 }
 
-// apply runs the second stage and trims back to the caller's limit.
-//
-// A reranker that fails does NOT fail the search: the engine's own ranking is a good answer, and
-// losing every result because a second-stage model could not load is worse than losing the
-// reordering. The error is returned alongside the first-stage order so a caller can log it.
 func (rc RerankConfig) apply(ctx context.Context, query string, hits []Hit, limit int) ([]Hit, error) {
 	if !rc.enabled() || len(hits) == 0 {
 		return trim(hits, limit), nil
@@ -92,9 +65,6 @@ func (rc RerankConfig) apply(ctx context.Context, query string, hits []Hit, limi
 		return trim(hits, limit), err
 	}
 	if len(reranked) != len(hits) {
-		// A reranker that returns a different set has broken its contract; the safe reading is
-		// to distrust the reordering rather than to serve a truncated answer as if it were
-		// ranked.
 		return trim(hits, limit), errRerankerChangedSet
 	}
 	for i := range reranked {

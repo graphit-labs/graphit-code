@@ -46,7 +46,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		{ID: "wiki-1", Label: "Wiki One", Dir: "/dir/wiki1"},
 	}
 
-	// 1. Create Session
 	session := NewSession("/project/dir", sources, "How does X work?")
 	if session == nil {
 		t.Fatal("expected non-nil ChatSession")
@@ -55,7 +54,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("expected title 'How does X work?', got %q", session.Title)
 	}
 
-	// 2. Chat Engine setup
 	mockAI := &mockAIClient{
 		completeFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			if !strings.Contains(systemPrompt, "Wiki One") {
@@ -73,7 +71,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Error("engine.Session() returned unexpected session")
 	}
 
-	// 3. Send message
 	ctx := context.Background()
 	resp, err := engine.Send(ctx, "How does X work?")
 	if err != nil {
@@ -83,7 +80,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("expected response 'Here is how X works.', got %q", resp)
 	}
 
-	// 4. Send message with search
 	mockAI.completeFunc = func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 		return "Based on search, Y works like this.", nil
 	}
@@ -102,7 +98,6 @@ func TestChatEngineAndSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load history: %v", err)
 	}
-	// We expect: user (How does X work), assistant (Here is how X works), system (Wiki search result), user (Explain Y), assistant (Based on search, Y works like this)
 	if len(history) != 5 {
 		t.Errorf("expected 5 messages in history, got %d", len(history))
 	}
@@ -147,7 +142,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Fatalf("failed to delete session: %v", err)
 	}
 
-	// Verify deleted
 	_, err = LoadSession(session.ID)
 	if err == nil {
 		t.Error("expected error loading deleted session")
@@ -157,14 +151,12 @@ func TestChatEngineAndSession(t *testing.T) {
 func TestChatSessionEdgeCases(t *testing.T) {
 	_ = setupChatTestHome(t)
 
-	// Long query title truncation
 	longQuery := strings.Repeat("A", 100)
 	s := NewSession("/project", nil, longQuery)
 	if len(s.Title) != 83 || !strings.HasSuffix(s.Title, "…") {
 		t.Errorf("expected truncated title, got %q (length %d)", s.Title, len(s.Title))
 	}
 
-	// Empty list for nonexistent project
 	list, err := ListSessions("/nonexistent")
 	if err != nil {
 		t.Errorf("expected no error listing nonexistent project sessions, got %v", err)
@@ -192,7 +184,6 @@ func TestChatSessionEdgeCases(t *testing.T) {
 
 func TestSendAppendError(t *testing.T) {
 	origHome := os.Getenv("HOME")
-	// Set HOME to a non-writable path to trigger Append error
 	_ = os.Setenv("HOME", "/dev/null/nonexistent")
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
@@ -232,7 +223,6 @@ func TestSendWithSearchNilResult(t *testing.T) {
 	ai := &mockAIClient{}
 	engine := NewChatEngine(ai, session)
 
-	// nil searchResult — should skip search append
 	resp, err := engine.SendWithSearch(context.Background(), "test", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -249,7 +239,6 @@ func TestSendWithSearchEmptyAnswer(t *testing.T) {
 	ai := &mockAIClient{}
 	engine := NewChatEngine(ai, session)
 
-	// Empty Answer — should skip search append
 	resp, err := engine.SendWithSearch(context.Background(), "test", &wiki.SearchResult{Answer: ""})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -272,9 +261,6 @@ func TestBuildWikiSourceContextEmpty(t *testing.T) {
 
 func TestBuildChatSystemPromptNoSources(t *testing.T) {
 	prompt := buildChatSystemPrompt(nil)
-	// "no sources" rather than "0 wiki sources": the prompt now enumerates only the
-	// kinds actually present, so a session with neither says so plainly instead of
-	// claiming an empty set of one particular kind.
 	if !strings.Contains(prompt, "no sources") {
 		t.Errorf("expected 'no sources' in prompt, got %q", prompt)
 	}
@@ -287,7 +273,6 @@ func TestLoadHistoryNonExistentFile(t *testing.T) {
 	_ = setupChatTestHome(t)
 
 	session := NewSession("/project", nil, "test")
-	// No messages appended — file doesn't exist
 	history, err := session.LoadHistory()
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -301,22 +286,18 @@ func TestLoadHistoryCorruptLine(t *testing.T) {
 	_ = setupChatTestHome(t)
 
 	session := NewSession("/project", nil, "test")
-	// Append a valid message first
 	_ = session.Append(ChatMessage{Role: "user", Content: "hello"})
 
-	// Manually write a corrupt line to the JSONL file
 	f, _ := os.OpenFile(session.jsonlPath(), os.O_APPEND|os.O_WRONLY, 0644)
 	_, _ = f.WriteString("this is not json\n")
 	_ = f.Close()
 
-	// Append another valid message
 	_ = session.Append(ChatMessage{Role: "assistant", Content: "world"})
 
 	history, err := session.LoadHistory()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should skip the corrupt line, returning 2 valid messages
 	if len(history) != 2 {
 		t.Errorf("expected 2 messages (skipping corrupt), got %d", len(history))
 	}
@@ -329,7 +310,6 @@ func TestBuildContextZeroMax(t *testing.T) {
 	_ = session.Append(ChatMessage{Role: "user", Content: "msg1"})
 	_ = session.Append(ChatMessage{Role: "user", Content: "msg2"})
 
-	// maxMessages <= 0 should default to 20
 	ctx, err := session.BuildContext(0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -375,7 +355,6 @@ func TestListSessionsWithNonJSONFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Both should be skipped
 	if len(sessions) != 0 {
 		t.Errorf("expected 0 sessions, got %d", len(sessions))
 	}
@@ -393,7 +372,6 @@ func TestLoadMetaInvalidJSON(t *testing.T) {
 }
 
 func TestSaveMetaMkdirError(t *testing.T) {
-	// Set HOME to a path that can't have subdirs created
 	origHome := os.Getenv("HOME")
 	_ = os.Setenv("HOME", "/dev/null")
 	defer func() { _ = os.Setenv("HOME", origHome) }()
@@ -442,8 +420,6 @@ func TestLatestSessionError(t *testing.T) {
 	_ = os.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create a sessions dir that returns error during ReadDir by making
-	// the meta directory a file (not a dir)
 	h := projectHash("/errorproject")
 	metaDir := filepath.Join(tmpDir, ".graphit", "chat", "sessions", h, "meta")
 	_ = os.MkdirAll(filepath.Dir(metaDir), 0755)
@@ -461,11 +437,9 @@ func TestLoadSessionReadDirError(t *testing.T) {
 	_ = os.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create the sessions base dir but make it unreadable
 	sessDir := filepath.Join(tmpDir, ".graphit", "chat", "sessions")
 	_ = os.MkdirAll(sessDir, 0755)
 
-	// Session not found case
 	_, err := LoadSession("nonexistent-id")
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' error, got %v", err)
@@ -479,9 +453,8 @@ func TestLoadHistoryOpenError(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	session := NewSession("/project", nil, "test")
-	// Create the messages dir and file as a directory (to trigger open error)
 	msgDir := filepath.Dir(session.jsonlPath())
-	_ = os.MkdirAll(session.jsonlPath(), 0755) // file path is now a directory
+	_ = os.MkdirAll(session.jsonlPath(), 0755)
 	_ = msgDir
 
 	_, err := session.LoadHistory()
@@ -497,7 +470,6 @@ func TestBuildContextLoadHistoryError(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	session := NewSession("/project", nil, "test")
-	// Make jsonl path a directory to trigger LoadHistory error
 	_ = os.MkdirAll(session.jsonlPath(), 0755)
 
 	_, err := session.BuildContext(10)
@@ -513,10 +485,8 @@ func TestSendBuildContextError(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	session := NewSession("/project", nil, "test")
-	// Append first message (creates the file)
 	_ = session.Append(ChatMessage{Role: "user", Content: "setup"})
 
-	// Now make the jsonl file a directory (will make LoadHistory in BuildContext fail)
 	_ = os.Remove(session.jsonlPath())
 	_ = os.MkdirAll(session.jsonlPath(), 0755)
 
@@ -541,17 +511,13 @@ func TestSendResponseAppendError(t *testing.T) {
 	}
 	engine := NewChatEngine(ai, session)
 
-	// Wrap the session's Append to fail on the second call (AI response save)
 	origAppend := session.Append
 	_ = origAppend
-	// We can't easily mock Append, but we can remove the session dir after the first Append
-	// by making the messages dir read-only after the initial user message is saved
 	_, err := engine.Send(context.Background(), "first message")
 	if err != nil {
 		t.Fatalf("first send should succeed: %v", err)
 	}
 
-	// Make the messages file read-only so the next Append fails on OpenFile
 	_ = os.Chmod(session.jsonlPath(), 0444)
 	defer func() { _ = os.Chmod(session.jsonlPath(), 0644) }()
 
@@ -569,8 +535,6 @@ func TestSendWithSearchAppendError(t *testing.T) {
 
 	session := NewSession("/project", nil, "test query")
 
-	// Make messages file dir writable, then make it read-only to trigger Append error
-	// First need the dir to exist
 	_ = os.MkdirAll(filepath.Dir(session.jsonlPath()), 0755)
 	_ = os.WriteFile(session.jsonlPath(), []byte{}, 0444)
 	defer func() { _ = os.Chmod(session.jsonlPath(), 0644) }()
@@ -591,12 +555,10 @@ func TestLoadSessionSkipsFiles(t *testing.T) {
 	_ = os.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create sessions dir with a file (not dir) entry
 	sessDir := filepath.Join(tmpDir, ".graphit", "chat", "sessions")
 	_ = os.MkdirAll(sessDir, 0755)
 	_ = os.WriteFile(filepath.Join(sessDir, "not-a-dir"), []byte("file"), 0644)
 
-	// Session should not be found
 	_, err := LoadSession("test-id")
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("expected 'not found' error, got %v", err)
@@ -609,7 +571,6 @@ func TestLatestSessionListError(t *testing.T) {
 	_ = os.Setenv("HOME", tmpDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create a meta dir that's a file to cause ListSessions error
 	h := projectHash("/listfailproject")
 	metaPath := filepath.Join(tmpDir, ".graphit", "chat", "sessions", h, "meta")
 	_ = os.MkdirAll(filepath.Dir(metaPath), 0755)
@@ -632,7 +593,6 @@ func TestListSessionsSortOrder(t *testing.T) {
 	metaDir := filepath.Join(tmpDir, ".graphit", "chat", "sessions", h, "meta")
 	_ = os.MkdirAll(metaDir, 0755)
 
-	// Write two valid sessions with different UpdatedAt times
 	session1 := `{"id":"s1","updated_at":"2024-01-01T00:00:00Z","title":"old"}`
 	session2 := `{"id":"s2","updated_at":"2024-06-01T00:00:00Z","title":"new"}`
 	_ = os.WriteFile(filepath.Join(metaDir, "s1.json"), []byte(session1), 0644)
@@ -675,7 +635,6 @@ func TestBuildChatSystemPrompt_NoGraphRulesWithoutGraphs(t *testing.T) {
 	t.Parallel()
 	prompt := buildChatSystemPrompt([]Source{{ID: "knowledge", Label: "Docs"}})
 
-	// The rules cost prompt budget and describe a capability that is not present.
 	if strings.Contains(prompt, "CODE GRAPH RULES") {
 		t.Error("expected no code graph rules for a wiki-only session")
 	}

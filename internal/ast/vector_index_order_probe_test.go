@@ -25,9 +25,6 @@ func TestVectorIndexBuildOrder(t *testing.T) {
 		t.Skip("set GRAPHIT_VEC_ORDER=1")
 	}
 
-	// The cheap arrangement runs first and at the larger size; the expensive one is kept
-	// small and last, because an earlier ordering spent 42 minutes inside the first case
-	// and never reached the control it was supposed to be compared against.
 	cases := []struct {
 		n          int
 		indexFirst bool
@@ -68,9 +65,6 @@ func TestVectorIndexBuildOrder(t *testing.T) {
 					}
 				}
 
-				// Every row gets a DISTINCT vector. Reusing one vector for all rows
-				// makes every point identical, which degenerates HNSW construction and
-				// would measure a pathology instead of the workload.
 				rnd := uint64(0x9E3779B97F4A7C15)
 				nextVec := func() []float32 {
 					v := make([]float32, ai.EmbeddingDimensions)

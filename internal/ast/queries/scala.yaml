@@ -1,14 +1,12 @@
 language: scala
 grammar: tree-sitter-scala
 extensions: [".scala", ".sc"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Package] }
   READS_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition name: (identifier) @name)'
@@ -43,7 +41,6 @@ queries:
     graph_label: Field
     pattern: '(class_parameter name: (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: fields
     graph_label: Field
     pattern: '(class_parameter name: (identifier) @name default_value: [(integer_literal) (floating_point_literal) (boolean_literal) (character_literal) (string) (null_literal)] @value)'
@@ -61,7 +58,6 @@ queries:
     graph_label: Import
     pattern: '(import_declaration path: (identifier) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -87,27 +83,22 @@ queries:
     relation_type: IMPORTS
     pattern: '(import_declaration path: (identifier) @name)'
 
-# Scala defaults to public — private/protected restrict visibility
 exports:
   strategy: no_modifier
   config_list:
     keywords: ["private", "protected"]
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — Scala tree-sitter node types only
 context_types:
   class_definition: Class
   object_definition: Object
   trait_definition: Trait
   function_definition: Function
 
-# Scala lambda expressions
 anon_func_types:
   - lambda_expression
 
-# Declaration node types for docstring attachment
 declaration_types:
   - function_definition
   - class_definition
@@ -117,16 +108,10 @@ declaration_types:
   - var_definition
   - type_definition
 
-# Scala uses comment and block_comment node types
 comment_types:
   - comment
   - block_comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. && / || are leaves whose kind is the generic
-# "operator_identifier" — every operator shares it — so they are matched by
-# their own text, not by kind (see complexityMatcher.score). "else if" needs
-# no entry of its own — it re-nests as another if_expression.
 complexity:
   node_types:
     - if_expression
@@ -136,10 +121,6 @@ complexity:
     - catch_clause
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Trait

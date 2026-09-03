@@ -67,8 +67,6 @@ queries:
 	if qf.Language != "go" {
 		t.Errorf("expected language 'go', got %q", qf.Language)
 	}
-	// No `merge` declared is the historical behaviour: this file replaces the
-	// levels below it.
 	if qf.mergesOnto() {
 		t.Error("a file that does not declare merge must replace, not merge")
 	}
@@ -76,11 +74,9 @@ queries:
 		t.Fatalf("expected 2 queries, got %d", len(qf.Queries))
 	}
 
-	// First query should have default name_capture
 	if qf.Queries[0].NameCapture != "name" {
 		t.Errorf("expected default name_capture 'name', got %q", qf.Queries[0].NameCapture)
 	}
-	// Second query should have explicit name_capture
 	if qf.Queries[1].NameCapture != "fn" {
 		t.Errorf("expected name_capture 'fn', got %q", qf.Queries[1].NameCapture)
 	}
@@ -93,7 +89,6 @@ func TestLoadExternalQueries_SkipsInvalidEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// File with missing language
 	noLang := `queries:
   - data_key: functions
     pattern: '(function_declaration name: (identifier) @name)'
@@ -102,7 +97,6 @@ func TestLoadExternalQueries_SkipsInvalidEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// File with missing data_key on query
 	noDataKey := `language: python
 queries:
   - pattern: '(function_definition name: (identifier) @name)'
@@ -113,7 +107,6 @@ queries:
 		t.Fatal(err)
 	}
 
-	// File with missing pattern
 	noPattern := `language: ruby
 queries:
   - data_key: functions
@@ -169,8 +162,6 @@ queries:
 }
 
 func TestProjectQueriesDir(t *testing.T) {
-	// No ast.queries_dir anywhere: an empty project directory has no lockfile, and
-	// HOME is redirected so no global config of the developer's own answers either.
 	t.Setenv("HOME", t.TempDir())
 	project := t.TempDir()
 
@@ -181,19 +172,10 @@ func TestProjectQueriesDir(t *testing.T) {
 	}
 }
 
-// TestLoadQueriesFromEmbed was removed: loadQueriesFromEmbed no longer exists.
-// AST YAML files are now embedded in the launcher and extracted to the runtime
-// directory, not compiled into the core binary.
-
-// TestEnsureDefaultQueries was removed: EnsureDefaultQueries no longer exists.
-// The launcher handles extracting default queries to the runtime directory.
-
 func TestResolveQueriesForLang_ProjectOverridesGlobal(t *testing.T) {
-	// Clear caches
 	mergedQueryCache = sync.Map{}
 	compiledQueryCache = sync.Map{}
 
-	// Set up project with custom queries
 	dir := t.TempDir()
 	qDir := projectQueriesDir(dir)
 	if err := os.MkdirAll(qDir, 0o755); err != nil {
@@ -211,7 +193,6 @@ queries:
 		t.Fatal(err)
 	}
 
-	// Resolve — project should win over global and embedded
 	resolved := resolveQueriesForLang(dir, "go", ".go")
 	if len(resolved) != 1 {
 		t.Fatalf("expected 1 resolved file, got %d", len(resolved))
@@ -220,10 +201,6 @@ queries:
 		t.Errorf("expected project-level 'custom_func', got %q", resolved[0].Queries[0].DataKey)
 	}
 }
-
-// TestResolveQueriesForLang_FallsBackToEmbedded was removed: the embedded
-// fallback no longer exists in the core binary. Queries are loaded from the
-// runtime directory (extracted by the launcher) instead.
 
 func TestFilterByLangExt(t *testing.T) {
 	files := []ExternalQueryFile{
@@ -241,7 +218,6 @@ func TestFilterByLangExt(t *testing.T) {
 		t.Errorf("expected .tsx, got %s", result[0].Extensions[0])
 	}
 
-	// No extensions = matches all
 	files = append(files, ExternalQueryFile{Language: "go"})
 	result = filterByLangExt(files, "go", ".go")
 	if len(result) != 2 {
@@ -292,11 +268,9 @@ func TestVerifyAllDefaultQueries(t *testing.T) {
 			}
 
 			if qf.Parser == "antlr4" {
-				// ANTLR uses XPath and does not require compiling queries with tree-sitter.
 				return
 			}
 
-			// Resolve tree-sitter language
 			grammar := qf.Grammar
 			if grammar == "" {
 				grammar = "tree-sitter-" + qf.Language

@@ -39,7 +39,6 @@ func TestGitCommandsIgnoreAnInheritedHookEnvironment(t *testing.T) {
 	run(main, "add", ".")
 	run(main, "commit", "-qm", "seed")
 
-	// A LINKED worktree, because that is where the failure lives: its `.git` is a file.
 	linked := filepath.Join(t.TempDir(), "linked")
 	run(main, "worktree", "add", "-q", "-b", "side", linked)
 	if info, err := os.Stat(filepath.Join(linked, ".git")); err != nil || info.IsDir() {
@@ -50,7 +49,6 @@ func TestGitCommandsIgnoreAnInheritedHookEnvironment(t *testing.T) {
 	t.Setenv("GIT_PREFIX", "")
 	t.Setenv("GIT_AUTHOR_DATE", "@1000000000 +0000")
 
-	// The bug, reproduced through the raw command this package used to build.
 	raw := exec.Command("git", "-C", linked, "add", ".")
 	raw.Env = os.Environ()
 	if out, err := raw.CombinedOutput(); err == nil {
@@ -58,7 +56,6 @@ func TestGitCommandsIgnoreAnInheritedHookEnvironment(t *testing.T) {
 			"no longer pins anything: %s", out)
 	}
 
-	// The same command through this package must succeed.
 	if err := os.WriteFile(filepath.Join(linked, "novo.txt"), []byte("conteudo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +67,6 @@ func TestGitCommandsIgnoreAnInheritedHookEnvironment(t *testing.T) {
 		t.Fatalf("committing in a linked worktree under a hook environment: %v", err)
 	}
 
-	// And the commit must carry the moment it happened, not the hook's pinned date.
 	date, err := g.RunOutput(linked, "log", "-1", "--format=%at")
 	if err != nil {
 		t.Fatalf("reading the commit date: %v", err)
@@ -96,7 +92,6 @@ func TestWithoutInheritedGitScopeKeepsEverythingElse(t *testing.T) {
 			t.Errorf("%s survived the filter", dropped)
 		}
 	}
-	// Identity and transport are deliberately left alone.
 	for _, kept := range []string{"PATH=/usr/bin", "GIT_AUTHOR_NAME=Alguém", "GIT_SSH_COMMAND=ssh -v", "HOME=/home/x"} {
 		if !strings.Contains(got, kept) {
 			t.Errorf("%s was dropped and should not have been", kept)

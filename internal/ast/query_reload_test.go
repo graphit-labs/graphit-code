@@ -9,14 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// The daemon runs for days. Query files were read once and kept for the life of
-// the process, so installing a grammar pack or editing a query by hand did
-// nothing until a restart — and did it silently: files of the new language were
-// dropped by discovery with no error to explain why.
-//
-// Each query directory is now cached against a signature of its contents and
-// reloaded when that signature moves.
-
 func writeQueryFile(t *testing.T, dir, langName, ext string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -45,14 +37,12 @@ func TestProjectQueryAddedAtRuntimeIsPickedUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Prime the cache while the language does not exist yet.
 	if HasParserForExtensionIn(projectDir, ext) {
 		t.Fatalf("%s is somehow already known", ext)
 	}
 
 	writeQueryFile(t, qdir, langName, ext)
 
-	// The staleness check is rate limited; wait past it rather than reaching in.
 	deadline := time.Now().Add(queryStaleCheckInterval + 3*time.Second)
 	for time.Now().Before(deadline) {
 		if HasParserForExtensionIn(projectDir, ext) {
@@ -78,8 +68,6 @@ func TestEditedQueryFileIsReloaded(t *testing.T) {
 		t.Skip("the staged language did not register; covered by TestProjectQueryFileRegistersItsExtension")
 	}
 
-	// Rewrite the same file to claim a different extension. Same directory, same
-	// filename — only the contents differ.
 	writeQueryFile(t, qdir, langName, extB)
 
 	deadline := time.Now().Add(queryStaleCheckInterval + 3*time.Second)

@@ -1,31 +1,16 @@
-# PL/pgSQL — github.com/gmr/tree-sitter-postgres, plpgsql/
-#
-# Registered mainly so internal/ast/antlr/postgresql/plpgsql_splice.go has a
-# real grammar to splice a `LANGUAGE plpgsql` function body into (see
-# postgresql.yaml) — a `.plpgsql` file on its own is rare in practice, real
-# PL/pgSQL is almost always the body of a CREATE FUNCTION inside a .sql file,
-# but the extension is registered anyway so one is not silently unindexed.
+
+
 language: plpgsql
 extensions: [".plpgsql"]
 exclusive: true
 
 queries:
-  # DECLARE section locals.
+
   - data_key: variables
     graph_label: Variable
     pattern: '(decl_stmt (decl_statement (decl_varname) @name))'
     name_capture: name
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar with PERFORM, RAISE EXCEPTION, RETURN QUERY and
-# FOREACH — none produced an error node, so they neither crash the parse nor
-# invent a false branch. elsif_clause is its own node (IF does not re-nest
-# ELSIF). case_when is counted per WHEN, not once for the whole CASE — its
-# ELSE arm is not a second case_when, confirmed empirically. proc_exception
-# fires for WHEN OTHERS too, matching the "default is not a branch"
-# convention taken elsewhere here. Boolean operators inside an expression are
-# not counted: this grammar treats every expression as one opaque span meant
-# for a separate SQL-grammar injection this pipeline does not consume.
 complexity:
   node_types:
     - stmt_if
@@ -36,9 +21,5 @@ complexity:
     - case_when
     - proc_exception
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Variable

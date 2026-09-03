@@ -15,8 +15,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// saveAndRestoreHooks saves the current hook values and returns a cleanup func
-// that restores them. Must be called at the start of every test that overrides hooks.
 func saveAndRestoreHooks(t *testing.T) {
 	t.Helper()
 
@@ -45,14 +43,12 @@ func saveAndRestoreHooks(t *testing.T) {
 	})
 }
 
-// mockAIClient implements ai.Client for testing.
 type mockAIClient struct{}
 
 func (m *mockAIClient) Complete(_ context.Context, _, _ string) (string, error) {
 	return "mock answer", nil
 }
 
-// mockChatEngine implements the Send interface for testing.
 type mockChatEngine struct {
 	response string
 	err      error
@@ -62,7 +58,6 @@ func (m *mockChatEngine) Send(_ context.Context, _ string) (string, error) {
 	return m.response, m.err
 }
 
-// mockHubService implements the mounted-knowledge resolver for testing.
 type mockHubService struct {
 	dir string
 	err error
@@ -99,13 +94,11 @@ func TestResolveEcosystemSource_ProjectFound_WithWikiDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a fake lock file so ListActiveProjects can work
 	lockFile := filepath.Join(projDir, brand.LockFileName())
 	if err := os.WriteFile(lockFile, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a GlobalLockManager that points to our temp global dir
 	globalDir := filepath.Join(tmp, "global")
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -129,34 +122,11 @@ func TestResolveEcosystemSource_ProjectFound_WithWikiDir(t *testing.T) {
 		return &hub.GlobalLockManager{}, nil
 	}
 
-	// We need to use a real lock manager that reads from our file.
-	// Since GlobalLockManager has unexported lockPath, we rely on the
-	// actual ecosystem resolution. Let's use a different approach:
-	// override the entire resolveEcosystemSource indirectly via
-	// the global lock manager hook that returns a manager pointing
-	// to our test lock file.
-	//
-	// Unfortunately GlobalLockManager.lockPath is unexported. Let's
-	// test through the integration path by pointing HOME to temp dir.
-
-	// Instead, test the direct wiki resolution paths by calling resolveLocalSource
-	// (already covered) and test ecosystem error paths only.
-	// The ecosystem success path requires a real GlobalLockManager, so we'll test
-	// the fallback wiki subdir path in resolveEcosystemSource separately.
-
-	// For ecosystem source, we just verify error paths are covered.
-	// Success path requires GlobalLockManager integration.
 }
 
 func TestResolveEcosystemSource_ProjectNotFound(t *testing.T) {
 	saveAndRestoreHooks(t)
 
-	// The existing test TestResolveWikiSource_Ecosystem_NotInLock covers this
-	// if hub.NewGlobalLockManager() succeeds. Let's ensure the "project not found"
-	// path is hit by mocking the lock manager to return empty projects.
-	//
-	// Since GlobalLockManager.ListActiveProjects() is a method, not a hook,
-	// and we can't easily mock it, we rely on the existing test.
 }
 
 func TestResolveHubKnowledgeSource_RegistryError(t *testing.T) {
@@ -261,7 +231,6 @@ func TestResolveHubKnowledgeSource_Success_WithoutVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Without "@" the artifactID should be the full ref
 	if src.ID != "hub/plain-artifact" {
 		t.Errorf("ID = %q; want %q", src.ID, "hub/plain-artifact")
 	}
@@ -336,7 +305,6 @@ func TestSearchMultiWiki_AIClientError(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
-	// Create project wiki dir so source resolves
 	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -614,12 +582,9 @@ func TestDeleteSession_ViaHook_Error(t *testing.T) {
 	}
 }
 
-// resolveLocalSource edge case: dir doesn't exist, wiki/ subdir doesn't exist either
-
 func TestResolveLocalSource_NeitherDirNorWikiSubExist(t *testing.T) {
 	tmp := t.TempDir()
 	svc := NewWikiService(tmp)
-	// Neither dir nor dir/wiki exists
 	_, err := svc.resolveLocalSource("test", "Test", filepath.Join(tmp, "nonexistent"))
 	if err == nil {
 		t.Fatal("expected error when neither dir nor wiki/ subdir exist")
@@ -733,38 +698,24 @@ func TestWikiSearchResult_Fields(t *testing.T) {
 	}
 }
 
-// Default hook closure tests
-// These tests verify that the default hook closures (which wrap real implementations)
-// are exercisable. They will fail with expected errors since real services aren't
-// available in the test environment, but the closure code itself gets executed.
-
 func TestDefaultHook_SearchMultiWiki(t *testing.T) {
-	// Save the default closure before any test overrides it
 	defaultSearchMultiWiki := searchMultiWiki
 
-	// Call the default closure — it wraps wiki.SearchMultiWiki.
-	// This will fail because wiki.SearchMultiWiki requires real sources,
-	// but the closure body (line 35: return wiki.SearchMultiWiki(...)) gets executed.
 	_, err := defaultSearchMultiWiki(context.Background(), &mockAIClient{}, "test", wiki.MultiWikiSearchConfig{})
-	// We expect an error (no wiki sources provided)
 	if err == nil {
 		t.Error("expected error from default searchMultiWiki hook")
 	}
 }
 
 func TestDefaultHook_NewChatEngine(t *testing.T) {
-	// Save the default closure before any test overrides it
 	defaultNewChatEngine := newChatEngine
 
-	// Call the default closure — it wraps chat.NewChatEngine.
-	// This should succeed (creates a real ChatEngine).
 	engine := defaultNewChatEngine(&mockAIClient{}, &chat.ChatSession{ID: "test"})
 	if engine == nil {
 		t.Error("expected non-nil engine from default newChatEngine hook")
 	}
 }
 
-// helper
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && containsSubstr(s, substr)
 }
@@ -779,7 +730,6 @@ func containsSubstr(s, substr string) bool {
 }
 
 func jsonEscape(s string) string {
-	// Simple escape for test file paths (handles backslashes on Windows)
 	result := ""
 	for _, c := range s {
 		switch c {

@@ -3,7 +3,6 @@ import { renderHook, act } from '@testing-library/react'
 import { useTheme } from './useTheme'
 import { useToast, showToast } from './useToast'
 
-// Mock matchMedia
 vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query) => ({
   matches: false,
   media: query,
@@ -80,7 +79,7 @@ describe('useToast hook', () => {
 
   test('should add and remove toasts manually', () => {
     const { result } = renderHook(() => useToast())
-    
+
     expect(result.current.toasts).toEqual([])
 
     act(() => {
@@ -89,7 +88,6 @@ describe('useToast hook', () => {
 
     expect(result.current.toasts).toEqual([{ id: '1', message: 'Hello', type: 'info' }])
 
-    // Wait for auto-dismiss timer
     act(() => {
       vi.advanceTimersByTime(4000)
     })
@@ -111,7 +109,7 @@ describe('useToast hook', () => {
   })
 
   test('should trigger toast using showToast helper', () => {
-    // Stub crypto.randomUUID if not exists (node <= 18 without experimental flags)
+
     if (typeof crypto === 'undefined' || !crypto.randomUUID) {
       vi.stubGlobal('crypto', {
         randomUUID: () => '12345678-1234-1234-1234-1234567890ab',

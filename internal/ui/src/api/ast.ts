@@ -24,7 +24,7 @@ export interface GraphNode {
   label: string
   type: string
   file?: string
-  /** 1-based declaration line. Absent on files, directories and call-target stubs. */
+
   line?: number
   properties?: Record<string, unknown>
 }

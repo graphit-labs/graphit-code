@@ -8,26 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// A query file dropped into a project's own .graphit/ast/queries must be able to
-// introduce a language the installed runtime has never heard of.
-//
-// It could not. A query file does two separate jobs — it declares which
-// extensions it handles, and it supplies the patterns that extract entities — and
-// the two were read from different places. The patterns went through
-// resolveQueriesForLang, which prefers the project's copy. The extension
-// declaration was only ever read by initTsExtMap and initAntlrExtMap, at package
-// init, out of the installed runtime alone. So a project file could override a
-// language the runtime already declared, and the `extensions:` line in a file for
-// a new language was inert: TreeSitterParser.Parse rejected the extension before
-// anything project-level was consulted, and the file was never opened.
-//
-// The failure was also misleading — "no grammar for .mylang" reads as a missing
-// grammar, when the grammar can be present and it is the declaration that was
-// dropped.
-//
-// stageProjectLanguage writes a query file for an invented language under a
-// project directory, borrowing a grammar that is actually available so the test
-// measures the registration path and not grammar installation.
 func stageProjectLanguage(t *testing.T, ext, langName string) string {
 	t.Helper()
 

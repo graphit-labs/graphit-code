@@ -11,8 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// isolateHome points the global store at a directory this test owns, so nothing it
-// resolves can collide with the developer's real one.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -21,18 +19,6 @@ func isolateHome(t *testing.T) string {
 	return home
 }
 
-// The tests in this file pin one property: a request naming project A must resolve
-// to A's store and never to whichever project the server happens to be running in.
-//
-// The mechanism has changed — the resolvers used to return paths relative to a
-// project root, which a caller had to anchor, and the class of bug was a caller that
-// forgot — but the property is the same one, and it is the property that matters.
-// Stores are now global and keyed by identity, so the working directory has no way
-// into the answer at all.
-
-// TestASTConfigForProjectResolvesTheNamedProjectsStore is the regression test for
-// the contamination bug: indexing a project from a server sitting in a different one
-// wrote the nodes into the server's own graph and still reported success.
 func TestASTConfigForProjectResolvesTheNamedProjectsStore(t *testing.T) {
 	t.Setenv("LADYBUGDB_PATH", "")
 	isolateHome(t)
@@ -51,16 +37,11 @@ func TestASTConfigForProjectResolvesTheNamedProjectsStore(t *testing.T) {
 	if got == store.ASTProjectDir(bystander) {
 		t.Error("the request for one project resolved to the working-directory project's store")
 	}
-	// And nothing is placed in the project itself.
 	if strings.HasPrefix(got, target) {
 		t.Errorf("StoreDir = %q; the store must live in the global directory", got)
 	}
 }
 
-// TestSyncASTPipelineOptionsKeepsTheProjectIDInTheCachePath is the regression
-// test for MCP sync writing manifest.json and shards/ into the shared
-// ~/.graphit/ast/project parent. StoreDir already is the cache directory; taking
-// filepath.Dir(StoreDir) strips this identity segment.
 func TestSyncASTPipelineOptionsKeepsTheProjectIDInTheCachePath(t *testing.T) {
 	t.Setenv("LADYBUGDB_PATH", "")
 	isolateHome(t)
@@ -106,8 +87,6 @@ func TestOpenASTDBReadWriteWritesIntoTheRequestedProjectsStore(t *testing.T) {
 	target := t.TempDir()
 	bystander := t.TempDir()
 
-	// The MCP server runs from wherever it was started, not from the project it is
-	// asked to index. That mismatch is the whole bug.
 	t.Chdir(bystander)
 
 	db, err := openASTDBReadWrite(target, "")
@@ -168,8 +147,6 @@ func TestOpenASTDBReportsMissingDatabaseInRequestedProject(t *testing.T) {
 	}
 }
 
-// TestResolveWikiDirResolvesTheNamedProjectsWiki covers the same property in the
-// knowledge wiki path.
 func TestResolveWikiDirResolvesTheNamedProjectsWiki(t *testing.T) {
 	isolateHome(t)
 

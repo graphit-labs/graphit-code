@@ -112,7 +112,6 @@ func isExported(strategy string, e *Entity, exportedNames map[string]bool, confi
 		return exportedNames[e.Name]
 
 	case "modifier", "no_modifier", "no_static":
-		// Decided at entity-construction time; see Entity.ModifierExport.
 		return e.ModifierExport
 
 	case "none":
@@ -198,18 +197,10 @@ func resolveReceiverTypes(result *ParsedFile, src []byte, lang string, langConfi
 
 	selfKeywords := selfKeywordsForLang(lang, langConfig)
 
-	// Line lookup is lazy and index-based. The previous strings.Split(string(src),
-	// "\n") copied the whole file and allocated a []string of every line on every
-	// call-bearing file — even when no call site ended up needing a line (the
-	// "new:" and empty-SourceName paths below skip the lookup entirely).
 	var lineStarts []int
 	lineAt := func(idx int) ([]byte, bool) {
 		if lineStarts == nil {
-			// Matches strings.Split semantics: N newlines yield N+1 lines,
-			// including a trailing empty one when the file ends in a newline.
 			lineStarts = make([]int, 1, bytes.Count(src, []byte{'\n'})+1)
-			// bytes.IndexByte is SIMD-accelerated; a byte-at-a-time Go loop here
-			// measured ~25% slower than the strings.Split it replaces.
 			for off := 0; off < len(src); {
 				j := bytes.IndexByte(src[off:], '\n')
 				if j < 0 {
@@ -225,7 +216,7 @@ func resolveReceiverTypes(result *ParsedFile, src []byte, lang string, langConfi
 		start := lineStarts[idx]
 		end := len(src)
 		if idx+1 < len(lineStarts) {
-			end = lineStarts[idx+1] - 1 // drop the newline itself
+			end = lineStarts[idx+1] - 1
 		}
 		return src[start:end], true
 	}
@@ -262,8 +253,6 @@ func resolveReceiverTypes(result *ParsedFile, src []byte, lang string, langConfi
 	}
 }
 
-// exportStrategyOf returns the export strategy and its config from a language
-// config, tolerating a nil config or nil Exports block.
 func exportStrategyOf(langConfig *ExternalQueryFile) (string, map[string]string, map[string][]string) {
 	if langConfig == nil || langConfig.Exports == nil {
 		return "", nil, nil

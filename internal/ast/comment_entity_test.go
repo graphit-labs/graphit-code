@@ -8,18 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// Comments are entities in every language, not just in PL/SQL.
-//
-// PL/SQL already turned COMMENT ON statements into Comment entities whose name is
-// the comment text, so "what does the documentation say" is answerable by search.
-// Everywhere else a comment was only ever attached to a declaration as a
-// Docstring field — which means a comment that documents nothing, a licence
-// header, a note inside a function body, was not indexed at all.
-//
-// Each comment now also carries a REFERENCES edge: to the declaration it
-// precedes when there is one, and to the file otherwise, so nothing is left
-// unreachable for want of an owner.
-
 func stageLang(t *testing.T, langName, ext, queryFile string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("queries", queryFile))
@@ -57,14 +45,6 @@ func stageLang(t *testing.T, langName, ext, queryFile string) string {
 	return projectDir
 }
 
-// commentsOf returns the Comment entities and the edge target of each.
-//
-// Matched by LINE, not by ReferenceInfo.SourceName == the comment's own text:
-// SourceName carries a disambiguator (commentUIDName) instead of the raw text
-// precisely so that two comments with identical text don't collide — see
-// cache_convert.go's contentNamedUID / commentUIDName. Line is the value both the
-// entity and its reference already carry independently and is what production
-// code (cache_convert.go) also uses to make the two agree.
 func commentsOf(t *testing.T, pf *ParsedFile) (map[string]bool, map[string]string) {
 	t.Helper()
 	names := map[string]bool{}
@@ -92,8 +72,7 @@ func commentsOf(t *testing.T, pf *ParsedFile) (map[string]bool, map[string]strin
 func TestCommentsAreEntitiesInEveryLanguage(t *testing.T) {
 	cases := []struct {
 		lang, ext, queryFile, file, source string
-		// wantComment -> the entity it must point at, or "" for the file
-		want map[string]string
+		want                               map[string]string
 	}{
 		{
 			lang: "go", ext: ".go", queryFile: "go.yaml", file: "a.go",
@@ -247,7 +226,6 @@ END;
 		}
 	}
 
-	// And the adapter turns them into entities with an edge.
 	result := &ParsedFile{Path: "pkg.sql", Entities: map[string][]Entity{
 		"functions": {{Name: "SOMA_VALORES", Line: 5, GraphLabel: "Function"}},
 	}}
@@ -260,8 +238,6 @@ END;
 	if !names["Cabeçalho do pacote."] {
 		t.Errorf("header comment was not indexed; got %v", keysOf(names))
 	}
-	// The header is far from the function and belongs to the file; the block
-	// comment sits directly above it and belongs to the function.
 	if tgt := targets["Cabeçalho do pacote."]; tgt != "pkg.sql" {
 		t.Errorf("header comment points at %q, want the file", tgt)
 	}
@@ -270,9 +246,6 @@ END;
 	}
 }
 
-// Two comments with identical text, at different positions, must both survive as
-// distinct entities with their own REFERENCES edge — not collapse into one, the
-// way keying extraction's dedup on text used to make them.
 func TestRepeatedIdenticalCommentsAreBothIndexedAntlr(t *testing.T) {
 	drv := nativeAntlrDrivers["antlr-plsql"]
 	if drv == nil {
@@ -320,9 +293,6 @@ END;
 		t.Fatalf("both comment entities report the same line: %d", comments[0].Line)
 	}
 
-	// Each must have its OWN reference, not one shared/dropped one — attachment
-	// target (file vs. the following declaration) is a different, untouched piece
-	// of logic; what this test guards is that neither comment's reference vanished.
 	var refLines []int
 	for _, r := range result.References {
 		if r.RelType == "REFERENCES" {

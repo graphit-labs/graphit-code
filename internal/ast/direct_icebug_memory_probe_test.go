@@ -38,8 +38,6 @@ func TestExportDirectPeakHeap(t *testing.T) {
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 
-	// HeapSys is a high-water of memory obtained from the OS and moves with GC timing;
-	// the live peak is what decides whether the process survives, so sample it.
 	stop := make(chan struct{})
 	peak := make(chan uint64, 1)
 	go func() {
@@ -96,8 +94,6 @@ func countRows(tables []ladybug.CanonicalNodeTable) int64 {
 	return n
 }
 
-// syntheticCorpus is one Go-shaped file per entry: a handful of declarations, the calls
-// between them, and the containment edges the file owns.
 func syntheticCorpus(files int) map[string]*parseCacheEntry {
 	const entitiesPerFile = 12
 	entries := make(map[string]*parseCacheEntry, files)

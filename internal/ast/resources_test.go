@@ -31,7 +31,7 @@ func TestBoundedDBBufferPool(t *testing.T) {
 	})
 
 	t.Run("tiny default not inflated", func(t *testing.T) {
-		const tiny = 128 << 20 // already below the floor
+		const tiny = 128 << 20
 		for _, readOnly := range []bool{false, true} {
 			if got := boundedDBBufferPool(tiny, readOnly); got != tiny {
 				t.Errorf("boundedDBBufferPool(%d, readOnly=%v) = %d, want it left alone",
@@ -40,13 +40,6 @@ func TestBoundedDBBufferPool(t *testing.T) {
 		}
 	})
 
-	// The regression this pins: the ceiling used to be a flat 1 GiB for every
-	// handle, so a 61 GiB machine indexed a 2.5M-entity corpus with 1 GiB of
-	// buffer pool and died inside CREATE_FTS_INDEX with "the buffer pool is full
-	// and no memory could be freed" while 24 GiB sat free. Measured requirement is
-	// ~3 GiB of pool per million entities, so the writer on a machine with room
-	// must be given several GiB — a big host getting ~1 GiB is the bug, not a
-	// conservative choice.
 	t.Run("a large machine gives the writer a large pool", func(t *testing.T) {
 		requireDerivedBufferPool(t)
 		limit := sysutil.MemoryLimitBytes()
@@ -62,9 +55,6 @@ func TestBoundedDBBufferPool(t *testing.T) {
 		}
 	})
 
-	// And the reason the raise is safe for the daemon and the MCP server: they
-	// hold a READ handle for hours, and a buffer pool never gives memory back, so
-	// their ceiling is deliberately left where it was.
 	t.Run("a read handle stays bounded even on a large machine", func(t *testing.T) {
 		requireDerivedBufferPool(t)
 		limit := sysutil.MemoryLimitBytes()
@@ -85,11 +75,6 @@ func TestBoundedDBBufferPool(t *testing.T) {
 	})
 }
 
-// requireDerivedBufferPool skips a subtest that asserts the DERIVED pool when the
-// environment has replaced it. GRAPHIT_DB_BUFFER_MB is a legitimate thing for a
-// developer or CI runner to set — it is what the buffer-pool error tells operators
-// to use — and it defeats the fraction, the ceiling and the read/write split alike,
-// so an assertion about any of those has nothing left to measure.
 func requireDerivedBufferPool(t *testing.T) {
 	t.Helper()
 	if v := os.Getenv("GRAPHIT_DB_BUFFER_MB"); v != "" {
@@ -129,17 +114,14 @@ func TestBoundedDBBufferPoolEnvOverride(t *testing.T) {
 func TestBoundedDBThreads(t *testing.T) {
 	budget := uint64(sysutil.CPUBudget())
 
-	// A NumCPU-sized default (the liblbug default) is clamped to the budget.
 	if got := boundedDBThreads(1024); got != budget {
 		t.Errorf("boundedDBThreads(1024) = %d, want budget %d", got, budget)
 	}
-	// A request already at/below the budget is preserved.
 	if budget >= 1 {
 		if got := boundedDBThreads(1); got != 1 {
 			t.Errorf("boundedDBThreads(1) = %d, want 1", got)
 		}
 	}
-	// Result is always a sane, bounded value.
 	if got := boundedDBThreads(0); got < 1 || got > budget {
 		t.Errorf("boundedDBThreads(0) = %d, want in [1,%d]", got, budget)
 	}

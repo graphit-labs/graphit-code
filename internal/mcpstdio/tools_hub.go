@@ -164,8 +164,6 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		// No project means no IDE directory to materialise into, so resolving an IDE
-		// would only invite the install to write into one belonging to somebody else.
 		resolvedIDE := ""
 		if projectDir != "" {
 			resolvedIDE = resolveIDEFromProject(input.IDE, projectDir)
@@ -312,7 +310,6 @@ func registerHubTools(server *mcp.Server) {
 				return err
 			}
 
-			// Record publish in lockfile
 			projectCfg, ides := loadProjectLockInfo(projectDir)
 			resolvedIDE := config.ResolveProjectIDE("", nil, projectCfg, ides)
 			hubSvc := hub.NewHubService(reg)

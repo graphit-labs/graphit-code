@@ -1,35 +1,21 @@
-# COBOL 85 — ANTLR v4 grammar for COBOL 85
-# Exhaustive entity and relation extraction covering all divisions, sections,
-# statement types, data structures, file I/O, inter-program calls, data flow,
-# arithmetic targets, string manipulation, report writer, screen section,
-# communication section, and embedded SQL/CICS.
-#
-# Grammar source: https://github.com/antlr/grammars-v4/tree/master/cobol85
+
+
 language: cobol85
 parser: antlr4
 grammar: antlr-cobol85
 start_rule: startRule
 extensions: [".cob", ".cbl", ".cpy", ".cobol"]
 
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
 target_rules:
   CALLS: { labels: [Paragraph, Program, Section] }
 queries:
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # IDENTIFICATION DIVISION — PROGRAMS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # PROGRAM-ID. program-name
   - data_key: programs
     graph_label: Program
     pattern: "//programIdParagraph/programName"
     name_capture: name
     type: entity
 
-  # END PROGRAM program-name
   - data_key: end_programs
     graph_label: ""
     pattern: "//endProgramStatement/programName"
@@ -37,11 +23,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # ENVIRONMENT DIVISION — CONFIGURATION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SOURCE-COMPUTER. computer-name
   - data_key: source_computers
     graph_label: ""
     pattern: "//sourceComputerParagraph/computerName"
@@ -49,7 +30,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OBJECT-COMPUTER. computer-name
   - data_key: object_computers
     graph_label: ""
     pattern: "//objectComputerParagraph/computerName"
@@ -57,7 +37,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # SPECIAL-NAMES: ALPHABET clause
   - data_key: alphabets
     graph_label: Variable
     pattern: "//alphabetClauseFormat1/alphabetName"
@@ -70,39 +49,30 @@ queries:
     name_capture: name
     type: entity
 
-  # SPECIAL-NAMES: CLASS clause
   - data_key: class_names
     graph_label: Variable
     pattern: "//classClause/className"
     name_capture: name
     type: entity
 
-  # SPECIAL-NAMES: environment switch → mnemonic
   - data_key: mnemonics
     graph_label: Variable
     pattern: "//environmentSwitchNameClause/mnemonicName"
     name_capture: name
     type: entity
 
-  # SPECIAL-NAMES: CHANNEL clause
   - data_key: mnemonics
     graph_label: Variable
     pattern: "//channelClause/mnemonicName"
     name_capture: name
     type: entity
 
-  # SPECIAL-NAMES: ODT clause
   - data_key: mnemonics
     graph_label: Variable
     pattern: "//odtClause/mnemonicName"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # ENVIRONMENT DIVISION — INPUT-OUTPUT SECTION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SELECT file-name (FILE-CONTROL)
   - data_key: file_selects
     graph_label: ""
     pattern: "//selectClause/fileName"
@@ -110,7 +80,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ASSIGN TO assignment-name
   - data_key: file_assigns
     graph_label: ""
     pattern: "//assignClause/assignmentName"
@@ -118,7 +87,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # RECORD KEY IS qualified-data-name
   - data_key: record_keys
     graph_label: ""
     pattern: "//recordKeyClause/qualifiedDataName"
@@ -126,7 +94,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ALTERNATE RECORD KEY IS qualified-data-name
   - data_key: alternate_keys
     graph_label: ""
     pattern: "//alternateRecordKeyClause/qualifiedDataName"
@@ -134,7 +101,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # FILE STATUS IS data-name
   - data_key: file_statuses
     graph_label: ""
     pattern: "//fileStatusClause/qualifiedDataName"
@@ -142,7 +108,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # RELATIVE KEY IS data-name
   - data_key: relative_keys
     graph_label: ""
     pattern: "//relativeKeyClause/qualifiedDataName"
@@ -150,7 +115,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # I-O-CONTROL: SAME AREA FOR file-names
   - data_key: same_areas
     graph_label: ""
     pattern: "//sameClause/fileName"
@@ -158,7 +122,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # I-O-CONTROL: RERUN ON file
   - data_key: reruns
     graph_label: ""
     pattern: "//rerunClause/fileName"
@@ -166,7 +129,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # I-O-CONTROL: MULTIPLE FILE TAPE
   - data_key: multiple_files
     graph_label: ""
     pattern: "//multipleFilePosition/fileName"
@@ -174,7 +136,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # I-O-CONTROL: COMMITMENT CONTROL FOR file
   - data_key: commitment_files
     graph_label: ""
     pattern: "//commitmentControlClause/fileName"
@@ -182,18 +143,12 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA DIVISION — FILE SECTION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # FD/SD file-name
   - data_key: files
     graph_label: FileDescription
     pattern: "//fileDescriptionEntry/fileName"
     name_capture: name
     type: entity
 
-  # REPORT IS report-name (inside FD)
   - data_key: fd_reports
     graph_label: ""
     pattern: "//reportClause/reportName"
@@ -201,13 +156,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA DIVISION — DATA DESCRIPTION ENTRIES
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Format 1: level-number data-name (WORKING-STORAGE, LINKAGE, FILE, LOCAL-STORAGE)
-  # The VALUE clause is how COBOL declares a constant, and it was dropped entirely:
-  # WS-STATUS was known to exist, but not that it holds 'ABERTO'.
   - data_key: variables
     graph_label: Variable
     pattern: "//dataDescriptionEntryFormat1"
@@ -222,21 +170,18 @@ queries:
     name_capture: name
     type: entity
 
-  # Format 2: 66-level RENAMES
   - data_key: renames
     graph_label: Variable
     pattern: "//dataDescriptionEntryFormat2/dataName"
     name_capture: name
     type: entity
 
-  # Format 3: 88-level condition names
   - data_key: conditions
     graph_label: Condition
     pattern: "//dataDescriptionEntryFormat3/conditionName"
     name_capture: name
     type: entity
 
-  # REDEFINES data-name
   - data_key: redefines
     graph_label: ""
     pattern: "//dataRedefinesClause/dataName"
@@ -244,7 +189,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # RENAMES data-name (range source)
   - data_key: rename_refs
     graph_label: ""
     pattern: "//dataRenamesClause/qualifiedDataName"
@@ -252,7 +196,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OCCURS DEPENDING ON data-name
   - data_key: occurs_depending
     graph_label: ""
     pattern: "//dataOccursClause/qualifiedDataName"
@@ -260,46 +203,36 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OCCURS INDEXED BY index-name
   - data_key: indexes
     graph_label: Variable
     pattern: "//dataOccursClause/indexName"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA DIVISION — REPORT SECTION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # RD report-name (Report Description)
   - data_key: reports
     graph_label: Variable
     pattern: "//reportDescriptionEntry/reportName"
     name_capture: name
     type: entity
 
-  # Report group description (Format 1 — group header with TYPE clause)
   - data_key: report_groups
     graph_label: Variable
     pattern: "//reportGroupDescriptionEntryFormat1/dataName"
     name_capture: name
     type: entity
 
-  # Report group description (Format 2 — detail line)
   - data_key: report_groups
     graph_label: Variable
     pattern: "//reportGroupDescriptionEntryFormat2/dataName"
     name_capture: name
     type: entity
 
-  # Report group description (Format 3 — elementary item)
   - data_key: report_groups
     graph_label: Variable
     pattern: "//reportGroupDescriptionEntryFormat3/dataName"
     name_capture: name
     type: entity
 
-  # Report group SOURCE IS identifier
   - data_key: report_sources
     graph_label: ""
     pattern: "//reportGroupSourceClause/identifier"
@@ -307,7 +240,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # Report group SUM identifier
   - data_key: report_sums
     graph_label: ""
     pattern: "//reportGroupSumClause/identifier"
@@ -315,18 +247,12 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA DIVISION — SCREEN SECTION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Screen description entry (screenName)
   - data_key: screens
     graph_label: Variable
     pattern: "//screenDescriptionEntry/screenName"
     name_capture: name
     type: entity
 
-  # SCREEN FROM identifier (data source)
   - data_key: screen_froms
     graph_label: ""
     pattern: "//screenDescriptionFromClause/identifier"
@@ -334,7 +260,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # SCREEN USING identifier (bi-directional)
   - data_key: screen_usings
     graph_label: ""
     pattern: "//screenDescriptionUsingClause/identifier"
@@ -342,75 +267,54 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA DIVISION — COMMUNICATION SECTION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # CD cd-name FOR INPUT
   - data_key: comm_descs
     graph_label: Variable
     pattern: "//communicationDescriptionEntryFormat1/cdName"
     name_capture: name
     type: entity
 
-  # CD cd-name FOR OUTPUT
   - data_key: comm_descs
     graph_label: Variable
     pattern: "//communicationDescriptionEntryFormat2/cdName"
     name_capture: name
     type: entity
 
-  # CD cd-name FOR I-O
   - data_key: comm_descs
     graph_label: Variable
     pattern: "//communicationDescriptionEntryFormat3/cdName"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA DIVISION — PROGRAM LIBRARY SECTION
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # LD library-name EXPORT
   - data_key: libraries
     graph_label: Variable
     pattern: "//libraryDescriptionEntryFormat1/libraryName"
     name_capture: name
     type: entity
 
-  # LB library-name IMPORT
   - data_key: libraries
     graph_label: Variable
     pattern: "//libraryDescriptionEntryFormat2/libraryName"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # PROCEDURE DIVISION — STRUCTURE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Section headers in the Procedure Division
   - data_key: sections
     graph_label: Section
     pattern: "//procedureSection/procedureSectionHeader/sectionName"
     name_capture: name
     type: entity
 
-  # Declarative section headers
   - data_key: sections
     graph_label: Section
     pattern: "//procedureDeclarative/procedureSectionHeader/sectionName"
     name_capture: name
     type: entity
 
-  # Paragraphs
   - data_key: paragraphs
     graph_label: Paragraph
     pattern: "//paragraph/paragraphName"
     name_capture: name
     type: entity
 
-  # PROCEDURE DIVISION USING parameter
   - data_key: proc_params
     graph_label: ""
     pattern: "//procedureDivisionByReference/identifier"
@@ -425,7 +329,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # PROCEDURE DIVISION GIVING data-name
   - data_key: proc_giving
     graph_label: ""
     pattern: "//procedureDivisionGivingClause/dataName"
@@ -433,11 +336,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # PROCEDURE CALLS — PERFORM, CALL, GO TO, CANCEL, ENTRY
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # PERFORM paragraph-name / section-name
   - data_key: calls
     graph_label: ""
     pattern: "//performProcedureStatement/procedureName"
@@ -445,7 +343,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # CALL 'program-name' (external program calls)
   - data_key: calls
     graph_label: ""
     pattern: "//callStatement/literal"
@@ -453,7 +350,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # CALL identifier (dynamic calls)
   - data_key: calls
     graph_label: ""
     pattern: "//callStatement/identifier"
@@ -461,7 +357,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # GO TO paragraph-name (simple)
   - data_key: gotos
     graph_label: ""
     pattern: "//goToStatementSimple/procedureName"
@@ -469,7 +364,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # GO TO ... DEPENDING ON (multiple targets)
   - data_key: gotos_depending
     graph_label: ""
     pattern: "//goToDependingOnStatement/procedureName"
@@ -477,7 +371,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # CANCEL 'program-name' (unload external program)
   - data_key: cancels
     graph_label: ""
     pattern: "//cancelStatement/identifier"
@@ -492,14 +385,12 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ENTRY 'entry-point' (alternate entry point)
   - data_key: entries
     graph_label: Paragraph
     pattern: "//entryStatement/literal"
     name_capture: name
     type: entity
 
-  # ALTER paragraph-name TO PROCEED TO paragraph-name
   - data_key: alters
     graph_label: ""
     pattern: "//alterStatement/procedureName"
@@ -507,11 +398,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # FILE I/O OPERATIONS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # READ file-name
   - data_key: reads
     graph_label: ""
     pattern: "//readStatement/fileName"
@@ -519,7 +405,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # READ ... INTO identifier
   - data_key: read_intos
     graph_label: ""
     pattern: "//readInto/identifier"
@@ -527,7 +412,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # READ ... KEY IS data-name
   - data_key: read_keys
     graph_label: ""
     pattern: "//readKey/qualifiedDataName"
@@ -535,7 +419,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # WRITE record-name
   - data_key: writes
     graph_label: ""
     pattern: "//writeStatement/recordName"
@@ -543,7 +426,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # WRITE ... FROM identifier
   - data_key: write_froms
     graph_label: ""
     pattern: "//writeFromPhrase/identifier"
@@ -551,7 +433,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # REWRITE record-name
   - data_key: rewrites
     graph_label: ""
     pattern: "//rewriteStatement/recordName"
@@ -559,7 +440,6 @@ queries:
     type: relation
     relation_type: UPDATES
 
-  # REWRITE ... FROM identifier
   - data_key: rewrite_froms
     graph_label: ""
     pattern: "//rewriteFrom/identifier"
@@ -567,7 +447,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # DELETE file-name
   - data_key: file_deletes
     graph_label: ""
     pattern: "//deleteStatement/fileName"
@@ -575,7 +454,6 @@ queries:
     type: relation
     relation_type: DELETES
 
-  # OPEN INPUT file-name
   - data_key: opens
     graph_label: ""
     pattern: "//openInput/fileName"
@@ -583,7 +461,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OPEN OUTPUT file-name
   - data_key: opens
     graph_label: ""
     pattern: "//openOutput/fileName"
@@ -591,7 +468,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OPEN I-O file-name
   - data_key: opens
     graph_label: ""
     pattern: "//openIOStatement/fileName"
@@ -599,7 +475,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OPEN EXTEND file-name
   - data_key: opens
     graph_label: ""
     pattern: "//openExtendStatement/fileName"
@@ -607,7 +482,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # CLOSE file-name
   - data_key: closes
     graph_label: ""
     pattern: "//closeStatement//fileName"
@@ -615,7 +489,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # START file-name (file positioning)
   - data_key: starts
     graph_label: ""
     pattern: "//startStatement/fileName"
@@ -623,7 +496,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # START ... KEY IS data-name
   - data_key: start_keys
     graph_label: ""
     pattern: "//startKey/qualifiedDataName"
@@ -631,11 +503,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATA FLOW — MOVE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # MOVE source TO target (source identifier)
   - data_key: move_sources
     graph_label: ""
     pattern: "//moveToSendingArea/identifier"
@@ -643,7 +510,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # MOVE source TO target (targets)
   - data_key: move_targets
     graph_label: ""
     pattern: "//moveToStatement/identifier"
@@ -651,7 +517,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # MOVE CORRESPONDING source TO target
   - data_key: move_corr_sources
     graph_label: ""
     pattern: "//moveCorrespondingToSendingArea/identifier"
@@ -666,11 +531,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # ARITHMETIC — COMPUTE, ADD, SUBTRACT, MULTIPLY, DIVIDE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # COMPUTE target = expression
   - data_key: compute_targets
     graph_label: ""
     pattern: "//computeStore/identifier"
@@ -678,7 +538,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ADD ... TO target
   - data_key: add_targets
     graph_label: ""
     pattern: "//addToStatement/identifier"
@@ -686,7 +545,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ADD ... GIVING target
   - data_key: add_giving
     graph_label: ""
     pattern: "//addToGivingStatement/identifier"
@@ -694,7 +552,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ADD CORRESPONDING source FROM target
   - data_key: add_corr
     graph_label: ""
     pattern: "//addCorrespondingStatement/identifier"
@@ -702,7 +559,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # SUBTRACT ... FROM target
   - data_key: subtract_targets
     graph_label: ""
     pattern: "//subtractMinuend/identifier"
@@ -710,7 +566,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # SUBTRACT ... FROM ... GIVING target
   - data_key: subtract_giving
     graph_label: ""
     pattern: "//subtractGiving/identifier"
@@ -718,7 +573,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # MULTIPLY ... BY target
   - data_key: multiply_targets
     graph_label: ""
     pattern: "//multiplyRegularOperand/identifier"
@@ -726,7 +580,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # MULTIPLY ... GIVING target
   - data_key: multiply_giving
     graph_label: ""
     pattern: "//multiplyGivingResult/identifier"
@@ -734,7 +587,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # DIVIDE ... INTO target
   - data_key: divide_targets
     graph_label: ""
     pattern: "//divideInto/identifier"
@@ -742,7 +594,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # DIVIDE ... GIVING target
   - data_key: divide_giving
     graph_label: ""
     pattern: "//divideGiving/identifier"
@@ -750,7 +601,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # DIVIDE ... REMAINDER target
   - data_key: divide_remainder
     graph_label: ""
     pattern: "//divideRemainder/identifier"
@@ -758,11 +608,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # STRING MANIPULATION — STRING, UNSTRING, INSPECT
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # STRING ... INTO target
   - data_key: string_targets
     graph_label: ""
     pattern: "//stringIntoPhrase/identifier"
@@ -770,7 +615,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # STRING ... WITH POINTER data-name
   - data_key: string_pointers
     graph_label: ""
     pattern: "//stringWithPointerPhrase/qualifiedDataName"
@@ -778,7 +622,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # UNSTRING source identifier
   - data_key: unstring_sources
     graph_label: ""
     pattern: "//unstringSendingPhrase/identifier"
@@ -786,7 +629,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # UNSTRING ... INTO targets
   - data_key: unstring_targets
     graph_label: ""
     pattern: "//unstringInto/identifier"
@@ -794,7 +636,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # UNSTRING ... TALLYING IN data-name
   - data_key: unstring_tallying
     graph_label: ""
     pattern: "//unstringTallyingPhrase/qualifiedDataName"
@@ -802,7 +643,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # UNSTRING ... WITH POINTER data-name
   - data_key: unstring_pointers
     graph_label: ""
     pattern: "//unstringWithPointerPhrase/qualifiedDataName"
@@ -810,7 +650,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # INSPECT identifier (target being inspected)
   - data_key: inspect_targets
     graph_label: ""
     pattern: "//inspectStatement/identifier"
@@ -818,7 +657,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # INSPECT ... TALLYING counter FOR
   - data_key: inspect_tallying
     graph_label: ""
     pattern: "//inspectFor/identifier"
@@ -826,11 +664,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TABLE OPERATIONS — SEARCH, SET
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SEARCH table-name
   - data_key: searches
     graph_label: ""
     pattern: "//searchStatement/qualifiedDataName"
@@ -838,7 +671,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # SEARCH ... VARYING index-name
   - data_key: search_varying
     graph_label: ""
     pattern: "//searchVarying/qualifiedDataName"
@@ -846,7 +678,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # SET target TO value
   - data_key: set_targets
     graph_label: ""
     pattern: "//setTo/identifier"
@@ -854,7 +685,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # SET target UP BY / DOWN BY value
   - data_key: set_updown_targets
     graph_label: ""
     pattern: "//setUpDownByStatement//setTo/identifier"
@@ -862,11 +692,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # INITIALIZE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # INITIALIZE identifier (data reset)
   - data_key: initializes
     graph_label: ""
     pattern: "//initializeStatement/identifier"
@@ -874,11 +699,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # I/O — ACCEPT, DISPLAY
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # ACCEPT identifier (receives data into)
   - data_key: accepts
     graph_label: ""
     pattern: "//acceptStatement/identifier"
@@ -886,7 +706,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ACCEPT FROM mnemonic-name
   - data_key: accept_from_mnemonics
     graph_label: ""
     pattern: "//acceptFromMnemonicStatement/mnemonicName"
@@ -894,7 +713,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # DISPLAY identifier/literal (output)
   - data_key: displays
     graph_label: ""
     pattern: "//displayOperand/identifier"
@@ -902,7 +720,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # DISPLAY UPON mnemonic-name
   - data_key: display_upons
     graph_label: ""
     pattern: "//displayUpon/mnemonicName"
@@ -910,11 +727,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # SORT & MERGE — FILE PROCESSING CHAINS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SORT file-name (work file)
   - data_key: sort_files
     graph_label: ""
     pattern: "//sortStatement/fileName"
@@ -922,7 +734,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # SORT ... ON KEY data-names
   - data_key: sort_keys
     graph_label: ""
     pattern: "//sortOnKeyClause/qualifiedDataName"
@@ -930,7 +741,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # SORT ... USING input-file
   - data_key: sort_usings
     graph_label: ""
     pattern: "//sortUsing/fileName"
@@ -938,7 +748,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # SORT ... GIVING output-file
   - data_key: sort_givings
     graph_label: ""
     pattern: "//sortGiving/fileName"
@@ -946,7 +755,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # SORT ... INPUT PROCEDURE IS procedure-name
   - data_key: sort_input_procs
     graph_label: ""
     pattern: "//sortInputProcedurePhrase/procedureName"
@@ -954,7 +762,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # SORT ... OUTPUT PROCEDURE IS procedure-name
   - data_key: sort_output_procs
     graph_label: ""
     pattern: "//sortOutputProcedurePhrase/procedureName"
@@ -962,7 +769,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # MERGE file-name (work file)
   - data_key: merge_files
     graph_label: ""
     pattern: "//mergeStatement/fileName"
@@ -970,7 +776,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # MERGE ... ON KEY data-names
   - data_key: merge_keys
     graph_label: ""
     pattern: "//mergeOnKeyClause/qualifiedDataName"
@@ -978,7 +783,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # MERGE ... USING input-files
   - data_key: merge_usings
     graph_label: ""
     pattern: "//mergeUsing/fileName"
@@ -986,7 +790,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # MERGE ... GIVING output-file
   - data_key: merge_givings
     graph_label: ""
     pattern: "//mergeGiving/fileName"
@@ -994,7 +797,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # MERGE ... OUTPUT PROCEDURE IS procedure-name
   - data_key: merge_output_procs
     graph_label: ""
     pattern: "//mergeOutputProcedurePhrase/procedureName"
@@ -1002,7 +804,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # RELEASE record-name (from sort input procedure)
   - data_key: releases
     graph_label: ""
     pattern: "//releaseStatement/recordName"
@@ -1010,7 +811,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # RELEASE ... FROM data-name
   - data_key: release_froms
     graph_label: ""
     pattern: "//releaseStatement/qualifiedDataName"
@@ -1018,7 +818,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # RETURN file-name (from sort output procedure)
   - data_key: returns
     graph_label: ""
     pattern: "//returnStatement/fileName"
@@ -1026,7 +825,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # RETURN ... INTO data-name
   - data_key: return_intos
     graph_label: ""
     pattern: "//returnInto/qualifiedDataName"
@@ -1034,11 +832,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # COMMUNICATION — SEND, RECEIVE, ENABLE, DISABLE, PURGE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # RECEIVE cd-name MESSAGE/SEGMENT INTO identifier
   - data_key: receives
     graph_label: ""
     pattern: "//receiveIntoStatement/cdName"
@@ -1046,7 +839,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # RECEIVE ... INTO identifier (target)
   - data_key: receive_targets
     graph_label: ""
     pattern: "//receiveIntoStatement/identifier"
@@ -1054,7 +846,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # RECEIVE data-name FROM THREAD
   - data_key: receive_thread
     graph_label: ""
     pattern: "//receiveFromStatement/dataName"
@@ -1062,7 +853,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # SEND identifier (sync)
   - data_key: sends
     graph_label: ""
     pattern: "//sendStatementSync/identifier"
@@ -1070,7 +860,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # SEND FROM identifier
   - data_key: send_froms
     graph_label: ""
     pattern: "//sendFromPhrase/identifier"
@@ -1078,7 +867,6 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-  # ENABLE cd-name
   - data_key: enables
     graph_label: ""
     pattern: "//enableStatement/cdName"
@@ -1086,7 +874,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # DISABLE cd-name
   - data_key: disables
     graph_label: ""
     pattern: "//disableStatement/cdName"
@@ -1094,7 +881,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # PURGE cd-name
   - data_key: purges
     graph_label: ""
     pattern: "//purgeStatement/cdName"
@@ -1102,11 +888,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # REPORT WRITER — GENERATE, INITIATE, TERMINATE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # GENERATE report-name
   - data_key: generates
     graph_label: ""
     pattern: "//generateStatement/reportName"
@@ -1114,7 +895,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # INITIATE report-name
   - data_key: initiates
     graph_label: ""
     pattern: "//initiateStatement/reportName"
@@ -1122,7 +902,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # TERMINATE report-name
   - data_key: terminates
     graph_label: ""
     pattern: "//terminateStatement/reportName"
@@ -1130,43 +909,30 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # EMBEDDED SQL / CICS / IMS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # EXEC SQL ... END-EXEC (raw SQL lines captured as entity)
   - data_key: exec_sql
     graph_label: Variable
     pattern: "//execSqlStatement"
     name_capture: name
     type: entity
 
-  # EXEC CICS ... END-EXEC (raw CICS lines captured as entity)
   - data_key: exec_cics
     graph_label: Variable
     pattern: "//execCicsStatement"
     name_capture: name
     type: entity
 
-  # EXEC SQL IMS ... END-EXEC
   - data_key: exec_sql_ims
     graph_label: Variable
     pattern: "//execSqlImsStatement"
     name_capture: name
     type: entity
 
-  # EXEC SQL embedded in DATA DIVISION
   - data_key: exec_sql_data
     graph_label: Variable
     pattern: "//dataDescriptionEntryExecSql"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # COPY STATEMENTS (imports)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # COPY copybook-name (if preprocessor didn't expand them)
   - data_key: imports
     graph_label: ""
     pattern: "//copyStatement/copySource"
@@ -1174,11 +940,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # USE STATEMENT (DECLARATIVES)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # USE AFTER EXCEPTION/ERROR PROCEDURE ON file-name
   - data_key: use_after_files
     graph_label: ""
     pattern: "//useAfterOn/fileName"
@@ -1186,7 +947,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # USE FOR DEBUGGING ON procedure-name
   - data_key: use_debug
     graph_label: ""
     pattern: "//useDebugOn/procedureName"
@@ -1194,7 +954,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # USE FOR DEBUGGING ON file-name
   - data_key: use_debug_files
     graph_label: ""
     pattern: "//useDebugOn/fileName"
@@ -1202,11 +961,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # PERFORM VARIATIONS (inline loop variables)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # PERFORM VARYING identifier FROM ... BY ... UNTIL
   - data_key: perform_varying
     graph_label: ""
     pattern: "//performVaryingPhrase/identifier"
@@ -1214,11 +968,6 @@ queries:
     type: relation
     relation_type: WRITES_FIELD
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # EXHIBIT (IBM extension)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # EXHIBIT NAMED/CHANGED identifier
   - data_key: exhibits
     graph_label: ""
     pattern: "//exhibitOperand/identifier"
@@ -1226,11 +975,9 @@ queries:
     type: relation
     relation_type: READS_FIELD
 
-# No export detection for COBOL
 exports:
   strategy: none
 
-# COBOL parent context types — maps AST node types to graph labels
 context_types:
   programUnit: Program
   procedureSection: Section
@@ -1246,11 +993,9 @@ context_types:
   dataBaseSection: Program
   programLibrarySection: Program
 
-# ANTLR comment token types
 comment_types:
   - COMMENT_TAG
 
-# COBOL declaration types for docstring attachment
 declaration_types:
   - programIdParagraph
   - procedureSectionHeader
@@ -1270,23 +1015,12 @@ declaration_types:
   - libraryDescriptionEntryFormat1
   - libraryDescriptionEntryFormat2
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the real ANTLR parse tree (rule names, not guessed). evaluateWhen
-# is counted per WHEN, not once for the whole EVALUATE — evaluateWhenOther
-# (the OTHER arm) is left out, matching the "default is not a branch"
-# convention taken elsewhere here. AND/OR combinableCondition exists in the
-# grammar but its per-occurrence counting was not verified, so it is left out
-# rather than guessed.
 complexity:
   node_types:
     - ifStatement
     - performStatement
     - evaluateWhen
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Program
   - Section

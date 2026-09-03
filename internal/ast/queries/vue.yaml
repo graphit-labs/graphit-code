@@ -1,32 +1,11 @@
-# Vue — Tree-sitter grammar for Vue single-file components
-#
-# The tree is HTML-shaped — element, start_tag, attribute — so the markup labels
-# follow html.yaml and svelte.yaml: a query about markup does not need to know
-# which of the three produced the node. What is Vue's own is `directive_attribute`
-# and `interpolation`.
-#
-# A directive is written in two forms and the grammar keeps them apart:
-#
-#   v-bind:label="x"   directive_name . ":" . directive_value . "=" . value
-#   :label="x"         ":" . directive_value . "=" . value      (no directive_name)
-#
-# So the shorthand sigil is an anonymous token, and the sigil is the ONLY thing
-# that says which kind of directive it is: `:` binds a prop, `@` listens for an
-# event, `#` fills a slot. All three are matched here — the shorthand by anchoring
-# the sigil to the first child, the long form by a predicate on directive_name —
-# so "which component listens for this event" is answerable either way it is
-# written.
+
+
 language: vue
 grammar: tree-sitter-vue
 extensions: [".vue"]
 
 queries:
-  # ═══════════════════════════════════════════════════════════════════════════
-  # MARKUP
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # A component used in a template is an element like any other, which is what
-  # makes "where is this component rendered" a query about Element nodes.
+
   - data_key: elements
     graph_label: Element
     pattern: '(start_tag (tag_name) @name)'
@@ -34,7 +13,6 @@ queries:
     graph_label: Element
     pattern: '(self_closing_tag (tag_name) @name)'
 
-  # Plain attributes, with their values.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
@@ -50,7 +28,6 @@ queries:
     value_capture: value
     value_label: AttributeValue
 
-  # An unquoted value — <input type=text>.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (attribute_value) @value))'
@@ -66,7 +43,6 @@ queries:
     value_capture: value
     value_label: AttributeValue
 
-  # Valueless attributes — <input disabled>, <script setup>.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name))'
@@ -78,21 +54,12 @@ queries:
     parent_capture: element
     parent_label: Element
 
-  # Visible text.
   - data_key: element_text
     graph_label: Element
     pattern: '(element (start_tag (tag_name) @name) (text) @value)'
     value_capture: value
     value_label: Text
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DIRECTIVES — the directive as written
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # `v-if`, `v-for`, `v-model`, `v-show`, `v-html`, and also the long forms
-  # `v-bind` / `v-on` / `v-slot`, whose ARGUMENT is indexed separately below.
-  # `v-bind="obj"` and `v-on="handlers"` have no argument at all, so this is the
-  # only query that sees them.
   - data_key: directives
     graph_label: Directive
     pattern: '(start_tag (tag_name) @element (directive_attribute (directive_name) @name (quoted_attribute_value (attribute_value) @value)))'
@@ -108,7 +75,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # A directive with no value — `v-else`, `v-pre`, `v-slot:footer`.
   - data_key: directives
     graph_label: Directive
     pattern: '(start_tag (tag_name) @element (directive_attribute (directive_name) @name))'
@@ -120,13 +86,6 @@ queries:
     parent_capture: element
     parent_label: Element
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # PROPS — `:label="x"` and `v-bind:label="x"`
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # The sigil is anchored to the first child because `:` is also the separator of
-  # the long form: without the anchor, `v-on:click` matches here and an event
-  # handler is reported as a prop.
   - data_key: props
     graph_label: Prop
     pattern: '(start_tag (tag_name) @element (directive_attribute . ":" . (directive_value) @name (quoted_attribute_value (attribute_value) @value)))'
@@ -156,7 +115,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # `:[attr]="x"` — the argument is itself an expression.
   - data_key: props
     graph_label: Prop
     pattern: '(start_tag (tag_name) @element (directive_attribute (dynamic_directive_value (dynamic_directive_inner_value) @name) (quoted_attribute_value (attribute_value) @value)))'
@@ -172,9 +130,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # EVENT HANDLERS — `@click="go"` and `v-on:click="go"`
-  # ═══════════════════════════════════════════════════════════════════════════
   - data_key: event_handlers
     graph_label: EventHandler
     pattern: '(start_tag (tag_name) @element (directive_attribute . "@" . (directive_value) @name (quoted_attribute_value (attribute_value) @value)))'
@@ -204,9 +159,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # SLOTS — `#footer` and `v-slot:footer`
-  # ═══════════════════════════════════════════════════════════════════════════
   - data_key: slots
     graph_label: Slot
     pattern: '(start_tag (tag_name) @element (directive_attribute . "#" . (directive_value) @name))'
@@ -228,16 +180,6 @@ queries:
     parent_capture: element
     parent_label: Element
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TEMPLATE LOGIC
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # `v-if` / `v-else-if` / `v-show` gate the markup around them, so the
-  # expression is indexed under the same label svelte.yaml gives `{#if}` — a
-  # question about what gates a piece of markup does not have to be asked twice.
-  # parent_capture names the element the condition gates. It is also what makes
-  # the engine treat the captured expression as data and trim it — without it the
-  # name keeps the source's own spacing.
   - data_key: conditions
     graph_label: Condition
     pattern: '(start_tag (tag_name) @element (directive_attribute (directive_name) @_dir (quoted_attribute_value (attribute_value) @name)) (#eq? @_dir "v-if"))'
@@ -269,8 +211,6 @@ queries:
     parent_capture: element
     parent_label: Element
 
-  # `v-for="item in items"` — the iteration, which is the other half of the
-  # template's logic.
   - data_key: loops
     graph_label: Loop
     pattern: '(start_tag (tag_name) @element (directive_attribute (directive_name) @_dir (quoted_attribute_value (attribute_value) @name)) (#eq? @_dir "v-for"))'
@@ -282,15 +222,6 @@ queries:
     parent_capture: element
     parent_label: Element
 
-  # `{{ title }}` — what the markup renders, and therefore which value the
-  # component reads. Indexed as a reference: the target is declared in <script>.
-  #
-  # The idiomatic form is padded, and an untrimmed target matches nothing that
-  # declares it — but trimming is unconditional in the adapter, so this pattern
-  # needs nothing for it. It deliberately does NOT declare parent_capture: the
-  # element comes from context_types either way, and parent_capture would also opt
-  # the name into dataText, which strips matched quote pairs and would turn
-  # `{{ "foo" }}` into a reference to the identifier `foo`.
   - data_key: interpolations
     graph_label: ""
     pattern: '(element (interpolation (raw_text) @name))'
@@ -302,17 +233,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # EMBEDDED SCRIPT AND STYLE
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # tree-sitter-vue hands the body of <script> and <style> over as one raw_text,
-  # so these two queries record it as the element's TEXT. That is worth keeping
-  # even now that the body is also parsed structurally (see `embedded` below): a
-  # SINGLE-STATEMENT body becomes a Text node whose name is the statement, so the
-  # element's content stays searchable as content. A multi-statement body yields
-  # no Text node at all — dataText trims the surrounding newlines but rejects any
-  # interior one, and the 256-char cap almost never gets to decide.
   - data_key: element_text
     graph_label: Element
     pattern: '(script_element (start_tag (tag_name) @name) (raw_text) @value)'
@@ -324,36 +244,6 @@ queries:
     value_capture: value
     value_label: Text
 
-# ═════════════════════════════════════════════════════════════════════════════
-# EMBEDDED LANGUAGES
-# ═════════════════════════════════════════════════════════════════════════════
-#
-# The body of <script> is JavaScript or TypeScript and the body of <style> is CSS,
-# and neither is visible to this grammar. Declaring the blocks here gets each one
-# parsed with its own grammar and merged back at absolute line numbers, which is
-# what makes a component contribute IMPORTS edges, script entities and CALLS.
-#
-# `lang` selects the grammar. A value that is not listed is SKIPPED, in silence
-# and on purpose: `lang="scss"` is real Vue and has no grammar here, and parsing
-# it as CSS would report entities from a grammar that never saw its syntax. The
-# style block therefore lists nothing at all — every value it could carry
-# (scss, sass, less, stylus) is a language we do not ship.
-#
-# See docs/specs/embedded_language_parsing.md.
-# The selector is a tree-sitter pattern — the same as every `queries[].pattern` — and
-# not a node name. That is why this file, html.yaml and a project's xml.yaml
-# use the SAME mechanism: an `<execute>` in XML is an `element` like any other,
-# and only a pattern tells that one apart from all its siblings.
-#
-# The `lang` attribute is OPTIONAL, so each block needs two patterns: one requiring it
-# and one not. Order is the tie-break — the FIRST block whose pattern matches a given
-# body node claims it. That is why the specific one comes first: with `lang="ts"` it
-# matches and the generic one is never consulted.
-#
-# And the claim happens at the MATCH, not at language resolution. That is what
-# makes `lang="scss"` be skipped instead of falling back to the generic block's
-# being parsed as CSS — which would report entities from a grammar that never saw the
-# sintaxe real.
 embedded:
   - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
     text_capture: body
@@ -376,19 +266,11 @@ embedded:
     text_capture: body
     default: css
 
-# A component's public surface is `defineProps` / `defineExpose`, which live in the
-# script block. The block is parsed by the language named in `embedded` above, and
-# that language decides its own exports — typescript.yaml is what knows what an
-# `export` is. This strategy governs the MARKUP, which has no export of its own.
 exports:
   strategy: none
 
 self_keywords: []
 
-# An element is contained by the element that encloses it. tree-sitter-vue's
-# `element` has no "name" field -- its name is the tag_name of its start tag,
-# so without context_name_paths every context below is transparent and every
-# entity falls back to the File.
 context_types:
   element: Element
   template_element: Element
@@ -408,15 +290,6 @@ declaration_types: []
 comment_types:
   - comment
 
-# No cyclomatic complexity: the outer Vue markup has no control flow of its
-# own (v-if/v-for are template directives, not this grammar's control flow)
-# — a <script>'s branches belong to that script's own language and are
-# already counted there.
-
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Element
   - Text

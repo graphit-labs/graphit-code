@@ -111,9 +111,6 @@ type RegistryManager struct {
 	store         *S3Store
 	projectConfig config.ConfigMap
 
-	// baseCtx is the context the manager was built with. Every method below performs Hub
-	// object I/O, and they are all called from the command that constructed the manager, so
-	// carrying it here is what keeps ctx out of twenty signatures for no gain.
 	baseCtx context.Context
 
 	entries  map[ArtifactType]map[string]*Entry
@@ -143,8 +140,6 @@ func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager,
 	if err == nil && st.Configured() {
 		m.store = st
 		if err := st.SyncRegistry(ctx); err != nil {
-			// A registry that cannot be mirrored leaves the manager in local-only mode,
-			// which is what an unreachable git remote produced.
 			m.log().Warn("sync registry", "error", err)
 			m.store = nil
 		} else if err := m.loadRegistry(); err != nil {
@@ -459,9 +454,6 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 
 	switch meta.Type {
 	case TypeAST:
-		// The URI the CONSUMER will read from, computed before the export because every table's
-		// `storage` clause is written with it. The publisher is the only party that knows where
-		// the objects are going, which is why this is decided here and never rewritten later.
 		storageURI := m.store.ArtifactURI(TypeAST, entryID, version, meta.ProjectID, ast.IcebugBundleDir)
 		if storageURI == "" {
 			return fmt.Errorf("preparing AST publish: the hub is not configured, so there is no " +
@@ -631,25 +623,11 @@ func (m *RegistryManager) EnsureArtifactClone(ctx context.Context, artType Artif
 	return cloneDir, nil
 }
 
-// prepareASTPublish stages what an AST artifact carries.
-//
-// It publishes the BUILT graph as Parquet, one file per table, rather than the parse
-// shards. Installing used to mean replaying those shards — parsing the JSON, transposing
-// one source file's parse result into rows across every table, then loading — and every
-// consumer paid it separately for a result the version had already frozen. Exporting the
-// tables the publisher already built moves that work to the side that does it once, and
-// Parquet is several times smaller than the shards it replaces.
-//
-// The shards are the fallback and are only staged when the export could not run: an
-// artifact whose store is missing or unreadable still publishes something a consumer can
-// replay, which is also what keeps artifacts published before this change installable.
 func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("ast-pub"))
 	if err != nil {
 		return "", err
 	}
-	// New layout: local graph is icebug filesystem at <store>/graph.icebug (or project dir's store).
-	// Try to resolve the bundle from srcDir (could be project dir or store dir).
 	candidates := []string{
 		filepath.Join(srcDir, "graph.icebug"),
 		store.ASTProjectIcebugDir(srcDir),
@@ -668,7 +646,6 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 			_ = os.RemoveAll(tmpDir)
 			return "", err
 		}
-		// Copy parquets and rewrite schema.cypher storage URI to s3://
 		entries, err := os.ReadDir(srcBundle)
 		if err != nil {
 			_ = os.RemoveAll(tmpDir)
@@ -686,12 +663,7 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 					_ = os.RemoveAll(tmpDir)
 					return "", err
 				}
-				// Replace filesystem storage URI with s3 URI – the bundle is otherwise identical.
-				// Schema contains storage = '<old>', we replace any quoted storage value with the s3 URI.
 				old := string(raw)
-				// Simple replacement: storage URI is the bundle dir path; replace it.
-				// The canonical schema uses storage = '<uri>' per statement, all equal.
-				// Replace first occurrence's quoted value with storageURI, then replace all.
 				rewritten := rewriteIcebugStorageURI(old, storageURI)
 				if err := os.WriteFile(dstPath, []byte(rewritten), 0o644); err != nil {
 					_ = os.RemoveAll(tmpDir)
@@ -704,7 +676,6 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 				}
 			}
 		}
-		// Search index sidecar: copy Lance dir if present
 		srcSearch := filepath.Join(filepath.Dir(srcBundle), ast.SearchBundleDir)
 		if _, err := os.Stat(srcSearch); err == nil {
 			dstSearch := filepath.Join(tmpDir, ast.SearchBundleDir)
@@ -713,7 +684,6 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 				return "", fmt.Errorf("copy search index: %w", err)
 			}
 		} else {
-			// Try project store search dir
 			altSearch := storeASTSearchDir(srcDir)
 			if _, err := os.Stat(altSearch); err == nil {
 				dstSearch := filepath.Join(tmpDir, ast.SearchBundleDir)
@@ -728,9 +698,6 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 }
 
 func rewriteIcebugStorageURI(schema, newURI string) string {
-	// Schema lines are CREATE ... WITH (storage = '<uri>', format = 'icebug-disk');
-	// Replace every storage = '...' with new URI.
-	// Use simple string replacement via regex-like scan for storage = '
 	prefix := "storage = '"
 	var out string
 	rest := schema
@@ -754,7 +721,6 @@ func rewriteIcebugStorageURI(schema, newURI string) string {
 }
 
 func storeASTSearchDir(projectOrStore string) string {
-	// Try store dir first
 	if info, err := os.Stat(filepath.Join(projectOrStore, "graph.icebug")); err == nil && info.IsDir() {
 		return filepath.Join(projectOrStore, ast.SearchBundleDir)
 	}

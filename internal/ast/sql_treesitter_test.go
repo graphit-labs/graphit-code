@@ -4,21 +4,6 @@ import (
 	"testing"
 )
 
-// The tree-sitter SQL grammar extracted ALMOST nothing, and nobody saw it, because two
-// camadas escondiam:
-//
-//  1. The `tables` pattern required a `name:` field on `create_table`, and that node
-//     atribui campo a nenhum filho. Um pattern assim COMPILA — os nomes de campo
-//     exist somewhere in the grammar, so TestEveryShippedQueryPatternCompiles passes —
-//     and it matches zero times. A pattern that compiles and never matches is a silent
-//     no-op.
-//  2. `CompositeParser` trata `.sql` como tendo os dois backends: tenta tree-sitter,
-//     sees zero entities and falls back to ANTLR. An isolated `create table` seemed
-//     because the `Table` came from there.
-//
-// That is why EVERY test here calls `parseSource` directly, which is pure tree-sitter.
-// A test written over `parseFixture`/`CompositeParser` would pass with the defect in
-// place, which is exactly how it survived until now.
 func parseSQLWithTreeSitter(t *testing.T, source string) *ParsedFile {
 	t.Helper()
 	projectDir := stageGrammar(t, "sql", "tree-sitter-sql", ".sql", "sql.yaml")
@@ -53,9 +38,6 @@ create function f_total(x int) returns int as $$ select 1 $$;
 	wantEntityLine(t, pf, "Function", "f_total", 3)
 }
 
-// A table without its columns is half a table, and the ANTLR side always had them.
-// This is also what makes the grammar useful as the INNER language of an embedded
-// block, which is where the defect was discovered.
 func TestSQLColumnsAreExtractedAndBelongToTheirTable(t *testing.T) {
 	pf := parseSQLWithTreeSitter(t, `create table pedido (
   id integer,
@@ -101,9 +83,6 @@ delete from carrinho where id = 1;
 
 alter table cliente add column obs varchar(10);
 `)
-	// A set of pairs, not a map keyed by table: the SAME table carries edges
-	// of different types — `cliente` is read by a SELECT and altered by an ALTER —
-	// and a map keyed by name would hide exactly that.
 	got := map[[2]string]bool{}
 	for _, r := range pf.References {
 		got[[2]string{r.TargetName, r.RelType}] = true
@@ -125,8 +104,6 @@ alter table cliente add column obs varchar(10);
 			t.Errorf("no %s edge to %q; all: %v", want[1], want[0], all)
 		}
 	}
-	// A referenced table does not become a Table node: it is used here, not declared,
-	// and a Table node would make it look like a declaration.
 	for _, name := range []string{"pedido", "auditoria", "estoque", "carrinho"} {
 		if _, ok := entityAt(pf, "Table", name); ok {
 			t.Errorf("referenced table %q became a Table entity", name)

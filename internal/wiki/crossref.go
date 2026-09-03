@@ -25,14 +25,6 @@ type CrossRefResult struct {
 	OrphanPages int
 	BrokenLinks int
 
-	// BacklinksAdded counts the pages the graph gives at least one inbound reference to.
-	//
-	// It used to count FILE WRITES: a pass appended a `## Backlinks` section into each page and
-	// this was how many it rewrote. There are no pages to rewrite, and the `xrefs` table already
-	// holds both directions of every edge — `FindXRefs` answers inbound without anything having
-	// been written into a body. The name is kept because `sync_log.backlinks_added` is the column
-	// it feeds and the quantity is the same one a reader cared about: how much of the wiki is
-	// reachable from somewhere else.
 	BacklinksAdded int
 }
 
@@ -284,37 +276,27 @@ func FindWikiLinks(content string) []string {
 // body is copied into the wiki verbatim; those resolve to nothing here either.
 func isBundlePageLink(rawTarget string) bool {
 	target := strings.TrimSpace(rawTarget)
-	// [[target|label]] — the label is display text, only the target addresses a page.
 	if i := strings.Index(target, "|"); i >= 0 {
 		target = strings.TrimSpace(target[:i])
 	}
 	if target == "" {
 		return false
 	}
-	// A fragment, alone or appended, addresses a position rather than a page.
 	if i := strings.IndexAny(target, "#?"); i >= 0 {
 		target = target[:i]
 	}
 	if target == "" {
 		return false
 	}
-	// wiki:// is this project's own in-UI protocol and is stripped by ResolveSlug, so it is
-	// recognised before the scheme test below rejects everything that looks like a URL.
 	if after, ok := strings.CutPrefix(target, "wiki://"); ok {
 		target = after
 	} else if strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") || strings.HasPrefix(target, "tel:") {
 		return false
 	}
-	// A bundle-relative link (OKF §6.1, the RECOMMENDED form) is rooted at the bundle,
-	// and a compiled wiki IS the bundle root, so `/slug.md` addresses a page here.
 	target = strings.TrimPrefix(target, "/")
 	if strings.ContainsAny(target, "/\\") {
 		return false
 	}
-	// A trailing extension disqualifies the target only when it LOOKS like a file
-	// extension. Slugs are built from titles, and a title routinely carries a dot —
-	// `graphit.lock.json_handling` is a page, `pipeline.go` is not — so the test is the
-	// shape of the suffix rather than the presence of a dot.
 	if ext := filepath.Ext(target); ext != "" && !strings.EqualFold(ext, ".md") && looksLikeFileExt(ext) {
 		return false
 	}
@@ -338,12 +320,6 @@ func ResolveSlug(rawLink string) string {
 	return SafeSlug(target)
 }
 
-// The backlinks section belongs to EXPORT now, not to compilation.
-//
-// It used to be appended into every compiled page by a pass that read the page, rewrote it, and
-// counted the writes. The `xrefs` table holds both directions of every edge, so nothing needs a
-// section in a body to answer "what links here". What still wants one is a markdown tree handed to
-// Obsidian, which has no index to query — see ExportMarkdown.
 const backlinksHeader = "## Backlinks"
 const backlinksSeparator = "\n" + backlinksHeader + "\n"
 

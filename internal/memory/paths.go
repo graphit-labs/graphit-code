@@ -10,19 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// A memory scope's artifacts, all global:
-//
-//	s3://<bucket>/<prefix>/memory/<scope>/<id>  the Lance table — the truth, when there is a bucket
-//	<global>/memory-table/memory-<scope>-<id>/  the Lance table — the truth, when there is not
-//	<global>/wiki/memory/<scope>/<id>/          the compiled wiki — what search opens
-//
-// There used to be a third: a replica of the wiki inside every project that read it,
-// which is what `memory_search` actually opened. It bought nothing and cost a fan-out
-// pass on every compile, a Windows-specific failure mode when a reader held the copy
-// open, and a class of bug where a project answered from a replica nobody had
-// refreshed — indistinguishable, from the outside, from a project with fewer
-// memories. The wiki is now read where it is compiled.
-
 // WikiDirFor is the compiled wiki of one scope, for a named project.
 //
 // The project matters only for the "project" scope, whose id comes from that
@@ -43,9 +30,6 @@ func WikiDir(scope string) string {
 	return WikiDirFor(wd, scope)
 }
 
-// resolveScopeIDIn returns the real scope identifier for a scope, for one project.
-// For "project": the project's lockfile ID. For "user": the hash of the git identity.
-// For a context scope: the scope name itself.
 func resolveScopeIDIn(projectDir, scope string) string {
 	switch scope {
 	case "project":
@@ -159,18 +143,6 @@ func ContextNamesFrom(wikiRoot string) []string {
 	return contexts
 }
 
-// AllContextDirs lists the imported memory contexts on this machine, by name.
-//
-// 🔒 IT ENUMERATES THE WIKI ROOT, and it used to enumerate the raw markdown store's root. When that
-// store was retired the root stopped existing, so this answered EMPTY — with no error, because a
-// missing directory and a machine with no imported contexts are the same answer from os.ReadDir. The
-// UI's wiki picker consequently listed no memory contexts at all: see uiserver.discoverModules,
-// which resolves each name it gets from here to MemoryWikiGlobalDir(name, name) — the same directory
-// this now recognises them by, which is why the two cannot disagree any more.
-//
-// The table root is NOT the replacement, and that is the part worth reading twice: it holds a
-// directory per scope only when there is no bucket, so keying the listing on it would have fixed the
-// undefined root and left the listing empty in the configuration everything actually runs in.
 func AllContextDirs() []string {
 	return ContextNamesFrom(store.MemoryWikiRoot())
 }
@@ -190,7 +162,6 @@ func MemoryWikiGlobalDir(scope, scopeID string) string {
 	return store.MemoryWikiDir(scope, scopeID)
 }
 
-// contextWikiDir is the wiki of an imported context.
 func contextWikiDir(contextName string) string {
 	return filepath.Clean(MemoryWikiGlobalDir(contextName, contextName))
 }

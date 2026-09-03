@@ -19,11 +19,8 @@ const GrammarArchiveMagic = "GRMT"
 // GrammarArchiveVersion is the current archive format version.
 const GrammarArchiveVersion = 1
 
-// grammarHeaderSize is the fixed header size in bytes.
 const grammarHeaderSize = 16
 
-// grammarEntrySize is the fixed platform entry size in bytes.
-// 16 (OS) + 16 (Arch) + 64 (SymbolName) + 8 (Offset) + 8 (CompressedSize) + 8 (OriginalSize) = 120
 const grammarEntrySize = 120
 
 // ErrPlatformNotFound is returned when the current platform is not in the archive.
@@ -33,7 +30,6 @@ var ErrPlatformNotFound = errors.New("grammar archive: platform not found")
 type GrammarArchive struct {
 	Platforms []GrammarPlatform
 
-	// entries holds the raw on-disk metadata for lazy extraction.
 	entries []grammarEntry
 }
 
@@ -45,7 +41,6 @@ type GrammarPlatform struct {
 	Data       []byte // uncompressed shared lib data (only populated during write or after extraction)
 }
 
-// grammarEntry is the on-disk platform entry metadata.
 type grammarEntry struct {
 	os             string
 	arch           string
@@ -55,7 +50,6 @@ type grammarEntry struct {
 	originalSize   uint64
 }
 
-// grammarHeader is the on-disk file header.
 type grammarHeader struct {
 	magic        [4]byte
 	version      uint32
@@ -72,7 +66,6 @@ func ReadGrammarArchive(path string) (*GrammarArchive, error) {
 	}
 	defer f.Close()
 
-	// Read header.
 	var hdr grammarHeader
 	if err := binary.Read(f, binary.LittleEndian, &hdr.magic); err != nil {
 		return nil, fmt.Errorf("grammar archive: read magic: %w", err)
@@ -95,7 +88,6 @@ func ReadGrammarArchive(path string) (*GrammarArchive, error) {
 		return nil, fmt.Errorf("grammar archive: read flags: %w", err)
 	}
 
-	// Read platform entries.
 	archive := &GrammarArchive{
 		entries:   make([]grammarEntry, hdr.numPlatforms),
 		Platforms: make([]GrammarPlatform, hdr.numPlatforms),
@@ -152,7 +144,6 @@ func (a *GrammarArchive) ExtractForCurrentPlatform(archivePath, cacheDir string)
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
-	// Find matching platform entry.
 	idx := -1
 	for i, e := range a.entries {
 		if e.os == goos && e.arch == goarch {
@@ -169,14 +160,12 @@ func (a *GrammarArchive) ExtractForCurrentPlatform(archivePath, cacheDir string)
 	archiveName := strings.TrimSuffix(filepath.Base(archivePath), ".grammar")
 	cachePath := grammarCachePath(cacheDir, archiveName, goos, goarch)
 
-	// Check cache: if file exists and size matches original, skip extraction.
 	if info, err := os.Stat(cachePath); err == nil {
 		if uint64(info.Size()) == entry.originalSize {
 			return cachePath, nil
 		}
 	}
 
-	// Extract: read compressed data from archive, decompress, write to cache.
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("grammar archive: open for extract: %w", err)
@@ -192,7 +181,6 @@ func (a *GrammarArchive) ExtractForCurrentPlatform(archivePath, cacheDir string)
 		return "", fmt.Errorf("grammar archive: read compressed data: %w", err)
 	}
 
-	// Decompress with zstd.
 	decoder, err := zstd.NewReader(nil)
 	if err != nil {
 		return "", fmt.Errorf("grammar archive: create zstd decoder: %w", err)
@@ -239,7 +227,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 	}
 	defer encoder.Close()
 
-	// Compress all platform data first to know sizes.
 	type compressedEntry struct {
 		data         []byte
 		originalSize uint64
@@ -255,8 +242,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 		}
 	}
 
-	// Calculate data section offsets.
-	// Data starts after header + all entries.
 	dataStart := uint64(grammarHeaderSize) + uint64(len(platforms))*uint64(grammarEntrySize)
 	offsets := make([]uint64, len(platforms))
 	currentOffset := dataStart
@@ -265,7 +250,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 		currentOffset += uint64(len(ce.data))
 	}
 
-	// Write header.
 	var magic [4]byte
 	copy(magic[:], GrammarArchiveMagic)
 	if err := binary.Write(f, binary.LittleEndian, magic); err != nil {
@@ -277,7 +261,7 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 	if err := binary.Write(f, binary.LittleEndian, uint32(len(platforms))); err != nil {
 		return fmt.Errorf("grammar archive: write numPlatforms: %w", err)
 	}
-	if err := binary.Write(f, binary.LittleEndian, uint32(0)); err != nil { // flags reserved
+	if err := binary.Write(f, binary.LittleEndian, uint32(0)); err != nil {
 		return fmt.Errorf("grammar archive: write flags: %w", err)
 	}
 
@@ -319,7 +303,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 	return nil
 }
 
-// grammarCachePath returns the cache file path for an extracted grammar.
 func grammarCachePath(cacheDir, archiveName, goos, goarch string) string {
 	ext := ".so"
 	switch goos {
@@ -331,7 +314,6 @@ func grammarCachePath(cacheDir, archiveName, goos, goarch string) string {
 	return filepath.Join(cacheDir, fmt.Sprintf("%s-%s-%s%s", archiveName, goos, goarch, ext))
 }
 
-// availablePlatforms returns a human-readable list of available platforms.
 func (a *GrammarArchive) availablePlatforms() string {
 	var parts []string
 	for _, e := range a.entries {
@@ -340,7 +322,6 @@ func (a *GrammarArchive) availablePlatforms() string {
 	return strings.Join(parts, ", ")
 }
 
-// nullTermString converts a null-padded byte slice to a Go string.
 func nullTermString(b []byte) string {
 	for i, c := range b {
 		if c == 0 {

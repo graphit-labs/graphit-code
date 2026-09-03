@@ -100,7 +100,6 @@ func TestSaveLockfile(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify we can read it back
 		lf2, err := LoadLockfile(path)
 		if err != nil {
 			t.Fatalf("unexpected error on load: %v", err)
@@ -129,7 +128,7 @@ func TestSaveLockfile(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "lock.json")
 		lf := &Lockfile{
-			Project:   ProjectIdentity{}, // empty
+			Project:   ProjectIdentity{},
 			Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
 		}
 		err := SaveLockfile(path, lf)

@@ -16,7 +16,7 @@ function plantumlEncode(text: string): string {
 
 function preprocessWikiLinks(md: string): string {
   let processed = md
-  
+
   processed = processed.replace(/`\[([^\]]+)\]\/\[\[([^\]]+)\]\]`/g, (_, module, target) => {
     const friendly = wikiLinkFriendlyName(target)
     return `[${friendly}](wiki://${encodeURIComponent(module)}/${encodeURIComponent(target)})`
@@ -42,20 +42,7 @@ function preprocessWikiLinks(md: string): string {
   return processed
 }
 
-/**
- * wikiPageTarget returns the page slug a link addresses, or null when the link does not
- * address a page of this wiki.
- *
- * Since the move to OKF, a link to another concept is an ordinary markdown link
- * (spec 6.1) rather than a [[wikilink]]. "Not an http URL" therefore stopped being
- * evidence that a link points at a wiki page: the Provenance line on every generated page
- * links to a repository file, bodies link to source files, and headings link to fragments.
- * All three used to be turned into page buttons that navigated nowhere.
- *
- * A compiled wiki is flat — one directory of <slug>.md — so a page target is a bare slug
- * with no path separator and no extension other than .md. The bundle-relative form
- * (spec 6.1, leading '/') resolves against the bundle root, which is that same directory.
- */
+
 function wikiPageTarget(href: string): string | null {
   let raw = href
   if (raw.startsWith('wiki://')) raw = raw.slice(7)
@@ -77,7 +64,7 @@ function wikiPageTarget(href: string): string | null {
   if (dot > 0) {
     const ext = target.slice(dot).toLowerCase()
     if (ext === '.md') return target.slice(0, dot)
-    // A dotted slug ("graphit.lock.json handling") is a page; a known file extension is not.
+
     if (/^\.[a-z0-9]{1,5}$/.test(ext) && ext !== '.md') return null
   }
   return target
@@ -164,7 +151,7 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
                   </button>
                 )
               }
-              // An in-page fragment addresses a position, not a page.
+
               if (href.startsWith('#')) {
                 return (
                   <a href={href} className="text-primary hover:underline underline-offset-2">
@@ -174,9 +161,7 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
               }
               const isExternal = /^[a-z][a-z0-9+.-]*:\/\//i.test(href) || href.startsWith('mailto:') || href.startsWith('tel:')
               if (!isExternal) {
-                // A repository path — the Provenance line, a link into the source tree. It is
-                // real and worth showing, but the wiki server does not serve it, so making it
-                // a page button sent the reader to a page that was never generated.
+
                 return (
                   <span
                     title={`Source path: ${href}`}

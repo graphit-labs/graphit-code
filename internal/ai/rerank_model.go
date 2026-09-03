@@ -10,35 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-// The cross-encoder reranker's model bundle, and the rule that governs it.
-//
-// THE MODEL IS NEVER FETCHED UNLESS SOMEBODY ASKED FOR RERANKING AND IT IS NOT ALREADY THERE.
-// That is not an optimisation. It is 1.04 GiB — eight times the retrieval embedder — and reranking
-// is opt-in and off by default, so a user who never turns it on must never pay for it: not at
-// `setup`, not on first query, not at all. `graphit setup` does not touch this manager, and
-// nothing constructs a reranker client eagerly.
-//
-// WHY THIS MODEL, AND WHY NOT THE OBVIOUS ONE.
-//
-// The first choice was jina-reranker-v2-base-multilingual, on the strength of being the only small
-// reranker with published code-retrieval benchmarks. It is licensed cc-by-nc-4.0 — NON-COMMERCIAL.
-// That disqualifies it here regardless of how well it scores, and a benchmark table is not a
-// licence review: the two candidates left were then MEASURED rather than argued about, with real
-// inference over real entities of this repository (internal/ai/rerank_eval_test.go, `rerankeval`).
-//
-//	model                            licence      size     MRR             nDCG@10         per query
-//	bge-reranker-base                MIT          1.04 GiB 0.833 -> 0.865  0.860 -> 0.883  720ms
-//	ms-marco-MiniLM-L-6-v2           Apache-2.0   87 MiB   0.833 -> 0.828  0.860 -> 0.856  92ms
-//
-// ms-marco is a tenth of the size and eight times faster AND IT MADE THE RANKING WORSE, which is
-// the whole reason this table exists instead of a paragraph reasoning from parameter counts. It is
-// trained on natural-language passages; an identifier with a docstring is not a passage.
-//
-// bge-reranker-base is XLM-RoBERTa, so it has no `token_type_ids` input — see newCrossEncoderFrom,
-// which discovers the input set from the model rather than assuming BERT's three.
-//
-// There is no quantised ONNX upstream: onnx/model_quantized.onnx is a 404, not a small file.
-
 const (
 	rerankCacheSubdir = "models/bge-reranker-base"
 
@@ -46,10 +17,6 @@ const (
 	rerankModelURL     = "https://huggingface.co/BAAI/bge-reranker-base/resolve/main/onnx/model.onnx"
 	rerankTokenizerURL = "https://huggingface.co/BAAI/bge-reranker-base/resolve/main/tokenizer.json"
 
-	// Size floors, so a truncated or error-page download is caught here rather than as a corrupt
-	// session three layers away. MEASURED upstream: the model is 1,112,459,588 bytes and the
-	// tokenizer 17,098,107. The floors sit well below both so that a legitimate re-export upstream
-	// does not fail the check, and well above an HTML error page.
 	rerankModelMinSize     = 900_000_000
 	rerankTokenizerMinSize = 5_000_000
 )
@@ -69,8 +36,6 @@ type RerankModelManager struct {
 	// OnProgress, when set, reports download progress. Nil downloads silently.
 	OnProgress ProgressFunc
 
-	// Sources, empty in production. They exist so a test can point Ensure at a local server
-	// instead of moving a gigabyte from a third party — the same reason ModelManager has them.
 	modelURL     string
 	tokenizerURL string
 }
@@ -84,14 +49,6 @@ func NewRerankModelManager() (*RerankModelManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The reranker sits BESIDE the retrieval model under its own name, so the two are never
-	// confused by a cleanup that removes one.
-	//
-	// Resolved from the models root rather than from ModelCacheDir's parent, which is what it
-	// used to do. That derivation broke the moment the root became overridable: taking the parent
-	// of an overridden leaf lands wherever that leaf happens to sit — measured, an override of
-	// /tmp/graphit-model-cache put the reranker in /tmp/bge-reranker-base, outside any directory
-	// this framework owns.
 	return &RerankModelManager{cacheDir: filepath.Join(root, filepath.Base(rerankCacheSubdir))}, nil
 }
 
@@ -167,8 +124,6 @@ func (m *RerankModelManager) tokenizerSourceURL() string {
 	return rerankTokenizerURL
 }
 
-// isValidFile is the shared size check. A download that returned an HTML error page is a few
-// hundred bytes, and a session built on it fails with a message that names nothing useful.
 func isValidFile(path string, minSize int64) bool {
 	info, err := os.Stat(path)
 	if err != nil {

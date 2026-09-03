@@ -21,9 +21,6 @@ func quoteHookCommandArgument(goos, argument string) string {
 	return "'" + strings.ReplaceAll(argument, "'", "'\"'\"'") + "'"
 }
 
-// quoteWindowsCommandArgument follows the CommandLineToArgvW-compatible
-// backslash/quote rules used by Windows process launchers. It deliberately does
-// not invoke cmd.exe or PowerShell.
 func quoteWindowsCommandArgument(argument string) string {
 	var quoted strings.Builder
 	quoted.WriteByte('"')

@@ -16,18 +16,6 @@ func TestIgnoreChecker(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	// Create root directory structure:
-	// tempDir/
-	//   .git/
-	//   .gitignore (contains *.log, /build/)
-	//   nested/
-	//     .gitignore (contains *.tmp)
-	//     custom.ignore (contains *.bak)
-	//     file.log
-	//     file.tmp
-	//     file.bak
-	//     file.txt
-
 	err = os.MkdirAll(filepath.Join(tempDir, ".git"), 0755)
 	if err != nil {
 		t.Fatalf("failed to create .git dir: %v", err)
@@ -54,10 +42,8 @@ func TestIgnoreChecker(t *testing.T) {
 		t.Fatalf("failed to write custom ignore file: %v", err)
 	}
 
-	// 1. Initialize Checker
 	ic := New(tempDir, nestedDir, "custom.ignore", []string{"*.default", "   ", "# default comment"})
 
-	// 2. Validate IsIgnored
 	tests := []struct {
 		path  string
 		isDir bool
@@ -65,13 +51,13 @@ func TestIgnoreChecker(t *testing.T) {
 	}{
 		{"", false, false},
 		{".", false, false},
-		{"nested/file.log", false, true},     // matching *.log from root .gitignore
-		{"nested/file.tmp", false, true},     // matching *.tmp from nested .gitignore
-		{"nested/file.bak", false, true},     // matching *.bak from custom.ignore
-		{"nested/file.default", false, true}, // matching default patterns
-		{"nested/file.txt", false, false},    // not ignored
-		{"build", true, true},                // matching /build/ from root
-		{"nested/build", true, false},        // /build/ is rooted, so nested/build is not ignored
+		{"nested/file.log", false, true},
+		{"nested/file.tmp", false, true},
+		{"nested/file.bak", false, true},
+		{"nested/file.default", false, true},
+		{"nested/file.txt", false, false},
+		{"build", true, true},
+		{"nested/build", true, false},
 	}
 
 	for _, tc := range tests {
@@ -81,14 +67,11 @@ func TestIgnoreChecker(t *testing.T) {
 		}
 	}
 
-	// 3. Test with non-existent startDir and empty customFileName
 	ic2 := New(tempDir, "", "", nil)
 	if ic2.IsIgnored("nested/file.log", false) != true {
 		t.Error("expected nested/file.log to be ignored in fallback checker")
 	}
 
-	// 4. Test when no .git is found (parent directory resolves to itself at root "/" or similar)
-	// We pass a root-like directory as rootPath
 	ic3 := New(tempDir, tempDir, "", nil)
 	if ic3 == nil {
 		t.Error("expected non-nil IgnoreChecker")
@@ -101,21 +84,16 @@ func TestUncoveredHelperFunctions(t *testing.T) {
 		t.Errorf("expected nil patterns for nonexistent file, got %v", pats)
 	}
 
-	// Test domainForFile with invalid root path / relational errors
 	dom := domainForFile("/a/b/c/.gitignore", "d/e/f")
-	// Since /a/b/c is absolute and d/e/f is relative, filepath.Rel will return error
 	if dom != nil {
 		t.Errorf("expected nil domain on error, got %v", dom)
 	}
 
-	// Test findGitRoot and collectIgnoreFiles with root path and disconnected dirs
 	icNoGit := New("/nonexistent_root_xyz", "/nonexistent_root_xyz/sub", "custom.ignore", []string{"#comment", ""})
 	if icNoGit == nil {
 		t.Error("expected non-nil IgnoreChecker")
 	}
 
-	// Test collectIgnoreFiles traversing to root of filesystem
-	// by setting startDir to a temp path and rootDir to a completely different path
 	files := collectIgnoreFiles("/a/b/c", "/d/e/f", ".gitignore")
 	if len(files) != 0 {
 		t.Errorf("expected 0 files, got %d", len(files))
@@ -134,11 +112,6 @@ func TestShouldDescend(t *testing.T) {
 		t.Fatalf("failed to create .git dir: %v", err)
 	}
 
-	// .astignore with negation patterns (mimics the real .astignore):
-	//   internal/ast/antlr/         ← ignore entire dir
-	//   !internal/ast/antlr/common/ ← but re-include common/
-	//   !internal/ast/antlr/*/driver.go ← and re-include driver.go in each sub-dir
-	//   vendor/                     ← ignore vendor with no negations
 	astignoreContent := "internal/ast/antlr/\n!internal/ast/antlr/common/\n!internal/ast/antlr/*/driver.go\nvendor/\n"
 	err = os.WriteFile(filepath.Join(tempDir, ".astignore"), []byte(astignoreContent), 0644)
 	if err != nil {
@@ -183,7 +156,6 @@ func TestShouldDescendWithDefaultPatterns(t *testing.T) {
 		t.Fatalf("failed to create .git dir: %v", err)
 	}
 
-	// No ignore files on disk — all patterns come from defaults
 	ic := New(tempDir, tempDir, "", []string{
 		"generated/",
 		"!generated/keep/",
@@ -203,17 +175,11 @@ func TestNegationToPrefix(t *testing.T) {
 		domain []string
 		want   string
 	}{
-		// Directory negation
 		{"internal/ast/antlr/common/", nil, "internal/ast/antlr/common"},
-		// Glob pattern — stops at first wildcard
 		{"internal/ast/antlr/*/driver.go", nil, "internal/ast/antlr"},
-		// Simple file negation
 		{"keep.txt", nil, "keep.txt"},
-		// With domain
 		{"sub/file.go", []string{"nested"}, "nested/sub/file.go"},
-		// Glob at start
 		{"*.go", nil, ""},
-		// Trailing spaces
 		{"path/to/dir  ", nil, "path/to/dir"},
 	}
 
@@ -225,13 +191,6 @@ func TestNegationToPrefix(t *testing.T) {
 	}
 }
 
-// THE NO-GIT PATH, which is what every other test in this file was hiding.
-//
-// Each of them creates a `.git` directory — not because the code under test needs a repository, but
-// because findBoundary had nothing else to stop at. That made the whole custom-ignore mechanism
-// untested without git, right as the framework stopped requiring one. These cover it.
-
-// writeFile is a helper: the failure of a fixture write is never the thing under test.
 func writeIgnoreFixture(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -307,18 +266,6 @@ func TestIgnoreFilesAreCollectedUpToTheProjectRootWithoutGit(t *testing.T) {
 	}
 }
 
-// A KNOWN LIMITATION, asserted so it is a decision and not a surprise: an ignore file ABOVE the
-// project root does not apply to the project.
-//
-// It never did. Collection used to walk up to the repository root and read it, but domainForFile
-// computes a pattern's domain with filepath.Rel(project, dir), so a file above the project got a
-// domain of ".." segments that can never match a real path — collected, and silently inert. The
-// boundary is the project now, which makes the same outcome honest and removes the hazard of
-// reaching into an unrelated ancestor repository.
-//
-// The consequence to know about: in a monorepo, node_modules/ in the repository-root .gitignore
-// does not exclude it from a sub-project's index. Fixing that means computing domains against the
-// collection root, which is a separate change.
 func TestAnIgnoreFileAboveTheProjectDoesNotApply(t *testing.T) {
 	repo := t.TempDir()
 	project := filepath.Join(repo, "packages", "app")
@@ -399,8 +346,6 @@ func TestAtAppliesSubdirectoryIgnoreFiles(t *testing.T) {
 
 	atRoot := New(root, root, ".astignore", nil)
 
-	// Before crossing: the subdirectory's files are not known, so a child of it
-	// is not ignored yet.
 	if atRoot.IsIgnored(".opencode/node_modules/x.js", false) {
 		t.Error("subdirectory ignore files were read before At crossed into it")
 	}
@@ -422,7 +367,6 @@ func TestAtAppliesSubdirectoryIgnoreFiles(t *testing.T) {
 		t.Error("node_modules scope leaked outside .opencode")
 	}
 
-	// At deepens monotonically: crossing further adds, never removes.
 	deeper := inside.At(".opencode/node_modules")
 	if !deeper.IsIgnored(".opencode/node_modules/x.js", false) {
 		t.Error("crossing deeper lost the parent's rules")

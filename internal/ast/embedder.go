@@ -108,8 +108,6 @@ func newEmbedRanker(projectDir string) *embedRanker {
 	return &embedRanker{projectDir: projectDir, byLang: make(map[string]map[string]int)}
 }
 
-// rank reports the label's priority for its language, and whether the language
-// asked for it to be embedded at all.
 func (r *embedRanker) rank(lang, label string) (int, bool) {
 	ranks, ok := r.byLang[lang]
 	if !ok {
@@ -126,8 +124,6 @@ func (r *embedRanker) rank(lang, label string) (int, bool) {
 	return i, ok
 }
 
-// preparedRow pairs a row with its embedding text so the text is built once and the batching
-// can order by its length. See processBatch.
 type preparedRow struct {
 	row  entityRow
 	text string
@@ -188,10 +184,6 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 	}
 	generation := e.cfg.Index.VectorGeneration()
 
-	// Single streaming pass: collect only rows that still need embedding,
-	// bucketed by label, with their source snippet precomputed. Replaces the old
-	// per-label AllEntries() scans (which pinned every shard in RAM and re-walked
-	// the full cache ~2x per label).
 	buckets := e.scanPending(true)
 	grandTotal := 0
 	for _, rows := range buckets {
@@ -225,7 +217,6 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 		}
 	}
 
-	// The vector index cannot exist before the vectors do — see FinalizeVectors.
 	if done > 0 {
 		var err error
 		if generation == "" {
@@ -248,16 +239,8 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 // the embedding phase never reloads a shard just to fetch source text.
 func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 
-	// Which labels are embeddable is a per-LANGUAGE answer, read from the grammar
-	// that produced the entity — so it is resolved per row, not once for the scan.
-	// The ranker memoises each language the first time it is asked.
 	ranker := newEmbedRanker(e.cfg.ProjectDir)
 
-	// Shards with no text and no readable file: their entities get embedded by name
-	// alone. Counted so the degradation is reported instead of being silent — the
-	// case is a context installed from elsewhere whose origin indexed without source,
-	// where there is no tree here to read and nothing the operator can do locally,
-	// but plenty they would want to know.
 	textless := 0
 
 	buckets := make(map[string][]entityRow)
@@ -275,9 +258,6 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 			if !embeddable {
 				continue
 			}
-			// The CACHE decides what is pending, not the index: it is the copy that
-			// survives a rebuild, so right after one the index is empty while the work is
-			// genuinely already done.
 			hash := e.cfg.ParseCache.GetHash(ent.Path)
 			if hash == "" {
 				continue
@@ -297,9 +277,6 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 				IsDep:     ent.IsDep,
 				Rank:      rank,
 			}
-			// A comment's snippet is the comment itself, marker syntax included, so
-			// slicing it appends the name a second time and pays for the shard read
-			// to do it. Every other label's snippet is a body its name does not carry.
 			if withSnippet && ent.Label != LabelComment {
 				if !sourceResolved {
 					fileLines = e.fileLinesFor(relPath)
@@ -315,14 +292,6 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 		return true
 	})
 
-	// Deduplicate (Path, UID) across labels, keeping the label its own grammar
-	// ranked first in embed_labels. The embedding cache is keyed on (relPath, UID)
-	// WITHOUT the label, but the embedding text includes the label, so when one UID
-	// appears under two embeddable labels (e.g. a TS `class Foo` + `interface Foo`,
-	// or a same-named Table + View) both variants collide on one cache key. The
-	// per-label interleaved Get/Set flow this replaced let the FIRST embeddable
-	// label win (its Set made later labels skip); ranked order restores that, with
-	// the grammar rather than a Go slice saying which label comes first.
 	seen := make(map[string]struct{})
 	for _, label := range labelOrder(buckets) {
 		rows := buckets[label]
@@ -353,11 +322,6 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 	return buckets
 }
 
-// fileLinesFor resolves the text an entity's snippet is sliced out of.
-//
-// The parse cache owns the precedence — the working tree when there is one, the shard's
-// own copy for an imported context that has no tree — and it owns the hash check that
-// makes either safe. See ShardCache.SourceOf.
 func (e *Embedder) fileLinesFor(relPath string) []string {
 	if e.cfg.ParseCache == nil || relPath == "" {
 		return nil
@@ -369,12 +333,6 @@ func (e *Embedder) fileLinesFor(relPath string) []string {
 	return strings.Split(source, "\n")
 }
 
-// sliceLines returns the [line, endLine] slice of an already-split file.
-//
-// Splitting belongs to the caller and happens ONCE per shard. It used to happen inside
-// embedSourceSnippet, which runs once per ENTITY: a file with 500 embeddable entities
-// was split into lines 500 times, allocating a slice of every line in the file each
-// time.
 func sliceLines(lines []string, line, endLine int) string {
 	if len(lines) == 0 || line <= 0 {
 		return ""
@@ -393,9 +351,6 @@ func sliceLines(lines []string, line, endLine int) string {
 	return strings.Join(lines[start:end], "\n")
 }
 
-// embedSourceSnippet extracts the [line, endLine] slice of a file's source used for
-// the embedding text, mirroring the original inline slicing exactly so the embedding
-// text — and therefore the produced vectors — stays byte-identical.
 func embedSourceSnippet(fileSource string, line, endLine int) string {
 	if fileSource == "" || line <= 0 {
 		return fileSource
@@ -403,13 +358,8 @@ func embedSourceSnippet(fileSource string, line, endLine int) string {
 	return sliceLines(strings.Split(fileSource, "\n"), line, endLine)
 }
 
-// vectorFlushRows bounds how many vectors are held before they are written to the index.
-// At 768 float32 a row is ~3 KB, so this is ~12 MB of buffer to cut the number of dataset
-// versions a cycle produces by a factor of 32.
 const vectorFlushRows = 4096
 
-// maxSkippedSample caps how many unembeddable entities are named in the warning.
-// The count is the signal; the sample is what makes it actionable.
 const maxSkippedSample = 5
 
 func (e *Embedder) processBatch(ctx context.Context, label string, rows []entityRow, donePtr *int, grandTotal int) (int, error) {
@@ -425,15 +375,6 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		}
 	}()
 
-	// Vectors are handed to the index in large groups rather than one group per model batch.
-	// An Upsert is a delete plus an append, so each one is a dataset version and a fragment:
-	// at one per 128-entity batch a single cycle left 484 versions and 643 fragments behind
-	// and grew the index to 858 MB before the compaction at the end could reclaim it. The
-	// cost in TIME was measured at 0.2% of the cycle — this is about the disk it churns
-	// through, not about speed.
-	//
-	// The cache is still saved per batch, so a cycle that dies loses no computed vector: the
-	// next rebuild replays them from there.
 	var pending []cachedEntity
 	var pendingVecs [][]float32
 	flushVectors := func() error {
@@ -447,16 +388,6 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		return nil
 	}
 
-	// Build every text once and batch the SHORT ones together.
-	//
-	// The model receives a batchSize x maxLen tensor, where maxLen is the longest text in
-	// the batch — so a batch costs its worst member, for all of it. MEASURED on this
-	// repository: 40,365 entities with a median of 29 tokens and a maximum of 307, which in
-	// arrival order makes the tensor 1.9x the tokens that carry any signal. Grouping texts
-	// of similar length brings it to 1.0x and the model's work to 54%.
-	//
-	// Nothing about a vector changes: an entity is embedded from its own text, so only which
-	// entities share a tensor row-length moves.
 	prepared := make([]preparedRow, len(rows))
 	for i, row := range rows {
 		prepared[i] = preparedRow{row: row, text: e.buildEmbeddingText(row)}
@@ -540,8 +471,6 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 	return total, nil
 }
 
-// entity rebuilds the cached entity a row came from, so the search row can be composed by
-// buildEntityRow — the single constructor — instead of a second, drifting one.
 func (r entityRow) entity() cachedEntity {
 	return cachedEntity{
 		UID:       r.UID,
@@ -569,9 +498,6 @@ func (e *Embedder) buildEmbeddingText(row entityRow) string {
 		parts = append(parts, row.Docstring)
 	}
 
-	// row.Source is the line-sliced snippet precomputed during scanPending (from
-	// the same file source and line range the old inline logic used); apply only
-	// the MaxSourceChars cap here so the embedding text stays byte-identical.
 	source := row.Source
 	if source != "" {
 		if len(source) > e.cfg.MaxSourceChars {
@@ -628,11 +554,6 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 	// carried one.
 	// The daemon runs one of these loops per active project inside a single process.
 	cycle := func(label string, reload bool) {
-		// The gate has ONE slot for the whole machine, shared with every project's reindex
-		// and every other project's embedding cycle. A cycle that waits on it looks
-		// identical to a cycle that is working, from outside and from the log — which is
-		// part of what "embedding is slow" turns out to be. Say so when the wait is long
-		// enough to matter, as the sync module already does for its own.
 		askedAt := time.Now()
 		release, err := sysutil.AcquireHeavy(ctx)
 		if err != nil {

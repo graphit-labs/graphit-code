@@ -52,14 +52,12 @@ func (m *mockAIClient) Complete(ctx context.Context, systemPrompt, userPrompt st
 }
 
 func TestSanitizeAndFences(t *testing.T) {
-	// stripCodeFence
 	s := "```cypher\nMATCH (n) RETURN n\n```"
 	got := stripCodeFence(s)
 	if got != "MATCH (n) RETURN n" {
 		t.Errorf("expected 'MATCH (n) RETURN n', got %q", got)
 	}
 
-	// sanitizeQuery
 	q := "```cypher\nMATCH (n)\nRETURN n;\n```"
 	gotSanitized := sanitizeQuery(q)
 	if gotSanitized != "MATCH (n) RETURN n" {
@@ -76,7 +74,6 @@ func TestExpandKeywords(t *testing.T) {
 	}
 	gen := NewGenerator(db, ai)
 
-	// JSON response
 	ctx := context.Background()
 	kws, err := gen.expandKeywords(ctx, "payment billing")
 	if err != nil {
@@ -86,7 +83,6 @@ func TestExpandKeywords(t *testing.T) {
 		t.Errorf("unexpected keywords: %v", kws)
 	}
 
-	// Plain text fallback
 	ai.completeFunc = func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 		return "payment billing", nil
 	}
@@ -103,7 +99,6 @@ func TestGeneratorGenerate(t *testing.T) {
 	db := &mockGraphDB{
 		queryFunc: func(ctx context.Context, cypher string, params map[string]any) (*ast.QueryResult, error) {
 			if strings.Contains(cypher, "CONTAINS") {
-				// preSearch query
 				return &ast.QueryResult{
 					Records: []ast.QueryRecord{
 						{"name": "my_function", "label": "Function"},
@@ -141,7 +136,6 @@ func TestGeneratorGenerate(t *testing.T) {
 		t.Errorf("unexpected PreSearchEntities: %v", resp.PreSearchEntities)
 	}
 
-	// Test error in ai complete (missing cypher tag)
 	ai.completeFunc = func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 		if strings.Contains(systemPrompt, "expand user queries") {
 			return `["payment"]`, nil
@@ -379,7 +373,6 @@ func TestGenerateWithQueryError(t *testing.T) {
 			if strings.Contains(cypher, "show_tables") || strings.Contains(cypher, "table_info") {
 				return &ast.QueryResult{}, nil
 			}
-			// Final query execution error
 			queryPhase++
 			return nil, fmt.Errorf("query exec error")
 		},
@@ -408,7 +401,6 @@ func TestGenerateSchemaError(t *testing.T) {
 			if strings.Contains(cypher, "CONTAINS") {
 				return &ast.QueryResult{}, nil
 			}
-			// show_tables fails -> schema generation fails
 			if strings.Contains(cypher, "show_tables") {
 				return nil, fmt.Errorf("schema query error")
 			}
@@ -431,22 +423,18 @@ func TestGenerateSchemaError(t *testing.T) {
 }
 
 func TestStripCodeFenceShort(t *testing.T) {
-	// Code fence with less than 3 lines
 	s := "```cypher\nMATCH (n)\n```"
 	got := stripCodeFence(s)
 	if got != "MATCH (n)" {
 		t.Errorf("expected 'MATCH (n)', got %q", got)
 	}
 
-	// Code fence with exactly 2 lines (edge case)
 	s2 := "```\n```"
 	got2 := stripCodeFence(s2)
-	// len(lines) == 2, so condition > 2 is false => no stripping
 	if got2 != "```\n```" {
 		t.Errorf("expected no stripping for 2-line fence, got %q", got2)
 	}
 
-	// Not a code fence
 	s3 := "plain text"
 	got3 := stripCodeFence(s3)
 	if got3 != "plain text" {
@@ -476,8 +464,6 @@ func TestSanitizeQueryEdgeCases(t *testing.T) {
 }
 
 func TestInitRegistration(t *testing.T) {
-	// The init() function registers an AI Cypher generator.
-	// Since init() runs at package load time, we verify the registration works.
 	db := &mockGraphDB{
 		queryFunc: func(ctx context.Context, cypher string, params map[string]any) (*ast.QueryResult, error) {
 			return &ast.QueryResult{}, nil
@@ -492,7 +478,6 @@ func TestInitRegistration(t *testing.T) {
 		},
 	}
 
-	// Test through the registered function — success path
 	resp, err := ast.GenerateAICypher(context.Background(), db, ai, ast.AICypherRequest{
 		UserQuery:  "test",
 		MaxResults: 5,
@@ -504,7 +489,6 @@ func TestInitRegistration(t *testing.T) {
 		t.Errorf("unexpected cypher: %q", resp.Cypher)
 	}
 
-	// Test through the registered function — error path (exercises init lines 58-59)
 	dbFail := &mockGraphDB{
 		queryFunc: func(ctx context.Context, cypher string, params map[string]any) (*ast.QueryResult, error) {
 			if strings.Contains(cypher, "show_tables") {
@@ -522,7 +506,6 @@ func TestInitRegistration(t *testing.T) {
 }
 
 func TestGenerateExpandKeywordsFallback(t *testing.T) {
-	// When expandKeywords fails, Generate should use [userQuery] as fallback (lines 77-79)
 	db := &mockGraphDB{
 		queryFunc: func(ctx context.Context, cypher string, params map[string]any) (*ast.QueryResult, error) {
 			return &ast.QueryResult{}, nil
@@ -533,10 +516,8 @@ func TestGenerateExpandKeywordsFallback(t *testing.T) {
 		completeFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			callNum++
 			if callNum == 1 {
-				// First call is expandKeywords — return error to trigger fallback
 				return "", fmt.Errorf("keyword expansion failed")
 			}
-			// Second call is generateCypher
 			return "<cypher>MATCH (n) RETURN n</cypher>", nil
 		},
 	}
@@ -545,7 +526,6 @@ func TestGenerateExpandKeywordsFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Keywords should fallback to [userQuery]
 	if len(resp.Keywords) != 1 {
 		t.Errorf("expected 1 fallback keyword, got %d: %q", len(resp.Keywords), resp.Keywords)
 	} else if resp.Keywords[0] != "find payment" {

@@ -14,8 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// version_check.go
-
 func TestLauncherStampPath(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -184,7 +182,6 @@ func TestDaemon_Event_WithCallback(t *testing.T) {
 
 func TestDaemon_Event_NilCallback(t *testing.T) {
 	d := &Daemon{cfg: Config{OnEvent: nil}}
-	// Should not panic
 	d.event("info", "message")
 }
 
@@ -202,7 +199,6 @@ func TestDaemon_StampChanged_NoFile(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	d := &Daemon{bootStamp: "v1"}
-	// No stamp file exists, readLauncherStamp returns ""
 	if d.stampChanged() {
 		t.Error("stampChanged should be false when stamp file doesn't exist")
 	}
@@ -248,7 +244,6 @@ func TestDaemon_StampChanged_DifferentStamp(t *testing.T) {
 
 func TestDaemon_Log_NilLogFile(t *testing.T) {
 	d := &Daemon{logFile: nil}
-	// Should not panic
 	d.log("test %s", "message")
 }
 
@@ -272,7 +267,6 @@ func TestDaemon_Log_WritesToFile(t *testing.T) {
 	if !strings.Contains(content, "hello daemon") {
 		t.Errorf("log file should contain 'hello daemon', got %q", content)
 	}
-	// Check that it has timestamp format
 	if !strings.HasPrefix(content, "[") {
 		t.Errorf("log line should start with '[', got %q", content)
 	}
@@ -642,7 +636,6 @@ func TestDaemon_Start_AlreadyRunning(t *testing.T) {
 	logPath := filepath.Join(tmp, "daemon.log")
 	pidPath := filepath.Join(tmp, "daemon.pid")
 
-	// Simulate a running daemon by holding an exclusive flock on the PID file.
 	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
 	if err := os.WriteFile(pidPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)

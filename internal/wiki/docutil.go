@@ -6,8 +6,6 @@ import (
 	"unicode/utf8"
 )
 
-// Document parsing utilities — shared by wiki generators
-
 // ExtractTitle extracts a document title from markdown content by looking for,
 // in order: a YAML frontmatter title: field, a top-level # Heading, or the
 // file basename (without extension) derived from fallbackPath.
@@ -44,8 +42,6 @@ func ExtractSummary(content string) string {
 		return truncateSummary(desc)
 	}
 
-	// Frontmatter that does not parse still gets read line by line, so a
-	// hand-written description survives its own quoting mistakes.
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "description:") {
@@ -72,17 +68,14 @@ func ExtractSummary(content string) string {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		// Skip thematic breaks (---, ***, ___).
 		trimmedHR := strings.TrimLeft(trimmed, "-*_")
 		if trimmedHR == "" && len(trimmed) >= 3 {
 			continue
 		}
-		// Skip setext underlines.
 		stripped2 := strings.TrimLeft(trimmed, "=-")
 		if stripped2 == "" {
 			continue
 		}
-		// Skip table separator lines.
 		if strings.HasPrefix(trimmed, "|") && strings.Count(trimmed, "|") >= 2 && strings.Contains(trimmed, "---") {
 			withoutStructural := strings.NewReplacer("-", "", "|", "", " ", "").Replace(trimmed)
 			if withoutStructural == "" || withoutStructural == ":" || strings.Trim(withoutStructural, ":") == "" {

@@ -9,44 +9,34 @@ func TestSplitCodeIdentifier(t *testing.T) {
 		input    string
 		expected string
 	}{
-		// CamelCase
 		{"handleHTTPRequest", "handle HTTP Request"},
 		{"getUser", "get User"},
 		{"XMLParser", "XML Parser"},
 		{"parseJSON", "parse JSON"},
 		{"myFunc", "my Func"},
 
-		// PascalCase
 		{"QueryService", "Query Service"},
 		{"NewLocalEmbeddingClient", "New Local Embedding Client"},
 
-		// snake_case
 		{"get_user_data", "get user data"},
 		{"http_request_handler", "http request handler"},
 
-		// dot.notation
 		{"config.server.port", "config server port"},
 
-		// kebab-case
 		{"my-component", "my component"},
 
-		// Mixed
 		{"parseJSON_response", "parse JSON response"},
 
-		// No split needed — returns original
 		{"simple", "simple"},
 		{"x", "x"},
 		{"", ""},
 
-		// All uppercase
 		{"HTTP", "HTTP"},
 		{"URL", "URL"},
 
-		// Acronym followed by word
 		{"HTTPSConnection", "HTTPS Connection"},
 		{"getURLPath", "get URL Path"},
 
-		// Numbers in identifiers
 		{"base64Encode", "base64 Encode"},
 		{"sha256Hash", "sha256 Hash"},
 	}

@@ -13,18 +13,6 @@ import (
 	"github.com/lancedb/lancedb-go/pkg/contracts"
 )
 
-// The version history, which is what makes a store with no second copy recoverable.
-//
-// Every write to a Lance table produces a new immutable version and leaves the previous manifest
-// in place until it is pruned, so "undo the write that destroyed the data" is a real operation
-// rather than a wish. That property is the whole reason a memory store can stop keeping a raw
-// markdown copy beside its table: the copy existed as a recovery path, and this is one.
-//
-// IT IS AN OPTIONAL CAPABILITY IN THE BINDING. `contracts.ITableTimeTravel` sits beside `ITable`
-// rather than inside it, deliberately, so that adding or removing it downstream is not a
-// source-breaking change — which means every call here goes through a type assertion and can
-// legitimately fail with ErrNoTimeTravel.
-
 func (t *Table) timeTravel() (contracts.ITableTimeTravel, error) {
 	tt, ok := t.tbl.(contracts.ITableTimeTravel)
 	if !ok {
@@ -33,10 +21,6 @@ func (t *Table) timeTravel() (contracts.ITableTimeTravel, error) {
 	return tt, nil
 }
 
-// Versions is the table's history, newest-first.
-//
-// The backend returns them in its own order; they are sorted here so a caller asking for "the
-// version before the last write" does not depend on that.
 func (t *Table) Versions(ctx context.Context) ([]Version, error) {
 	tt, err := t.timeTravel()
 	if err != nil {
@@ -99,17 +83,6 @@ func (t *Table) CheckoutLatest(ctx context.Context) error {
 	return nil
 }
 
-// RestoreVersion makes a past version the live data again.
-//
-// It is a TWO-STEP, because the binding has no `restore(version)`: the table is pinned to the
-// version and then that pin is promoted to a new latest manifest. Restoring is therefore itself
-// a write — it appends a version rather than deleting the ones after it — so the state that was
-// destroyed remains in the history too, and a restore can be undone.
-//
-// SAFETY: a failure between the two steps would leave the handle PINNED, and a pinned table
-// rejects writes — a caller that then tried to write would see a confusing error about a
-// read-only snapshot rather than about the failed restore. So the pin is dropped on the way out
-// of a failed promotion.
 func (t *Table) RestoreVersion(ctx context.Context, version uint64) error {
 	if t.store.readOnly {
 		return ErrReadOnly
@@ -139,27 +112,6 @@ func sortVersionsNewestFirst(vs []Version) {
 	}
 }
 
-// ---------- commit-conflict retry ----------
-
-// commitRetries is how many times a losing commit is retried before the caller sees a conflict.
-//
-// WHICH OPERATIONS ACTUALLY RACE was measured rather than assumed, and the answer is not the one
-// this was written for. Four concurrent writers against one remote table, on MinIO:
-//
-//	append          60 writes   0 conflicts
-//	delete by key   40 writes   0 conflicts
-//	upsert, SAME key 40 writes  0 conflicts
-//	build an index  9 builds    0 conflicts
-//	compact         9 runs      6 conflicts
-//
-// Lance's conflict resolver treats concurrent data writes as COMPATIBLE transactions and settles
-// them itself — appends do not conflict with appends, and even upserts onto the same key came
-// through clean. What conflicts is the Rewrite class: compaction preempts compaction. So the retry
-// matters most on the MAINTENANCE path, which is the opposite of where the plan expected it.
-//
-// A handful of attempts covers that: the losing rewrite has to wait out one competing rewrite, not
-// contend with a crowd. A caller that still exhausts them has a real contention problem — several
-// processes compacting the same table in a loop — rather than a transient one.
 const commitRetries = 6
 
 // commitRetryBase is the first backoff. Each attempt doubles it and adds jitter, so two writers
@@ -219,9 +171,6 @@ func withCommitRetry(ctx context.Context, what string, fn func() error, beforeRe
 			}
 		}
 	}
-	// Both errors are wrapped: ErrCommitConflict is what a caller matches on, and the engine's own
-	// last message is what a person debugging the contention needs — it names the version the
-	// rewrite kept losing to.
 	return fmt.Errorf("lancestore: %s after %d attempts: %w: %w",
 		what, commitRetries+1, ErrCommitConflict, lastErr)
 }
@@ -272,20 +221,6 @@ func isCommitConflict(err error) bool {
 	return false
 }
 
-// commitConflictPhrases are OBSERVED wordings, not guessed ones.
-//
-// The list started at ten plausible phrases written from the API. A probe against MinIO with four
-// concurrent writers produced exactly one wording, and it came from an operation nobody expected
-// to be the contended one:
-//
-//	lance error: Retryable commit conflict for version 187: This Rewrite transaction was
-//	preempted by concurrent transaction Rewrite at version 187. Please retry.
-//	  …/rust/lance/src/io/commit/conflict_resolver.rs:672:29
-//
-// So the three substrings below are the ones that message actually contains. The seven that were
-// invented — "version already exists", "concurrent write", "dataset has been modified" and the
-// rest — were deleted: a phrase nobody has seen the engine emit does not classify anything, it
-// only makes the classifier look more thorough than it is.
 var commitConflictPhrases = []string{
 	"commit conflict",
 	"preempted by concurrent",

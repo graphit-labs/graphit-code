@@ -8,9 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// The mount is what makes "installing stops downloading" possible, so what these tests pin is the
-// URI it resolves to and the conditions under which it refuses to resolve at all.
-
 func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
 	st, _ := newTestS3Store(t)
 
@@ -19,9 +16,6 @@ func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
 		t.Fatal("a configured store did not produce a mount")
 	}
 
-	// The URI must end at the index directory, not at the artifact root: the engine opens a
-	// dataset, and pointing it one level up makes it fail with a message about a missing manifest
-	// that names neither the artifact nor the reason.
 	if !strings.HasSuffix(mount.Config.URI, "/"+wiki.WikiIndexDirName) {
 		t.Errorf("the mount URI does not end at the index directory %q: %s",
 			wiki.WikiIndexDirName, mount.Config.URI)
@@ -29,9 +23,6 @@ func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
 	if !strings.HasPrefix(mount.Config.URI, "s3://") {
 		t.Errorf("the mount URI is not an s3:// location: %s", mount.Config.URI)
 	}
-	// The version has to be IN the location. Two projects pinned to different versions of the
-	// same artifact read different objects, and a URI without the version would silently give
-	// both whatever was published last.
 	if !strings.Contains(mount.Config.URI, "1.4.0") {
 		t.Errorf("the mount URI does not carry the version: %s", mount.Config.URI)
 	}
@@ -96,9 +87,6 @@ func TestMountsKnowledgeNeedsBothTheBucketAndTheEngine(t *testing.T) {
 		t.Error("a manager with no store says it can mount")
 	}
 
-	// With a store, the answer follows the engine. Asserted against the same predicate the
-	// production code uses rather than a hardcoded expectation, because this test runs in both
-	// builds and the correct answer differs between them.
 	got := withStore.MountsKnowledge()
 	if got != lancestoreAvailableForTest() {
 		t.Errorf("MountsKnowledge = %v with a configured store, but the engine's availability "+
@@ -106,7 +94,4 @@ func TestMountsKnowledgeNeedsBothTheBucketAndTheEngine(t *testing.T) {
 	}
 }
 
-// lancestoreAvailableForTest mirrors the production predicate, so the test above compares the gate
-// against the same fact rather than against a constant that would be wrong in one of the two
-// builds.
 func lancestoreAvailableForTest() bool { return lancestore.Available() }

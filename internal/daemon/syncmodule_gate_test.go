@@ -21,7 +21,6 @@ func TestHandleBatchSkipsTheGateWhenThereIsNoWork(t *testing.T) {
 	projectDir := t.TempDir()
 	mod := NewSyncModule(projectDir, store.ASTProjectDir(projectDir))
 
-	// Hold the only slot, so anything that tries to acquire one blocks.
 	release, err := sysutil.AcquireHeavy(context.Background())
 	if err != nil {
 		t.Fatalf("AcquireHeavy: %v", err)
@@ -50,16 +49,12 @@ func TestHandleBatchAbandonsTheQueueOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Rescan is work for both indexers no matter what the batch names, so this
-	// reaches the gate and nothing else.
 	mod.handleBatch(ctx, fswatch.Batch{Rescan: true}, ast.NewAstIgnoreChecker(projectDir), nil)
 
 	if _, err := os.Stat(filepath.Join(projectDir, brand.DotDir(), "ast")); !os.IsNotExist(err) {
 		t.Errorf("a cancelled handleBatch still opened the AST database (stat err = %v)", err)
 	}
 
-	// The slot must still be free: a gate that leaks on the cancel path deadlocks
-	// the daemon after enough parked supervisors.
 	acquired := make(chan struct{})
 	go func() {
 		release, err := sysutil.AcquireHeavy(context.Background())

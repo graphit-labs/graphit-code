@@ -7,8 +7,7 @@ import { cn } from '@/lib/utils'
 interface CodePanelProps {
   content: string
   filename: string
-  /** 1-based line to jump to and mark. Null when the panel was opened on a file
-   *  rather than on an entity, in which case the file opens at the top. */
+
   highlightLine?: number | null
   onClose?: () => void
 }
@@ -66,7 +65,7 @@ export function CodePanel({ content, filename, highlightLine, onClose }: CodePan
     if (!bodyRef.current || !searchTerm) {
       setMatchCount(0)
       setCurrentMatch(0)
-      
+
       bodyRef.current?.querySelectorAll('.search-match, .search-match-active').forEach((el) => {
         el.classList.remove('search-match', 'search-match-active')
       })
@@ -97,11 +96,6 @@ export function CodePanel({ content, filename, highlightLine, onClose }: CodePan
     }
   }, [searchTerm])
 
-  // The panel opens before the file arrives, so the jump cannot happen on click —
-  // it has to wait for the content that the line is a position INTO. Hence the
-  // dependency on content as well as on the line itself: clicking a second entity
-  // in the same file changes only the line, and clicking one in another file
-  // changes only the content, and both have to scroll.
   useEffect(() => {
     if (!highlightLine || !content) return
     targetRef.current?.scrollIntoView({ block: 'center' })
@@ -203,8 +197,7 @@ export function CodePanel({ content, filename, highlightLine, onClose }: CodePan
         .search-match-active { background: rgba(234,179,8,0.28); }
         .target-line { background: color-mix(in srgb, var(--primary, #3b82f6) 14%, transparent); box-shadow: inset 3px 0 0 var(--primary, #3b82f6); }
         .target-line .code-gutter { color: var(--primary, #3b82f6); font-weight: 700; }
-        
-        
+
         .hljs-keyword { color: var(--primary, #3b82f6); font-weight: 600; }
         .hljs-string { color: #10b981; }
         .hljs-comment { color: #888888; font-style: italic; }

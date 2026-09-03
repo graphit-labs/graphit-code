@@ -5,15 +5,6 @@ import (
 	"testing"
 )
 
-// Updating a memory changes what it says, not what it is.
-//
-// The update path used to rebuild the frontmatter from the fields its author
-// remembered — id, title, scope, scope_id, created_at, updated_at, and a hardcoded
-// `tags: [memory]`. Everything else was dropped. An important `correction` tagged
-// `auth,security` came back as an untyped memory with one tag, and nothing reported
-// it, because the file was still valid and the body was still right. That is
-// silent declassification, and it matters most for exactly the memories worth
-// keeping: corrections and conventions are the ones agents edit as they learn more.
 func TestUpdatedMemoryContentPreservesClassification(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +79,6 @@ func TestUpdatedMemoryContentKeepsBodyWhenOnlyTitleChanges(t *testing.T) {
 	if fm := ParseMemoryFrontmatter(updated); fm.Title != "New title" {
 		t.Errorf("title = %q; want New title", fm.Title)
 	}
-	// The H1 must follow the new title, not stay on the old one.
 	if !strings.Contains(updated, "# New title") {
 		t.Error("heading was not updated with the title")
 	}
@@ -169,7 +159,6 @@ func TestBuildMemoryFileAndUpdateAgreeOnFrontmatter(t *testing.T) {
 		}
 	}
 
-	// Round-tripping through an update must not lose any of it.
 	updated := updatedMemoryContent(created, memoryUpdate{
 		ID: fm.ID, Scope: "project", ScopeID: "p", NewBody: "Body 2",
 	})

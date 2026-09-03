@@ -8,17 +8,6 @@ import (
 	"testing"
 )
 
-// fakeWriter implements MemoryWriter over an in-memory store of markdown, using the same render,
-// update and parse helpers MemoryService uses. A mock that only recorded calls would pass while the
-// stored memories were wrong, and "the stored memories are still right" is the whole property under
-// test.
-//
-// IT HELD REAL FILES IN A TEMP DIRECTORY UNTIL THE RAW STORE WAS RETIRED, which was faithful while
-// production wrote files and became the opposite the moment it stopped: apply read its starting
-// state by enumerating a directory, so a fake that kept one could not have caught the directory
-// going away. The markdown itself is NOT a leftover — it is the transit format the four content
-// transforms still operate on, and `recordFromMarkdown` is the same function the service stores
-// through.
 type fakeWriter struct {
 	stored    map[string]string
 	updates   []string
@@ -88,7 +77,6 @@ func (f *fakeWriter) setRelevance(id string, promote bool) error {
 	if !ok {
 		return os.ErrNotExist
 	}
-	// Mirrors changeRelevance: the flag in the frontmatter is the only thing that moves.
 	f.stored[id] = withImportantFlag(current, promote)
 	return nil
 }
@@ -205,9 +193,8 @@ func TestApplyConsolidation_MergePreservesImportance(t *testing.T) {
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Duplicates: []ConsolidationAction{{
-			Type:      ActionMerge,
-			MemoryIDs: []string{"01AAAAAAAAAAAAAAAAAAAAAAAA", "01BBBBBBBBBBBBBBBBBBBBBBBB"},
-			// Survivor is the NON-important one, on purpose.
+			Type:       ActionMerge,
+			MemoryIDs:  []string{"01AAAAAAAAAAAAAAAAAAAAAAAA", "01BBBBBBBBBBBBBBBBBBBBBBBB"},
 			KeepID:     "01AAAAAAAAAAAAAAAAAAAAAAAA",
 			NewContent: "merged",
 		}},
@@ -224,7 +211,6 @@ func TestApplyConsolidation_MergePreservesImportance(t *testing.T) {
 	if !fm.Important {
 		t.Error("survivor frontmatter must record importance")
 	}
-	// And the most specific type in the group survives: correction outranks fact.
 	if fm.Type != string(MemoryTypeCorrection) {
 		t.Errorf("type = %q; want correction to survive the merge", fm.Type)
 	}
@@ -324,8 +310,6 @@ func TestApplyConsolidation_ContradictionKeepsTheRecommendedMemory(t *testing.T)
 		t.Errorf("survivor should state the current truth, got %q", body)
 	}
 }
-
-// Refusals
 
 // A bare delete cannot remove an important memory. Importance was set by a human,
 // or by an agent acting for one, and no unattended analysis outranks it.
@@ -466,7 +450,6 @@ func TestApplyConsolidation_SkipsActionsOnAlreadyRemovedMemories(t *testing.T) {
 			NewContent: "merged",
 		}},
 		Suggestions: []ConsolidationAction{{
-			// B is gone by the time this runs.
 			Type:      ActionPromote,
 			MemoryIDs: []string{"01BBBBBBBBBBBBBBBBBBBBBBBB"},
 			KeepID:    "01BBBBBBBBBBBBBBBBBBBBBBBB",
@@ -606,8 +589,6 @@ func TestApplyConsolidation_PromoteAndDemote(t *testing.T) {
 		t.Error("demote did not take effect")
 	}
 }
-
-// Outcome reporting
 
 // A plan reduced to nothing must not look like a clean corpus: the report is the
 // only place a developer learns what was proposed and declined.

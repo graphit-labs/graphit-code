@@ -6,8 +6,6 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// legacyExtractDocstringsTS is the previous string-comparison implementation,
-// kept as the oracle for the differential test.
 func legacyExtractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile) {
 	if SafeIsNull(root) {
 		return
@@ -96,11 +94,6 @@ func legacyExtractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile
 	walk(root)
 }
 
-// collectDeclSites enumerates declaration nodes by scanning the whole tree — the
-// way the production code used to find them, before the query pass started
-// handing them over directly. Feeding these to attachDocstringsTS isolates the
-// pairing logic from the change in how sites are gathered, so the differential
-// against the legacy implementation still means something.
 func collectDeclSites(root *sitter.Node, m docstringMatchers) []*sitter.Node {
 	if !m.on {
 		return nil

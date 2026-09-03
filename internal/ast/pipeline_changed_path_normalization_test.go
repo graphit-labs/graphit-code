@@ -6,11 +6,6 @@ import (
 	"testing"
 )
 
-// ChangedPaths reach the pipeline in two forms — repo-relative from the CLI, absolute from
-// a watcher — and the absolute form used to be stored as-is. The stored path then differed
-// from the one a full scan produces, so the graph carried TWO File nodes for one file, and
-// a traversal anchored on File{path} could resolve to the wrong one and answer with
-// another file's children. Neither failure raises an error, which is why it survived.
 func TestRepoRelativePathsAcceptsBothFormsOfInput(t *testing.T) {
 	t.Parallel()
 
@@ -20,9 +15,9 @@ func TestRepoRelativePathsAcceptsBothFormsOfInput(t *testing.T) {
 	}
 
 	got := repoRelativePaths(root, []string{
-		filepath.Join(root, "internal", "ast", "pipeline.go"), // absolute, from a watcher
-		"internal/ast/rule.go",                                // repo-relative, from the CLI
-		"./internal/ast/writer.go",                            // relative, unclean
+		filepath.Join(root, "internal", "ast", "pipeline.go"),
+		"internal/ast/rule.go",
+		"./internal/ast/writer.go",
 	})
 
 	want := []string{
@@ -50,8 +45,6 @@ func TestRepoRelativePathsIgnoresTheWorkingDirectory(t *testing.T) {
 		t.Skip("path shapes below are POSIX")
 	}
 
-	// A root that is nothing like the test's working directory. If the implementation
-	// reached for filepath.Abs, the result would be prefixed with the CWD instead.
 	got := repoRelativePaths("/srv/elsewhere", []string{"/srv/elsewhere/pkg/a.go"})
 	if len(got) != 1 || got[0] != "pkg/a.go" {
 		t.Errorf("normalization is working-directory dependent: %v", got)

@@ -10,19 +10,6 @@ import (
 	"time"
 )
 
-// The sidecar's three existing tests all skip unless ANTLR_SIDECAR_BIN points at
-// a real grammar binary, so on an ordinary run the driver has no coverage at all
-// — including its failure handling, which is where its defects are.
-//
-// This builds a stand-in that speaks the same length-prefixed protocol and can be
-// told to misbehave in the specific ways a real sidecar can: die mid-session,
-// announce a response far larger than it sends, or stop answering. None of that
-// needs ANTLR, so it runs everywhere.
-
-// fakeSidecarSrc is a complete sidecar whose behaviour is chosen by
-// FAKE_SIDECAR_MODE. It implements the client side of the protocol in
-// antlr_sidecar.go: request [4-byte LE length][grammar\0][source], response
-// [4-byte LE length][1-byte status][JSON].
 const fakeSidecarSrc = `package main
 
 import (
@@ -67,7 +54,6 @@ func main() {
 }
 `
 
-// buildFakeSidecar compiles the stand-in once per test run.
 var (
 	fakeSidecarOnce sync.Once
 	fakeSidecarPath string
@@ -159,12 +145,8 @@ func TestSidecarDeadProcessIsNotReturnedToThePool(t *testing.T) {
 		t.Fatalf("first request should succeed: %v", err)
 	}
 
-	// The process exits during this one; the driver restarts and retries, and
-	// the replacement also dies on its second request. Whatever the outcome, the
-	// pool must not end up holding a corpse.
 	_, _ = d.Parse([]byte("SELECT 2"))
 
-	// Every later request must still be served by a live process.
 	for i := 0; i < 3; i++ {
 		done := make(chan error, 1)
 		go func() {

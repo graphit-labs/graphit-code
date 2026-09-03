@@ -1,13 +1,11 @@
 language: lua
 grammar: tree-sitter-lua
 extensions: [".lua"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration name: (identifier) @name)'
@@ -18,7 +16,6 @@ queries:
     graph_label: Variable
     pattern: '(assignment_statement (variable_list name: (identifier) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: variables
     graph_label: Variable
     pattern: '(assignment_statement (variable_list name: (identifier) @name) (expression_list value: [(number) (string) (true) (false) (nil)] @value))'
@@ -36,7 +33,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -46,33 +42,24 @@ queries:
     relation_type: CALLS
     pattern: '(function_call (identifier) @name)'
 
-# Lua has no native export system
 exports:
   strategy: none
 
-# Lua uses self for OOP-style method calls
 self_keywords: ["self."]
 
-# Parent context type mapping — Lua tree-sitter node types only
 context_types:
   function_declaration: Function
 
-# Lua has anonymous functions that can be assigned to variables
 anon_func_types:
   - function_body
 
-# Declaration node types for docstring attachment
 declaration_types:
   - function_declaration
   - variable_declaration
 
-# Lua tree-sitter uses a single "comment" node type for -- and --[[ ]] comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. Lua spells and/or as words, not symbols, and
-# elseif_statement is its own node (not nested inside if_statement).
 complexity:
   node_types:
     - if_statement
@@ -81,10 +68,6 @@ complexity:
     - while_statement
   operators: ["and", "or"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Function
   - Field

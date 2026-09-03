@@ -8,7 +8,6 @@ import (
 )
 
 func TestGetPaths(t *testing.T) {
-	// Isolate HOME
 	origHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "paths-test-home")
 	if err != nil {
@@ -33,7 +32,6 @@ func TestGetPaths(t *testing.T) {
 		t.Errorf("expected projectDir to match activeProjectDir, got %q", pProj.ActiveProjectDir)
 	}
 
-	// Test empty ProjectDir fallback
 	pProjEmpty := GetPathsForProject("test-ide", "")
 	if pProjEmpty.ActiveProjectDir == "" {
 		t.Error("expected active project dir to be resolved even with empty input")
@@ -47,7 +45,6 @@ func TestResolveGitDir(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tempProj) }()
 
-	// Case 1: .git does not exist
 	gitDir1 := resolveGitDir(tempProj)
 	if gitDir1 != filepath.Join(tempProj, ".git") {
 		t.Errorf("expected default .git path, got %q", gitDir1)
@@ -65,7 +62,6 @@ func TestResolveGitDir(t *testing.T) {
 
 	_ = os.RemoveAll(dotGitDir)
 
-	// Case 3: .git is a file but empty/invalid
 	err = os.WriteFile(dotGitDir, []byte("invalid content"), 0644)
 	if err != nil {
 		t.Fatalf("failed to write invalid .git file: %v", err)
@@ -75,7 +71,6 @@ func TestResolveGitDir(t *testing.T) {
 		t.Errorf("expected fallback to %q, got %q", dotGitDir, gitDir3)
 	}
 
-	// Case 4: .git is a file pointing to absolute path
 	absPath := filepath.Join(tempProj, "abs-git-dir")
 	err = os.WriteFile(dotGitDir, []byte("gitdir: "+absPath), 0644)
 	if err != nil {
@@ -86,7 +81,6 @@ func TestResolveGitDir(t *testing.T) {
 		t.Errorf("expected absolute path %q, got %q", absPath, gitDir4)
 	}
 
-	// Case 5: .git is a file pointing to relative path
 	relPath := "rel-git-dir"
 	err = os.WriteFile(dotGitDir, []byte("gitdir: "+relPath), 0644)
 	if err != nil {
@@ -103,8 +97,6 @@ func TestResolveGitDir(t *testing.T) {
 		t.Fatalf("failed to write unreadable .git file: %v", err)
 	}
 	gitDir6 := resolveGitDir(tempProj)
-	// If the file was unreadable, it returns dotGitDir
-	// If the file was readable (e.g. running as root), it returns filepath.Join(tempProj, "unreadable")
 	if gitDir6 != dotGitDir && gitDir6 != filepath.Join(tempProj, "unreadable") {
 		t.Errorf("unexpected gitDir: %q", gitDir6)
 	}
@@ -125,25 +117,21 @@ func TestSafeSymlink(t *testing.T) {
 
 	linkFile := filepath.Join(tempDir, "link.txt")
 
-	// 1. Create fresh symlink
 	err = SafeSymlink(srcFile, linkFile)
 	if err != nil {
 		t.Fatalf("SafeSymlink failed: %v", err)
 	}
 
-	// Verify link contents
 	data, err := os.ReadFile(linkFile)
 	if err != nil || string(data) != "hello" {
 		t.Errorf("expected hello from link, got %q (err=%v)", string(data), err)
 	}
 
-	// 2. Overwrite existing symlink
 	err = SafeSymlink(srcFile, linkFile)
 	if err != nil {
 		t.Fatalf("SafeSymlink overwrite failed: %v", err)
 	}
 
-	// 3. Overwrite when target exists as a regular file
 	err = os.Remove(linkFile)
 	if err != nil {
 		t.Fatalf("failed to remove link: %v", err)
@@ -158,7 +146,6 @@ func TestSafeSymlink(t *testing.T) {
 		t.Fatalf("SafeSymlink overwrite regular file failed: %v", err)
 	}
 
-	// 4. Overwrite when target exists as a directory
 	err = os.Remove(linkFile)
 	if err != nil {
 		t.Fatalf("failed to remove link: %v", err)
@@ -173,7 +160,6 @@ func TestSafeSymlink(t *testing.T) {
 		t.Fatalf("SafeSymlink overwrite directory failed: %v", err)
 	}
 
-	// 5. Test symlink to a directory
 	srcDir := filepath.Join(tempDir, "srcdir")
 	err = os.Mkdir(srcDir, 0755)
 	if err != nil {
@@ -186,7 +172,6 @@ func TestSafeSymlink(t *testing.T) {
 		t.Fatalf("SafeSymlink for directory failed: %v", err)
 	}
 
-	// 6. Test Windows fallback junction function (just call directly for line coverage)
 	errFallback := windowsFallbackJunction("source", "linkPath", false, os.ErrExist)
 	if errFallback == nil {
 		t.Error("expected error from fallback, got nil")
@@ -205,7 +190,6 @@ func TestBuildPathsHooks(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tempProj) }()
 
-	// Initialize real git repo so git config queries will execute successfully
 	cmdInit := exec.Command("git", "init")
 	cmdInit.Dir = tempProj
 	err = cmdInit.Run()
@@ -213,7 +197,6 @@ func TestBuildPathsHooks(t *testing.T) {
 		t.Fatalf("git init failed: %v", err)
 	}
 
-	// 1. Without core.hooksPath set (should default to resolveGitDir/hooks)
 	p := buildPaths("", tempProj)
 	expectedHooks := filepath.Join(tempProj, ".git", "hooks")
 	if p.RepoHooksDir != expectedHooks {

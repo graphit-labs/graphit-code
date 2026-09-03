@@ -1,14 +1,12 @@
 language: zig
 grammar: tree-sitter-zig
 extensions: [".zig"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
   READS_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration name: (identifier) @name)'
@@ -16,7 +14,6 @@ queries:
     graph_label: Constant
     pattern: '(variable_declaration (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: constants
     graph_label: Constant
     pattern: '(variable_declaration (identifier) @name [(integer) (float) (string) (boolean) (character)] @value)'
@@ -37,7 +34,6 @@ queries:
     graph_label: Test
     pattern: '(test_declaration (string) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -55,26 +51,21 @@ queries:
     relation_type: IMPORTS
     pattern: '(builtin_function (builtin_identifier) @_fn (arguments (string) @name))'
 
-# Zig export detection: pub modifier
 exports:
   strategy: modifier
   config:
     keyword: "pub"
 
-# Zig does not use self/this
 self_keywords: []
 
-# Parent context type mapping — Zig tree-sitter node types
 context_types:
   function_declaration: Function
   struct_declaration: Struct
   enum_declaration: Enum
   union_declaration: Union
 
-# Zig has no anonymous function types in the traditional sense
 anon_func_types: []
 
-# Declaration node types for docstring attachment
 declaration_types:
   - function_declaration
   - variable_declaration
@@ -83,14 +74,9 @@ declaration_types:
   - union_declaration
   - test_declaration
 
-# Zig tree-sitter uses line_comment and doc_comment node types
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. Zig spells and/or as words, not symbols.
-# switch_case fires for the `else` arm too, so a bare switch with no other
-# arm still adds one — a minor, accepted deviation also taken elsewhere here.
 complexity:
   node_types:
     - if_statement
@@ -98,10 +84,6 @@ complexity:
     - switch_case
   operators: ["and", "or"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Function
   - Test

@@ -12,24 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 )
 
-// The AST honours .astignore and the wiki honours .wikiignore, each inside its
-// own pipeline. But the daemon runs one watcher, and it was built from the AST
-// checker alone, so .astignore decided whether the wiki heard about anything at
-// all. Excluding docs/ from AST parsing left the directory unwatched and the wiki
-// never rebuilt.
-//
-// These tests stage their own project query files, so the extensions they route
-// on are the ones staged here rather than whatever the installed runtime holds —
-// which is why .md still has a parser below even though the framework ships no
-// markdown query file.
-//
-// The watch is now the union of what the two want, and each applies its own file
-// to what arrives.
-
-// stageProjectParsers writes query files declaring the extensions these tests
-// route on, into the project's own .graphit/ast/queries. Project query files
-// register their extensions, so this makes the tests independent of whatever the
-// launcher has unpacked into the developer's home — no runtime, no skip.
 func stageProjectParsers(t *testing.T, dir string) {
 	t.Helper()
 	qdir := filepath.Join(dir, brand.DotDir(), "ast", "queries")

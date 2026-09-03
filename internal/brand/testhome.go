@@ -16,9 +16,6 @@ func TestHomeRoot() string {
 	return filepath.Join(os.TempDir(), Brand+"-test-homes")
 }
 
-// isolatedTestHome is the directory init pointed HOME at, or empty outside a test
-// binary. Recorded because Brand is a mutable global: a test that reassigns it moves
-// TestHomeRoot() with it, and the home this process is actually using does not move.
 var isolatedTestHome string
 
 // init points HOME at a throwaway directory whenever this binary is a test binary.
@@ -63,9 +60,6 @@ func init() {
 
 	root := TestHomeRoot()
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		// Falling back to the real home is the exact bug this exists to prevent, and
-		// it would do it invisibly. A temp dir that cannot be created breaks
-		// t.TempDir() and most of the suite anyway, so say so instead of continuing.
 		panic("brand: cannot create the test home root " + root + ": " + err.Error())
 	}
 	home, err := os.MkdirTemp(root, "home-")
@@ -75,26 +69,11 @@ func init() {
 
 	isolatedTestHome = home
 	_ = os.Setenv("HOME", home)
-	_ = os.Setenv("USERPROFILE", home) // Windows
+	_ = os.Setenv("USERPROFILE", home)
 	_ = os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	// NOTE: GlobalDir() honours this before it ever looks at HOME, so an operator who
-	// exports it in their shell would hand the whole suite their real store.
 	_ = os.Unsetenv(EnvVar("GLOBAL_DIR"))
 
-	// A git identity, because emptying HOME is exactly what hides the developer's
-	// ~/.gitconfig, and git refuses to commit without one:
-	//
-	//	fatal: unable to auto-detect email address (got 'user@host.(none)')
-	//
-	// That is not a side effect to work around per package — it is the direct
-	// consequence of the isolation above, so it is answered here rather than left for
-	// each package that happens to commit to rediscover. Exporting it is the right
-	// answer anyway: a test that commits should not depend on who is running it.
-	//
-	// internal/memory and internal/hub still set the same values in their own
-	// TestMain. That predates this and is left alone — the values are identical, and
-	// those files carry the reasoning for the rest of what they isolate.
 	for k, v := range map[string]string{
 		"GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.com",
 		"GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com",

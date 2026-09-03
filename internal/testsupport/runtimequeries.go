@@ -14,7 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
-// seedErr records what init's seeding did, so a TestMain can fail loudly on it.
 var seedErr error
 
 // init seeds at init time because that is the only moment early enough.
@@ -90,9 +89,6 @@ func seedRuntimeQueries() error {
 	return copyDir(src, dst)
 }
 
-// repoRoot walks up from the working directory to the module root. A test binary runs
-// with its own package directory as the working directory, so the depth differs per
-// package and cannot be a fixed number of "..".
 func repoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {

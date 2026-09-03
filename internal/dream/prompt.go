@@ -23,9 +23,6 @@ func buildDreamPrompt(projectDir, sessionID, ide string, outcomes []*memory.Cons
 	return b.String()
 }
 
-// buildConsolidationBriefing tells the agent what the runner already did to the
-// memory store. Without it the agent re-derives the same duplicates, proposes
-// changes that have already happened, and reports them as its own work.
 func buildConsolidationBriefing(outcomes []*memory.ConsolidationOutcome) string {
 	var b strings.Builder
 	b.WriteString("## 🧹 Memory Consolidation Already Ran\n\n")
@@ -82,14 +79,10 @@ func buildDreamContext(projectDir, sessionID, ide string) string {
 	b.WriteString("Use this when interacting with the hub, syncing rules, or any IDE-scoped operations. ")
 	_, _ = fmt.Fprintf(&b, "For example: `%s sync --ide %s` or `%s hub install --ide %s`.\n\n", brand.BinName(), ide, brand.BinName(), ide)
 
-	// Phase 1: OBSERVE
 	b.WriteString("## Your Mission — 5-Phase Architecture\n\n")
 
 	b.WriteString("### Phase 1: OBSERVE — Understand the System\n\n")
 	b.WriteString("Before analyzing anything, build a complete understanding of the project:\n\n")
-	// Tools, not paths. These used to be `index.md` files in the wiki directory; the wiki is a
-	// compiled index now and there is no page to open, so an instruction naming a path would send
-	// the agent to something that is not there.
 	_, _ = fmt.Fprintf(&b, "1. Search the project's knowledge wiki with %s, then read the pages you pick with %s\n",
 		brand.MCPToolRef("knowledge", "search"), brand.MCPToolRef("wiki", "source"))
 	_, _ = fmt.Fprintf(&b, "2. List ALL project and user memories with %s (`scope: \"project\"` and `scope: \"user\"`) and read them with %s (`wiki: \"memory\"`)\n",
@@ -363,8 +356,6 @@ func buildDreamArtifact(sessionID, agentOutput, diagnostic string) string {
 	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", sessionID)
 	_, _ = fmt.Fprintf(&b, "**Timestamp**: `%s`\n\n", time.Now().UTC().Format(time.RFC3339))
 
-	// Before the output, not after: this section says the output below is probably
-	// not what was asked for, and that is worth knowing before reading it.
 	if diagnostic != "" {
 		b.WriteString("## ⚠️ No artifacts were produced\n\n")
 		b.WriteString(diagnostic)

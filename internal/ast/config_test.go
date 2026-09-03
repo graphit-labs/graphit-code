@@ -40,7 +40,6 @@ func TestEnvOr(t *testing.T) {
 	})
 
 	t.Run("returns_env_if_set", func(t *testing.T) {
-		// PATH is always set on all platforms
 		got := envOr("PATH", "fallback")
 		if got == "fallback" {
 			t.Error("expected PATH value, got fallback")

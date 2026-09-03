@@ -11,8 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
-// unitVector builds an L2-normalised vector from the components named, which is what the embedder
-// produces and therefore the only shape the distance-to-cosine conversion has to hold for.
 func unitVector(components map[int]float32) []float32 {
 	v := make([]float32, ai.EmbeddingDimensions)
 	var norm float64
@@ -27,12 +25,6 @@ func unitVector(components map[int]float32) []float32 {
 	return v
 }
 
-// TestVectorMetricIsSquaredL2OnUnitVectors pins the assumption cosineFromSquaredL2 rests on.
-//
-// The conversion is not a guess — it is read off this measurement — but it is also not something
-// this project controls: no metric is configured on the vector index, so it is the engine's
-// default. If a version bump changes that default, cosineFromSquaredL2 becomes silently wrong and
-// the semantic floor starts cutting in the wrong place. This is the test that says so.
 func TestVectorMetricIsSquaredL2OnUnitVectors(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
@@ -82,8 +74,6 @@ func TestVectorMetricIsSquaredL2OnUnitVectors(t *testing.T) {
 		if !ok {
 			t.Fatalf("unexpected entity %q", name)
 		}
-		// A pure vector query carries no score at all — the whole reason the cosine has to be
-		// derived from the distance.
 		if h.Score != 0 {
 			t.Errorf("%s: a vector-only query returned Score %g; if the engine now scores these, "+
 				"SemanticSearch should stop deriving it", name, h.Score)
@@ -103,9 +93,9 @@ func TestSemanticSearchReturnsItsNeighbours(t *testing.T) {
 	idx := newLanceIndexForTest(t)
 
 	query := unitVector(map[int]float32{0: 1})
-	near := unitVector(map[int]float32{0: 1, 1: 0.1}) // cosine ~0.995
-	far := unitVector(map[int]float32{1: 1})          // cosine 0, well below the floor
-	mid := unitVector(map[int]float32{0: 1, 1: 1.6})  // cosine ~0.53, above the floor
+	near := unitVector(map[int]float32{0: 1, 1: 0.1})
+	far := unitVector(map[int]float32{1: 1})
+	mid := unitVector(map[int]float32{0: 1, 1: 1.6})
 
 	vectors := map[string][]float32{"near": near, "mid": mid, "far": far}
 	entries := make([]*parseCacheEntry, 0, len(vectors))
@@ -140,8 +130,6 @@ func TestSemanticSearchReturnsItsNeighbours(t *testing.T) {
 			"not being derived from the distance", res[0].RelevanceScore, semanticFloorCosine)
 	}
 
-	// The floor still has to cut: an orthogonal vector is not evidence of anything, and letting
-	// it through is the failure the floor was added for.
 	for _, r := range res {
 		if r.Name == "far" {
 			t.Errorf("an orthogonal neighbour survived the confidence floor (score %g)", r.RelevanceScore)

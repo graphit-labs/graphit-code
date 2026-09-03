@@ -8,7 +8,7 @@ import (
 
 const googleDefaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 
-const googleEmbedBatchLimit = 100 // Google's documented limit for requests per batchEmbedContents call.
+const googleEmbedBatchLimit = 100
 
 type googleEmbeddingConfig struct {
 	baseURL string
@@ -31,8 +31,6 @@ type googleContent struct {
 	Parts []googleContentPart `json:"parts"`
 }
 
-// -- single embedContent --
-
 type googleEmbedContentRequest struct {
 	Content googleContent `json:"content"`
 }
@@ -42,8 +40,6 @@ type googleEmbedContentResponse struct {
 		Values []float32 `json:"values"`
 	} `json:"embedding"`
 }
-
-// -- batchEmbedContents --
 
 type googleBatchRequestItem struct {
 	Model   string        `json:"model"`

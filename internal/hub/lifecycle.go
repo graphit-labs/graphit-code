@@ -8,18 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/paths"
 )
 
-// The projectDir parameter on the three lifecycle hooks is what makes them usable
-// from anything other than a CLI standing in the project. They used to resolve
-// paths with paths.GetPaths, which walks up from the PROCESS's working directory —
-// correct for `graphit remove` typed inside a project, and wrong for the MCP
-// server, which is a long-lived process sitting in one project while its tools
-// take a project_dir argument for another. graphit_remove therefore accepted a
-// path and then removed the IDE adapter, the rules and the git hooks of whatever
-// project the server happened to live in.
-//
-// An empty projectDir keeps the old behaviour (GetPathsForProject falls back to
-// GetPaths), which is what the CLI passes.
-
 func OnInit(ctx context.Context, registry *RegistryManager, ide, projectDir string) error {
 	svc := NewHubService(registry)
 	pp := paths.GetPathsForProject(ide, projectDir)
@@ -149,9 +137,6 @@ func syncIDEAdapter(ide string, pp *paths.ProjectPaths, lf *Lockfile) error {
 
 	flat := buildInstalledFlat(lf, pp, lf.Project.ID)
 
-	// The concrete adapter owns one reconciliation unit: generated artifacts,
-	// project-local MCP configuration, and native IDE hooks. Keeping the call
-	// unified ensures every init/update/sync refreshes all three surfaces.
 	return adapter.Sync(flat, pp, lf.Project.ID)
 }
 

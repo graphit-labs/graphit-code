@@ -84,9 +84,6 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 
 	if port, err := mcpproxy.ReadPort(daemonctl.PortFilePath()); err == nil {
 		res.MCPPort = port
-		// The advertised host is the one the daemon was told to bind, not a hardcoded loopback:
-		// a container publishes the MCP port, and an endpoint saying 127.0.0.1 would be wrong
-		// for every client outside it.
 		res.MCPEndpoint = fmt.Sprintf("http://%s/mcp", net.JoinHostPort(config.ResolveMCPHost(nil, nil), strconv.Itoa(port)))
 	}
 	res.MCPKeyFile = daemonctl.KeyFilePath()

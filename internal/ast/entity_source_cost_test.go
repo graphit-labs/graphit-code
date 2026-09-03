@@ -10,20 +10,6 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// Entity used to carry a Source field holding parent.Utf8Text(src) — a heap copy
-// of each entity's whole declaration — kept only so isExported could run a
-// substring check later. Commit 6aad6d2c replaced it with the ModifierExport
-// verdict, decided while the text is still in hand.
-//
-// The removal was reasoned about but never measured. These two tests measure it:
-// how many bytes the field retained per file, and what dropping it did to the
-// allocator. Both run over this repository's own Go sources rather than a
-// synthetic fixture, because the size of the saving depends on how deeply
-// entities nest — a nested entity's body is a substring of its parent's, and the
-// old field held both copies in full.
-
-// goCorpusFor stages the repo's Go queries into a temp project and returns a
-// parser-ready project dir plus the corpus files.
 func goCorpusFor(tb testing.TB, limit int) (projectDir string, files []string, lang *sitter.Language) {
 	tb.Helper()
 
@@ -53,7 +39,6 @@ func goCorpusFor(tb testing.TB, limit int) (projectDir string, files []string, l
 		if len(files) >= limit {
 			break
 		}
-		// Test files skew towards long literals; index the production sources.
 		if len(f) > 8 && f[len(f)-8:] == "_test.go" {
 			continue
 		}
@@ -65,8 +50,6 @@ func goCorpusFor(tb testing.TB, limit int) (projectDir string, files []string, l
 	return projectDir, files, lang
 }
 
-// declTextBytes sums, for one file, the declaration text the removed field would
-// have retained — one copy per entity, exactly as Source held it.
 func declTextBytes(tb testing.TB, projectDir, path string, lang *sitter.Language) (fileBytes, entities, retained int) {
 	tb.Helper()
 
@@ -140,23 +123,9 @@ func TestEntitySourceRetainedBytes(t *testing.T) {
 	}
 }
 
-// TestEntitySourceLiveHeap is the A/B that matters.
-//
-// An allocation-rate benchmark cannot see this cost: parent.Utf8Text(src) is
-// still called today — the verdict and the complexity score both need the text —
-// so the bytes are allocated either way. What changed is how long they stay
-// reachable. The old field held them for the life of the ParsedFile; now they
-// are garbage the moment the entity is built.
-//
-// So the measurement is live heap after a forced collection, with entities built
-// both ways over the same corpus.
 func TestEntitySourceLiveHeap(t *testing.T) {
 	projectDir, files, lang := goCorpusFor(t, 40)
 
-	// entityWithSource mirrors Entity as it was before 6aad6d2c: the same fields
-	// plus the plain string the removal deleted. Parking the body in Properties
-	// instead would allocate a map per entity and measure the map, not the field —
-	// on this corpus that inflated the difference by about 3.4 MB.
 	type entityWithSource struct {
 		Entity
 		Source string

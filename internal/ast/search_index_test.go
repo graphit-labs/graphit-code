@@ -12,20 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// NOTE: probe identifiers in this file are synthetic, and should stay that way.
-// These tests seed their own database, so any identifier of the right shape
-// serves the purpose — the measurement is whether a fragment of a compound name
-// finds it. Keeping them synthetic also keeps the tests independent of whatever
-// corpus GRAPHIT_E2E_SQL_DIR happens to point at.
-
-// Verification of the search index.
-//
-// These tests were written to compare a LadybugDB implementation against the SQLite one,
-// fed from the same ShardCache so any difference had to be the implementation rather than
-// the input. The migration was reverted — LadybugDB does not maintain an FTS index on
-// insert, which forced an O(corpus) rebuild per edit, and it intermittently stored invalid
-// UTF-8 — so the tests now run against SQLite alone, keeping the requirements they encode.
-
 func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
 	embLookup func(relPath, uid string) []float32) *SearchIndex {
 	t.Helper()
@@ -41,9 +27,6 @@ func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
 	return si
 }
 
-// applyVectors is what an embedding cycle does: it computes a vector for the entities a
-// lookup answers for and writes them into the index. A rebuild no longer takes vectors as
-// an argument — they live in the entity's row and are written there.
 func applyVectors(t *testing.T, si *SearchIndex, cache *ShardCache,
 	embLookup func(relPath, uid string) []float32) {
 	t.Helper()
@@ -95,40 +78,12 @@ func indexSearchNames(t *testing.T, si *SearchIndex, query string, topK int) []s
 	return out
 }
 
-// TestSearchIndexQualityFloor is the gate the migration had to clear, kept as a floor now
-// that the index it was compared against no longer exists.
-//
-// The recorded numbers are from the differential run on this exact corpus and probe set:
-// Ladybug placed the expected entity first 14 times out of 16, SQLite 12, with neither
-// returning nothing for any query. The assertion is therefore against SQLite's 12 — the
-// bar is "no worse than what was replaced", not "never regress by one position", so a
-// ranking tweak does not fail the suite while a real regression does.
-// TestSearchIndexQualityFloor is the re-derived gate: STRICT where one answer is defensible,
-// RECALL where more than one is.
-//
-// THE OLD FLOOR OF 13/16 WAS MEASURING TIE-BREAKS, and that finding is the reason this test looks
-// like this. Five of the sixteen probes have no single defensible answer by the rule this project
-// already wrote down in truncated_query_test.go — "a probe with no defensible answer measures
-// nothing":
-//
-//	configuration -> expected parseConfig, but initConfiguration is at least as good
-//	schema        -> expected validateSchema, but a file named schema.go answers it
-//	config        -> expected configLoader, but an entity literally named Config answers it better
-//	valid         -> validateSchema and SchemaValidator are the same claim
-//	valida        -> PKG_VALIDACAO_PAGAMENTO and SchemaValidator, likewise
-//
-// Those five encoded which of two right answers the old engine's ranking happened to prefer. A
-// previous session read the resulting 11/16 as a quality deficit and was one step from building a
-// cross-encoder to close a gap that was not there. So they became recall probes, and the strict
-// floor became all eleven of the probes that have one answer. Same corpus, same queries, a
-// question that can be answered wrongly.
 func TestSearchIndexQualityFloor(t *testing.T) {
 	dir := t.TempDir()
 	corpus := prefixCorpus()
 	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), corpus)
 	si := buildSearchIndex(t, dir, cache, nil)
 
-	// Probes with exactly one defensible answer. The floor is all of them.
 	cases := []struct{ query, wantTop string }{
 		{"parseConfig", "parseConfig"},
 		{"checksum", "computeChecksum"},
@@ -144,7 +99,6 @@ func TestSearchIndexQualityFloor(t *testing.T) {
 	}
 	const baselineTop1 = 11
 
-	// Probes with more than one defensible answer: the expected entity has to be REACHABLE.
 	recall := []struct{ query, wantAny string }{
 		{"configuration", "parseConfig"},
 		{"schema", "validateSchema"},
@@ -182,8 +136,6 @@ func TestSearchIndexQualityFloor(t *testing.T) {
 		t.Logf("%-16s | %-30s | %s", c.query, c.wantTop, mark)
 	}
 
-	// recallAt5 is the window the old gate itself used: it called Search(query, 5), so five is
-	// what "reachable" has always meant here rather than a number chosen now to fit.
 	const recallAt5 = 5
 	var reached int
 	for _, c := range recall {
@@ -290,7 +242,6 @@ func TestSearchIndexIncremental(t *testing.T) {
 		t.Fatal("baseline: computeChecksum not found before the incremental update")
 	}
 
-	// Replace hash.go's contents with a differently named entity, and delete db.go.
 	if err := cache.Store("hash.go", "h2", &parseCacheEntry{
 		RelPath: "hash.go", Language: "go", Source: "// hash.go v2\n",
 		Entities: []cachedEntity{{
@@ -319,7 +270,6 @@ func TestSearchIndexIncremental(t *testing.T) {
 		t.Error("connectDatabase survived after db.go was deleted")
 	}
 
-	// Re-running the same update must not duplicate anything.
 	if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, []string{"db.go"}, nil); err != nil {
 		t.Fatalf("repeated incremental update: %v", err)
 	}
@@ -327,8 +277,6 @@ func TestSearchIndexIncremental(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	// The index stores the identifier together with its split ("renamedDigest renamed
-	// Digest"), so the raw Name never equals the identifier; entityNames normalises it.
 	count := 0
 	for _, n := range entityNames(res, 0) {
 		if n == "renamedDigest" {
@@ -358,8 +306,6 @@ func TestSearchIndexSemantic(t *testing.T) {
 	corpus := abbrevCorpusNamesOnly()
 	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), corpus)
 
-	// Embed the identifier alone, so a hit is attributable to the name rather than
-	// to prose — the confound isolated in TestAbbreviatedIdentifierSearchSQLite.
 	byUID := make(map[string][]float32, len(corpus))
 	names := make([]string, 0, len(corpus))
 	uids := make([]string, 0, len(corpus))
@@ -398,8 +344,6 @@ func TestSearchIndexSemantic(t *testing.T) {
 	semNames := entityNames(sem, 5)
 	t.Logf("semantic top-5 for \"config\": %v", semNames)
 
-	// CFG_LOAD shares no trigram with "config", so a lexical pass cannot reach it.
-	// The whole point of carrying vectors is that this one does.
 	found := false
 	for _, n := range semNames {
 		if n == "CFG_LOAD" {
@@ -421,7 +365,6 @@ func TestSearchIndexSemantic(t *testing.T) {
 	hybNames := entityNames(hyb, 10)
 	t.Logf("hybrid top-10 for \"config\": %v", hybNames)
 
-	// Fusion must not lose what either half found on its own.
 	lex, err := lb.Search(context.Background(), "config", 10)
 	if err != nil {
 		t.Fatalf("lexical search: %v", err)
@@ -481,7 +424,6 @@ func TestSearchIndexIncrementalRepeated(t *testing.T) {
 			t.Fatalf("round %d update: %v", round, err)
 		}
 
-		// The new name must be searchable and the previous one gone.
 		res, err := lb.Search(context.Background(), name, 20)
 		if err != nil {
 			t.Fatalf("round %d search: %v", round, err)
@@ -510,13 +452,6 @@ func TestSearchIndexIncrementalRepeated(t *testing.T) {
 	}
 }
 
-// TestSearchResultsCarryCleanNames pins down what a result shows.
-//
-// The index stores an identifier together with its split so both spellings match, and that
-// used to live in the same column the result displayed — so search returned
-// "parseConfig parse Config" and "config.go config go" as names, to the agent consuming it
-// over MCP and to every test, which had to strip the suffix before comparing. The split now
-// lives in name_split and the displayed column holds the identifier alone.
 func TestSearchResultsCarryCleanNames(t *testing.T) {
 	dir := t.TempDir()
 	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), gateCorpus())
@@ -570,7 +505,6 @@ func TestHybridSearchDelegatesToKeywordsWhenTheIndexHasNoEmbeddings(t *testing.T
 		t.Errorf("degraded hybrid search did not return the sought entity: %+v", res)
 	}
 
-	// Same input against the keyword half alone must agree: degrade is Search, not luck.
 	keyword, err := si.Search(context.Background(), "evictOldestStaged", 10)
 	if err != nil {
 		t.Fatalf("keyword search: %v", err)

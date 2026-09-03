@@ -12,7 +12,6 @@ import (
 )
 
 func setupTestHome(t *testing.T) (string, func()) {
-	// Create a temp directory for the HOME folder
 	tempHome, err := os.MkdirTemp("", "graphit-test-home-*")
 	if err != nil {
 		t.Fatalf("failed to create temp home: %v", err)
@@ -23,7 +22,7 @@ func setupTestHome(t *testing.T) (string, func()) {
 	origDaemon := os.Getenv("GRAPHIT_MODULES_DAEMON")
 
 	_ = os.Setenv("HOME", tempHome)
-	_ = os.Setenv("GRAPHIT_MODULES_DAEMON", "false") // Disable daemon start in PersistentPreRun
+	_ = os.Setenv("GRAPHIT_MODULES_DAEMON", "false")
 	_ = os.Unsetenv("GRAPHIT_IDE")
 
 	cleanup := func() {
@@ -45,7 +44,6 @@ func setupTestHome(t *testing.T) (string, func()) {
 }
 
 func executeCommand(args ...string) (string, error) {
-	// Redirect stdout and stderr to a pipe
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
 	r, w, err := os.Pipe()
@@ -59,7 +57,6 @@ func executeCommand(args ...string) (string, error) {
 	rootCmd.SilenceErrors = true
 	rootCmd.SilenceUsage = true
 
-	// Explicitly reset the flags of the config command to false
 	if configCmd, _, err := rootCmd.Find([]string{"config"}); err == nil && configCmd != nil {
 		_ = configCmd.Flags().Set("global", "false")
 		_ = configCmd.Flags().Set("get", "false")
@@ -70,7 +67,6 @@ func executeCommand(args ...string) (string, error) {
 
 	execErr := rootCmd.Execute()
 
-	// Restore and read from pipe
 	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
@@ -124,13 +120,11 @@ func TestCLIConfigGlobal(t *testing.T) {
 	_, cleanup := setupTestHome(t)
 	defer cleanup()
 
-	// 1. Get unset key
 	_, err := executeCommand("config", "--global", "--get", "ide")
 	if err == nil {
 		t.Error("expected error getting unset global key")
 	}
 
-	// 2. Set key
 	out, err := executeCommand("config", "--global", "ide", "cursor")
 	if err != nil {
 		t.Errorf("failed to set config: %v", err)
@@ -139,7 +133,6 @@ func TestCLIConfigGlobal(t *testing.T) {
 		t.Errorf("unexpected output when setting key: %s", out)
 	}
 
-	// 3. Get key
 	out, err = executeCommand("config", "--global", "--get", "ide")
 	if err != nil {
 		t.Errorf("failed to get config: %v", err)
@@ -156,7 +149,6 @@ func TestCLIConfigGlobal(t *testing.T) {
 		t.Errorf("expected ide: cursor in list output, got: %s", out)
 	}
 
-	// 5. Unset key
 	out, err = executeCommand("config", "--global", "--unset", "ide")
 	if err != nil {
 		t.Errorf("failed to unset config: %v", err)
@@ -165,7 +157,6 @@ func TestCLIConfigGlobal(t *testing.T) {
 		t.Errorf("unexpected output when unsetting key: %s", out)
 	}
 
-	// 6. List config again (should be empty)
 	out, err = executeCommand("config", "--global", "--list")
 	if err != nil {
 		t.Errorf("failed to list config: %v", err)
@@ -179,7 +170,6 @@ func TestCLIConfigProjectWithoutInit(t *testing.T) {
 	_, cleanup := setupTestHome(t)
 	defer cleanup()
 
-	// Should fail because project is not initialized
 	_, err := executeCommand("config", "ide", "cursor")
 	if err == nil {
 		t.Error("expected config set to fail without initialized project")
@@ -211,7 +201,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tempProj) }()
 
-	// Change current working directory to the project directory
 	oldWd, _ := os.Getwd()
 	_ = os.Chdir(tempProj)
 	defer func() { _ = os.Chdir(oldWd) }()
@@ -221,7 +210,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 		t.Fatalf("failed to create global config dir: %v", err)
 	}
 
-	// Let's set it globally so the init/setup requirements pass
 	err = os.WriteFile(filepath.Join(tempHome, "."+brand.Brand, "config.json"), []byte(`{"hub":{"repo":"git@github.com:graphit-labs/graphit-code.git"}}`), 0644)
 	if err != nil {
 		t.Fatalf("failed to write global mock config: %v", err)
@@ -232,7 +220,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 		t.Errorf("failed to initialize project: %v, output: %s", err, out)
 	}
 
-	// Test config set
 	out, err = executeCommand("config", "ide", "cursor")
 	if err != nil {
 		t.Errorf("failed to set project config: %v", err)

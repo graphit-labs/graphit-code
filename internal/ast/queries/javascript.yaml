@@ -1,17 +1,13 @@
 language: javascript
 grammar: tree-sitter-javascript
 extensions: [".js", ".jsx", ".mjs"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Method] }
   READS_FIELD: { labels: [Field] }
   WRITES_FIELD: { labels: [Field] }
 queries:
-  # ═══════════════════════════════════════════════════════════════
-  # FUNCTIONS & METHODS
-  # ═══════════════════════════════════════════════════════════════
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration name: (identifier) @name)'
@@ -28,66 +24,31 @@ queries:
     graph_label: Function
     pattern: '(variable_declarator name: (identifier) @name value: (function_expression))'
 
-  # ═══════════════════════════════════════════════════════════════
-  # CLASSES
-  # ═══════════════════════════════════════════════════════════════
   - data_key: classes
     graph_label: Class
     pattern: '(class_declaration name: (identifier) @name)'
 
-  # ═══════════════════════════════════════════════════════════════
-  # VARIABLES
-  # ═══════════════════════════════════════════════════════════════
   - data_key: variables
     graph_label: Variable
     pattern: '(lexical_declaration (variable_declarator name: (identifier) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name. Also
-  # covers `var`, which lexical_declaration does not reach.
   - data_key: variables
     graph_label: Variable
     pattern: '(variable_declarator name: (identifier) @name value: [(number) (true) (false) (null) (undefined) (string) (template_string) (regex)] @value)'
     value_capture: value
     value_label: Value
 
-  # ═══════════════════════════════════════════════════════════════
-  # IMPORTS & EXPORTS
-  # ═══════════════════════════════════════════════════════════════
   - data_key: imports
     graph_label: Import
     pattern: '(import_statement source: (string) @name)'
   - data_key: imports
     graph_label: Export
     pattern: '(export_statement source: (string) @name)'
-  # CommonJS dependencies. `require('x')` IS a dependency, and without this it lands as
-  # a call to a stub named `require` — the module's own name unreachable, so "what does
-  # this project depend on" silently misses every CommonJS import. The `@_` capture is
-  # auxiliary and does not become an entity; it only pins the callee.
+
   - data_key: imports
     graph_label: Import
     pattern: '(call_expression function: (identifier) @_fn arguments: (arguments (string) @name) (#eq? @_fn "require"))'
 
-  # Configuration and content expressed as an object literal.
-  #
-  # The same settings written in .json get a Pair and a Value each — see json.yaml — so
-  # "which file sets this flag / holds this colour" was answerable there and not here,
-  # purely because of the file extension. `export default { … }` is how nearly every JS
-  # tool is configured (Vite, Vitest, Tailwind, PostCSS, ESLint flat config), and an
-  # anonymous default export declares no name, so such a file yielded NOTHING at all.
-  #
-  # UNANCHORED, and that is a decision with a measured cost. Anchoring these at the
-  # exported object or a declared constant kept the additions to 7.8% of .tsx nodes and
-  # dropped the call options (`{behavior: "smooth"}`, an inline style) that make up
-  # about half of them — but it also missed the real thing: in an actual config the
-  # literals are nested three or four levels down (`theme.extend.colors.border`), so
-  # tailwind.config.js stayed empty and the problem was not solved. Tree-sitter has
-  # neither a descendant wildcard nor structural negation, so "any literal pair except
-  # inside a call" cannot be written. Unanchored costs ~37% more nodes in .tsx and
-  # answers the question; anchored costs 7.8% and does not.
-  #
-  # Only values that are LITERALS. A pair whose value is another object or an array is
-  # structure, not content, and would cost a node per nesting level while answering
-  # nothing the literal beneath it does not already answer.
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair key: (property_identifier) @name value: (string (string_fragment) @value))'
@@ -98,17 +59,13 @@ queries:
     pattern: '(pair key: (property_identifier) @name value: [(number) (true) (false) (null)] @value)'
     value_capture: value
     value_label: Value
-  # Quoted keys — `'accordion-down': '…'` — are a string node, not an identifier.
+
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair key: (string (string_fragment) @name) value: (string (string_fragment) @value))'
     value_capture: value
     value_label: Value
 
-  # A key whose value is an object or an array is content too, and often the only
-  # content there is: `plugins: { autoprefixer: {} }` names a plugin, and the empty
-  # object means "no options" rather than "nothing here". The VALUE is not captured for
-  # these — there is no literal to capture — so this costs one node per key, not a tree.
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair key: (property_identifier) @name value: [(object) (array)])'
@@ -116,10 +73,6 @@ queries:
     graph_label: Pair
     pattern: '(pair key: (string (string_fragment) @name) value: [(object) (array)])'
 
-  # Array items, the way json.yaml already records them: the glob in
-  # `content: ['./src/**/*.tsx']` and the preset in a `plugins: [...]` list are content,
-  # and without this only the key survives. Contained by the key, so "what does this
-  # setting list" is a traversal.
   - data_key: array_items
     graph_label: Value
     pattern: '(pair key: (property_identifier) @parent value: (array (string (string_fragment) @name)))'
@@ -136,9 +89,6 @@ queries:
     relation_type: EXPORT
     pattern: '(export_statement declaration: (function_declaration name: (identifier) @name))'
 
-  # ═══════════════════════════════════════════════════════════════
-  # PARAMETERS & FIELDS
-  # ═══════════════════════════════════════════════════════════════
   - data_key: parameters
     graph_label: Parameter
     pattern: '(formal_parameters (identifier) @name)'
@@ -151,9 +101,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # ═══════════════════════════════════════════════════════════════
-  # RELATIONS
-  # ═══════════════════════════════════════════════════════════════
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -179,37 +126,29 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment_expression left: (member_expression property: (property_identifier) @name))'
 
-# Export detection strategy
 exports:
   strategy: export_statement
 
-# JavaScript uses 'this', not 'self'
 self_keywords: ["this."]
 
-# tree-sitter-javascript context types (only valid JS node types)
 context_types:
   class_declaration: Class
   function_declaration: Function
   method_definition: Method
-  # function* foo() is its own node kind, not a function_declaration, so without
-  # this its parameters resolve to whatever encloses the generator.
+
   generator_function_declaration: Function
-  # `const X = { … }` owns the pairs inside it, which is what makes a lookup table
-  # traversable from its own name.
+
   lexical_declaration: Variable
 
-# A const has no `name` field of its own; the name is on its declarator.
 context_name_paths:
   lexical_declaration: variable_declarator/name
 
-# Anonymous function types for variable_declarator resolution
 anon_func_types:
   - arrow_function
   - function_expression
   - function
   - generator_function
 
-# tree-sitter-javascript declaration types for docstring attachment
 declaration_types:
   - function_declaration
   - generator_function_declaration
@@ -218,13 +157,9 @@ declaration_types:
   - variable_declarator
   - lexical_declaration
 
-# tree-sitter-javascript has a single 'comment' type for both // and /* */
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. "else if" needs no entry of its own — the
-# grammar re-nests it as another if_statement inside the else_clause.
 complexity:
   node_types:
     - if_statement
@@ -235,10 +170,6 @@ complexity:
     - ternary_expression
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Function

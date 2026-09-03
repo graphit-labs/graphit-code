@@ -18,18 +18,14 @@ func TestReadLauncherStamp_MultilineContent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Write multiline content — TrimSpace should strip trailing newlines.
 	if err := os.WriteFile(stamp, []byte("v2.0.1\nextra-line\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := readLauncherStamp()
-	// TrimSpace strips trailing whitespace but keeps content between.
 	if got != "v2.0.1\nextra-line" {
 		t.Errorf("expected 'v2.0.1\\nextra-line', got %q", got)
 	}
 }
-
-// version_check.go — launcherStampPath components
 
 func TestLauncherStampPath_ContainsBrandDir(t *testing.T) {
 	tempHome := t.TempDir()
@@ -53,11 +49,9 @@ func TestLauncherStampPath_ContainsBrandDir(t *testing.T) {
 func TestCronMarker_Format(t *testing.T) {
 	t.Parallel()
 	marker := cronMarker()
-	// Should start with "# "
 	if len(marker) < 3 || marker[:2] != "# " {
 		t.Errorf("marker should start with '# ', got %q", marker)
 	}
-	// Should be uppercase
 	suffix := marker[2:]
 	for _, r := range suffix {
 		if r >= 'a' && r <= 'z' {
@@ -68,8 +62,6 @@ func TestCronMarker_Format(t *testing.T) {
 }
 
 func TestIsSchedulerInstalled_ReturnsBool(t *testing.T) {
-	// Should not panic and should return a boolean.
 	result := IsSchedulerInstalled()
-	// We just verify it doesn't panic. The actual value depends on the system.
 	_ = result
 }

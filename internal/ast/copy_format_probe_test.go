@@ -11,12 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ladybugstore"
 )
 
-// searchBatchRows is the UNWIND batch size these probes measure the engine with.
-//
-// It lived in the production search index until that index moved to SQLite, where a bulk
-// write is a prepared statement inside one transaction and has no batch to size. What is
-// left is what it always really measured: how this engine behaves per COPY call, which is
-// what the probes in this file and its neighbours exist to record.
 const searchBatchRows = 500
 
 // TestCopyFormatCapability asks what this engine build actually accepts on the bulk-load
@@ -38,8 +32,6 @@ func TestCopyFormatCapability(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 
-	// The rebuild loads the json extension before staging; without it COPY FROM a .json
-	// file fails at the binder, which would make the comparison meaningless.
 	_ = st.Exec("INSTALL json", nil)
 	if err := st.LoadExtensions("json"); err != nil {
 		t.Fatalf("load json: %v", err)
@@ -67,7 +59,6 @@ func TestCopyFormatCapability(t *testing.T) {
 		}
 	}
 
-	// COPY TO — also how this probe obtains a Parquet file without a Go Parquet writer.
 	for _, ext := range []string{"parquet", "csv", "json", "arrow"} {
 		out := filepath.Join(dir, "ent."+ext)
 		start := time.Now()
@@ -81,8 +72,6 @@ func TestCopyFormatCapability(t *testing.T) {
 			ext, time.Since(start).Seconds(), float64(size)/(1<<20), err)
 	}
 
-	// JSON is what the rebuild stages today, and COPY TO cannot produce it, so it is
-	// written the way writeJSONFile writes it — an array of objects.
 	jsonPath := filepath.Join(dir, "ent.json")
 	{
 		data := make([]map[string]any, 0, n)
@@ -102,7 +91,6 @@ func TestCopyFormatCapability(t *testing.T) {
 			"json", time.Since(start).Seconds(), float64(fi.Size())/(1<<20))
 	}
 
-	// COPY FROM, into a fresh table each time so the loads are comparable.
 	for _, ext := range []string{"parquet", "csv", "json", "arrow"} {
 		in := filepath.Join(dir, "ent."+ext)
 		if _, serr := os.Stat(in); serr != nil {
@@ -122,9 +110,6 @@ func TestCopyFormatCapability(t *testing.T) {
 			ext, time.Since(start).Seconds(), count, err)
 	}
 
-	// UNWIND against COPY, same rows, same shape. The graph rebuild stages to a file and
-	// COPYs; the search index inserts with UNWIND. If the two differ by an order of
-	// magnitude, the format of the staging file is not the interesting question.
 	if err := st.Exec(`CREATE NODE TABLE Load_unwind(id INT64, name STRING, path STRING,
 		doc STRING, PRIMARY KEY(id))`, nil); err == nil {
 		start := time.Now()
@@ -149,13 +134,8 @@ func TestCopyFormatCapability(t *testing.T) {
 			"batches", time.Since(start).Seconds(), count, searchBatchRows)
 	}
 
-	// The blocker to check before betting on COPY for the search index: can a staged file
-	// carry the FLOAT[768] embedding column, and can it carry NULL for the rows that have
-	// no vector? UNWIND cannot mix the two in one batch (see insertEntityQueryNoVec).
 	probeCopyVectorColumn(t, st, dir)
 
-	// A glob over a directory: whether a partitioned shard layout could be loaded in one
-	// statement instead of one COPY per file.
 	if err := st.Exec(`CREATE NODE TABLE Load_glob(id INT64, name STRING, path STRING,
 		doc STRING, PRIMARY KEY(id))`, nil); err == nil {
 		err := st.Exec(fmt.Sprintf(`COPY Load_glob FROM '%s'`,
@@ -165,8 +145,6 @@ func TestCopyFormatCapability(t *testing.T) {
 	}
 }
 
-// probeCopyVectorColumn checks whether the bulk-load path can carry the embedding column,
-// including the NULL rows that the UNWIND path has to split into a separate batch.
 func probeCopyVectorColumn(t *testing.T, st *ladybugstore.Store, dir string) {
 	t.Helper()
 	_ = st.Exec("INSTALL vector", nil)
@@ -185,7 +163,6 @@ func probeCopyVectorColumn(t *testing.T, st *ladybugstore.Store, dir string) {
 	for i := range vec {
 		vec[i] = 0.01
 	}
-	// Half the rows carry a vector, half do not — the mix a real corpus produces.
 	for i := 0; i < 20_000; i++ {
 		row := map[string]any{"id": int64(i), "name": fmt.Sprintf("e%d", i)}
 		q := `CREATE (:VecSrc {id: $id, name: $name})`

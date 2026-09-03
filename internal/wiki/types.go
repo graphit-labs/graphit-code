@@ -1,11 +1,5 @@
 package wiki
 
-// The wiki's vocabulary.
-//
-// These types outlived the storage engine they were written for. They describe what a wiki IS —
-// a page, a search result, a cross-reference, one sync — and nothing in them was ever specific to
-// SQLite, which is why the engine could be replaced without any caller changing shape.
-
 // WikiChunk represents a single wiki document chunk stored in the database.
 type WikiChunk struct {
 	Slug        string

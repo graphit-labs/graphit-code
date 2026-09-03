@@ -112,12 +112,6 @@ func ActiveNodeLabels(ctx context.Context, db GraphDB) []string {
 	return labels
 }
 
-// writeSchemaLangSection renders the per-language grouping that opens the schema, so a
-// reader sees which labels belong to which language before meeting the flat property
-// reference below it.
-//
-// An empty grouping writes nothing at all: a graph mid-rebuild, or one with no nodes yet,
-// should fall through to the property reference rather than show an empty heading.
 func writeSchemaLangSection(buf *strings.Builder, groups []SchemaLangGroup) {
 	if len(groups) == 0 {
 		return
@@ -179,13 +173,6 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 
 	buf.WriteString("Node labels and key properties:\n")
 
-	// Labels are grouped by their property set instead of one line each.
-	//
-	// Almost every label in this schema is an ENTITY label, and they all carry the
-	// identical 16-property row — only File, Directory and Module differ. Printed one
-	// per line that is ~25 repetitions of the same list, which an agent pays for in
-	// context on every session while learning nothing after the first one. Grouping
-	// loses no information: a label's properties are still stated exactly, once.
 	sigOrder := make([]string, 0, len(nodeTables))
 	byLabel := make(map[string]string, len(nodeTables))
 	labelsBySig := make(map[string][]string, len(nodeTables))
@@ -210,9 +197,6 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 		labelsBySig[sig] = append(labelsBySig[sig], t)
 	}
 
-	// Unique shapes first and one per line, because those are the ones worth reading
-	// individually — File.path vs an entity's path is exactly the distinction that
-	// makes a query crash with "Cannot find property".
 	for _, t := range nodeTables {
 		if sig, ok := byLabel[t]; ok && len(labelsBySig[sig]) < schemaSharedShapeMin {
 			fmt.Fprintf(&buf, "- %s(%s)\n", t, sig)

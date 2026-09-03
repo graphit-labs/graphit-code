@@ -17,7 +17,6 @@ const (
 func LowerPriority() error {
 	nErr := unix.Setpriority(unix.PRIO_PROCESS, 0, 10)
 
-	// Best-effort ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_CLASS_IDLE).
 	ioprio := uintptr(ioprioClassIdle << ioprioClassShift)
 	if _, _, errno := unix.Syscall(unix.SYS_IOPRIO_SET, ioprioWhoProcess, 0, ioprio); errno != 0 && nErr == nil {
 		return errno

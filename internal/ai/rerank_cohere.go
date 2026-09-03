@@ -8,8 +8,6 @@ import (
 
 const cohereRerankDefaultBaseURL = "https://api.cohere.com"
 
-// cohereRerankChunkSize keeps request/response bodies reasonable. Cohere's own limit is 1000
-// documents per call; chunking well below that avoids one huge request/response round trip.
 const cohereRerankChunkSize = 200
 
 type cohereRerankConfig struct {

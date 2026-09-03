@@ -1,15 +1,13 @@
 language: go
 grammar: tree-sitter-go
 extensions: [".go"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Method] }
   READS_FIELD: { labels: [Field] }
   WRITES_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration name: (identifier) @name)'
@@ -32,9 +30,6 @@ queries:
     graph_label: Variable
     pattern: '(var_spec name: (identifier) @name)'
 
-  # Declared literal values. The literal becomes a node contained by the name, so
-  # "who holds this URL / this magic number" is a question search
-  # responde. Only literals are captured — an arbitrary expression is not a name.
   - data_key: constants
     graph_label: Constant
     pattern: '(const_spec name: (identifier) @name value: (expression_list [(int_literal) (float_literal) (true) (false) (nil) (rune_literal) (interpreted_string_literal) (raw_string_literal)] @value))'
@@ -55,7 +50,6 @@ queries:
     graph_label: Field
     pattern: '(field_declaration name: (field_identifier) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -73,29 +67,18 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment_statement left: (expression_list (selector_expression field: (field_identifier) @name)))'
 
-# Go export detection: capitalized names are public
 exports:
   strategy: capitalized_name
 
-# Go has no self/this keyword — receivers are explicit named parameters
 self_keywords: []
 
-# Parent context type mapping — Go tree-sitter node types only
-# Used by resolveParentContext() to walk up the AST and find enclosing scope.
-# Go structs: field_identifier → field_declaration → field_declaration_list → struct_type → type_spec
-# Go functions: identifier → parameter_declaration → parameter_list → function_declaration
-# Go methods: field_identifier → parameter_declaration → parameter_list → method_declaration
 context_types:
   type_spec: Struct
   function_declaration: Function
   method_declaration: Method
 
-# Go has no anonymous function expressions with variable_declarator pattern
-# Go uses func_literal but it's not assigned via variable_declarator syntax
 anon_func_types: []
 
-# Declaration node types that can have docstrings (comments immediately above).
-# Go tree-sitter uses these exact node types as top-level declaration wrappers.
 declaration_types:
   - function_declaration
   - method_declaration
@@ -103,13 +86,9 @@ declaration_types:
   - var_declaration
   - const_declaration
 
-# Go tree-sitter uses a single "comment" node type for both // and /* */ comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar (see Graphit Task history). "else if" needs no
-# entry of its own — Go re-nests it as another if_statement in the else block.
 complexity:
   node_types:
     - if_statement
@@ -118,10 +97,6 @@ complexity:
     - communication_case
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Function
   - Method

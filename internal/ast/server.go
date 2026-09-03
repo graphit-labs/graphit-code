@@ -36,9 +36,6 @@ type Server struct {
 
 func NewServerOnPort(db GraphDB, repoPath string, port int) (*Server, error) {
 
-	// The agent client is not even constructed when the module is off. Building it would shell out
-	// to exec.LookPath for nothing, and leaving it nil is what makes the handler's existing
-	// nil-check the single place that refuses the request.
 	var aiClient ai.Client
 	if config.AgentFeaturesEnabled(nil, config.LoadProjectConfig(repoPath)) {
 		aiClient, _ = ai.NewClientFromConfig()
@@ -123,12 +120,6 @@ func (s *Server) getOrCreateCachedDB(projectDir, storeDir string, readOnly bool)
 	return db
 }
 
-// requestedRoot reports which project root the request is about, and whether
-// that is a different project than the one this server was started in.
-//
-// The UI's project switcher sends project_dir on every call, so this decision —
-// "answer from my own store, or from that project's store" — has to be taken the
-// same way by every handler. Taking it in one place is what keeps them agreeing.
 func (s *Server) requestedRoot(r *http.Request) (root string, otherProject bool) {
 	root = s.repoPath
 	if root == "" {
@@ -386,35 +377,11 @@ func (s *Server) handleObsidianExport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// How much of the graph the explorer draws when it opens. Both bind the SCAN, not
-// the projection: on a graph with millions of nodes a LIMIT after an expansion
-// materialises the intermediate result first and exhausts the buffer pool.
-//
-// The edge budget is the larger one because edges are what make the picture, and
-// because raising it is nearly free — measured on a 2M-node graph, the edge sample
-// costs ~0.19s at 300 rows and ~0.19s at 1000. Its cost is fan-out over the graph's
-// tables, paid once, not per row.
 const (
 	graphSampleNodes = 300
 	graphSampleEdges = 1000
 )
 
-// The node sample answers one question — what is IN this graph — and does not
-// expand. That is a performance decision, taken against measurements rather than
-// intuition, and it is worth stating because the obvious shape is the expensive one.
-//
-// It used to expand into `OPTIONAL MATCH (n)-[r]->(m) WHERE id(m) IN sample_ids`,
-// to draw the edges among the sampled nodes. That expansion cost 0.45s for 300
-// nodes, and none of it was data: the same query on a graph 34x smaller took the
-// same 0.35s. The cost is the unlabelled pattern fanning out across every node and
-// relationship table, plus an IN filter over a 300-element list evaluated per row —
-// neither of which an index can help with, because nothing is being looked up by
-// value. Without the expansion the same sample costs 0.01s.
-//
-// What it bought was 293 Directory-CONTAINS->File edges: the directory tree, which
-// the explorer's file panel already shows. defaultGraphEdgeQuery is where the
-// picture's connectivity comes from, and its budget was raised to more than cover
-// what this stopped returning.
 func graphNodeSampleQuery(withLine bool) string {
 	return fmt.Sprintf(`
 	MATCH (n)
@@ -425,17 +392,6 @@ func graphNodeSampleQuery(withLine bool) string {
 
 var defaultGraphQuery = graphNodeSampleQuery(true)
 
-// graphEdgeSampleQuery samples the graph the other way round — edges first, with
-// the nodes on both ends — and is the only source of links in the default view.
-//
-// Sampling nodes alone draws a field of dots: the first nodes of a repository-shaped
-// graph are Files and Directories, which point at entities that fall outside any
-// node sample. This scan starts from the edges instead, so every row is a link with
-// both of its endpoints.
-//
-// The two stay separate rather than merged into one query: each remains a simple
-// bounded scan, either one coming back empty is harmless, and a graph with no edges
-// at all is still drawn through the node sample.
 func graphEdgeSampleQuery(withLine bool) string {
 	return fmt.Sprintf(`
 	MATCH (n)-[r]->(m)
@@ -449,14 +405,6 @@ func graphEdgeSampleQuery(withLine bool) string {
 
 var defaultGraphEdgeQuery = graphEdgeSampleQuery(true)
 
-// graphSideColumns projects one end of a row. Both sample queries name their columns
-// the same way, which is what lets one reader — graphNodeSideFrom — serve both ends.
-//
-// withLine is not a preference, it is a fallback. `n` is unlabelled, and a property
-// binds only if SOME label in the graph carries it: a graph holding nothing but
-// files and directories has no table with line_number, and asking for it there is
-// not an empty column but a Binder exception that fails the whole query. That graph
-// has no entity to jump to anyway, so the explorer drops the column and still draws.
 func graphSideColumns(v, prefix string, withLine bool) string {
 	cols := fmt.Sprintf(`CAST(id(%[1]s) AS STRING) AS %[2]s_id,
 		label(%[1]s) AS %[2]s_label,
@@ -471,9 +419,6 @@ func graphSideColumns(v, prefix string, withLine bool) string {
 	return cols
 }
 
-// querySample runs a sample that asks for line_number and retries without it when
-// this particular graph has no table carrying that property. Only a binder error on
-// that exact column is retried — anything else is the caller's error to report.
 func querySample(ctx context.Context, db GraphDB, withLine, withoutLine string) (*QueryResult, error) {
 	res, err := db.Query(ctx, withLine, nil)
 	if err == nil || !strings.Contains(err.Error(), "Cannot find property line_number") {
@@ -482,10 +427,8 @@ func querySample(ctx context.Context, db GraphDB, withLine, withoutLine string) 
 	return db.Query(ctx, withoutLine, nil)
 }
 
-// defaultGraphQueryText exposes the query so its shape can be asserted.
 func defaultGraphQueryText() string { return defaultGraphQuery }
 
-// defaultGraphEdgeQueryText exposes the edge sample for the same reason.
 func defaultGraphEdgeQueryText() string { return defaultGraphEdgeQuery }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
@@ -531,10 +474,6 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The node sample says what is in the graph; the edge sample says how it is
-	// connected. Neither alone is a picture: sampling nodes on a repository-shaped
-	// graph returns Files only, which have no edges between them. A failure here is
-	// not fatal — the nodes already collected are still worth drawing.
 	if !isUserQuery {
 		if edgeResult, edgeErr := querySample(ctx, db, defaultGraphEdgeQuery, graphEdgeSampleQuery(false)); edgeErr == nil {
 			for _, rec := range edgeResult.Records {
@@ -617,10 +556,6 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 						"type": label, "file": getStr(props, "path", ""),
 						"properties": props,
 					}
-					// A node returned by a typed query carries its raw properties, so
-					// the line is already there — it just has to be lifted to where
-					// the explorer looks for it, the same place the sample queries
-					// put it.
 					if line := toInt(props["line_number"]); line > 0 {
 						node["line"] = line
 					}
@@ -655,10 +590,6 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 	}
 }
 
-// graphNodeSide is one end of a row from either sample query. Both queries name
-// their columns with the same src_/dst_ prefixes, so one reader serves both ends —
-// which is also what keeps a new column from having to be threaded through a
-// growing list of positional string arguments.
 type graphNodeSide struct {
 	id      string
 	label   string
@@ -757,15 +688,6 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "File source not found")
 }
 
-// storePathForRequest resolves the store dir this request is asking about — the same
-// answer dbForContext gives, as a path.
-//
-// The file handler needs the path and not the handle, because file text lives in
-// the search index beside the icebug bundle rather than in the graph. It used to ask
-// storePathFor, which only ever knows about the project this server was started
-// in: with the UI pointed at another project, /api/graph answered from that
-// project's store and /api/file answered 404 from this one, for a file that is
-// indexed — just not here.
 func (s *Server) storePathForRequest(r *http.Request) string {
 	ctxName := r.URL.Query().Get("context")
 
@@ -779,9 +701,6 @@ func (s *Server) storePathForRequest(r *http.Request) string {
 
 	dir := s.storePathFor(root, ctxName)
 	if dir != "" && !filepath.IsAbs(dir) {
-		// A backend built by hand with a relative StoreDir resolves against the
-		// request's project root — the same guard the DBPath version had, with
-		// the same reason: the server may be serving another project.
 		dir = filepath.Join(root, dir)
 	}
 	return dir
@@ -871,10 +790,6 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 
 	seenIDs := map[string]bool{"__project__": true}
 
-	// ListImportedContextsIn answers for targetDir whether or not that is the
-	// project this server was started in, and it reads targetDir's own records —
-	// its lockfile for Hub contexts and its context registry for locally imported
-	// ones. Every store is global, so walking the project would find nothing.
 	for key, ictx := range ListImportedContextsIn(targetDir) {
 		if seenIDs[key] {
 			continue
@@ -1030,9 +945,6 @@ func buildGraphNode(s graphNodeSide) map[string]any {
 	if s.lang != "" {
 		props["lang"] = s.lang
 	}
-	// Line 0 is the call-target stub's placeholder, not a location: those nodes are
-	// created by a call site and have no declaration to open. Omitting it is what
-	// lets the explorer tell "no line to jump to" from "line 1".
 	if s.line > 0 {
 		props["line_number"] = s.line
 	}

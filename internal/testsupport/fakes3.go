@@ -33,8 +33,6 @@ func StartFakeS3(t *testing.T, bucket string) (*FakeS3, string) {
 	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
 
-	// The SDK signs every request, so it needs credentials even against a fake. These are
-	// nonsense on purpose: nothing here validates a signature.
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")

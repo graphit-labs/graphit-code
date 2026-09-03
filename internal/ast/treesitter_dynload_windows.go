@@ -58,9 +58,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// loadFromPath does the actual LoadLibrary + symbol resolution via CGO (Windows implementation).
 func (l *DynGrammarLoader) loadFromPath(lang, libPath string) (*sitter.Language, error) {
-	// The symbol name follows tree-sitter convention: tree_sitter_<lang>
 	symName := "tree_sitter_" + lang
 
 	cPath := C.CString(libPath)
@@ -81,7 +79,6 @@ func (l *DynGrammarLoader) loadFromPath(lang, libPath string) (*sitter.Language,
 
 	language := sitter.NewLanguage(ptr)
 
-	// Cache the result.
 	l.cache.Store(lang, language)
 	l.loadedPaths.Store(lang, libPath)
 

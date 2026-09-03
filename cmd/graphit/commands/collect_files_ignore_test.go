@@ -108,7 +108,6 @@ func TestCollectFilesForPathDotDirectoriesAreRuledByIgnores(t *testing.T) {
 		t.Errorf("an unruled dot-directory was excluded structurally: %v", allPaths(files))
 	}
 
-	// Now rule it out and re-collect: the same path must disappear.
 	if err := os.WriteFile(filepath.Join(root, ".astignore"), []byte(".opencode/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -156,9 +155,6 @@ func TestCollectFilesForPathScopedStaysInsideProjectBoundary(t *testing.T) {
 	}
 }
 
-// The reported regression: `.opencode/.gitignore` scopes its patterns to
-// `.opencode/`, so `node_modules` there must exclude `.opencode/node_modules/`
-// while leaving everything else alone.
 func TestCollectFilesForPathHonorsSubdirectoryGitignore(t *testing.T) {
 	root := t.TempDir()
 	if !ast.HasParserForExtensionIn(root, ".js") {

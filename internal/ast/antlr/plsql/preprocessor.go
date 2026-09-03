@@ -4,8 +4,6 @@ import (
 	"strings"
 )
 
-// matchKeywordAt checks case-insensitively if keyword kw starts at src[pos]
-// followed by a word boundary.
 func matchKeywordAt(src string, pos int, kw string) bool {
 	if pos+len(kw) > len(src) {
 		return false
@@ -28,8 +26,6 @@ func matchKeywordAt(src string, pos int, kw string) bool {
 	return true
 }
 
-// stripMviewUsing removes Data Pump's internal USING clause from materialized views.
-// Pattern: `) USING ("name", ...) REFRESH|AS|BUILD`
 func stripMviewUsing(src string) string {
 	var out strings.Builder
 	out.Grow(len(src))

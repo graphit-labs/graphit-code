@@ -19,7 +19,6 @@ func TestDaemon_Start_PIDWriteError(t *testing.T) {
 	tmp := t.TempDir()
 	logPath := filepath.Join(tmp, "daemon.log")
 
-	// Block PID dir creation by placing a file where the dir should be.
 	pidBase := filepath.Join(tmp, "pidblock")
 	_ = os.WriteFile(pidBase, []byte("x"), 0o600)
 	pidPath := filepath.Join(pidBase, "sub", "daemon.pid")
@@ -46,11 +45,9 @@ func TestDaemon_Start_LogFileOpenError(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	tmp := t.TempDir()
-	// Create the log dir as a file so OpenFile fails on it.
 	logDir := filepath.Join(tmp, "logdir")
 	_ = os.MkdirAll(logDir, 0o755)
-	// Make log path point to a directory, which causes OpenFile to fail.
-	logPath := logDir // Can't open a directory as a file.
+	logPath := logDir
 
 	cfg := Config{LogPath: logPath}
 	d := New(cfg, nil)
@@ -66,8 +63,6 @@ func TestDaemon_Start_LogFileOpenError(t *testing.T) {
 		t.Errorf("expected 'opening log file' in error, got %v", err)
 	}
 }
-
-// daemon.go — Start truncates (but keeps) PID file on exit (no handoff)
 
 func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
 	tempHome := t.TempDir()
@@ -103,9 +98,6 @@ func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
 
 	<-errCh
 
-	// PID file must still exist on disk after normal exit — removing it would
-	// allow a concurrent Acquire() to create a new inode and bypass the flock.
-	// The file should be empty (truncated) so it is visually clean.
 	data, err := os.ReadFile(pidPath)
 	if os.IsNotExist(err) {
 		t.Error("PID file must not be deleted on exit (would break flock guard for concurrent starters)")
@@ -156,7 +148,6 @@ func TestDaemon_Start_EmitsEvents(t *testing.T) {
 	cancel()
 	<-errCh
 
-	// Check that at least "running" event was emitted.
 	foundRunning := false
 	for _, ev := range events {
 		if strings.HasPrefix(ev, "running:") {
@@ -185,13 +176,10 @@ func TestDaemon_Log_WritesTimestamp(t *testing.T) {
 	if !strings.Contains(content, "test message 42") {
 		t.Errorf("expected 'test message 42' in log, got %q", content)
 	}
-	// Check timestamp format [YYYY-MM-DD HH:MM:SS]
-	if !strings.Contains(content, "[20") { // e.g., [2026-...
+	if !strings.Contains(content, "[20") {
 		t.Errorf("expected timestamp in log, got %q", content)
 	}
 }
-
-// daemon.go — reconcileProjects with closers (verify closer registration)
 
 func TestDaemon_ReconcileProjects_MultipleClosers(t *testing.T) {
 	tmp := t.TempDir()
@@ -235,7 +223,6 @@ func TestDaemon_ReconcileProjects_MultipleClosers(t *testing.T) {
 		t.Error("supervisor p1 not found")
 	}
 
-	// Cancel parent context and wait for goroutines to exit before TempDir cleanup.
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 }

@@ -208,7 +208,6 @@ func TestReadPageCarriesTheRevisionChainTheMemoryProtocolReadsOffIt(t *testing.T
 		t.Fatalf("reading the page: %v", err)
 	}
 
-	// Every field the protocol names, under the name it names it by.
 	for _, want := range []string{
 		"type: fact",
 		"id: 01ENTITY",
@@ -224,12 +223,10 @@ func TestReadPageCarriesTheRevisionChainTheMemoryProtocolReadsOffIt(t *testing.T
 			t.Errorf("the page read is missing %q:\n%s", want, whole.Source)
 		}
 	}
-	// And the body is still there — the header is added, not substituted.
 	if !strings.Contains(whole.Source, "the earlier wording") {
 		t.Errorf("the page read lost its body:\n%s", whole.Source)
 	}
 
-	// The exact call the skill prescribes.
 	sliced, err := ReadPageAt(context.Background(), dir, "Some_memory--r0001",
 		textslice.Request{Pattern: "previous", After: 1})
 	if err != nil {
@@ -242,8 +239,6 @@ func TestReadPageCarriesTheRevisionChainTheMemoryProtocolReadsOffIt(t *testing.T
 		t.Errorf("the pattern read did not surface the previous revision:\n%s", sliced.Source)
 	}
 
-	// A page with no chain carries no chain keys, so a knowledge page is not littered with empty
-	// memory fields.
 	plain := probeWiki(t)
 	got, err := ReadPageAt(context.Background(), plain, "wollastonita", textslice.Request{})
 	if err != nil {

@@ -19,8 +19,6 @@ func contentHome(t *testing.T) string {
 	return home
 }
 
-// writeArtifactClone builds a clone directory the way an install leaves one, and
-// registers it globally so the content tool can find it.
 func writeArtifactClone(t *testing.T, artType ArtifactType, id, version string, files map[string]string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "clone")
@@ -52,8 +50,6 @@ func writeArtifactClone(t *testing.T, artType ArtifactType, id, version string, 
 	return dir
 }
 
-// contentService is a service with the global lock wired up and no registry: reading an
-// installed artifact's files must not need the Hub, because nothing is downloaded.
 func contentService(t *testing.T) *HubService {
 	t.Helper()
 	mgr, err := NewGlobalLockManager()
@@ -100,7 +96,6 @@ func TestAMultiFileSkillReturnsEveryFileKeyedByPath(t *testing.T) {
 	if got.Version != "1.0.0" {
 		t.Errorf("version = %q, want 1.0.0", got.Version)
 	}
-	// Keys are slash-separated so the answer reads the same on every platform.
 	for k := range got.Files {
 		if strings.Contains(k, "\\") {
 			t.Errorf("key %q uses a backslash; keys must be slash-separated", k)
@@ -217,7 +212,6 @@ func TestAnAmbiguousReferenceIsRefusedAndListsTheCandidates(t *testing.T) {
 		}
 	}
 
-	// Qualified, it resolves.
 	got, err := svc.ArtifactContentFor(context.Background(), "", "demo-skill@2.0.0", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -2,14 +2,6 @@ package ast
 
 import "testing"
 
-// TestGraphNodeLabelIsTheGraphLabel is the regression for the sidebar's hide toggles
-// doing nothing.
-//
-// The explorer keys per-label colours, node radii and the "hide this node type"
-// toggles off GraphNode.label, and gets the labels it offers from /api/schema, which
-// returns label(n) — `File`, `Function`, `Struct`. This builder used to put the
-// DISPLAY NAME there, so `hiddenLabels.has(node.label)` compared `Function` against
-// `handleFile` and never matched: hiding a type left every node on the canvas.
 func TestGraphNodeLabelIsTheGraphLabel(t *testing.T) {
 	for _, tc := range []struct {
 		name                              string
@@ -60,7 +52,6 @@ func TestGraphNodeLabelIsTheGraphLabel(t *testing.T) {
 			if !ok {
 				t.Fatalf("properties = %T, want map", n["properties"])
 			}
-			// The explorer groups and hides by these two the same way it does by label.
 			if props["cluster"] != "backend" || props["lang"] != "go" {
 				t.Errorf("properties = %v, want cluster=backend lang=go", props)
 			}

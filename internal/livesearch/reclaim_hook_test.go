@@ -26,7 +26,6 @@ func TestRemoveCallsTheReclaimHookWithTheSessionID(t *testing.T) {
 }
 
 func TestRemoveDeletesTheDirectoryEvenWithoutAHook(t *testing.T) {
-	// The hook is optional, and its absence must not change what Remove is for.
 	root := t.TempDir()
 	mgr := NewManager(root, nil, nil)
 	t.Cleanup(mgr.CloseAll)
@@ -45,8 +44,6 @@ func TestRemoveDeletesTheDirectoryEvenWithoutAHook(t *testing.T) {
 }
 
 func TestTheHookRunsAfterTheDirectoryIsGone(t *testing.T) {
-	// Ordering matters: reclaiming global state is housekeeping, and deleting the
-	// session is what the caller asked for. The hook must not be able to prevent it.
 	root := t.TempDir()
 	mgr := NewManager(root, nil, nil)
 	t.Cleanup(mgr.CloseAll)

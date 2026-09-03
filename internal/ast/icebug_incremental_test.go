@@ -8,8 +8,6 @@ import (
 	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 )
 
-// manifestFilesExist is the invariant a bundle cannot violate and stay readable: every Parquet
-// its manifest names has to be in the bundle.
 func manifestFilesExist(t *testing.T, dir string, man *ladybug.CanonicalManifest) []string {
 	t.Helper()
 	var missing []string
@@ -60,7 +58,6 @@ func TestIncrementalExportPublishesTheTablesItRegenerated(t *testing.T) {
 		t.Fatalf("base export: %v", err)
 	}
 
-	// b.go changes: its Function rows are regenerated, a.go's tables are copied over.
 	next := newRebuildIndex(map[string]*parseCacheEntry{
 		"a.go": {RelPath: "a.go", Language: "go", Entities: []cachedEntity{
 			{Label: "Function", UID: "a.go::Alpha", Name: "Alpha", Path: "a.go", Line: 1, EndLine: 2},
@@ -71,7 +68,6 @@ func TestIncrementalExportPublishesTheTablesItRegenerated(t *testing.T) {
 	}, nil)
 
 	outDir := filepath.Join(store, "graph.icebug.tmp.test")
-	// reverse: true to match the base export, whose helper defaults to it.
 	man, err := ExportDirectIncrementalWithReverse(next, outDir, finalDir, outDir, []string{"b.go"}, nil, true)
 	if err != nil {
 		t.Fatalf("incremental export: %v", err)
@@ -82,7 +78,6 @@ func TestIncrementalExportPublishesTheTablesItRegenerated(t *testing.T) {
 			len(missing), missing)
 	}
 
-	// And it must not have shrunk: the same labels are still there.
 	if len(man.NodeTables) == 0 {
 		t.Fatal("the incremental produced no node tables at all")
 	}

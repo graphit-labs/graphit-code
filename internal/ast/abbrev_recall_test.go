@@ -22,11 +22,8 @@ func abbrevProbes() []struct {
 		query string
 		want  []string
 	}{
-		// Query longer than the stored token ("config" vs the token "conf").
 		{"config", []string{"coreConf", "CONF_MGR", "configLoader", "initConfiguration"}},
-		// Query shorter than the stored token ("conf" vs the token "config").
 		{"conf", []string{"coreConf", "CONF_MGR", "configLoader", "initConfiguration"}},
-		// Abbreviation sharing no substring with the query.
 		{"config", []string{"CFG_LOAD"}},
 	}
 }
@@ -87,8 +84,6 @@ func TestAbbreviatedIdentifierRecall(t *testing.T) {
 	t.Logf("index recall: with docstrings %d/%d, names only %d/%d",
 		withDoc[0], withDoc[1], namesOnly[0], namesOnly[1])
 
-	// Guard the confound itself: if prose stops inflating the score, this test's
-	// two-variant structure is no longer needed and the comment above is stale.
 	if namesOnly[0] >= withDoc[0] {
 		t.Logf("NOTE: docstrings no longer inflate abbreviation recall (names-only %d >= with-docstrings %d) — "+
 			"the prose confound this test isolates has disappeared",
@@ -109,7 +104,6 @@ func TestAbbreviatedIdentifierRecall(t *testing.T) {
 func TestAbbreviationRecallByNameAlone(t *testing.T) {
 	si := buildSearchIndexFrom(t, t.TempDir(), abbrevCorpusNamesOnly())
 
-	// Both directions of partial overlap, by name only.
 	for _, cs := range []struct {
 		query string
 		want  []string

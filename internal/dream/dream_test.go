@@ -15,8 +15,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// dream.go tests
-
 func TestDeepSleepSentinelName(t *testing.T) {
 	name := DeepSleepSentinelName()
 	if name != ".exhausted" {
@@ -40,7 +38,6 @@ func TestGenerateDreamID(t *testing.T) {
 	if len(id1) < 10 {
 		t.Error("dream ID seems too short")
 	}
-	// IDs should differ (due to random suffix)
 	if id1 == id2 {
 		t.Error("two generated IDs should differ")
 	}
@@ -59,7 +56,6 @@ func TestFileExists(t *testing.T) {
 		t.Error("expected fileExists to return false for non-existing file")
 	}
 
-	// Directory should return false
 	if fileExists(dir) {
 		t.Error("expected fileExists to return false for directory")
 	}
@@ -68,7 +64,6 @@ func TestFileExists(t *testing.T) {
 func TestLastModifiedTime(t *testing.T) {
 	dir := t.TempDir()
 
-	// Empty dir should return error
 	_, err := LastModifiedTime(dir)
 	if err == nil {
 		t.Error("expected error for empty directory")
@@ -124,12 +119,10 @@ func TestLastModifiedTimeNestedFiles(t *testing.T) {
 	subDir := filepath.Join(dir, "subdir")
 	_ = os.MkdirAll(subDir, 0o755)
 
-	// Create file in subdir with a known time
 	filePath := filepath.Join(subDir, "nested.txt")
 	_ = os.WriteFile(filePath, []byte("nested"), 0644)
 	time.Sleep(10 * time.Millisecond)
 
-	// Create file in root dir — should be newer
 	rootFile := filepath.Join(dir, "root.txt")
 	_ = os.WriteFile(rootFile, []byte("root"), 0644)
 
@@ -144,12 +137,9 @@ func TestLastModifiedTimeNestedFiles(t *testing.T) {
 	}
 }
 
-// dreamState persistence tests
-
 func TestLoadStateFromDir(t *testing.T) {
 	dir := t.TempDir()
 
-	// No state file — should return zero values
 	sessionID, lastMod, lastDream, dreamStarted, sleepingSince, exhausted, dreaming := LoadStateFromDir(dir)
 	if sessionID != "" || !lastMod.IsZero() || !lastDream.IsZero() || !dreamStarted.IsZero() || !sleepingSince.IsZero() || exhausted || dreaming {
 		t.Error("expected zero values when no state file exists")
@@ -230,7 +220,6 @@ func TestNewRunnerWithExistingState(t *testing.T) {
 	_ = os.WriteFile(StatePath(dir), data, 0644)
 
 	r := NewRunner(dir, "ide", nil)
-	// Dreaming=true, SleepingSince is non-zero → should NOT reset SleepingSince
 	if r.state.Dreaming != true {
 		t.Error("expected dreaming=true from loaded state")
 	}
@@ -239,7 +228,6 @@ func TestNewRunnerWithExistingState(t *testing.T) {
 func TestNewRunnerSetsInitialSleepingSince(t *testing.T) {
 	dir := t.TempDir()
 
-	// No state file → SleepingSince should be set to now
 	r := NewRunner(dir, "ide", nil)
 	if r.state.SleepingSince.IsZero() {
 		t.Error("expected SleepingSince to be set for new runner")
@@ -249,7 +237,6 @@ func TestNewRunnerSetsInitialSleepingSince(t *testing.T) {
 func TestRunnerLogNoLogger(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	// Should not panic
 	r.log("test message")
 }
 
@@ -267,7 +254,6 @@ func TestRunnerResolveConfig(t *testing.T) {
 	t.Run("nil project config", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		cfg := r.resolveConfig()
-		// Default config
 		if cfg.IdleTimeout != defaultIdleTimeout {
 			t.Errorf("expected default idle timeout, got %v", cfg.IdleTimeout)
 		}
@@ -436,7 +422,6 @@ func TestRunnerResolveSessionID(t *testing.T) {
 		}
 		modTime := time.Now()
 		session1 := r.resolveSessionID(modTime)
-		// Same or earlier mod time should resume
 		session2 := r.resolveSessionID(modTime.Add(-1 * time.Second))
 		if session1 != session2 {
 			t.Errorf("expected same session id for resume, got %q vs %q", session1, session2)
@@ -447,7 +432,6 @@ func TestRunnerResolveSessionID(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		modTime := time.Now()
 		session1 := r.resolveSessionID(modTime)
-		// Newer mod time should create new session
 		session2 := r.resolveSessionID(modTime.Add(1 * time.Second))
 		if session1 == session2 {
 			t.Error("expected different session id for new session")
@@ -464,7 +448,6 @@ func TestRunnerSaveAndLoadState(t *testing.T) {
 	r.saveStateLocked()
 	r.mu.Unlock()
 
-	// Create new runner — should load saved state
 	r2 := NewRunner(dir, "ide", nil)
 	if r2.state.CurrentSessionID != "saved-session" {
 		t.Errorf("expected loaded session id='saved-session', got %q", r2.state.CurrentSessionID)
@@ -478,18 +461,15 @@ func TestRunnerTickCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 	r.tick(ctx)
-	// Should return immediately without doing anything
 }
 
 func TestRunnerTickDisabled(t *testing.T) {
 	dir := t.TempDir()
-	// dream is opt-in, so returning nil config means it's disabled
 	r := NewRunner(dir, "ide", nil)
 	ctx := context.Background()
 	r.tick(ctx)
-	// Should return early due to disabled config (dream is opt-in)
 }
 
 func TestRunnerTickAlreadyRunning(t *testing.T) {
@@ -500,12 +480,10 @@ func TestRunnerTickAlreadyRunning(t *testing.T) {
 	r.mu.Unlock()
 	ctx := context.Background()
 	r.tick(ctx)
-	// Should return early due to already running
 }
 
 func TestRunnerTickNoFiles(t *testing.T) {
 	dir := t.TempDir()
-	// Enable dream module via config
 	r := NewRunner(dir, "ide", func() map[string]any {
 		return map[string]any{
 			"modules": map[string]any{"dream": "true"},
@@ -517,7 +495,6 @@ func TestRunnerTickNoFiles(t *testing.T) {
 	}
 	ctx := context.Background()
 	r.tick(ctx)
-	// LastModifiedTime should fail since dir is empty
 	foundError := false
 	for _, log := range logged {
 		if strings.Contains(log, "failed to check idle time") {
@@ -531,10 +508,8 @@ func TestRunnerTickNoFiles(t *testing.T) {
 
 func TestRunnerTickNotIdleEnough(t *testing.T) {
 	dir := t.TempDir()
-	// Create a file so LastModifiedTime works
 	_ = os.WriteFile(filepath.Join(dir, "recent.txt"), []byte("data"), 0644)
 
-	// Enable dream module
 	r := NewRunner(dir, "ide", func() map[string]any {
 		return map[string]any{
 			"modules": map[string]any{"dream": "true"},
@@ -542,7 +517,6 @@ func TestRunnerTickNotIdleEnough(t *testing.T) {
 	})
 	ctx := context.Background()
 	r.tick(ctx)
-	// File is fresh, idle time < defaultIdleTimeout → should return early
 	if r.IsRunning() {
 		t.Error("should not be running when idle time is insufficient")
 	}
@@ -550,7 +524,6 @@ func TestRunnerTickNotIdleEnough(t *testing.T) {
 
 func TestRunnerTickExhausted(t *testing.T) {
 	dir := t.TempDir()
-	// Create a file with old mod time
 	filePath := filepath.Join(dir, "old.txt")
 	_ = os.WriteFile(filePath, []byte("data"), 0644)
 	oldTime := time.Now().Add(-5 * time.Hour)
@@ -563,10 +536,6 @@ func TestRunnerTickExhausted(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	// Exhausted, and the watermark is already at the newest file — so there is no
-	// activity since the cycle that exhausted itself. The watermark matters: deep
-	// sleep is conditional on "nothing new happened", and setting Exhausted without
-	// it describes a state the runner never reaches.
 	r.mu.Lock()
 	r.state.Exhausted = true
 	r.state.CurrentSessionID = "existing-session"
@@ -575,7 +544,6 @@ func TestRunnerTickExhausted(t *testing.T) {
 
 	ctx := context.Background()
 	r.tick(ctx)
-	// Should not start dream because exhausted
 	if r.IsRunning() {
 		t.Error("should not start dream when exhausted")
 	}
@@ -609,23 +577,18 @@ func TestRunnerTickWakesFromDeepSleepOnNewActivity(t *testing.T) {
 	r.mu.Lock()
 	r.state.Exhausted = true
 	r.state.CurrentSessionID = "exhausted-session"
-	// The cycle exhausted itself when the newest file was this old.
 	r.state.SessionModWatermark = oldTime
 	r.mu.Unlock()
 
-	// The developer edits something: newer than the watermark.
 	newFile := filepath.Join(dir, "new.txt")
 	if err := os.WriteFile(newFile, []byte("new work"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	// Still idle long enough to qualify, just not as old as the watermark.
 	idleButNewer := time.Now().Add(-2 * time.Hour)
 	if err := os.Chtimes(newFile, idleButNewer, idleButNewer); err != nil {
 		t.Fatal(err)
 	}
 
-	// resolveSessionID owns the wake-up decision; calling it directly keeps the
-	// assertion on the state transition rather than on the goroutine tick spawns.
 	sessionID := r.resolveSessionID(idleButNewer)
 
 	r.mu.Lock()
@@ -662,7 +625,6 @@ func TestRunnerResumesSameSessionWithoutNewActivity(t *testing.T) {
 
 func TestRunnerRunContextCancel(t *testing.T) {
 	dir := t.TempDir()
-	// dream is opt-in, nil config means disabled
 	r := NewRunner(dir, "ide", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -674,11 +636,8 @@ func TestRunnerRunContextCancel(t *testing.T) {
 	}
 }
 
-// tick() — full execution path (dream goroutine)
-
 func TestRunnerTickStartsDream(t *testing.T) {
 	dir := t.TempDir()
-	// Create a file with old mod time to trigger idle
 	filePath := filepath.Join(dir, "old.txt")
 	_ = os.WriteFile(filePath, []byte("data"), 0644)
 	oldTime := time.Now().Add(-5 * time.Hour)
@@ -696,12 +655,10 @@ func TestRunnerTickStartsDream(t *testing.T) {
 		logged = append(logged, format)
 	}
 
-	// Short-lived context so any AI CLI terminates quickly
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	r.tick(ctx)
 
-	// Wait for the goroutine to complete
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -714,8 +671,6 @@ func TestRunnerTickStartsDream(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// The goroutine was launched. State fields depend on how far the goroutine
-	// progressed before failing — we just verify no panic occurred.
 	r.mu.Lock()
 	_ = r.state.Dreaming
 	_ = r.state.LastDreamAt
@@ -741,7 +696,6 @@ func TestRunnerTickStartsDreamWithMaxDuration(t *testing.T) {
 	defer cancel()
 	r.tick(ctx)
 
-	// Wait for goroutine completion
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -762,7 +716,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 	oldTime := time.Now().Add(-5 * time.Hour)
 	_ = os.Chtimes(filePath, oldTime, oldTime)
 
-	// Create the deep sleep sentinel before tick runs
 	loader := func() map[string]any {
 		return map[string]any{
 			"modules": map[string]any{"dream": "true"},
@@ -775,7 +728,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 	defer cancel()
 	r.tick(ctx)
 
-	// Wait for goroutine
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -788,8 +740,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// The deep sleep check runs at end of goroutine
-	// We verify it ran by checking state was persisted
 }
 
 func TestRunnerRunLoop(t *testing.T) {
@@ -811,7 +761,6 @@ func TestLastModifiedTimeWithIgnoredDir(t *testing.T) {
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	_ = os.WriteFile(gitignorePath, []byte("build/\n"), 0644)
 
-	// Create a build dir with a file (should be ignored)
 	buildDir := filepath.Join(dir, "build")
 	_ = os.MkdirAll(buildDir, 0o755)
 	_ = os.WriteFile(filepath.Join(buildDir, "output.bin"), []byte("binary"), 0644)
@@ -915,9 +864,6 @@ func TestBuildDreamArtifact(t *testing.T) {
 	}
 }
 
-// Runner.executeDream and executeLocal — These require AI integration,
-// but we test the surrounding infrastructure.
-
 func TestRunnerStatePath(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
@@ -934,7 +880,6 @@ func TestRunnerLoadStateInvalidJSON(t *testing.T) {
 	_ = os.WriteFile(StatePath(dir), []byte("{{invalid"), 0644)
 
 	r := NewRunner(dir, "ide", nil)
-	// Should not panic, state should be zero-valued
 	if r.state.CurrentSessionID != "" {
 		t.Error("expected empty session id after invalid JSON load")
 	}
@@ -950,7 +895,6 @@ func TestRunnerSaveStateLocked(t *testing.T) {
 	r.saveStateLocked()
 	r.mu.Unlock()
 
-	// Verify file was written
 	data, err := os.ReadFile(r.statePath())
 	if err != nil {
 		t.Fatalf("expected state file to exist: %v", err)
@@ -961,13 +905,10 @@ func TestRunnerSaveStateLocked(t *testing.T) {
 }
 
 func TestExecuteDreamMkdirError(t *testing.T) {
-	// Use a path that prevents MkdirAll from succeeding
 	dir := t.TempDir()
-	// Create a file where the dream directory needs to be
 	dreamDir := ReportsDir(dir)
 	dreamParent := filepath.Dir(dreamDir)
 	_ = os.MkdirAll(dreamParent, 0o755)
-	// Create a regular file named "dream" so MkdirAll fails
 	_ = os.WriteFile(dreamDir, []byte("blocker"), 0o644)
 
 	r := NewRunner(dir, "ide", nil)
@@ -982,18 +923,16 @@ func TestExecuteDreamMkdirError(t *testing.T) {
 }
 
 func TestExecuteDreamExecuteLocalError(t *testing.T) {
-	// Normal dir, but we use a cancelled context so any AI CLI found terminates immediately
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	err := r.executeDream(ctx, "test-session")
 	if err == nil {
 		t.Error("expected error from executeDream")
 	}
-	// Error should be about executing dream agent (either AI client creation or execution)
 	if !strings.Contains(err.Error(), "executing dream agent") && !strings.Contains(err.Error(), "creating") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -1003,12 +942,11 @@ func TestExecuteLocalCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
-	// Ensure dream dir exists
 	dreamDir := ReportsDir(dir)
 	_ = os.MkdirAll(dreamDir, 0o755)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	result, err := r.executeLocal(ctx, "test prompt", "test-session")
 	if err == nil {
@@ -1020,7 +958,6 @@ func TestExecuteLocalCancelledContext(t *testing.T) {
 }
 
 func TestExecuteLocalNoAIClientOnPath(t *testing.T) {
-	// Empty PATH so NewClientFromConfig() can't find any CLI binary
 	oldPath := os.Getenv("PATH")
 	t.Setenv("PATH", "")
 	defer os.Setenv("PATH", oldPath)
@@ -1043,16 +980,12 @@ func TestExecuteLocalNoAIClientOnPath(t *testing.T) {
 	}
 }
 
-// executeLocal + executeDream success paths — use a fake AI CLI script
-
 func TestExecuteLocalSuccessWithFakeCLI(t *testing.T) {
-	// Create a fake CLI binary that echoes "Dream report output"
 	fakeBinDir := filepath.Join(t.TempDir(), "bin")
 	_ = os.MkdirAll(fakeBinDir, 0o755)
 	fakeCLI := filepath.Join(fakeBinDir, "gemini")
 	_ = os.WriteFile(fakeCLI, []byte("#!/bin/sh\necho 'Dream report output'\n"), 0o755)
 
-	// Set PATH to only include our fake binary dir
 	t.Setenv("PATH", fakeBinDir)
 
 	dir := t.TempDir()
@@ -1071,7 +1004,6 @@ func TestExecuteLocalSuccessWithFakeCLI(t *testing.T) {
 }
 
 func TestExecuteDreamSuccessWithFakeCLI(t *testing.T) {
-	// Create a fake CLI binary
 	fakeBinDir := filepath.Join(t.TempDir(), "bin")
 	_ = os.MkdirAll(fakeBinDir, 0o755)
 	fakeCLI := filepath.Join(fakeBinDir, "gemini")
@@ -1091,7 +1023,6 @@ func TestExecuteDreamSuccessWithFakeCLI(t *testing.T) {
 		t.Fatalf("executeDream failed: %v", err)
 	}
 
-	// Verify artifact was written
 	dreamDir := ReportsDir(dir)
 	artifactPath := filepath.Join(dreamDir, "test-session.md")
 	if !fileExists(artifactPath) {
@@ -1100,7 +1031,6 @@ func TestExecuteDreamSuccessWithFakeCLI(t *testing.T) {
 }
 
 func TestExecuteDreamWriteFileError(t *testing.T) {
-	// Create a fake CLI binary
 	fakeBinDir := filepath.Join(t.TempDir(), "bin")
 	_ = os.MkdirAll(fakeBinDir, 0o755)
 	fakeCLI := filepath.Join(fakeBinDir, "gemini")
@@ -1111,7 +1041,6 @@ func TestExecuteDreamWriteFileError(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
-	// Pre-create the dream dir and make it read-only
 	dreamDir := ReportsDir(dir)
 	_ = os.MkdirAll(dreamDir, 0o755)
 	_ = os.Chmod(dreamDir, 0o555)
@@ -1127,7 +1056,6 @@ func TestExecuteDreamWriteFileError(t *testing.T) {
 }
 
 func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
-	// Create a fake CLI binary
 	fakeBinDir := filepath.Join(t.TempDir(), "bin")
 	_ = os.MkdirAll(fakeBinDir, 0o755)
 	fakeCLI := filepath.Join(fakeBinDir, "gemini")
@@ -1159,7 +1087,6 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 	ctx := context.Background()
 	r.tick(ctx)
 
-	// Wait for goroutine to complete
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -1172,7 +1099,6 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// Verify success path was taken
 	mu.Lock()
 	foundSuccess := false
 	for _, l := range logged {
@@ -1185,8 +1111,6 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 		t.Error("expected 'session completed successfully' log message")
 	}
 }
-
-// tick() goroutine coverage — use synchronization to ensure coverage is captured
 
 func TestTickGoroutineCompletesWithError(t *testing.T) {
 	dir := t.TempDir()
@@ -1210,12 +1134,10 @@ func TestTickGoroutineCompletesWithError(t *testing.T) {
 		mu.Unlock()
 	}
 
-	// Use a short-lived context so any spawned AI CLI terminates quickly
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	r.tick(ctx)
 
-	// Wait for goroutine to complete
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -1231,7 +1153,6 @@ func TestTickGoroutineCompletesWithError(t *testing.T) {
 		}
 	}
 
-	// Verify defer block executed: state should be updated
 	r.mu.Lock()
 	if r.state.Dreaming {
 		t.Error("expected Dreaming=false after goroutine defer")
@@ -1247,7 +1168,6 @@ func TestTickGoroutineCompletesWithError(t *testing.T) {
 	}
 	r.mu.Unlock()
 
-	// Verify session failed message was logged
 	mu.Lock()
 	foundFailed := false
 	for _, l := range logged {
@@ -1280,7 +1200,6 @@ func TestTickGoroutineWithMaxDuration(t *testing.T) {
 	defer cancel()
 	r.tick(ctx)
 
-	// Wait for goroutine completion
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -1320,7 +1239,6 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 	defer cancel()
 	r.tick(ctx)
 
-	// Wait for goroutine completion
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !r.IsRunning() {
@@ -1333,15 +1251,12 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// checkDeepSleep was called (no sentinel, so exhausted stays false)
 	r.mu.Lock()
 	if r.state.Exhausted {
 		t.Error("expected Exhausted=false without sentinel file")
 	}
 	r.mu.Unlock()
 }
-
-// Run loop — ticker.C fires at least once
 
 func TestRunnerRunTickerFires(t *testing.T) {
 	dir := t.TempDir()
@@ -1355,9 +1270,6 @@ func TestRunnerRunTickerFires(t *testing.T) {
 		mu.Unlock()
 	}
 
-	// The Run method calls tick immediately, then on each ticker.C.
-	// With checkInterval=10min, we can't wait for a real tick.
-	// Instead, test the ticker.C path via Run with a fast cancel.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
@@ -1378,7 +1290,6 @@ func TestTickAlreadyRunningWithEnabledDream(t *testing.T) {
 	}
 	r := NewRunner(dir, "ide", loader)
 
-	// Set running=true before tick
 	r.mu.Lock()
 	r.running = true
 	r.mu.Unlock()
@@ -1386,22 +1297,18 @@ func TestTickAlreadyRunningWithEnabledDream(t *testing.T) {
 	ctx := context.Background()
 	r.tick(ctx)
 
-	// Should have returned early without starting another dream
-	// (already running)
 }
 
 func TestLastModifiedTimeWalkError(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hello"), 0644)
 
-	// Create a subdirectory with a file, then make the subdir unreadable
 	subdir := filepath.Join(dir, "restricted")
 	_ = os.MkdirAll(subdir, 0o755)
 	_ = os.WriteFile(filepath.Join(subdir, "inner.txt"), []byte("data"), 0644)
 	_ = os.Chmod(subdir, 0o000)
 	defer func() { _ = os.Chmod(subdir, 0o755) }()
 
-	// Walk should still succeed (walk callback returns nil on error)
 	modTime, err := LastModifiedTime(dir)
 	if err != nil {
 		t.Fatalf("LastModifiedTime should succeed despite walk errors: %v", err)
@@ -1419,39 +1326,23 @@ func TestLastModifiedTimeNonExistentDir(t *testing.T) {
 }
 
 func TestExecuteDreamWriteArtifactError(t *testing.T) {
-	// We can't easily get past executeLocal without an AI client.
-	// But we can test that executeDream returns the executeLocal error,
-	// which covers the error path at line 304-306.
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately to avoid AI CLI hang
+	cancel()
 
 	err := r.executeDream(ctx, "test-session")
 	if err == nil {
 		t.Error("expected error")
 	}
-	// Covers the happy path up to the agent call: MkdirAll succeeds and
-	// executeLocal fails.
 }
 
-// saveStateLocked — json.MarshalIndent error (line 385-387)
-// This is effectively unreachable because dreamState contains only basic types
-// that json.MarshalIndent can always encode. We document it as untestable.
-
-// Full Run loop with ticker.C actually firing
-
 func TestRunWithTickerC(t *testing.T) {
-	// This test verifies the ticker.C case in the Run loop (lines 113-114).
-	// Since checkInterval is 10 minutes, we can't actually wait for it.
-	// The ctx.Done() case at line 111-112 is what gets tested by cancellation.
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// Cancel after a very short time — the Run method calls tick() immediately
-	// (line 104), then enters the for-select. The <-ctx.Done() case fires.
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
@@ -1463,11 +1354,6 @@ func TestRunWithTickerC(t *testing.T) {
 	}
 }
 
-// A session that produced nothing has to say so IN THE REPORT.
-//
-// The warning used to live only in the daemon log, which is the one place the person
-// waiting for artifacts does not look — so the run spent a full model call, wrote no
-// file, and looked like an agent with nothing to say. Every cycle, silently.
 func TestToollessRunNamesTheLikelyCauseInTheReport(t *testing.T) {
 	d := toollessRunDiagnostic(&ai.StreamResult{Binary: "claude", Structured: true})
 
@@ -1477,8 +1363,6 @@ func TestToollessRunNamesTheLikelyCauseInTheReport(t *testing.T) {
 		}
 	}
 
-	// It has to reach the artifact, above the output, because it says the output
-	// below is probably not what was asked for.
 	report := buildDreamArtifact("s1", "some prose", d)
 	if !strings.Contains(report, "No artifacts were produced") {
 		t.Fatalf("diagnostic never reached the report:\n%s", report)

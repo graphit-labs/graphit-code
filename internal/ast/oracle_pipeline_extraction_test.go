@@ -28,7 +28,6 @@ func TestOraclePipelineExtraction(t *testing.T) {
 		t.Skip("set GRAPHIT_E2E_SQL_DIR to a corpus directory")
 	}
 
-	// A few files known to yield entities when parsed directly.
 	var samples []string
 	seenDir := map[string]bool{}
 	_ = filepath.WalkDir(src, func(p string, d fs.DirEntry, e error) error {
@@ -65,7 +64,6 @@ func TestOraclePipelineExtraction(t *testing.T) {
 		}
 	}
 
-	// Direct parse first, as the reference the pipeline has to match.
 	direct := 0
 	comp := NewCompositeParser(work, nil)
 	for _, p := range samples {
@@ -96,8 +94,6 @@ func TestOraclePipelineExtraction(t *testing.T) {
 	t.Logf("pipeline: files=%d parsed=%d empty=%d errors=%d",
 		res.TotalFiles, res.ParsedFiles, res.EmptyCount, res.ErrorCount)
 
-	// What actually reached the cache, which is what the graph and the search index are
-	// built from.
 	cache, err := NewShardCache(cacheDir)
 	if err != nil {
 		t.Fatalf("open cache: %v", err)

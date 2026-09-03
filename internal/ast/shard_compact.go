@@ -1,13 +1,7 @@
 package ast
 
-// shardInternLimit bounds the corpus-wide table. Paths, labels, languages and module names
-// have a cardinality in the tens of thousands; the cap is what keeps a corpus whose values
-// are nearly all distinct from paying for a table as large as the duplication it removes.
 const shardInternLimit = 1 << 20
 
-// shardLocalInternLimit bounds the per-file table, which exists for the identifiers that
-// repeat inside one file — a caller's uid across its calls, a parent's uid across its
-// children — and is discarded as soon as the file is compacted.
 const shardLocalInternLimit = 1 << 16
 
 type shardInterner struct {
@@ -33,9 +27,6 @@ func (si *shardInterner) of(s string) string {
 	return s
 }
 
-// clip returns the slice with its spare capacity released. encoding/json grows a slice by
-// half its capacity at a time and then shortens its LENGTH to what it read, so a decoded
-// slice carries up to a third of its allocation as unreachable slack that nothing frees.
 func clip[T any](s []T) []T {
 	if len(s) == cap(s) {
 		return s
@@ -48,12 +39,6 @@ func clip[T any](s []T) []T {
 	return out
 }
 
-// compact removes what a JSON decode leaves behind: one allocation per occurrence of a
-// value that occurs thousands of times, and the spare capacity of every slice it grew.
-//
-// shared is the corpus-wide table and holds the values whose cardinality is bounded by the
-// grammar or by the file count. local is this file's, and holds the identifiers that repeat
-// only within it.
 func (n *shardNodes) compact(shared, local *shardInterner) {
 	if n == nil {
 		return
@@ -109,12 +94,6 @@ func (e *shardEdges) compact(shared, local *shardInterner) {
 		c.SourceType = shared.of(c.SourceType)
 		c.ReceiverType = shared.of(c.ReceiverType)
 		c.CallerUID = local.of(c.CallerUID)
-		// The callee is a declaration this file merely POINTS AT, and a popular one is
-		// pointed at by calls in many different files — the same shape as ModuleUID below,
-		// not the "repeats only within this file" shape local exists for. Measured on this
-		// repository's own store: local-only interning would leave 18,847 allocations where
-		// shared collapses them to 3,981 distinct callees — a quarter of all Calls rows
-		// duplicated ACROSS files, invisible to a table that is discarded per file.
 		c.CalleeUID = shared.of(c.CalleeUID)
 	}
 
@@ -135,9 +114,6 @@ func (e *shardEdges) compact(shared, local *shardInterner) {
 		in.Path = shared.of(in.Path)
 		in.RelType = shared.of(in.RelType)
 		in.ChildUID = local.of(in.ChildUID)
-		// The parent is the base type — the same "pointed at from many files" shape as
-		// CalleeUID above: a widely-subclassed base sees its uid repeated once per
-		// subclass, and those subclasses are routinely spread across the corpus.
 		in.ParentUID = shared.of(in.ParentUID)
 	}
 
@@ -146,9 +122,6 @@ func (e *shardEdges) compact(shared, local *shardInterner) {
 		fa := &e.FieldAccess[i]
 		fa.Path = shared.of(fa.Path)
 		fa.SourceUID = local.of(fa.SourceUID)
-		// The field is the accessed target, the same shape again: a public struct field
-		// read or written from many call sites across the corpus, not just this file.
-		// Measured: local-only would leave 18,588 allocations for 3,448 distinct fields.
 		fa.FieldUID = shared.of(fa.FieldUID)
 	}
 

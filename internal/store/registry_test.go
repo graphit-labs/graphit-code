@@ -24,8 +24,6 @@ func TestRegistryRoundTrip(t *testing.T) {
 		t.Fatalf("AddContext knowledge: %v", err)
 	}
 
-	// The key is the sanitised name, and lookup accepts either form — callers echo
-	// back whichever one a listing showed them.
 	for _, name := range []string{"Other Repo", "other-repo"} {
 		rec, ok := LookupContext(projectDir, KindAST, name)
 		if !ok {
@@ -36,7 +34,6 @@ func TestRegistryRoundTrip(t *testing.T) {
 		}
 	}
 
-	// Kinds are separate namespaces: an AST context is not a knowledge context.
 	if HasContext(projectDir, KindKnowledge, "other-repo") {
 		t.Error("an AST context leaked into the knowledge kind")
 	}
@@ -51,7 +48,6 @@ func TestRegistryRoundTrip(t *testing.T) {
 	if HasContext(projectDir, KindAST, "other-repo") {
 		t.Error("the context survived RemoveContext")
 	}
-	// Removing one kind must not touch the other.
 	if !HasContext(projectDir, KindKnowledge, "some-docs") {
 		t.Error("removing an AST context also removed a knowledge context")
 	}
@@ -61,9 +57,6 @@ func TestRegistryRoundTrip(t *testing.T) {
 	}
 }
 
-// Membership is recorded in the lockfile, and in nothing else. There used to be a
-// `contexts.json` beside it holding the same kind of fact for a different subset of
-// origins; this asserts it is gone rather than merely unused.
 func TestMembershipIsRecordedInTheLockfileAndNowhereElse(t *testing.T) {
 	projectDir := t.TempDir()
 	if err := AddContext(projectDir, KindAST, ContextRecord{Name: "x"}); err != nil {

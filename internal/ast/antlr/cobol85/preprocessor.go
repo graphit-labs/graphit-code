@@ -21,10 +21,6 @@ import (
 	"strings"
 )
 
-// ---------------------------------------------------------------------------
-// Constants — mirror CobolPreprocessor.java
-// ---------------------------------------------------------------------------
-
 const (
 	charAsterisk = "*"
 	charD        = "D"
@@ -35,10 +31,6 @@ const (
 	ws           = " "
 	newline      = "\n"
 )
-
-// ---------------------------------------------------------------------------
-// CobolSourceFormat — mirror CobolSourceFormatEnum
-// ---------------------------------------------------------------------------
 
 // CobolSourceFormat represents the COBOL source format.
 type CobolSourceFormat int
@@ -53,9 +45,6 @@ const (
 	FormatTandem
 )
 
-// indicatorFieldPattern matches the indicator column. From CobolPreprocessor.java:
-//
-//	INDICATOR_FIELD = "([ABCdD\\t\\-/*# ])"
 const indicatorField = `([ABCdD\t\-/*# ])`
 
 var (
@@ -81,10 +70,6 @@ func isCommentEntryMultiLine(f CobolSourceFormat) bool {
 	return f != FormatTandem
 }
 
-// ---------------------------------------------------------------------------
-// CobolLineType — mirror CobolLineTypeEnum
-// ---------------------------------------------------------------------------
-
 // CobolLineType represents the type of a COBOL source line.
 type CobolLineType int
 
@@ -95,10 +80,6 @@ const (
 	LineDebug        CobolLineType = iota
 	LineNormal       CobolLineType = iota
 )
-
-// ---------------------------------------------------------------------------
-// CobolLine — mirror CobolLine.java
-// ---------------------------------------------------------------------------
 
 // CobolLine represents a parsed COBOL source line.
 type CobolLine struct {
@@ -162,10 +143,6 @@ func splitContentArea(contentArea string) (string, string) {
 	return contentArea, ""
 }
 
-// ---------------------------------------------------------------------------
-// Stage 1: LineReader — mirror CobolLineReaderImpl.java
-// ---------------------------------------------------------------------------
-
 func determineType(indicatorArea string) CobolLineType {
 	switch indicatorArea {
 	case charD, charDLower:
@@ -180,7 +157,6 @@ func determineType(indicatorArea string) CobolLineType {
 }
 
 func parseLine(line string, lineNumber int, format CobolSourceFormat) *CobolLine {
-	// All-whitespace lines are BLANK
 	if strings.TrimSpace(line) == "" {
 		return &CobolLine{
 			SequenceArea:  BlankSequenceArea(format),
@@ -198,7 +174,6 @@ func parseLine(line string, lineNumber int, format CobolSourceFormat) *CobolLine
 	matches := pattern.FindStringSubmatch(line)
 
 	if matches == nil {
-		// Could not parse line — treat as normal with raw content
 		return &CobolLine{
 			SequenceArea:  BlankSequenceArea(format),
 			IndicatorArea: ws,
@@ -242,13 +217,11 @@ func safeGroup(matches []string, idx int) string {
 	return ""
 }
 
-// readLines parses raw COBOL source into CobolLine structs.
 func readLines(cobolCode string, format CobolSourceFormat) []*CobolLine {
 	scanner := strings.Split(cobolCode, "\n")
 	result := make([]*CobolLine, 0, len(scanner))
 
 	for i, line := range scanner {
-		// Remove trailing \r for Windows line endings
 		line = strings.TrimRight(line, "\r")
 		parsed := parseLine(line, i, format)
 		result = append(result, parsed)
@@ -256,10 +229,6 @@ func readLines(cobolCode string, format CobolSourceFormat) []*CobolLine {
 
 	return result
 }
-
-// ---------------------------------------------------------------------------
-// Stage 2: LineIndicatorProcessor — mirror CobolLineIndicatorProcessorImpl.java
-// ---------------------------------------------------------------------------
 
 var trailingWhitespace = regexp.MustCompile(`\s+$`)
 
@@ -275,9 +244,7 @@ func handleTrailingComma(contentArea string) string {
 }
 
 func processLineIndicator(line *CobolLine) *CobolLine {
-	// Trim trailing whitespace
 	trimmedTrailWs := trailingWhitespace.ReplaceAllString(line.GetContentArea(), "")
-	// Handle trailing comma
 	handled := handleTrailingComma(trimmedTrailWs)
 
 	switch line.Type {
@@ -297,7 +264,7 @@ func processLineIndicator(line *CobolLine) *CobolLine {
 	case LineComment:
 		return WithIndicatorAndContent(line, commentTag+ws, handled)
 
-	default: // NORMAL, BLANK
+	default:
 		return WithIndicatorAndContent(line, ws, handled)
 	}
 }
@@ -309,10 +276,6 @@ func processLineIndicators(lines []*CobolLine) []*CobolLine {
 	}
 	return result
 }
-
-// ---------------------------------------------------------------------------
-// Stage 3: CommentEntriesMarker — mirror CobolCommentEntriesMarkerImpl.java
-// ---------------------------------------------------------------------------
 
 var (
 	commentEntryTriggersStart = []string{
@@ -395,7 +358,6 @@ func markCommentEntries(lines []*CobolLine, format CobolSourceFormat) []*CobolLi
 
 			foundTriggerInPrevious = foundTriggerInCurrent
 		} else {
-			// Single-line comment entry (Tandem format)
 			foundTriggerInCurrent := startsWithTrigger(line, commentEntryTriggersStart)
 			if foundTriggerInCurrent {
 				result[i] = escapeCommentEntry(line)
@@ -407,10 +369,6 @@ func markCommentEntries(lines []*CobolLine, format CobolSourceFormat) []*CobolLi
 
 	return result
 }
-
-// ---------------------------------------------------------------------------
-// Stage 4: LineWriter — mirror CobolLineWriterImpl.java
-// ---------------------------------------------------------------------------
 
 func serializeLines(lines []*CobolLine) string {
 	var sb strings.Builder
@@ -433,10 +391,6 @@ func serializeLines(lines []*CobolLine) string {
 	return sb.String()
 }
 
-// ---------------------------------------------------------------------------
-// Preprocess — public API
-// ---------------------------------------------------------------------------
-
 // Preprocess normalizes COBOL source code for ANTLR parsing.
 //
 // This is a faithful Go port of the proleap preprocessor pipeline from
@@ -455,22 +409,15 @@ func Preprocess(raw string) string {
 
 	format := detectFormat(raw)
 
-	// Stage 1: Read lines
 	lines := readLines(raw, format)
 
-	// Stage 2: Process line indicators
 	processed := processLineIndicators(lines)
 
-	// Stage 3: Mark comment entries
 	marked := markCommentEntries(processed, format)
 
-	// Stage 4: Serialize
 	return serializeLines(marked)
 }
 
-// detectFormat auto-detects the COBOL source format.
-// Uses the same heuristic as the original: check if lines have numeric
-// sequence areas in columns 1-6.
 func detectFormat(raw string) CobolSourceFormat {
 	lines := strings.SplitN(raw, "\n", 51)
 
@@ -506,11 +453,9 @@ func detectFormat(raw string) CobolSourceFormat {
 		return FormatFixed
 	}
 
-	// If > 30% of sampled lines have numeric sequence area → FIXED
 	if float64(numericCount)/float64(checkedCount) > 0.3 {
 		return FormatFixed
 	}
 
-	// Otherwise assume VARIABLE (no sequence area truncation but same indicator handling)
 	return FormatVariable
 }

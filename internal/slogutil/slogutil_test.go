@@ -13,7 +13,6 @@ func TestNOP(t *testing.T) {
 	if logger == nil {
 		t.Fatal("NOP() returned nil")
 	}
-	// Logging should be silently discarded — no panic, no output.
 	logger.Info("this message should be discarded")
 	logger.Error("this error should be discarded")
 	logger.With("key", "value").Warn("also discarded")
@@ -43,7 +42,6 @@ func TestResolve(t *testing.T) {
 				t.Fatal("Resolve() returned nil")
 			}
 			if tt.wantNOP {
-				// NOP handler should have Enabled() returning false
 				if result.Handler().Enabled(context.Background(), slog.LevelError) {
 					t.Error("expected NOP handler to have Enabled() == false")
 				}
@@ -90,7 +88,6 @@ func TestDiscardHandler(t *testing.T) {
 }
 
 func TestNOPDoesNotWrite(t *testing.T) {
-	// Verify the NOP logger truly discards output by checking the handler.
 	logger := NOP()
 	handler := logger.Handler()
 	if handler.Enabled(context.Background(), slog.LevelError) {
@@ -99,8 +96,6 @@ func TestNOPDoesNotWrite(t *testing.T) {
 }
 
 func TestStderrDebugLevel(t *testing.T) {
-	// Verify the Stderr logger uses Debug level by checking handler directly.
-	// We create a logger with a known writer to verify the output.
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,

@@ -9,9 +9,6 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// splitIdentifier turns "parseConfig" into "parseConfig parse Config" — the same
-// trick the SQLite index already applies at write time, so both the original
-// spelling and its parts are searchable as whole tokens.
 func splitIdentifier(s string) string {
 	var words []string
 	cur := strings.Builder{}
@@ -98,9 +95,9 @@ func TestCamelCaseSearchStrategies(t *testing.T) {
 		_ = run(fmt.Sprintf("CREATE (:C {uid:'u%d', name:'%s', split:'%s', tri:'%s'})",
 			i, n, splitIdentifier(n), trigrams(n)))
 	}
-	_ = run("CALL CREATE_FTS_INDEX('C','raw',['name'])")    // camelCase cru
-	_ = run("CALL CREATE_FTS_INDEX('C','split',['split'])") // identificador dividido
-	_ = run("CALL CREATE_FTS_INDEX('C','tri',['tri'])")     // trigrama
+	_ = run("CALL CREATE_FTS_INDEX('C','raw',['name'])")
+	_ = run("CALL CREATE_FTS_INDEX('C','split',['split'])")
+	_ = run("CALL CREATE_FTS_INDEX('C','tri',['tri'])")
 
 	cases := []struct{ query, want string }{
 		{"config", "parseConfig"},

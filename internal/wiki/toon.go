@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// searchPreviewWidth is how much of a page a search hit shows WHEN a preview was asked for.
-//
-// It is deliberately narrower than the 200-320 characters the previews used to carry. A
-// preview exists to break a tie between two plausible titles, not to answer the question:
-// the answer comes from graphit_wiki_source, which slices, so paying for a long preview on
-// every one of twenty hits buys context for the nineteen the agent will not open.
 const searchPreviewWidth = 140
 
 func trimPreview(s string) string {

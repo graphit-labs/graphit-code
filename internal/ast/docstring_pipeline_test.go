@@ -47,14 +47,7 @@ type Widget struct{}
 func Undocumented() {}
 `,
 			want: map[string]string{
-				"Alpha": "Alpha does alpha things.",
-				// KNOWN DEFECT, predates the change this file was written for —
-				// verified identical against the previous implementation. The query
-				// captures the type name, whose nearest declaration ancestor is
-				// type_spec, but the doc comment is a sibling of the enclosing
-				// type_declaration. Neither the old whole-tree scan nor the current
-				// site collection bridges that gap, so exported Go types carry no
-				// documentation into the index.
+				"Alpha":        "Alpha does alpha things.",
 				"Widget":       "",
 				"Undocumented": "",
 			},
@@ -71,8 +64,6 @@ def beta(x):
     return x
 `,
 			want: map[string]string{
-				// cleanDocstring used to strip only opening markers, so this came
-				// back as `Alpha docstring."""`. It now strips closing ones too.
 				"alpha": "Alpha docstring.",
 				"beta":  "beta comment",
 			},

@@ -14,14 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
-// Identity and history addressing, without git.
-//
-// The user scope used to be keyed by `git config user.email`, and the project root was found with
-// `git rev-parse --show-toplevel`. Both are gone with the rest of git.
-//
-// The identity itself is NOT here: it is config.UnitID, in the global configuration, because
-// "which installation is this" is not a memory concept. This file only derives a scope id from it.
-
 // UserScopeID is the id of the `user` memory scope.
 //
 // It hashes the unit identity rather than using it directly, because `unit.id` may be set to
@@ -91,16 +83,6 @@ func RevisionIDFromHistoryPath(rel string) string {
 	return strings.TrimSuffix(path.Base(filepath.ToSlash(rel)), ".md")
 }
 
-// MemoryIDFor resolves the id of a memory from its content, falling back to its file name.
-//
-// The declared id is authoritative, and every read site goes through this rather than through
-// MemoryIDFromFileName, because a filename-derived id that reaches a write path forks the memory:
-// the write lands on `<derived-id>.md`, and if the name carried a suffix the store gains a twin
-// with a corrupted id, its own history directory, and its own revisions. That is not a
-// hypothetical — it happened 184 times in this repository's own memory scope.
-//
-// The name remains the fallback for a file whose frontmatter has no id at all, which is what a
-// hand-written fixture and a pre-frontmatter memory both look like.
 func MemoryIDFor(content, name string) string {
 	if id := ParseMemoryFrontmatter(content).ID; id != "" {
 		return id
@@ -108,12 +90,6 @@ func MemoryIDFor(content, name string) string {
 	return MemoryIDFromFileName(name)
 }
 
-// IsMemoryID reports whether a string is a ULID, which is the only shape a memory id has.
-//
-// It is the guard against an id recovered from a file name. A raw directory that contains
-// `<id>_important_.md` — the fossil of a layout where the file name carried importance — used to
-// yield `<id>_important_` from MemoryIDFromFileName, and a write path that trusted it forked the
-// memory into a twin under the corrupted id, with its own history and its own revisions.
 func IsMemoryID(s string) bool {
 	if len(s) != 26 {
 		return false
@@ -126,12 +102,6 @@ func IsMemoryID(s string) bool {
 	return true
 }
 
-// projectRootDir finds the project the working directory belongs to.
-//
-// A project is identified by its lockfile, which is the framework's own marker — the same one
-// store.ProjectID reads. Walking up for it replaces `git rev-parse --show-toplevel`, and is
-// strictly more correct here: a project without git still has a lockfile, and a git repository
-// holding several projects resolves to the right one instead of to the repository root.
 func projectRootDir() string {
 	wd, err := os.Getwd()
 	if err != nil {

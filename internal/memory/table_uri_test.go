@@ -71,9 +71,6 @@ func TestAContextResolvesToTheProjectPrefixRemotelyAndADoubledNameLocally(t *tes
 	}
 }
 
-// A context's two local artifacts are named from the doubled pair, so the table directory and the
-// wiki directory agree about which scope they belong to. The check used to be against the raw
-// markdown store's segment, which is the pair that no longer exists.
 func TestAContextsLocalArtifactsAreNamedFromTheDoubledScope(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

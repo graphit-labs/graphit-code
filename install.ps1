@@ -1,13 +1,6 @@
-# Graphit Code Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
-#
-# To specify a custom install directory, pass -Dir or set the env var:
-#   iex "& { $(irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1) } -Dir 'C:\Tools\graphit'"
-#   $env:GRAPHIT_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\graphit"; irm ... | iex
 
 [CmdletBinding()]
 param(
-    # Custom installation directory. Overrides $env:GRAPHIT_INSTALL_DIR if set.
     [string]$Dir
 )
 
@@ -17,7 +10,6 @@ $Repo      = "graphit-labs/graphit-code"
 $BinName   = "graphit"
 $Platform  = "windows-amd64"
 
-# ── Install directory ─────────────────────────────────────────────────────────
 $InstallDir = if ($Dir) {
     $Dir
 } elseif ($env:GRAPHIT_INSTALL_DIR) {
@@ -26,19 +18,16 @@ $InstallDir = if ($Dir) {
     Join-Path $env:LOCALAPPDATA "Programs\graphit"
 }
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 function Write-Step   { param($msg) Write-Host "  → $msg" -ForegroundColor Cyan }
 function Write-Ok     { param($msg) Write-Host "  ✓ $msg" -ForegroundColor Green }
 function Write-Warn   { param($msg) Write-Host "  ⚠ $msg" -ForegroundColor Yellow }
 function Write-Fail   { param($msg) Write-Host "  ✗ $msg" -ForegroundColor Red; exit 1 }
 
-# ── Banner ────────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "Graphit Code Installer" -ForegroundColor White -BackgroundColor DarkBlue
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkBlue
 Write-Host ""
 
-# ── Fetch latest version ──────────────────────────────────────────────────────
 Write-Step "Fetching latest version..."
 try {
     $ApiUrl  = "https://api.github.com/repos/$Repo/releases/latest"
@@ -50,20 +39,17 @@ try {
 }
 Write-Ok "Latest version: $Version"
 
-# ── URLs ──────────────────────────────────────────────────────────────────────
 $ArchiveName  = "$BinName-$Platform.tar.gz"
 $BaseUrl      = "https://github.com/$Repo/releases/download/$Version"
 $ArchiveUrl   = "$BaseUrl/$ArchiveName"
 $ChecksumUrl  = "$BaseUrl/checksums.sha256"
 
-# ── Temp dir ──────────────────────────────────────────────────────────────────
 $TmpDir = Join-Path $env:TEMP "graphit-install-$(New-Guid)"
 New-Item -ItemType Directory -Path $TmpDir | Out-Null
 $TmpArchive  = Join-Path $TmpDir $ArchiveName
 $TmpChecksum = Join-Path $TmpDir "checksums.sha256"
 
 try {
-    # ── Download ──────────────────────────────────────────────────────────────
     Write-Step "Downloading $ArchiveName..."
     Invoke-WebRequest -Uri $ArchiveUrl -OutFile $TmpArchive -UseBasicParsing
     Write-Ok "Downloaded archive"
@@ -71,7 +57,6 @@ try {
     Write-Step "Downloading checksums..."
     Invoke-WebRequest -Uri $ChecksumUrl -OutFile $TmpChecksum -UseBasicParsing
 
-    # ── Verify checksum ───────────────────────────────────────────────────────
     Write-Step "Verifying checksum..."
     $ChecksumContent = Get-Content $TmpChecksum
     $Expected = ($ChecksumContent | Where-Object { $_ -match [regex]::Escape($ArchiveName) } |
@@ -85,16 +70,13 @@ try {
     }
     Write-Ok "Checksum verified"
 
-    # ── Extract ───────────────────────────────────────────────────────────────
     Write-Step "Extracting archive..."
-    # `tar` is available in Windows 10+ (build 17063+)
     if (Get-Command tar -ErrorAction SilentlyContinue) {
         & tar -xzf $TmpArchive -C $TmpDir
     } else {
         Write-Fail "'tar' not found. Please install Windows 10 1803+ or Git for Windows."
     }
 
-    # Find binary (graphit-windows-amd64.exe or graphit.exe)
     $TmpBin = $null
     foreach ($candidate in @(
         Join-Path $TmpDir "$BinName-$Platform.exe"
@@ -107,7 +89,6 @@ try {
     }
     Write-Ok "Archive extracted"
 
-    # ── Install ───────────────────────────────────────────────────────────────
     Write-Step "Installing to $InstallDir..."
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir | Out-Null
@@ -116,7 +97,6 @@ try {
     Copy-Item -Path $TmpBin -Destination $Dest -Force
     Write-Ok "Installed to $Dest"
 
-    # ── Add to PATH ───────────────────────────────────────────────────────────
     $UserPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
     if ($UserPath -notlike "*$InstallDir*") {
         Write-Step "Adding $InstallDir to user PATH..."
@@ -125,14 +105,12 @@ try {
             "$UserPath;$InstallDir",
             "User"
         )
-        # Also update current session
         $env:PATH = "$env:PATH;$InstallDir"
         Write-Ok "PATH updated (restart your terminal to take full effect)"
     } else {
         Write-Ok "$InstallDir already in PATH"
     }
 
-    # ── Done ─────────────────────────────────────────────────────────────────
     Write-Host ""
     Write-Host "  Installation complete!" -ForegroundColor Green
     Write-Host ""

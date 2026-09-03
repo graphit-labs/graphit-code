@@ -20,8 +20,6 @@ func Serve(ctx context.Context) error {
 
 	server := NewServer()
 
-	// IOTransport instead of StdioTransport: decouples from os.Stdout
-	// so output.Mute() reassignments don't break the JSON-RPC channel.
 	transport := &mcp.IOTransport{
 		Reader: io.NopCloser(os.Stdin),
 		Writer: nopWriteCloser{os.Stdout},

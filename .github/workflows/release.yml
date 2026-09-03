@@ -9,8 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── CI Gate ─────────────────────────────────────────────────────────────────
-  # All builds depend on CI passing. Prevents releasing broken code.
+
   ci:
     name: CI Gate
     runs-on: ubuntu-22.04
@@ -40,12 +39,6 @@ jobs:
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
-      # This gate runs `make vet` and `make test`, both of which build with -tags lancedb and
-      # therefore depend on lancedb-native — which, with no installed runtime to link against,
-      # git-clones lancedb-go and runs cargo. The toolchain and the caches were missing here
-      # while ci.yml had them, so the job that gates every release artifact was the slowest and
-      # the most fragile of the two. Keys are identical to ci.yml's on purpose: the two
-      # workflows then share one cache entry.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -76,7 +69,6 @@ jobs:
       - name: Vet
         run: make vet
 
-      # No --build-tags: the list lives in .golangci.yml, which is what `make lint` reads too.
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -100,7 +92,6 @@ jobs:
       - name: UI Lint
         run: make ui-lint
 
-  # ── Linux amd64 ────────────────────────────────────────────────────────────
   build-linux:
     name: Build (linux-amd64)
     needs: [ci]
@@ -146,9 +137,6 @@ jobs:
           path: /tmp/lbug-cache
           key: liblbug-linux-amd64-v0.17.0
 
-      # The LanceDB native is built from Rust source, on this runner, for this platform.
-      # It cannot be cross-compiled — which is why the release pipeline is three runners rather
-      # than one, and why each job builds its own copy.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -186,7 +174,6 @@ jobs:
             .build/graphit-linux-amd64.sha256
           retention-days: 1
 
-  # ── macOS arm64 (Apple Silicon) ────────────────────────────────────────────
   build-darwin:
     name: Build (darwin-arm64)
     needs: [ci]
@@ -227,9 +214,6 @@ jobs:
           path: /tmp/lbug-cache
           key: liblbug-darwin-v0.17.0
 
-      # The LanceDB native is built from Rust source, on this runner, for this platform.
-      # It cannot be cross-compiled — which is why the release pipeline is three runners rather
-      # than one, and why each job builds its own copy.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -267,7 +251,6 @@ jobs:
             .build/graphit-darwin-arm64.sha256
           retention-days: 1
 
-  # ── Windows amd64 (native) ──────────────────────────────────────────────────
   build-windows:
     name: Build (windows-amd64)
     needs: [ci]
@@ -320,9 +303,6 @@ jobs:
           path: C:\cache\lbug
           key: liblbug-windows-v0.17.0
 
-      # The LanceDB native is built from Rust source, on this runner, for this platform.
-      # It cannot be cross-compiled — which is why the release pipeline is three runners rather
-      # than one, and why each job builds its own copy.
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -365,7 +345,6 @@ jobs:
             .build/graphit-windows-amd64.sha256
           retention-days: 1
 
-  # ── Publish Release ────────────────────────────────────────────────────────
   publish:
     name: Publish GitHub Release
     needs: [build-linux, build-darwin, build-windows]

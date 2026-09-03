@@ -1,15 +1,13 @@
 language: csharp
 grammar: tree-sitter-c_sharp
 extensions: [".cs"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
   READS_FIELD: { labels: [Field] }
   WRITES_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(method_declaration name: (identifier) @name)'
@@ -38,7 +36,6 @@ queries:
     graph_label: Field
     pattern: '(field_declaration (variable_declaration (variable_declarator (identifier) @name)))'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: fields
     graph_label: Field
     pattern: '(variable_declarator (identifier) @name [(integer_literal) (real_literal) (boolean_literal) (null_literal) (character_literal) (string_literal) (verbatim_string_literal)] @value)'
@@ -50,7 +47,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # Enum members. Antes o enum existia sem seus membros.
   - data_key: enum_members
     graph_label: EnumMember
     pattern: '(enum_member_declaration name: (identifier) @name)'
@@ -60,7 +56,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -90,16 +85,13 @@ queries:
     relation_type: DECORATOR
     pattern: '(attribute (identifier) @name)'
 
-# C# export detection: public modifier
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# C# uses 'this' for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — C# tree-sitter node types only
 context_types:
   class_declaration: Class
   interface_declaration: Interface
@@ -109,10 +101,8 @@ context_types:
   method_declaration: Method
   constructor_declaration: Method
 
-# C# has no anonymous function expressions via variable_declarator
 anon_func_types: []
 
-# Declaration node types for docstring attachment — C# tree-sitter only
 declaration_types:
   - method_declaration
   - class_declaration
@@ -123,15 +113,9 @@ declaration_types:
   - property_declaration
   - constructor_declaration
 
-# C# tree-sitter uses a single "comment" node type for //, /* */, and /// comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar (loaded as a native/embedded grammar, not via
-# the dynamic loader, so it is checked under the grammar name "c_sharp").
-# switch_section fires for `default` too, so a bare switch with no case
-# still adds one — a minor, accepted deviation also taken for C/C++/Java.
 complexity:
   node_types:
     - if_statement
@@ -142,10 +126,6 @@ complexity:
     - conditional_expression
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Interface

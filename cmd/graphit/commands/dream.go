@@ -141,7 +141,6 @@ func runDreamStatus() error {
 		p.KeyValue("Last dream", fmt.Sprintf("%s (%s ago)", lastDreamAt.Format("2006-01-02 15:04:05"), ago))
 	} else {
 
-		// ListReports is newest-first, so the head is the most recent session.
 		if reports, err := dream.ListReports(projectDir); err == nil && len(reports) > 0 {
 			latest := reports[0]
 			ago := time.Since(latest.Created).Truncate(time.Second)

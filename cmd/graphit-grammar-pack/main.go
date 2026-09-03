@@ -48,7 +48,6 @@ func main() {
 	var grammarPlatforms []ast.GrammarPlatform
 
 	for _, spec := range platforms {
-		// Parse "OS/ARCH:path"
 		colonIdx := strings.Index(spec, ":")
 		if colonIdx < 0 {
 			fmt.Fprintf(os.Stderr, "error: invalid platform spec %q (expected OS/ARCH:path)\n", spec)
@@ -87,7 +86,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Verify by reading back.
 	archive, err := ast.ReadGrammarArchive(output)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: verify read: %v\n", err)

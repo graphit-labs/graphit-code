@@ -13,8 +13,6 @@ import (
 func setupMultiWikiDirs(t *testing.T) (string, string) {
 	t.Helper()
 
-	// Two compiled indexes, not two directories of pages: the index IS the wiki, and the
-	// markdown scan these fixtures used to feed was deleted with the page output.
 	dir1 := indexedWiki(t, []WikiChunk{
 		{Slug: "Design", Title: "Design", Body: "The system follows clean architecture patterns.", DocType: "specification", WordCount: 6},
 		{Slug: "API", Title: "API", Body: "REST endpoints for operations.", DocType: "specification", WordCount: 4},
@@ -26,7 +24,6 @@ func setupMultiWikiDirs(t *testing.T) (string, string) {
 	return dir1, dir2
 }
 
-// indexedWiki builds a compiled wiki in a temp directory and returns it.
 func indexedWiki(t *testing.T, chunks []WikiChunk) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -426,9 +423,6 @@ func TestParseMultiPageList(t *testing.T) {
 	}
 }
 
-// A bare page name with no [source-id] prefix is resolved by asking each wiki's INDEX whether it
-// holds that page. It used to be resolved by an os.ReadFile of `<dir>/Design.md`, so this fixture
-// moved from writing a page to building one.
 func TestParseMultiPageList_FallbackSearch(t *testing.T) {
 	t.Parallel()
 	dir := indexedWiki(t, []WikiChunk{{

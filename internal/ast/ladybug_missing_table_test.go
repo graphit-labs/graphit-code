@@ -45,7 +45,6 @@ func TestQueryExplainsALabelThatHasNoTable(t *testing.T) {
 		}
 	}
 
-	// The engine's own text stays, so the cause is still greppable.
 	if !strings.Contains(msg, "Table Import does not exist") {
 		t.Errorf("the original engine message was dropped:\n  %s", msg)
 	}
@@ -150,7 +149,6 @@ func TestQueryDistinguishesAWrongPropertyFromAPartialSchema(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// A rebuild in flight: File and Directory exist, no entity label does.
 	if err := db.initSchema(); err != nil {
 		t.Fatalf("schema: %v", err)
 	}
@@ -169,8 +167,6 @@ func TestQueryDistinguishesAWrongPropertyFromAPartialSchema(t *testing.T) {
 		}
 	}
 
-	// Now the entity labels exist, and the same property binds — which is the proof
-	// that the message above was about the schema, not about the query.
 	if err := db.initSchemaForLabels(SchemaInfo{Labels: []string{"Function", "Method"}}); err != nil {
 		t.Fatalf("schema for labels: %v", err)
 	}
@@ -178,8 +174,6 @@ func TestQueryDistinguishesAWrongPropertyFromAPartialSchema(t *testing.T) {
 		t.Errorf("with entity labels present, line_number must bind: %v", err)
 	}
 
-	// A name that exists nowhere keeps failing, and says so without blaming a rebuild
-	// it cannot see.
 	_, err = db.Query(context.Background(), "MATCH (n) RETURN n.line LIMIT 1", nil)
 	if err == nil {
 		t.Fatal("`line` does not exist and must still fail")
@@ -205,7 +199,6 @@ func TestQueryExplainsAPropertyMissingFromSomeLabels(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// relative_path is on File and on nothing else.
 	_, err := db.Query(context.Background(), "MATCH (n:Function) RETURN n.relative_path LIMIT 1", nil)
 	if err == nil {
 		t.Skip("relative_path bound on Function; this engine build does not constrain it")

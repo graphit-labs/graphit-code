@@ -10,8 +10,6 @@ import (
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
 )
 
-// captureStdout runs fn while os.Stdout is redirected to a pipe and returns
-// everything fn wrote to stdout.
 func captureStdout(fn func()) string {
 	old := os.Stdout
 	r, w, _ := os.Pipe()

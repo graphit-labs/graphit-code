@@ -10,9 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
-// makefileExtensionCache mirrors LBUG_EXT_CACHE in the Makefile. A build has already put the
-// extension there, so the loading tests can use a real binary without vendoring 1.4 MB into
-// the repository.
 const makefileExtensionCache = "/tmp/lbug-extension-cache"
 
 func realHTTPFSBinary(t *testing.T) string {
@@ -27,15 +24,12 @@ func realHTTPFSBinary(t *testing.T) string {
 	return ""
 }
 
-// isolateRuntime gives this test its own HOME, so a staged extension does not leak into the
-// next test. The test binary shares one home across the package by default.
 func isolateRuntime(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
 }
 
-// stageExtension puts a copy of the extension where the launcher would have extracted it.
 func stageExtension(t *testing.T, source string) {
 	t.Helper()
 	dir := ExtensionDir()
@@ -112,13 +106,6 @@ func TestLoadExtensionsWithoutThePayloadNamesTheMissingFile(t *testing.T) {
 	}
 }
 
-// REGRESSION GUARD, and the reason validateExtensionFile exists.
-//
-// A 404 from the extension server is a 153-byte HTML page. Handing that to LOAD EXTENSION
-// does not return an error — MEASURED: it kills the process with SIGBUS inside cgo, which no
-// recover can catch. So this asserts the file never reaches LOAD: validation must reject it
-// on size and magic bytes first. Never rewrite this test to call LoadExtensions on a real
-// engine with a bad file; it will core-dump the test binary.
 func TestValidateExtensionFileRejectsWhatAFailedDownloadLeaves(t *testing.T) {
 	dir := t.TempDir()
 
@@ -134,8 +121,6 @@ func TestValidateExtensionFileRejectsWhatAFailedDownloadLeaves(t *testing.T) {
 		t.Fatalf("error should point at the size: %v", err)
 	}
 
-	// Big enough to pass the size check, still not a library — the magic bytes are the
-	// second half of the defence.
 	bigButWrong := filepath.Join(dir, "big.lbug_extension")
 	padding := make([]byte, minExtensionBytes+1)
 	copy(padding, "<!DOCTYPE html>")

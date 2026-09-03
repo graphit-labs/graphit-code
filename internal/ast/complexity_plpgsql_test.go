@@ -72,10 +72,6 @@ $$ LANGUAGE plpgsql;
 	if !m.on {
 		t.Fatal("matcher did not activate")
 	}
-	// base 1 + stmt_if + elsif_clause + stmt_for + case_when (the CASE's ELSE
-	// arm is not a second case_when — confirmed empirically, not assumed;
-	// consistent with the "default is not a branch" convention taken
-	// throughout this project).
 	if got, want := m.score(fn), 5; got != want {
 		t.Errorf("score() = %d, want %d", got, want)
 	}

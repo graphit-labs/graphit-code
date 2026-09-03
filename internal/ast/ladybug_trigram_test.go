@@ -9,9 +9,6 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// trigrams turns "config" into "con onf nfi fig" — exactly what SQLite's
-// trigram tokenizer does internally, just done in Go so the result can be
-// stored in a property and indexed by Ladybug's FTS.
 func trigrams(s string) string {
 	s = strings.ToLower(s)
 	if len(s) < 3 {
@@ -84,7 +81,6 @@ func TestLadybugIndexedSubstring(t *testing.T) {
 		t.Fatalf("trigram-field FTS index: %v", err)
 	}
 
-	// Indexed substring: query the trigrams of the substring, not the substring.
 	q := trigrams("onfig")
 	got := names(fmt.Sprintf(
 		"CALL QUERY_FTS_INDEX('E','idx_tri','%s') RETURN node.name AS n, score ORDER BY score DESC", q))
@@ -101,7 +97,6 @@ func TestLadybugIndexedSubstring(t *testing.T) {
 		t.Errorf("indexed trigram search found %d/%d expected matches: %v", hits, len(want), got)
 	}
 
-	// Native prefix/wildcard support?
 	t.Logf("[wildcard probe] 'conf*' -> %v",
 		names("CALL QUERY_FTS_INDEX('E','idx_tri','conf*') RETURN node.name LIMIT 5"))
 }
@@ -141,8 +136,6 @@ func TestLadybugFTSNativeOptions(t *testing.T) {
 		t.Fatalf("native stemmer option rejected: %v", err)
 	}
 
-	// With stemming, the query "parsing" must reach a document containing
-	// "Parses" — something the unstemmed SQLite configuration cannot do.
 	r, err := c.Query("CALL QUERY_FTS_INDEX('D','idx_stem','parsing') RETURN node.uid AS u")
 	if err != nil {
 		t.Fatalf("stemmed query failed: %v", err)

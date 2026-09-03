@@ -43,7 +43,6 @@ func TestCopyMappingAndFidelity(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	// --- 1. mapping: export the columns in a DIFFERENT order than the DDL ---
 	shuffled := filepath.Join(dir, "shuffled.parquet")
 	if err := st.Exec(fmt.Sprintf(
 		`COPY (MATCH (s:Src) RETURN s.lang, s.name, s.dep, s.path, s.line) TO '%s'`,
@@ -73,7 +72,6 @@ func TestCopyMappingAndFidelity(t *testing.T) {
 		}
 	}
 
-	// --- 2. fidelity: bytes that are not valid UTF-8, through the JSON staging path ---
 	invalid := "package main // \xff\xfe raw bytes \x00 and a lone surrogate \xed\xa0\x80\n"
 	if err := st.Exec(`CREATE NODE TABLE Bytes(path STRING, source STRING,
 		PRIMARY KEY(path))`, nil); err != nil {
@@ -98,12 +96,10 @@ func TestCopyMappingAndFidelity(t *testing.T) {
 		}
 	}
 
-	// Which side loses them: our encoder, or the engine reading the file back?
 	raw, rerr := os.ReadFile(stage)
 	t.Logf("FIDELITY(stage file): %d bytes on disk (err=%v)", len(raw), rerr)
 	t.Logf("   on disk = %q", string(raw))
 
-	// And the same value through UNWIND, which does not go near a JSON document.
 	if err := st.Exec(`UNWIND $b AS r CREATE (:Bytes {path: r.path, source: r.source})`,
 		map[string]any{"b": []any{
 			map[string]any{"path": "c.go", "source": invalid},

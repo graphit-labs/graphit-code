@@ -211,8 +211,6 @@ func TestFindMCPJSON(t *testing.T) {
 	})
 }
 
-// Constructor tests
-
 func TestNewAntigravityAdapter(t *testing.T) {
 	t.Parallel()
 	a := NewAntigravityAdapter()
@@ -563,11 +561,9 @@ func TestFolderBasedAdapter_ScanLocal(t *testing.T) {
 
 	_ = os.WriteFile(filepath.Join(baseDir, "commands", "c1.md"), []byte("cmd"), 0o644)
 
-	// Skills are folders
 	_ = os.MkdirAll(filepath.Join(baseDir, "skills", "my-skill"), 0o755)
 	_ = os.WriteFile(filepath.Join(baseDir, "skills", "my-skill", "SKILL.md"), []byte("skill"), 0o644)
 
-	// Core skills should be skipped
 	for coreID := range brand.CoreSkillIDs() {
 		_ = os.MkdirAll(filepath.Join(baseDir, "skills", coreID), 0o755)
 	}
@@ -640,19 +636,16 @@ func TestFolderBasedAdapter_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Hub rules are delivered dynamically by the session hook.
 	ruleFile := filepath.Join(dir, ".test-ide", "rules", "rule1.md")
 	if _, err := os.Stat(ruleFile); !os.IsNotExist(err) {
 		t.Errorf("rule artifact was materialized: %v", err)
 	}
 
-	// Verify skill dir was synced
 	skillDir := filepath.Join(dir, ".test-ide", "skills", "skill1")
 	if _, err := os.Stat(skillDir); err != nil {
 		t.Errorf("skill dir not created: %v", err)
 	}
 
-	// Verify command was synced
 	cmdFile := filepath.Join(dir, ".test-ide", "commands", "cmd1.md")
 	if _, err := os.Stat(cmdFile); err != nil {
 		t.Errorf("command file not created: %v", err)
@@ -918,8 +911,6 @@ func TestReconcileMCPFile(t *testing.T) {
 	})
 
 }
-
-// InjectManagedBlock / RemoveManagedBlock
 
 func TestInstallManagedSkill(t *testing.T) {
 	t.Parallel()
@@ -1193,7 +1184,6 @@ func TestCodexAdapter_Sync(t *testing.T) {
 	dir := t.TempDir()
 	a := NewCodexAdapter()
 
-	// Override MCPFilePath to a temp location
 	mcpTarget := filepath.Join(dir, "codex-config.toml")
 	a.cfg.MCPFilePath = mcpTarget
 
@@ -1210,7 +1200,6 @@ func TestCodexAdapter_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify TOML config was created
 	data, err := os.ReadFile(mcpTarget)
 	if err != nil {
 		t.Fatalf("codex config not created: %v", err)
@@ -1325,7 +1314,6 @@ func TestOpenCodeAdapter_Remove_PreservesOtherKeys(t *testing.T) {
 	mcpTarget := filepath.Join(dir, "opencode.json")
 	a.cfg.MCPFilePath = mcpTarget
 
-	// Write a config with a user-owned MCP and an unrelated setting.
 	existing := map[string]any{
 		"mcp": map[string]any{
 			"user-mcp": map[string]any{"type": "local"},
@@ -1335,11 +1323,9 @@ func TestOpenCodeAdapter_Remove_PreservesOtherKeys(t *testing.T) {
 	data, _ := json.Marshal(existing)
 	_ = os.WriteFile(mcpTarget, data, 0o644)
 
-	// Sync to add the core server
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
-	// Remove should only remove the core server, preserving user entries
 	_ = a.Remove(pp, map[string]map[string]string{})
 
 	data, _ = os.ReadFile(mcpTarget)
@@ -1418,8 +1404,6 @@ func TestGeminiAdapter_Remove(t *testing.T) {
 	}
 }
 
-// FolderBasedAdapter.Sync with agent into rules dir (no AgentsDir, no AgentsFile)
-
 func TestFolderBasedAdapter_Sync_AgentToRulesDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -1441,7 +1425,6 @@ func TestFolderBasedAdapter_Sync_AgentToRulesDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Agent should be copied as agent1_agent.md into rules dir
 	agentFile := filepath.Join(dir, ".test-ide", "rules", "agent1_agent.md")
 	if _, err := os.Stat(agentFile); err != nil {
 		t.Errorf("agent file not created in rules dir: %v", err)
@@ -1475,7 +1458,6 @@ func TestFolderBasedAdapter_Sync_MCPArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify MCP config was written
 	result, err := os.ReadFile(mcpTarget)
 	if err != nil {
 		t.Fatalf("mcp config not created: %v", err)
@@ -1510,7 +1492,6 @@ func TestFolderBasedAdapterSyncReportsMCPReconciliationFailure(t *testing.T) {
 
 func TestGetGraphitExecutable(t *testing.T) {
 	t.Parallel()
-	// Just verify it returns a non-empty string
 	exe := getGraphitExecutable()
 	if exe == "" {
 		t.Error("expected non-empty executable path")
@@ -1628,7 +1609,6 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 		dir := t.TempDir()
 		srcDir := filepath.Join(dir, "src")
 		_ = os.MkdirAll(srcDir, 0o755)
-		// only a subdirectory, no files
 		_ = os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755)
 
 		err := a.copyArtifact(dir, "rule", srcDir, dir, "x")
@@ -1671,7 +1651,6 @@ func TestCodexAdapter_RemoveCodexMCP_EmptyServersDeleted(t *testing.T) {
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
-	// Remove → mcp_servers section should be removed entirely
 	_ = a.removeCodexMCP(dir, target, nil)
 	data, _ := os.ReadFile(target)
 	if strings.Contains(string(data), "mcp_servers") {
@@ -1682,7 +1661,6 @@ func TestCodexAdapter_RemoveCodexMCP_EmptyServersDeleted(t *testing.T) {
 func TestFolderBasedAdapter_Sync_SkipsMissingTypeDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	// SkillsDir empty means skills are skipped
 	a := NewFolderBasedAdapter(FolderConfig{
 		RootDirName: ".test-ide",
 		RulesDir:    "rules",
@@ -1698,7 +1676,6 @@ func TestFolderBasedAdapter_Sync_SkipsMissingTypeDir(t *testing.T) {
 	}
 
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
-	// Should not error
 	if err := a.Sync(installed, pp, "proj-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -1718,7 +1695,6 @@ func TestAdapterInterfaceCompliance(t *testing.T) {
 func TestAssembleTriggers_CanonicalOrder(t *testing.T) {
 	t.Parallel()
 
-	// Insert in reverse canonical order; output must be in canonical order.
 	triggers := map[string]string{
 		"doc_rule": "doc",
 		"hub_rule": "hub",
@@ -1727,7 +1703,6 @@ func TestAssembleTriggers_CanonicalOrder(t *testing.T) {
 	}
 	got := assembleTriggers(triggers)
 
-	// Verify the canonical positions.
 	posOf := func(tag string) int {
 		return strings.Index(got, "<"+tag+">")
 	}
@@ -1749,7 +1724,6 @@ func TestAssembleTriggers_UnknownTagsSorted(t *testing.T) {
 	}
 	got := assembleTriggers(triggers)
 
-	// Known canonical trigger comes first.
 	memPos := strings.Index(got, "<mem_rule>")
 	aaaPos := strings.Index(got, "<aaa_rule>")
 	zzzPos := strings.Index(got, "<zzz_rule>")
@@ -1757,7 +1731,6 @@ func TestAssembleTriggers_UnknownTagsSorted(t *testing.T) {
 	if memPos >= aaaPos {
 		t.Errorf("mem_rule should come before aaa_rule")
 	}
-	// Unknown tags are sorted among themselves.
 	if aaaPos >= zzzPos {
 		t.Errorf("aaa_rule should come before zzz_rule in sorted unknowns")
 	}

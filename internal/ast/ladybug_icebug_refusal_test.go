@@ -6,12 +6,6 @@ import (
 	"testing"
 )
 
-// Every refusal used to arrive as one fixed sentence claiming the query was an
-// unsupported MULTI-HOP form. The sentence was produced for one-hop queries whose
-// real problem was a projected label or a missing DISTINCT — neither mentioned, and
-// the only cause it did name was not the cause. These assert that a refusal now says
-// which rule was broken.
-
 func TestCanonicalRefusalNamesTheRule(t *testing.T) {
 	for _, tc := range []struct {
 		name, query string
@@ -43,8 +37,6 @@ func TestCanonicalRefusalNamesTheRule(t *testing.T) {
 			want:  []string{"exactly one end", "neither"},
 		},
 		{
-			// count() over a variable that is neither end is caught as a projection of
-			// neither end, before the count form is even considered.
 			name:  "count over something that is not an endpoint",
 			query: "MATCH (f)-[:CALLS]->(e) WHERE f.uid IN ['fn_a'] RETURN count(DISTINCT r.uid)",
 			want:  []string{"exactly one end", "neither"},
@@ -151,7 +143,6 @@ func TestMountedCanonicalRefusalReachesTheCaller(t *testing.T) {
 		t.Errorf("refusal buried behind a wrapper prefix: %v", err)
 	}
 
-	// The fix the refusal suggests must actually work.
 	res, err := mounted.Query(context.Background(),
 		"MATCH (f)-[:CALLS]->(e:Function) WHERE f.uid IN ['fn_a'] RETURN DISTINCT e.name", nil)
 	if err != nil {
@@ -162,13 +153,6 @@ func TestMountedCanonicalRefusalReachesTheCaller(t *testing.T) {
 	}
 }
 
-// A refusal binds only for a LOGICAL relationship type. Naming a PHYSICAL member table is
-// the engine's business — it runs the query as written — so a rule of this planner must not
-// reject it.
-//
-// This is a regression: making unparsable endpoints a refusal broke
-// `MATCH ()-[r:calls__function_function]->() RETURN count(r)`, which had always worked,
-// because anonymous ends are unreadable to the planner and irrelevant to the engine.
 func TestMountedCanonicalDoesNotRefusePhysicalMemberTables(t *testing.T) {
 	mounted := buildCanonicalFixture(t)
 

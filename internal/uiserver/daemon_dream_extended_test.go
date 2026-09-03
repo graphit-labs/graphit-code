@@ -16,11 +16,9 @@ import (
 )
 
 func TestHandleDaemonStatus_WithRunningDaemon(t *testing.T) {
-	// Set HOME to a temp dir so daemon.NewPIDFile() picks up our fake PID file
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
-	// Write a PID file containing our own PID (which is alive)
 	daemonDir := filepath.Join(tmpHome, "."+brand.Brand, "daemon")
 	if err := os.MkdirAll(daemonDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -31,7 +29,6 @@ func TestHandleDaemonStatus_WithRunningDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Also create a fake daemon.log to test the RecentLogs path
 	logContent := "line1\nline2\nline3\n"
 	if err := os.WriteFile(filepath.Join(daemonDir, "daemon.log"), []byte(logContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -79,7 +76,6 @@ func TestHandleDaemonStatus_WithRunningDaemon(t *testing.T) {
 }
 
 func TestHandleDaemonStatus_WithStalePID(t *testing.T) {
-	// Set HOME to a temp dir, write a PID for a non-existent process
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
@@ -87,7 +83,6 @@ func TestHandleDaemonStatus_WithStalePID(t *testing.T) {
 	if err := os.MkdirAll(daemonDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Use a very high PID that shouldn't exist
 	pidContent := fmt.Sprintf("99999999\n%s\n", time.Now().UTC().Format(time.RFC3339))
 	if err := os.WriteFile(filepath.Join(daemonDir, "daemon.pid"), []byte(pidContent), 0o600); err != nil {
 		t.Fatal(err)
@@ -118,7 +113,6 @@ func TestHandleDaemonStatus_WithStalePID(t *testing.T) {
 }
 
 func TestHandleDaemonStop_StalePIDFile(t *testing.T) {
-	// Write a PID file with a non-existent PID, then try to stop
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
@@ -139,7 +133,6 @@ func TestHandleDaemonStop_StalePIDFile(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	// Since the PID is dead, IsAlive() returns nil, so it's like "not running"
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
 	}
@@ -154,7 +147,6 @@ func TestHandleDaemonStop_StalePIDFile(t *testing.T) {
 }
 
 func TestHandleDaemonStop_NoPIDFile(t *testing.T) {
-	// HOME is in empty temp dir, no PID file
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 
@@ -276,14 +268,6 @@ func TestHandleDreamStatus_WithDreamReportsCount(t *testing.T) {
 	}
 }
 
-// Title present but no body field (should still work since body is optional)
-
-// Register without pattern to test slug validation
-
-// Empty slug path param
-
-// Empty slug should return 404 (no route match) or bad request
-
 func TestHandleDreamReports_SortedByDate(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -292,7 +276,6 @@ func TestHandleDreamReports_SortedByDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create reports with different mod times
 	now := time.Now()
 	for i := 0; i < 3; i++ {
 		name := fmt.Sprintf("session%d.md", i)
@@ -301,7 +284,6 @@ func TestHandleDreamReports_SortedByDate(t *testing.T) {
 		if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		// Set different mod times
 		modTime := now.Add(time.Duration(i) * time.Hour)
 		if err := os.Chtimes(filePath, modTime, modTime); err != nil {
 			t.Fatal(err)
@@ -324,7 +306,6 @@ func TestHandleDreamReports_SortedByDate(t *testing.T) {
 		t.Fatalf("expected 3 reports, got %d", len(reports))
 	}
 
-	// Should be sorted by created date descending (newest first)
 	for i := 1; i < len(reports); i++ {
 		if reports[i].Created.After(reports[i-1].Created) {
 			t.Errorf("reports not sorted by date descending at index %d", i)
@@ -340,7 +321,6 @@ func TestHandleDreamReports_MixedContentTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// One valid report, one with no frontmatter, non-md files
 	if err := os.WriteFile(filepath.Join(dreamDir, "with-title.md"), []byte("---\ntitle: \"Titled\"\n---\n# Content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +347,6 @@ func TestHandleDreamReports_MixedContentTypes(t *testing.T) {
 		t.Fatalf("expected 2 reports (only .md files), got %d", len(reports))
 	}
 
-	// Check that one has a title and the other doesn't
 	titles := map[string]bool{}
 	for _, r := range reports {
 		titles[r.Title] = true
@@ -388,7 +367,6 @@ func TestSplitLastNLocal_ZeroN(t *testing.T) {
 func TestSplitLastNLocal_SingleNewline(t *testing.T) {
 	t.Parallel()
 	res := splitLastNLocal("\n", 5)
-	// "\n" splits to ["", ""], trim trailing empty → [""]
 	if len(res) != 1 {
 		t.Errorf("expected 1 line for single newline, got %d: %v", len(res), res)
 	}
@@ -410,7 +388,6 @@ func TestLoadProjectIDNames_MalformedJSON(t *testing.T) {
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Truncated JSON
 	if err := os.WriteFile(filepath.Join(globalDir, "hub.registry.json"), []byte(`{"projects": {"p1": {"name":`), 0o644); err != nil {
 		t.Fatal(err)
 	}

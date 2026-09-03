@@ -23,22 +23,12 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 
 	nameToUID := make(map[string]string)
 
-	// Data keys are visited in sorted order, not map order. Two queries can
-	// legitimately produce the same entity — xml.yaml matches an element both
-	// for its own sake and again to reach its text content — and the row that
-	// wins decides what the node looks like. Under map iteration that verdict
-	// changed between runs on identical input.
 	dataKeys := make([]string, 0, len(pf.Entities))
 	for dataKey := range pf.Entities {
 		dataKeys = append(dataKeys, dataKey)
 	}
 	sort.Strings(dataKeys)
 
-	// Pre-populate nameToUID in a first pass so that context lookups
-	// (e.g., fields looking up their parent struct) are order-independent.
-	// Go map iteration is non-deterministic, and without this pass, fields
-	// processed before their parent struct would get a fallback UID that
-	// doesn't match the actual struct node.
 	for _, dataKey := range dataKeys {
 		for _, e := range pf.Entities[dataKey] {
 			// A content-named entity's `name` is never a legitimate context target —
@@ -51,13 +41,8 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 		}
 	}
 
-	// entityRows indexes the rows already appended by (uid, label) so a repeated
-	// entity is completed rather than duplicated. The graph writer keeps only
-	// the first row per uid and label, so without this the second match's value
-	// or docstring was simply discarded.
 	entityRows := make(map[[2]string]int)
 
-	// containsEdges deduplicates the CONTAINS edges written for this file.
 	containsEdges := make(map[cachedContainsEdge]bool)
 
 	dirSet := make(map[string]bool)
@@ -77,18 +62,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 				continue
 			}
 
-			// An import is recorded twice, on purpose, because it answers two
-			// different questions. The File-[:IMPORTS]->Module edge says what this
-			// file depends on, canonicalised so every file importing the same module
-			// points at one node. The Import entity says where the statement is, in
-			// this file, at this line — which the canonical module node cannot say,
-			// and which is why `MATCH (n:Import)` used to be an error instead of an
-			// answer: this branch ended in `continue`, so the entity was built and
-			// thrown away.
-			//
-			// The label comes from importEntityLabel, not from this query file
-			// directly — see there for why the declaration is only trusted for part
-			// of the import family.
 			if dataKey == "imports" {
 				label = importEntityLabel(e.GraphLabel)
 				canonName := canonicalModuleName(e.Name, relPath)
@@ -137,8 +110,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 
 			rowKey := [2]string{uid, label}
 			if idx, seen := entityRows[rowKey]; seen {
-				// Same node, matched twice. Fill in what the earlier row lacked
-				// instead of appending a row the writer would drop.
 				row := &entry.Entities[idx]
 				if row.Value == "" {
 					row.Value = getProperty(e.Properties, "value")
@@ -155,16 +126,13 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 			} else {
 				entityRows[rowKey] = len(entry.Entities)
 				entry.Entities = append(entry.Entities, cachedEntity{
-					Label:     label,
-					UID:       uid,
-					Name:      e.Name,
-					Path:      relPath,
-					Line:      e.Line,
-					EndLine:   e.EndLine,
-					Docstring: e.Docstring,
-					// Not pf.Language: an entity from an embedded block belongs to the
-					// grammar that parsed it, and the whole graph resolves names within
-					// a language. See mergeParsedInto.
+					Label:       label,
+					UID:         uid,
+					Name:        e.Name,
+					Path:        relPath,
+					Line:        e.Line,
+					EndLine:     e.EndLine,
+					Docstring:   e.Docstring,
 					Lang:        langOr(e.Lang, pf.Language),
 					Complexity:  e.Complexity,
 					Context:     e.Context,
@@ -177,12 +145,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 				})
 			}
 
-			// Resolved BEFORE this entity registers its own name. An element
-			// nested in an element of the same name -- <frame> inside <frame>,
-			// which Oracle Reports XML is full of -- would otherwise look itself
-			// up: the assignment below overwrites the outer one, and the child
-			// becomes its own parent. Entities arrive in document order, so the
-			// name still in the map is the enclosing one.
 			var parentUID string
 			if e.Context != "" {
 				parentUID = nameToUID[e.Context]
@@ -207,8 +169,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 					ParentLabel: parentLabel,
 					ChildLabel:  label,
 				}
-				// The graph writer emits a row per edge, so a repeat is a second
-				// identical CONTAINS in the database, not a no-op.
 				if !containsEdges[edge] {
 					containsEdges[edge] = true
 					entry.ContainsEdges = append(entry.ContainsEdges, edge)
@@ -256,11 +216,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 
 	for _, call := range pf.CallSites {
 		callerUID := relPath
-		// Symmetric to references: a call with no entity around it is made by the
-		// FILE. It holds for any language with top-level calls — an `init()` at the end
-		// of a module, a bare script statement — not only for the embedded SQL that
-		// exposed the case. Without this the CallerUID stayed empty and the edge was
-		// built here and discarded by the writer.
 		callerType := LabelFile
 		if call.SourceName != "" {
 			callerUID = nameToUID[call.SourceName]
@@ -275,9 +230,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 		}
 		sourceType := call.SourceType
 		if callerType == LabelFile {
-			// The caller is the file, so the source end's label is File — any
-			// SourceType the language declared would describe an entity that does
-			// not exist here.
 			sourceType = LabelFile
 		} else if sourceType == "" {
 			sourceType = "Function"
@@ -333,17 +285,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 	}
 
 	for _, ref := range pf.References {
-		// A reference with no entity around it belongs to the FILE, not to nobody.
-		//
-		// A statement at the top of a script — `insert into auditoria …` — has no
-		// procedure around it, so SourceName is empty; with the UID empty alongside it,
-		// the edge was built here and discarded by the writer, exactly as the Import
-		// entity was built and thrown away with a `continue`. In a schema `.sql`, and
-		// in the SQL of an embedded block, that is most of the DML.
-		//
-		// The file as source is the shape IMPORTS already uses
-		// (File -[:IMPORTS]-> Module): "what touches this table" is a question about
-		// the file when there is nothing smaller that can be named.
 		sourceUID := relPath
 		if ref.SourceName != "" {
 			sourceUID = nameToUID[ref.SourceName]
@@ -351,15 +292,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 				sourceUID = entityUID(relPath, ref.SourceName, "")
 			}
 		}
-		// Field access has its own edge pair and its own target (Field), so it leaves
-		// the reference list here.
-		//
-		// Staying in References was a dead end: the DML copy loop skips every type the
-		// engine routes through a path of its own, and READS_FIELD/WRITES_FIELD are
-		// among them; the dedicated path, in turn, reads entry.FieldAccess, which
-		// nothing filled. The Go and TypeScript grammars did extract field access, and
-		// it was thrown away between the parse and the graph — both relation tables
-		// existed with zero edges.
 		if ref.RelType == RelReadsField || ref.RelType == RelWritesField {
 			entry.FieldAccess = append(entry.FieldAccess, cachedFieldAccess{
 				SourceUID: sourceUID,
@@ -400,20 +332,6 @@ func getProperty(props map[string]string, key string) string {
 	return props[key]
 }
 
-// importEntityLabel names the entity an imports query produced.
-//
-// The declared label is honoured for the three forms the grammars actually capture,
-// because they are not the same statement: an Import is `import x`, an Include is a C
-// preprocessor `#include`, and an Export is a JavaScript `export ... from './x'`. All
-// three pull a module in, which is why all three also produce the IMPORTS edge — the
-// edge answers "what does this file depend on", the entity answers "what is written
-// here, and where".
-//
-// Anything else becomes Import, and there are two ways to arrive here. A query declared
-// `type: relation` carries no label at all, by this repository's own validator. And 22
-// grammars used to declare Module on this data_key, which would be actively wrong: the
-// entity uid is per file, so honouring it would fabricate a second Module node beside
-// the canonical one every file already points at.
 func importEntityLabel(declared string) string {
 	switch declared {
 	case LabelInclude, LabelExport:
@@ -423,13 +341,6 @@ func importEntityLabel(declared string) string {
 	}
 }
 
-// entityLabelOf is the graph label an entity will be written under.
-//
-// The query file's `graph_label` when it declares one, and otherwise the data key
-// capitalised — `procedures` becomes `Procedure`… well, `Procedures`, which is why a
-// query that means a specific label declares it. Shared so that anything reasoning
-// about labels BEFORE the cache is built — picking an embedded block's host entity,
-// say — classifies exactly as the writer will.
 func entityLabelOf(dataKey string, e Entity) string {
 	if e.GraphLabel != "" {
 		return e.GraphLabel
@@ -440,50 +351,14 @@ func entityLabelOf(dataKey string, e Entity) string {
 	return strings.ToUpper(dataKey[:1]) + dataKey[1:]
 }
 
-// contentNamedLabels are the labels whose `name` IS their content rather than an
-// identifier someone chose: a string literal, an attribute value, character data, a
-// comment. They are produced by the grammars' `value_label` (Value, AttributeValue,
-// Text across 37 shipped grammars) and by the engine's comment pass.
-//
-// They are excluded wherever the question is "which declaration is this" — picking a
-// host entity, for one. A block of SQL sits INSIDE the character data that carries it,
-// so the innermost entity spanning it is always that Text node, and attributing the
-// statement to the text of the statement says nothing.
 var contentNamedLabels = map[string]bool{
 	"Value": true, "AttributeValue": true, "Text": true, LabelComment: true,
 }
 
-// contentNamedUID gives a content-named entity a short, deterministic identity
-// instead of the usual entityUID(path, name, context) — which for one of these
-// labels would embed the entity's own `name`, and that name IS its content: a
-// license header, a multi-paragraph docstring, a long string literal. Measured on
-// this repository's own store: the ten largest entity uids are all Comment nodes,
-// up to 1.2 KB each, some carrying embedded newlines. Downstream that string is a
-// Parquet primary key sort key, a Cypher literal, and a Go map key — none of which
-// need to survive arbitrary source text, and several of which pay real cost for it.
-//
-// dataKey+index (this entity's position within its own data key's slice, which both
-// the pre-pass and the main pass iterate in the same order) is unique per real
-// occurrence in the file: two DIFFERENT entities never share it, even when their
-// content is byte-for-byte identical — unlike a hash of the content, which would
-// collapse two occurrences of the same license header, or the same string literal
-// appearing twice, into what this package's dedup-by-(uid,label) logic then treats
-// as one node instead of two.
 func contentNamedUID(relPath, dataKey string, index int) string {
 	return entityUID(relPath, dataKey+"#"+strconv.Itoa(index), "")
 }
 
-// commentUIDName is the disambiguator a Comment entity's uid is built from, in
-// place of its own (arbitrarily large) text. A comment's REFERENCES edge to what
-// it documents is built separately, in extractCommentsTS, from the SAME line —
-// so that call site uses this exact function too, guaranteeing the reference's
-// source uid and the comment entity's own uid always agree without either side
-// needing to see the other's data.
-//
-// Line, not an index into the entities slice: a reference and its comment entity
-// are built together at extraction time but land in two DIFFERENT slices
-// (References gets contributions from other passes too), so there is no shared
-// index to recompute here — line is the one value both sides already have.
 func commentUIDName(line int) string {
 	return "comment@L" + strconv.Itoa(line)
 }

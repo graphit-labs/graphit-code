@@ -90,8 +90,5 @@ func DocsIgnorePatternFor(rootPath string) string {
 		return ""
 	}
 
-	// Anchored to the project root: knowledge.docs_dir is resolved from there, so
-	// a bare "docs/" — which gitignore reads as "any directory named docs, at any
-	// depth" — would also swallow internal/x/docs/, which no one asked for.
 	return "/" + strings.TrimPrefix(clean, "/") + "/"
 }

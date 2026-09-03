@@ -169,7 +169,7 @@ func taskActor(req *mcp.CallToolRequest, explicit string) string {
 	return graphtask.AgentIDForSession(session)
 }
 
-var processID = func() int { return os.Getpid() }
+var processID = os.Getpid
 
 func parseTaskLease(value string) (time.Duration, error) {
 	if value == "" {

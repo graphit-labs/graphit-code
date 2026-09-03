@@ -2,7 +2,7 @@ language: protobuf
 grammar: tree-sitter-proto
 extensions: [".proto"]
 queries:
-  # === Entity queries ===
+
   - data_key: services
     graph_label: Service
     pattern: '(service (service_name) @name)'
@@ -31,8 +31,6 @@ queries:
     graph_label: EnumValue
     pattern: '(enum_field (identifier) @name)'
 
-  # A field's number and an enum's value ARE the wire contract: they are what the two
-  # sides of an RPC agree on, and neither was indexed.
   - data_key: fields
     graph_label: MessageField
     pattern: '(field (identifier) @name (field_number (int_lit) @value))'
@@ -47,55 +45,37 @@ queries:
     graph_label: Option
     pattern: '(option (identifier) @name)'
 
-  # === Relation queries ===
   - data_key: import_refs
     type: relation
     relation_type: IMPORTS
     pattern: '(import (string) @name)'
 
-# Protobuf is a schema language — no export system
 exports:
   strategy: none
 
-# Protobuf does not use self/this
 self_keywords: []
 
-# Parent context type mapping — Protobuf tree-sitter node types
 context_types:
   service: Service
   message: Message
   enum: Enum
 
-# Without these all three contexts above are INERT: tree-sitter-proto defines no field
-# called "name" anywhere, so the default field lookup finds nothing, nameNodeOf returns
-# nil and the container is skipped. Measured before this: an `rpc` inside
-# `service Payments` came out with context "" — and so did every field of every message.
 context_name_paths:
   service: service_name
   message: message_name
   enum: enum_name
 
-# Protobuf has no anonymous function types
 anon_func_types: []
 
-# Declaration node types for docstring attachment
 declaration_types:
   - service
   - message
   - enum
   - rpc
 
-# Protobuf tree-sitter uses a single "comment" node type for // and /* */ comments
 comment_types:
   - comment
 
-# No cyclomatic complexity: Protocol Buffers is a schema format with no
-# control flow.
-
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Service
   - RPC

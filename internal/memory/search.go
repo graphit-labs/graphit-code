@@ -30,12 +30,6 @@ type ChainResult struct {
 	RevisionID string `json:"revision_id,omitempty"`
 }
 
-// chainOverFetch is how many extra hits are pulled so that dedup does not shrink the answer.
-//
-// Collapsing a chain removes results, so asking the index for exactly top_k and then deduping
-// returns fewer than the caller asked for — and the missing ones are real memories that would
-// have ranked. Fetching a multiple and trimming afterwards is what makes top_k mean "distinct
-// memories" instead of "index rows".
 const chainOverFetch = 4
 
 // SearchChains searches the memory wiki and resolves the revision chain of every hit.
@@ -55,10 +49,6 @@ func SearchChains(ctx context.Context, wikiDir, query string, topN int, excludeM
 		opts.ExcludeMandatory = excludeMandatory[0]
 	}
 
-	// A fixed over-fetch factor is only a starting point: one chain may have arbitrarily many
-	// matching revisions. Keep widening the deterministic prefix until there are enough distinct
-	// chains or the index proves it is exhausted. This is what makes both topN and cursor look-ahead
-	// exact after collapse rather than best effort.
 	fetch := 20
 	maxInt := int(^uint(0) >> 1)
 	if topN > 0 {
@@ -84,17 +74,6 @@ func SearchChains(ctx context.Context, wikiDir, query string, topN int, excludeM
 	}
 }
 
-// resolveChains attaches the chain metadata to each hit.
-//
-// It comes out of the index and only out of the index: `entity_id`, `revision_id`, `superseded` and
-// `current_id` are columns on the chunks table, so a hit already carries its chain and this
-// function reads nothing. It used to open each hit's page and parse its frontmatter — correct, and
-// a file read per hit for something the index could project.
-//
-// There was a fallback to that frontmatter read for hits with no `entity_id`, which existed for the
-// markdown scan that answered before a wiki had ever been compiled. That scan is gone and so is
-// this: an empty `entity_id` now means the row genuinely has no chain — a page from a wiki that is
-// not a memory scope — and it is answered as one result rather than as a lookup failure.
 func resolveChains(hits []wiki.BM25Result) []ChainResult {
 	out := make([]ChainResult, 0, len(hits))
 	for _, hit := range hits {

@@ -1,14 +1,12 @@
 language: kotlin
 grammar: tree-sitter-kotlin
 extensions: [".kt", ".kts"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Package] }
   READS_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration (simple_identifier) @name)'
@@ -28,14 +26,12 @@ queries:
     graph_label: Variable
     pattern: '(property_declaration (variable_declaration (simple_identifier) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: variables
     graph_label: Variable
     pattern: '(property_declaration variable: (variable_declaration (simple_identifier) @name) expression: [(integer_literal) (real_literal) (hex_literal) (bin_literal) (long_literal) (boolean_literal) (character_literal) (string_literal)] @value)'
     value_capture: value
     value_label: Value
 
-  # Enum entries — antes a enum class existia sem seus valores.
   - data_key: enum_members
     graph_label: EnumMember
     pattern: '(enum_entry (simple_identifier) @name)'
@@ -46,7 +42,6 @@ queries:
     graph_label: Field
     pattern: '(class_body (property_declaration (variable_declaration (simple_identifier) @name)))'
 
-  # === Relation queries ===
   - data_key: decorators
     type: relation
     relation_type: DECORATOR
@@ -68,29 +63,23 @@ queries:
     relation_type: READS_FIELD
     pattern: '(navigation_expression (simple_identifier) @name)'
 
-# Export detection strategy — Kotlin defaults to public (no modifier needed)
 exports:
   strategy: no_modifier
   config_list:
     keywords: ["private", "protected", "internal"]
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — Kotlin tree-sitter node types only
-# Note: Kotlin uses class_declaration for classes, interfaces, and enums alike
 context_types:
   class_declaration: Class
   object_declaration: Object
   companion_object: Object
   function_declaration: Function
 
-# Anonymous function types for variable_declarator resolution
 anon_func_types:
   - anonymous_function
   - lambda_literal
 
-# Declaration types for docstring attachment — Kotlin node types only
 declaration_types:
   - function_declaration
   - class_declaration
@@ -98,16 +87,10 @@ declaration_types:
   - companion_object
   - property_declaration
 
-# Comment node types for docstring extraction — Kotlin has line_comment and multiline_comment
 comment_types:
   - line_comment
   - multiline_comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. && / || are wrapped in conjunction_expression /
-# disjunction_expression here, not bare tokens — do not also list them as
-# operators, or every one would be counted twice. when_entry fires for the
-# else branch too, so a bare `when` with no other entry still adds one.
 complexity:
   node_types:
     - if_expression
@@ -118,10 +101,6 @@ complexity:
     - conjunction_expression
     - disjunction_expression
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Object

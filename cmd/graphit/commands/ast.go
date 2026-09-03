@@ -452,11 +452,6 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
 			if pending == 0 {
-				// Even if all embeddings are cached, the search tables may be empty —
-				// a graph rebuilt without them, or a store restored from a partial
-				// build. Rebuild from cache so search works without re-embedding.
-				// Emptiness has to be queried now that the index is not a file of its
-				// own; a stat only proves the graph is there.
 				if !ast.SearchIndexBuilt(ctx, idxPath) {
 					task.Update("Rebuilding search index...")
 					if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, ast.BuildEmbLookup(parseCache, cfg.EmbCache)); rbErr != nil {

@@ -26,14 +26,9 @@ import (
 
 // Store is a LanceDB database, local or read on-the-fly from object storage.
 type Store struct {
-	conn   contracts.IConnection
-	uri    string
-	remote bool
-	// readOnly is what every write guard tests, and it is NOT the same as remote.
-	//
-	// It used to be: the guards read `remote` directly, so object storage meant "somebody else's
-	// published artifact" and nothing could write to `s3://`. A memory scope whose table lives
-	// in the bucket needs the second half of that to be a choice — see Config.Writable.
+	conn     contracts.IConnection
+	uri      string
+	remote   bool
 	readOnly bool
 
 	mu     sync.Mutex
@@ -229,8 +224,6 @@ func isMissingTable(err error) bool {
 	return strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist")
 }
 
-// ---------- table ----------
-
 // Name is the table's name.
 func (t *Table) Name() string { return t.name }
 
@@ -271,9 +264,6 @@ func (t *Table) Append(ctx context.Context, rows []Row) error {
 	}
 	defer rec.Release()
 
-	// The retry is around the COMMIT, and the record is built once outside it: rebuilding the
-	// Arrow batch per attempt would allocate the whole payload again for a conflict that is about
-	// the manifest, not the data.
 	what := fmt.Sprintf("appending %d rows to %s", len(rows), t.name)
 	if err := withCommitRetry(ctx, what,
 		func() error { return t.tbl.Add(ctx, rec, nil) },
@@ -289,8 +279,6 @@ func (t *Table) DeleteWhere(ctx context.Context, filter string) error {
 		return ErrReadOnly
 	}
 	if strings.TrimSpace(filter) == "" {
-		// Refused rather than treated as "everything": a caller that built an empty filter by
-		// accident means to delete nothing, and emptying the index silently is unrecoverable.
 		return errors.New("lancestore: DeleteWhere needs a filter; use DeleteWhere(\"true\") to mean everything")
 	}
 	what := fmt.Sprintf("deleting from %s where %s", t.name, filter)
@@ -360,10 +348,6 @@ func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error 
 	}
 	defer rec.Release()
 
-	// MergeInsert is ONE Lance transaction. The old implementation deleted the keys and appended
-	// their replacements as two commits, which left a real crash window where a key did not exist.
-	// Build the merge builder inside the retry so a conflict retry is derived from the refreshed
-	// table snapshot rather than resubmitting a builder tied to the version that lost.
 	what := fmt.Sprintf("upserting %d rows into %s", len(rows), t.name)
 	if err := withCommitRetry(ctx, what,
 		func() error {
@@ -437,21 +421,6 @@ func (t *Table) Merge(ctx context.Context, opts MergeOptions, rows []Row) (Merge
 
 const deleteBatch = 256
 
-// FoldNewRowsIntoIndexes folds rows written since the last index build INTO the existing
-// indexes, without rebuilding them. It is the engine's own primitive (OptimizeIndex).
-//
-// IT IS A LATENCY MEASURE, NOT A CORRECTNESS ONE, and that distinction was measured rather than
-// assumed. The obvious belief — that a row appended after the inverted index was built is
-// invisible to full-text search until something reindexes — is FALSE here:
-// TestFoldIsAboutLatencyNotVisibility appends a row carrying a term found nowhere else and finds
-// it BEFORE any fold. The engine scans the unindexed fragments alongside the index.
-//
-// So skipping the fold does not lose rows; it makes queries progressively slower as unindexed
-// fragments pile up, because the scanned part grows with every write. Calling it after a batch
-// keeps reads on the indexed path.
-//
-// The SQLite index had no equivalent choice: it maintained its FTS tables with triggers and paid
-// per row, on the write.
 func (t *Table) FoldNewRowsIntoIndexes(ctx context.Context) error {
 	if t.store.readOnly {
 		return ErrReadOnly
@@ -474,20 +443,12 @@ func (t *Table) Compact(ctx context.Context) (CompactionResult, error) {
 		return CompactionResult{}, ErrReadOnly
 	}
 	materialize := true
-	// THIS IS THE OPERATION THAT ACTUALLY RACES. Measured on MinIO: four writers appending,
-	// deleting and upserting onto one remote table produced zero conflicts, while three
-	// compacting it produced six — `This Rewrite transaction was preempted by concurrent
-	// transaction Rewrite`. Two processes maintaining the same table is not exotic here: the
-	// daemon does it per project, and a shared memory scope would have one per unit.
 	var stats *contracts.OptimizeStats
 	what := fmt.Sprintf("compacting %s", t.name)
 	err := withCommitRetry(ctx, what, func() error {
 		var optErr error
 		stats, optErr = t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
-			Kind: contracts.OptimizeCompact,
-			// Without this, a deleted row leaves a tombstone and its bytes stay in the
-			// fragment. An incremental deletes by path on every change, so the tombstones are
-			// not an edge case here — they are the steady state.
+			Kind:       contracts.OptimizeCompact,
 			Compaction: contracts.CompactionParams{MaterializeDeletions: &materialize},
 		})
 		return optErr
@@ -514,21 +475,6 @@ func derefInt64(p *int64) int64 {
 	return *p
 }
 
-// PruneVersions drops dataset versions older than the given age and returns the disk they were
-// holding. Lance keeps them for time travel, which nothing here uses.
-//
-// SAFETY: olderThan MUST NOT be zero or near-zero. The engine is MVCC — a reader answers from
-// the snapshot it opened, so compaction never takes a query down, but pruning a version a live
-// reader is still holding does. The margin is what separates "reclaim what nobody is reading"
-// from "delete the ground a reader is standing on".
-//
-// DeleteUnverified is what lets a margin shorter than the backend's seven-day default apply at
-// all; the seven days exist for in-flight transactions, which is why the margin still has to
-// comfortably exceed the longest write this process performs.
-//
-// MEASURED: a SUB-SECOND olderThan prunes nothing at all — it reports OldVersions: 0 while the
-// versions plainly exist. One second reclaimed 126 versions and 97% of a table's bytes in the
-// same fixture. Anything below a second is not a small window, it is no window.
 func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (PruneResult, error) {
 	if t.store.readOnly {
 		return PruneResult{}, ErrReadOnly
@@ -625,9 +571,6 @@ func indexName(idx Index) string {
 	return fmt.Sprintf("%s_%s_idx", idx.Column, strings.ReplaceAll(idx.Kind.String(), "-", "_"))
 }
 
-// vendorIndexParams renders the tokenizer configuration for the engine. Only the fields a
-// caller set are passed, so an unset option keeps the engine's own default rather than this
-// package's idea of one.
 func vendorIndexParams(idx Index) contracts.IndexParams {
 	p := contracts.IndexParams{}
 	if idx.Kind != IndexInvertedText {
@@ -677,8 +620,6 @@ func (t *Table) Search(ctx context.Context, q Query) ([]Hit, error) {
 	mode := q.Mode()
 	limit := q.limit()
 
-	// With reranking on, the FIRST stage widens: a cross-encoder can only reorder what retrieval
-	// returned, so recall has to be retrieval's problem rather than the reranker's.
 	fetch := q.Rerank.candidates(limit)
 
 	cfg := contracts.QueryConfig{Limit: &fetch}
@@ -701,8 +642,6 @@ func (t *Table) Search(ctx context.Context, q Query) ([]Hit, error) {
 			Column: q.VectorColumn, Vector: q.Vector, K: fetch,
 		}
 	case "hybrid":
-		// One query carrying both channels. FullTextQuery inside VectorSearch is what turns it
-		// hybrid; the reranker fuses the two rankings.
 		cfg.VectorSearch = &contracts.VectorSearch{
 			Column: q.VectorColumn, Vector: q.Vector, K: fetch,
 			FullTextQuery:  q.Text,
@@ -710,8 +649,6 @@ func (t *Table) Search(ctx context.Context, q Query) ([]Hit, error) {
 		}
 		cfg.Reranker = &contracts.RerankerConfig{Kind: contracts.RerankerRRF, RRFK: q.RRFK}
 	case "filter":
-		// Nothing to configure: cfg already carries Where and Limit, and with no ranking channel
-		// the engine returns the matching rows unranked.
 	}
 
 	rows, err := t.tbl.Select(ctx, cfg)
@@ -719,22 +656,6 @@ func (t *Table) Search(ctx context.Context, q Query) ([]Hit, error) {
 		return nil, fmt.Errorf("lancestore: %s search on %s: %w", mode, t.name, err)
 	}
 
-	// _score AND _relevance_score ARE TWO DIFFERENT COLUMNS, and a hybrid row carries BOTH.
-	//
-	// They used to share one `case` arm, both assigning to h.Score, inside this `for k, v := range
-	// r` — so which one survived was decided by Go's map iteration order, which is randomised per
-	// map. MEASURED before the fix, twenty identical queries against one unchanged index: every
-	// row returned exactly two distinct scores, e.g. RowGroups at 0.015625 three times and 1.0
-	// seventeen times. Same index, same query, same row.
-	//
-	// The consequence was not a wobbly number but a wrong ORDER, because the caller sorts by this
-	// field: the entity a query named by name dropped from rank one to rank four. It read as a
-	// relevance problem and was a map-iteration problem.
-	//
-	// So they are kept apart. _score is the channel's own value — BM25 on a text query — and
-	// RelevanceScore is what the engine's reranker produced when it fused two channels. Score
-	// exposes the one that ranks THIS query: fused when there was a fusion, the raw channel score
-	// otherwise.
 	hits := make([]Hit, 0, len(rows))
 	for _, r := range rows {
 		h := Hit{Row: Row{}, Mode: mode}
@@ -762,30 +683,14 @@ func (t *Table) Search(ctx context.Context, q Query) ([]Hit, error) {
 		hits = append(hits, h)
 	}
 
-	// The second stage. Off unless the caller asked for it; a failure here degrades to the
-	// engine's own order rather than losing the answer.
 	ranked, rerankErr := q.Rerank.apply(ctx, q.Text, hits, limit)
 	if rerankErr != nil {
-		// Degraded, not failed: the engine's own order is a good answer, and losing every result
-		// because a second-stage model could not load would be worse than losing the reordering.
 		return ranked, fmt.Errorf("lancestore: %s search on %s succeeded but reranking did not: %w",
 			mode, t.name, rerankErr)
 	}
 	return ranked, nil
 }
 
-// ---------- arrow, which does not leave this file ----------
-
-// normalizeRead converts a value the engine returned into the type the caller wrote.
-//
-// A VECTOR DOES NOT COME BACK AS IT WENT IN. It is written as []float32 and read as
-// []interface{} holding float64, because that is what the Arrow-to-Go bridge produces for a
-// fixed-size list. Every caller doing `v.([]float32)` therefore gets a failed assertion and a nil
-// vector — silently, since a type assertion with the two-value form does not error.
-//
-// MEASURED: the wiki's StoredEmbeddings returned an empty list while EmbeddingStats correctly
-// counted the same rows as embedded, because one used the filter and the other the assertion.
-// Converting here means the round trip is symmetric at the one place that knows the schema.
 func (t *Table) normalizeRead(column string, v any) any {
 	f, ok := t.schema.Field(column)
 	if !ok || f.Type != FieldVector {
@@ -839,7 +744,6 @@ func arrowTypeOf(f Field) (arrow.DataType, error) {
 	}
 }
 
-// readSchema recovers the column set from an existing table, so a consumer needs no manifest.
 func readSchema(ctx context.Context, tbl contracts.ITable) (Schema, error) {
 	as, err := tbl.Schema(ctx)
 	if err != nil {
@@ -866,15 +770,10 @@ func fieldTypeOf(dt arrow.DataType) (FieldType, int) {
 	case arrow.BOOL:
 		return FieldBool, 0
 	default:
-		// Anything else is read as text, which is what the query surface treats it as.
 		return FieldString, 0
 	}
 }
 
-// recordOf builds one Arrow record from Go values.
-//
-// A missing key is null, which is refused for a non-nullable column HERE rather than letting
-// the builder produce a record the engine rejects with a message that names no column.
 func recordOf(s Schema, rows []Row) (arrow.Record, error) {
 	as, err := arrowSchemaOf(s)
 	if err != nil {
@@ -908,13 +807,6 @@ func recordOf(s Schema, rows []Row) (arrow.Record, error) {
 	return b.NewRecord(), nil
 }
 
-// appendVectorColumn builds a fixed-size-list column in bulk.
-//
-// Arrow's FixedSizeListBuilder.AppendNull appends one child null for every element in the list.
-// Calling it row by row on an empty FLOAT[768] column therefore performs 768 builder operations
-// per row — billions of calls during a large AST rebuild. The list's own validity bitmap is what
-// makes a vector null; child values under a null list are ignored, so a dense zero-filled child
-// buffer is equivalent and lets Arrow copy the whole column at once.
 func appendVectorColumn(fb array.Builder, f Field, rows []Row) error {
 	valid := make([]bool, len(rows))
 	values := make([]float32, len(rows)*f.Dim)
@@ -1012,26 +904,10 @@ func toFloat(v any) float64 {
 	}
 }
 
-// ---------- SQL literal safety ----------
-
-// sqlQuote renders a value as a single-quoted SQL literal, doubling embedded quotes.
-//
-// SAFETY: keys here are file paths and entity ids, which contain apostrophes often enough that
-// this is not theoretical — a path like `it's/a.go` would otherwise close the literal early and
-// turn the rest of the key into syntax.
 func sqlQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// quoteIdent renders a column name safely, with BACKTICKS.
-//
-// SAFETY, and this one is a silent data corruption if got wrong: the filter dialect treats a
-// DOUBLE-QUOTED name as a string LITERAL, not as an identifier. MEASURED — `"uid" IN ('u2')`
-// deletes nothing and returns NO ERROR, because the predicate it really evaluates is
-// `'uid' IN ('u2')`, which is false for every row. Since Upsert is delete-then-append, a delete
-// that silently matches nothing leaves the old row in place and appends the new one, so the
-// index quietly accumulates duplicates. Backticks and bare names both work; backticks are used
-// so a column whose name collides with a keyword still parses.
 func quoteIdent(s string) string {
 	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 }

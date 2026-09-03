@@ -55,9 +55,6 @@ func collectFiles(rootPath string) ([]string, error) {
 				if ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
 					return filepath.SkipDir
 				}
-				// A directory's own .gitignore/.astignore scopes to it, exactly
-				// as git does; crossing into one before its children is what
-				// makes that true.
 				ic = ic.At(rel)
 				return nil
 			}

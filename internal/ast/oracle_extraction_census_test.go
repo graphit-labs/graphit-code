@@ -9,19 +9,6 @@ import (
 	"testing"
 )
 
-// TestOracleExtractionCensus reports, per Oracle object type, how much the parser actually
-// extracts from the real corpus.
-//
-// It exists because the end-to-end benchmark reported "empty=799 errors=0" and that number
-// was taken at face value. The cause is not the pipeline: parsing, the work directory
-// layout, .astignore and file count were all varied and none of them mattered. What matters
-// is WHICH files, and the corpus is organised one directory per object type — so the
-// bounded end-to-end runs (GRAPHIT_E2E_MAX_FILES) only ever saw the first directory in walk
-// order, mviews, and measured a full pipeline over an extraction that yields nothing.
-//
-// A per-type census is the measurement that should have existed first: it separates "the
-// corpus does not parse" from "one object type does not extract", and it turns the
-// end-to-end timings into something interpretable.
 func TestOracleExtractionCensus(t *testing.T) {
 	src := os.Getenv("GRAPHIT_E2E_SQL_DIR")
 	if src == "" {
@@ -106,14 +93,6 @@ func TestOracleExtractionCensus(t *testing.T) {
 		t.Fatalf("no object type yielded a single entity — extraction is broken corpus-wide, not per type")
 	}
 
-	// The census is the deliverable, not a threshold: a type that legitimately holds no
-	// named object reports zero, and "comments" is exactly that — COMMENT ON statements
-	// name nothing to extract. What is asserted above is only that extraction is not dead
-	// corpus-wide.
-	//
-	// The consequence for measurement is handled where it belongs: TestE2EIndex now samples
-	// round-robin across these directories instead of taking a walk-order prefix, because
-	// the prefix is "comments" and bounded runs were timing an empty extraction.
 	if len(dead) > 0 && dead[0] == dirs[0] {
 		t.Logf("NOTE: %q is both empty and first in walk order — the reason TestE2EIndex samples "+
 			"across groups rather than taking a prefix", dirs[0])

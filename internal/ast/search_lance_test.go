@@ -15,12 +15,6 @@ import (
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 )
 
-// The port of the two write paths onto LanceDB, tested through the same door the daemon uses.
-//
-// Every test here builds a real shard cache, writes a real index and queries the real engine.
-// None of them stub the store: the whole point of the port is that the engine does the search,
-// so a fake would test the part that was deleted.
-
 func newLanceIndexForTest(t *testing.T) *SearchIndex {
 	t.Helper()
 	dir := t.TempDir()
@@ -55,9 +49,6 @@ func newShardCacheForTest(t *testing.T, entries ...*parseCacheEntry) *ShardCache
 			t.Fatalf("store %s: %v", e.RelPath, err)
 		}
 	}
-	// Flushed, as a real index leaves it. StreamEntries evicts each shard after the
-	// callback and reloads it from disk on the next pass, so an unflushed cache can be
-	// streamed exactly once — and every caller here streams it at least twice.
 	if err := cache.FlushDirty(); err != nil {
 		t.Fatalf("flush shards: %v", err)
 	}
@@ -79,8 +70,6 @@ func entryWith(relPath, source string, ents ...cachedEntity) *parseCacheEntry {
 	return &parseCacheEntry{RelPath: relPath, Source: source, Entities: ents}
 }
 
-// bodyOf reads back the indexed document of one entity, which is how a test asserts what the
-// engine was actually given rather than what the constructor was supposed to produce.
 func bodyOf(t *testing.T, idx *SearchIndex, name string) string {
 	t.Helper()
 	hits, err := idx.entities.Search(context.Background(), lancestore.Query{
@@ -111,8 +100,6 @@ func searchNames(t *testing.T, idx *SearchIndex, query string, limit int) []stri
 	}
 	return out
 }
-
-// ---------- rebuild ----------
 
 func TestLanceRebuildIndexesFilesAndEntities(t *testing.T) {
 	ctx := context.Background()
@@ -301,12 +288,6 @@ func TestLanceRebuildDropsWhatIsNoLongerInTheShards(t *testing.T) {
 	}
 }
 
-// ---------- the document ----------
-
-// THE REGRESSION THE SQLITE INDEX ACTUALLY HAD. Its rebuild INSERT wrote name_tri and its
-// incremental INSERT did not, so every file an incremental touched silently lost its trigram
-// recall until the next full rebuild. Here both paths call buildEntityRow, and this test proves
-// the two produce the identical document rather than trusting that they do.
 func TestLanceBothWritePathsProduceTheSameDocument(t *testing.T) {
 	ctx := context.Background()
 	ent := cachedEntity{Name: "evictOldestStaged", Docstring: "Drops the oldest staged event.", Line: 7}
@@ -331,8 +312,6 @@ func TestLanceBothWritePathsProduceTheSameDocument(t *testing.T) {
 	if !strings.Contains(a, "evi") {
 		t.Errorf("the gram bag is missing from the indexed document: %q", a)
 	}
-	// The split form as splitCodeIdentifier produces it, plus the lowercased copy the tuning
-	// sweep measured. Asserted literally so a change to the composition shows up here.
 	if !strings.Contains(a, "evict Oldest Staged") {
 		t.Errorf("the split identifier is missing from the indexed document: %q", a)
 	}
@@ -359,8 +338,6 @@ func TestLanceTruncatedQueryReachesTheIdentifier(t *testing.T) {
 	}
 }
 
-// ---------- incremental ----------
-
 func TestLanceIncrementalReplacesAFileWithoutDuplicating(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
@@ -372,7 +349,6 @@ func TestLanceIncrementalReplacesAFileWithoutDuplicating(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	// a.go is reparsed and its entity renamed.
 	changed := newShardCacheForTest(t,
 		entryWith("a.go", "package a", cachedEntity{Name: "renamedEntity"}))
 	if err := idx.UpdateIncremental(ctx, changed, []string{"a.go"}, nil, nil); err != nil {
@@ -412,7 +388,6 @@ func TestLanceIncrementalRemovesADeletedFileEntirely(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	// The cache no longer holds the deleted file, which is the real state after a removal.
 	if err := idx.UpdateIncremental(ctx, newShardCacheForTest(t), nil, []string{"gone.go"}, nil); err != nil {
 		t.Fatalf("incremental: %v", err)
 	}
@@ -453,14 +428,10 @@ func TestLanceIncrementalWithNoDeltaIsANoOp(t *testing.T) {
 	}
 }
 
-// ---------- vectors ----------
-
 func TestLanceRebuildStoresEmbeddingsAndSearchesThemSemantically(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 
-	// Two entities whose vectors point in clearly different directions, so which one a query
-	// vector is nearest to is not a coin toss.
 	vecA := make([]float32, ai.EmbeddingDimensions)
 	vecB := make([]float32, ai.EmbeddingDimensions)
 	for i := range vecA {
@@ -647,8 +618,6 @@ func TestLanceWritesAreRefusedOnAPublishedIndex(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	// Simulate what Open returns for an s3:// URI without needing a bucket here: the flag is what
-	// every write path consults.
 	remote := &SearchIndex{store: idx.store, files: idx.files, entities: idx.entities}
 	if !remote.Remote() {
 		t.Skip("this store is local; the read-only path is covered in lancestore against MinIO")

@@ -12,15 +12,6 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// TestLadybugSeparateHandleDuringWrite already covers a second handle inside one
-// process. This file covers the cross-process arrangement: the MCP server is its
-// own process, started separately and outliving individual indexing runs, and it
-// reads the database while the daemon writes.
-//
-// The readers here are real subprocesses. The test binary re-executes itself
-// with GRAPHIT_XPROC_READER set, which is the cheapest way to get a separate
-// process that already links the database driver.
-
 const xprocReaderEnv = "GRAPHIT_XPROC_READER"
 
 // TestCrossProcessReaderHelper is not a test. It is the reader subprocess: it
@@ -32,10 +23,6 @@ func TestCrossProcessReaderHelper(t *testing.T) {
 		t.Skip("not the reader subprocess")
 	}
 
-	// Read-only, which is what NewLadybugDBReadOnly gives the MCP server. A
-	// reader that opens read-write takes the single writer slot and locks the
-	// indexer out — that is a property of the engine, not of this test, and the
-	// separate test below pins it.
 	cfg := lbug.DefaultSystemConfig()
 	cfg.ReadOnly = os.Getenv("GRAPHIT_XPROC_RW") == ""
 	db, err := lbug.OpenDatabase(path, cfg)
@@ -50,10 +37,6 @@ func TestCrossProcessReaderHelper(t *testing.T) {
 		os.Exit(4)
 	}
 
-	// No defers past this point. This function is a subprocess entry point whose
-	// every exit is an os.Exit, which does not run them — leaving the handles to
-	// a deferred close would mean never closing them, and the parent waits on a
-	// database this process still holds.
 	deadline := time.Now().Add(20 * time.Second)
 	reads, anomalies := 0, 0
 	for time.Now().Before(deadline) {
@@ -76,8 +59,6 @@ func TestCrossProcessReaderHelper(t *testing.T) {
 				anomalies++
 				break
 			}
-			// Every row is written as body = strings.Repeat(marker, n), so a
-			// torn read shows up as a body that is not a clean repetition.
 			body, _ := vals[1].(string)
 			if body != "" && !isCleanRepetition(body, "abcdefgh") {
 				fmt.Printf("TORN_ROW len=%d prefix=%q\n", len(body), safePrefix(body))

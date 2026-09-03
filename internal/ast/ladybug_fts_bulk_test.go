@@ -95,7 +95,6 @@ func TestLadybugFTSBulkInsertMaintainsIndex(t *testing.T) {
 		{"uid": "b2", "name": "beta_token"},
 	}
 
-	// Case A: index first, then bulk insert — what the implementation did.
 	if err := run("CREATE NODE TABLE A(uid STRING, name STRING, PRIMARY KEY(uid))"); err != nil {
 		t.Fatalf("schema A: %v", err)
 	}
@@ -109,7 +108,6 @@ func TestLadybugFTSBulkInsertMaintainsIndex(t *testing.T) {
 	t.Logf("A) CREATE_FTS_INDEX then UNWIND bulk insert -> %v", gotA)
 	bulkMaintainsIndex := len(gotA) > 0
 
-	// Case B: bulk insert first, index afterwards — the candidate fix.
 	if err := run("CREATE NODE TABLE B(uid STRING, name STRING, PRIMARY KEY(uid))"); err != nil {
 		t.Fatalf("schema B: %v", err)
 	}
@@ -123,9 +121,6 @@ func TestLadybugFTSBulkInsertMaintainsIndex(t *testing.T) {
 	t.Logf("B) UNWIND bulk insert then CREATE_FTS_INDEX -> %v", gotB)
 	indexAfterBulkWorks := len(gotB) > 0
 
-	// Case C: with the index already built over bulk-loaded rows, is a further bulk
-	// insert visible? This decides whether incremental updates can keep the index or
-	// must rebuild it.
 	if err := bulkInsert("B", []map[string]any{{"uid": "b3", "name": "gamma_token"}}); err != nil {
 		t.Fatalf("second bulk insert B: %v", err)
 	}
@@ -133,15 +128,12 @@ func TestLadybugFTSBulkInsertMaintainsIndex(t *testing.T) {
 	t.Logf("C) further UNWIND bulk insert into an indexed table -> %v", gotC)
 	bulkVisibleAfterIndex := len(gotC) > 0
 
-	// Case D: does DROP + CREATE pick up what the bulk insert added?
 	dropErr := run("CALL DROP_FTS_INDEX('B','b_idx')")
 	createErr := run("CALL CREATE_FTS_INDEX('B','b_idx',['name'])")
 	gotD := hits("B", "b_idx", "gamma")
 	t.Logf("D) DROP+CREATE after bulk insert -> %v (drop=%v create=%v)", gotD, dropErr, createErr)
 	recreateRecovers := len(gotD) > 0
 
-	// Case E: single-row CREATE into the same indexed table, as a control. If this is
-	// visible while bulk is not, the write path is conclusively the difference.
 	if err := run("CREATE (:B {uid:'b4', name:'delta_token'})"); err != nil {
 		t.Fatalf("single insert B: %v", err)
 	}

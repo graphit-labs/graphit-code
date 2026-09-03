@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// The graph is built from RESOLVED EDGES, so these tests hand it edges instead of writing page
-// files and letting two regexes rediscover them. The extraction those regexes do is still tested —
-// TestFindWikiLinks below — it just is not how the graph is assembled any more.
-
 func refs(slug, title string, targets ...string) PageEdges {
 	return PageEdges{Slug: slug, Title: title, Targets: targets}
 }
@@ -78,8 +74,6 @@ func TestBuildCrossRefGraphFromRefs_UnknownTargetIsABrokenLink(t *testing.T) {
 	t.Parallel()
 	graph := BuildCrossRefGraphFromRefs([]PageEdges{refs("page", "Page", "missing")})
 
-	// The target is KEPT even though no page has that slug. That is what makes it reportable as a
-	// broken link rather than silently absent.
 	if len(graph.Outbound["page"]) != 1 || graph.Outbound["page"][0] != "missing" {
 		t.Fatalf("outbound = %v, want [missing]", graph.Outbound["page"])
 	}
@@ -103,8 +97,6 @@ func TestCrossRefStats(t *testing.T) {
 	if stats.TotalLinks != 1 {
 		t.Errorf("TotalLinks = %d, want 1", stats.TotalLinks)
 	}
-	// beta is the only page with an inbound reference; alpha has an outbound one, which is enough
-	// to keep it out of the orphan count; lonely has neither.
 	if stats.BacklinksAdded != 1 {
 		t.Errorf("BacklinksAdded = %d, want 1", stats.BacklinksAdded)
 	}

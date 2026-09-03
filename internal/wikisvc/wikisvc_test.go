@@ -61,7 +61,6 @@ func TestResolveWikiSource_Memory(t *testing.T) {
 
 func TestResolveWikiSource_ProjectNotFound(t *testing.T) {
 	tmp := t.TempDir()
-	// Don't create the wiki directory — should fail.
 	svc := NewWikiService(tmp)
 	_, err := svc.ResolveWikiSource("project")
 	if err == nil {
@@ -81,7 +80,6 @@ func TestResolveWikiSource_MemoryNotFound(t *testing.T) {
 func TestResolveLocalSource_FallbackToWikiSubdir(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create dir/wiki subdirectory (but not dir itself as a valid wiki)
 	baseDir := knowledgeWikiDirFor(t, tmp)
 	wikiSub := filepath.Join(baseDir, "wiki")
 	if err := os.MkdirAll(wikiSub, 0o755); err != nil {
@@ -93,7 +91,6 @@ func TestResolveLocalSource_FallbackToWikiSubdir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveWikiSource(project) error: %v", err)
 	}
-	// Should have resolved successfully.
 	if src.ID != "project" {
 		t.Errorf("ID = %q; want %q", src.ID, "project")
 	}
@@ -115,7 +112,6 @@ func TestResolveSources_ValidWikis(t *testing.T) {
 
 	svc := NewWikiService(tmp)
 
-	// Test with valid wikis only (no hub refs, since those need real registries)
 	sources, errs := svc.ResolveSources(ctx, []string{"project", "memory"}, nil)
 	if len(errs) > 0 {
 		t.Errorf("unexpected errors: %v", errs)
@@ -129,7 +125,6 @@ func TestResolveSources_MixedResults(t *testing.T) {
 	tmp := t.TempDir()
 	ctx := context.Background()
 
-	// Create only the project wiki dir (nonexistent will fail as ecosystem lookup)
 	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -137,7 +132,6 @@ func TestResolveSources_MixedResults(t *testing.T) {
 
 	svc := NewWikiService(tmp)
 
-	// "project" should resolve, "nonexistent" should fail (ecosystem lookup)
 	sources, errs := svc.ResolveSources(ctx, []string{"project", "nonexistent"}, nil)
 	if len(sources) != 1 {
 		t.Errorf("expected 1 source, got %d", len(sources))
@@ -202,7 +196,6 @@ func TestSearchMultiWiki_NoSources(t *testing.T) {
 func TestResolveHubKnowledgeSource_Error(t *testing.T) {
 	svc := NewWikiService(t.TempDir())
 	ctx := context.Background()
-	// Hub registry won't be available in test env
 	_, err := svc.ResolveHubKnowledgeSource(ctx, "nonexistent-artifact@v1")
 	if err == nil {
 		t.Error("expected error when hub registry not available")
@@ -212,7 +205,6 @@ func TestResolveHubKnowledgeSource_Error(t *testing.T) {
 func TestResolveSources_WithHubRef(t *testing.T) {
 	svc := NewWikiService(t.TempDir())
 	ctx := context.Background()
-	// Hub refs should fail gracefully
 	sources, errs := svc.ResolveSources(ctx, nil, []string{"some-hub-ref@v1"})
 	if len(sources) != 0 {
 		t.Errorf("expected 0 sources from invalid hub ref, got %d", len(sources))
@@ -224,7 +216,6 @@ func TestResolveSources_WithHubRef(t *testing.T) {
 
 func TestResolveWikiSource_Ecosystem_NotInLock(t *testing.T) {
 	svc := NewWikiService(t.TempDir())
-	// "custom-project" is not project/memory, so goes to ecosystem path
 	_, err := svc.ResolveWikiSource("custom-project")
 	if err == nil {
 		t.Error("expected error for ecosystem project not in lock file")

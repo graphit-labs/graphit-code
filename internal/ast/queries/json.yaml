@@ -2,18 +2,7 @@ language: json
 grammar: tree-sitter-json
 extensions: [".json", ".jsonc", ".json5"]
 queries:
-  # === Entity queries ===
-  # JSON is a key/value format: the key alone answers nothing. Each member's key
-  # is a Pair node and its scalar value a Value node contained by it, so both are
-  # reachable by full-text search:
-  #   Pair "host" → Value "db.example.com"
-  #
-  # string_content, not string, is captured on both sides — the string node spans
-  # its quotes and a node named "\"host\"" is not what anyone searches for.
-  #
-  # Object and array values are deliberately not captured: their text is a
-  # document, not a name. The nesting is expressed by the Pair → Pair queries
-  # below instead.
+
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair key: (string (string_content) @name) value: (string (string_content) @value))'
@@ -30,14 +19,10 @@ queries:
     value_capture: value
     value_label: Value
 
-  # Keys whose value is an object or an array still need a node of their own.
-  # This matches every member, including the ones above; the engine folds the
-  # repeat into the node they already produced rather than duplicating it.
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair key: (string (string_content) @name))'
 
-  # Array elements — scalar members of a list belong to the key that names it.
   - data_key: array_items
     graph_label: Value
     pattern: '(pair key: (string (string_content) @parent) value: (array (string (string_content) @name)))'
@@ -49,15 +34,11 @@ queries:
     parent_capture: parent
     parent_label: Pair
 
-# JSON is a data format — no export concept
 exports:
   strategy: none
 
 self_keywords: []
 
-# JSON has no scoping context
-# A member is contained by the member that encloses it. tree-sitter-json's
-# `pair` has no "name" field -- its name is the content of its key string.
 context_types:
   pair: Pair
 
@@ -68,16 +49,9 @@ anon_func_types: []
 
 declaration_types: []
 
-# JSONC supports comments; standard JSON does not have comments
 comment_types:
   - comment
 
-# No cyclomatic complexity: JSON is a data format with no control flow.
-
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Pair
   - Comment

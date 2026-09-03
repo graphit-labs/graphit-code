@@ -14,17 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
-// A REAL S3 IS THE ONLY THING THAT PROVES ANYTHING HERE, and this project has paid for learning
-// that once already: `lancedb-go`'s Go surface exposes every S3 option — access key, secret,
-// endpoint, path-style, allow-http — fully typed and documented, while the published native had
-// the object store compiled OUT (`default-features = false` against a crate whose `default = []`).
-// Reading the API proved nothing; connecting to MinIO produced
-// `No object store provider found for scheme: 's3'`.
-//
-// So the remote tests in this package run against MinIO in Docker rather than against a local
-// directory with the hope that `s3://` behaves the same. They SKIP when Docker is unavailable,
-// because a machine without it must still pass `go test`.
-
 const (
 	minioImage     = "minio/minio:latest"
 	minioAccessKey = "graphittest"
@@ -33,11 +22,6 @@ const (
 	minioReadyWait = 30 * time.Second
 )
 
-// minioBucket starts MinIO, creates a bucket, and returns the S3 configuration addressing it.
-//
-// The returned config carries the endpoint and the credentials and NOTHING else: path-style
-// addressing and `allow_http` are derived by Config.storageOptions from the endpoint, exactly as
-// they are in production. Setting them here would make the test prove the harness.
 func minioBucket(t *testing.T) (bucket string, s3 config.S3Config) {
 	t.Helper()
 	requireDocker(t)
@@ -45,8 +29,6 @@ func minioBucket(t *testing.T) (bucket string, s3 config.S3Config) {
 	port := freePort(t)
 	name := fmt.Sprintf("graphit-lancestore-test-%d", port)
 
-	// The container is removed on exit AND named, so a crashed run does not leave a port held by
-	// something a later run cannot see.
 	run := exec.Command("docker", "run", "--rm", "-d",
 		"--name", name,
 		"-p", fmt.Sprintf("127.0.0.1:%d:9000", port),
@@ -84,7 +66,6 @@ func minioBucket(t *testing.T) (bucket string, s3 config.S3Config) {
 	}
 }
 
-// remoteConfig is a writable store at a prefix inside the test bucket.
 func remoteConfig(t *testing.T, prefix string) Config {
 	t.Helper()
 	bucket, s3 := minioBucket(t)
@@ -105,10 +86,6 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// waitForMinIO blocks until the server accepts a connection.
-//
-// The readiness probe is a TCP dial rather than an HTTP health request: the health endpoint has
-// moved between MinIO releases, and what this needs to know is only whether the port is serving.
 func waitForMinIO(t *testing.T, container, endpoint string) {
 	t.Helper()
 	addr := strings.TrimPrefix(endpoint, "http://")
@@ -117,8 +94,6 @@ func waitForMinIO(t *testing.T, container, endpoint string) {
 		conn, err := net.DialTimeout("tcp", addr, time.Second)
 		if err == nil {
 			_ = conn.Close()
-			// The port answers before the object API is ready to serve; one short settle avoids a
-			// first request that fails for a reason unrelated to what is being tested.
 			time.Sleep(500 * time.Millisecond)
 			return
 		}
@@ -138,7 +113,6 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
-// remoteTable opens a writable remote store and creates one table in it.
 func remoteTable(t *testing.T, prefix string) (*Store, *Table) {
 	t.Helper()
 	ctx := context.Background()

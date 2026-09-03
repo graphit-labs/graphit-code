@@ -8,24 +8,6 @@ import (
 	"github.com/sugarme/tokenizer"
 )
 
-// sugarme/tokenizer v0.3.0 panics on some inputs instead of returning an error:
-// NormalizedString.Slice derives the original-string range through ConvertOffset,
-// which does not clamp to the string's length the way IntoFullRange does on the
-// other branch, so RangeOriginal slices past the end
-// ("slice bounds out of range [:551] with capacity 550"). v0.3.0 is the newest
-// release, so there is nothing to upgrade to.
-//
-// Unprotected, that took down the whole process. The daemon's embedding module
-// restarted into the same panic every two minutes for twelve days, and because
-// the supervisor recorded only the panic VALUE and never the stack, sixty-six log
-// lines named no file and no function.
-//
-// What the inputs have in common could not be characterized from outside the
-// library — a dozen synthetic candidates (accents, CJK, emoji, special tokens,
-// combining marks, control characters) all tokenized cleanly. So what is tested
-// here is this package's containment of the panic, which is what this package
-// owns, rather than a reproduction of the upstream bug.
-
 type panickingEncoder struct {
 	panicOn string
 	calls   int
@@ -34,7 +16,6 @@ type panickingEncoder struct {
 func (p *panickingEncoder) EncodeSingle(text string, _ ...bool) (*tokenizer.Encoding, error) {
 	p.calls++
 	if p.panicOn != "" && strings.Contains(text, p.panicOn) {
-		// The shape of the real one: a runtime slice-bounds error, not a string.
 		var b []byte
 		_ = b[:1]
 	}

@@ -42,10 +42,6 @@ func TestAnEphemeralProjectIsOnlyTheOneThatSaysSo(t *testing.T) {
 }
 
 func TestAnUnreadableProjectIsNotEphemeral(t *testing.T) {
-	// The answer has to be "no" for anything it cannot read, because the flag GRANTS a
-	// restriction: reading it wrong in the permissive direction leaves a session with
-	// stores, and reading it wrong in the other direction would deny a real project
-	// its own.
 	if IsEphemeralProject("") {
 		t.Error("an empty path must not be ephemeral")
 	}
@@ -61,9 +57,6 @@ func TestAnUnreadableProjectIsNotEphemeral(t *testing.T) {
 }
 
 func TestAnEphemeralProjectStillResolvesItsStorePaths(t *testing.T) {
-	// The flag changes who CONSULTS these paths, not what they are. A path that
-	// stopped resolving would break the reclaim, which needs to name what an older
-	// version created.
 	dir := t.TempDir()
 	writeLock(t, dir, `{"project":{"id":"01SESSION","ephemeral":true}}`)
 

@@ -45,10 +45,6 @@ func SearchWikiFrom(ctx context.Context, client AIClient, db *WikiDB, query stri
 		cfg.MaxTurns = 6
 	}
 
-	// The catalogue comes from the index, and there is no second place to get it from. It used to
-	// fall back to reading `index.md` off disk when a Browse returned nothing — a page the build
-	// rewrote every time, so the fallback could only ever answer with what the index already knew,
-	// or with something staler.
 	catalogue := WikiOverviewFrom(ctx, db)
 	if catalogue == "" {
 		return nil, fmt.Errorf("wiki has no indexed content — run '%s index' first", cfg.ModuleTag)
@@ -204,8 +200,6 @@ func searchCompiledWikiFrom(ctx context.Context, db *WikiDB, query string, topN 
 }
 
 func bm25PreFilterFrom(ctx context.Context, db *WikiDB, query string, topN int) string {
-	// The compiled index answers when it has content and ranked something. It falling
-	// through is not a clean miss — see BM25Search for why the scan stays underneath.
 	if results, authoritative := searchCompiledWikiFrom(ctx, db, query, topN); authoritative && len(results) > 0 {
 		var b strings.Builder
 		b.WriteString("=== FTS5 Relevant Pages (pre-filtered) ===\n")
@@ -220,23 +214,9 @@ func bm25PreFilterFrom(ctx context.Context, db *WikiDB, query string, topN int) 
 		return b.String()
 	}
 
-	// Nothing compiled, nothing to pre-filter. There is no second opinion to fall back to:
-	// the index IS the wiki.
 	return ""
 }
 
-// BM25Search searches a wiki's compiled index.
-//
-// THERE IS NO SECOND PATH. It used to fall back to ranking the markdown pages in Go when the
-// index had not been built or had nothing for the query, and that fallback existed because the
-// pages were the source of truth and the index could be BEHIND them — a state this project has
-// shipped, where a stale pre-check left new pages unindexed and every session ran without
-// recall while believing the project had no memories.
-//
-// The index is the wiki now. There are no pages for it to be behind, so the net has nothing to
-// catch: an empty answer means the index is empty or the query missed, and both are the truth
-// rather than a symptom. `searchCompiledWiki` still separates "no index" from "no answer",
-// which is the distinction that remains meaningful.
 func BM25Search(ctx context.Context, wikiDir, query string, topN int) []BM25Result {
 	return BM25SearchWithOptions(ctx, wikiDir, query, topN, WikiSearchOptions{})
 
@@ -280,10 +260,6 @@ func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
 	return results
 }
 
-// extractSnippet previews a markdown page for a query. It delegates to the same
-// window builder the compiled index uses, so the two engines cannot disagree about
-// what a preview is; the frontmatter goes first because it is metadata the reader
-// did not ask to see.
 func extractSnippet(content, query string) string {
 	return snippetAround(StripFrontmatter(content), query, wikiSnippetWidth)
 }
@@ -333,13 +309,3 @@ func parsePageList(reply string) []string {
 	}
 	return pages
 }
-
-// loadWikiPage and findBestFuzzyMatch are GONE, and what they did is worth knowing before
-// concluding something was dropped.
-//
-// loadWikiPage tried `<dir>/<page>.md`, then `<dir>/<SafeSlug(page)>.md`, then a trigram search
-// over the directory listing at a 0.65 threshold. `loadWikiPageFromIndex` — in multi_search.go —
-// goes through ReadPageAt, which keeps the two affordances that mattered: a slug is matched
-// case-insensitively on a miss, and a trailing `.md` in any casing is trimmed. What it does not
-// keep is the fuzzy match, because the model is now handed the catalogue as slugs and asked for
-// slugs, and a wrong one is answered with the list of what exists.

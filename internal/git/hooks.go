@@ -114,14 +114,6 @@ func (h *HookManager) Remove() error {
 	return nil
 }
 
-// hookDebounce is how recently a sync must have finished for a hook-triggered one to
-// stand down.
-//
-// The three hooks below fire on events that arrive together over a tree that changed
-// once: commit, then push, then — on the other side of a pull — merge. Each used to
-// run a full reindex, so a routine commit-and-push cost two of them concurrently, on
-// top of whatever the daemon was already doing about the same file writes. The window
-// only ever suppresses a sync that a completed one has already covered.
 const hookDebounce = "60s"
 
 func hookScript(comment string) string {

@@ -19,33 +19,8 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
 )
 
-// Writing a store as icebug-disk, natively.
-//
-// THE CONSTRAINT: the format stores ONE CSR per relationship table, and a CSR is inherently
-// one (source table -> target table) pair — indptr indexes the source table's dense ids and
-// indices.target holds dense ids of the target table. Two consequences, both MEASURED, both
-// silent:
-//
-//   - A relationship table declaring several FROM/TO pairs re-reads the same CSR once per
-//     pair and reports N times the edges.
-//   - The `[:A|B]` type-alternatives form applies the FIRST alternative's indptr to every
-//     alternative, so a relationship type split across pair tables cannot be summed, and a
-//     variable-length path across them has no correct form at all.
-//
-// THE SHAPE THAT FOLLOWS: every node lands in ONE table, `Entity`, carrying its label as a
-// column. Then every relationship type has exactly one pair — Entity to Entity — so each type
-// keeps its own single table and its own single CSR. `MATCH ()-[:CONTAINS]->()`, `type(r)` and
-// `-[:CALLS*1..3]->` are native again, with no alternatives anywhere.
-//
-// Nothing is lost. Every node keeps every property (the table's columns are the union across
-// labels, null where a label does not have one), every edge keeps its properties and its
-// direction, self-loops included, and the label survives as data. What moves is the LABEL
-// side: `MATCH (f:Function)` becomes a filter on `label`, which a reader rewrites — using only
-// predicates measured to work on this storage. See Graphit Task tsk-2b2208eee9b1.
-// maxRowGroupLength keeps a table in a single Parquet row group.
 const maxRowGroupLength = 1 << 40
 
-// parquetChunkRows is how many rows are held as Arrow at once while writing a table.
 const parquetChunkRows = 64 << 10
 
 const (
@@ -68,7 +43,6 @@ const (
 	// NOTE: not `_id`, which the engine rejects with "reserved property name".
 	IcebugIDColumn = "entity_id"
 
-	// icebugVersion is stamped into every Parquet file this package writes.
 	icebugVersion = "v1"
 )
 
@@ -82,14 +56,6 @@ type IcebugOptions struct {
 	// testing.
 	StorageURI string
 
-	// DisableReverseEdges omits the separate <TYPE>_REVERSE tables. The zero value
-	// exports them.
-	//
-	// SAFETY: it must never merge the mirror into the type's own table. The reference tool
-	// does exactly that, and MEASURED, it destroys direction: a graph of 200.000 edges mounts
-	// as 399.996, and `MATCH (a)-[:CALLS]->(b)` starts returning calls that do not exist. In a
-	// code graph the direction of CALLS is the meaning.
-	//
 	DisableReverseEdges bool
 }
 
@@ -165,18 +131,8 @@ type IcebugPair struct {
 	Rows int64  `json:"rows"`
 }
 
-// utf8Repairs counts string values this process had to repair during an export.
-//
-// It is diagnostic only, and it is read into the manifest at the end of an export. A Parquet
-// STRING column is UTF-8 by definition and the engine REJECTS a file whose string column is
-// not — measured: "Invalid string encoding found in Parquet file: value \xD8\x06 is not valid
-// UTF8". The source graph does hold such values (a mis-decoded byte in an indexed file), so
-// they are repaired rather than dropped: the node and the edge survive, and the count says how
-// many bytes were not text to begin with.
 var utf8Repairs atomic.Int64
 
-// sanitizeUTF8 makes a value safe for a Parquet STRING column, reporting whether it had to
-// change anything.
 func sanitizeUTF8(v string) string {
 	if utf8.ValidString(v) {
 		return v
@@ -197,13 +153,6 @@ func HasIcebug(dir string) bool {
 	return err == nil
 }
 
-// ExportIcebug writes the store as an icebug-disk directory.
-//
-// Every Parquet file here is written by this package rather than by the engine's COPY TO.
-// That is not a preference: MEASURED on a real corpus, a node table written by COPY TO is
-// rejected by the engine's own icebug reader with "Invalid string encoding found in Parquet
-// file … is not valid UTF8" once the table is large enough to change encoding. A two-row
-// table survives it, which is why a small fixture cannot catch it.
 func ExportIcebug(c Conn, outDir string, opts IcebugOptions) (*IcebugManifest, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return nil, fmt.Errorf("icebug: dir: %w", err)
@@ -225,8 +174,6 @@ func ExportIcebug(c Conn, outDir string, opts IcebugOptions) (*IcebugManifest, e
 			relTypes = append(relTypes, tb.name)
 		}
 	}
-	// Sorted so an export is reproducible: a node's dense id depends on the order labels are
-	// folded in, and a reproducible id is what makes two exports of one store comparable.
 	sort.Strings(labels)
 	sort.Strings(relTypes)
 
@@ -262,7 +209,6 @@ func ExportIcebug(c Conn, outDir string, opts IcebugOptions) (*IcebugManifest, e
 			return nil, err
 		}
 		for _, rel := range rels {
-			// A reverse table is derived, so it does not add to the graph's edge count.
 			if !rel.Reverse {
 				man.EdgeCount += rel.Rows
 			}
@@ -280,34 +226,23 @@ func ExportIcebug(c Conn, outDir string, opts IcebugOptions) (*IcebugManifest, e
 	if err != nil {
 		return nil, fmt.Errorf("icebug: manifest: %w", err)
 	}
-	// Written LAST, so its presence means the export finished.
 	if err := os.WriteFile(filepath.Join(outDir, IcebugManifestFile), raw, 0o644); err != nil {
 		return nil, fmt.Errorf("icebug: write manifest: %w", err)
 	}
 	return man, nil
 }
 
-// foldedGraph is every label's nodes in one dense id space.
 type foldedGraph struct {
 	columns []Field
 	labels  []IcebugLabel
 	keys    map[string]string
 
-	// rows holds one map per node, keyed by column name, in dense id order.
 	rows []map[string]any
 
-	// ids maps a node's internal identity to its dense id.
 	ids   map[string]uint64
 	count uint64
 }
 
-// foldedKey identifies a node by its label and its INTERNAL offset.
-//
-// NOT by its declared primary key. MEASURED on this project's own graph: `Comment` declares
-// `uid` as its primary key and has 951 uid values appearing twice — the engine does not
-// enforce the declaration. Keying on it would attach an edge to whichever twin the map
-// happened to hold, silently. `offset(id(n))` is unique by construction (17408 of 17408
-// distinct on that same table).
 func foldedKey(label string, offset int64) string {
 	return label + "\x00" + strconv.FormatInt(offset, 10)
 }
@@ -316,12 +251,6 @@ func foldedKey(label string, offset int64) string {
 // the artifact — the exported key is the dense id.
 const icebugOffsetAlias = "__off"
 
-// foldLabels reads every label's nodes into one table.
-//
-// The column set is the UNION across labels: a property a label does not have is null for its
-// nodes, which is what makes folding lossless. A name declared with two different types in two
-// labels is refused rather than coerced — silently widening a column is how a value changes
-// meaning between publish and read.
 func foldLabels(c Conn, labels []string) (*foldedGraph, error) {
 	g := &foldedGraph{
 		keys: map[string]string{},
@@ -386,9 +315,6 @@ func foldLabels(c Conn, labels []string) (*foldedGraph, error) {
 		for _, f := range p.cols {
 			proj = append(proj, fmt.Sprintf("n.%s AS %s", QuoteIdent(f.Name), QuoteIdent(f.Name)))
 		}
-		// Ordered by the internal offset, which is deterministic even when the declared
-		// primary key repeats — ordering by a non-unique key leaves twins in an arbitrary
-		// order and makes the export irreproducible.
 		rows, err := c.Query(fmt.Sprintf("MATCH (n:%s) RETURN %s ORDER BY %s",
 			QuoteIdent(p.label), strings.Join(proj, ", "), QuoteIdent(icebugOffsetAlias)), nil)
 		if err != nil {
@@ -425,7 +351,6 @@ func foldLabels(c Conn, labels []string) (*foldedGraph, error) {
 	return g, nil
 }
 
-// writeEntityTable writes the folded node table, in dense id order.
 func writeEntityTable(dest string, g *foldedGraph) error {
 	fields := make([]arrow.Field, 0, len(g.columns))
 	for _, f := range g.columns {
@@ -447,10 +372,6 @@ func writeEntityTable(dest string, g *foldedGraph) error {
 	})
 }
 
-// exportIcebugRelType writes one relationship type's CSR over the folded id space.
-//
-// Every pair the type connects contributes to the SAME CSR, because both endpoints are now
-// the entity table. That is the whole point: one type, one table, one CSR, no alternatives.
 func exportIcebugRelType(c Conn, relType string, g *foldedGraph, outDir string,
 	opts IcebugOptions) ([]IcebugRelTable, error) {
 
@@ -471,7 +392,6 @@ func exportIcebugRelType(c Conn, relType string, g *foldedGraph, outDir string,
 	for _, p := range pairs {
 		pattern := fmt.Sprintf("MATCH (a:%s)-[r:%s]->(b:%s)",
 			QuoteIdent(p.src), QuoteIdent(relType), QuoteIdent(p.dst))
-		// Endpoints are resolved by internal offset, matching how the dense mapping was keyed.
 		proj := []string{
 			"offset(id(a)) AS __src",
 			"offset(id(b)) AS __dst",
@@ -519,9 +439,6 @@ func exportIcebugRelType(c Conn, relType string, g *foldedGraph, outDir string,
 	if len(edges) == 0 {
 		return nil, nil
 	}
-	// Sorting is REQUIRED here: edges of one type arrive pair by pair, so they are only
-	// ordered within a pair. A CSR needs them ordered across the whole type, by
-	// (csr_source, csr_target).
 	sortEdges(&edges, propValues)
 
 	indicesFile := "indices_" + relType + ".parquet"
@@ -568,7 +485,6 @@ func exportIcebugRelType(c Conn, relType string, g *foldedGraph, outDir string,
 	return out, nil
 }
 
-// sortEdges orders edges by (source, target), carrying their property values along.
 func sortEdges(edges *[]csrEdge, propValues [][]any) {
 	e := *edges
 	idx := make([]int, len(e))
@@ -601,8 +517,6 @@ func sortEdges(edges *[]csrEdge, propValues [][]any) {
 	}
 }
 
-// icebugColumns reads a table's columns and primary key from the catalog, mapping engine
-// types to the Cypher types schema.cypher declares.
 func icebugColumns(c Conn, table string) ([]Field, string, error) {
 	rows, err := c.Query(fmt.Sprintf("CALL table_info('%s') RETURN *", table), nil)
 	if err != nil {
@@ -624,8 +538,6 @@ func icebugColumns(c Conn, table string) ([]Field, string, error) {
 	return out, pk, nil
 }
 
-// cypherType maps an engine type onto the Cypher type a schema declares. A parameterised
-// type keeps only its base, and anything unrecognised becomes STRING, as the format requires.
 func cypherType(engineType string) string {
 	base := strings.ToUpper(strings.TrimSpace(engineType))
 	if i := strings.Index(base, "("); i > 0 {
@@ -719,36 +631,11 @@ func writeIcebugSchema(outDir string, man *IcebugManifest, opts IcebugOptions) e
 	return os.WriteFile(filepath.Join(outDir, "schema.cypher"), []byte(b.String()), 0o644)
 }
 
-// sortRelsLargestFirst orders the relationship tables by descending row count, which is the
-// order they are CREATEd in and therefore the order of their table ids.
-//
-// THIS IS A CORRECTNESS FIX, NOT A TIDY-UP, and it is the one thing standing between this export
-// and a silently wrong `[:A|B|…]`.
-//
-// MEASURED, on our export AND on the reference tool's own output: the engine bounds EVERY
-// alternative of a type-alternatives pattern by the row count of the FIRST alternative — the one
-// with the lowest table id, which is creation order. So a later alternative holding more edges
-// than the first is silently truncated to the first's count:
-//
-//	first 54.823 then 92.396 -> 109.646   (= 2x54.823, the second one truncated)
-//	first 92.396 then 54.823 -> 147.219   (correct: nothing to truncate)
-//
-// Query order does not matter; only creation order does. And the bound is the FIRST alternative's
-// count, not the minimum over them — verified with three tables. So ordering the tables by
-// descending row count makes the lowest-id member of ANY subset also the largest member of that
-// subset, no alternative is ever truncated, and the form is correct for every combination.
-//
-// This is why the defect looked like it belonged to a single pair of tables: with the tables in
-// alphabetical order, only the 9 pairs whose alphabetically-first table was also the smaller one
-// were wrong, and the other 19 came out right because there was nothing to truncate. The
-// reference tool was cleared of it for the same reason — the one comparison ever run against it
-// happened to declare the bigger table first.
 func sortRelsLargestFirst(rels []IcebugRelTable) {
 	sort.SliceStable(rels, func(i, j int) bool {
 		if rels[i].Rows != rels[j].Rows {
 			return rels[i].Rows > rels[j].Rows
 		}
-		// A tie broken by name keeps an export reproducible.
 		return rels[i].Table < rels[j].Table
 	})
 }
@@ -758,10 +645,6 @@ type csrEdge struct {
 	target uint64
 }
 
-// reverseEdges is the mirror of every non-self-loop edge, carrying the same properties.
-//
-// A self-loop is left out: its mirror is itself, so including it would make the reverse table
-// report an edge the forward table already has.
 func reverseEdges(edges []csrEdge, propValues [][]any) ([]csrEdge, [][]any) {
 	outEdges := make([]csrEdge, 0, len(edges))
 	outProps := make([][]any, len(propValues))
@@ -781,11 +664,8 @@ func reverseEdges(edges []csrEdge, propValues [][]any) ([]csrEdge, [][]any) {
 	return outEdges, outProps
 }
 
-// writeIndices writes the target column plus every edge property, in CSR row order.
 func writeIndices(dest string, edges []csrEdge, propFields []arrow.Field, propValues [][]any) error {
 	fields := make([]arrow.Field, 0, len(propFields)+1)
-	// Nullable to match what the reference tool writes: its columns are `optional`, ours were
-	// `required`, and the reader is the only consumer that gets to have an opinion.
 	fields = append(fields, arrow.Field{Name: "target", Type: arrow.PrimitiveTypes.Uint64, Nullable: true})
 	fields = append(fields, propFields...)
 	schema := arrow.NewSchema(fields, icebugMetadata())
@@ -804,7 +684,6 @@ func writeIndices(dest string, edges []csrEdge, propFields []arrow.Field, propVa
 	})
 }
 
-// writeIndptr writes the N+1 offsets, including a source node with no outgoing edge.
 func writeIndptr(dest string, edges []csrEdge, nodeCount uint64) error {
 	ptr := make([]uint64, nodeCount+1)
 	for _, e := range edges {
@@ -831,22 +710,6 @@ func icebugMetadata() *arrow.Metadata {
 	return &md
 }
 
-// writeParquet writes the whole table as ONE row group.
-//
-// SAFETY: the row group count is load-bearing, and `pqarrow` makes it easy to get wrong —
-// every call to FileWriter.Write starts a NEW row group, so batching the rows produced 49 row
-// groups where the reference tool produces 1, and `parquet.WithMaxRowGroupLength` does not
-// merge them. MEASURED: a multi-row-group file mounts, counts correctly through an anonymous
-// pattern, and then fails to resolve a node when the pattern binds one — while the reference
-// tool's single-row-group file answers both. WriteBuffered is the one form that batches
-// without that cost: it appends into the CURRENT row group while the running total stays
-// under MaxRowGroupLength, so the table is fed in chunks and still lands in one group.
-//
-// Dictionary encoding is off. Tested BOTH ways on the real corpus: it makes no difference to
-// correctness, so this is not a safety constraint. What did produce "Invalid string encoding
-// … is not valid UTF8" was the ENGINE's own COPY TO output, not ours, and the real fix for that
-// was sanitizeUTF8. Left off because plain encoding is the simpler thing to reason about when
-// comparing our files against the reference tool's.
 func writeParquet(dest string, schema *arrow.Schema, rows int, fill func(*array.RecordBuilder, int, int)) error {
 	f, err := os.Create(dest)
 	if err != nil {
@@ -939,7 +802,6 @@ func appendArrowValue(b array.Builder, v any) {
 			bb.Append([]byte(Str(v)))
 		}
 	default:
-		// A builder this does not know would otherwise drop the value silently.
 		b.AppendNull()
 	}
 }

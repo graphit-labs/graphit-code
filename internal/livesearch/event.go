@@ -12,21 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// The event log is what makes a live search survivable.
-//
-// A run lasts minutes and produces hundreds of events, while the HTTP connection
-// carrying them lasts as long as a laptop lid stays open. Keeping events only in
-// memory and only in the connection means a reconnect shows an empty screen for a
-// session that is still working — the run continued, the story of it did not.
-//
-// So every event is appended to a file first and broadcast second, and every event
-// carries a sequence number that is also its SSE id. A client that reconnects sends
-// Last-Event-ID and gets the tail it missed, which is behaviour the browser's
-// EventSource gives us for free once the ids are there and monotonic.
-
-// maxEventLine bounds a single log line. Tool results are the large ones; this
-// matches the ceiling the agent stream reader uses so a line it accepted cannot be
-// a line we fail to read back.
 const maxEventLine = 8 << 20
 
 // Kind classifies a session event.
@@ -115,7 +100,6 @@ func eventFromAI(ev ai.Event) (Event, bool) {
 	}, true
 }
 
-// eventLog is an append-only JSONL file, one event per line.
 type eventLog struct {
 	path string
 
@@ -124,7 +108,6 @@ type eventLog struct {
 	last int64
 }
 
-// openEventLog opens or recovers a log.
 func openEventLog(path string) (*eventLog, error) {
 	last, err := recoverLastSeq(path)
 	if err != nil {
@@ -142,13 +125,6 @@ func openEventLog(path string) (*eventLog, error) {
 	return l, nil
 }
 
-// recoverLastSeq reads the highest sequence number already recorded.
-//
-// It trusts the number inside each record rather than counting lines. The two agree
-// on a clean file and disagree on a file whose last write was cut short by a kill,
-// and in that case counting lines assigns an already-used sequence number to the
-// next event — two events sharing one SSE id, which a reconnecting client resolves
-// by silently skipping one of them.
 func recoverLastSeq(path string) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -172,18 +148,11 @@ func recoverLastSeq(path string) (int64, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		// A log we cannot finish reading is still a log we can append to: the
-		// recovered high-water mark is a lower bound, and refusing to open the
-		// session would lose a run that is otherwise fine.
 		return last, nil
 	}
 	return last, nil
 }
 
-// repairTrailingNewline makes sure the next append starts on its own line.
-//
-// Without it a truncated final write and the next event become one unparseable
-// line, which costs two events instead of the one already lost.
 func (l *eventLog) repairTrailingNewline() error {
 	st, err := l.f.Stat()
 	if err != nil || st.Size() == 0 {
@@ -208,7 +177,6 @@ func (l *eventLog) repairTrailingNewline() error {
 	return nil
 }
 
-// append assigns the next sequence number and writes the event.
 func (l *eventLog) append(ev Event) (Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -241,14 +209,8 @@ func (l *eventLog) lastSeq() int64 {
 	return l.last
 }
 
-// errStopReplay ends a replay early without reporting a failure.
 var errStopReplay = errors.New("replay stopped")
 
-// replay yields recorded events with after < Seq <= upto, in order. An upto of
-// zero or less means no upper bound.
-//
-// Undecodable lines are skipped rather than fatal: one corrupt record from an
-// interrupted write should cost that record and not the rest of the history.
 func (l *eventLog) replay(after, upto int64, fn func(Event) error) error {
 	f, err := os.Open(l.path)
 	if err != nil {

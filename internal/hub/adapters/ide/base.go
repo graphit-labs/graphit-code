@@ -544,19 +544,14 @@ func (a *FolderBasedAdapter) findCanonicalSource(artType, sourcePath string) str
 	return ""
 }
 
-// artifactHashCachePath returns the centralized hash-cache path for any hub
-// artifact type. Mirrors skillHashCachePath but covers rule/command/agent/skill.
 func artifactHashCachePath(projectDir, rootDirName, artType, localName string) string {
 	adapterKey := strings.TrimPrefix(rootDirName, ".")
 	return brand.ProjectRuntimePath(projectDir, "cache", "artifacts", adapterKey, artType, localName)
 }
 
-// computeSourceHash computes a deterministic SHA-256 fingerprint of the
-// artifact source (single file or directory tree). Returns hex string.
 func computeSourceHash(fm FileMode, sourcePath string) (string, error) {
 	h := sha256.New()
 	if fm.Mode == "folder" {
-		// Walk in sorted order so the hash is deterministic.
 		var files []string
 		_ = filepath.Walk(sourcePath, func(p string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() {

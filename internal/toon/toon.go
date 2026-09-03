@@ -8,9 +8,6 @@ import (
 	"time"
 )
 
-// escapeTOON escapes pipe, newline, and backslash in a string value
-// so it can be safely embedded in a pipe-delimited TOON field.
-// Escape rules: \ → \\, | → \|, newline → \n
 func escapeTOON(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, "|", `\|`)

@@ -32,7 +32,6 @@ func TestEveryShippedQueryPatternCompiles(t *testing.T) {
 			continue
 		}
 		if qf.Parser == "antlr4" {
-			// XPath patterns, not S-expressions — a different compiler.
 			continue
 		}
 		grammar := qf.Grammar
@@ -53,8 +52,6 @@ func TestEveryShippedQueryPatternCompiles(t *testing.T) {
 				continue
 			}
 			checked++
-			// A capture named in the YAML but absent from the pattern is the
-			// same failure mode: the field is honoured and finds nothing.
 			for label, name := range map[string]string{
 				"name_capture":   q.NameCapture,
 				"value_capture":  q.ValueCapture,
@@ -64,9 +61,6 @@ func TestEveryShippedQueryPatternCompiles(t *testing.T) {
 					continue
 				}
 				if _, found := compiled.CaptureIndexForName(name); !found {
-					// name_capture defaults to "name"; a pattern that captures
-					// nothing at all is a relation-only or predicate-only query
-					// elsewhere, so only complain when the field was explicit.
 					if label == "name_capture" && name == "name" {
 						continue
 					}
@@ -92,8 +86,7 @@ func TestEveryShippedQueryPatternCompiles(t *testing.T) {
 func TestDeclaredValuesBecomeNodes(t *testing.T) {
 	cases := []struct {
 		name, lang, grammar, ext, queryFile, file, source string
-		// want maps a declared name to the value node it must contain.
-		want map[string]string
+		want                                              map[string]string
 	}{
 		{
 			name: "go", lang: "go", grammar: "tree-sitter-go", ext: ".go",
@@ -329,8 +322,6 @@ LABEL maintainer="acme@example.com"
 enum Status { ACTIVE = 7; }
 message Order { string id = 4; }
 `,
-			// The wire contract: a field's number and an enum's value are how two
-			// sides of an RPC agree, and neither was indexed.
 			want: map[string]string{"ACTIVE": "7", "id": "4"},
 		},
 	}
@@ -340,7 +331,6 @@ message Order { string id = 4; }
 			projectDir := stageGrammar(t, tc.lang, tc.grammar, tc.ext, tc.queryFile)
 			pf := parseFixture(t, projectDir, tc.file, tc.source)
 
-			// key name -> the value nodes contained by it
 			contained := map[string][]string{}
 			valueOf := map[string]string{}
 			for _, ents := range pf.Entities {
@@ -420,7 +410,6 @@ func TestDataFormatCollectionsAndCDATA(t *testing.T) {
 		got := nodesOf(parseFixture(t, projectDir, "a.toml",
 			"ports = [80, 443]\ninline = { host = \"db.example.com\" }\n"))
 		wantNode(t, got, "Value", "80", "ports", "Pair")
-		// A member of an inline table is a pair like any other, value included.
 		wantNode(t, got, "Pair", "host", "", "")
 		wantNode(t, got, "Value", "db.example.com", "host", "Pair")
 	})
@@ -530,7 +519,6 @@ const MaxRetries = 3
 		}
 	}
 
-	// And the value is on the constant too, so the one-node answer works.
 	rows, err = db.Query(ctx,
 		"MATCH (c:`Constant`) WHERE c.name = 'Endpoint' RETURN c.value AS v", nil)
 	if err != nil {

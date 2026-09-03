@@ -4,10 +4,6 @@ import (
 	"testing"
 )
 
-// Data-format entities used to be contained by the File: the ancestor walk named
-// a context by reading its "name" field, and no data-format grammar has one.
-// These pin the containment the grammars actually describe.
-
 func TestXMLElementIsContainedByEnclosingElement(t *testing.T) {
 	projectDir := stageGrammar(t, "xml", "tree-sitter-xml", ".xml", "xml.yaml")
 	pf := parseFixture(t, projectDir, "a.xml", `<server>

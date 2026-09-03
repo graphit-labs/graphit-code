@@ -1,14 +1,12 @@
 language: c
 grammar: tree-sitter-c
 extensions: [".c", ".h"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
   READS_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition declarator: (function_declarator declarator: (identifier) @name))'
@@ -31,8 +29,6 @@ queries:
     graph_label: Variable
     pattern: '(declaration declarator: (init_declarator declarator: (identifier) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name. O segundo
-  # pattern covers `const char *X = "..."`, where the name sits under pointer_declarator.
   - data_key: variables
     graph_label: Variable
     pattern: '(init_declarator declarator: (identifier) @name value: [(number_literal) (true) (false) (null) (char_literal) (string_literal) (concatenated_string)] @value)'
@@ -44,7 +40,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # Enum members — antes o enum existia sem eles.
   - data_key: enum_members
     graph_label: EnumMember
     pattern: '(enumerator name: (identifier) @name)'
@@ -60,7 +55,6 @@ queries:
     graph_label: Field
     pattern: '(field_declaration declarator: (field_identifier) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -70,25 +64,18 @@ queries:
     relation_type: READS_FIELD
     pattern: '(field_expression field: (field_identifier) @name)'
 
-# C export detection: non-static functions are public
 exports:
   strategy: no_static
 
-# C has no self/this keyword
 self_keywords: []
 
-# Parent context type mapping — C tree-sitter node types only
-# C has no classes, interfaces, traits, methods, or namespaces.
-# Functions contain other declarations; structs/enums are type specifiers.
 context_types:
   struct_specifier: Struct
   enum_specifier: Enum
   function_definition: Function
 
-# C has no anonymous function expressions
 anon_func_types: []
 
-# Declaration node types for docstring attachment — C tree-sitter only
 declaration_types:
   - function_definition
   - struct_specifier
@@ -96,14 +83,9 @@ declaration_types:
   - type_definition
   - declaration
 
-# C tree-sitter uses a single "comment" node type for both // and /* */ comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. case_statement is shared with `default`, so a
-# bare default with no case labels still adds one — a minor, accepted
-# deviation from the other languages here.
 complexity:
   node_types:
     - if_statement
@@ -113,10 +95,6 @@ complexity:
     - conditional_expression
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Function
   - Struct

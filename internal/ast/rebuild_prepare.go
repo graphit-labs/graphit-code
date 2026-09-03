@@ -46,8 +46,6 @@ func (p *rebuildEntryPreparation) finish(cache *ShardCache) (map[string]*parseCa
 	}
 	<-p.done
 
-	// A reparsed file can fail before Store. Preserve the old cache-backed entry
-	// in that case, matching the rebuild's previous source-of-truth behavior.
 	for _, relPath := range cache.AllPaths() {
 		p.mu.Lock()
 		_, exists := p.entries[relPath]

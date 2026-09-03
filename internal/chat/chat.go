@@ -86,7 +86,6 @@ func (e *ChatEngine) SendWithSearch(ctx context.Context, userMessage string, sea
 	return e.Send(ctx, userMessage)
 }
 
-// splitSources separates the two kinds so the prompts can describe each honestly.
 func splitSources(sources []Source) (wikis, graphs []Source) {
 	for _, s := range sources {
 		if s.IsGraph() {
@@ -123,14 +122,6 @@ func buildSourceContext(sources []Source) string {
 	return b.String()
 }
 
-// buildChatSystemPrompt describes the follow-up turn's actual grounding.
-//
-// The distinction between the two kinds is not cosmetic. A follow-up turn does NOT
-// re-open anything: it answers from the transcript, which already contains whatever
-// graph results the original search pulled. Telling the model it "has access to
-// wiki sources" therefore mislabelled half of what it was reading — and, worse,
-// implied it could reach the code again. It cannot, and saying so is what stops it
-// inventing a call graph it has no way to check.
 func buildChatSystemPrompt(sources []Source) string {
 	wikis, graphs := splitSources(sources)
 

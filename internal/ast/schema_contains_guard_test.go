@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// oracleLikeEntries is a two-file corpus shaped like an Oracle export: one file
-// declaring a table with a column, one package body selecting from it. The column
-// carries a containment edge to its table, and — the case that matters — a second
-// column claims a parent whose label no entity in the corpus provides.
 func oracleLikeEntries() map[string]*parseCacheEntry {
 	return map[string]*parseCacheEntry{
 		"tables/PEDIDO.sql": {
@@ -24,7 +20,6 @@ func oracleLikeEntries() map[string]*parseCacheEntry {
 			ContainsEdges: []cachedContainsEdge{
 				{ParentUID: "tables/PEDIDO.sql::PEDIDO", ChildUID: "tables/PEDIDO.sql::PEDIDO.ID",
 					ParentLabel: LabelTable, ChildLabel: LabelColumn},
-				// A parent label no entity carries — the shape that took the rebuild down.
 				{ParentUID: "tables/PEDIDO.sql::ORFA", ChildUID: "tables/PEDIDO.sql::ORFA.X",
 					ParentLabel: "Tablespace", ChildLabel: LabelColumn},
 			},
@@ -39,7 +34,6 @@ func oracleLikeEntries() map[string]*parseCacheEntry {
 			References: []cachedReference{
 				{SourceUID: "packages/PCK_VENDA.sql::FATURAR", TargetUID: "PEDIDO", RelType: RelSelects,
 					Path: "packages/PCK_VENDA.sql", Line: 5},
-				// Declared nowhere in this corpus: only DML tells us it exists.
 				{SourceUID: "packages/PCK_VENDA.sql::FATURAR", TargetUID: "FATURA_EXTERNA", RelType: RelInserts,
 					Path: "packages/PCK_VENDA.sql", Line: 6},
 			},
@@ -47,12 +41,6 @@ func oracleLikeEntries() map[string]*parseCacheEntry {
 	}
 }
 
-// TestContainsPairWithoutNodeTableIsDropped is the regression test for the failure that
-// destroyed a 35358-file index: 75121 Table->Column containment edges against zero Table
-// entities put `FROM Table TO Column` in the CONTAINS rel table group, LadybugDB rejected
-// the whole statement ("Binder exception: Table Table does not exist"), and the rebuild
-// aborted before swapping the database in — with --reset having already deleted the old
-// one, leaving nothing at all.
 func TestContainsPairWithoutNodeTableIsDropped(t *testing.T) {
 	ri := newRebuildIndex(oracleLikeEntries(), dmlTargetRules("plsql"))
 
@@ -93,7 +81,7 @@ func TestInitSchemaForLabelsSurvivesAnUnbackedPair(t *testing.T) {
 		Labels: []string{LabelTable, LabelColumn, LabelProcedure},
 		ContainsPairs: [][2]string{
 			{LabelTable, LabelColumn},
-			{"Tablespace", LabelColumn}, // no node table for Tablespace
+			{"Tablespace", LabelColumn},
 		},
 		CallerLabels:    []string{LabelProcedure},
 		DMLTypes:        []string{RelSelects},
@@ -104,8 +92,6 @@ func TestInitSchemaForLabelsSurvivesAnUnbackedPair(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// The group must exist and accept the pair that is backed. Table and Column are
-	// SQL keywords, so the labels need the same quoting the DDL gives them.
 	if err := db.execQuery("CREATE (t:`Table` {uid: 't', name: 'PEDIDO'})"); err != nil {
 		t.Fatalf("insert table node: %v", err)
 	}
@@ -133,8 +119,6 @@ func TestDMLTargetResolvesToTheDeclaringNode(t *testing.T) {
 		t.Errorf("PEDIDO resolved to %q/%q, want the declaring node", uid, label)
 	}
 
-	// Undeclared targets keep their name and become stub tables, so the dependency
-	// is still recorded when the DDL is not part of the corpus.
 	uid, label = ri.resolveRefTarget(cachedReference{
 		TargetUID: "FATURA_EXTERNA", RelType: RelInserts, Path: "packages/PCK_VENDA.sql",
 	}, "plsql")
@@ -146,8 +130,6 @@ func TestDMLTargetResolvesToTheDeclaringNode(t *testing.T) {
 		t.Errorf("dml target labels = %v, want [Table]", ri.dmlTargetLabels)
 	}
 
-	// Emitting in write order: every entity first, then stubs, then edges — an
-	// edge is only written when both of its ends made it into a node table.
 	declared := ri.entityJSON(LabelTable)
 	if len(declared) != 1 {
 		t.Fatalf("got %d Table rows, want the declared one", len(declared))

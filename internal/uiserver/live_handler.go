@@ -14,33 +14,12 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/livesearch/prep"
 )
 
-// The live search is exposed over Server-Sent Events rather than as a request that
-// returns an answer.
-//
-// The work outlives any single request — preparing the ephemeral project takes most
-// of the time, and the agent then runs for minutes — so the transport's only job is
-// to carry a session's events to whoever is currently watching. SSE fits that shape:
-// one long GET, ordered events with ids, and a client that reconnects with
-// Last-Event-ID and is handed exactly what it missed. Sending is the small half, so
-// it stays an ordinary POST.
-//
-// WebSocket would also work and buys nothing here: there is no high-rate client
-// traffic to justify a second protocol, and reconnect-with-resume would have to be
-// designed and implemented instead of inherited.
-
 const (
-	// sseHeartbeat bounds how long a quiet stream stays silent. Preparation can run
-	// for minutes without an event, and an idle connection is exactly what proxies
-	// and NATs reap. A comment line costs nothing and also reveals a client that
-	// vanished without closing, because writing to it finally fails.
 	sseHeartbeat = 25 * time.Second
 
-	// sseRetry tells the browser how long to wait before reconnecting.
 	sseRetry = 2 * time.Second
 )
 
-// heartbeatInterval is a variable only so a test can shorten it and observe a
-// heartbeat instead of trusting that one would eventually arrive.
 var heartbeatInterval = sseHeartbeat
 
 // LiveHandler serves the live search API.
@@ -66,11 +45,6 @@ func (h *LiveHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/live/sessions/{id}/stream", corsSSE(h.handleStream))
 }
 
-// corsSSE is the streaming counterpart of corsJSON.
-//
-// It exists because corsJSON declares application/json, and a stream that says it is
-// JSON is a stream EventSource refuses. The rest of the headers are what keeps the
-// stream a stream.
 func corsSSE(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -80,9 +54,6 @@ func corsSSE(h http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		// Without this an intermediary may buffer the whole response: the run
-		// still works, the events all arrive at the end, and it looks exactly
-		// like a server that hung.
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		h(w, r)
@@ -111,14 +82,9 @@ func (h *LiveHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(req.IDE) == "" {
-		// The IDE decides how the ephemeral project is set up — which rules,
-		// skills and MCP configuration the agent will find — so there is no
-		// sensible default to guess here.
 		http.Error(w, "ide is required", http.StatusBadRequest)
 		return
 	}
-	// Checked before the session exists, so an unsupported IDE is a rejected
-	// request rather than a session that fails halfway through preparing.
 	if err := prep.ValidateIDE(req.IDE); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -204,8 +170,6 @@ func (h *LiveHandler) handleCancel(w http.ResponseWriter, r *http.Request) {
 		writeLiveError(w, err)
 		return
 	}
-	// Cancelling an idle session is not an error: a client cannot know whether the
-	// turn ended between rendering the button and the click reaching us.
 	s.Cancel()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -220,18 +184,11 @@ func (h *LiveHandler) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	s, err := h.mgr.Get(id)
 	if err != nil {
-		// Not live here, but its log may still be on disk — a session created by the
-		// CLI, or by a previous run of this server. Its transcript is readable even
-		// though nothing will be added to it, and refusing it would make the durable
-		// log useless to every client but the one process that wrote it.
 		h.replayFromDisk(w, r, flusher, id)
 		return
 	}
 
 	events, stop := s.Subscribe(lastEventID(r))
-	// Unsubscribing is all that happens when the client goes away. The session
-	// keeps its goroutine, its context and its work: that separation is the reason
-	// this subsystem exists.
 	defer stop()
 
 	if _, err := fmt.Fprintf(w, "retry: %d\n\n", sseRetry.Milliseconds()); err != nil {
@@ -263,12 +220,6 @@ func (h *LiveHandler) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// replayFromDisk serves the recorded transcript of a session this process does not own,
-// then ends the stream.
-//
-// It closes rather than holding the connection open, because no further event can
-// arrive: the goroutine that would produce one belongs to a process that is gone. A
-// client left waiting on it would wait forever for something nobody is writing.
 func (h *LiveHandler) replayFromDisk(w http.ResponseWriter, r *http.Request, flusher http.Flusher, id string) {
 	after := lastEventID(r)
 	var wrote bool
@@ -284,33 +235,21 @@ func (h *LiveHandler) replayFromDisk(w http.ResponseWriter, r *http.Request, flu
 		return nil
 	})
 	if err != nil && !wrote {
-		// Nothing was sent, so the status line is still ours to write.
 		writeLiveError(w, err)
 	}
 }
 
-// writeSSEEvent writes one event in the wire format EventSource expects.
 func writeSSEEvent(w io.Writer, ev livesearch.Event) error {
 	payload, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("encoding event %d: %w", ev.Seq, err)
 	}
-	// The payload is JSON on one line on purpose: SSE ends an event at a blank
-	// line, so a raw newline inside a value would split one event into two
-	// unparseable halves. JSON escaping removes the possibility instead of
-	// filtering for it.
 	if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.Seq, ev.Kind, payload); err != nil {
 		return fmt.Errorf("writing event %d: %w", ev.Seq, err)
 	}
 	return nil
 }
 
-// lastEventID reads where the client wants to resume from.
-//
-// Two sources, because a browser can only supply one of them. EventSource sends the
-// Last-Event-ID header by itself, but only on a reconnect it initiated; a client
-// that reloaded the page — or a CLI resuming a session it printed earlier — cannot
-// set headers on EventSource at all and has to say so in the query string.
 func lastEventID(r *http.Request) int64 {
 	raw := r.Header.Get("Last-Event-ID")
 	if raw == "" {
@@ -318,20 +257,11 @@ func lastEventID(r *http.Request) int64 {
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || n < 0 {
-		// An unreadable resume point means "start from the beginning", which
-		// replays history the client may already have. Guessing a number instead
-		// would skip events, and a gap is the one outcome worth avoiding.
 		return 0
 	}
 	return n
 }
 
-// writeLiveError maps a session error to the status that describes it.
-//
-// The distinctions matter to a client: 409 says "ask again in a moment", 410 says
-// "this session is gone, make a new one", and 404 says "you have the wrong id".
-// Collapsing them into 500 would leave a UI with nothing to do but show a stack
-// trace to a user who asked a question.
 func writeLiveError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, livesearch.ErrNotFound):

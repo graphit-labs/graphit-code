@@ -126,9 +126,6 @@ func newHubUninstallCmd() *cobra.Command {
 				}
 				p.Success("Removed %s", id)
 
-				// Uninstall already dropped this project's claims on the shared
-				// knowledge wiki and memory context; the stores themselves belong
-				// to whoever else still has them installed.
 			}
 
 			return nil

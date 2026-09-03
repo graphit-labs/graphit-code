@@ -8,15 +8,6 @@ import (
 	"testing"
 )
 
-// buildHeterogeneousStore creates a graph with the properties that break icebug's
-// one-CSR-per-table model, so every test here runs against the real difficulty:
-//
-//   - a relationship type spanning SEVERAL FROM/TO pairs (CONTAINS goes File->Function and
-//     File->Comment), which is what this project's graph does 62 times over;
-//   - a self-loop (a recursive call), which the reference implementation's own spec claims
-//     is dropped;
-//   - two labels with DIFFERENT primary keys, and a property only one label has, because
-//     folding the labels into one table has to survive both.
 func buildHeterogeneousStore(t *testing.T) (*Store, string) {
 	t.Helper()
 
@@ -47,12 +38,10 @@ func buildHeterogeneousStore(t *testing.T) (*Store, string) {
 		`CREATE (:Function {uid: 'fn2', name: 'recurse', line_number: 20, is_exported: false})`,
 		`CREATE (:Function {uid: 'fn3', name: 'helper', line_number: 30, is_exported: false})`,
 		`CREATE (:Comment {uid: 'c1', name: '// licence'})`,
-		// CONTAINS across two different pairs
 		`MATCH (f:File {path: 'a.go'}), (n:Function {uid: 'fn1'}) CREATE (f)-[:CONTAINS]->(n)`,
 		`MATCH (f:File {path: 'a.go'}), (n:Function {uid: 'fn2'}) CREATE (f)-[:CONTAINS]->(n)`,
 		`MATCH (f:File {path: 'b.go'}), (n:Function {uid: 'fn3'}) CREATE (f)-[:CONTAINS]->(n)`,
 		`MATCH (f:File {path: 'a.go'}), (c:Comment {uid: 'c1'}) CREATE (f)-[:CONTAINS]->(c)`,
-		// CALLS, including the self-loop of a recursive function
 		`MATCH (a:Function {uid: 'fn1'}), (b:Function {uid: 'fn2'}) CREATE (a)-[:CALLS {line_number: 11}]->(b)`,
 		`MATCH (a:Function {uid: 'fn2'}), (b:Function {uid: 'fn2'}) CREATE (a)-[:CALLS {line_number: 21}]->(b)`,
 		`MATCH (a:Function {uid: 'fn2'}), (b:Function {uid: 'fn3'}) CREATE (a)-[:CALLS {line_number: 22}]->(b)`,
@@ -65,7 +54,6 @@ func buildHeterogeneousStore(t *testing.T) (*Store, string) {
 	return st, path
 }
 
-// mountIcebug opens a fresh store and runs the exported schema against it.
 func mountIcebug(t *testing.T, dir string) *Store {
 	t.Helper()
 
@@ -107,7 +95,6 @@ func scalar(t *testing.T, st *Store, query string) int64 {
 	return 0
 }
 
-// labelCount is how a reader counts nodes of a label on the folded table.
 func labelCount(t *testing.T, st *Store, label string) int64 {
 	t.Helper()
 	return scalar(t, st, fmt.Sprintf(
@@ -141,8 +128,6 @@ func TestIcebugRoundTripLosesNothing(t *testing.T) {
 		t.Errorf("folded table has %d nodes, manifest says %d", total, man.NodeCount)
 	}
 
-	// A relationship type is ONE table now, so this is the same query on both sides — no
-	// alternatives, which is the entire point of folding.
 	for _, relType := range []string{"CONTAINS", "CALLS"} {
 		q := fmt.Sprintf("MATCH ()-[r:%s]->() RETURN count(r) AS c", relType)
 		want := scalar(t, src, q)
@@ -190,8 +175,6 @@ func TestIcebugSchemaHasOneNodeTableAndSinglePairRelTables(t *testing.T) {
 		}
 	}
 
-	// CONTAINS spanned two pairs in the source; folding must keep it ONE table while
-	// recording both pairs for a rebuild.
 	var contains *IcebugRelTable
 	for i := range man.Rels {
 		if man.Rels[i].Type == "CONTAINS" {
@@ -335,7 +318,6 @@ func TestIcebugVariableLengthTraversalIsNative(t *testing.T) {
 	}
 	mounted := mountIcebug(t, out)
 
-	// fn1 -> fn2 -> fn3, so exactly two functions are reachable from fn1 within three hops.
 	got := scalar(t, mounted, fmt.Sprintf(
 		"MATCH (a:%s)-[:CALLS*1..3]->(b:%s) WHERE a.uid IN ['fn1'] RETURN count(DISTINCT b.uid) AS c",
 		IcebugEntityTable, IcebugEntityTable))
@@ -343,7 +325,6 @@ func TestIcebugVariableLengthTraversalIsNative(t *testing.T) {
 		t.Fatalf("reachable from fn1 within 3 hops = %d, want 2", got)
 	}
 
-	// The same question on the source, so the answer is the graph's and not the layout's.
 	srcGot := scalar(t, src,
 		"MATCH (a:Function)-[:CALLS*1..3]->(b:Function) WHERE a.uid = 'fn1' RETURN count(DISTINCT b.uid) AS c")
 	if srcGot != got {
@@ -389,11 +370,6 @@ func TestIcebugRelationshipTableIsItsOwnType(t *testing.T) {
 	}
 }
 
-// Reverse edges go into a SEPARATE table, so the forward answer stays exact.
-//
-// The reference tool merges the mirror into the type's own table, and measured, that destroys
-// direction: 200.000 edges mount as 399.996. In a code graph the direction of CALLS is the
-// meaning, so this asserts the forward table is untouched.
 func TestIcebugReverseEdgesGoToTheirOwnTable(t *testing.T) {
 	src, _ := buildHeterogeneousStore(t)
 
@@ -404,7 +380,6 @@ func TestIcebugReverseEdgesGoToTheirOwnTable(t *testing.T) {
 	}
 	mounted := mountIcebug(t, out)
 
-	// FORWARD is exactly what the source has — the mirror did not leak into it.
 	for _, relType := range []string{"CALLS", "CONTAINS"} {
 		q := fmt.Sprintf("MATCH ()-[r:%s]->() RETURN count(r) AS c", relType)
 		want := scalar(t, src, q)
@@ -414,7 +389,6 @@ func TestIcebugReverseEdgesGoToTheirOwnTable(t *testing.T) {
 		}
 	}
 
-	// The mirror exists, in its own table, and does not count as graph edges.
 	var forward, reverse *IcebugRelTable
 	for i := range man.Rels {
 		switch man.Rels[i].Table {
@@ -430,8 +404,6 @@ func TestIcebugReverseEdgesGoToTheirOwnTable(t *testing.T) {
 	if !reverse.Reverse || forward.Reverse {
 		t.Errorf("the reverse flag is wrong: forward=%v reverse=%v", forward.Reverse, reverse.Reverse)
 	}
-	// CALLS has 3 edges, one a self-loop, so the mirror has 2: a self-loop's mirror is itself
-	// and would duplicate an edge the forward table already holds.
 	if reverse.Rows != 2 {
 		t.Errorf("CALLS%s has %d rows, want 2 (the self-loop is not mirrored)",
 			IcebugReverseSuffix, reverse.Rows)
@@ -440,11 +412,9 @@ func TestIcebugReverseEdgesGoToTheirOwnTable(t *testing.T) {
 		t.Errorf("edge count %d counts the mirror; it must not", man.EdgeCount)
 	}
 
-	// The mirror answers an inbound question with a forward traversal, which is its purpose.
 	got := scalar(t, mounted, fmt.Sprintf(
 		"MATCH (a:%s)-[r:CALLS%s]->(b:%s) WHERE a.uid IN ['fn2'] RETURN count(*) AS c",
 		IcebugEntityTable, IcebugReverseSuffix, IcebugEntityTable))
-	// fn1 and fn2 both call fn2; the self-loop is not mirrored, so fn2 has one inbound mirror.
 	if got != 1 {
 		t.Errorf("inbound via the mirror = %d, want 1", got)
 	}
@@ -615,17 +585,6 @@ func TestCypherTypeMapping(t *testing.T) {
 	}
 }
 
-// MEASURED LIMITATION OF THE READER, and the exact workaround.
-//
-// On an icebug-mounted table, `=` against the PRIMARY KEY column returns nothing: the engine
-// routes the predicate through a primary-key index that icebug storage does not provide, and
-// answers empty instead of scanning. It does not error — it is silently wrong.
-//
-// Everything else on the same column works, INCLUDING `IN [value]`, which is semantically
-// identical for a single value. That is the rewrite a reader applies, and it loses nothing.
-//
-// Folding improves this: the key is now _id, which no user query mentions, so it bites a
-// reader doing an id lookup rather than a query on path or uid.
 func TestIcebugPrimaryKeyEqualityNeedsIN(t *testing.T) {
 	src, _ := buildHeterogeneousStore(t)
 
@@ -645,7 +604,6 @@ func TestIcebugPrimaryKeyEqualityNeedsIN(t *testing.T) {
 		t.Errorf("IN on the key -> %d, want 1", n)
 	}
 
-	// A non-key column is unaffected, which is what every real query uses.
 	if n := scalar(t, mounted, fmt.Sprintf(
 		"MATCH (n:%s) WHERE n.name = 'recurse' RETURN count(n) AS c", IcebugEntityTable)); n != 1 {
 		t.Errorf("equality on a non-key column -> %d, want 1", n)

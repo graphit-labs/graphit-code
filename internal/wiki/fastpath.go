@@ -5,16 +5,12 @@ import (
 	"os"
 )
 
-// Fast-path helper — shared by wiki generators
-
 // DocHashEntry is the input unit for FastPathCheck.
 // Each entry represents one source document that will produce wiki pages.
 type DocHashEntry struct {
 	// ContentHash is the content hash of the source document.
 	ContentHash string
-	// Slug is the wiki page slug generated for this document (used to check
-	// for deletions by comparing against wikiDir contents).
-	Slug string
+	Slug        string
 }
 
 // FastPathCheck reports whether the wiki is already up-to-date and the full generation pipeline
@@ -33,12 +29,6 @@ type DocHashEntry struct {
 // It costs one store open and one PROJECTED query per generation — not per file — on a path whose
 // purpose is to be nearly free. The store open was already being paid for the emptiness check.
 func FastPathCheck(ctx context.Context, wikiDir string, entries []DocHashEntry) bool {
-	// An index that is present but EMPTY is a state the fast path used to be unable to escape:
-	// every other condition was satisfied — the sources had not changed and the pages were on
-	// disk — so generation was skipped, the index was never built, and every later run skipped
-	// again. `memory index` reported "complete" in 0.0 s over a 16 KB store with 152 pages beside
-	// it. Two unrelated bugs landed in that state, which is why the check is at the gate rather
-	// than at either of their sites: the gate is what made them permanent.
 	if !IndexHasContent(ctx, wikiDir) {
 		return false
 	}
@@ -52,7 +42,6 @@ func FastPathCheck(ctx context.Context, wikiDir string, entries []DocHashEntry) 
 	}
 	for _, e := range entries {
 		if e.ContentHash == "" {
-			// A document with no hash cannot be proved unchanged, so it is treated as changed.
 			return false
 		}
 		if indexed[e.Slug] != e.ContentHash {

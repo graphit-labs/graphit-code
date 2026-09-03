@@ -41,7 +41,6 @@ func TestWaitForDaemon_StaleFilesPreserved(t *testing.T) {
 	portFile := filepath.Join(dir, "mcp.port")
 	keyFile := filepath.Join(dir, "mcp.key")
 
-	// Write stale files pointing to a dead port.
 	_ = os.WriteFile(portFile, []byte("59999"), 0o644)
 	_ = os.WriteFile(keyFile, []byte("stale-key"), 0o600)
 
@@ -64,8 +63,6 @@ func TestWaitForDaemon_StaleFilesPreserved(t *testing.T) {
 		t.Fatal("expected error when daemon is not available")
 	}
 
-	// Stale files should be preserved — the proxy never deletes them.
-	// The daemon will overwrite them when it restarts.
 	if _, err := os.Stat(portFile); os.IsNotExist(err) {
 		t.Error("expected port file to be preserved")
 	}
@@ -73,14 +70,12 @@ func TestWaitForDaemon_StaleFilesPreserved(t *testing.T) {
 		t.Error("expected key file to be preserved")
 	}
 
-	// EnsureDaemon should have been called on each retry.
 	if ensureCalled < 2 {
 		t.Errorf("expected EnsureDaemon to be called at least 2 times, got %d", ensureCalled)
 	}
 }
 
 func TestWaitForDaemon_LiveDaemon(t *testing.T) {
-	// Start a real TCP listener.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

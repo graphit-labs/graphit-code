@@ -15,7 +15,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// fakeClient is an ai.StreamClient whose behaviour each test supplies.
 type fakeClient struct {
 	stream func(ctx context.Context, req ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error)
 }
@@ -33,7 +32,6 @@ func (f *fakeClient) CompleteStream(ctx context.Context, req ai.StreamRequest, e
 	return f.stream(ctx, req, emit)
 }
 
-// echoClient answers with one text event and reports a CLI session ID.
 func echoClient() *fakeClient {
 	return &fakeClient{stream: func(_ context.Context, req ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
 		emit(ai.Event{Kind: ai.EventText, Text: "answer to " + req.UserPrompt})
@@ -46,16 +44,10 @@ func echoClient() *fakeClient {
 func newTestManager(t *testing.T, client ai.StreamClient, prepare PrepareFunc) *Manager {
 	t.Helper()
 	m := NewManager(t.TempDir(), client, prepare)
-	// Registered after TempDir, so it runs before the directory is removed: a turn
-	// still writing its last event would otherwise race the cleanup and surface as
-	// a flake that has nothing to do with the code under test.
 	t.Cleanup(m.CloseAll)
 	return m
 }
 
-// recorder collects what the fake client was asked to do. The turn runs in its own
-// goroutine while the test polls from another, so every field it touches needs a
-// lock — the alternative is a test that passes until it runs under -race.
 type recorder struct {
 	mu   sync.Mutex
 	reqs []ai.StreamRequest
@@ -111,7 +103,6 @@ func TestCreateReachesReadyAndPersistsMetadata(t *testing.T) {
 	if _, err := os.Stat(s.WorkspaceDir()); err != nil {
 		t.Fatalf("workspace directory missing: %v", err)
 	}
-	// The bookkeeping must not live inside the project the indexers will walk.
 	if s.WorkspaceDir() == s.Dir() {
 		t.Fatal("workspace must be below the session directory, not equal to it")
 	}
@@ -126,11 +117,9 @@ func TestCreateReachesReadyAndPersistsMetadata(t *testing.T) {
 }
 
 func TestTurnOutlivesTheSubscriber(t *testing.T) {
-	// The reason this package exists: a client that goes away must not take the run
-	// with it.
 	release := make(chan struct{})
 	client := &fakeClient{stream: func(_ context.Context, _ ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
-		<-release // still running while the subscriber disappears
+		<-release
 		emit(ai.Event{Kind: ai.EventText, Text: "finished anyway"})
 		return &ai.StreamResult{Text: "finished anyway"}, nil
 	}}
@@ -147,7 +136,7 @@ func TestTurnOutlivesTheSubscriber(t *testing.T) {
 	}
 	waitFor(t, "running", func() bool { return s.State() == StateRunning })
 
-	stop() // the tab is closed mid-run
+	stop()
 	drain(ch)
 	close(release)
 
@@ -181,8 +170,6 @@ func TestSubscribeReplaysAfterLastEventID(t *testing.T) {
 
 	last := s.LastSeq()
 
-	// A reconnect asking for everything after the third event must get exactly the
-	// tail, in order, and nothing it already had.
 	ch, stop := s.Subscribe(3)
 	defer stop()
 
@@ -204,8 +191,6 @@ func TestSubscribeReplaysAfterLastEventID(t *testing.T) {
 }
 
 func TestSubscribeMidRunHasNoGapAndNoDuplicate(t *testing.T) {
-	// The race this guards: reading history and then registering loses whatever
-	// arrived in between, while registering and then reading delivers it twice.
 	const emitted = 400
 	started := make(chan struct{})
 	client := &fakeClient{stream: func(_ context.Context, _ ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
@@ -228,7 +213,7 @@ func TestSubscribeMidRunHasNoGapAndNoDuplicate(t *testing.T) {
 		done = make(chan struct{})
 	)
 	go func() {
-		<-started // subscribe while events are being appended
+		<-started
 		ch, stop := s.Subscribe(0)
 		defer stop()
 		defer close(done)
@@ -269,8 +254,6 @@ func TestSubscribeMidRunHasNoGapAndNoDuplicate(t *testing.T) {
 		}
 		prev = ev.Seq
 	}
-	// Subscribing from 0 means the history is included, so the sequence a
-	// subscriber sees must be the whole one, unbroken.
 	for want := int64(1); want <= prev; want++ {
 		if !seen[want] {
 			t.Fatalf("event %d is missing from a stream that reached %d", want, prev)
@@ -293,7 +276,6 @@ func TestSlowSubscriberIsDroppedWithoutStallingTheRun(t *testing.T) {
 	}
 	waitFor(t, "ready", func() bool { return s.State() == StateReady })
 
-	// Subscribe and never read: the run must finish regardless.
 	ch, stop := s.Subscribe(0)
 	defer stop()
 
@@ -304,7 +286,6 @@ func TestSlowSubscriberIsDroppedWithoutStallingTheRun(t *testing.T) {
 		return s.State() == StateReady && s.LastSeq() >= int64(emitted)
 	})
 
-	// And the stalled subscriber is closed rather than left believing it is current.
 	waitFor(t, "the stalled subscriber to be closed", func() bool {
 		for {
 			select {
@@ -383,7 +364,6 @@ func TestPreparationFailureFailsTheSession(t *testing.T) {
 		t.Fatalf("the failure reason was not recorded: %q", got)
 	}
 
-	// The reason must be in the log too, so a client that reconnects learns why.
 	var sawError bool
 	if err := s.log.replay(0, 0, func(ev Event) error {
 		if ev.Kind == KindError && strings.Contains(ev.Text, "hub was unreachable") {
@@ -562,7 +542,6 @@ func TestTheCLIConversationIDIsNeverPublished(t *testing.T) {
 	if strings.Contains(string(raw), "cli-123") {
 		t.Fatal("the agent's own conversation ID leaked into the published event log")
 	}
-	// But it was still captured, or the next turn would start over.
 	s.mu.Lock()
 	got := s.cliSessionID
 	s.mu.Unlock()
@@ -615,7 +594,6 @@ func TestRemoveRefusesIDsThatAreNotSessionIDs(t *testing.T) {
 func TestListReportsInterruptedSessionsAsFailed(t *testing.T) {
 	m := newTestManager(t, echoClient(), nil)
 
-	// A directory left behind by a process that died mid-run.
 	id := newSessionID()
 	dir := filepath.Join(m.Root(), id)
 	if err := os.MkdirAll(dir, 0o750); err != nil {

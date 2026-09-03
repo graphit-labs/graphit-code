@@ -38,7 +38,6 @@ func NewServer() *mcp.Server {
 	return server
 }
 
-// safeTool wraps a tool handler with panic recovery and background daemon autostart validation.
 func safeTool[T any](
 	handler func(ctx context.Context, req *mcp.CallToolRequest, input T) (*mcp.CallToolResult, any, error),
 ) func(ctx context.Context, req *mcp.CallToolRequest, input T) (*mcp.CallToolResult, any, error) {
@@ -90,9 +89,6 @@ func toonResult(v any) (*mcp.CallToolResult, any, error) {
 	return textResult(toon.FormatAny(v))
 }
 
-// noticeResult is a payload with a sentence in front of it, for the cases where the
-// tool did something the caller needs to know about before reading the answer —
-// serving a scope other than the one that was asked for, for instance.
 func noticeResult(notice string, v any, useToon bool) (*mcp.CallToolResult, any, error) {
 	if useToon {
 		return textResult(notice + "\n" + toon.FormatAny(v))
@@ -104,18 +100,10 @@ func noticeResult(notice string, v any, useToon bool) (*mcp.CallToolResult, any,
 	return textResult(notice + "\n" + string(data))
 }
 
-// wantPreview returns false by default when v is nil (parameter not sent by caller).
-//
-// The asymmetry with aiOpt is the point. A search exists to choose a page, and choosing is
-// done on titles; reading is a separate call to the source tool, which slices to the part
-// that matters. So a preview is opt-in — the caller that has not asked for page text does
-// not pay for it on every hit of every search.
 func wantPreview(v *bool) bool {
 	return v != nil && *v
 }
 
-// aiOpt returns true by default when v is nil (parameter not sent by caller).
-// MCP tools use compact TOON format unless the caller explicitly passes false.
 func aiOpt(v *bool) bool {
 	return v == nil || *v
 }

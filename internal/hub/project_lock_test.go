@@ -174,7 +174,6 @@ func TestResolveCurrentProject(t *testing.T) {
 		t.Errorf("Name = %q, want %q", inst.Name, "test")
 	}
 
-	// Non-matching
 	id, inst = resolveCurrentProject("/nonexistent", lock)
 	if id != "" {
 		t.Errorf("expected empty id, got %q", id)

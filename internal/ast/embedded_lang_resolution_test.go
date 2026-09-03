@@ -33,15 +33,11 @@ func TestEmbeddedSQLReferenceReachesTheDeclaredTable(t *testing.T) {
 			References: []cachedReference{{
 				SourceUID: "etl/pipeline.xml", TargetUID: "T_PEDIDO", RelType: RelInserts,
 				Path: "etl/pipeline.xml", Line: 42,
-				// The stamp the fix adds: the block is PL/SQL even though the file
-				// is XML.
 				Lang: "plsql",
 			}},
 		},
 	})
 
-	// The order is the real rebuild's: nodes before edges, or emittedIn rejects both
-	// ends and the return is empty with no error.
 	ri.fileNodeJSON()
 	ri.entityJSON(LabelTable)
 	ri.stubTableJSON()
@@ -153,13 +149,10 @@ func TestEmbeddedBlockIsAttributedToItsHostEntity(t *testing.T) {
 		Path:     "etl/pipeline.xml",
 		Language: "xml",
 		Entities: map[string][]Entity{
-			// The document nests: the root contains the step, which contains the value.
 			"elements": {
 				{Name: "pipeline", Line: 1, EndLine: 40, GraphLabel: "Element"},
 				{Name: "gravaPedido", Line: 8, EndLine: 20, GraphLabel: "Element"},
 			},
-			// The block's own text is the innermost match of all, and is exactly
-			// what must NOT become the source.
 			"texts": {{Name: "INSERT INTO T_PEDIDO ...", Line: 11, EndLine: 13, GraphLabel: "Text"}},
 		},
 	}
@@ -229,8 +222,6 @@ func TestHostSourcedEmbeddedEdgeReachesTheGraph(t *testing.T) {
 		},
 	})
 
-	// The host's label has to have entered the DML sources, or the schema never
-	// declares the pair and the edge has nowhere to be written.
 	var declared bool
 	for _, l := range ri.dmlSourceLabels {
 		if l == "Element" {
@@ -254,8 +245,6 @@ func TestHostSourcedEmbeddedEdgeReachesTheGraph(t *testing.T) {
 		t.Errorf("target_uid = %v, want the declared table", got)
 	}
 
-	// And it must not have leaked into the file-sourced group as well — that would be
-	// the same write counted twice.
 	if rows := ri.dmlEdgeJSON(RelInserts, LabelFile, LabelTable); len(rows) != 0 {
 		t.Errorf("the host-sourced edge also landed in the File group: %v", rows)
 	}

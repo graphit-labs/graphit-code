@@ -25,7 +25,6 @@ func TestCohereReranker_Score_MapsResultsBackToOriginalOrder(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Header().Set("Content-Type", "application/json")
-		// Deliberately reversed relative to input order.
 		_, _ = w.Write([]byte(`{"results":[{"index":2,"relevance_score":0.9},{"index":0,"relevance_score":0.1},{"index":1,"relevance_score":0.5}]}`))
 	}))
 	defer srv.Close()

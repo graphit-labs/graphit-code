@@ -29,7 +29,6 @@ func TestDaemon_ReconcileProjects_BuilderError_ReturnsErr(t *testing.T) {
 		return []ProjectInfo{{ID: "p1", Dir: "/some/dir"}}, nil
 	})
 
-	// No supervisor should be created when builder fails
 	if _, ok := d.supervisors["p1"]; ok {
 		t.Error("supervisor should not be created when builder fails")
 	}
@@ -45,7 +44,7 @@ func TestDaemon_ReconcileProjects_ZeroModules_Skips(t *testing.T) {
 		logFile:     lf,
 		supervisors: make(map[string]*ProjectSupervisor),
 		builder: func(dir string) ([]WatchModule, []func() error, error) {
-			return nil, nil, nil // zero modules
+			return nil, nil, nil
 		},
 	}
 
@@ -59,15 +58,12 @@ func TestDaemon_ReconcileProjects_ZeroModules_Skips(t *testing.T) {
 	}
 }
 
-// reconcileProjects — project removal stops supervisor
-
 func TestDaemon_ReconcileProjects_RemovesStaleProject(t *testing.T) {
 	tmp := t.TempDir()
 	logPath := filepath.Join(tmp, "test.log")
 	lf, _ := os.Create(logPath)
 	defer lf.Close()
 
-	// Pre-seed with a supervisor
 	ps := newProjectSupervisor("old", "/old/dir", nil)
 	_, cancel := context.WithCancel(context.Background())
 	ps.cancel = cancel
@@ -81,7 +77,6 @@ func TestDaemon_ReconcileProjects_RemovesStaleProject(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// Discover returns empty list — the "old" supervisor should be removed.
 	d.reconcileProjects(ctx, func() ([]ProjectInfo, error) {
 		return nil, nil
 	})
@@ -107,7 +102,6 @@ func TestDaemon_ReconcileProjects_DiscoverFnError(t *testing.T) {
 		return nil, errors.New("discover failed")
 	})
 
-	// Should not crash, no supervisors created
 	if len(d.supervisors) != 0 {
 		t.Error("expected no supervisors on discovery error")
 	}
@@ -118,7 +112,6 @@ func TestModuleEntry_IncRestartsToMax(t *testing.T) {
 	mod := &fakeModule{name: "test", startFn: func(ctx context.Context) error { return nil }}
 	entry := newModuleEntry(mod)
 
-	// Simulate restarts up to maxRestarts
 	for i := 0; i < 10; i++ {
 		r := entry.incRestarts()
 		if r != i+1 {
@@ -126,12 +119,10 @@ func TestModuleEntry_IncRestartsToMax(t *testing.T) {
 		}
 	}
 
-	// After 10 restarts, the module should be at maxRestarts
 	if entry.restarts != 10 {
 		t.Errorf("expected 10 restarts, got %d", entry.restarts)
 	}
 
-	// Reset should work
 	entry.resetRestarts()
 	if entry.restarts != 0 {
 		t.Errorf("expected 0 after reset, got %d", entry.restarts)
@@ -191,7 +182,6 @@ func TestDaemon_StampChanged_EmptyBootStamp(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	d := &Daemon{bootStamp: ""}
-	// Should return false when boot stamp is empty
 	if d.stampChanged() {
 		t.Error("expected false when boot stamp is empty")
 	}
@@ -203,7 +193,6 @@ func TestDaemon_StampChanged_Unchanged(t *testing.T) {
 	_ = os.Setenv("HOME", tempHome)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Write the stamp file with matching content
 	stamp := launcherStampPath()
 	_ = os.MkdirAll(filepath.Dir(stamp), 0o755)
 	_ = os.WriteFile(stamp, []byte("v1.0.0"), 0o644)
@@ -229,8 +218,6 @@ func TestDaemon_StampChanged_Changed(t *testing.T) {
 		t.Error("expected true when stamp changed")
 	}
 }
-
-// reconcileProjects — activity-window parking
 
 func TestDaemon_ReconcileProjects_ParksInactiveProject(t *testing.T) {
 	tmp := t.TempDir()
@@ -334,9 +321,6 @@ func TestDaemon_ReconcileProjects_PromotesActiveProject(t *testing.T) {
 		t.Error("module start was not called within timeout")
 	}
 
-	// Wait for the supervisor goroutine to fully unwind before the temp
-	// project dir gets cleaned up — it writes its own .graphit/daemon/daemon.log,
-	// and racing that write against TempDir's RemoveAll flakes the cleanup.
 	cancel()
 	select {
 	case <-stoppedCh:
@@ -362,7 +346,7 @@ func TestDaemon_ReconcileProjects_DemotesIdleSupervisor(t *testing.T) {
 	}
 
 	ps := newProjectSupervisor("p1", projectDir, nil)
-	ps.lastActivity.Store(time.Now().Add(-time.Hour).UnixNano()) // idle beyond the window
+	ps.lastActivity.Store(time.Now().Add(-time.Hour).UnixNano())
 	_, cancel := context.WithCancel(context.Background())
 	ps.cancel = cancel
 
@@ -415,7 +399,6 @@ func TestDaemon_ReconcileProjects_ActivityWindowDisabled_AlwaysSupervises(t *tes
 	startedCh := make(chan struct{}, 1)
 	stoppedCh := make(chan struct{})
 	d := &Daemon{
-		// ProjectActivityWindow left at its zero value: parking is disabled.
 		logFile:     lf,
 		supervisors: make(map[string]*ProjectSupervisor),
 		builder: func(dir string) ([]WatchModule, []func() error, error) {
@@ -453,9 +436,6 @@ func TestDaemon_ReconcileProjects_ActivityWindowDisabled_AlwaysSupervises(t *tes
 		t.Error("module start was not called within timeout")
 	}
 
-	// Wait for the supervisor goroutine to fully unwind before the temp
-	// project dir gets cleaned up — see the same comment in
-	// TestDaemon_ReconcileProjects_PromotesActiveProject.
 	cancel()
 	select {
 	case <-stoppedCh:
@@ -463,8 +443,6 @@ func TestDaemon_ReconcileProjects_ActivityWindowDisabled_AlwaysSupervises(t *tes
 		t.Error("module did not stop within timeout")
 	}
 }
-
-// reconcileProjects — ActivityReporter wiring
 
 type activityFakeModule struct {
 	name       string
@@ -528,10 +506,6 @@ func TestDaemon_ReconcileProjects_WiresActivityCallback(t *testing.T) {
 		t.Fatal("expected SetActivityCallback to be wired by reconcileProjects")
 	}
 
-	// Wait for the module to actually be running before touching its idle
-	// clock and cancelling — otherwise the supervisor goroutine may not have
-	// been scheduled yet, and cancel() races it into exiting before Start()
-	// ever calls the module.
 	select {
 	case <-startedCh:
 	case <-time.After(2 * time.Second):
@@ -544,9 +518,6 @@ func TestDaemon_ReconcileProjects_WiresActivityCallback(t *testing.T) {
 		t.Errorf("expected the wired callback to Touch() the supervisor, IdleFor() = %v", idle)
 	}
 
-	// Wait for the supervisor goroutine to fully unwind before the temp
-	// project dir gets cleaned up — see the same comment in
-	// TestDaemon_ReconcileProjects_PromotesActiveProject.
 	cancel()
 	select {
 	case <-stoppedCh:

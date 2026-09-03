@@ -72,7 +72,6 @@ func TestSyncIDEAdapter_InvalidIDE(t *testing.T) {
 		Project:   ProjectIdentity{ID: "test-id"},
 		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
 	}
-	// unsupported IDE should return error
 	err := syncIDEAdapter("totally-invalid-ide-12345", pp, lf)
 	if err == nil {
 		t.Error("expected error for unsupported IDE")

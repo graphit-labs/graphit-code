@@ -54,10 +54,6 @@ func rebuildIcebugFromPreparedWithDeltaTimed(ctx context.Context, cache *ShardCa
 	return timing, err
 }
 
-// icebugPublication keeps the previous bundle alive while another part of the
-// same corpus (the search sidecar) is being published. All graph files are
-// closed before this value is returned, so its directory moves are portable to
-// Windows as well as Linux and macOS.
 type icebugPublication struct {
 	finalDir  string
 	backupDir string
@@ -123,7 +119,6 @@ func rebuildIcebugFromPreparedWithDeltaStagedTimed(ctx context.Context, cache *S
 	if abs, err := filepath.Abs(finalDir); err == nil {
 		storageURI = abs
 	}
-	// Determine if incremental is possible and beneficial
 	doIncremental := isIncremental && len(changed)+len(deleted) > 0 && len(changed)+len(deleted) < cache.Count()/5
 	if doIncremental {
 		if _, err := os.Stat(finalDir); err != nil {
@@ -168,25 +163,8 @@ func rebuildIcebugFromPreparedWithDeltaStagedTimed(ctx context.Context, cache *S
 	return timing, publication, nil
 }
 
-// staleBundleTempAge is how long a working directory must have been untouched before this
-// treats it as abandoned.
-//
-// SAFETY: this guard is the whole correctness of the sweep. A run's working directory is named
-// by a random suffix, so a sweep by prefix alone cannot tell one left by a dead run from one a
-// CONCURRENT run is writing into right now — and the daemon indexes the same store the CLI
-// does. Deleting a live one mid-export does not fail loudly: the export keeps writing into a
-// directory that no longer exists, recreates part of it, and publishes the partial result by
-// rename. OBSERVED: a bundle went from 549 Parquet files to 175 that way.
-//
-// An export in flight touches its directory continuously, so any age comfortably above the
-// longest export separates the two. A full index of 38k files measured ~16 minutes.
 const staleBundleTempAge = time.Hour
 
-// removeStaleBundleTemps drops the working directories a previous run left behind.
-//
-// Each run names its own by a fresh random suffix, so a run that died before its cleanup — or
-// one that errored out of a path that did not clean up — leaves a directory nothing will ever
-// look for again. They are invisible individually and unbounded in aggregate.
 func removeStaleBundleTemps(finalDir string) {
 	parent := filepath.Dir(finalDir)
 	entries, err := os.ReadDir(parent)

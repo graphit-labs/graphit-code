@@ -77,9 +77,6 @@ type configListInput struct {
 
 type versionInput struct{}
 
-// syncASTPipelineOptions keeps every derived AST artifact in the same project-scoped
-// store as the graph itself. StoreDir already names that directory; taking its parent
-// would drop the project identity and make unrelated MCP syncs share one shard cache.
 func syncASTPipelineOptions(projectDir string, projectCfg config.ConfigMap) ast.PipelineOptions {
 	cfg := astConfigForProject(projectDir, "")
 	return ast.PipelineOptions{
@@ -182,8 +179,6 @@ func registerLifecycleTools(server *mcp.Server) {
 
 		projectCfg, ides := loadProjectLockInfo(projectDir)
 
-		// Anything a step wants the caller to know. A sync that silently skipped half
-		// its work still said "completed successfully" before this.
 		var notes []string
 
 		var idesToSync []string
@@ -193,7 +188,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			idesToSync = hub.FilterSupportedIDEs(ides)
 		}
 
-		// 1. AST Indexing
 		if !config.IsModuleDisabled("ast", nil, projectCfg) {
 			db, err := openASTDBReadWrite(projectDir, "")
 			if err == nil {
@@ -203,7 +197,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			}
 		}
 
-		// 2. Knowledge Indexing
 		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 			wikiDir := resolveWikiDir("knowledge", projectDir, "")
 			_, _ = knowledge.RunIndexPipeline(ctx, projectDir, wikiDir, knowledge.IndexConfig{
@@ -213,7 +206,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			})
 		}
 
-		// 3. Memory Cycle
 		if !config.IsModuleDisabled("memory", nil, projectCfg) {
 			_ = withProjectDir(projectDir, func() error {
 				memory.RunProjectCycle(ctx)
@@ -222,13 +214,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			})
 		}
 
-		// 3.5 Wiki Embeddings (knowledge + memory), on the authoritative directories.
-		//
-		// Failures are REPORTED. This step used to be wrapped in `if err == nil` with
-		// both results discarded, so an embedder that could not start, or one that
-		// failed on every chunk, was indistinguishable from a wiki that was already
-		// fully embedded — which is how every project ended up with zero vectors and
-		// a hybrid search quietly running on full-text alone.
 		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 			embClient, embErr := ai.NewEmbeddingClientFromConfig()
 			if embErr != nil {
@@ -250,13 +235,10 @@ func registerLifecycleTools(server *mcp.Server) {
 			}
 		}
 
-		// 4. Hub Sync
 		if st, err := hub.NewS3Store(ctx, nil, projectCfg); err == nil {
 			_ = st.SyncRegistry(ctx)
 		}
 
-		// 5. Install host-discoverable skills. Mandates and Hub rules are
-		// assembled dynamically by the lifecycle hooks in step 6.
 		for _, targetIDE := range idesToSync {
 			for _, r := range []func(string, string) error{
 				knowledge.InstallSkill,
@@ -270,7 +252,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			removeRetiredImprovementsGuidance(projectDir, targetIDE)
 		}
 
-		// 6. Reconcile each IDE adapter as one unit: artifacts, MCP, and hooks.
 		lf, lockErr := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
 		if lockErr != nil {
 			return errResult(fmt.Errorf("reading lockfile for IDE sync: %w", lockErr))

@@ -10,11 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// partialChunks builds n chunks, all long enough to qualify for a vector.
-//
-// Length matters: writeChunks attaches a cached vector only when the chunk has at least
-// wikiEmbedMinWords, so a fixture of short bodies silently makes every row vectorless and
-// stops exercising the mix this file is about.
 func partialChunks(n int) []WikiChunk {
 	body := "palavra "
 	for len(body) < 40*len("palavra ") {
@@ -83,8 +78,6 @@ func TestSyncIndexesAWikiWhoseEmbeddingIsPartial(t *testing.T) {
 	}
 }
 
-// TestPartialEmbeddingSurvivesMoreThanOneBatchWorth runs the same mix over a corpus that crosses
-// the sync write boundary.
 func TestPartialEmbeddingSurvivesMoreThanOneBatchWorth(t *testing.T) {
 	chunks := partialChunks(507)
 

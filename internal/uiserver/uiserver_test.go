@@ -19,14 +19,12 @@ import (
 func TestResolveDir(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Non-existent path should return itself
 	nonExistent := filepath.Join(tmp, "nonexistent")
 	result := resolveDir(nonExistent)
 	if result != nonExistent {
 		t.Errorf("resolveDir(%q) = %q; want %q", nonExistent, result, nonExistent)
 	}
 
-	// Existing path should return the resolved path (possibly same)
 	result = resolveDir(tmp)
 	if result == "" {
 		t.Error("resolveDir returned empty for existing dir")
@@ -204,7 +202,6 @@ func TestWriteJSON_NilSlice(t *testing.T) {
 }
 
 func TestHandleModules(t *testing.T) {
-	// Test with a temp directory that has no wiki content — should return empty module list
 	tmp := t.TempDir()
 	h := &WikiHandler{}
 	mux := http.NewServeMux()
@@ -222,7 +219,6 @@ func TestHandleModules(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&modules); err != nil {
 		t.Fatalf("failed to decode modules: %v", err)
 	}
-	// modules list should be a valid JSON array (possibly empty)
 	t.Logf("got %d modules", len(modules))
 }
 
@@ -378,7 +374,6 @@ func TestHandlePage_ValidPage(t *testing.T) {
 
 func TestHandlePage_PathTraversal(t *testing.T) {
 	tmp := t.TempDir()
-	// Create a file outside the wiki dir
 	if err := os.WriteFile(filepath.Join(tmp, "secret.txt"), []byte("secret"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +390,6 @@ func TestHandlePage_PathTraversal(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	// Should either be forbidden or not found
 	if w.Code == http.StatusOK {
 		t.Error("expected path traversal to be blocked")
 	}
@@ -417,10 +411,6 @@ func TestHandlePage_NotFound(t *testing.T) {
 	}
 }
 
-// The page endpoint serves METADATA FROM COLUMNS.
-//
-// It used to parse the frontmatter of the file it had just read: `type`, `tags`, `confidence`, and the
-// first `sources[].resource`. All five are columns, so this fixture sets them directly.
 func TestHandlePage_ReturnsMetaAndContent(t *testing.T) {
 	tmp := t.TempDir()
 	content := "# Rich Page\n\nSee [Other Page](Other_Page.md).\n\nMore content here with words."
@@ -493,7 +483,6 @@ func TestHandleSearch_MissingQuery(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/wiki/search", corsJSON(h.handleSearch))
 
-	// dir only, no query
 	req := httptest.NewRequest(http.MethodGet, "/api/wiki/search?dir="+tmp, nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -512,7 +501,6 @@ func TestHandleSearch_MissingDir(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/wiki/search", corsJSON(h.handleSearch))
 
-	// query only, no dir
 	req := httptest.NewRequest(http.MethodGet, "/api/wiki/search?q=test", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -560,7 +548,6 @@ func TestHandleSearch_WithResults(t *testing.T) {
 func TestHandleSearch_MultipleResults(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create pages that both match "golang"
 	if err := indexPage(t, tmp, "page1.md", "# Go Programming\n\nLearn golang golang golang here"); err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +574,6 @@ func TestHandleSearch_MultipleResults(t *testing.T) {
 	if len(results) < 2 {
 		t.Errorf("expected at least 2 results, got %d", len(results))
 	}
-	// Results should be sorted by score descending
 	if len(results) >= 2 && results[0].Score < results[1].Score {
 		t.Errorf("results not sorted by score: %d < %d", results[0].Score, results[1].Score)
 	}
@@ -686,7 +672,6 @@ func TestHandleAISearch_WithFakeAI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Use a fakeAIClient that returns valid JSON
 	h := &WikiHandler{aiClient: fakeAIClient{response: `{"answer":"This is about architecture.","results":[{"path":"topic.md","title":"Topic","relevance":"relevant","score":90}]}`}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/wiki/ai-search", corsJSON(h.handleAISearch))
@@ -725,7 +710,6 @@ func TestHandleAISearch_AIReturnsFencedJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// AI returns response wrapped in code fences
 	fenced := "```json\n{\"answer\":\"fenced answer\",\"results\":[]}\n```"
 	h := &WikiHandler{aiClient: fakeAIClient{response: fenced}}
 	mux := http.NewServeMux()
@@ -752,7 +736,6 @@ func TestHandleAISearch_AIReturnsPlainText(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// AI returns non-JSON response
 	h := &WikiHandler{aiClient: fakeAIClient{response: "This is a plain text answer, not JSON"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/wiki/ai-search", corsJSON(h.handleAISearch))
@@ -767,7 +750,6 @@ func TestHandleAISearch_AIReturnsPlainText(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Should fall back to putting the raw response as the answer
 	if resp.Answer == "" {
 		t.Error("expected non-empty answer for plain text AI response")
 	}
@@ -800,7 +782,6 @@ func TestHandleAISearch_AIError(t *testing.T) {
 
 func TestHandleAISearch_FrontmatterStripping(t *testing.T) {
 	tmp := t.TempDir()
-	// Create a page with frontmatter that should be stripped from catalog
 	longFM := "---\ntitle: Test\ntags: [a, b]\n---\n# Test Page\n\nActual content here that is pretty long " + strings.Repeat("word ", 100)
 	if err := indexPage(t, tmp, "test.md", longFM); err != nil {
 		t.Fatal(err)
@@ -827,7 +808,6 @@ func TestHandleAISearch_ValidatesResultPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// AI returns results that include a non-existent page path
 	h := &WikiHandler{aiClient: fakeAIClient{response: `{"answer":"test","results":[{"path":"real.md","title":"","relevance":"yes","score":90},{"path":"fake.md","title":"Fake","relevance":"no","score":50}]}`}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/wiki/ai-search", corsJSON(h.handleAISearch))
@@ -842,7 +822,6 @@ func TestHandleAISearch_ValidatesResultPaths(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Should filter out fake.md and fill in title from catalog for real.md
 	if len(resp.Results) != 1 {
 		t.Errorf("expected 1 validated result, got %d", len(resp.Results))
 	}
@@ -853,7 +832,6 @@ func TestHandleAISearch_ValidatesResultPaths(t *testing.T) {
 
 func TestDiscoverModules_NoProjectDir(t *testing.T) {
 	modules := discoverModules("")
-	// Should not panic
 	t.Logf("got %d modules with empty projectDir", len(modules))
 }
 
@@ -862,18 +840,15 @@ func TestRegisterAPIRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	// Verify that the routes exist by making test requests
-	// Each route should return something other than 404 (which means unregistered).
-	// Some routes return 400/200 depending on params, but NOT 404 because they ARE registered.
 	endpoints := []struct {
 		method  string
 		path    string
 		wantNot int
 	}{
 		{http.MethodGet, "/api/wiki/modules", http.StatusNotFound},
-		{http.MethodGet, "/api/wiki/pages", http.StatusNotFound},  // returns 400 (dir missing)
-		{http.MethodGet, "/api/wiki/page", http.StatusNotFound},   // returns 400 (dir+path missing)
-		{http.MethodGet, "/api/wiki/search", http.StatusNotFound}, // returns 200 (empty results)
+		{http.MethodGet, "/api/wiki/pages", http.StatusNotFound},
+		{http.MethodGet, "/api/wiki/page", http.StatusNotFound},
+		{http.MethodGet, "/api/wiki/search", http.StatusNotFound},
 	}
 
 	for _, ep := range endpoints {
@@ -894,27 +869,15 @@ func TestUnifiedServerPort(t *testing.T) {
 }
 
 func TestLoadProjectIDNames(t *testing.T) {
-	// This function reads from brand.GlobalDir() + hub.registry.json
-	// Just verify it doesn't panic and returns a map
 	names := loadProjectIDNames()
 	if names == nil {
 		t.Error("loadProjectIDNames returned nil")
 	}
 }
 
-// Additional tests for remaining coverage gaps
-
-// The scanDir/discoverContexts tests that used to live here were deleted with the
-// functions themselves: context membership is a per-project record now, not a walk of
-// a directory that no longer holds anything. What replaced them is in
-// wiki_modules_test.go, which asserts against the resolvers instead of a tree.
-
 func TestHandleSearch_FallbackSearch(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create pages — BM25 may or may not find them depending on content structure.
-	// The fallback search (lines 184-218) kicks in when BM25 returns no results.
-	// Use a very specific query that BM25 might miss but raw text search will find.
 	if err := indexPage(t, tmp, "page1.md", "# Title\n\nThis is xyz123uniquetoken content"); err != nil {
 		t.Fatal(err)
 	}
@@ -938,7 +901,6 @@ func TestHandleSearch_FallbackSearch(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&results); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Should find at least 1 result through either BM25 or fallback
 	if len(results) == 0 {
 		t.Error("expected search to find results via BM25 or fallback text search")
 	}
@@ -947,7 +909,6 @@ func TestHandleSearch_FallbackSearch(t *testing.T) {
 func TestHandleSearch_LongContent(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create a page with very long content to exercise snippet extraction boundary cases
 	longContent := "# Long Page\n\n" + strings.Repeat("word ", 500) + "uniquetoken" + strings.Repeat(" filler", 500)
 	if err := indexPage(t, tmp, "long.md", longContent); err != nil {
 		t.Fatal(err)
@@ -988,19 +949,12 @@ func TestLoadProjectIDNames_WithRegistryFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The function reads from brand.GlobalDir() which uses XDG_CONFIG_HOME or HOME
 	names := loadProjectIDNames()
-	// names may or may not contain the entries depending on brand.GlobalDir() implementation
-	// Just verify it doesn't crash and returns a map
 	if names == nil {
 		t.Error("expected non-nil map")
 	}
 }
 
-// The label tests moved to wiki_modules_test.go, where the wiki they need exists in an
-// isolated global store rather than in a project subdirectory that no longer holds one.
-
-// fakeAIClient satisfies the ai.Client interface for testing.
 type fakeAIClient struct {
 	response string
 	err      error

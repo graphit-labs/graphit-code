@@ -8,7 +8,7 @@ import (
 
 const voyageDefaultBaseURL = "https://api.voyageai.com/v1"
 
-const voyageEmbedBatchLimit = 128 // Voyage's documented limit for texts per /embeddings call.
+const voyageEmbedBatchLimit = 128
 
 type voyageEmbeddingConfig struct {
 	baseURL string

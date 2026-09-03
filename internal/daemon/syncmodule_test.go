@@ -13,10 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// SyncModule — Name
-
-// wikiSources returns the source paths the project's wiki was built from. The wiki
-// itself lives in the global store, keyed by the project's identity.
 func wikiSources(t *testing.T, projectDir string) map[string]bool {
 	t.Helper()
 	chunks, err := wiki.IndexedChunks(context.Background(), store.KnowledgeProjectDir(projectDir))
@@ -35,8 +31,6 @@ func TestSyncModule_ReindexKnowledge_NoDocs(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := NewSyncModule(tmpDir, "")
 	ctx := context.Background()
-	// No docs directory and no README: nothing to index, so this returns without
-	// running the pipeline at all.
 	m.reindexKnowledge(ctx, nil)
 
 	if got := wikiSources(t, tmpDir); len(got) != 0 {
@@ -53,7 +47,6 @@ func TestSyncModule_ReindexKnowledge_WithDocs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(docsDir, "test.md"), []byte("# Test\n\nCorpo.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Outside the docs tree: in scope as the root README, and only as that.
 	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Projeto\n\nPorta.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +58,6 @@ func TestSyncModule_ReindexKnowledge_WithDocs(t *testing.T) {
 	m.reindexKnowledge(context.Background(), nil)
 
 	got := wikiSources(t, tmpDir)
-	// Source paths are relative to the project, not to the docs directory — the
-	// daemon hands the pipeline the project root and narrows it with a scope.
 	for _, want := range []string{filepath.Join("docs", "test.md"), "README.md"} {
 		if !got[want] {
 			t.Errorf("%s is not in the wiki; indexed: %v", want, got)
@@ -102,7 +93,7 @@ func TestSyncModule_ReindexAST(t *testing.T) {
 
 	m := NewSyncModule(tmpDir, storeDir)
 	ctx := context.Background()
-	m.reindexAST(ctx, nil, nil, nil) // nil scope = full scan
+	m.reindexAST(ctx, nil, nil, nil)
 }
 
 func TestSyncModule_ImplementsActivityReporter(t *testing.T) {
@@ -120,5 +111,3 @@ func TestSyncModule_ImplementsActivityReporter(t *testing.T) {
 		t.Error("expected the wired callback to run")
 	}
 }
-
-// parseBranch

@@ -9,25 +9,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// THE CASE THE UNIT TEST OF attributeToHostEntity COULD NOT SEE: the caller.
-//
-// attributeToHostEntity has always been given an absolute line in its own tests, and
-// has always answered correctly for one. What the caller passed was `innerOffset` —
-// the number a 1-based line of the sub-parse is SHIFTED BY, which is the line BEFORE
-// the block. So the host was whatever sat one line above, and in indented XML that is
-// the preceding sibling: the `<key>` of the `<entry>` whose `<value>` carries the
-// statement. Measured on a real corpus before this fix: every DML edge from every
-// embedded block in a 21k-line flow left one node, an `Element` named `key`.
-//
-// This test is the caller, end to end: real grammar, real sub-parse, real absolute
-// lines. It fails on the old code with SourceName = "key".
 func TestEmbeddedBlockIsAttributedToTheContainingUnitNotTheSiblingAbove(t *testing.T) {
 	projectDir := stageHostSpanXML(t)
 
-	// The shape that broke, and it is the common one for configuration XML: the key
-	// names the property on the line ABOVE, the value carries the statement, and the
-	// unit's own <name> comes AFTER the block — so neither end of the unit is
-	// derivable from where its name is written.
 	pf := parseFixture(t, projectDir, "flow.xml", `<flow>
   <step>
     <config>
@@ -52,7 +36,6 @@ func TestEmbeddedBlockIsAttributedToTheContainingUnitNotTheSiblingAbove(t *testi
 			"%q is the sibling above the block, %q is the element wrapping it",
 			ref.SourceName, "key", "value")
 	}
-	// And the unit really does span the whole element, which is what made it eligible.
 	unit, ok := entityAt(pf, "Step", "gravaPedido")
 	if !ok {
 		t.Fatalf("no Step entity; entities: %v", entityLabelsOf(pf))
@@ -73,9 +56,7 @@ func TestHostEntityMustContainTheWholeBlock(t *testing.T) {
 		Language: "xml",
 		Entities: map[string][]Entity{
 			"elements": {
-				// The wrapper: its span is its start tag, on the block's first line.
 				{Name: "value", Line: 10, EndLine: 10, GraphLabel: "Element"},
-				// The sibling above, same shape, one line earlier.
 				{Name: "key", Line: 9, EndLine: 9, GraphLabel: "Element"},
 			},
 			"steps": {{Name: "gravaPedido", Line: 4, EndLine: 20, GraphLabel: "Step"}},
@@ -85,8 +66,6 @@ func TestHostEntityMustContainTheWholeBlock(t *testing.T) {
 	if got := hostEntityAt(outer, 10, 14, nil); got != "gravaPedido" {
 		t.Errorf("host = %q, want gravaPedido: the only entity containing lines 10..14", got)
 	}
-	// And with nothing containing the block, there is no host — the source stays the
-	// file, which is the honest answer rather than the nearest node.
 	bare := &ParsedFile{Entities: map[string][]Entity{
 		"elements": {{Name: "value", Line: 10, EndLine: 10, GraphLabel: "Element"}},
 	}}
@@ -139,8 +118,6 @@ func TestSpanCaptureDelimitsTheEntity(t *testing.T) {
 	if unit.Line != 2 || unit.EndLine != 9 {
 		t.Errorf("Step spans %d..%d, want 2..9 (the <step> element)", unit.Line, unit.EndLine)
 	}
-	// The control: an Element, same file, no span_capture — start tag only. Without
-	// this the test would pass on a build where every entity spans its whole subtree.
 	el, ok := entityAt(pf, "Element", "config")
 	if !ok {
 		t.Fatalf("no Element for <config>; entities: %v", entityLabelsOf(pf))
@@ -186,13 +163,6 @@ comment_types:
 	}
 }
 
-// stageHostSpanXML stages an XML grammar that declares a named unit spanning a whole
-// element (span_capture) plus an embedded PL/SQL block inside `<value>`.
-//
-// It is written out rather than appended to the shipped xml.yaml because the unit
-// query belongs in `queries:`, which is not the end of that file — and because a
-// minimal grammar makes the assertions above about what does and does not have a wide
-// span exact.
 func stageHostSpanXML(t *testing.T) string {
 	t.Helper()
 	projectDir := stageGrammarWithQueries(t, "xml", "tree-sitter-xml", ".xml", "xml.yaml",
@@ -228,8 +198,6 @@ embedded:
 	return projectDir
 }
 
-// referenceTo finds a reference by target name, case-insensitively on the two spellings
-// the SQL grammars produce.
 func referenceTo(pf *ParsedFile, target string) (ReferenceInfo, bool) {
 	for _, r := range pf.References {
 		if r.TargetName == target || r.TargetName == upperASCII(target) {
@@ -322,10 +290,6 @@ embedded:
 			"alone answers here", ref.SourceName)
 	}
 
-	// The control: the SAME grammar without host_labels finds no host at all, because the
-	// unit's span is the block's. Without this the test would pass on a build that simply
-	// stopped requiring strict containment, which would put the wrapper back in play
-	// everywhere else.
 	if got := hostEntityAt(&ParsedFile{Entities: map[string][]Entity{
 		"unit_triggers": {{Name: "POST-INSERT", Line: 3, EndLine: 3, GraphLabel: "UnitTrigger"}},
 	}}, 3, 3, nil); got != "" {
@@ -333,13 +297,6 @@ embedded:
 	}
 }
 
-// AND THE CALL HAS TO REACH THE GRAPH TOO, which is where the host attribution was still
-// half-done: a DML edge derives its source label from the uid at rebuild time, but a CALL
-// carries its caller's label explicitly, and the caller labels were a FIXED LIST in Go —
-// Function, Method, Procedure, Trigger, Package, File. A block attributed to a unit its
-// own grammar declared carries a label absent from that list, so the DML edge from a
-// screen's trigger appeared and the CALLS edge from the SAME trigger did not. Measured on
-// a real corpus before the fix: 2616 SELECTS from one such label, 0 CALLS.
 func TestCallFromAHostUnitReachesTheGraph(t *testing.T) {
 	ri := newRebuildIndexWithDML(map[string]*parseCacheEntry{
 		"screens/pedido.xml": {
@@ -373,7 +330,6 @@ func TestCallFromAHostUnitReachesTheGraph(t *testing.T) {
 	ri.entityJSON("UnitTrigger")
 	ri.stubFunctionJSON()
 
-	// The gate the writer actually consults, not only the row generator.
 	if !ri.canWriteCallerLabel("UnitTrigger") {
 		t.Error("the writer would refuse the unit-sourced CALLS group")
 	}
@@ -411,15 +367,6 @@ func TestHostAttributionStampsTheHostLabelOnACall(t *testing.T) {
 	}
 }
 
-// A BLOCK DOES NOT HAVE TO HOLD A COMPILATION UNIT, and when it holds a fragment the
-// difference is everything or nothing.
-//
-// A screen's program unit carries `PROCEDURE x(…) IS … END;`, which in PL/SQL is a
-// DECLARATION — valid only inside a declarative section. On its own it parses as nothing:
-// measured on a real corpus, those bodies produced zero entities, zero calls and zero
-// DML, and the only thing they did produce was the word PROCEDURE as a call target
-// (19045 of them in one graph, every single one a keyword). Wrapped, the same body yields
-// the procedure and what it calls.
 func TestEmbeddedFragmentIsWrappedIntoSomethingItsLanguageCanParse(t *testing.T) {
 	grammar := func(wrap bool) string {
 		g := `language: xml
@@ -471,9 +418,6 @@ embedded:
 		return out
 	}
 
-	// The control first: unwrapped, the fragment gives nothing. If this ever starts
-	// finding the call, the wrapping has stopped being what makes the difference and the
-	// test below proves nothing.
 	if got := callNames(false); len(got) != 0 {
 		t.Errorf("unwrapped fragment produced calls %v; the case this covers is that it "+
 			"produces none", got)

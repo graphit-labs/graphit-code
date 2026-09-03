@@ -19,13 +19,12 @@ describe('UI Utilities', () => {
   let originalWebUser: string | undefined
 
   beforeEach(() => {
-    // Save original values
+
     originalApiBase = window.__API_BASE__
     originalAppMode = window.__APP_MODE__
     originalWebMode = window.__WEB_MODE__
     originalWebUser = window.__WEB_USER__
 
-    // Clean them for a clean slate
     delete window.__API_BASE__
     delete window.__APP_MODE__
     delete window.__WEB_MODE__
@@ -33,7 +32,7 @@ describe('UI Utilities', () => {
   })
 
   afterEach(() => {
-    // Restore
+
     window.__API_BASE__ = originalApiBase
     window.__APP_MODE__ = originalAppMode
     window.__WEB_MODE__ = originalWebMode
@@ -161,7 +160,6 @@ describe('UI Utilities', () => {
       const color1 = labelColor('label-A')
       expect(color1).toMatch(/^#[0-9a-f]{6}$/i)
 
-      // Calling again should return cached color
       const color2 = labelColor('label-A')
       expect(color2).toBe(color1)
 

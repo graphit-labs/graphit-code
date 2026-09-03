@@ -95,9 +95,6 @@ func TestMountedIcebugBoundedTraversalPreservesGlobalDistinct(t *testing.T) {
 }
 
 func TestMountedIcebugRealGraphBoundedTraversalCost(t *testing.T) {
-	// Env-gated: the real-corpus timing is only meaningful with a populated store.
-	// Without GRAPHIT_REAL_STORE the test exercises the same bounded 3-hop plan on
-	// the fixture, so the timing lane still runs in CI.
 	storePath := os.Getenv("GRAPHIT_REAL_STORE")
 	if storePath == "" {
 		t.Skip("set GRAPHIT_REAL_STORE to a populated ladybugdb")
@@ -106,9 +103,6 @@ func TestMountedIcebugRealGraphBoundedTraversalCost(t *testing.T) {
 		"(label(t) = 'Function' OR label(t) = 'Method') AND " +
 		"t.uid IN ['internal/ast/ladybug.go::runQuery'] RETURN DISTINCT caller.uid"
 
-	// The local store IS the bundle — "native" and "mounted" are both in-memory
-	// catalogs over the same Parquets now. The probe's real value is the timing
-	// of the bounded plan, which is why it env-gates on a populated corpus.
 	mounted := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(storePath), IcebugDir: filepath.Join(filepath.Dir(storePath), "graph.icebug")})
 	if err := mounted.connect(); err != nil {
 		t.Fatalf("open store graph: %v", err)
@@ -209,9 +203,6 @@ func TestMountedIcebugRemoteRealGraphBoundedTraversalCost(t *testing.T) {
 
 func mountedIcebugTraversalFixture(t *testing.T) *LadybugBackend {
 	t.Helper()
-	// The fixture is a store built straight from shards into an icebug bundle —
-	// four Function rows, a CALLS CSR, schema.cypher and icebug.json — then
-	// mounted in-memory. No Ladybug file DB ever exists; that is the whole model.
 	entry := &parseCacheEntry{
 		RelPath: "target.go", Language: "go",
 		Entities: []cachedEntity{

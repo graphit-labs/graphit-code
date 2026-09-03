@@ -89,9 +89,6 @@ func NewEmbeddingModule(rootPath string, interval time.Duration, cacheDir string
 func (m *EmbeddingModule) Name() string { return "embedding" }
 
 func (m *EmbeddingModule) Start(ctx context.Context) error {
-	// A real logger, for the same reason the sync module has one: nil resolves to a
-	// NOP handler that discards every record, so the loop's warnings — notably the one
-	// that says entities are being embedded with no source text — went nowhere.
 	logger, closeLog := projectRebuildLogger(m.rootPath)
 	defer closeLog()
 	return ast.RunEmbeddingLoop(ctx, m.interval, m.cacheDir, m.rootPath, logger)
@@ -142,13 +139,6 @@ func (m *WikiEmbeddingModule) Start(ctx context.Context) error {
 	return wiki.RunWikiEmbeddingLoop(ctx, m.interval, m.targets, logger)
 }
 
-// WikiEmbedTargets lists the wikis of a project worth embedding.
-//
-// Every one of them is the single copy that exists: the knowledge wiki and both
-// memory wikis are compiled once, globally, and read in place. There used to be an
-// OnEmbedded callback per target whose job was to push the fresh vectors into each
-// project's replica — vectors that the next replication could overwrite, and work
-// repeated once per project. With one copy there is nothing to push.
 func WikiEmbedTargets(projectDir string, _ *slog.Logger) []wiki.EmbedTarget {
 	targets := []wiki.EmbedTarget{
 		{Dir: store.KnowledgeProjectDir(projectDir)},

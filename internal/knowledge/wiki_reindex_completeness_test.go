@@ -34,7 +34,6 @@ func TestGenerateKnowledgeWiki_IndexesDocAddedAfterFirstRun(t *testing.T) {
 		t.Fatalf("first GenerateKnowledgeWiki: %v", err)
 	}
 
-	// first.md is left untouched.
 	writeDoc("second.md", "# Second Doc\n\nThe second document mentions zarquonterm.\n")
 
 	if _, err := GenerateKnowledgeWiki(ctx, root, wikiDir, nil, WikiScope{}); err != nil {

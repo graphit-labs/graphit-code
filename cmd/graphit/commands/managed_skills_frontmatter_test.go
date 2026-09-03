@@ -66,9 +66,6 @@ func TestManagedSkillFrontmatterIsValid(t *testing.T) {
 					t.Errorf("frontmatter has %d fields (%v), want exactly name and description", len(fields), fields)
 				}
 
-				// The name is what the IDE matches against the directory: a
-				// mismatch costs the slash command, and an invalid character
-				// costs the whole skill.
 				if fields["name"] != filepath.Base(skillDir) {
 					t.Errorf("name = %q but the skill directory is %q", fields["name"], filepath.Base(skillDir))
 				}

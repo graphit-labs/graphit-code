@@ -16,8 +16,6 @@ func TestDisableAutoMaintenanceIsSeenByGit(t *testing.T) {
 		t.Skip("git not available")
 	}
 
-	// TestMain does not run for this package's own test, so set it here — and through
-	// t.Setenv so it is undone afterwards.
 	t.Setenv("GIT_CONFIG_COUNT", "")
 	os.Unsetenv("GIT_CONFIG_COUNT")
 	DisableAutoMaintenance()

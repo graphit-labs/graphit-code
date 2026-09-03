@@ -7,13 +7,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
-// knownEmbeddingDims maps "<provider>/<model>" to its documented output width. It is
-// consulted only when ai.embedding.dimensions has not been set explicitly.
-//
-// These are the providers' own published dimensions as of the model's release; a provider
-// adding a new model, or a self-hosted (openai-compatible) model with no entry here, needs
-// ai.embedding.dimensions set explicitly — there is no way to ask an embeddings endpoint its
-// output width before calling it.
 var knownEmbeddingDims = map[string]int{
 	"openai/text-embedding-3-small": 1536,
 	"openai/text-embedding-3-large": 3072,
@@ -33,8 +26,6 @@ var knownEmbeddingDims = map[string]int{
 	"google/gemini-embedding-001": 3072,
 }
 
-// defaultEmbeddingModel is used when ai.embedding.model is unset for a named provider. There
-// is no default for openai-compatible: a self-hosted endpoint has no canonical model name.
 var defaultEmbeddingModel = map[string]string{
 	"openai": "text-embedding-3-small",
 	"cohere": "embed-english-v3.0",

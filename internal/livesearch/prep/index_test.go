@@ -16,11 +16,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// seedKnowledgeArtifact writes what a Hub knowledge artifact looks like once
-// installed: its markdown under the GLOBAL context directory, plus the workspace's
-// claim on it. Nothing lands in the workspace itself — the wiki root is shared by
-// every project on the machine, and the registry is what says which of them this
-// session may search.
 func seedKnowledgeArtifact(t *testing.T, ws, id string, pages map[string]string) {
 	t.Helper()
 	dir := filepath.Join(store.KnowledgeContextDir(id), "docs")
@@ -45,10 +40,6 @@ func newBareSession(t *testing.T, ide string) *livesearch.Session {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	// The lockfile, because a real session always has one and half of what the rest
-	// of the framework does for a session is decided by reading it: the identity it
-	// is keyed by, and the ephemeral flag that says it gets no stores of its own.
-	// Without it these tests would exercise a workspace no session ever is.
 	if err := writeLockfile(s.WorkspaceDir(), ide, s.ID()); err != nil {
 		t.Fatalf("writeLockfile: %v", err)
 	}
@@ -56,10 +47,6 @@ func newBareSession(t *testing.T, ide string) *livesearch.Session {
 }
 
 func TestTheSessionReadsEachSetWhereItAlreadySits(t *testing.T) {
-	// This replaces a compile. An artifact used to ship pages without a database, so
-	// preparation compiled them into the one place the search looked — which was a
-	// wiki keyed by the session. A context now arrives compiled, so the session
-	// reaches each one in its own store, by name.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 	ws := s.WorkspaceDir()
@@ -76,8 +63,6 @@ func TestTheSessionReadsEachSetWhereItAlreadySits(t *testing.T) {
 	if got, want := knowledge.ReadDirIn(ws, "acme-docs"), store.KnowledgeContextDir("acme-docs"); got != want {
 		t.Errorf("the set resolves to %q, want its context store %q", got, want)
 	}
-	// And there is no unqualified read: the session has no wiki of its own, the same
-	// way it has no code graph of its own.
 	if got := knowledge.ReadDirIn(ws, ""); got != "" {
 		t.Errorf("an unqualified read resolved to %q; a session has no documentation wiki of its own", got)
 	}
@@ -90,11 +75,6 @@ func TestTheSessionReadsEachSetWhereItAlreadySits(t *testing.T) {
 }
 
 func TestEveryChosenDocumentationSetIsReachable(t *testing.T) {
-	// The property the single-pass compile existed to protect: selecting two sets
-	// leaves both reachable. It used to be at risk because the generator prunes cache
-	// entries whose source has gone, so a second compile pass deleted the first
-	// artifact's pages. There is no compile now — each set is simply where it was
-	// installed.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 	ws := s.WorkspaceDir()
@@ -122,10 +102,6 @@ func TestEveryChosenDocumentationSetIsReachable(t *testing.T) {
 }
 
 func TestASetNobodySelectedIsNotClaimedBySession(t *testing.T) {
-	// Contexts share one global root with every other context on the machine, so
-	// membership has to come from the session's own registry. Deriving it from the
-	// root would offer documentation another project installed and this user never
-	// chose.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 	ws := s.WorkspaceDir()
@@ -134,7 +110,6 @@ func TestASetNobodySelectedIsNotClaimedBySession(t *testing.T) {
 		"chosen.md": "# Chosen\n\nThis one was selected for the session.\n",
 	})
 
-	// Present in the shared root, claimed by nobody in this session.
 	stranger := filepath.Join(store.KnowledgeContextDir("someone-elses-docs"), "docs")
 	if err := os.MkdirAll(stranger, 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -173,9 +148,6 @@ func TestNoDocumentationMeansNoWikiAndNoComplaint(t *testing.T) {
 }
 
 func TestCodeGraphsAreReportedByNameOnceAddressable(t *testing.T) {
-	// An AST artifact needs no pipeline: the install builds the shared store and
-	// writes the lockfile entry that resolves it. What preparation adds is saying so,
-	// so that "resolved nothing" and "nothing was chosen" are distinguishable.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 	ws := s.WorkspaceDir()
@@ -195,8 +167,6 @@ func TestCodeGraphsAreReportedByNameOnceAddressable(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	// The store has to exist, or listing deliberately hides a context that cannot
-	// be opened. A store counts as built only with its mount schema in place.
 	contextID := ast.HubContextID(hubProject, artifactID)
 	storeDir := ast.HubContextDir(contextID, version)
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
@@ -221,8 +191,6 @@ func TestCodeGraphsAreReportedByNameOnceAddressable(t *testing.T) {
 }
 
 func TestAGraphWhoseStoreWasNeverBuiltIsNotOffered(t *testing.T) {
-	// Claimed in the lockfile but absent on disk: offering it would hand the agent a
-	// context whose every query fails.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 	ws := s.WorkspaceDir()
@@ -247,9 +215,6 @@ func TestAGraphWhoseStoreWasNeverBuiltIsNotOffered(t *testing.T) {
 }
 
 func TestUserMemoryIsReadInPlaceAndNotCopiedIntoTheWorkspace(t *testing.T) {
-	// The copy that used to happen here existed because the memory search opened a
-	// project-local replica. It is gone: the user memory wiki has one location, in
-	// the global directory, and every reader opens it there.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 	ws := s.WorkspaceDir()
@@ -258,7 +223,7 @@ func TestUserMemoryIsReadInPlaceAndNotCopiedIntoTheWorkspace(t *testing.T) {
 
 	entries, err := os.ReadDir(filepath.Join(ws, brand.DotDir()))
 	if err != nil {
-		return // nothing was created at all, which is also correct
+		return
 	}
 	for _, e := range entries {
 		if e.Name() == "memory" {
@@ -268,10 +233,6 @@ func TestUserMemoryIsReadInPlaceAndNotCopiedIntoTheWorkspace(t *testing.T) {
 }
 
 func TestUserMemoryDegradesWithAReasonRatherThanFailing(t *testing.T) {
-	// A machine with no git identity has no user memory. That is an ordinary state,
-	// so the session must still be usable — and must say why the memory is absent,
-	// because an agent that finds none would otherwise report that the user has
-	// never mentioned the subject.
 	isolateHome(t)
 	s := newBareSession(t, "claude")
 
@@ -282,15 +243,12 @@ func TestUserMemoryDegradesWithAReasonRatherThanFailing(t *testing.T) {
 		t.Fatal("the memory step said nothing at all")
 	}
 	joined := strings.ToLower(strings.Join(progress, " | "))
-	// Either it found the memory or it explained itself; silence is the failure.
 	if !strings.Contains(joined, "memory") {
 		t.Fatalf("the memory step reported something unrelated: %v", progress)
 	}
 }
 
 func TestPreparingASessionCompilesNothingOfItsOwn(t *testing.T) {
-	// The property that replaced the compile. A session reads each context where it
-	// already sits, so preparation must not produce a wiki keyed by the session.
 	isolateHome(t)
 	withInstaller(t, &fakeInstaller{}, nil)
 
@@ -319,17 +277,12 @@ func TestPreparingASessionCompilesNothingOfItsOwn(t *testing.T) {
 		}
 	}
 
-	// And it still says what it CAN search, or a session that resolved nothing would
-	// be indistinguishable from one that had nothing selected.
 	if !strings.Contains(strings.Join(progress, "\n"), "acme-docs") {
 		t.Errorf("preparation never named the documentation set: %v", progress)
 	}
 }
 
 func TestThePreparedWorkspaceIsSelfDescribing(t *testing.T) {
-	// One end-to-end check that the four things an agent needs are all where it
-	// looks: instructions, tool configuration, a lockfile identity, and a compiled
-	// wiki.
 	isolateHome(t)
 	withInstaller(t, &fakeInstaller{}, nil)
 
@@ -357,13 +310,10 @@ func TestThePreparedWorkspaceIsSelfDescribing(t *testing.T) {
 			t.Fatalf("%s is missing from the prepared workspace: %v (progress: %v)", rel, err, progress)
 		}
 	}
-	// No wiki of its own, anywhere: the context it selected is searched in the
-	// context store, which the Hub install already compiled.
 	if _, err := os.Stat(store.KnowledgeProjectDir(ws)); err == nil {
 		t.Fatalf("the session was given a documentation wiki of its own (progress: %v)", progress)
 	}
 
-	// The lockfile must still name this session after everything else ran.
 	data, err := os.ReadFile(filepath.Join(ws, brand.LockFileName()))
 	if err != nil {
 		t.Fatalf("reading the lockfile: %v", err)

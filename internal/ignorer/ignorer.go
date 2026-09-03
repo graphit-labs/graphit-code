@@ -9,25 +9,15 @@ import (
 	gogitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
-// Ignore files, and why the go-git dependency is not a git dependency.
-//
-// gogitignore is a pure-Go implementation of gitignore PATTERN SEMANTICS — negation, anchoring,
-// directory-only patterns, per-file domains. It shells out to nothing and requires no repository.
-// Keeping it is what makes `.astignore` and `.wikiignore` behave the way anyone who has written a
-// `.gitignore` expects, which is the whole point of using that syntax.
-//
-// What DID depend on git was the boundary — how far up the tree ignore files are collected from was
-// answered by looking for a `.git`. It no longer is: see collectIgnoreFiles.
-
 type IgnoreChecker struct {
-	matcher              gogitignore.Matcher
-	negationPrefixes     []string
-	rootPath             string
-	customFileName       string
-	basePatterns         []gogitignore.Pattern
-	baseNegations        []string
-	dirPatterns          map[string][]gogitignore.Pattern
-	dirNegations         map[string][]string
+	matcher          gogitignore.Matcher
+	negationPrefixes []string
+	rootPath         string
+	customFileName   string
+	basePatterns     []gogitignore.Pattern
+	baseNegations    []string
+	dirPatterns      map[string][]gogitignore.Pattern
+	dirNegations     map[string][]string
 }
 
 // DirScope is the ignore rules in force inside one directory of the tree: the
@@ -43,7 +33,6 @@ type DirScope interface {
 func New(rootPath, startDir, customFileName string, defaultPatterns []string) *IgnoreChecker {
 	absRoot, _ := filepath.Abs(rootPath)
 
-	// The project is the boundary, and nothing above it. See collectIgnoreFiles.
 	boundary := absRoot
 
 	if startDir == "" {
@@ -136,9 +125,6 @@ func (ic *IgnoreChecker) At(dirRelPath string) DirScope {
 	return &clone
 }
 
-// loadDirFiles reads the ignore files of one directory below the root and caches
-// them. The cache is keyed by directory, so a walk that crosses each directory
-// once pays one stat+read per file per directory.
 func (ic *IgnoreChecker) loadDirFiles(dirRel string) ([]gogitignore.Pattern, []string) {
 	if pats, ok := ic.dirPatterns[dirRel]; ok {
 		return pats, ic.dirNegations[dirRel]
@@ -198,25 +184,6 @@ func (ic *IgnoreChecker) ShouldDescend(dirRelPath string) bool {
 	return false
 }
 
-// collectIgnoreFiles gathers an ignore file from startDir up to rootDir, inclusive.
-//
-// rootDir is the PROJECT, and collection must never pass it. That is not a policy choice, it is
-// what the domain arithmetic allows: domainForFile computes a pattern's domain with
-// filepath.Rel(project, dir), so a file above the project yields a domain of ".." segments, and
-// gogitignore can never match a real path against that. Such a file was collected and silently
-// inert.
-//
-// This is also where the last git dependency was. The boundary used to be found by walking up for a
-// `.git`, which meant three things, all bad: a project without a repository fell back to itself
-// anyway, a project INSIDE a repository collected the repository's ignore files as inert patterns,
-// and a project under a directory that happened to be a repository — a dotfiles $HOME, say —
-// reached up into it. Every test in this package created a `.git` purely to give that walk
-// something to find.
-//
-// KNOWN LIMITATION, and it predates this: in a monorepo, patterns in the repository-root
-// .gitignore (node_modules/, dist/) do NOT apply to a sub-project. Making them apply needs domains
-// computed against the collection root rather than the project, which is a larger change than
-// removing git was.
 func collectIgnoreFiles(startDir, rootDir, filename string) []string {
 	var files []string
 	curr := startDir
@@ -267,8 +234,6 @@ func readPatternsFromFile(path string, domain []string) []gogitignore.Pattern {
 	return patterns
 }
 
-// readNegationPrefixesFromFile reads an ignore file and returns normalized
-// path prefixes for every negation ("!") line.
 func readNegationPrefixesFromFile(path string, domain []string) []string {
 	f, err := os.Open(path)
 	if err != nil {
@@ -291,12 +256,6 @@ func readNegationPrefixesFromFile(path string, domain []string) []string {
 	return prefixes
 }
 
-// negationToPrefix converts a negation pattern body (without the leading '!')
-// into its longest literal directory prefix.
-// Examples:
-//
-//	"internal/ast/antlr/common/"  → "internal/ast/antlr/common"
-//	"internal/ast/antlr/*/driver.go" → "internal/ast/antlr"
 func negationToPrefix(body string, domain []string) string {
 	body = strings.TrimRight(body, " ")
 	body = strings.TrimSuffix(body, "/")
@@ -304,7 +263,6 @@ func negationToPrefix(body string, domain []string) string {
 
 	parts := strings.Split(body, "/")
 
-	// Keep only the leading literal segments (no globs).
 	var literal []string
 	for _, seg := range parts {
 		if strings.ContainsAny(seg, "*?[") {
@@ -313,7 +271,6 @@ func negationToPrefix(body string, domain []string) string {
 		literal = append(literal, seg)
 	}
 
-	// Prepend domain (the directory containing the ignore file, relative to root).
 	if len(domain) > 0 {
 		literal = append(domain, literal...)
 	}

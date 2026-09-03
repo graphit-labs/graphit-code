@@ -11,9 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// failingReader stands in for stdin wherever a test asserts that a question was NOT asked. Any
-// read is the failure itself: a fake that returned "" instead would let the test pass while
-// setup silently fell through to a prompt and answered it with the default.
 type failingReader struct{ t *testing.T }
 
 func (r failingReader) Read([]byte) (int, error) {
@@ -278,10 +275,6 @@ func TestPromptEmbeddingProviderStillRejectsOpenAICompatibleWithoutABaseURL(t *t
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	p := output.NewPrinter("")
 
-	// The model is answered too, and deliberately: without it this test would fail on the model
-	// prompt instead of on the missing base URL, which is the semantics working — a provider that
-	// is not `local` reaches three more questions, and every one of them needs its flag before the
-	// run is silent.
 	answers := setupAnswers{
 		embeddingProvider: answered("openai-compatible"),
 		embeddingModel:    answered(""),

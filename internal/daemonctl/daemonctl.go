@@ -24,18 +24,6 @@ func spawnLockPath() string { return filepath.Join(DaemonDir(), ".spawn.lock") }
 // LogFilePath returns the daemon log.
 func LogFilePath() string { return filepath.Join(DaemonDir(), "daemon.log") }
 
-// AttachStderrToFile points a spawned process's stderr at path, appending, and
-// returns a closer for the parent's copy of the descriptor: the child inherits it,
-// so the parent closes after Start.
-//
-// Spawning used to set Stderr = nil, which discards it. The Go runtime writes
-// panics and SIGQUIT stack dumps to stderr, NOT through the logger, so throwing
-// stderr away made every crash and every hang of the spawned process
-// indiagnosable -- the log showed the last event it had chosen to record and then
-// nothing, with no way to tell a deadlock from an idle process.
-//
-// Best effort by design: if the file cannot be opened the process is still
-// spawned, because losing the daemon is worse than losing its stderr.
 func AttachStderrToFile(cmd *exec.Cmd, path string) func() {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return func() {}

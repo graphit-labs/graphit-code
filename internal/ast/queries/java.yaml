@@ -1,15 +1,13 @@
 language: java
 grammar: tree-sitter-java
 extensions: [".java"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Constructor, Package] }
   READS_FIELD: { labels: [Field] }
   WRITES_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(method_declaration name: (identifier) @name)'
@@ -47,8 +45,6 @@ queries:
     graph_label: Field
     pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name, so
-  # that "which constant holds this URL" is reachable by search.
   - data_key: fields
     graph_label: Field
     pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (octal_integer_literal) (binary_integer_literal) (decimal_floating_point_literal) (hex_floating_point_literal) (true) (false) (null_literal) (character_literal) (string_literal)] @value))'
@@ -60,7 +56,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # === Relation queries ===
   - data_key: decorators
     type: relation
     relation_type: DECORATOR
@@ -94,31 +89,25 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment_expression left: (field_access field: (identifier) @name))'
 
-# Export detection strategy — Java uses public modifier
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — Java tree-sitter node types only
 context_types:
   class_declaration: Class
   interface_declaration: Interface
   enum_declaration: Enum
   record_declaration: Record
   method_declaration: Method
-  # A constructor is a container too: without it, its parameters resolve to the
-  # enclosing class and read as fields of the type rather than arguments.
+
   constructor_declaration: Constructor
 
-# Anonymous function types for variable_declarator resolution
 anon_func_types:
   - lambda_expression
 
-# Declaration types for docstring attachment — Java node types only
 declaration_types:
   - method_declaration
   - class_declaration
@@ -129,15 +118,10 @@ declaration_types:
   - annotation_type_declaration
   - field_declaration
 
-# Comment node types for docstring extraction — Java has line_comment and block_comment
 comment_types:
   - line_comment
   - block_comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. switch_label fires for both `case` and
-# `default`, so a bare switch/default with no case labels still adds one —
-# a minor, accepted deviation from the other languages here.
 complexity:
   node_types:
     - if_statement
@@ -148,10 +132,6 @@ complexity:
     - ternary_expression
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Interface

@@ -7,14 +7,6 @@ import (
 	"testing"
 )
 
-// MEASURED: a row appended AFTER the inverted index was built is found by full-text search
-// WITHOUT any fold. The engine scans the unindexed fragments alongside the index.
-//
-// This test exists because the opposite is the intuitive belief, and acting on it would have
-// made FoldNewRowsIntoIndexes a correctness requirement on the incremental path — a fold that
-// must never be skipped, ordered before every read. It is not: it is a latency measure. Keeping
-// the probe means the day the engine changes this, the design is corrected by a failing test
-// rather than by an outage.
 func TestFoldIsAboutLatencyNotVisibility(t *testing.T) {
 	ctx := context.Background()
 	st := openLocal(t)
@@ -28,7 +20,6 @@ func TestFoldIsAboutLatencyNotVisibility(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	// Enough rows that the engine builds a real index rather than declining.
 	seed := make([]Row, 0, 64)
 	for i := 0; i < 64; i++ {
 		seed = append(seed, Row{"uid": string(rune('a'+i%26)) + itoa(i), "body": "filler unrelated text"})
@@ -52,7 +43,6 @@ func TestFoldIsAboutLatencyNotVisibility(t *testing.T) {
 		t.Fatal("the indexed rows are not findable at all — the index did not build")
 	}
 
-	// The new row uses a term that appears nowhere in the seed.
 	if err := tbl.Append(ctx, []Row{{"uid": "new-1", "body": "quokka appears exactly once"}}); err != nil {
 		t.Fatalf("append: %v", err)
 	}

@@ -38,8 +38,6 @@ func TestCopyJSONLargeRowLimit(t *testing.T) {
 				t.Fatalf("ddl: %v", err)
 			}
 
-			// Text shaped like source, not like a single repeated byte: escaping is part
-			// of what is being measured.
 			unit := "<entry>\n    <key>Remote URL</key>\n    <value>https://x/y</value>\n</entry>\n"
 			body := strings.Repeat(unit, (mb<<20)/len(unit))
 
@@ -69,10 +67,6 @@ func TestCopyJSONLargeRowLimit(t *testing.T) {
 		})
 	}
 
-	// Same total volume, spread over many rows. If this passes where the single fat row
-	// failed, the ceiling is on the individual VALUE and only oversized files need another
-	// path; if it fails too, the ceiling is on the DOCUMENT and the batch budget is what
-	// has to come down.
 	t.Run("many rows same volume", func(t *testing.T) {
 		st, err := openProbeStoreWithJSON(t, filepath.Join(dir, "dbmany"))
 		if err != nil {
@@ -111,8 +105,6 @@ func TestCopyJSONLargeRowLimit(t *testing.T) {
 		_ = os.Remove(stage)
 	})
 
-	// The escape route for a value COPY will not take. If UNWIND refuses it too, an
-	// oversized file cannot be indexed at all and the answer has to be truncation.
 	t.Run("unwind takes what copy refuses", func(t *testing.T) {
 		st, err := openProbeStoreWithJSON(t, filepath.Join(dir, "dbunwind"))
 		if err != nil {

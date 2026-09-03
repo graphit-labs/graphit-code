@@ -1,19 +1,3 @@
-// Package fswatch reports source-file changes from the operating system's own
-// notification API instead of polling.
-//
-// The previous approach ran `git status --porcelain` on a timer, which cost a
-// full worktree walk per tick per project and detected a change up to ~6 s late.
-// Watching the filesystem is near-instant and idle-free, and — because it names
-// the exact paths that changed — it lets the indexer skip discovery entirely
-// (ast.RunPipelineForPaths), which alone measured ~350 ms of a ~1.07 s
-// incremental on a 35k-file repository.
-//
-// Ignore rules are honoured at BOTH levels: an ignored directory never gets a
-// watch registered (on Linux each watched directory costs an inotify watch, so
-// this is what keeps the budget sane), and any event that slips through for an
-// ignored path is dropped. The caller supplies the IgnoreChecker, so whichever
-// custom ignore file a module uses — .astignore, .wikiignore, .knowledgeignore —
-// applies automatically alongside .gitignore.
 package fswatch
 
 import (
@@ -140,17 +124,10 @@ func (w *Watcher) Start(ctx context.Context) (<-chan Batch, error) {
 	return out, nil
 }
 
-// addTree registers a watch on dir and every non-ignored directory beneath it.
-//
-// The ignore context deepens monotonically with each directory crossed: a
-// subdirectory's own .gitignore/.astignore applies to everything below it, which
-// is what git does — so the checker used for a child is the one At()'d into the
-// parent. Each watched directory's context is remembered for the accept() path,
-// which has no tree to walk.
 func (w *Watcher) addTree(dir string) error {
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // unreadable subtree: skip rather than abort the whole watch
+			return nil
 		}
 		if !d.IsDir() {
 			return nil
@@ -179,18 +156,11 @@ func (w *Watcher) addTree(dir string) error {
 	})
 }
 
-// usableOK is usable's nil-interface form, for callers that only need to know
-// whether there are any rules at all.
 func usableOK(s Ignorer) bool {
 	_, ok := usable(s)
 	return ok
 }
 
-// usable unwraps the no-rules case that Go's interfaces make invisible: a nil
-// implemented as a nil *IgnoreChecker stored in the interface is NOT a nil
-// interface, so a plain `== nil` check misses it. Every IsIgnored on the
-// checker itself guards against the same receiver, but At does not — there is
-// no rule to descend into, so callers need the boolean.
 func usable(s Ignorer) (Ignorer, bool) {
 	if s == nil {
 		return nil, false
@@ -206,7 +176,6 @@ func (w *Watcher) isIgnoredDir(rel string) bool {
 		return false
 	}
 	base := filepath.Base(rel)
-	// .git churns constantly and holds nothing we index.
 	if base == ".git" {
 		return true
 	}
@@ -214,9 +183,6 @@ func (w *Watcher) isIgnoredDir(rel string) bool {
 	if !ok {
 		return false
 	}
-	// The caller passes the context of the DIRECTORY'S PARENT (the walk has not
-	// crossed into rel yet); for the root's children there is no At yet and the
-	// root rules are exactly right.
 	if parentRel := path.Dir(rel); parentRel != "." {
 		sub, ok := usable(ctx.At(parentRel))
 		if !ok {
@@ -234,9 +200,6 @@ func (w *Watcher) addWatch(dir string) error {
 		return nil
 	}
 	if err := w.fsw.Add(dir); err != nil {
-		// The most common failure by far is exhausting the per-user inotify
-		// watch limit; say so explicitly instead of surfacing "no space left on
-		// device", which sends people looking at disk usage.
 		if strings.Contains(err.Error(), "no space left on device") ||
 			strings.Contains(err.Error(), "too many open files") {
 			return fmt.Errorf("fswatch: out of filesystem watches while adding %s: raise the limit, e.g. "+
@@ -248,7 +211,6 @@ func (w *Watcher) addWatch(dir string) error {
 	return nil
 }
 
-// accept reports whether a file path should produce an event.
 func (w *Watcher) accept(path string) bool {
 	rel, err := filepath.Rel(w.root, path)
 	if err != nil {
@@ -283,7 +245,6 @@ func (w *Watcher) accept(path string) bool {
 	return true
 }
 
-// loop coalesces raw events into batches.
 func (w *Watcher) loop(ctx context.Context, out chan<- Batch) {
 	defer close(out)
 
@@ -336,12 +297,6 @@ func (w *Watcher) loop(ctx context.Context, out chan<- Batch) {
 		if len(batch.Changed) == 0 && len(batch.Removed) == 0 && !batch.Rescan {
 			return
 		}
-		// Checked before the select: with a reader ready AND the context already
-		// cancelled, both cases are ready and Go picks one at random, so a watcher
-		// being shut down still handed a batch downstream about half the time.
-		// Same shape that let sysutil.AcquireHeavy grant a slot to a cancelled
-		// caller — there it started a full reindex, here it only queues work that
-		// is about to be dropped, but the fix is the same and costs one branch.
 		if ctx.Err() != nil {
 			return
 		}
@@ -369,8 +324,6 @@ func (w *Watcher) loop(ctx context.Context, out chan<- Batch) {
 			if !ok {
 				return
 			}
-			// A dropped-event error means the kernel queue overflowed and the
-			// picture is incomplete; only a rescan restores consistency.
 			w.log.Warn("fswatch error, requesting rescan", "error", err)
 			rescan = true
 			arm()
@@ -382,8 +335,6 @@ func (w *Watcher) loop(ctx context.Context, out chan<- Batch) {
 }
 
 func (w *Watcher) handleEvent(ev fsnotify.Event, changed, removed map[string]bool) {
-	// A new directory must be watched too, and files created inside it before
-	// the watch landed would otherwise be missed — so scan it.
 	if ev.Has(fsnotify.Create) {
 		if info, err := filepath.Abs(ev.Name); err == nil {
 			if isDir(info) {
@@ -430,7 +381,6 @@ func (w *Watcher) scanNewDir(dir string, changed map[string]bool) {
 	})
 }
 
-// isDir reports whether path is a directory, tolerating a vanished path.
 func isDir(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()

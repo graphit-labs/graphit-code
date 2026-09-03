@@ -10,15 +10,10 @@ import (
 	"testing"
 )
 
-// noSourceFixture builds the state `ast.index_source: false` produces: a shard with
-// entities and line ranges but NO text, next to the real file still on disk.
 func noSourceFixture(t *testing.T, relPath, body string, ents []cachedEntity) (*Embedder, string) {
 	t.Helper()
 
 	repoRoot := t.TempDir()
-	// The repo root doubles as the project dir the embedder resolves embed_labels
-	// against, so the fixture's language is declared here rather than assumed of
-	// the installed runtime. See stageEmbedLabelsIn.
 	stageEmbedLabelsIn(t, repoRoot, "Function", LabelComment)
 
 	full := filepath.Join(repoRoot, relPath)
@@ -37,14 +32,10 @@ func noSourceFixture(t *testing.T, relPath, body string, ents []cachedEntity) (*
 	cache.SetRoot(repoRoot)
 	t.Cleanup(func() { _ = cache.Close() })
 
-	// Source deliberately empty — this is exactly what ConvertToCache stores when
-	// indexSource is false.
 	entry := &parseCacheEntry{RelPath: relPath, Language: embedLabelsTestLang, Entities: ents}
 	if err := cache.Store(relPath, fileContentHash(full), entry); err != nil {
 		t.Fatalf("store shard: %v", err)
 	}
-	// Flushed so the shard is on disk, as it is during a real index: StreamEntries
-	// evicts each shard after the callback and reloads it from there.
 	if err := cache.FlushDirty(); err != nil {
 		t.Fatalf("flush shard: %v", err)
 	}
@@ -80,13 +71,12 @@ var noSourceBody = "package svc\n" +
 
 func noSourceEntities() []cachedEntity {
 	return []cachedEntity{{
-		UID:   "svc/pay.go::ChargeCard",
-		Label: "Function",
-		Lang:  embedLabelsTestLang,
-		Name:  "ChargeCard",
-		Path:  "svc/pay.go",
-		Line:  3,
-		// EndLine at the closing brace, so the snippet is the whole body.
+		UID:     "svc/pay.go::ChargeCard",
+		Label:   "Function",
+		Lang:    embedLabelsTestLang,
+		Name:    "ChargeCard",
+		Path:    "svc/pay.go",
+		Line:    3,
 		EndLine: 6,
 	}}
 }

@@ -22,10 +22,6 @@ type LogEntry struct {
 	Text string
 }
 
-// reOKFLogDate matches a date-grouped section heading, which is what §9 specifies:
-// `## YYYY-MM-DD`, newest first. It deliberately does NOT match the pre-OKF heading
-// `## [2026-08-21 15:04:05] sync | Compiled N changes`, so an existing log keeps its
-// history below the new sections instead of having it rewritten or merged into a day.
 var reOKFLogDate = regexp.MustCompile(`(?m)^## (\d{4}-\d{2}-\d{2})\s*$`)
 
 // AppendOKFLogEntries prepends entries to a §9 log file, grouped under their date.
@@ -63,8 +59,6 @@ func AppendOKFLogEntries(logPath, header string, date string, entries []LogEntry
 	if loc := reOKFLogDate.FindStringSubmatchIndex(content); loc != nil {
 		firstDate := content[loc[2]:loc[3]]
 		if firstDate == date {
-			// Same day: the new lines go directly under the existing heading, so the
-			// newest entry of the day is still the first one read.
 			insertAt := loc[1]
 			for insertAt < len(content) && content[insertAt] == '\n' {
 				insertAt++
@@ -75,8 +69,6 @@ func AppendOKFLogEntries(logPath, header string, date string, entries []LogEntry
 			[]byte(content[:loc[0]]+"## "+date+"\n\n"+block.String()+"\n"+content[loc[0]:]), 0o644)
 	}
 
-	// No date section yet: a fresh header, or a log still in the pre-OKF shape. The new
-	// section goes immediately after the H1 and its intro, above whatever is there.
 	insertAt := len(content)
 	if h1 := strings.Index(content, "\n#"); strings.HasPrefix(content, "# ") || h1 >= 0 {
 		if i := strings.Index(content, "\n## "); i >= 0 {

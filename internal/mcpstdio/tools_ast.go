@@ -112,9 +112,6 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		// Checked before anything else because `reset` deletes the store directory
-		// further down, and the structural guard in openASTDBReadWrite comes after
-		// that.
 		if store.IsEphemeralProject(projectDir) {
 			return errResult(errEphemeralHasNoGraph())
 		}
@@ -155,7 +152,6 @@ func registerASTTools(server *mcp.Server) {
 			indexSource = false
 		}
 
-		// Resolve grammar overrides: config (base) + flag (higher priority)
 		grammarOverrides := config.ResolveGrammarOverrides(nil, projectCfg)
 		if input.Grammar != "" {
 			flagOverrides := config.ParseGrammarOverrides(input.Grammar)
@@ -299,7 +295,6 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		// Sync memory context
 		ms, msErr := memory.NewMemoryStore()
 		if msErr == nil {
 			memsvc := memory.NewMemoryServiceForContext(input.Context, ms)
@@ -351,11 +346,6 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		// Listed for projectDir, not for the working directory: this server serves
-		// whichever project the caller names, and a Hub context is only visible
-		// through that project's lockfile. An empty projectDir is the global scope,
-		// where the same question is answered by the global lock — which is what makes
-		// this the tool that tells a project-less caller what it may pass as `context`.
 		contexts := ast.ListImportedContextsIn(projectDir)
 		if aiOpt(input.AiOptimized) {
 			return toonResult(contexts)
@@ -461,9 +451,6 @@ func registerASTTools(server *mcp.Server) {
 			var ladybugCfg ast.LadybugConfig
 			if input.Context != "" {
 				ladybugCfg = ast.LadybugConfigForContextIn(projectDir, input.Context)
-				// An imported context's tree is wherever it was imported FROM, and a
-				// Hub artifact has no local tree at all. An empty root simply means
-				// the source snippet is unavailable, which is the honest answer.
 				embCfg.RepoRoot = ast.ListImportedContextsIn(projectDir)[input.Context].SourcePath
 			} else {
 				ladybugCfg = ast.LadybugConfigFor(projectDir)

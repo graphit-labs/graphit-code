@@ -51,8 +51,6 @@ func TestHTTPFSInstallLayout(t *testing.T) {
 	}
 	t.Logf("under %s:\n%s", root, strings.Join(found, "\n"))
 
-	// Does LOAD by name work at all after INSTALL? If it does, the extension is somewhere
-	// and the question is only where.
 	st3, err3 := Open(filepath.Join(t.TempDir(), "db3"))
 	if err3 != nil {
 		t.Fatalf("third open: %v", err3)
@@ -86,9 +84,6 @@ func TestHTTPFSInstallLayout(t *testing.T) {
 		}
 	}
 
-	// INSTALL and LOAD both reported success while s3_credential does not exist, which means
-	// one of them is a silent no-op. These four probes separate "the extension is absent" from
-	// "the function has another name".
 	st4, err4 := Open(filepath.Join(t.TempDir(), "db4"))
 	if err4 != nil {
 		t.Fatalf("fourth open: %v", err4)
@@ -117,8 +112,6 @@ func TestHTTPFSInstallLayout(t *testing.T) {
 		t.Logf("%s -> %d rows; http/s3/fs mentions: %v", q, len(rows), hits)
 	}
 
-	// The definitive test: can it read a remote file at all? A public HTTPS parquet needs
-	// httpfs exactly as s3:// does.
 	if err := st4.Exec("LOAD EXTENSION httpfs", nil); err != nil {
 		t.Logf("load before remote read: %v", err)
 	}
@@ -129,9 +122,6 @@ func TestHTTPFSInstallLayout(t *testing.T) {
 		t.Log("remote LOAD FROM worked — httpfs is functional")
 	}
 
-	// The decisive question: the extension server has no build for the running liblbug
-	// (0.18.2 is a 404; 0.18.1 is the newest published). Does the previous version's binary
-	// load anyway, or does the engine reject it on a version check?
 	if explicit := os.Getenv("GRAPHIT_HTTPFS_PATH"); explicit != "" {
 		st5, err5 := Open(filepath.Join(t.TempDir(), "db5"))
 		if err5 != nil {
@@ -154,9 +144,6 @@ func TestHTTPFSInstallLayout(t *testing.T) {
 			t.Log("s3_credential EXISTS — httpfs is genuinely loaded from the explicit path")
 		}
 
-		// The documented CALL s3_credential(...) does not bind as a function. This engine
-		// configures extension options with CALL <option>=<value>, the same shape as the
-		// documented CALL HTTP_CACHE_FILE=TRUE, so probe that form.
 		for _, stmt := range []string{
 			"CALL s3_access_key_id='AKIA_TEST'",
 			"CALL s3_secret_access_key='secret_test'",
@@ -174,8 +161,6 @@ func TestHTTPFSInstallLayout(t *testing.T) {
 
 	}
 
-	// The whole point of the offline route: loading by explicit path must work, not just
-	// LOAD <name> against the managed directory.
 	for _, rel := range found {
 		name := strings.TrimSpace(strings.Split(rel, " (")[0])
 		if !strings.HasSuffix(name, ".lbug_extension") {

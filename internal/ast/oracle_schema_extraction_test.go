@@ -8,16 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// The object names here are synthetic. These tests parse a fixture, not the corpus,
-// so nothing about a real schema needs to appear in this repository.
-
-// plsqlProject is a project directory carrying THIS repository's plsql.yaml.
-//
-// The query files are not embedded in the binary — they are read from the runtime
-// directory the launcher extracts, with a project-level .graphit/ast/queries taking
-// priority (see resolveQueriesForLang). A test that relied on the runtime copy would
-// assert against whatever version happens to be installed, and would fail outright in
-// a checkout that was never installed.
 func plsqlProject(t *testing.T) string {
 	t.Helper()
 
@@ -36,11 +26,6 @@ func plsqlProject(t *testing.T) string {
 	return proj
 }
 
-// plsqlParse writes src into the project and parses it with the native PL/SQL grammar.
-//
-// It calls parseWithConfig directly because the extension-keyed tables the public entry
-// points consult are built from the runtime and user query directories only, so a
-// project-local grammar is discoverable but not selectable through them.
 func plsqlParse(t *testing.T, proj, name, src string) *ParsedFile {
 	t.Helper()
 
@@ -71,7 +56,6 @@ func plsqlFixture(t *testing.T, name, src string) *ParsedFile {
 	return plsqlParse(t, plsqlProject(t), name, src)
 }
 
-// entitiesOfLabel collects the extracted entities carrying a graph label.
 func entitiesOfLabel(pf *ParsedFile, label string) []Entity {
 	var out []Entity
 	for _, ents := range pf.Entities {
@@ -109,8 +93,6 @@ CREATE TABLE "ACME"."PEDIDO"
 	if table.Name != "PEDIDO" {
 		t.Errorf("table named %q — the schema qualifier is not the object name", table.Name)
 	}
-	// A declaration is not contained by itself; a self-context also spells the uid
-	// path::PEDIDO.PEDIDO, which nothing else points at.
 	if table.Context != "" {
 		t.Errorf("table carries context %q/%q, want none", table.Context, table.ContextType)
 	}
@@ -183,9 +165,6 @@ END PCK_VENDA;
 		}
 	}
 
-	// The package body declares the procedure, and the procedure owns its local —
-	// neither of which resolved to a real name before: a package-level body has no
-	// "_name" child, so the context came out as the keyword PROCEDURE.
 	procs := entitiesOfLabel(pf, LabelProcedure)
 	if len(procs) != 1 || procs[0].Name != "FATURAR" {
 		t.Fatalf("got %+v, want one Procedure named FATURAR", procs)

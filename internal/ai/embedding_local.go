@@ -27,11 +27,6 @@ const (
 	queryPrefix = "Represent this query for searching relevant code: "
 )
 
-// textEncoder is the part of *tokenizer.Tokenizer this client uses. Narrowed to
-// an interface so the panic path below can be exercised by a test: the panic
-// comes from inside the tokenizer on inputs that cannot be characterized from
-// outside it, so what gets tested is this package's containment of it, not the
-// upstream bug.
 type textEncoder interface {
 	EncodeSingle(string, ...bool) (*tokenizer.Encoding, error)
 }
@@ -119,13 +114,6 @@ func findORTLibrary() string {
 
 func NewLocalEmbeddingClient() (*localEmbeddingClient, error) {
 
-	// ORT FIRST, because it is the cheap check and the model is a ~132 MB download.
-	//
-	// These two were the other way round, so a machine without the runtime paid for the model
-	// before discovering it could not use it — and paid again on the next call, since nothing
-	// caches a failure. It was invisible because the callers turn this error into t.Skip or into
-	// a silent degradation to keyword-only search: the download had no observable effect except
-	// the disk it consumed.
 	if err := initONNXRuntime(); err != nil {
 		return nil, fmt.Errorf("init ONNX Runtime: %w", err)
 	}
@@ -148,11 +136,6 @@ func NewLocalEmbeddingClient() (*localEmbeddingClient, error) {
 	inputNames := []string{"input_ids", "attention_mask"}
 	outputNames := []string{"sentence_embedding"}
 
-	// Bound ONNX Runtime's thread usage. With nil options it defaults its
-	// intra-op pool to NumCPU native threads, so the background embedding loop
-	// saturates every core while the machine is otherwise idle. Cap intra-op to
-	// half the cores (min 1) and inter-op to 1 to stay machine-friendly.
-	// GRAPHIT_EMBED_THREADS overrides.
 	var sessOpts *ort.SessionOptions
 	if opts, optErr := ort.NewSessionOptions(); optErr == nil {
 		_ = opts.SetIntraOpNumThreads(boundedEmbedThreads())
@@ -177,10 +160,6 @@ func NewLocalEmbeddingClient() (*localEmbeddingClient, error) {
 	}, nil
 }
 
-// boundedEmbedThreads returns the ONNX Runtime intra-op thread count, derived
-// from the shared CPU budget so background embedding does not monopolize the
-// machine or oversubscribe cores alongside the parse and DB thread pools.
-// GRAPHIT_EMBED_THREADS overrides.
 func boundedEmbedThreads() int {
 	if s := os.Getenv("GRAPHIT_EMBED_THREADS"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
@@ -205,17 +184,6 @@ func (c *localEmbeddingClient) Embed(ctx context.Context, text string) ([]float3
 	return vecs[0], nil
 }
 
-// encodeSingle tokenizes one text, turning a panic from the tokenizer into an
-// error.
-//
-// SAFETY: sugarme/tokenizer v0.3.0 panics on some inputs instead of failing.
-// NormalizedString.Slice derives the original-string range with ConvertOffset,
-// which — unlike IntoFullRange, used on the other branch — does not clamp to the
-// string's length, so RangeOriginal can slice one byte past the end
-// ("slice bounds out of range [:551] with capacity 550"). v0.3.0 is the newest
-// release, so there is no upgrade that fixes it. Left unprotected, one snippet
-// out of a repository takes the whole process down: the daemon's embedding
-// module crash-looped on this for twelve days.
 func (c *localEmbeddingClient) encodeSingle(text string) (ids, mask []int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -240,10 +208,6 @@ func (c *localEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) (
 	allMasks := make([][]int, batchSize)
 	maxLen := 0
 
-	// A text whose tokenization failed. Its tensor row stays all-padding and its
-	// result is returned as nil, which callers already treat as "no vector for
-	// this one" — so one unencodable snippet costs its own embedding and nothing
-	// else in the batch.
 	failed := make([]bool, batchSize)
 	encodable := 0
 
@@ -273,8 +237,6 @@ func (c *localEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) (
 		}
 	}
 
-	// Every text failed, or every one encoded empty: there is no tensor to build
-	// — a shape with a zero dimension is not something to hand the model.
 	if encodable == 0 || maxLen == 0 {
 		return make([][]float32, batchSize), nil
 	}

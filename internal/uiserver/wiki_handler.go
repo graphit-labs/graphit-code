@@ -74,9 +74,6 @@ type WikiHandler struct {
 }
 
 func NewWikiHandler(hubSvc *hub.HubService) *WikiHandler {
-	// Left nil when the agent module is off, which is what makes handleAISearch refuse. The
-	// deterministic BM25 route beside it is untouched: /api/wiki/search needs no agent and keeps
-	// working, so a container without one still has a searchable wiki.
 	var client ai.Client
 	if config.AgentFeaturesEnabled(nil, nil) {
 		client, _ = ai.NewClientFromConfig()
@@ -141,10 +138,6 @@ func (h *WikiHandler) handlePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The page comes out of the index, so `path` is a SLUG rather than a location. The traversal
-	// check that used to guard the os.ReadFile is gone with the read: there is no directory to
-	// escape, and ReadPageFrom refuses anything carrying a separator as a malformed reference —
-	// which is the same protection arriving as a better error.
 	db, err := wiki.OpenWikiDB(r.Context(), absWiki)
 	if err != nil {
 		http.Error(w, "wiki index not found", http.StatusNotFound)
@@ -174,10 +167,6 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// One engine, one answer. There were three stacked here: the index's own full-text search,
-	// then a BM25 pass, then a substring scan over every page file. The third is gone with the
-	// pages, and the second went with it — `wiki.BM25Search` reads the same index this already
-	// opened, so it was a second query for the same rows.
 	results := []SearchResult{}
 	bm25Results := wiki.BM25Search(r.Context(), wikiDir, query, 30)
 	for _, br := range bm25Results {
@@ -191,24 +180,6 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, results)
 }
 
-// discoverModules lists the wikis the UI can browse for one project: its own
-// documentation wiki, its two memory scopes, and every context it has imported.
-//
-// Every wiki is global and keyed by identity, so each directory is RESOLVED through
-// internal/store — nothing here walks the project. It used to probe four places that
-// no longer hold a wiki: `<project>/.graphit/knowledge/project` and
-// `<project>/.graphit/memory/{project,user}`, which were the per-project replicas the
-// storage centralization removed, and `<global>/knowledge` / `<global>/memory`, which
-// moved under `<global>/wiki/`. All four missed at once, so the knowledge context list
-// came back empty and the memory entries vanished from the sidebar while every wiki
-// behind them was intact — a resolution bug that reads exactly like data loss.
-//
-// Which documentation contexts a project may read is a per-project record, not a
-// directory listing: they are claims in its lockfile, resolved per origin, because a
-// listing of the global wiki root would report every context anybody on this machine
-// ever installed. Memory contexts are the deliberate exception — one is a prefix of the
-// shared memory store, so the set of raw directories IS the record and there is no
-// second one to consult.
 func discoverModules(projectDir string) []WikiModule {
 	if projectDir == "" {
 		projectDir, _ = os.Getwd()
@@ -218,18 +189,12 @@ func discoverModules(projectDir string) []WikiModule {
 	var modules []WikiModule
 	add := func(id, label, dir, contextName string, requirePages bool) {
 		if dir == "" {
-			// No identity to key the store by: a project with no lockfile has no
-			// project-scoped memory, and an ephemeral session has no wiki of its own.
 			return
 		}
 		resolved := resolveDir(dir)
 		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
 			return
 		}
-		// The page count and the log both come from the index. They used to be a WalkDir counting
-		// `.md` files and an `os.Stat` of `log.md` — so a wiki whose pages had not been written yet
-		// reported as having none, and one written by this build would have reported as having
-		// nothing at all.
 		pages, hasLog := indexedModuleStats(resolved)
 		if requirePages && pages == 0 {
 			return
@@ -244,23 +209,17 @@ func discoverModules(projectDir string) []WikiModule {
 		})
 	}
 
-	// The project's own three wikis. Existence of the directory is enough — a wiki
-	// compiled but empty is a real state the explorer should open, and hiding it
-	// reads as "this module is gone" rather than "nothing is indexed yet".
 	add("knowledge", projectDisplayName(projectDir), knowledge.WikiDirFor(projectDir), "project", false)
 	add("memory-project", "Memory (project)",
 		memory.WikiDirFor(projectDir, string(memory.MemoryScopeProject)), "project", false)
 	add("memory-user", "Memory (user)",
 		memory.WikiDirFor(projectDir, string(memory.MemoryScopeUser)), "user", false)
 
-	// Imported documentation sets, resolved per origin: a Hub artifact is
-	// version-keyed, a link points at a sibling project's own wiki.
 	for _, name := range store.ContextNames(projectDir, store.KindKnowledge) {
 		add("knowledge/"+name, contextLabel(name, idNames),
 			store.KnowledgeContextDirIn(projectDir, name), name, true)
 	}
 
-	// Imported memory contexts, whose scope and id are the same name.
 	for _, name := range memory.AllContextDirs() {
 		add("memory/"+name, contextLabel(name, idNames),
 			memory.MemoryWikiGlobalDir(name, name), name, true)
@@ -279,8 +238,6 @@ func projectDisplayName(projectDir string) string {
 	return filepath.Base(projectDir)
 }
 
-// contextLabel prefers a readable project name over the ULID a Hub context published
-// by a project is keyed by.
 func contextLabel(name string, idNames map[string]string) string {
 	if readable, ok := idNames[name]; ok && readable != "" {
 		return readable
@@ -288,19 +245,6 @@ func contextLabel(name string, idNames map[string]string) string {
 	return name
 }
 
-// THE EXPLORER READS COLUMNS, NOT FRONTMATTER.
-//
-// What used to be here was a small YAML dialect: five regexes for `tags`, `type`, `sources` with
-// its required `resource`, and `confidence`, plus a hand-written frontmatter-block extractor so a
-// `type:` line inside a fenced code sample in the body could not be mistaken for metadata, plus an
-// unquoter for the escaping the generator applied so the block would parse at all. Every one of
-// those fields is a column on `chunks`, and every one of those parsers existed only because the
-// value had been serialised into a file on the way here.
-//
-// Tags are a first-class chunk column too. The explorer consumes the exact producer-owned list;
-// deriving it here used to discard user memory tags and lifecycle tags.
-
-// listWikiPages lists a wiki's pages from its index.
 func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) {
 	db, err := wiki.OpenWikiDB(ctx, wikiDir)
 	if err != nil {
@@ -339,10 +283,6 @@ func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) 
 	return pages, nil
 }
 
-// chunkPageMeta projects one indexed page into what the explorer displays.
-//
-// `Path` keeps the `<slug>.md` shape the frontend already uses to address a page, and the page
-// endpoint accepts it with or without the extension.
 func chunkPageMeta(c wiki.WikiChunk, outbound []string) WikiPageMeta {
 	pageType := c.DocType
 	if pageType == "" {
@@ -375,10 +315,6 @@ func resolveDir(dir string) string {
 	return dir
 }
 
-// indexedModuleStats reports how many pages a wiki holds and whether it has a sync history.
-//
-// `HasLog` was the existence of `log.md`. The equivalent fact is whether `sync_log` has rows, which
-// is what that page was rendered from.
 func indexedModuleStats(wikiDir string) (pages int, hasLog bool) {
 	ctx := context.Background()
 	db, err := wiki.OpenWikiDB(ctx, wikiDir)
@@ -426,9 +362,6 @@ func (h *WikiHandler) handleAISearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The catalogue's excerpt is the indexed body, cut at 300 characters — the same 300 as before.
-	// It used to be produced by reading the page file and stripping its frontmatter by hand, which
-	// is the one thing the excerpt never wanted.
 	pages := make([]WikiPageMeta, 0, len(chunks))
 	var catalog strings.Builder
 	catalog.WriteString("=== Wiki Page Catalog ===\n")
@@ -562,7 +495,7 @@ func corsJSON(h http.HandlerFunc) http.HandlerFunc {
 
 func isAllowedOrigin(origin string) bool {
 	if origin == "" {
-		return true // same-origin requests have no Origin header
+		return true
 	}
 	return strings.HasPrefix(origin, "http://localhost:") ||
 		strings.HasPrefix(origin, "http://127.0.0.1:") ||

@@ -28,20 +28,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
-// The ephemeral project is a real project that nothing knows about.
-//
-// It gets a lockfile, an identity, the framework's skills, native lifecycle hooks,
-// and an MCP server — everything an agent CLI needs when it starts. What it
-// deliberately does not get is a place in the ecosystem: no entry in
-// the global lock, no registration, no telemetry event. It exists for one search and
-// is deleted with the session.
-//
-// This is why hub.OnInit is not called even though it does most of these steps.
-// OnInit tracks: it writes a project.init event into the Hub's git store, and the
-// baseline installs it performs register themselves in the global lock. A throwaway
-// project appearing in a user's permanent records is exactly what "anonymous" has to
-// rule out. The steps OnInit performs that DO belong here are performed here.
-
 // Prepare is the livesearch.PrepareFunc that builds the workspace.
 func Prepare(ctx context.Context, s *livesearch.Session, progress func(string)) error {
 	ws := s.WorkspaceDir()
@@ -70,54 +56,31 @@ func Prepare(ctx context.Context, s *livesearch.Session, progress func(string)) 
 		return err
 	}
 
-	// The work a daemon would have done for a real project, done once, inline.
 	if err := prepareIndexes(ctx, ws, progress); err != nil {
 		return err
 	}
 
-	// After the artifacts, not before: an MCP artifact contributes servers of its
-	// own, and a configuration written first would describe the project as it was
-	// a moment ago.
 	progress("giving the agent access to the graphit tools")
 	configureTools(ws, ideName, progress)
 
 	return ctx.Err()
 }
 
-// artifactInstaller is the part of the Hub service this package uses.
-//
-// Narrowed to one method so that tests can supply one, which matters here more than
-// usual: the real implementation opens the Hub registry, and opening the registry
-// clones a git repository over the network. A test that exercised the real thing
-// would be a test that fails on a train.
 type artifactInstaller interface {
 	Install(ctx context.Context, entryID, alias, ide string, entryType hub.ArtifactType, parentID, projectDir string) (*hub.InstallResult, error)
 }
 
-// newInstaller opens the Hub. It is a variable so tests can replace it.
 var newInstaller = func(ctx context.Context) (artifactInstaller, error) {
 	registry, err := hub.NewRegistryManager(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("opening the hub registry: %w", err)
 	}
 	if !registry.IsReady() {
-		// Nothing can be resolved without the registry. Failing here is the point:
-		// a session that quietly prepared an empty workspace would answer "there is
-		// nothing about that in these sources", which reads like a fact about the
-		// sources rather than a fact about the download.
 		return nil, errors.New("the hub registry is not available, so the selected artifacts cannot be installed")
 	}
 	return hub.NewUntrackedHubService(registry), nil
 }
 
-// installArtifacts installs the Hub artifacts chosen for this session.
-//
-// Any type is allowed, and the type decides where it lands: a knowledge artifact is
-// copied into the project, a code graph goes to a shared versioned store that the
-// lockfile entry points at, a rule or skill is copied into the IDE's directories, a
-// language artifact registers a grammar. None of that is reimplemented here — it is
-// what hub.Install does, and doing it differently for the live search is how the
-// live search would come to disagree with the rest of the framework.
 func installArtifacts(ctx context.Context, ws, ideName string, artifacts []livesearch.Artifact, progress func(string)) error {
 	if len(artifacts) == 0 {
 		return nil
@@ -140,10 +103,6 @@ func installArtifacts(ctx context.Context, ws, ideName string, artifacts []lives
 		}
 		res, err := svc.Install(ctx, entryID, "", ideName, hub.ArtifactType(a.Type), "", ws)
 		if err != nil {
-			// One artifact failing is reported and the rest still installed: a
-			// search over three of four selections is worth more than no search,
-			// and the report says which one is missing so an empty answer is not
-			// mistaken for an empty source.
 			progress(fmt.Sprintf("%s could not be installed: %v", describeArtifact(a), err))
 			continue
 		}
@@ -157,11 +116,6 @@ func installArtifacts(ctx context.Context, ws, ideName string, artifacts []lives
 	return nil
 }
 
-// describeArtifact names an artifact for a person reading progress.
-//
-// The type is omitted when it was not given rather than shown as empty parentheses:
-// the type is optional precisely because the registry can resolve it, so an absent
-// one is a normal choice and not a missing value.
 func describeArtifact(a livesearch.Artifact) string {
 	name := a.ID
 	if a.Version != "" {
@@ -180,27 +134,6 @@ func countNoun(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// writeLockfile creates the project identity.
-//
-// The identity is written explicitly rather than left to SaveLockfile because
-// SaveLockfile would otherwise call resolveProjectIdentity, which runs
-// `git remote get-url origin` in
-// the directory — a command that walks UP the tree, so on a machine where the home
-// directory is itself a git repository the throwaway project would be named after
-// the user's dotfiles.
-//
-// The session ID is the project ID because one session is one project. Nothing else
-// will ever refer to it.
-//
-// Ephemeral is the field that keeps the rest of the framework from treating this like
-// somewhere to keep things. Having a lockfile with an ID is what earns a project its
-// stores, and this one has a lockfile for an unrelated reason, so the distinction has
-// to be written down where every resolver can read it.
-//
-// It MERGES rather than replaces. The lockfile is now the only record of what a project
-// has installed, so overwriting it wholesale would drop the artifact entries — and this
-// runs before the installs only by convention, which is not a property worth depending
-// on.
 func writeLockfile(ws, ideName, sessionID string) error {
 	path := filepath.Join(ws, brand.LockFileName())
 	lf, err := hub.LoadLockfile(path)
@@ -242,19 +175,8 @@ func guidanceModules() []guidanceModule {
 	}
 }
 
-// installGuidance writes only module skills. Resident mandates are composed from
-// current config by the lifecycle hook, and installed Hub rules are read from
-// their authoritative artifact by that same hook.
-//
-// A module that fails to install is reported and skipped rather than fatal. Four
-// skills still make a working search, and a session refused because one rule file
-// could not be written would be a worse outcome than a session that says so. The
-// report goes through progress, so it lands in the event log and in front of the
-// user rather than in a swallowed error.
 func installGuidance(ws, ideName string, progress func(string)) {
 	for _, m := range guidanceModules() {
-		// The user's global configuration decides which modules exist. Installing a
-		// rule the user turned off would reintroduce it for this search only.
 		if config.IsModuleDisabled(m.name, nil, nil) {
 			continue
 		}
@@ -264,13 +186,6 @@ func installGuidance(ws, ideName string, progress func(string)) {
 	}
 }
 
-// mcpServers is what this project should declare: the graphit server, plus anything
-// an installed MCP artifact brought with it.
-//
-// The set comes from the ide package rather than being assembled here, so that this
-// writer and the adapters cannot come to disagree — in particular about the
-// artifact-contributed servers, which are easy to forget and impossible to notice
-// missing until a tool the user chose is simply absent.
 func mcpServers(ws, ideName string) map[string]any {
 	installed, err := hub.InstalledArtifacts(ideName, ws)
 	if err != nil {
@@ -279,11 +194,6 @@ func mcpServers(ws, ideName string) map[string]any {
 	return ide.DesiredMCPServers(installed)
 }
 
-// localPermissionsFile is where an IDE reads which tools may be used without asking.
-//
-// Same rule as localMCPFile: only what is known. An agent told not to wait for
-// approval still waits for approval if its own configuration says to ask, so this
-// file is what makes the autonomous preamble true rather than aspirational.
 var localPermissionsFile = map[string]string{
 	"claude": filepath.Join(".claude", "settings.local.json"),
 }
@@ -305,17 +215,6 @@ func configureTools(ws, ideName string, progress func(string)) {
 	}
 }
 
-// writeToolPermissions allows every MCP server this project declares, plus the
-// agent's own reading tools.
-//
-// The allowance is written at server level — "every tool from this server" — rather
-// than as a list of tool names. The graphit server alone has upwards of seventy tools
-// and gains more with each release; a list would be wrong by omission the first time
-// one was added, and the failure is an agent that stops to ask permission in a run
-// where nobody is watching.
-//
-// Every declared server is allowed, not just graphit's: a user who chose an MCP
-// artifact chose its tools, and leaving them to prompt would make the choice useless.
 func writeToolPermissions(path, ideName string, servers map[string]any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating the settings directory: %w", err)
@@ -324,11 +223,8 @@ func writeToolPermissions(path, ideName string, servers map[string]any) error {
 	for name := range servers {
 		allow = append(allow, "mcp__"+name)
 	}
-	sort.Strings(allow) // a stable file is a diffable file
+	sort.Strings(allow)
 	if ideName == "claude" {
-		// Reading is the other half of searching: the wikis and the memory are
-		// files, and an agent that may query the graph but not open a page can only
-		// half answer.
 		allow = append(allow, "Read", "Grep", "Glob")
 	}
 	body := map[string]any{"permissions": map[string]any{"allow": allow}}
@@ -342,9 +238,6 @@ func writeToolPermissions(path, ideName string, servers map[string]any) error {
 	return nil
 }
 
-// canonicalIDE resolves the aliases the rest of the framework accepts, so that a
-// session created with "claude-code" is set up the same as one created with
-// "claude".
 func canonicalIDE(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "claude", "claude-code":

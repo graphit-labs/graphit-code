@@ -2,7 +2,7 @@ language: dart
 grammar: tree-sitter-dart
 extensions: [".dart"]
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_signature name: (identifier) @name)'
@@ -40,7 +40,6 @@ queries:
     graph_label: Field
     pattern: '(initialized_identifier (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: fields
     graph_label: Field
     pattern: '(initialized_identifier name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (decimal_floating_point_literal) (true) (false) (null_literal) (string_literal)] @value)'
@@ -55,7 +54,6 @@ queries:
     value_capture: value
     value_label: Value
 
-  # === Relation queries ===
   - data_key: decorators
     type: relation
     relation_type: DECORATOR
@@ -73,32 +71,25 @@ queries:
     relation_type: INHERITS
     pattern: '(mixins (type (type_identifier) @name))'
 
-# Export detection strategy — Dart uses underscore prefix for private
 exports:
   strategy: no_prefix
   config:
     prefix: "_"
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — Dart tree-sitter node types only
 context_types:
   class_declaration: Class
   enum_declaration: Enum
   mixin_declaration: Mixin
   extension_declaration: Extension
-  # Dart declares a subprogram's signature as its own node — the queries above
-  # read Function and Method out of function_signature/method_signature — so
-  # these have to be contexts or every parameter is attributed to the class.
+
   function_signature: Function
   method_signature: Method
 
-# Anonymous function types for variable_declarator resolution
 anon_func_types:
   - function_expression
 
-# Declaration types for docstring attachment — Dart node types only
 declaration_types:
   - class_declaration
   - enum_declaration
@@ -108,16 +99,10 @@ declaration_types:
   - function_signature
   - method_signature
 
-# Comment node types for docstring extraction — Dart has comment and documentation_comment
 comment_types:
   - comment
   - documentation_comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. && / || are wrapped in logical_and_expression /
-# logical_or_expression here, not bare tokens — do not also list them as
-# operators, or every one would be counted twice. switch_statement_case is
-# cleanly separate from switch_statement_default, unlike C/C++/Java.
 complexity:
   node_types:
     - if_statement
@@ -129,10 +114,6 @@ complexity:
     - logical_and_expression
     - logical_or_expression
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Mixin

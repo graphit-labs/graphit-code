@@ -77,7 +77,7 @@ func TestAcquireHeavyReturnsTheSlotOnRelease(t *testing.T) {
 		t.Fatalf("AcquireHeavy: %v", err)
 	}
 	release()
-	release() // idempotent: a deferred release next to an explicit one must not free twice
+	release()
 
 	second, err := AcquireHeavy(context.Background())
 	if err != nil {
@@ -138,7 +138,6 @@ func TestAcquireHeavyRefusesACancelledContextEvenWhenASlotIsFree(t *testing.T) {
 		}
 	}
 
-	// And the slot was never consumed by those refusals.
 	release, err := AcquireHeavy(context.Background())
 	if err != nil {
 		t.Fatalf("the gate leaked its slot across refused acquires: %v", err)

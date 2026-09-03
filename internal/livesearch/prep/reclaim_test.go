@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// seedResidue creates what an older version of this code left behind for a session:
-// the three stores keyed by its ID, plus its memory table.
 func seedResidue(t *testing.T, sessionID string) []string {
 	t.Helper()
 	dirs := []string{
@@ -43,8 +41,6 @@ func TestReclaimCollectsEveryStoreKeyedByTheSession(t *testing.T) {
 }
 
 func TestReclaimTouchesNothingBelongingToAnotherID(t *testing.T) {
-	// The reclaim is keyed by session ID and runs from `live remove`, so the property
-	// that matters is that it cannot reach a neighbour's store.
 	isolateHome(t)
 	mine := seedResidue(t, "01MINE")
 	theirs := seedResidue(t, "01THEIRS")
@@ -64,8 +60,6 @@ func TestReclaimTouchesNothingBelongingToAnotherID(t *testing.T) {
 }
 
 func TestReclaimingNothingIsNotAFailure(t *testing.T) {
-	// The normal case for a current session: it never created any of this, so there is
-	// nothing to find, and "nothing there" and "deleted" are the same outcome.
 	isolateHome(t)
 	Reclaim("01NEVEREXISTED")
 	Reclaim("")

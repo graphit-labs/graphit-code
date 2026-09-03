@@ -33,12 +33,10 @@ func main() { fmt.Println(brand.Name) }
 
 	entry := ConvertToCache(pf, pd, false, "")
 
-	// The edge side, which is what already worked.
 	if len(entry.Imports) < 2 {
 		t.Fatalf("expected the IMPORTS records to survive, got %d", len(entry.Imports))
 	}
 
-	// The entity side, which is the fix.
 	byName := map[string]cachedEntity{}
 	for _, e := range entry.Entities {
 		if e.Label == LabelImport {
@@ -55,8 +53,6 @@ func main() { fmt.Println(brand.Name) }
 			t.Errorf("no Import entity for %q; got %v", want, importNames(byName))
 			continue
 		}
-		// The line is the whole point of keeping the entity: the canonical Module
-		// node cannot say where in this file the statement is.
 		if e.Line <= 0 {
 			t.Errorf("Import %q has no line number", want)
 		}
@@ -65,9 +61,6 @@ func main() { fmt.Println(brand.Name) }
 		}
 	}
 
-	// The label must not come from the query file. go.yaml says Import, but 22 other
-	// grammars say Module on the same data_key, and a Module entity here would
-	// fabricate a second node for a module that already has a canonical one.
 	for _, e := range entry.Entities {
 		if e.Label == LabelModule {
 			t.Errorf("an import became a Module entity, which collides with the canonical module node: %+v", e)
@@ -75,9 +68,6 @@ func main() { fmt.Println(brand.Name) }
 	}
 }
 
-// The rule this closes: an entity the grammars declare must reach the graph. A
-// data_key that silently drops what it parsed is the defect, not a design — the only
-// legitimate drop is a parameter or field with no owner, which has nowhere to attach.
 func TestConvertToCacheDropsNoDeclaredEntity(t *testing.T) {
 	t.Parallel()
 
@@ -92,7 +82,7 @@ func TestConvertToCacheDropsNoDeclaredEntity(t *testing.T) {
 			"fields":    {{Name: "Timeout", GraphLabel: "Field", Line: 5, Context: "Cfg", ContextType: "struct"}},
 			"parameters": {
 				{Name: "ctx", GraphLabel: "Parameter", Line: 1, Context: "Run", ContextType: "function"},
-				{Name: "orphan", GraphLabel: "Parameter", Line: 9}, // no owner — the one legitimate drop
+				{Name: "orphan", GraphLabel: "Parameter", Line: 9},
 			},
 		},
 	}
@@ -134,8 +124,6 @@ func importNames(m map[string]cachedEntity) []string {
 // built, this proves it reaches the database and is reachable from its File — which is
 // the query that was an error.
 func TestPipelineWritesImportNodesToTheGraph(t *testing.T) {
-	// Staged, so this measures go.yaml in this repository rather than the copy the
-	// last sync installed into the runtime directory.
 	work := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
 
 	src := `package sample
@@ -162,7 +150,6 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 	}
 	_ = db.Close()
 
-	// Reopened, because the pipeline swaps the database file underneath.
 	graph := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = graph.Close() }()
 
@@ -176,7 +163,6 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 		t.Fatalf("expected two Import nodes, got %d: %v", len(res.Records), res.Records)
 	}
 
-	// Reachable from the file that wrote it, which is what makes it navigable.
 	contained, err := graph.Query(ctx,
 		"MATCH (f:File {path: 'sample.go'})-[:CONTAINS]->(i:Import) RETURN DISTINCT i.name", nil)
 	if err != nil {
@@ -186,7 +172,6 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 		t.Errorf("Import nodes are orphans, not contained by their file: %v", contained.Records)
 	}
 
-	// And the edge side is untouched: the canonical Module is still there.
 	mods, err := graph.Query(ctx, "MATCH (f:File {path: 'sample.go'})-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m.uid) AS n", nil)
 	if err != nil {
 		t.Fatalf("IMPORTS edges: %v", err)
@@ -246,9 +231,6 @@ func TestImportQueriesDeclareTheRightLabelForTheirKind(t *testing.T) {
 			}
 
 			entityQueries++
-			// The three forms the grammars capture, each stored under its own label:
-			// `import x`, a C `#include`, a JS `export ... from`. What the pattern
-			// matches has to agree with what the label claims.
 			switch {
 			case strings.Contains(block, "preproc_include"):
 				if label != LabelInclude {
@@ -282,7 +264,7 @@ func TestConvertToCacheForcesTheImportLabelWhenTheQueryDeclaresNone(t *testing.T
 		Path:     "Main.hs",
 		Language: "haskell",
 		Entities: map[string][]Entity{
-			"imports": {{Name: "Data.List", Line: 3}}, // no GraphLabel, as a relation query leaves it
+			"imports": {{Name: "Data.List", Line: 3}},
 		},
 	}
 
@@ -294,7 +276,6 @@ func TestConvertToCacheForcesTheImportLabelWhenTheQueryDeclaresNone(t *testing.T
 	if len(entry.Imports) != 1 {
 		t.Errorf("the IMPORTS edge record must still be produced, got %+v", entry.Imports)
 	}
-	// Never the plural fallback from the data_key.
 	if entry.Entities[0].Label == "Imports" {
 		t.Error("the label fell back to the plural data_key")
 	}
@@ -310,8 +291,8 @@ func TestImportEntityLabelHonoursTheFamilyAndReplacesTheRest(t *testing.T) {
 		LabelImport:  LabelImport,
 		LabelInclude: LabelInclude,
 		LabelExport:  LabelExport,
-		LabelModule:  LabelImport, // what 22 grammars used to say
-		"":           LabelImport, // what a type=relation query says
+		LabelModule:  LabelImport,
+		"":           LabelImport,
 		"Whatever":   LabelImport,
 	} {
 		if got := importEntityLabel(declared); got != want {
@@ -358,7 +339,6 @@ func TestPipelineWritesIncludeNodesForC(t *testing.T) {
 		t.Errorf("expected two Include nodes, got %d: %v", len(res.Records), res.Records)
 	}
 
-	// A #include is not an Import: the split is the whole point.
 	if _, err := graph.Query(context.Background(), "MATCH (i:Import) RETURN count(i) AS n", nil); err == nil {
 		t.Error("a C file produced Import nodes; #include must land as Include")
 	}

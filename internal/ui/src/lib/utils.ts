@@ -7,7 +7,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export function getApiBase(): string {
   if (window.__API_BASE__) return window.__API_BASE__
-  
+
   return '/api'
 }
 
@@ -21,16 +21,7 @@ export function isWebMode(): boolean {
   return !!window.__WEB_MODE__
 }
 
-/**
- * Whether the features that need a coding-agent CLI on the server may be offered:
- * natural-language Cypher in the AST explorer, AI search in the knowledge and memory
- * explorers, and live search.
- *
- * Read from an injected global rather than fetched, so the UI never renders a button it
- * cannot honour — not even for the one frame before a request comes back. Absent means
- * enabled: only the unified server injects it, and a missing flag must not silently
- * disable working features.
- */
+
 export function agentFeaturesEnabled(): boolean {
   return window.__AGENT_FEATURES__ !== false
 }
@@ -67,8 +58,6 @@ export function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: numb
   }) as T
 }
 
-// NOTE: doubles as the hide-filter key for nodes whose `lang` is empty (call-target
-// stubs, directories) — parentheses and spaces never occur in a real lang value.
 export const NO_LANG = '(no language)'
 
 export function langKey(lang: string): string {

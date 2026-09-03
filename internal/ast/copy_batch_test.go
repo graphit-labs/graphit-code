@@ -73,12 +73,10 @@ func TestBatchRowsEdgeCases(t *testing.T) {
 	}
 
 	rows := []map[string]any{{"a": 1}, {"b": 2}}
-	// A non-positive budget means "do not split", not "split into nothing".
 	if got := batchRows(rows, 0); len(got) != 1 || len(got[0]) != 2 {
 		t.Errorf("a zero budget must pass the rows through in one batch, got %#v", got)
 	}
 
-	// Well under the real budget: one batch, so the common case pays nothing.
 	if got := batchRows(rows, copyBatchBytes); len(got) != 1 {
 		t.Errorf("small input must stay in a single batch, got %d", len(got))
 	}

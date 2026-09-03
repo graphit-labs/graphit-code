@@ -17,10 +17,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// ScopeStore (filesystem-only, no real git)
-
-// MemoryStore helpers (filesystem parts)
-
 func TestScopeDir(t *testing.T) {
 	store := &MemoryStore{tableBase: "/wt-base"}
 	tests := []struct {
@@ -48,10 +44,7 @@ func TestMemoryStore_Dir(t *testing.T) {
 	}
 }
 
-// copyDirRecursive: error on filepath.Walk (missing rel path)
-
 func TestMemoryBranchLockFileOps(t *testing.T) {
-	// Override globalDir so all paths resolve to our temp dir
 	dir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", dir)
@@ -63,7 +56,6 @@ func TestMemoryBranchLockFileOps(t *testing.T) {
 		t.Fatalf("RegisterScope: %v", err)
 	}
 
-	// Register same ref again (idempotent)
 	if err := store.RegisterScope("memory/project/test", "ref1"); err != nil {
 		t.Fatalf("RegisterScope duplicate: %v", err)
 	}
@@ -117,7 +109,6 @@ func TestLoadMemLock_BadJSON(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	// Create malformed lock file
 	lockPath := scopeLockPath()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -143,7 +134,6 @@ func TestLoadMemLock_NilBranches(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Write valid JSON but with null branches
 	data, _ := json.Marshal(scopeLockFile{Version: 1, Scopes: nil})
 	if err := os.WriteFile(lockPath, data, 0o644); err != nil {
 		t.Fatal(err)
@@ -178,12 +168,10 @@ func TestValidateScopeRefs(t *testing.T) {
 
 	store := &MemoryStore{tableBase: filepath.Join(dir, "wt")}
 
-	// Register a branch with "user" ref (always alive)
 	if err := store.RegisterScope("branch-user", "user"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Register a branch with a file-path ref that does exist
 	lockDir := t.TempDir()
 	lockFile := filepath.Join(lockDir, "graphit.lock.json")
 	if err := os.WriteFile(lockFile, []byte("{}"), 0o644); err != nil {
@@ -193,7 +181,6 @@ func TestValidateScopeRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Register a branch with a ref that does NOT exist (stale)
 	if err := store.RegisterScope("branch-stale", "/nonexistent/stale/ref"); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +200,6 @@ func TestValidateScopeRefs_NoCleaning(t *testing.T) {
 
 	store := &MemoryStore{tableBase: filepath.Join(dir, "wt")}
 
-	// Register with "user" ref only (never cleaned)
 	if err := store.RegisterScope("branch-user", "user"); err != nil {
 		t.Fatal(err)
 	}
@@ -226,8 +212,6 @@ func TestValidateScopeRefs_NoCleaning(t *testing.T) {
 		t.Errorf("cleaned = %d; want 0", cleaned)
 	}
 }
-
-// MemoryService helpers (non-git operations)
 
 func TestNewMemoryService(t *testing.T) {
 	svc := NewMemoryService(MemoryScopeProject, "test-id", nil)
@@ -257,7 +241,6 @@ func TestMemoryService_EnsureInitialised_NilStore(t *testing.T) {
 		scope:   MemoryScopeProject,
 		scopeID: "test",
 	}
-	// With a nil store, the post-write wiki sync may fail but the completed write is not rolled back.
 	err := svc.EnsureInitialised()
 	if err != nil {
 		t.Errorf("EnsureInitialised should not return error: %v", err)
@@ -275,9 +258,6 @@ func TestMemoryWikiGlobalDir(t *testing.T) {
 	}
 }
 
-// A scope's wiki must resolve into the global directory and never into the project.
-// The project replica it used to resolve to is what made a project answer from a copy
-// nobody had refreshed.
 func TestWikiDirForIsGlobalAndNeverProjectLocal(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -308,7 +288,6 @@ func TestWikiDirForEmptyWithoutAProjectID(t *testing.T) {
 	}
 }
 func TestWikiDirFunc(t *testing.T) {
-	// A context scope is named by itself, so it resolves without any project.
 	got := WikiDir("some-context")
 	if got == "" {
 		t.Error("a context scope must resolve to a wiki path")
@@ -318,13 +297,6 @@ func TestWikiDirFunc(t *testing.T) {
 	}
 }
 
-// AllContextDirs — the set of compiled memory WIKIS is the record of imported memory contexts.
-//
-// It used to enumerate the raw markdown store, and when that root stopped existing this answered
-// empty rather than failing: `os.ReadDir` on a missing directory and on a machine with no imported
-// contexts are the same answer. So the guard asserts through the store helpers rather than against
-// literals, and it asserts the ABSENCE of the two roots that must NOT decide this — the retired raw
-// store, and the local table root, which holds nothing at all when a bucket is configured.
 func TestAllContextDirs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -339,8 +311,6 @@ func TestAllContextDirs(t *testing.T) {
 		}
 	}
 
-	// Neither of the roots that must not decide this may produce a context, even fully populated.
-	// With a bucket configured the table root is where a context has NO local directory at all.
 	mkdirs(
 		filepath.Join(home, brand.DotDir(), "memory-raw", "memory-raw-context-raw-context"),
 		filepath.Join(home, brand.DotDir(), "memory-table", "memory-table-context-table-context"),
@@ -349,7 +319,6 @@ func TestAllContextDirs(t *testing.T) {
 		t.Fatalf("AllContextDirs = %v, want none — only the compiled wiki is the record", got)
 	}
 
-	// The wiki layout: `wiki/memory/<scope>/<id>`, where a context is the scope whose halves match.
 	mkdirs(
 		store.MemoryWikiDir("project", "01ACME"),
 		store.MemoryWikiDir("user", "abc123"),
@@ -380,7 +349,6 @@ func TestAContextServiceCompilesIntoTheDirectoryItsReadersOpen(t *testing.T) {
 		t.Error("the wiki was named from the scope word, so no reader will find it")
 	}
 
-	// And the same directory is what the listing recognises as an installed context.
 	if err := os.MkdirAll(svc.WikiDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -410,9 +378,6 @@ func TestConsolidationOfAnEmptyCorpusProposesNothing(t *testing.T) {
 	}
 }
 
-// The analysis is handed its corpus, which is why it does not care where the memories were stored.
-// It used to be reached through a directory loader — the same shape RunConsolidation had before it
-// read the table — so these cases went through markdown files in a temp dir.
 func TestStaleDetectionSkipsImportantMemories(t *testing.T) {
 	oldDate := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
 
@@ -527,7 +492,7 @@ func TestRuleContent(t *testing.T) {
 	if content == "" {
 		t.Error("RuleContent returned empty")
 	}
-	if !strings.Contains(content, "Memory Management Rule") {
+	if !strings.Contains(content, "# Graphit Memory") {
 		t.Error("expected header")
 	}
 }
@@ -535,7 +500,7 @@ func TestRuleContent(t *testing.T) {
 func TestInstallSkill(t *testing.T) {
 	dir := t.TempDir()
 	err := InstallSkill(dir, "gemini")
-	_ = err // May fail if IDE adapter doesn't support the format
+	_ = err
 }
 
 func TestInstallSkill_EmptyProjectDir(t *testing.T) {
@@ -556,7 +521,6 @@ func TestRemoveSkill_EmptyProjectDir(t *testing.T) {
 
 func TestRunProjectCycle(t *testing.T) {
 	result := RunProjectCycle(context.Background())
-	// Result depends on CWD, just verify no panic
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -573,7 +537,6 @@ func TestOnHubImport(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 	t.Setenv("HOME", t.TempDir())
-	// The completion handle makes temp-directory teardown deterministic.
 	<-OnHubImport(ctx, "test-context", nil)
 }
 
@@ -587,15 +550,12 @@ func TestDetectStaleMemories_BadDateFormat(t *testing.T) {
 	}
 }
 
-// SelectiveFetch (no-op tests)
-
 func TestNewMemorySvcInternal_WithStore(t *testing.T) {
 	store := &MemoryStore{tableBase: "/repo"}
 	svc := newMemorySvcInternal(MemoryScopeProject, "id", store)
 	if svc == nil {
 		t.Fatal("expected non-nil svc")
 	}
-	// Store's Logger is set to svc.Logger (nil at this point)
 	if store.Logger != nil {
 		t.Error("expected nil Logger")
 	}
@@ -660,12 +620,6 @@ func TestExtractBodyAfterFrontmatter_Coverage(t *testing.T) {
 	}
 }
 
-// WikiDir, RawDirForScope, RawDirFor
-
-// An unknown scope name IS a context name, so it resolves — the wiki dir is derived
-// from the name, not probed on disk. This used to return "" because it stat'ed a
-// project replica, which meant a context could not be compiled until it had already
-// been compiled.
 func TestWikiDir_UnknownScopeIsAContext(t *testing.T) {
 	dir := WikiDir("nonexistent-scope-12345")
 	if dir == "" {
@@ -690,8 +644,6 @@ func TestEnsureScopeDirs_WithProjectDir_Coverage(t *testing.T) {
 		t.Fatalf("EnsureScopeDirs error: %v", err)
 	}
 }
-
-// MemoryFileName, MemoryIDFromFileName, IsImportantContent
 
 func TestIsImportantContent_Coverage(t *testing.T) {
 	if !IsImportantContent("---\nimportant: true\n---\n\nbody") {

@@ -1,14 +1,12 @@
 language: swift
 grammar: tree-sitter-swift
 extensions: [".swift"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
   READS_FIELD: { labels: [Field] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration name: (simple_identifier) @name)'
@@ -28,7 +26,6 @@ queries:
     graph_label: Variable
     pattern: '(property_declaration (pattern (simple_identifier) @name))'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: variables
     graph_label: Variable
     pattern: '(property_declaration name: (pattern bound_identifier: (simple_identifier) @name) value: [(integer_literal) (real_literal) (hex_literal) (oct_literal) (bin_literal) (boolean_literal) (line_string_literal) (nil_literal)] @value)'
@@ -38,7 +35,6 @@ queries:
     graph_label: Parameter
     pattern: '(parameter name: (simple_identifier) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -63,41 +59,30 @@ queries:
     graph_label: Field
     pattern: '(class_body (property_declaration (pattern (simple_identifier) @name)))'
 
-# Swift export detection: anything not private/fileprivate is public
 exports:
   strategy: no_modifier
   config_list:
     keywords: ["private", "fileprivate"]
 
-# Swift uses 'self' for receiver type resolution
 self_keywords: ["self.", "Self."]
 
-# Parent context type mapping — Swift tree-sitter node types only
 context_types:
   class_declaration: Class
   protocol_declaration: Protocol
   function_declaration: Function
 
-# Swift has no anonymous function expressions via variable_declarator
 anon_func_types: []
 
-# Declaration node types for docstring attachment — Swift tree-sitter only
 declaration_types:
   - function_declaration
   - class_declaration
   - protocol_declaration
   - property_declaration
 
-# Swift tree-sitter uses "comment" and "multiline_comment" node types
 comment_types:
   - comment
   - multiline_comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. && / || are wrapped in conjunction_expression /
-# disjunction_expression here, not bare tokens — do not also list them as
-# operators, or every one would be counted twice. switch_entry fires for the
-# default case too, so a bare switch with no other entry still adds one.
 complexity:
   node_types:
     - if_statement
@@ -109,10 +94,6 @@ complexity:
     - conjunction_expression
     - disjunction_expression
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Struct

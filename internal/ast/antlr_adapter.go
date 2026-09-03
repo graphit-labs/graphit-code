@@ -29,8 +29,6 @@ var nativeAntlrDrivers = map[string]antlrcommon.GrammarDriver{
 	"antlr-cobol85":    &antlrCobol85.Driver{},
 }
 
-// antlrDrivers maps grammar names to their GrammarDriver.
-// Project/user sidecar overrides take priority over native drivers.
 var antlrDrivers map[string]antlrcommon.GrammarDriver
 var antlrDriversOnce sync.Once
 
@@ -44,9 +42,6 @@ var (
 	antlrGrammarProjectDir   string
 )
 
-// setAntlrGrammarProjectDirIfUnset records the first project directory to reach
-// the parser. Test-and-set under one lock: checking with the read lock and then
-// taking the write lock would let two workers both observe "" and both write.
 func setAntlrGrammarProjectDirIfUnset(dir string) {
 	if dir == "" {
 		return
@@ -64,17 +59,6 @@ func grammarProjectDir() string {
 	return antlrGrammarProjectDir
 }
 
-// ResetAntlrCaches discards the accumulated ANTLR DFA / prediction-context caches
-// of every native grammar. Those caches are package-level, grow with each newly
-// seen input pattern and are never evicted (antlr4-go has no ClearDFA), which
-// measured ~2 MB of retention per parsed PL/SQL file — unbounded across a large
-// repository. Resetting trades a partial cache re-warm for bounded memory.
-//
-// Safe to call while other goroutines are parsing: it swaps shared static state,
-// but does so under antlrcommon's exclusive lock, and every native grammar driver
-// holds the matching read lock for the whole of a parse (construction included).
-// The caller must not already hold that read lock — i.e. call this between parses
-// on a goroutine, never from inside one.
 func ResetAntlrCaches() {
 	antlrcommon.ResetAllCaches()
 }
@@ -92,10 +76,6 @@ func initAntlrDrivers() {
 	for _, grammar := range allGrammars {
 		bin := findAntlrGrammarBin(grammar, searchDirs)
 		if bin != "" {
-			// The pool size caps how many files can be parsed concurrently
-			// through the sidecar. It was hardcoded to 2, which throttled the
-			// whole indexer to two files at a time whenever a grammar pack was
-			// installed, regardless of how many cores the machine has.
 			antlrDrivers["antlr-"+grammar] = NewSidecarDriver(bin, grammar, sysutil.CPUBudget())
 		}
 	}
@@ -134,10 +114,6 @@ func antlrGrammarSearchDirs(projectDir string) []string {
 	return dirs
 }
 
-// antlrExtMap maps file extensions to ANTLR language configs.
-// Multiple grammars may share the same extension (e.g. ".sql"); the first
-// grammar that successfully extracts entities wins.
-// antlrGrammarMap maps grammar names (e.g. "antlr-plsql") to configs.
 var antlrExtMap map[string][]*antlrLangConfig
 var antlrGrammarMap map[string]*antlrLangConfig
 
@@ -149,7 +125,6 @@ type antlrLangConfig struct {
 	Exclusive  bool
 }
 
-// antlrConfigOf builds the extension config an ANTLR query file describes.
 func antlrConfigOf(qf ExternalQueryFile) *antlrLangConfig {
 	grammar := qf.Grammar
 	if grammar == "" {
@@ -164,12 +139,6 @@ func antlrConfigOf(qf ExternalQueryFile) *antlrLangConfig {
 	}
 }
 
-// The ANTLR tables are built by rebuildExtTables together with the tree-sitter
-// ones, from a single sweep of the query directories, and initialised by the
-// init in treesitter_adapter.go. Having a second init here would run before or
-// after that one depending on file order and build the tables from sources not
-// yet read.
-
 // AntlrParser implements LanguageParser for ANTLR v4 grammars.
 type AntlrParser struct {
 	projectDir string
@@ -180,7 +149,6 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 	cfgs := enabledAntlrConfigsFor(a.projectDir, ext)
 
 	if len(cfgs) == 0 {
-		// Check for local YAML query configurations matching the extension
 		langName := strings.TrimPrefix(ext, ".")
 		qfs := resolveQueriesForLang(a.projectDir, langName, ext)
 		for _, qf := range qfs {
@@ -193,17 +161,11 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 		}
 	}
 
-	// Read the source once and share it across all candidate grammars.
 	src, readErr := ReadFileBytes(path)
 	if readErr != nil {
 		return nil, readErr
 	}
 
-	// Try each grammar exactly once: return the first that extracts entities,
-	// otherwise the first that parsed without error. (Previously a second loop
-	// re-parsed every candidate from scratch — up to 2x work, and each parse
-	// re-read the file — on files that yield no entities, e.g. .sql mapped to
-	// plsql+postgresql+tsql.)
 	var firstSuccess *ParsedFile
 	var lastErr error
 	for _, cfg := range cfgs {
@@ -237,7 +199,6 @@ func (a *AntlrParser) ParseWithGrammar(path, grammarName string, isDepend bool, 
 	if !ok {
 		return nil, fmt.Errorf("unknown ANTLR grammar: %s", grammarName)
 	}
-	// Same rule as the tree-sitter override: a disabled grammar stays disabled.
 	if !grammarEnabledIn(a.projectDir, cfg.Language, cfg.Grammar) {
 		return nil, fmt.Errorf("grammar disabled by configuration: %s", grammarName)
 	}
@@ -329,30 +290,14 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 				name = strings.Trim(name, "'\"")
 			}
 
-			// Oracle delimits quoted identifiers and string literals; the delimiters are
-			// not part of the name. This matters most for Comment entities, whose name IS
-			// the comment text: a quoted Oracle comment would otherwise
-			// carry its quotes into the UID and into search results.
 			name = unquoteIdentifier(name)
 			if name == "" {
 				continue
 			}
-			// What the grammar says can never be a name here. Before qualification, so
-			// the expression sees the bare name it was written against — and before the
-			// entity is built, because the point is that this match records NOTHING.
-			// See ExternalQueryDef.NameReject.
 			if re := nameRejectMatcher(aq.qdef.NameReject); re != nil && re.MatchString(name) {
 				continue
 			}
 
-			// A qualified target is resolved as `QUALIFIER.NAME`, and a query that
-			// asks for a qualifier and does not get one emits NOTHING.
-			//
-			// Dropping is the whole point. The unqualified edge is not a lesser
-			// version of the qualified one — it is the harmful one: every table's
-			// `ORDER_ID` collapses onto a single node, and "who writes this column"
-			// then answers with every homonym's writers as though they were one.
-			// A missing edge is a gap; that edge is a false statement.
 			if aq.qdef.QualifierCapture != "" {
 				qualifier := qualifierForMatch(match, aq.qdef.QualifierCapture)
 				if qualifier == "" {
@@ -399,9 +344,6 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 				Properties:     props,
 			})
 
-			// A declared default is a node of its own, contained by the column or
-			// variable that declares it, so "which column defaults to this" is a
-			// traversal and the value itself is reachable by search.
 			if valueText != "" && aq.qdef.ValueLabel != "" {
 				result.AddOrMergeEntity(aq.qdef.DataKey, Entity{
 					Name:        valueText,
@@ -430,8 +372,6 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 	processRelations(result, relationTypes)
 	resolveReceiverTypes(result, src, cfg.Language, langConfig)
 
-	// Comments last: attaching one to the declaration it precedes needs every
-	// entity's line to be known already.
 	extractCommentsAntlr(antlrTree, result, filepath.Base(path))
 
 	return result, nil
@@ -479,9 +419,6 @@ func newAntlrComplexityMatcher(langConfig *ExternalQueryFile) antlrComplexityMat
 	return antlrComplexityMatcher{branches: branches, operators: operators, boundary: boundary, on: true}
 }
 
-// score walks root — an entity's own declaration node — and returns 1 plus
-// one for every branch and operator match found in its subtree, skipping
-// past any nested declaration boundary.
 func (m antlrComplexityMatcher) score(root *antlrcommon.TreeNode) int {
 	if !m.on || root == nil {
 		return 1
@@ -523,7 +460,6 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 		return
 	}
 
-	// Entity start lines, so the nearest one below a comment can be found.
 	type lineName struct {
 		line int
 		name string
@@ -538,10 +474,6 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 	}
 	sort.Slice(starts, func(i, j int) bool { return starts[i].line < starts[j].line })
 
-	// Keyed by position, not by text — see extractCommentsTS's identical fix for why:
-	// two DIFFERENT comments that happen to say the same thing (a repeated license
-	// header, a copy-pasted note) are not the same comment, and keying on text
-	// silently dropped every occurrence after the first.
 	seen := map[[2]int]bool{}
 	for _, c := range tree.Comments {
 		if seen[c.Start] {
@@ -571,10 +503,6 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 			GraphLabel: LabelComment,
 		})
 		result.References = append(result.References, ReferenceInfo{
-			// See extractCommentsTS: commentUIDName(line), not the comment's own
-			// text, so this agrees with the uid cache_convert.go gives the Comment
-			// entity without embedding the text (which can be arbitrarily large) a
-			// second time.
 			SourceName: commentUIDName(c.Start[0]),
 			TargetName: target,
 			RelType:    "REFERENCES",
@@ -583,19 +511,8 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 	}
 }
 
-// commentAttachGap is how many blank or intervening lines may sit between a
-// comment and the declaration it documents. One line covers the usual case of a
-// comment written directly above; more than that and the two are unrelated text
-// that happens to be nearby.
 const commentAttachGap = 2
 
-// extractNameFromMatch returns the name a match carries.
-//
-// NameCapture is resolved with the same rule path walk as ValueCapture, so
-// `identifier`, `default_value_part/expression` and `**/literal` all mean here
-// what they mean there. It used to be a single direct-child lookup, which quietly
-// fell back to the node's own first terminal whenever the path had more than one
-// segment.
 func extractNameFromMatch(node *antlrcommon.TreeNode, nameCapture string) string {
 	if nameCapture != "" && nameCapture != "name" {
 		if target := ruleByPath(node, nameCapture); target != nil {
@@ -605,25 +522,6 @@ func extractNameFromMatch(node *antlrcommon.TreeNode, nameCapture string) string
 	return nodeName(node)
 }
 
-// extractValueFromMatch returns the text of the value a query names, or "" when
-// the match has none.
-//
-// ValueCapture is a rule path rather than a tree-sitter capture: ANTLR matches
-// are subtrees, not capture lists. `default_value_part/expression` walks two
-// direct children to reach the initialiser of `C_MAX CONSTANT NUMBER := 42`.
-//
-// Segments are direct children on purpose. Oracle's column_definition is
-//
-//	column_name (datatype)? ... (DEFAULT expression | identity_clause)? inline_constraint+
-//
-// so a DEFAULT's expression is a child of the column while a CHECK's expression
-// is buried under inline_constraint. A descendant search finds either, and
-// reported `VL NUMBER(12,2) CHECK (VL > 0)` as a column defaulting to `VL > 0`.
-// Use a `**` segment where a descendant search really is what is meant.
-//
-// The text goes through dataText, which strips the delimiters a literal carries
-// and rejects anything too long to be a name — an ANTLR expression subtree can be
-// a whole query.
 func extractValueFromMatch(node *antlrcommon.TreeNode, valueCapture string) string {
 	target := ruleByPath(node, valueCapture)
 	if target == nil {
@@ -632,10 +530,6 @@ func extractValueFromMatch(node *antlrcommon.TreeNode, valueCapture string) stri
 	return dataText(unquoteIdentifier(target.FullText()))
 }
 
-// ruleByPath walks a slash-separated rule path from node. Each segment names a
-// direct child; the segment `**` means "the nearest descendant with the rule that
-// follows it". A leading `//` is accepted and ignored, matching the XPath
-// spelling the query files already use for patterns.
 func ruleByPath(node *antlrcommon.TreeNode, path string) *antlrcommon.TreeNode {
 	if node == nil || path == "" {
 		return nil
@@ -644,7 +538,7 @@ func ruleByPath(node *antlrcommon.TreeNode, path string) *antlrcommon.TreeNode {
 	anyDepth := false
 	for _, seg := range strings.Split(path, "/") {
 		if seg == "" {
-			continue // leading "//" or a doubled separator
+			continue
 		}
 		if seg == "**" {
 			anyDepth = true
@@ -666,10 +560,6 @@ func ruleByPath(node *antlrcommon.TreeNode, path string) *antlrcommon.TreeNode {
 	return current
 }
 
-// nearestDescendantByRule is a breadth-first search, so the shallowest match
-// wins. A depth-first walk would reach the innermost node of a nested chain,
-// which is the same text by a longer route on a good day and the wrong operand
-// on a bad one.
 func nearestDescendantByRule(node *antlrcommon.TreeNode, rule string) *antlrcommon.TreeNode {
 	queue := append([]*antlrcommon.TreeNode(nil), node.Children...)
 	for len(queue) > 0 {
@@ -686,9 +576,6 @@ func nearestDescendantByRule(node *antlrcommon.TreeNode, rule string) *antlrcomm
 	return nil
 }
 
-// nodeName is the name a matched node carries: the object name of a qualified
-// name when the node is shaped like one, the leading terminal otherwise (a
-// comment's text, a COMMIT, an expression).
 func nodeName(node *antlrcommon.TreeNode) string {
 	if name := node.QualifiedNameText(); name != "" {
 		return name
@@ -725,7 +612,6 @@ func contextRulePredicate(langConfig *ExternalQueryFile) func(string) bool {
 	}
 }
 
-// qualifierAnchors is the set of enclosing rules the language's queries climb to.
 func qualifierAnchors(langConfig *ExternalQueryFile) map[string]bool {
 	var anchors map[string]bool
 	for _, q := range langConfig.Queries {
@@ -744,15 +630,6 @@ func qualifierAnchors(langConfig *ExternalQueryFile) map[string]bool {
 	return anchors
 }
 
-// qualifierForMatch reads the text that qualifies a captured target.
-//
-// The first segment names an ANCESTOR rule to climb to, because a qualifier is
-// typically a sibling subtree rather than a descendant: the table of an UPDATE sits
-// beside its SET clause, not under it. The remaining segments walk down from there
-// with the same rule-path rules as every other capture.
-//
-// Empty means "could not qualify", and the caller drops the edge rather than emitting
-// an unqualified one.
 func qualifierForMatch(match antlrcommon.MatchResult, capture string) string {
 	anchor, rest, _ := strings.Cut(capture, "/")
 	if anchor == "" {
@@ -782,24 +659,6 @@ func qualifierForMatch(match antlrcommon.MatchResult, capture string) string {
 	return dataText(unquoteIdentifier(target.FullText()))
 }
 
-// resolveParentContextAntlr names the declaration a match belongs to.
-//
-// It reads the enclosing contexts the matcher tracked, not the immediate parent. Reading
-// the parent was wrong for anything nested more than one level: for
-// //parameter/parameter_name the parent is `parameter`, so every PL/SQL parameter came
-// out with an empty context — and ConvertToCache drops parameters and fields that have
-// none, discarding 967 of 2732 entities across a 367-file sample of the Oracle corpus.
-//
-// selfName and selfLabel are the entity being placed, because the nearest context is
-// often the entity's OWN declaration: the match for //create_table/table_name sits
-// inside that create_table. Naming itself as its parent made every top-level object
-// contain an object of its own name — a CONTAINS self-loop per table, procedure and
-// package, and a uid spelled path::X.X. Skipping the self link answers with what
-// actually encloses it: the package around a procedure, nothing at all around a table.
-// A constructor still gets its class, since there the labels differ.
-//
-// The immediate parent is still consulted as a fallback, which keeps the previous
-// behaviour for grammars whose context node IS the parent.
 func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *ExternalQueryFile,
 	selfName, selfLabel string) (string, string) {
 	if langConfig == nil || len(langConfig.ContextTypes) == 0 {
@@ -833,34 +692,6 @@ func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *Extern
 	return "", ""
 }
 
-// declarationName returns the identifier a declaration node declares.
-//
-// Not the first terminal: a declaration starts with keywords, so create_function_body
-// reported "CREATE" and every entity inside it was attributed to a context named CREATE —
-// which no node has, leaving HAS_PARAMETER edges pointing at a phantom.
-//
-// Not the first "_name" child either, which is what this used to read. A declaration
-// spells its name qualified — `CREATE TABLE (schema_name '.')? table_name` — so the
-// first such child is the SCHEMA: every column of every table in an Oracle export was
-// attributed to one phantom parent named GC. TreeNode.DeclaredNameText walks the
-// qualified name to its last component instead, and finds names that no "_name" child
-// carries (create_type hides it inside type_definition; a package-level function_body
-// declares a plain identifier, which used to resolve to the keyword FUNCTION).
-//
-// Falls back to the first terminal so a grammar without a name-shaped child behaves as
-// it did before.
-// contextNameAntlr reads the name of a context node, honouring context_name_paths.
-//
-// The default — a declared name field, else the node's first terminal — is right for
-// the many rules built as `KEYWORD name ...`, and wrong wherever the name is not the
-// first thing or sits several rules down. It does not fail loudly: the first terminal
-// of a `CREATE UNIQUE INDEX ...` is the word CREATE, so every entity inside such a
-// statement was owned by a context named "CREATE".
-//
-// `context_name_paths` already existed in the query file schema and was read only by
-// the tree-sitter backend, which is an asymmetry between backends rather than a fact
-// about any language: the same YAML key now answers the same question on both, using
-// the same rule-path walker as every other capture.
 func contextNameAntlr(node *antlrcommon.TreeNode, langConfig *ExternalQueryFile) string {
 	if langConfig != nil {
 		if path := langConfig.ContextNamePaths[node.Rule]; path != "" {
@@ -869,9 +700,6 @@ func contextNameAntlr(node *antlrcommon.TreeNode, langConfig *ExternalQueryFile)
 					return name
 				}
 			}
-			// A declared path that does not resolve means the yaml and the grammar
-			// disagree. Falling through to the first terminal would answer "CREATE"
-			// and look like it worked, so this context simply has no name.
 			return ""
 		}
 	}
@@ -885,8 +713,6 @@ func declarationName(node *antlrcommon.TreeNode) string {
 	return unquoteIdentifier(node.FirstTerminalText())
 }
 
-// unquoteIdentifier strips the delimiters Oracle puts around quoted identifiers and string
-// literals, so "GC" becomes GC and 'some text' becomes some text.
 func unquoteIdentifier(s string) string {
 	if len(s) >= 2 {
 		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
@@ -956,12 +782,6 @@ func queryFileClaims(qf ExternalQueryFile, ext string) bool {
 	return false
 }
 
-// enabledAntlrConfigsFor is the registered dialects for an extension, minus the
-// ones the project disabled.
-//
-// An extension maps to a LIST here — .sql is claimed by plsql, postgresql and
-// tsql — so the filter narrows the list instead of rejecting the extension: one
-// dialect can be off while the others stay on.
 func enabledAntlrConfigsFor(projectDir, ext string) []*antlrLangConfig {
 	extTablesMu.RLock()
 	registered := antlrExtMap[ext]

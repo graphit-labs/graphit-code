@@ -10,17 +10,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
-// Can a relationship table declare MORE THAN ONE FROM/TO pair on icebug storage?
-//
-// This is the question the whole folded layout — and therefore the label transpiler — rests on. If
-// a multi-pair relationship table worked, node tables could stay per-label, `MATCH (f:Function)`
-// would be native, every type would still be ONE table, no alternatives anywhere, and no
-// transpiler would be needed.
-//
-// It was measured as broken BEFORE the row-group fix, and three other defects blamed on the engine
-// turned out to be that same fix, so the measurement is re-run here rather than trusted.
-
-// writeLabelNodeTable writes a per-label icebug node table: dense id plus a name.
 func writeLabelNodeTable(t *testing.T, dest, label string, rows int) {
 	t.Helper()
 
@@ -53,9 +42,6 @@ func TestIcebugMultiPairRelTableCannotWork(t *testing.T) {
 	writeLabelNodeTable(t, filepath.Join(dir, "nodes_NA.parquet"), "NA", rowsA)
 	writeLabelNodeTable(t, filepath.Join(dir, "nodes_NB.parquet"), "NB", rowsB)
 
-	// One CSR: sources are NA's dense ids, targets are dense ids too — and THAT is the problem the
-	// count cannot express. A target id is resolved inside the declared TO table's own dense space,
-	// so with two TO tables the same number means two different nodes.
 	csr := make([]csrEdge, 0, edges)
 	for i := 0; i < edges; i++ {
 		csr = append(csr, csrEdge{source: uint64(i), target: uint64(i) % rowsB})
@@ -83,7 +69,6 @@ func TestIcebugMultiPairRelTableCannotWork(t *testing.T) {
 		}
 	}
 
-	// Both node tables read back correctly — so whatever goes wrong is the relationship table.
 	for _, c := range []struct {
 		table string
 		want  int64
@@ -137,8 +122,6 @@ func TestIcebugFormatHasNoPerPairFile(t *testing.T) {
 			t.Errorf("expected %s in the tool output: %v", want, statErr)
 		}
 	}
-	// One indices file per relationship TABLE. If the format ever grows a per-pair file, this is
-	// where it shows up, and the folded layout can be revisited.
 	var indices int
 	for _, f := range files {
 		if len(f) > 8 && f[:8] == "indices_" {

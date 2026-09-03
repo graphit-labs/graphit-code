@@ -10,7 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// tableWith writes records into a fresh local memories table and returns it.
 func tableWith(t *testing.T, records ...MemoryRecord) *MemoryTable {
 	t.Helper()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
@@ -82,8 +81,6 @@ func TestGenerateMemoryWikiFromTableCompilesTheChain(t *testing.T) {
 		t.Fatal("the index does not hold one live chunk and one superseded chunk")
 	}
 
-	// The chain columns are what make a revision walkable. Without them a compiled memory is a
-	// revision nobody can step out of.
 	if live.EntityID != id || superseded.EntityID != id {
 		t.Errorf("entity ids = %q and %q, want both %q", live.EntityID, superseded.EntityID, id)
 	}
@@ -103,8 +100,6 @@ func TestGenerateMemoryWikiFromTableCompilesTheChain(t *testing.T) {
 		t.Error("the live memory lost its important flag")
 	}
 
-	// The two share a title, so the superseded page must NOT collide with the live one under a
-	// positional suffix — its slug carries its own address.
 	if live.Slug == superseded.Slug {
 		t.Fatalf("both revisions compiled to the same slug %q", live.Slug)
 	}
@@ -138,9 +133,6 @@ func TestGenerateMemoryWikiFromTableIsIncremental(t *testing.T) {
 	}
 }
 
-// A record whose content hash changed must be recompiled. The gate is only useful if it can tell
-// the two cases apart, and a gate that always skips is the bug this project has already shipped
-// once.
 func TestGenerateMemoryWikiFromTableRecompilesAChangedRecord(t *testing.T) {
 	ctx := context.Background()
 	const id = "01ABCDEFGHIJKLMNOPQRSTUVWX"

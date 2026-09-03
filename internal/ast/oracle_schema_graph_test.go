@@ -58,7 +58,6 @@ END PCK_VENDA;
 	db := rebuildTestStore(t, cache, proj)
 	ctx := context.Background()
 
-	// The columns of the table, under the table's own name.
 	rows, err := db.Query(ctx,
 		"MATCH (t:`Table` {name: 'PEDIDO'})-[:CONTAINS]->(c:`Column`) RETURN DISTINCT c.name", nil)
 	if err != nil {
@@ -77,7 +76,6 @@ END PCK_VENDA;
 		t.Errorf("columns = %v, want ID_PEDIDO and VL_TOTAL under PEDIDO", cols)
 	}
 
-	// Who writes it — and the target must be the declared node, not a second one.
 	rows, err = db.Query(ctx,
 		"MATCH (p:`Procedure` {name: 'FATURAR'})-[:UPDATES]->(t:`Table`) RETURN DISTINCT t.name AS n", nil)
 	if err != nil {
@@ -102,7 +100,6 @@ END PCK_VENDA;
 		t.Errorf("UPDATES from FATURAR count = %v, want 1", n)
 	}
 
-	// A table only DML mentions is still recorded, as a stub.
 	rows, err = db.Query(ctx,
 		"MATCH (p:`Procedure` {name: 'FATURAR'})-[:INSERTS]->(t:`Table`) RETURN DISTINCT t.name AS n", nil)
 	if err != nil {
@@ -119,8 +116,6 @@ END PCK_VENDA;
 		t.Error("FATURA_EXTERNA is not marked as a stub, though no DDL declares it")
 	}
 
-	// Nothing may be named after the schema — a node-only predicate scan is
-	// answered by the engine directly (no logical rel in the pattern).
 	rows, err = db.Query(ctx, "MATCH (n) WHERE n.name = 'ACME' RETURN n.name AS name", nil)
 	if err != nil {
 		t.Fatalf("query schema-named node: %v", err)
@@ -129,10 +124,6 @@ END PCK_VENDA;
 		t.Errorf("nodes named after the schema: %v", rows.Records)
 	}
 
-	// Nothing may contain itself: the export contract declares self-loops live
-	// once, in the forward member — no direction whose source equals target.
-	// The manifest invariant carries the policy; verify the members carry no
-	// self-referencing row by counting forward edges that equal both ends.
 	man := db.canonical
 	if man == nil {
 		t.Fatal("no manifest on mounted graph")
@@ -141,8 +132,6 @@ END PCK_VENDA;
 		for _, m := range g.Members {
 			rows, err = db.Query(ctx, "MATCH (a:`"+m.From+"`)-[:`"+m.Table+"`]->(b:`"+m.To+"`) RETURN DISTINCT a.uid, b.uid", nil)
 			if err != nil {
-				// logical-type patterns are planner tasks; the physical member
-				// table is what the engine knows.
 				continue
 			}
 			for _, r := range rows.Records {

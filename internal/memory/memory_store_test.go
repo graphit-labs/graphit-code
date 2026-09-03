@@ -6,14 +6,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// An unset bucket is local-only mode, which every caller must keep working in — it is what an
-// unset memory.repo used to mean, and it is the mode the framework runs in until setup names a
-// bucket.
-//
-// The store no longer reports whether a bucket is configured, because it no longer holds an S3
-// client to answer with: a scope's table reaches object storage through its own URI. What this
-// asserts instead is the property that mattered — construction succeeds and yields the local root,
-// so every caller keeps working with no bucket at all.
 func TestNewMemoryStoreWithoutABucketIsLocalOnlyNotAnError(t *testing.T) {
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 

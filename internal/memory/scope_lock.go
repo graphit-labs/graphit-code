@@ -15,8 +15,6 @@ type scopeMeta struct {
 	LastUsed string   `json:"lastUsed"`
 }
 
-// scopeLockFile records which projects reference which memory scopes, so a scope's local
-// directory can be reclaimed once nothing points at it.
 type scopeLockFile struct {
 	Version int                   `json:"version"`
 	Scopes  map[string]*scopeMeta `json:"scopes"`
@@ -152,19 +150,6 @@ func (m *MemoryStore) ValidateScopeRefs() (int, error) {
 	return 0, nil
 }
 
-// PruneScope deletes a scope's local directory and its entry in the scope lock, regardless of
-// what is registered against it.
-//
-// DESTRUCTIVE, and deliberately unconditional: DeregisterScope only prunes when the last
-// reference goes away, which is right for a scope somebody might still be using and wrong for
-// one that should never have been created. This is for the second case — reclaiming the project
-// scope an ephemeral live search session used to acquire — where leaving the scope behind
-// because its bookkeeping looks alive is the bug, not the safeguard.
-//
-// The caller is responsible for knowing the scope is disposable. Nothing here checks, because
-// nothing here can: a scope holding a session's memories and one holding a team's are the same
-// shape. And it is LOCAL ONLY — the remote prefix survives, because another unit may still be
-// reading the table it addresses.
 func (m *MemoryStore) PruneScope(scope, scopeID string) error {
 	if scope == "" || scopeID == "" {
 		return fmt.Errorf("memory scope and id are required")
@@ -182,14 +167,6 @@ func (m *MemoryStore) PruneScope(scope, scopeID string) error {
 	return nil
 }
 
-// pruneLocalScope removes a scope's local table directory.
-//
-// It used to also run `git branch -D`. There is no branch now, and no ref to delete: the
-// directory and the lock entry are the whole of this unit's record of the scope.
-//
-// 🔒 IT REMOVES THE TABLE, and it used to remove the raw markdown directory — which stopped
-// existing without this noticing, so reclaiming a scope left the only copy of its data behind while
-// deleting the bookkeeping that said the scope was there.
 func (m *MemoryStore) pruneLocalScope(scopePath string) {
 	dir := m.scopeDir(scopePath)
 	if err := os.RemoveAll(dir); err != nil {

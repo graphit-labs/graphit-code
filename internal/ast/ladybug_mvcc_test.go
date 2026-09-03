@@ -88,7 +88,6 @@ func TestLadybugSharedDatabaseMVCC(t *testing.T) {
 	}
 	t.Logf("baseline rows visible to reader: %d", base)
 
-	// Open a write transaction and mutate without committing.
 	if err := exec(writer, "BEGIN TRANSACTION"); err != nil {
 		t.Fatalf("BEGIN: %v", err)
 	}
@@ -175,7 +174,6 @@ func TestLadybugSeparateHandleDuringWrite(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	// Second, independent handle — read-only, as the MCP reader opens it.
 	roCfg := lbug.DefaultSystemConfig()
 	roCfg.ReadOnly = true
 	rdb, err := lbug.OpenDatabase(path, roCfg)
@@ -193,7 +191,6 @@ func TestLadybugSeparateHandleDuringWrite(t *testing.T) {
 	defer r.Close()
 	t.Logf(">>> second read-only Database handle opened while writer holds the file")
 
-	// Writer mutates in place; can the independent reader still query?
 	if err := run(w, "CREATE (:T {id: 2})"); err != nil {
 		t.Fatalf("write after reader attached: %v", err)
 	}

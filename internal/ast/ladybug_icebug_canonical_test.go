@@ -19,18 +19,11 @@ const canonicalImpactQuery = "MATCH (caller)-[:CALLS*1..3]->(t) WHERE " +
 	"(t.name = 'runQuery' OR t.uid IN ['internal/ast/ladybug.go::runQuery']) " +
 	"RETURN DISTINCT caller.uid AS uid"
 
-// uidSetsEqual compares two result sets by their uid column; empty-on-both-sides never
-// counts as equivalence.
 func uidSetsEqual(a, b *QueryResult) bool {
 	as, bs := recordStrings(a, "uid"), recordStrings(b, "uid")
 	return len(as) > 0 && len(bs) > 0 && sameStrings(as, bs)
 }
 
-// buildCanonicalFixture builds a small graph as a CANONICAL icebug bundle directly
-// from shards (the only way a store exists now), mounts it in-memory, and returns the
-// mounted backend. The "native" counterpart used to be a file LadybugDB; it is gone,
-// so tests that compare behavior compare against the engine's own physical member
-// tables instead.
 func buildCanonicalFixture(t *testing.T) (mounted *LadybugBackend) {
 	t.Helper()
 	names := []string{"a", "b", "c", "d", "e", "f"}
@@ -85,7 +78,6 @@ func TestMountedCanonicalUnboundedTraversalMatchesNative(t *testing.T) {
 		t.Fatalf("canonical planner: %v", err)
 	}
 	gotUIDs := recordStrings(got, "uid")
-	// Uncapped means the whole five-hop chain answers (a..e), not a prefix.
 	if len(gotUIDs) != 5 {
 		t.Fatalf("uncapped traversal returned %v, want the full 5-hop chain a..e", gotUIDs)
 	}
@@ -113,15 +105,11 @@ func TestMountedCanonicalCountDistinct(t *testing.T) {
 			got = ladybug.Int64(v)
 		}
 	}
-	if got != 3 { // e, d, c — bounded at 3 hops
+	if got != 3 {
 		t.Fatalf("count(DISTINCT caller.uid)=%d want 3", got)
 	}
 }
 
-// The name this test used to carry — "unsupported multi-hop" — was the same mislabelling
-// the error message made: its query is refused for its PROJECTION, and it would be refused
-// identically at one hop. It now asserts the rule that actually fires, which is the missing
-// DISTINCT (checked before the projection's shape is considered).
 func TestMountedCanonicalUnsupportedProjectionFailsClosed(t *testing.T) {
 	mounted := buildCanonicalFixture(t)
 	_, err := mounted.Query(context.Background(),
@@ -327,7 +315,7 @@ func TestMountedCanonicalS3Battery(t *testing.T) {
 	}
 	prefix := s3store.JoinKey("diagnostics",
 		fmt.Sprintf("t18-canonical-battery-%d", time.Now().UnixNano()))
-	t.Cleanup(func() {}) // KEEP: nothing is deleted
+	t.Cleanup(func() {})
 
 	native := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(storePath), IcebugDir: filepath.Join(filepath.Dir(storePath), "graph.icebug")})
 	if err := native.connect(); err != nil {

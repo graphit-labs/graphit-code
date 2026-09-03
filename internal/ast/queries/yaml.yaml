@@ -2,35 +2,23 @@ language: yaml
 grammar: tree-sitter-yaml
 extensions: [".yaml", ".yml"]
 queries:
-  # === Entity queries ===
-  # YAML is a key/value format: each mapping key is a Mapping node and its scalar
-  # value a Value node contained by it, so both halves are reachable by full-text
-  # search:
-  #   Mapping "host" → Value "db.example.com"
-  #
-  # Only flow_node values are captured. A block_node value is a nested mapping or
-  # a sequence — a document, not a name — and is expressed by the nesting queries
-  # further down instead.
+
   - data_key: mappings
     graph_label: Mapping
     pattern: '(block_mapping_pair key: (flow_node) @name value: (flow_node) @value)'
     value_capture: value
     value_label: Value
 
-  # Keys whose value is a nested mapping or a sequence still need their own node.
   - data_key: mappings
     graph_label: Mapping
     pattern: '(block_mapping_pair key: (flow_node) @name)'
 
-  # Flow mappings — {host: db, port: 5432} on one line.
   - data_key: mappings
     graph_label: Mapping
     pattern: '(flow_pair key: (flow_node) @name value: (flow_node) @value)'
     value_capture: value
     value_label: Value
 
-  # Sequence items belong to the key that names the sequence — both the block
-  # form (`- x` on its own line) and the flow form (`[x, y]`).
   - data_key: sequence_items
     graph_label: Value
     pattern: '(block_mapping_pair key: (flow_node) @parent value: (block_node (block_sequence (block_sequence_item (flow_node) @name))))'
@@ -49,16 +37,11 @@ queries:
     graph_label: Tag
     pattern: '(tag) @name'
 
-# YAML is a data format — no export system
 exports:
   strategy: none
 
-# YAML does not use self/this
 self_keywords: []
 
-# YAML has no meaningful parent context types for code analysis
-# A mapping is contained by the mapping that encloses it. tree-sitter-yaml's
-# pair nodes have no "name" field -- the name is the `key` field's text.
 context_types:
   block_mapping_pair: Mapping
   flow_pair: Mapping
@@ -67,22 +50,13 @@ context_name_paths:
   block_mapping_pair: key
   flow_pair: key
 
-# YAML has no anonymous function types
 anon_func_types: []
 
-# Declaration node types — minimal for YAML
 declaration_types: []
 
-# YAML tree-sitter uses a single "comment" node type for # comments
 comment_types:
   - comment
 
-# No cyclomatic complexity: YAML is a data format with no control flow.
-
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Mapping
   - Comment

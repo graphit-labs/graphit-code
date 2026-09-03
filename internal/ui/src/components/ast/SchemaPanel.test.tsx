@@ -4,10 +4,6 @@ import { SchemaPanel } from './SchemaPanel'
 import { NO_LANG } from '@/lib/utils'
 import type { SchemaLangGroup, SchemaNodeStat } from '@/api/ast'
 
-// The panel used to list every label in one flat run, so Function, CssClass and Heading
-// sat side by side with nothing saying which language produced which. It now groups the
-// labels under their language, which is what these tests pin down.
-
 const LANGS: SchemaLangGroup[] = [
   { lang: 'go', count: 5, labels: [{ label: 'Function', count: 3 }, { label: 'Comment', count: 2 }] },
   { lang: 'css', count: 2, labels: [{ label: 'CssClass', count: 2 }] },
@@ -47,7 +43,6 @@ function renderPanel(over: Partial<React.ComponentProps<typeof SchemaPanel>> = {
   return { ...render(<SchemaPanel {...props} />), props }
 }
 
-// A group is the box whose header carries the language name.
 function group(lang: string): HTMLElement {
   const name = screen.getByText(lang)
   const box = name.closest('div.rounded-lg.border')
@@ -70,7 +65,6 @@ describe('SchemaPanel', () => {
   it('shows a label under every language that produced it, with that language’s count', () => {
     renderPanel()
 
-    // Function is Go's and the stubs' — 3 there, 4 here, never one row of 7.
     expect(within(group('go')).getByText('3')).toBeTruthy()
     expect(within(group(NO_LANG)).getByText('4')).toBeTruthy()
     expect(screen.queryByText('7')).toBeNull()
@@ -99,7 +93,7 @@ describe('SchemaPanel', () => {
     expect(screen.getByText('go')).toBeTruthy()
     expect(within(group('go')).queryByText('Function')).toBeNull()
     expect(within(group('go')).queryByText('Comment')).toBeNull()
-    // Only the collapsed one folds up.
+
     expect(within(group('css')).getByText('CssClass')).toBeTruthy()
   })
 

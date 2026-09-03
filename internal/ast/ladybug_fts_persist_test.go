@@ -77,7 +77,6 @@ func TestLadybugFTSSurvivesReopenAndRename(t *testing.T) {
 		return out
 	}
 
-	// Build exactly as the implementation does: schema, FTS index, then bulk insert.
 	s1 := openAt(pathA)
 	for _, q := range []string{
 		"CREATE NODE TABLE T(uid STRING, name STRING, PRIMARY KEY(uid))",
@@ -109,7 +108,6 @@ func TestLadybugFTSSurvivesReopenAndRename(t *testing.T) {
 		t.Fatal("index empty in the same session — contradicts TestLadybugFTSBulkInsertMaintainsIndex")
 	}
 
-	// (2) CHECKPOINT then close and reopen the SAME path.
 	if r, err := s1.conn.Query("CHECKPOINT"); err != nil {
 		t.Logf("    CHECKPOINT error: %v", err)
 	} else {
@@ -122,7 +120,6 @@ func TestLadybugFTSSurvivesReopenAndRename(t *testing.T) {
 	t.Logf("(2) after CHECKPOINT + close + reopen same path -> %v", afterReopen)
 	survivesReopen := len(afterReopen) > 0
 
-	// (3) Close and rename the database file (and its WAL) to a new path, as the swap does.
 	closeSession(s2)
 	if err := os.Rename(pathA, pathB); err != nil {
 		t.Fatalf("rename db: %v", err)

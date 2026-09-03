@@ -12,11 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
-// The wiki index on LanceDB, tested against the real engine.
-//
-// A wiki has no graph, so there is one store and the cross-reference walk is Go over one-hop
-// lookups — which is what these tests exercise rather than a graph traversal that does not exist.
-
 func newWikiForTest(t *testing.T) *WikiDB {
 	t.Helper()
 	db, err := OpenWikiDBAt(context.Background(),
@@ -83,8 +78,6 @@ func hasSlug(hay []string, needle string) bool {
 	}
 	return false
 }
-
-// ---------- rebuild and search ----------
 
 func TestLanceWikiRebuildAndKeywordSearch(t *testing.T) {
 	ctx := context.Background()
@@ -231,8 +224,6 @@ func TestLanceWikiRebuildDropsRemovedPages(t *testing.T) {
 	}
 }
 
-// ---------- cross-references ----------
-
 func TestLanceWikiXRefsAreBidirectionalAndWalkDepth(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
@@ -247,7 +238,6 @@ func TestLanceWikiXRefsAreBidirectionalAndWalkDepth(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 
-	// Depth 1 from a reaches b only.
 	one, err := db.FindXRefs(ctx, "a", 1)
 	if err != nil {
 		t.Fatalf("xrefs: %v", err)
@@ -263,7 +253,6 @@ func TestLanceWikiXRefsAreBidirectionalAndWalkDepth(t *testing.T) {
 		t.Errorf("depth 1 from a reached c, which is two hops away: %v", oneSlugs)
 	}
 
-	// Depth 2 reaches c.
 	two, err := db.FindXRefs(ctx, "a", 2)
 	if err != nil {
 		t.Fatalf("xrefs: %v", err)
@@ -276,7 +265,6 @@ func TestLanceWikiXRefsAreBidirectionalAndWalkDepth(t *testing.T) {
 		t.Errorf("depth 2 from a did not reach c: %v", twoSlugs)
 	}
 
-	// b sees a as INBOUND, which is what makes "what links here" answerable.
 	fromB, err := db.FindXRefs(ctx, "b", 1)
 	if err != nil {
 		t.Fatalf("xrefs: %v", err)
@@ -315,8 +303,6 @@ func TestLanceWikiSlugWithAQuoteIsFilteredSafely(t *testing.T) {
 	}
 }
 
-// ---------- browse ----------
-
 func TestLanceWikiBrowseFiltersAndIsOrdered(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
@@ -347,16 +333,11 @@ func TestLanceWikiBrowseFiltersAndIsOrdered(t *testing.T) {
 	if len(onlySpecs) != 2 {
 		t.Fatalf("browse by doc_type returned %d, want 2: %+v", len(onlySpecs), onlySpecs)
 	}
-	// A filter query has no ranking channel, so the order is imposed here and must be stable.
 	if onlySpecs[0].Slug != "spec-a" || onlySpecs[1].Slug != "spec-b" {
 		t.Errorf("browse is not ordered by slug: %v, %v", onlySpecs[0].Slug, onlySpecs[1].Slug)
 	}
 }
 
-// ---------- sync log ----------
-
-// The sync log is the history OF rebuilds, so a rebuild must not erase it. Clearing it every time
-// would leave it permanently one entry long, which reads as "this wiki has only ever synced once".
 func TestLanceWikiSyncLogSurvivesARebuild(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
@@ -386,8 +367,6 @@ func TestLanceWikiSyncLogSurvivesARebuild(t *testing.T) {
 		t.Errorf("the JSON-encoded slug list did not round-trip: %+v", log[0].Added)
 	}
 }
-
-// ---------- embeddings ----------
 
 func TestLanceWikiEmbeddingsAttachBySlugAndAreCounted(t *testing.T) {
 	ctx := context.Background()
@@ -426,7 +405,6 @@ func TestLanceWikiEmbeddingsAttachBySlugAndAreCounted(t *testing.T) {
 		t.Errorf("pending after embedding a = %+v, want just b", slugsOfChunks(pending))
 	}
 
-	// Attaching a vector must not duplicate the chunk. Upsert keyed by slug is what prevents it.
 	if _, slugs, _, _, err := db.Stats(ctx); err != nil {
 		t.Fatal(err)
 	} else if slugs != 2 {
@@ -486,8 +464,6 @@ func TestLanceWikiSyncTouchesOnlyTheChangedDocument(t *testing.T) {
 	}
 }
 
-// ---------- hybrid ----------
-
 func TestLanceWikiHybridSearchUsesTheEngineFusion(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
@@ -524,8 +500,6 @@ func TestLanceWikiHybridSearchUsesTheEngineFusion(t *testing.T) {
 
 // A published wiki is read-only, and the write paths have to refuse rather than half-apply.
 func TestLanceWikiSyncRefusedWhenRemote(t *testing.T) {
-	// Constructed directly against an s3:// URI so no bucket is needed: Open marks the store
-	// remote from the scheme, and every write consults that flag.
 	db, err := OpenWikiDBAt(context.Background(), lancestore.Config{URI: "s3://example/wiki"})
 	if err != nil {
 		t.Skipf("cannot open a remote store in this environment: %v", err)

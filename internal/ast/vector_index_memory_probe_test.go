@@ -27,10 +27,6 @@ func TestVectorIndexCacheEmbeddings(t *testing.T) {
 	}
 	const n = 80_000
 
-	// indexFirst is the cell the earlier probe never covered: it measured "index before
-	// load" against UNWIND, and COPY is a different write path. If the engine maintains
-	// the index cheaply during a COPY, neither the memory spike of a batch build nor the
-	// 5x of cache_embeddings := false has to be paid.
 	t.Run("index before COPY", func(t *testing.T) {
 		st, rows, dir := probeVecStore(t, n)
 		defer func() { _ = st.Close() }()
@@ -71,7 +67,6 @@ func TestVectorIndexCacheEmbeddings(t *testing.T) {
 				t.Fatalf("ddl: %v", err)
 			}
 
-			// Load with COPY, the path the rebuild now uses.
 			rnd := uint64(0x9E3779B97F4A7C15)
 			rows := make([]map[string]any, 0, n)
 			for i := 0; i < n; i++ {
@@ -105,7 +100,6 @@ func TestVectorIndexCacheEmbeddings(t *testing.T) {
 				t.Fatalf("create index (cached=%v): %v", cached, err)
 			}
 
-			// The index has to answer, not merely build.
 			probe := rows[42]["emb"].([]float32)
 			hits, qerr := st.Query(`CALL QUERY_VECTOR_INDEX('E','e_vec',$q,3)
 				RETURN node.id AS id ORDER BY distance`, map[string]any{"q": probe})

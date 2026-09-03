@@ -72,7 +72,6 @@ func TestLadybugVectorSchemaConstraints(t *testing.T) {
 		t.Logf("(1) CREATE_VECTOR_INDEX on an EMPTY table: REJECTED (%v) — creation must be deferred", err)
 	}
 
-	// (2) A row with no vector, in a table that has (or will have) a vector index.
 	nullRowOK := true
 	if err := run("CREATE (:E {uid:'n1', name:'noVector'})"); err != nil {
 		nullRowOK = false
@@ -81,7 +80,6 @@ func TestLadybugVectorSchemaConstraints(t *testing.T) {
 		t.Log("(2) row with NULL emb: accepted")
 	}
 
-	// (3) Bulk insert through UNWIND, carrying the vector as a property.
 	stmt, err := conn.Prepare(
 		"UNWIND $batch AS row CREATE (:E {uid: row.uid, name: row.name, emb: row.emb})")
 	unwindOK := false
@@ -103,7 +101,6 @@ func TestLadybugVectorSchemaConstraints(t *testing.T) {
 		}
 	}
 
-	// If the index could not be created before data, try now that rows exist.
 	if !emptyIndexOK {
 		if err := run("CALL CREATE_VECTOR_INDEX('E', 'e_vec', 'emb')"); err != nil {
 			t.Fatalf("CREATE_VECTOR_INDEX after inserting rows also failed: %v", err)
@@ -111,8 +108,6 @@ func TestLadybugVectorSchemaConstraints(t *testing.T) {
 		t.Log("(1b) CREATE_VECTOR_INDEX after rows exist: accepted")
 	}
 
-	// Does a query over a table containing NULL-vector rows work, and are those rows
-	// simply absent rather than an error?
 	if nullRowOK && unwindOK {
 		q, err := conn.Prepare(
 			"CALL QUERY_VECTOR_INDEX('E', 'e_vec', $q, 5) RETURN node.name AS n, distance ORDER BY distance")

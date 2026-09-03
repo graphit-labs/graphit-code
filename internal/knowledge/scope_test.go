@@ -80,14 +80,12 @@ func TestRootReadmeVariants(t *testing.T) {
 		}
 	}
 
-	// An extension the pipeline cannot chunk is not a document it can index.
 	root := t.TempDir()
 	writeDoc(t, root, "README.pdf", "%PDF-1.4\n")
 	if got := RootReadme(root, exts); got != "" {
 		t.Errorf("RootReadme returned %q for a README the wiki cannot read", got)
 	}
 
-	// A directory called README is not the README.
 	dirRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dirRoot, "README.md"), 0o755); err != nil {
 		t.Fatal(err)
@@ -242,8 +240,6 @@ func TestIgnoreFilesAtBothLevelsApply(t *testing.T) {
 		}
 	})
 
-	// This is the one the scoping change could have broken: the file is inside the
-	// docs tree, which is no longer the root the patterns resolve against.
 	t.Run("wikiignore inside the docs tree", func(t *testing.T) {
 		root := gitInit(t)
 		writeDoc(t, root, "README.md", "# Projeto\n\nPorta.\n")
@@ -260,8 +256,6 @@ func TestIgnoreFilesAtBothLevelsApply(t *testing.T) {
 		}
 	})
 
-	// A pattern in the docs tree is scoped to the docs tree, not reinterpreted
-	// against the project root.
 	t.Run("a docs-level pattern does not reach outside the docs tree", func(t *testing.T) {
 		root := gitInit(t)
 		writeDoc(t, root, "docs/.wikiignore", "README.md\n")
@@ -278,8 +272,6 @@ func TestIgnoreFilesAtBothLevelsApply(t *testing.T) {
 	})
 }
 
-// gitInit makes a temp directory a git repository, because ignorer.New walks up to
-// the git root to decide how far to collect ignore files from.
 func gitInit(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

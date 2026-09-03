@@ -8,14 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// Disabling a language used to mean deleting its query file, which only the
-// repository that ships the query files can do. ast.grammars_blacklist and
-// ast.grammars_whitelist move that decision into configuration, so a consumer can
-// take a language out of its own index without editing the installed runtime.
-
-// The three grammars staged by these tests. They are invented on purpose: a real
-// language's registration comes from the installed runtime, which a test must not
-// depend on.
 const (
 	tsQueryFile = `language: fable_lang
 grammar: tree-sitter-fable
@@ -47,12 +39,6 @@ queries:
 `
 )
 
-// stageFilterProject builds a project whose own queries directory declares the
-// languages above, with the given ast config on its lockfile.
-//
-// HOME is redirected because the filter resolves the GLOBAL config file as the
-// last step of the precedence chain: a real ~/.graphit/config.json on the machine
-// running the tests would otherwise decide their outcome.
 func stageFilterProject(t *testing.T, astCfg map[string]any, queryFiles map[string]string) string {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -203,11 +189,6 @@ func TestGrammarOverrideCannotReviveADisabledGrammar(t *testing.T) {
 	parser := &TreeSitterParser{projectDir: project}
 	target := filepath.Join(project, "x.fable")
 
-	// The global tables are refreshed lazily, by the extension lookups rather than
-	// by InvalidateQueryCaches — which rebuilds them from what was last read. So
-	// this call is what puts the user-level grammar into tsGrammarMap, and it is
-	// also the precondition: the grammar has to be reachable by name for the
-	// assertion below to mean anything.
 	if !HasParserForExtensionIn(project, ".fable") {
 		t.Fatal("precondition: the user-level grammar must be registered")
 	}

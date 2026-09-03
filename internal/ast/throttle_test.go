@@ -52,7 +52,6 @@ func TestSafeWorkers(t *testing.T) {
 	})
 
 	t.Run("negative_treated_as_zero", func(t *testing.T) {
-		// Negative value: explicit > 0 is false, so falls through to the default.
 		w := SafeWorkers(-5)
 		if w != sysutil.CPUBudget() {
 			t.Errorf("negative input should use CPUBudget()=%d, got %d", sysutil.CPUBudget(), w)
@@ -67,7 +66,6 @@ func TestParallelForEach(t *testing.T) {
 		items[i] = i
 	}
 
-	// collect runs on the caller goroutine, so mutating without a lock is safe.
 	sum, count := 0, 0
 	parallelForEach(items, 8,
 		func(x int) int { return x * 2 },
@@ -98,7 +96,6 @@ func TestParallelForEachEmpty(t *testing.T) {
 }
 
 func TestParallelForEachClampsWorkers(t *testing.T) {
-	// workers < 1 is clamped to 1; all items still processed exactly once.
 	got := 0
 	parallelForEach([]int{1, 2, 3, 4}, 0,
 		func(x int) int { return x },

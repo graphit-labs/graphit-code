@@ -12,9 +12,6 @@ func jsParse(t *testing.T, src string) *ParsedFile {
 	if !ok {
 		t.Skip("javascript grammar unavailable")
 	}
-	// parseSource directly, tree-sitter pure: over CompositeParser a pattern that
-	// matches nothing is indistinguishable from one that works, which is how this
-	// class of bug survives.
 	p := &TreeSitterParser{projectDir: proj}
 	pf, err := p.parseSource("cfg.js", ".js", cfg, []byte(src), 0, 0, false, ParseOptions{})
 	if err != nil {
@@ -39,15 +36,11 @@ func TestExportedConfigObjectIsIndexed(t *testing.T) {
 }
 `)
 
-	// Including a quoted key, which is a string node rather than an identifier and
-	// needs a pattern of its own.
 	for _, key := range []string{"darkMode", "maxRetries", "strict", "accordion-down"} {
 		if _, ok := entityAt(pf, "Pair", key); !ok {
 			t.Errorf("no Pair for key %q; labels: %v", key, entityLabelsOf(pf))
 		}
 	}
-	// The value is the half that makes "who holds this flag / this magic number"
-	// answerable by search rather than by grep.
 	for _, val := range []string{"class", "3", "true"} {
 		if _, ok := entityAt(pf, "Value", val); !ok {
 			t.Errorf("no Value node for %q; the key alone is half the content", val)
@@ -97,7 +90,6 @@ func TestKeysWithStructuralValuesAreIndexedWithoutTheirTree(t *testing.T) {
 				"the graph should hold", key)
 		}
 	}
-	// No Value node invented for an empty object.
 	if _, ok := entityAt(pf, "Value", "{}"); ok {
 		t.Error("an empty object was given a Value node of its own")
 	}
@@ -132,7 +124,6 @@ func TestRequireIsADependencyNotACallToRequire(t *testing.T) {
 	if !found {
 		t.Errorf("require() did not become an Import; entities: %v", entityLabelsOf(pf))
 	}
-	// The auxiliary capture only pins the callee and must not become an entity.
 	if _, ok := entityAt(pf, "Import", "require"); ok {
 		t.Error("the `require` identifier itself was indexed as a dependency")
 	}
@@ -159,8 +150,6 @@ func TestTheConfigFilesThatWereEmptyAreNotEmptyAnyMore(t *testing.T) {
 			wantValue: "hsl(var(--border))",
 		},
 		{
-			// Every value in this one is an empty object, so a literal-only rule
-			// left it reporting nothing at all.
 			path:     "../ui/postcss.config.js",
 			wantKeys: []string{"plugins", "tailwindcss", "autoprefixer"},
 		},

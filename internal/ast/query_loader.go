@@ -49,18 +49,6 @@ type ExternalQueryFile struct {
 	// it alone. See mergeQueryFile for what merging does field by field.
 	Merge bool `yaml:"merge,omitempty"`
 
-	// Exclusive keeps a grammar out of the automatic resolution: it is not
-	// registered for its own `extensions`, so nothing reaches it by file
-	// extension and nothing falls back to it when another grammar came back
-	// empty. It stays reachable BY NAME — an `ast.grammar` override binding an
-	// extension to it, or an embedded block naming its language.
-	//
-	// The SQL dialects are why this exists. Four ANTLR grammars claim `.sql`,
-	// and a file that tree-sitter parsed into nothing used to be handed to each
-	// of them in turn until one extracted something — a guess about which
-	// dialect the repository is written in, paid for with four full parses.
-	// `extensions` still says what the grammar can parse; this says it must be
-	// asked for. See docs/specs/ast_module.md.
 	Exclusive bool `yaml:"exclusive,omitempty"`
 
 	// Language-level configuration (all optional — engine uses sensible defaults)
@@ -256,25 +244,6 @@ type EmbeddedBlock struct {
 	// beats the one around it.
 	HostLabels []string `yaml:"host_labels,omitempty"`
 
-	// WrapPrefix and WrapSuffix make a FRAGMENT into something its language can parse.
-	//
-	// A block does not have to hold a compilation unit. A screen's program unit carries
-	// `PROCEDURE x(…) IS … END;` — which in PL/SQL is a DECLARATION, valid only inside a
-	// declarative section, so on its own it parses as nothing. Measured: that body
-	// yielded zero entities, zero calls and zero DML, and the only thing it did produce
-	// was the word `PROCEDURE` as a call target. Wrapped in `DECLARE … BEGIN NULL; END;`
-	// the same body yields the procedure and the calls inside it.
-	//
-	// Which wrapping a fragment needs is knowledge of the POSITION, not of the language:
-	// the same PL/SQL in a `.sql` file arrives with `CREATE OR REPLACE` in front of it
-	// and needs nothing. That is why this is declared on the block, by the grammar that
-	// knows what that attribute holds, and not per language.
-	//
-	// NEITHER MAY CONTAIN A LINE BREAK, and a declaration that does is dropped at load
-	// time. Same rule as text_normalizers, same reason: every line the sub-parse reports
-	// is shifted by the block's start row, so changing the newline count moves every
-	// entity after it. A prefix on the first line and a suffix after the last cost
-	// columns, which nothing records, and not lines.
 	WrapPrefix string `yaml:"wrap_prefix,omitempty"`
 	WrapSuffix string `yaml:"wrap_suffix,omitempty"`
 
@@ -350,30 +319,6 @@ type ExternalQueryDef struct {
 	ValueCapture string `yaml:"value_capture,omitempty"`
 	ValueLabel   string `yaml:"value_label,omitempty"`
 
-	// NameReject is a regular expression the captured NAME must NOT match. A match is
-	// dropped: no entity, no edge, nothing recorded.
-	//
-	// It exists because a capture position is not a guarantee about what lands in it.
-	// The case that forced it: PL/SQL's `call_statement` is
-	// `CALL? routine_name function_argument?` with BOTH optionals allowed absent, so a
-	// bare identifier in statement position IS a call — and `routine_name` resolves
-	// through `regular_id`, whose `non_reserved_keywords_pre12c` list holds 1753 words
-	// including BEGIN, DECLARE, FUNCTION, IF, PROCEDURE and RETURN. The parse is CLEAN,
-	// with no error recovery involved: by the grammar's own rules, `IF` in statement
-	// position is a call to something named IF. Measured on a real corpus: 25 thousand
-	// such edges, and 9 thousand of them resolved onto a real database trigger whose
-	// name is the quoted identifier "BEGIN".
-	//
-	// Why it belongs in the grammar and not in the engine: which words can never be a
-	// name is a fact about the LANGUAGE. A list in Go would answer for languages the
-	// binary has never seen, and answer wrongly — `end` is a keyword in PL/SQL and a
-	// perfectly good function name in Ruby. Same reasoning as comment_types,
-	// declaration_types and target_rules.
-	//
-	// Anchor it. `^(?i)(if|then)$` rejects those two words; `if` unanchored rejects
-	// every name containing them, which is most of a codebase. A pattern that does not
-	// compile is dropped at load time with a warning, because a silently ignored filter
-	// reads like protection and is not.
 	NameReject string `yaml:"name_reject,omitempty"`
 
 	// SpanCapture names the capture whose node DELIMITS the entity, when the
@@ -492,9 +437,6 @@ type TargetRuleDecl struct {
 	Fallback string   `yaml:"fallback,omitempty"`
 }
 
-// Directory paths
-
-// userASTDir returns the user-editable global AST directory: ~/.graphit/ast/
 func userASTDir() string {
 	d := brand.GlobalDir()
 	if d == "" {
@@ -503,7 +445,6 @@ func userASTDir() string {
 	return filepath.Join(d, "ast")
 }
 
-// runtimeASTDir returns the version-scoped runtime AST directory.
 func runtimeASTDir() string {
 	d := brand.RuntimeDir(version.Version)
 	if d == "" {
@@ -528,14 +469,6 @@ func runtimeQueriesDir() string {
 	return filepath.Join(d, "queries")
 }
 
-// projectQueriesDir returns the project's own queries directory: ast.queries_dir
-// resolved against the project root, and .graphit/ast/queries when the key says
-// nothing.
-//
-// It reads the project lockfile, so it is not free. Nothing on the per-file path
-// may call it directly — queryDirState.get evaluates it behind the same rate
-// limit as the directory signature, which is also what makes a config change
-// take effect on a running daemon without a restart.
 func projectQueriesDir(projectDir string) string {
 	if projectDir == "" {
 		return ""
@@ -612,9 +545,6 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 		if q.NameCapture == "" {
 			q.NameCapture = "name"
 		}
-		// A value or parent capture without a label has nowhere to write to: the
-		// entity would fall back to the data key as its label and silently join
-		// the key's node table. Drop the half-declaration rather than guess.
 		if q.ValueCapture != "" && q.ValueLabel == "" {
 			slog.Warn("ignore value_capture: missing 'value_label'",
 				"path", sourcePath, "index", i, "data_key", q.DataKey)
@@ -625,9 +555,6 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 				"path", sourcePath, "index", i, "data_key", q.DataKey)
 			q.ParentCapture = ""
 		}
-		// A filter that does not compile is worse than no filter: it reads like
-		// protection and lets everything through. Dropped here, once, instead of
-		// failing per file on the parse path.
 		if q.NameReject != "" {
 			if _, err := regexp.Compile(q.NameReject); err != nil {
 				slog.Warn("ignore name_reject: pattern does not compile",
@@ -636,8 +563,6 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 				q.NameReject = ""
 			}
 		}
-		// A relation query produces edges, not nodes — processRelations deletes
-		// its entities — so a value node would have no key to hang off.
 		if q.ValueCapture != "" && q.Type == "relation" {
 			slog.Warn("ignore value_capture: not supported on relation queries",
 				"path", sourcePath, "index", i, "data_key", q.DataKey)
@@ -646,9 +571,6 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 		valid = append(valid, q)
 	}
 	qf.Queries = valid
-	// Written BACK, not just used to validate: the engine reads these at parse time,
-	// so a declaration that survived only in the raw map would defeat the newline
-	// invariant exactly where it matters.
 	normalizers := validTextNormalizers(qf.TextNormalizers, sourcePath)
 	if len(normalizers) == 0 {
 		qf.TextNormalizers = nil
@@ -668,13 +590,6 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 	return qf, true
 }
 
-// validTextNormalizers keeps only the declarations that cannot break the line
-// offset, and returns them keyed for lookup.
-//
-// The rule it enforces is the one the engine cannot recover from: a replacement
-// that introduces a line break would shift every entity after it inside the block.
-// Dropping the pair at load time is the only place that check can be cheap and
-// total — at parse time it would be one scan per body.
 func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map[string]*TextNormalizer {
 	if len(decl) == 0 {
 		return nil
@@ -717,17 +632,6 @@ func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map
 	return out
 }
 
-// validEmbeddedBlocks drops the embedded declarations that could never fire.
-//
-// This config fails OPEN: a pattern that does not compile, or a capture that is not
-// in it, selects nothing in silence — exactly like a broken `queries[].pattern`. A
-// half-written block is therefore rejected here rather than carried as a promise the
-// engine cannot keep, which is the lesson parsePathSegment taught, where a malformed
-// segment degraded to the WRONG node instead of to no node.
-//
-// What this cannot check is whether the pattern compiles: the grammar is not loaded
-// at this point. TestEveryShippedEmbeddedPatternCompiles does that for the files we
-// ship, and the engine warns once when a pattern fails to compile at parse time.
 func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNormalizer, sourcePath string) []EmbeddedBlock {
 	if len(blocks) == 0 {
 		return nil
@@ -748,26 +652,16 @@ func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNor
 				"path", sourcePath, "index", i)
 			continue
 		}
-		// With no capture to read, `languages` is a table nothing indexes into.
 		if blk.LangCapture == "" && blk.Languages != nil {
 			slog.Warn("ignore embedded languages: missing 'lang_capture'",
 				"path", sourcePath, "index", i)
 			blk.Languages = nil
 		}
-		// An EXPLICIT `languages: {}` is a real declaration, not an omission: it says
-		// "match these bodies, claim them, and map none of their values to a
-		// language". That is exactly how a `<style lang="...">` block refuses every
-		// preprocessor — the claim is what stops the generic block behind it from
-		// picking the body up and parsing SCSS as CSS. YAML distinguishes `{}` from
-		// absent, so the engine can too.
 		if blk.Default == "" && blk.Languages == nil {
 			slog.Warn("skip embedded block: no 'default' and no 'languages', so no language can ever resolve",
 				"path", sourcePath, "index", i, "pattern", blk.Pattern)
 			continue
 		}
-		// The wrapping may not change the NUMBER OF LINES — see EmbeddedBlock.WrapPrefix.
-		// Dropped here rather than honoured, because a wrapping that shifts lines trades
-		// a syntax error the sub-parse would report for wrong line numbers it would not.
 		if strings.ContainsAny(blk.WrapPrefix, "\n\r") ||
 			strings.ContainsAny(blk.WrapSuffix, "\n\r") {
 			slog.Warn("ignore embedded wrap: prefix or suffix contains a line break, "+
@@ -777,15 +671,11 @@ func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNor
 		}
 		blk.Normalize = strings.TrimSpace(blk.Normalize)
 		if blk.Normalize != "" && normalizers[blk.Normalize] == nil {
-			// A normalizer that does not exist is a body that goes through
-			// untouched, which for an escaped body means a truncated sub-parse.
 			slog.Warn("ignore embedded normalize: no such text_normalizer in this language",
 				"path", sourcePath, "index", i, "normalize", blk.Normalize)
 			blk.Normalize = ""
 		}
 		if len(blk.Languages) > 0 {
-			// Lowercased once here rather than at every lookup: `lang="TS"` and
-			// `lang="ts"` are the same block.
 			lc := make(map[string]string, len(blk.Languages))
 			for k, v := range blk.Languages {
 				k, v = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)
@@ -831,14 +721,9 @@ func LoadRuntimeQueries() ([]ExternalQueryFile, error) {
 	return loadQueriesFromDir(dir)
 }
 
-// Caching & Resolution
+var mergedQueryCache sync.Map
 
-// mergedQueryCache caches the merged queries per (projectDir, lang, ext) key.
-var mergedQueryCache sync.Map // map[string][]tsQueryDef
-
-// compiledQueryCache caches compiled *sitter.Query objects per (projectDir, lang, ext) key.
-// This avoids the expensive CGO sitter.NewQuery() call on every file parse.
-var compiledQueryCache sync.Map // map[string][]compiledQueryEntry
+var compiledQueryCache sync.Map
 
 type compiledQueryEntry struct {
 	Def   tsQueryDef
@@ -869,7 +754,7 @@ type compiledQueryEntry struct {
 // query per file. Compiled ONCE here rather than stored on the query, because
 // ExternalQueryDef is converted to tsQueryDef by a positional cast — a field the two
 // do not share breaks that conversion at compile time.
-var nameRejectCache sync.Map // map[string]*regexp.Regexp
+var nameRejectCache sync.Map
 
 // nameRejectMatcher returns the compiled expression for a query's `name_reject`, or nil
 // when the query declares none or the expression does not compile.
@@ -896,8 +781,6 @@ func nameRejectMatcher(pattern string) *regexp.Regexp {
 	return re
 }
 
-// captureIndex resolves a capture name to its index within a compiled query,
-// returning -1 when the pattern does not use it.
 func captureIndex(q *sitter.Query, name string) int {
 	if name == "" {
 		return -1
@@ -908,20 +791,8 @@ func captureIndex(q *sitter.Query, name string) int {
 	return -1
 }
 
-// Query files used to be read once and kept for the life of the process. That is
-// wrong for the daemon, which runs for days: installing a grammar pack, or
-// editing a query file by hand, had no effect until it was restarted, and the
-// symptom was silence — files of the new language were skipped by discovery with
-// no error anywhere.
-//
-// Each directory is now cached against a cheap signature of its contents and
-// reloaded when that signature moves. The check is rate limited because the
-// lookups it feeds run once per file: during a 35k-file scan the directories are
-// stat-swept a handful of times, not 35k times.
 const queryStaleCheckInterval = 2 * time.Second
 
-// queryDirState is one directory's cached contents plus what it looked like when
-// they were read.
 type queryDirState struct {
 	mu        sync.Mutex
 	loaded    bool
@@ -930,16 +801,6 @@ type queryDirState struct {
 	lastCheck time.Time
 }
 
-// get returns the directory's query files, reloading them when the directory has
-// changed since the last look. It reports whether the contents changed, so the
-// caller can drop whatever it derived from them.
-//
-// The directory arrives as a function, not a string, because the project's one
-// is configurable: resolving it reads the lockfile, and this is called once per
-// file parsed. Evaluating it here — inside the lock, past the rate limit — keeps
-// that read as rare as the signature sweep it feeds, and folding the path into
-// the signature is what makes a change to ast.queries_dir land like an edit to
-// the directory itself.
 func (s *queryDirState) get(dirOf func() string, load func() ([]ExternalQueryFile, error)) ([]ExternalQueryFile, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -968,19 +829,12 @@ func (s *queryDirState) get(dirOf func() string, load func() ([]ExternalQueryFil
 	return s.files, true
 }
 
-// cached returns what was last read, without checking the directory. The table
-// rebuild uses this: it is itself triggered by a reload, and going back through
-// get would re-enter the path that called it.
 func (s *queryDirState) cached() []ExternalQueryFile {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.files
 }
 
-// queryDirSignature describes a directory's query files well enough to notice a
-// change. The directory's own mtime is not enough: editing a file in place does
-// not move it, so each file's size and mtime are folded in. These directories
-// hold dozens of files, so the sweep is negligible next to the reload it avoids.
 func queryDirSignature(dir string) string {
 	if dir == "" {
 		return ""
@@ -1027,7 +881,7 @@ func loadUserCached() []ExternalQueryFile {
 	return files
 }
 
-var projectQueryStates sync.Map // map[string]*queryDirState
+var projectQueryStates sync.Map
 
 func loadProjectCached(projectDir string) []ExternalQueryFile {
 	v, _ := projectQueryStates.LoadOrStore(projectDir, &queryDirState{})
@@ -1042,10 +896,6 @@ func loadProjectCached(projectDir string) []ExternalQueryFile {
 	return files
 }
 
-// Folding the levels
-
-// mergesOnto reports whether this file adds to the same language at the level
-// below instead of replacing it: `merge: true`, written explicitly.
 func (qf *ExternalQueryFile) mergesOnto() bool {
 	return qf.Merge
 }
@@ -1098,19 +948,6 @@ func mergeOnto(base, over []ExternalQueryFile) []ExternalQueryFile {
 	return out
 }
 
-// mergeQueryFile is what `merge: true` means, field by field. Three rules,
-// because the fields are three different kinds of statement:
-//
-//   - A SCALAR or a LIST is a complete statement about its field: declared, it
-//     replaces the one below; omitted, the one below stands. This is what lets a
-//     partial file inherit `extensions` and `grammar` — the two whose absence
-//     used to break the language rather than leave it alone — and it is also
-//     what lets a project shorten a list, which a union could not express.
-//   - A MAP merges key by key, the upper level winning per key. `context_types`
-//     and `text_normalizers` are catalogues, not statements: adding one entry
-//     should not mean restating forty.
-//   - `queries` merge by `data_key`, and `embedded` by position. See
-//     mergeQueryDefs and mergeEmbedded.
 func mergeQueryFile(base, over ExternalQueryFile) ExternalQueryFile {
 	merged := over
 
@@ -1161,15 +998,6 @@ func mergeQueryFile(base, over ExternalQueryFile) ExternalQueryFile {
 	return merged
 }
 
-// mergeQueryDefs keeps the queries the upper level did not speak about and lets
-// it replace the ones it did, keyed by `data_key`.
-//
-// The key is the data key rather than the position because position means
-// nothing across two files, and rather than the pattern because replacing a
-// pattern is the whole point. A data key can appear more than once in a file —
-// go.yaml captures `calls` with two patterns — and redeclaring it replaces the
-// whole group: the key names one kind of entity, and half of a definition of
-// "how calls are found" is not a thing a language can have.
 func mergeQueryDefs(base, over []ExternalQueryDef) []ExternalQueryDef {
 	if len(base) == 0 {
 		return over
@@ -1209,9 +1037,6 @@ func mergeEmbedded(base, over []EmbeddedBlock) []EmbeddedBlock {
 	return append(merged, base...)
 }
 
-// mergeComplexity applies the same declared-replaces-omitted rule one level
-// down, so `complexity: {node_types: [...]}` restates the node kinds without
-// silently dropping the operators and head calls it said nothing about.
 func mergeComplexity(base, over *ComplexityConfig) *ComplexityConfig {
 	if over == nil {
 		return base
@@ -1232,9 +1057,6 @@ func mergeComplexity(base, over *ComplexityConfig) *ComplexityConfig {
 	return &merged
 }
 
-// mergeStringKeyed merges two catalogues key by key, the upper level winning.
-// Neither input is written to: a level's parsed files are shared by every
-// project and every parse.
 func mergeStringKeyed[V any](base, over map[string]V) map[string]V {
 	if len(over) == 0 {
 		return base
@@ -1252,14 +1074,6 @@ func mergeStringKeyed[V any](base, over map[string]V) map[string]V {
 	return merged
 }
 
-// overlayByLang is the union of two levels keyed by language, the upper level
-// answering for the languages it declares and the lower one for the rest.
-//
-// This is not what a level IS — see mergeOnto — it is what everything below a
-// level amounts to when that level asks to merge. A project file merging onto
-// "the user level" means merging onto the grammar as it stands beneath it, which
-// for almost every language is the runtime's file, because the user directory is
-// usually empty.
 func overlayByLang(base, over []ExternalQueryFile) []ExternalQueryFile {
 	if len(base) == 0 {
 		return over
@@ -1271,7 +1085,6 @@ func overlayByLang(base, over []ExternalQueryFile) []ExternalQueryFile {
 	for i := range over {
 		declared[strings.ToLower(over[i].Language)] = true
 	}
-	// The upper level first, so mergeOnto's first-wins lookup finds it.
 	all := make([]ExternalQueryFile, 0, len(base)+len(over))
 	all = append(all, over...)
 	for i := range base {
@@ -1282,34 +1095,19 @@ func overlayByLang(base, over []ExternalQueryFile) []ExternalQueryFile {
 	return all
 }
 
-// belowProjectCacheKey is the single key belowProjectQueryFiles files its result
-// under. A sync.Map for one entry buys the same clearSyncMap the other derived
-// caches use, rather than a second invalidation path.
 const belowProjectCacheKey = ""
 
-var belowProjectCache sync.Map // map[string][]ExternalQueryFile
+var belowProjectCache sync.Map
 
-// projectEffectiveCache memoizes the project level as it stands after merging,
-// keyed by project directory. The merge itself is cheap; what it is not is free
-// once per file indexed, which is how often the resolution below runs.
-var projectEffectiveCache sync.Map // map[string][]ExternalQueryFile
+var projectEffectiveCache sync.Map
 
-// userLevelQueryFiles is the user's global directory as it effectively stands:
-// its own files, each merged onto the runtime's file for the same language when
-// it asks to be. Languages the user says nothing about are not in here — that is
-// what makes resolveQueriesForLang fall through to the runtime.
 func userLevelQueryFiles() []ExternalQueryFile {
 	return mergeOnto(loadRuntimeCached(), loadUserCached())
 }
 
-// belowProjectQueryFiles is every language a project inherits, one effective
-// file each: the user level where it speaks, the runtime everywhere else.
 func belowProjectQueryFiles() []ExternalQueryFile {
 	runtimeQ := loadRuntimeCached()
 	userLevel := userLevelQueryFiles()
-	// Loaded FIRST, read after: either load may have noticed a directory change
-	// and dropped this cache, so checking it earlier could hand back a fold of
-	// files that are no longer current.
 	if v, ok := belowProjectCache.Load(belowProjectCacheKey); ok {
 		return v.([]ExternalQueryFile)
 	}
@@ -1318,27 +1116,10 @@ func belowProjectQueryFiles() []ExternalQueryFile {
 	return inherited
 }
 
-// allEffectiveQueryFiles is every language this project can parse, one effective file
-// each: the project's own where it declares one, the user's and the runtime's elsewhere.
-//
-// effectiveProjectQueryFiles is NOT this, and the difference is a trap. That one answers
-// for the project LEVEL, so a project shipping no grammar of its own answers with
-// NOTHING — its callers resolve that by falling through per language. A consumer that
-// needs the whole set at once, as the target rules do, has to overlay the levels itself;
-// asking the project level instead yields zero files and every rule silently degrades to
-// its permissive default.
 func allEffectiveQueryFiles(projectDir string) []ExternalQueryFile {
 	return overlayByLang(belowProjectQueryFiles(), loadProjectCached(projectDir))
 }
 
-// effectiveProjectQueryFiles is the project level as it effectively stands: the
-// project's own files, each merged onto whatever the levels above answer for the
-// same language.
-//
-// Every consumer of project-level files goes through here rather than through
-// loadProjectCached, because a partial file is not a usable language on its own:
-// the extension tables would register it with no extensions and the wrong
-// grammar name, and the language config would come back empty.
 func effectiveProjectQueryFiles(projectDir string) []ExternalQueryFile {
 	if projectDir == "" {
 		return nil
@@ -1405,19 +1186,7 @@ func InvalidateQueryCaches() {
 	invalidateDerivedQueryCaches()
 }
 
-// resolveQueriesForLang returns the resolved query files for a given language
-// and extension using the precedence chain:
-//
-//	project > user global > runtime
-//
-// For each language+extension pair, the highest-priority source that provides
-// queries answers — and what it answers is that level after folding, so a file
-// declaring `merge: true` carries the level below it rather than replacing it.
-// Without that declaration this is what it always was: the winning level
-// replaces the others outright.
 func resolveQueriesForLang(projectDir, lang, ext string) []ExternalQueryFile {
-	// A language the project disabled resolves to nothing at every level, so a
-	// parse that reached it anyway extracts nothing rather than falling through.
 	filter := grammarFilterFor(projectDir)
 
 	if projectMatch := filter.keepFiles(filterByLangExt(effectiveProjectQueryFiles(projectDir), lang, ext)); len(projectMatch) > 0 {
@@ -1431,16 +1200,6 @@ func resolveQueriesForLang(projectDir, lang, ext string) []ExternalQueryFile {
 	return filter.keepFiles(filterByLangExt(loadRuntimeCached(), lang, ext))
 }
 
-// filterByLangExt selects the files of one level that answer for a language and
-// extension. A file declaring no extensions answers for any of them.
-//
-// The language is matched case-insensitively, like the extension beside it and
-// like every other place a language name is used as a key: mergeOnto folds by
-// `strings.ToLower(Language)`, and projectTsLangMap and rebuildExtTables key
-// their tables the same way. This used to be the one exact comparison in the
-// chain, which meant a file spelling the language differently from the level it
-// overrides could merge onto that level and then not be selected — two
-// normalizations for one key, and no reason for either to be the odd one out.
 func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQueryFile {
 	var result []ExternalQueryFile
 	for _, f := range files {
@@ -1464,14 +1223,6 @@ func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQuer
 	return result
 }
 
-// mergedQueriesFor returns the final merged queries for a given project,
-// language, and extension. Results are cached.
-//
-// Resolution order:
-//
-//	project > user global > runtime
-//
-// YAML is the only source of queries — there is no hardcoded Go fallback.
 func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []tsQueryDef {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := mergedQueryCache.Load(cacheKey); ok {
@@ -1518,14 +1269,11 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 	return result
 }
 
-// compiledQueriesFor returns pre-compiled *sitter.Query objects for the given
-// language/ext combination. Falls back to mergedQueriesFor to populate the cache.
 func compiledQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []compiledQueryEntry {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := compiledQueryCache.Load(cacheKey); ok {
 		return cached.([]compiledQueryEntry)
 	}
-	// Populate both caches by calling mergedQueriesFor.
 	mergedQueriesFor(projectDir, lang, ext, tsLang)
 	if cached, ok := compiledQueryCache.Load(cacheKey); ok {
 		return cached.([]compiledQueryEntry)
@@ -1556,7 +1304,7 @@ func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 	return nil
 }
 
-var embedLabelCache sync.Map // projectDir|lang -> []string
+var embedLabelCache sync.Map
 
 // EmbedLabelsForLang answers which graph labels of one language get a vector, in
 // the order that language declared them. See ExternalQueryFile.EmbedLabels.
@@ -1589,12 +1337,6 @@ func EmbedLabelsForLang(projectDir, lang string) []string {
 	return labels
 }
 
-// firstDeclaredEmbedLabels returns a lookup that walks the levels in order and
-// stops at the first one whose file for this language declares embed_labels.
-//
-// Stopping at "declares" rather than at "matches the language" is deliberate: a
-// project file that overrides one pattern of a language, and says nothing about
-// embedding, should not turn embedding off for it.
 func firstDeclaredEmbedLabels(levels ...[]ExternalQueryFile) func(string) []string {
 	return func(lang string) []string {
 		for _, files := range levels {

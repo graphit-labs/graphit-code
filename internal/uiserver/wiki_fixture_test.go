@@ -8,19 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// A WIKI FIXTURE IS AN INDEX, NOT A DIRECTORY OF FILES.
-//
-// These tests used to build their subject with `os.WriteFile(dir, "<slug>.md", body)`, because the
-// explorer read the pages off disk. It reads the index: the page body is a column, and so are the
-// title, the type, the confidence and the provenance it used to parse out of frontmatter.
-//
-// indexPage keeps the call shape the fixtures had — same arguments, same returned error — so a test
-// that only needs "a page called X exists with this text" reads the same as before.
-
-// indexPage compiles one page into the index at dir, accumulating with whatever is already there.
-//
-// Accumulating matters: a rebuild replaces the whole chunk set, so writing two pages by calling this
-// twice would otherwise leave only the second — which is not how two os.WriteFile calls behaved.
 func indexPage(t *testing.T, dir, name, content string) error {
 	t.Helper()
 	slug := strings.TrimSuffix(name, ".md")
@@ -34,7 +21,6 @@ func indexPage(t *testing.T, dir, name, content string) error {
 	})
 }
 
-// indexChunk is indexPage for a test that cares about specific columns.
 func indexChunk(t *testing.T, dir string, c wiki.WikiChunk) error {
 	t.Helper()
 	ctx := context.Background()

@@ -47,21 +47,10 @@ const (
 	ActionDelete = "delete"
 )
 
-// staleAfter is when an unrevised memory becomes worth re-reading. It is the same
-// number the GC uses for its own threshold default, deliberately: two different
-// definitions of "stale" in one package is how a memory ends up old enough to
-// delete by one rule and current by the other.
 const staleAfter = 90 * 24 * time.Hour
 
-// maxBodyCharsPerMemory bounds how much of one memory goes into the analysis
-// prompt. Long memories are the norm here, and the tail of a long memory is
-// rarely what makes it a duplicate of another.
 const maxBodyCharsPerMemory = 4000
 
-// maxCorpusCharsPerBatch bounds one analysis call. The corpus grows without
-// limit — this repository is already past 270KB of memory — so a single prompt
-// carrying all of it eventually exceeds any context window, and the failure mode
-// is a truncated prompt answered confidently rather than an error.
 const maxCorpusCharsPerBatch = 60000
 
 type ConsolidationAction struct {
@@ -154,14 +143,6 @@ type memorySnapshot struct {
 // RunConsolidation analyses a scope's memories and returns a plan. It writes
 // nothing.
 func RunConsolidation(ctx context.Context, scope string, aiClient ai.Client) (*ConsolidationReport, error) {
-	// The scope's own wiki is where its embeddings live, and they are what lets a
-	// batched analysis put near-duplicates in the same prompt. Resolved here because
-	// this is the only layer that knows the scope.
-	//
-	// 🔒 IT READS THE STORE, NOT A DIRECTORY. This was the reader T2.3 missed: it kept calling
-	// `RawDir(scope)` after the raw store stopped receiving writes, and the symptom was not an error
-	// — `loadMemorySnapshots` on a missing directory returns "nothing to consolidate", so the pass
-	// reported success over zero memories. A no-op that looks like a clean run.
 	uri := TableURIForScope(scope)
 	if uri == "" {
 		return &ConsolidationReport{}, nil
@@ -204,8 +185,6 @@ func snapshotsFromRecords(records []MemoryRecord) []memorySnapshot {
 	return memories
 }
 
-// titleOrID falls back to the id, because a memory with no title still has to be nameable in a
-// consolidation plan the user is asked to approve.
 func titleOrID(title, id string) string {
 	if title == "" {
 		return id
@@ -213,11 +192,6 @@ func titleOrID(title, id string) string {
 	return title
 }
 
-// consolidateSnapshots is the analysis itself, over memories already loaded.
-//
-// Source-agnostic on purpose, the same way compileMemoryWiki is: nothing about detecting staleness,
-// duplicates and contradictions depends on where the memories came from, which is what lets a test
-// hand it a corpus directly instead of staging one somewhere first.
 func consolidateSnapshots(ctx context.Context, memories []memorySnapshot, aiClient ai.Client, vecs map[string][]float32) *ConsolidationReport {
 	report := &ConsolidationReport{TotalMemories: len(memories)}
 	if len(memories) == 0 {
@@ -313,8 +287,6 @@ func aiConsolidation(ctx context.Context, client ai.Client, memories []memorySna
 	valid := validIDSet(memories)
 
 	var analyses []string
-	// Ordered before splitting, so that what lands in one prompt is what belongs
-	// together rather than what happened to be written on the same day.
 	batches := batchMemories(orderBySimilarity(memories, vecs))
 	report.Batches = len(batches)
 	for _, batch := range batches {
@@ -326,12 +298,6 @@ func aiConsolidation(ctx context.Context, client ai.Client, memories []memorySna
 
 		plan, ok := parseConsolidationJSON(response)
 		if !ok {
-			// One contract, and a loud failure when it is violated. A second,
-			// looser parser here would keep some malformed answers usable at the
-			// cost of turning the rest into partially-understood plans applied
-			// against real memories — and an unparseable analysis would look
-			// identical to a clean corpus. RunConsolidation turns this into
-			// AIFailed, which the report states outright.
 			return nil, fmt.Errorf("analysis did not return usable JSON (%d bytes): %s",
 				len(response), responseExcerpt(response))
 		}
@@ -345,13 +311,6 @@ func aiConsolidation(ctx context.Context, client ai.Client, memories []memorySna
 	return report, nil
 }
 
-// batchMemories splits the corpus into prompt-sized groups, in the order it is given.
-//
-// One batch is the common case. When the corpus outgrows a prompt, what decides whether
-// a duplicate pair is ever compared is ADJACENCY in this slice — which is why the
-// caller orders by similarity first. Cutting a chain still separates the two memories
-// either side of each cut, so this remains a trade, just a far better one than cutting
-// an arbitrary order.
 func batchMemories(memories []memorySnapshot) [][]memorySnapshot {
 	var batches [][]memorySnapshot
 	var current []memorySnapshot
@@ -399,7 +358,6 @@ func renderMemoryCorpus(memories []memorySnapshot) string {
 	return b.String()
 }
 
-// consolidationPlan is the wire shape of the analysis.
 type consolidationPlan struct {
 	Duplicates     []planGroup  `json:"duplicates"`
 	Contradictions []planGroup  `json:"contradictions"`
@@ -440,8 +398,6 @@ type planSingle struct {
 	Reason     string `json:"reason"`
 }
 
-// parseConsolidationJSON extracts the plan from a response that may be wrapped
-// in a fence or padded with prose.
 func parseConsolidationJSON(response string) (consolidationPlan, bool) {
 	var plan consolidationPlan
 
@@ -469,9 +425,6 @@ func extractFencedJSON(s string) string {
 	return ""
 }
 
-// sanitiseGroupActions drops what cannot be applied and normalises what can.
-// Doing it here means the apply step receives only actions whose IDs exist and
-// whose survivor is a member of the group.
 func sanitiseGroupActions(groups []planGroup, actionType string, valid map[string]bool) []ConsolidationAction {
 	var out []ConsolidationAction
 	for _, g := range groups {
@@ -550,12 +503,6 @@ func containsID(ids []string, id string) bool {
 	return false
 }
 
-// responseExcerpt is enough of an unusable response to identify it in a log without
-// pasting an entire model answer into one.
-//
-// Deliberately not memory.firstLine, which skips lines starting with "#" because it
-// summarises wiki bodies. A model that ignored the JSON instruction usually answers
-// in markdown, so the heading is the most identifying line there is.
 func responseExcerpt(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {

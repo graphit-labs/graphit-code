@@ -24,7 +24,6 @@ func TestResetAntlrCachesRace(t *testing.T) {
 	if drv == nil {
 		t.Fatal("antlr-plsql driver not registered")
 	}
-	// Warm the ATN once so the sync.Once init is not the thing under test.
 	_, _ = drv.Parse(src)
 
 	var wg sync.WaitGroup

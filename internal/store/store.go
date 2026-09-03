@@ -1,26 +1,3 @@
-// Package store resolves where every compiled artifact of this framework lives.
-//
-// There is exactly one location per artifact, and it is in the global brand
-// directory, keyed by an identifier:
-//
-//	<global>/ast/project/<project-id>/graph.icebug/   the project's code graph (icebug bundle)
-//	<global>/ast/context/<name>/graph.icebug/          a locally imported graph
-//	<global>/ast/hub/<context-id>/<version>/           a Hub graph, shared per version
-//	<global>/wiki/knowledge/project/<project-id>/       the project's documentation wiki
-//	<global>/wiki/knowledge/context/<name>/             an imported documentation wiki
-//	<global>/wiki/memory/<scope>/<scope-id>/            a memory wiki
-//	<global>/memory-table/memory-<scope>-<scope-id>/    a memory's Lance table, when there is no bucket
-//
-// Nothing is copied into a project. A project used to carry a replica of each of
-// these, which cost disk, cost a compile per copy, and needed sync logic whose only
-// job was to keep the copies from disagreeing — and when it lost, a project answered
-// with yesterday's data while looking perfectly healthy. The single copy removes the
-// class of bug rather than the instances.
-//
-// What a project does keep is the record of WHICH artifacts belong to it. That is
-// membership, not data: it is a few hundred bytes, it is genuinely per-project, and
-// it cannot be derived from a global directory listing without telling project A
-// about project B's imports. It lives in the context registry, see registry.go.
 package store
 
 import (
@@ -134,15 +111,6 @@ func ProjectStoreID(projectDir string) string {
 	return pathStoreID(abs, caseInsensitivePaths)
 }
 
-// pathStoreID derives a store id from a path, folding case when the filesystem does.
-//
-// Windows always, and macOS by default, treat two paths differing only in letter case
-// as the SAME directory. Hashing them unfolded would give one project two store ids
-// depending on how its path was typed — and therefore two graphs and two wikis, each
-// looking perfectly healthy while holding half the answers.
-//
-// The fold is a parameter rather than a package variable read inline so that both
-// behaviours are testable on any host; the platform decides the value, once.
 func pathStoreID(abs string, fold bool) string {
 	key := filepath.ToSlash(abs)
 	if fold {
@@ -152,8 +120,6 @@ func pathStoreID(abs string, fold bool) string {
 	return "path-" + fmt.Sprintf("%x", sum)[:16]
 }
 
-// caseInsensitivePaths says whether two paths differing only in letter case name the
-// same directory here.
 var caseInsensitivePaths = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 
 // storeIDSegment makes an identity usable as a directory name without changing what
@@ -180,8 +146,6 @@ func SanitizeName(name string) string {
 	return DefuseReservedName(name)
 }
 
-// windowsReservedNames are device names Windows refuses as a file or directory
-// name, with or without an extension.
 var windowsReservedNames = map[string]bool{
 	"con": true, "prn": true, "aux": true, "nul": true,
 	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
@@ -229,14 +193,6 @@ func SanitizeSegment(s string) string {
 	return DefuseReservedName(out)
 }
 
-// globalOr returns <global>/<parts...>, degrading to the project's own runtime
-// directory when there is no home directory to put a shared store in. Nothing is
-// shared in that degenerate case, which is the honest outcome — but a path is still
-// returned, so indexing works on a machine with no HOME.
-//
-// The fallback goes under brand.RuntimeSubdir rather than straight into the brand
-// directory because a store is machine state, and that is the one directory the
-// generated .gitignore covers.
 func globalOr(projectDir string, parts ...string) string {
 	if d := Root(); d != "" {
 		return filepath.Join(append([]string{d}, parts...)...)

@@ -8,24 +8,6 @@ import (
 	"path/filepath"
 )
 
-// A published documentation wiki travels as its index, copied rather than converted.
-//
-// It is the same case as a Hub AST context, and for the same reason — which is not size but
-// mutability. A knowledge artifact is written by ONE project, pinned by its version, and never
-// compiled by a consumer, so having every consumer re-derive the same frozen result from shards
-// repeats work for a value already computed.
-//
-// A MEMORY wiki is deliberately not eligible. It is read-and-write and multi-writer: a consumer
-// adds to it and pushes back, so it must carry its source, and an index built by someone else
-// would be something to overwrite rather than something to extend. The distinction is mutability,
-// not file format.
-//
-// WHAT CHANGED WITH THE ENGINE. This used to export table by table into Parquet, and the consumer
-// loaded the rows and then built the inverted and vector indexes itself — because indexes are
-// engine structure and did not travel. A Lance directory carries its own, so nothing is rebuilt on
-// install and nothing is converted on publish: the directory IS the queryable artifact, which is
-// also what lets it be read straight off S3 without being downloaded at all.
-
 // StagePublishedIndex validates a local wiki and copies its Lance index into stagingRoot.
 func StagePublishedIndex(ctx context.Context, wikiDir, stagingRoot string) (int64, error) {
 	src := WikiIndexPath(wikiDir)
@@ -52,11 +34,6 @@ func StagePublishedIndex(ctx context.Context, wikiDir, stagingRoot string) (int6
 	return n, nil
 }
 
-// copyDirTree copies a directory recursively, returning the bytes written.
-//
-// Correct for a Lance directory in a way it would not be for a live database file: the data files
-// are immutable and the manifest names which of them a version consists of, so a copy taken while
-// nothing is writing is a valid dataset. Both call sites hold the store closed for that reason.
 func copyDirTree(srcDir, dstDir string) (int64, error) {
 	var written int64
 	err := filepath.Walk(srcDir, func(path string, fi os.FileInfo, err error) error {

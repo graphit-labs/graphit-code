@@ -9,9 +9,6 @@ import (
 	"testing"
 )
 
-// stubScorer scores by how many query tokens the candidate contains, which is deterministic and
-// needs no model — the point of these tests is the plumbing and the ordering contract, not the
-// transformer.
 type stubScorer struct {
 	calls int
 	fail  error
@@ -53,7 +50,6 @@ func TestRerankAdapterReordersWithoutDroppingAnything(t *testing.T) {
 	if !strings.HasPrefix(out[0].Text, "retryPolicy") {
 		t.Errorf("top hit is %q, want retryPolicy", out[0].Text)
 	}
-	// Every input index must still be present exactly once.
 	seen := map[int]int{}
 	for _, h := range out {
 		seen[h.Index]++
@@ -135,8 +131,6 @@ func TestBuildRerankTextCarriesLanguageAndNotGrams(t *testing.T) {
 			t.Errorf("the reranker text is missing %q: %s", want, text)
 		}
 	}
-	// A gram bag would show up as runs of three-letter tokens; assert none was appended by a
-	// future caller passing the indexed column in.
 	for _, gram := range []string{"val ali lid", "sch che hem"} {
 		if strings.Contains(text, gram) {
 			t.Errorf("a gram bag reached the reranker text: %s", text)
@@ -152,8 +146,6 @@ func TestBuildRerankTextSkipsARedundantSplit(t *testing.T) {
 		t.Errorf("the identifier was repeated when the split was identical: %s", text)
 	}
 }
-
-// ---------- the download gate, which is the whole point of the lazy manager ----------
 
 // THE MODEL IS NEVER FETCHED UNLESS SOMEBODY ENABLED RERANKING. Present() answers from disk and
 // must not create the directory, let alone reach the network: a user who never turns reranking on

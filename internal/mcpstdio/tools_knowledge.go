@@ -74,9 +74,6 @@ func registerKnowledgeTools(server *mcp.Server) {
 
 		projectCfg := loadProjectConfig(projectDir)
 
-		// No path: the configured docs tree plus the root README, scoped under the
-		// project so every reported source path resolves from the project root. An
-		// explicit path is taken literally and indexed wholesale.
 		root := projectDir
 		scope := knowledge.ScopeFor(projectDir, nil, projectCfg)
 		if input.Path != "" {
@@ -216,8 +213,6 @@ func registerKnowledgeTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
-			// Only this project's claim is dropped. The wiki is global and another
-			// project may have imported the same context.
 			if err := store.RemoveContext(projectDir, store.KindKnowledge, cleanCtx); err != nil {
 				return errResult(err)
 			}
@@ -288,6 +283,3 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return jsonResult(articles)
 	}))
 }
-
-// noKnowledgeToSearch explains an empty source set, which has three different causes
-// and only one of them is a mistake.

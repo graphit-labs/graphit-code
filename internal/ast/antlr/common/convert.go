@@ -70,7 +70,6 @@ func ConvertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []
 	return nil
 }
 
-// tokenDisplayName returns the display name for a token type.
 func tokenDisplayName(tokenType int, symbolicNames, literalNames []string) string {
 	if tokenType >= 0 && tokenType < len(literalNames) && literalNames[tokenType] != "" {
 		return literalNames[tokenType]

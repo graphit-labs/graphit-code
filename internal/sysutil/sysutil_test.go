@@ -9,7 +9,6 @@ import (
 )
 
 func TestDetachProcess(t *testing.T) {
-	// Case 1: SysProcAttr is nil
 	cmd1 := exec.Command("echo", "test")
 	cmd1.SysProcAttr = nil
 
@@ -22,7 +21,6 @@ func TestDetachProcess(t *testing.T) {
 		t.Error("expected Setsid to be true")
 	}
 
-	// Case 2: SysProcAttr is not nil
 	cmd2 := exec.Command("echo", "test")
 	cmd2.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: false,

@@ -61,22 +61,12 @@ func NewUnifiedServer(
 	hubSrv.RegisterAPIRoutes(mux)
 	astSrv.RegisterAPIRoutes(mux)
 
-	// Wiki page browsing. The live search is a separate subsystem with its own
-	// session runtime and SSE transport; see internal/livesearch.
 	wikiHandler := NewWikiHandler(hubSvc)
 	wikiHandler.RegisterAPIRoutes(mux)
 
-	// Live search is the heaviest of the agent-dependent features and the only one whose routes
-	// are not registered at all when the module is off: the others have a handler that refuses,
-	// but a live session also prepares an ephemeral project and spawns a process, so there is
-	// nothing worth keeping reachable. A request to /api/live/* then 404s, which is the honest
-	// answer — the feature is not here.
 	agentFeatures := config.AgentFeaturesEnabled(nil, projectCfg)
 	var liveHandler *LiveHandler
 	if agentFeatures {
-		// Each session runs inside an ephemeral project that prep builds for it: a
-		// lockfile, framework skills, lifecycle hooks, MCP servers, and the chosen
-		// artifacts indexed and ready to query.
 		liveMgr := livesearch.NewManagerFromConfig("", prep.Prepare)
 		liveMgr.SetReclaim(prep.Reclaim)
 		liveHandler = NewLiveHandler(liveMgr)
@@ -132,9 +122,6 @@ func (s *UnifiedServer) Start(ctx context.Context) error {
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
 
-	// After the listener, because a session outliving its stream is normal and only
-	// the process going away ends one. This stops the agent processes and closes
-	// each event log, which the sessions cannot do for themselves once we exit.
 	if s.live != nil {
 		s.live.Manager().CloseAll()
 	}

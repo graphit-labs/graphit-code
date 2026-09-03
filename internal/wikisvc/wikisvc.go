@@ -16,8 +16,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// Package-level function hooks for dependency injection in tests.
-// Each defaults to the real implementation.
 var (
 	newAIClientFromConfig = ai.NewClientFromConfig
 
@@ -124,9 +122,6 @@ func (s *WikiService) resolveEcosystemSource(projectID string) (wiki.WikiSource,
 		if p.ID != projectID {
 			continue
 		}
-		// Keyed by the id the global lock already gave us rather than by re-reading
-		// that project's lockfile: same answer, one fewer file read, and it still
-		// resolves for a project whose directory this process cannot reach.
 		dir := store.KnowledgeProjectDirByID(p.ID)
 		if _, err := os.Stat(dir); err != nil {
 			return wiki.WikiSource{}, fmt.Errorf("wiki not found for project %s at %s", projectID, dir)

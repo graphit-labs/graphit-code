@@ -7,12 +7,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// Every secret must be suppliable through the environment. That is the only channel that does
-// not persist into a container layer, a config file, or a shell history entry, so a credential
-// that can only be reached through `config set` is not deployable.
-//
-// The loop is over SecretConfigKeys rather than over a hand-written list of three, so a fourth
-// credential added to that list is covered here the moment it is added.
 func TestEverySecretKeyResolvesFromItsEnvironmentVariable(t *testing.T) {
 	for _, key := range SecretConfigKeys {
 		t.Run(key, func(t *testing.T) {

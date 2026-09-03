@@ -1,13 +1,11 @@
 language: haskell
 grammar: tree-sitter-haskell
 extensions: [".hs", ".lhs"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Constructor] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(function (variable) @name)'
@@ -33,7 +31,6 @@ queries:
     graph_label: Constructor
     pattern: '(data_constructor constructor: (prefix name: (constructor) @name))'
 
-  # === Relation queries ===
   - data_key: imports
     type: relation
     relation_type: IMPORTS
@@ -43,14 +40,11 @@ queries:
     relation_type: CALLS
     pattern: '(apply (variable) @name)'
 
-# Haskell uses module export lists — no simple keyword-based detection
 exports:
   strategy: none
 
-# Haskell has no self/this keyword — functions are pure
 self_keywords: []
 
-# Parent context type mapping — Haskell tree-sitter node types
 context_types:
   function: Function
   data_type: DataType
@@ -59,7 +53,6 @@ context_types:
 anon_func_types:
   - lambda
 
-# Declaration node types for docstring attachment
 declaration_types:
   - function
   - signature
@@ -67,24 +60,15 @@ declaration_types:
   - class
   - instance
 
-# Haskell tree-sitter uses "comment" for -- comments and "haddock" for documentation
 comment_types:
   - comment
   - haddock
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. && / || are ordinary infix functions here, not
-# syntax of their own, so they are left out — unlike the other languages
-# here, there is no dedicated node to check.
 complexity:
   node_types:
     - conditional
     - case
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Module
   - DataType

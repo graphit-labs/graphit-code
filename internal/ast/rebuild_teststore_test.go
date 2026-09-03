@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// rebuildTestStore builds an icebug bundle from a shard cache (the new direct path,
-// no intermediate Ladybug DB) and returns an open backend over it, mounted in-memory.
 func rebuildTestStore(t *testing.T, cache *ShardCache, proj string) *LadybugBackend {
 	t.Helper()
 	storeDir := filepath.Join(t.TempDir(), "store")

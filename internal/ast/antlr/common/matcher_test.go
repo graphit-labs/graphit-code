@@ -16,9 +16,9 @@ func TestCompilePattern(t *testing.T) {
 		{"/a/b/c", false, 3},
 		{"//a/b//c/d", false, 4},
 		{"", true, 0},
-		{"functionDeclaration", true, 0}, // no leading /
-		{"//", true, 0},                  // empty rule name
-		{"/", true, 0},                   // empty rule name
+		{"functionDeclaration", true, 0},
+		{"//", true, 0},
+		{"/", true, 0},
 	}
 
 	for _, tt := range tests {
@@ -41,17 +41,6 @@ func TestCompilePattern(t *testing.T) {
 }
 
 func TestPatternMatch(t *testing.T) {
-	// Build a sample ANTLR-style parse tree:
-	// compilationUnit
-	//   functionDeclaration
-	//     functionName
-	//       IDENTIFIER "myFunc"
-	//     parameterList
-	//       parameter
-	//         IDENTIFIER "x"
-	//   functionDeclaration
-	//     functionName
-	//       IDENTIFIER "other"
 	tree := &TreeNode{
 		Rule:  "compilationUnit",
 		Start: [2]int{1, 0}, End: [2]int{20, 0},
@@ -100,8 +89,8 @@ func TestPatternMatch(t *testing.T) {
 
 	tests := []struct {
 		pattern string
-		want    int    // expected number of matches
-		first   string // first match's FirstTerminalText
+		want    int
+		first   string
 	}{
 		{"//functionDeclaration", 2, "myFunc"},
 		{"//functionDeclaration/functionName", 2, "myFunc"},
@@ -109,7 +98,7 @@ func TestPatternMatch(t *testing.T) {
 		{"//parameterList/parameter", 1, "x"},
 		{"//parameter", 1, "x"},
 		{"//compilationUnit/functionDeclaration", 2, "myFunc"},
-		{"/compilationUnit", 1, "myFunc"}, // direct child from root — root itself matches
+		{"/compilationUnit", 1, "myFunc"},
 		{"//nonExistent", 0, ""},
 		{"//functionDeclaration/parameterList/parameter", 1, "x"},
 	}
@@ -150,7 +139,6 @@ func TestPatternMatchDirectChild(t *testing.T) {
 		},
 	}
 
-	// /root/b should only match the direct child "b", not the nested one
 	p, err := CompilePattern("/root/b")
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +151,6 @@ func TestPatternMatchDirectChild(t *testing.T) {
 		t.Fatalf("matched wrong node: %q", results[0].Node.FirstTerminalText())
 	}
 
-	// //b should match both
 	p2, _ := CompilePattern("//b")
 	results2 := p2.Match(tree)
 	if len(results2) != 2 {

@@ -22,14 +22,6 @@ type traversalProbeCase struct {
 	Millis int64  `json:"ms"`
 }
 
-// TestTraversalDiffProbe renders every result of a fixed query corpus to hashes so two
-// builds of the planner can be compared against a REAL bundle: result set, row count, row
-// order and error, per query, plus timing.
-//
-//	cp -r <store>/graph.icebug /tmp/realbundle
-//	sed -i "s|<old path>|/tmp/realbundle|g" /tmp/realbundle/schema.cypher /tmp/realbundle/icebug.json
-//	GRAPHIT_REAL_BUNDLE=/tmp/realbundle GRAPHIT_PROBE_OUT=/tmp/before.json go test -run TestTraversalDiffProbe ./internal/ast/
-//	# change the planner, repeat into /tmp/after.json, diff the two
 func TestTraversalDiffProbe(t *testing.T) {
 	dir := os.Getenv("GRAPHIT_REAL_BUNDLE")
 	dest := os.Getenv("GRAPHIT_PROBE_OUT")

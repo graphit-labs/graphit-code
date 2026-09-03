@@ -94,7 +94,6 @@ func TestJsonResult(t *testing.T) {
 	if parsed.Name != "test" || parsed.Count != 42 {
 		t.Errorf("parsed = %+v; want {Name:test Count:42}", parsed)
 	}
-	// Verify reminder is present if SysReminder is not empty
 	if ide.SysReminder != "" {
 		if len(result.Content) < 2 {
 			t.Fatal("expected reminder content block")
@@ -114,14 +113,12 @@ func TestJsonResult_Indented(t *testing.T) {
 		t.Fatal(err)
 	}
 	tc := result.Content[0].(*mcp.TextContent)
-	// MarshalIndent should produce newlines and spaces
 	if tc.Text == `{"key":"value"}` {
 		t.Error("expected indented JSON output")
 	}
 }
 
 func TestJsonResult_Unmarshalable(t *testing.T) {
-	// Channels cannot be marshaled to JSON
 	_, _, err := jsonResult(make(chan int))
 	if err == nil {
 		t.Error("expected error for unmarshalable type")
@@ -228,7 +225,6 @@ func TestResolveProjectDir(t *testing.T) {
 		})
 	}
 
-	// Test with a real directory
 	t.Run("valid directory", func(t *testing.T) {
 		tmp := t.TempDir()
 		result, err := resolveProjectDir(tmp)
@@ -249,7 +245,6 @@ func TestWithProjectDir(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	// Test successful chdir and restoration
 	var insideDir string
 	err = withProjectDir(tmp, func() error {
 		insideDir, _ = os.Getwd()
@@ -259,16 +254,12 @@ func TestWithProjectDir(t *testing.T) {
 		t.Fatalf("withProjectDir error: %v", err)
 	}
 
-	// Verify we were in the temp dir during execution
 	if insideDir != tmp {
-		// On some OSes, the path may be resolved differently (symlinks, etc.)
-		// Just check it's not the original
 		if insideDir == origDir {
 			t.Error("expected to be in temp dir during execution")
 		}
 	}
 
-	// Verify we're back to original
 	currentDir, _ := os.Getwd()
 	if currentDir != origDir {
 		t.Errorf("cwd not restored: got %q, want %q", currentDir, origDir)
@@ -300,7 +291,7 @@ func TestSplitLastNLocal(t *testing.T) {
 		name  string
 		input string
 		n     int
-		want  int // expected number of lines
+		want  int
 	}{
 		{name: "fewer lines than n", input: "a\nb\n", n: 5, want: 2},
 		{name: "more lines than n", input: "a\nb\nc\nd\ne\n", n: 2, want: 2},
@@ -378,7 +369,6 @@ func TestHubTypePathTool(t *testing.T) {
 
 	toolName := brand.MCPToolName("hub", "type-path")
 
-	// 1. The tool must be registered.
 	list, err := cs.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -394,7 +384,6 @@ func TestHubTypePathTool(t *testing.T) {
 		t.Fatalf("expected tool %q to be registered", toolName)
 	}
 
-	// 2. Calling it must return a path for the requested skill/name.
 	dir := t.TempDir()
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name: toolName,

@@ -21,13 +21,6 @@ import (
 // a request short well before this fires.
 var httpClient = &http.Client{Timeout: 120 * time.Second}
 
-// postJSON POSTs reqBody as JSON to url, applies setAuth to the request before sending (nil
-// means "no auth header" — an openai-compatible server with no key configured), and decodes a
-// 2xx response into respBody. respBody may be nil when the caller does not need the body parsed.
-//
-// A non-2xx response becomes an error that carries the provider's own response text: "401" alone
-// does not say whether the key is missing, wrong, or the model name is what was rejected, and
-// the provider's own message usually does.
 func postJSON(ctx context.Context, client *http.Client, url string, setAuth func(*http.Request), reqBody, respBody any) error {
 	buf, err := json.Marshal(reqBody)
 	if err != nil {
@@ -68,9 +61,6 @@ func postJSON(ctx context.Context, client *http.Client, url string, setAuth func
 	return nil
 }
 
-// truncateForError bounds how much of a provider's raw response ends up in an error message —
-// long enough to diagnose a bad key or a malformed request, short enough that a provider
-// returning an HTML error page doesn't flood the log.
 func truncateForError(s string) string {
 	const max = 500
 	if len(s) <= max {
@@ -79,10 +69,6 @@ func truncateForError(s string) string {
 	return s[:max] + "…"
 }
 
-// bearerAuth builds a setAuth func for the "Authorization: Bearer <key>" shape shared by OpenAI,
-// OpenAI-compatible servers, Cohere, Voyage and Jina. An empty key means "send no Authorization
-// header at all" rather than "Bearer " with nothing after it — the openai-compatible case, where
-// a key is optional.
 func bearerAuth(apiKey string) func(*http.Request) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil
@@ -92,8 +78,6 @@ func bearerAuth(apiKey string) func(*http.Request) {
 	}
 }
 
-// headerAuth builds a setAuth func that sets an arbitrary header — used for Google's Generative
-// Language API, which authenticates via "x-goog-api-key" rather than a Bearer token.
 func headerAuth(name, value string) func(*http.Request) {
 	if strings.TrimSpace(value) == "" {
 		return nil

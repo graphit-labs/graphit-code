@@ -10,16 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
-// A project's grammar override used to live at one fixed path, .graphit/ast/queries,
-// and `graphit init` puts the brand directory in .gitignore. So the one kind of
-// customization that belongs to the repository rather than to the machine was kept
-// in the one directory the repository does not track: the next checkout, and every
-// other developer, silently got the shipped grammar back.
-//
-// ast.queries_dir moves that directory wherever the project tracks it.
-
-// writeLockfileConfig writes a project lockfile carrying nothing but a config
-// object, which is what config.LoadProjectConfig reads.
 func writeLockfileConfig(t *testing.T, projectDir string, cfg map[string]any) {
 	t.Helper()
 	data, err := json.Marshal(map[string]any{"config": cfg})
@@ -31,7 +21,6 @@ func writeLockfileConfig(t *testing.T, projectDir string, cfg map[string]any) {
 	}
 }
 
-// stageQueryFile writes a query YAML into dir, creating it.
 func stageQueryFile(t *testing.T, dir, name, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -127,7 +116,6 @@ queries:
 	}
 
 	writeLockfileConfig(t, project, map[string]any{"ast": map[string]any{"queries_dir": "b"}})
-	// The staleness check is rate limited, so force the re-read rather than sleep.
 	InvalidateQueryCaches()
 	if got := langNamesOf(loadProjectCached(project)); len(got) != 1 || got[0] != "second_lang" {
 		t.Errorf("after moving queries_dir to b the project declares %v, want [second_lang]", got)
@@ -142,11 +130,6 @@ func langNamesOf(files []ExternalQueryFile) []string {
 	return names
 }
 
-// merge: true
-
-// stageRuntimeLevel writes a file into the version-scoped runtime directory,
-// which is the bottom of the resolution chain. It requires HOME to have been
-// redirected already, or it would write into the developer's own installation.
 func stageRuntimeLevel(t *testing.T, name, body string) {
 	t.Helper()
 	if home, _ := os.UserHomeDir(); home == "" || !isTempPath(home) {
@@ -180,9 +163,6 @@ queries:
     pattern: '(type_declaration (type_spec name: (type_identifier) @name))'
 `
 
-// The whole point of `merge: true`: a project file that declares one query keeps
-// everything the level below it said — including `extensions` and `grammar`,
-// whose absence used to unregister the language rather than leave it alone.
 func TestMergeTrueMergesOntoTheLevelBelow(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	InvalidateQueryCaches()
@@ -215,7 +195,6 @@ queries:
 	}
 	merged := resolved[0]
 
-	// Language identity inherited.
 	if got := merged.Grammar; got != "tree-sitter-go" {
 		t.Errorf("grammar = %q, want the runtime's tree-sitter-go", got)
 	}
@@ -223,7 +202,6 @@ queries:
 		t.Errorf("extensions = %v, want the runtime's [.baselang]", merged.Extensions)
 	}
 
-	// Lists the partial file said nothing about survive.
 	if len(merged.DeclarationTypes) != 1 || merged.DeclarationTypes[0] != "function_declaration" {
 		t.Errorf("declaration_types = %v, want the runtime's", merged.DeclarationTypes)
 	}
@@ -231,14 +209,12 @@ queries:
 		t.Errorf("comment_types = %v, want the runtime's", merged.CommentTypes)
 	}
 
-	// Maps merge key by key.
 	for _, key := range []string{"function_declaration", "type_declaration", "method_declaration"} {
 		if _, ok := merged.ContextTypes[key]; !ok {
 			t.Errorf("context_types lost %q: %v", key, merged.ContextTypes)
 		}
 	}
 
-	// complexity: node_types restated, operators inherited.
 	if merged.Complexity == nil {
 		t.Fatal("complexity was dropped")
 	}
@@ -249,7 +225,6 @@ queries:
 		t.Errorf("complexity.operators = %v, want the runtime's", merged.Complexity.Operators)
 	}
 
-	// queries: `functions` inherited, `types` replaced, `calls` added.
 	byKey := map[string]ExternalQueryDef{}
 	for _, q := range merged.Queries {
 		byKey[q.DataKey] = q
@@ -427,7 +402,6 @@ func TestMergeOntoReturnsOnlyTheUpperLevel(t *testing.T) {
 	if merged[0].Grammar != "tree-sitter-shared" {
 		t.Errorf("grammar = %q, want the inherited one", merged[0].Grammar)
 	}
-	// The inputs are shared by every project and every parse.
 	if base[1].Merge {
 		t.Error("mergeOnto mutated the level below it")
 	}

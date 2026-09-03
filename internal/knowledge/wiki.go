@@ -28,8 +28,6 @@ type WikiResult struct {
 
 const maxKnowledgeDocBytes = 1024 * 1024
 
-// knowledgeSourceFile reports whether a file found under absRoot is a document
-// the wiki indexes, returning its cache key and extension.
 func knowledgeSourceFile(absRoot, path string, info os.FileInfo, exts map[string]bool, ic ignorer.DirScope) (relPath, ext string, ok bool) {
 	ext = strings.ToLower(filepath.Ext(path))
 	if !exts[ext] {
@@ -45,7 +43,6 @@ func knowledgeSourceFile(absRoot, path string, info os.FileInfo, exts map[string
 	return relPath, ext, true
 }
 
-// knowledgeSource is a document the wiki indexes, as found on disk.
 type knowledgeSource struct {
 	relPath string
 	ext     string
@@ -78,7 +75,6 @@ type WikiScope struct {
 	ExtraFiles []string
 }
 
-// walkRoot returns the directory the walk starts from.
 func (s WikiScope) walkRoot(absRoot string) string {
 	sub := strings.TrimSpace(s.Subdir)
 	if sub == "" || sub == "." {
@@ -87,18 +83,10 @@ func (s WikiScope) walkRoot(absRoot string) string {
 	return filepath.Join(absRoot, filepath.FromSlash(sub))
 }
 
-// walkRoots returns every directory the walk starts from.
-//
-// There is one. The whitelist that used to make this a set existed for a single
-// caller — the live search compiling several selected documentation sets into one
-// wiki — and that compile is gone: a context now arrives already compiled and is
-// searched where it lives. The plural shape is kept because the walk consumes a
-// slice, not because a scope can name more than one tree.
 func (s WikiScope) walkRoots(absRoot string) []string {
 	return []string{s.walkRoot(absRoot)}
 }
 
-// enumerateKnowledgeSources walks the scope once for the generation pass.
 func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]bool, ic ignorer.DirScope) ([]knowledgeSource, error) {
 	var sources []knowledgeSource
 	seen := make(map[string]bool)
@@ -127,9 +115,6 @@ func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]
 				if relDir != "." && ic.IsIgnored(relDir, true) && !ic.ShouldDescend(relDir) {
 					return filepath.SkipDir
 				}
-				// A directory's own .gitignore/.wikiignore scopes to it, exactly
-				// as git does; crossing into one before its children is what
-				// makes that true.
 				if relDir != "." {
 					ic = ic.At(relDir)
 				}
@@ -143,8 +128,6 @@ func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]
 		}
 	}
 
-	// After the walk, so a document the walk already found keeps the mtime the
-	// walk read rather than being stat'ed a second time.
 	for _, extra := range scope.ExtraFiles {
 		abs := filepath.Join(absRoot, filepath.FromSlash(extra))
 		info, statErr := os.Stat(abs)
@@ -169,9 +152,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		return nil, fmt.Errorf("resolving root path: %w", err)
 	}
 
-	// Patterns resolve against the project, but they are collected from the docs
-	// tree upward, so a .wikiignore kept inside the docs tree is read as well as
-	// the one at the root.
 	walkRoot := scope.walkRoot(absRoot)
 	ic := ignorer.DirScope(NewKnowledgeIgnoreCheckerIn(absRoot, walkRoot))
 
@@ -208,30 +188,17 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		})
 	}
 
-	// Process sources: one wiki document per source file. The compiled table is the cache: the
-	// incremental writer below compares these rows with what is already stored and preserves
-	// unchanged rows and their embeddings.
-	//
-	// THE DOCUMENT IS THE UNIT. A source file is never split into per-heading
-	// pieces. Splitting produced one page per heading, and a heading whose whole
-	// content was subsections produced an EMPTY page — measured at 11,4% of the
-	// index — which still carried a title into the ranking and outranked the
-	// prose it was supposed to introduce. It also made a document's own page the
-	// empty one whenever the document opened with a single H1.
 	var docs []knowledgeDoc
 	for _, src := range sources {
 		updatedAt := time.Unix(0, src.mtime).UTC().Format("2006-01-02")
 		content := string(src.data)
 
 		doc := knowledgeDoc{
-			title:   wiki.ExtractTitle(content, src.relPath),
-			path:    src.relPath,
-			summary: wiki.ExtractSummary(content),
-			docType: classifyDocType(src.relPath, content),
-			body:    content,
-			// The source path, so a query naming a file or a directory reaches the
-			// page: `source` is not one of the indexed FTS columns and breadcrumb
-			// no longer has a heading hierarchy to carry.
+			title:       wiki.ExtractTitle(content, src.relPath),
+			path:        src.relPath,
+			summary:     wiki.ExtractSummary(content),
+			docType:     classifyDocType(src.relPath, content),
+			body:        content,
 			breadcrumb:  filepath.ToSlash(src.relPath),
 			contentHash: src.contentHash,
 			crossRefs:   wiki.ExtractCrossRefs(content),
@@ -240,9 +207,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		docs = append(docs, doc)
 	}
 
-	// The path breaks ties, which makes the order TOTAL: sort.Slice is not stable,
-	// so two documents sharing a type and a title would otherwise swap places
-	// between builds, and slug assignment below reads this order.
 	sort.Slice(docs, func(i, j int) bool {
 		if docs[i].docType != docs[j].docType {
 			return docs[i].docType < docs[j].docType
@@ -255,11 +219,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 
 	result := &WikiResult{OutputDir: wikiDir}
 
-	// What the index already holds, which is what "added", "updated" and "deleted" are measured
-	// against. This used to be an `os.ReadDir` of the wiki directory: the pages were the record of
-	// what existed, so a page on disk meant an indexed document. The pages are not written any
-	// more, and the index was always the better answer — it is the set a search can reach, and it
-	// carries each page's content hash, which the directory listing did not.
 	indexedHashes, err := wiki.IndexedPageHashes(ctx, wikiDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading the compiled index: %w", err)
@@ -269,15 +228,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		return nil, fmt.Errorf("reading the compiled corpus: %w", err)
 	}
 
-	// First pass: resolve slugs and map titles (cheap — no I/O).
-	//
-	// A slug must not depend on how many documents happen to precede it. The old
-	// scheme numbered every collision _2, _3, … in iteration order, so adding one
-	// document renumbered the rest and silently repointed the stored [[wikilinks]]
-	// and xrefs of unrelated pages at different content — no error, no log. Here a
-	// title that is unique in the corpus names its own page, and an ambiguous or
-	// unusable one falls back to the source path, which is unique per document and
-	// stable across builds by construction.
 	titleCount := make(map[string]int, len(docs))
 	for _, doc := range docs {
 		titleCount[wiki.SafeSlug(doc.title)]++
@@ -288,10 +238,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	for i, doc := range docs {
 		base := wiki.SafeSlug(doc.title)
 		if base == "" || titleCount[base] > 1 {
-			// ToSlash first, explicitly: doc.path comes from filepath.Rel and carries
-			// backslashes on Windows. A slug that depended on the separator would give
-			// the same document a different page name per platform, renaming every
-			// page of a repository checked out on the other one.
 			relSlash := filepath.ToSlash(doc.path)
 			base = wiki.SafeSlug(strings.TrimSuffix(relSlash, path.Ext(relSlash)))
 		}
@@ -304,7 +250,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	// FAST PATH: the table's own slug/hash projection is the evidence that no work is needed.
 	fastEntries := make([]wiki.DocHashEntry, len(docs))
 	for i, doc := range docs {
 		fastEntries[i] = wiki.DocHashEntry{
@@ -316,7 +261,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		return result, nil
 	}
 
-	// Full pipeline: something changed or first run.
 	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
 
 	newSlugs := make(map[string]bool)
@@ -324,24 +268,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	var updated []string
 	docDetails := make(map[string]wiki.LogDocDetails)
 
-	// NO PAGE IS WRITTEN, and nothing is pruned.
-	//
-	// This loop used to end in `writePageIfChanged(<wikiDir>/<slug>.md, knowledgeEntityPage(doc))`,
-	// followed by an `os.Remove` sweep over the slugs no document claimed any more. Both are gone:
-	// SyncDB below receives these same documents and is the only place one becomes readable, so
-	// the page was a second copy of it — written, pruned, and then read back by the cross-reference
-	// pass, the lint and the explorer, all of which now read the index instead.
-	//
-	// What the loop still does is the part that was never about files: autolinking a body against
-	// every other document's title, which is why the body indexed for a document is not simply its
-	// source text.
-	//
-	// added/updated/deleted are decided by comparing against the index, and the comparison is on
-	// the SOURCE content hash. `writePageIfChanged` compared rendered bytes, which counted a
-	// document as "updated" when a sibling was added and changed its autolinks. That distinction
-	// existed to avoid a pointless file write; there is no file to write, so the cheaper and more
-	// honest signal is whether the document itself
-	// changed.
 	for i := range docs {
 		slug := docSlugs[i]
 		newSlugs[slug] = true
@@ -350,11 +276,9 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			Summary: docs[i].summary,
 		}
 
-		// Auto-link body content using the titlesMap
 		autoLinkedBody, autoRefs := wiki.AutoLinkContent(docs[i].body, compiledTargets, slug)
 		docs[i].body = autoLinkedBody
 
-		// Add auto-linked references to doc's crossRefs
 		existingRefs := make(map[string]bool)
 		for _, ref := range docs[i].crossRefs {
 			existingRefs[ref] = true
@@ -366,7 +290,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			}
 		}
 
-		// Resolve manual/child wikilinks in the body to their resolved slugs
 		docs[i].body = wiki.ResolveWikiLinksInBody(docs[i].body, titlesMap)
 
 		indexedHash, wasIndexed := indexedHashes[slug]
@@ -388,32 +311,17 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	// Skip the expensive phases if nothing ended up changing. The gate is the index having
-	// content, not a file existing beside it: an index that is present and empty is the state
-	// both skip paths used to get permanently stuck in — see wiki.IndexHasContent.
 	nothingChanged := result.ArticlesWritten == 0 && len(deleted) == 0
 	if nothingChanged && wiki.IndexHasContent(ctx, wikiDir) {
 		return result, nil
 	}
 
-	// Phase 1: Cross-reference graph. It is rebuilt in memory; the table sync below updates only
-	// source slugs whose edge set changed, so no sidecar graph cache is needed.
-	// `index.md` is not written. It was a catalogue of slugs, titles, types and clusters,
-	// rewritten in full on every build — and rewritten twice more below, once for the clusters and
-	// once for the staleness. Everything on it is a column, so the catalogue is a Browse query:
-	// `wiki.WikiOverview` renders it for the AI consultation cycle, `graphit wiki browse` for a
-	// person, and `graphit wiki export` writes the page itself for whoever wants the tree.
-
-	// The cross-reference graph is built from the edges this pass just resolved, not by reading
-	// pages back and re-extracting their links with two regexes. Same edge set — it is the one
-	// written to the `xrefs` table below — derived once, by the pass that owns it.
 	graph := wiki.BuildCrossRefGraphFromRefs(knowledgePageEdges(docs, docSlugs))
 	stats := wiki.CrossRefStats(graph)
 	result.BacklinksAdded = stats.BacklinksAdded
 	result.OrphanPages = stats.OrphanPages
 	result.BrokenLinks = stats.BrokenLinks
 
-	// Phase 2: Community detection
 	communities := DetectKnowledgeCommunities(graph)
 	result.Communities = len(communities)
 	if len(communities) > 0 {
@@ -429,7 +337,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	// Phase 3: Staleness tracking
 	oldManifest := ManifestFromChunks(indexedChunks)
 	newManifest := &Manifest{
 		SourceHashes: make(map[string]string),
@@ -443,9 +350,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	stalePages := DetectStalePages(oldManifest, newManifest, graph)
 	if len(stalePages) > 0 {
 		result.StalePages = len(stalePages)
-		// Staleness lands on the document and travels into the `stale_since`/`stale_reason`
-		// columns with everything else. The re-render of the affected pages, and the third
-		// rewrite of index.md that followed it, are gone with the pages.
 		for i := range docs {
 			if info, ok := stalePages[docSlugs[i]]; ok {
 				docs[i].staleSince = info.Since
@@ -454,7 +358,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	// Phase 4: Lint
 	if graph != nil {
 		lintResult := LintKnowledgeWiki(graph, docs, docSlugs)
 		if lintResult != nil {
@@ -466,7 +369,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	sort.Strings(updated)
 	sort.Strings(deleted)
 
-	// Phase 5: incrementally synchronize the LanceDB wiki.
 	wikiChunks := make([]wiki.WikiChunk, 0, len(docs))
 	xrefs := make(map[string][]string)
 	for i, doc := range docs {
@@ -488,8 +390,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			Confidence:  confidence,
 			ContentHash: doc.contentHash,
 			WordCount:   wc,
-			// The source's date. Stamping "today" here made every row claim it was updated on the
-			// day of the last sync.
 			Updated:     doc.updatedAt,
 			Important:   important,
 			Tags:        knowledgeWikiTags(doc.docType, important, doc.staleSince != ""),
@@ -507,10 +407,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 
 	}
 
-	// Details cover the pages this sync TOUCHED, not the whole corpus. Recording
-	// every document made each log entry carry a title and summary for all of them,
-	// and sync_log is append-only and re-copied on every rebuild: it had grown to
-	// 99 MB of a 116 MB index, against 1,4 MB of actual indexed text.
 	touchedDetails := make(map[string]wiki.LogDocDetails, len(added)+len(updated))
 	for _, slug := range append(append([]string{}, added...), updated...) {
 		if dd, ok := docDetails[slug]; ok {
@@ -535,11 +431,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	if err := wiki.SyncDB(ctx, wikiDir, wikiChunks, xrefs, syncLogEntry); err != nil {
 		return nil, err
 	}
-
-	// `log.md` is not appended. The same information — the timestamp, the counts, and the three
-	// slug lists with their titles and summaries — is the `sync_log` row written above by
-	// SyncDB; `graphit wiki log` and `graphit_wiki_log` read it, and `graphit wiki export`
-	// renders the page for whoever wants the file.
 
 	return result, nil
 }
@@ -622,12 +513,12 @@ type knowledgeDoc struct {
 	body        string
 	contentHash string
 	crossRefs   []string
-	breadcrumb  string // source path, so a path query reaches the page
-	cluster     int    // community ID from Louvain (-1 = unassigned)
-	clusterName string // label of the community
-	staleSince  string // ISO date if page is stale, empty otherwise
-	staleReason string // why it's stale
-	updatedAt   string // source mtime as YYYY-MM-DD; keeps the page byte-stable
+	breadcrumb  string
+	cluster     int
+	clusterName string
+	staleSince  string
+	staleReason string
+	updatedAt   string
 }
 
 func classifyDocType(relPath, content string) string {

@@ -1,7 +1,5 @@
-# PL/SQL — ANTLR v4 grammar for Oracle PL/SQL
-# Comprehensive extraction: all DDL, DML, stored units, types, triggers,
-# parameters, variables, cursors, exceptions, constraints, grants, and
-# every type of relation (CALLS, SELECTS, INSERTS, UPDATES, DELETES, etc.)
+
+
 language: plsql
 parser: antlr4
 grammar: antlr-plsql
@@ -9,16 +7,6 @@ start_rule: sql_script
 extensions: [".sql", ".pks", ".pkb", ".pls", ".plb", ".prc", ".fnc", ".trg", ".typ", ".bdy", ".spc", ".vw"]
 exclusive: true
 
-# Target resolution: a DML/DDL relation captures its object by NAME, and the name
-# alone does not say what kind of thing it is. A target this corpus never declares is
-# still a table — whoever reads a schema they do not own depends on it for real — and
-# that is why `fallback: Table` is declared here instead of being the engine's default
-# for every reference of every language.
-# What a call can reach. `Trigger` is NOT here, and its absence is the
-# statement: in PL/SQL a trigger is not callable — it is fired by DML on its table
-# and no program invokes it by name. Measured on a real corpus: with Trigger in the set,
-# the ONLY trigger ever "called" was one whose database name is the quoted identifier "BEGIN",
-# and every `begin` word in statement position resolved to it — 9092 false edges, zero true ones lost by removing it.
 target_rules:
   CALLS: { labels: [Function, Procedure, Package] }
   SELECTS: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
@@ -30,67 +18,46 @@ target_rules:
   CREATES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
   TRUNCATES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
   REFERENCES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
-  # COLUMN grain. Types of their own, rather than Column added to the label set of
-  # UPDATES/SELECTS: a table name spelled like some column would become ambiguous, and
-  # ambiguity is rejected — so adding column resolution would break table resolution.
-  #
-  # The target is always QUALIFIED (`TABLE.COLUMN`), which is what makes this usable:
-  # `ST_PROC` alone lives in dozens of tables and resolves to none, while
-  # `PEDIDO.ST_PROC` resolves to one. The qualified fallback is honest too — a stub
-  # `PEDIDO.ST_PROC` records ONE column of ONE table, where a stub `ST_PROC` would merge
-  # as de todas.
+
   READS_COLUMN: { labels: [Column], fallback: Column }
   WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
-  # ═══════════════════════════════════════════════════════════════════════════
-  # FUNCTIONS & PROCEDURES
-  # ═══════════════════════════════════════════════════════════════════════════
 
-  # CREATE [OR REPLACE] FUNCTION ...
   - data_key: functions
     graph_label: Function
     pattern: "//create_function_body/function_name"
     name_capture: name
     type: entity
 
-  # Package-level function bodies (inside CREATE PACKAGE BODY)
   - data_key: functions
     graph_label: Function
     pattern: "//function_body/identifier"
     name_capture: name
     type: entity
 
-  # Package-level function specs (declarations in CREATE PACKAGE)
   - data_key: functions
     graph_label: Function
     pattern: "//function_spec/identifier"
     name_capture: name
     type: entity
 
-  # CREATE [OR REPLACE] PROCEDURE ...
   - data_key: procedures
     graph_label: Procedure
     pattern: "//create_procedure_body/procedure_name"
     name_capture: name
     type: entity
 
-  # Package-level procedure bodies
   - data_key: procedures
     graph_label: Procedure
     pattern: "//procedure_body/identifier"
     name_capture: name
     type: entity
 
-  # Package-level procedure specs (declarations)
   - data_key: procedures
     graph_label: Procedure
     pattern: "//procedure_spec/identifier"
     name_capture: name
     type: entity
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # PACKAGES & TYPES
-  # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: packages
     graph_label: Package
@@ -104,30 +71,23 @@ queries:
     name_capture: name
     type: entity
 
-  # TYPE specifications (CREATE TYPE ... AS OBJECT / AS TABLE / AS VARRAY)
   - data_key: types
     graph_label: Type
     pattern: "//create_type/type_definition/type_name"
     name_capture: name
     type: entity
 
-  # TYPE BODY (implementation of TYPE methods)
   - data_key: types
     graph_label: Type
     pattern: "//create_type_body/type_name"
     name_capture: name
     type: entity
 
-  # SUBTYPE declarations (inside DECLARE or package)
   - data_key: types
     graph_label: Type
     pattern: "//subtype_declaration/identifier"
     name_capture: name
     type: entity
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # TRIGGERS
-  # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: triggers
     graph_label: Trigger
@@ -135,7 +95,6 @@ queries:
     name_capture: name
     type: entity
 
-  # Trigger → table reference (ON table_name)
   - data_key: trigger_tables
     graph_label: ""
     pattern: "//create_trigger/tableview_name"
@@ -143,59 +102,24 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DATABASE OBJECTS — DDL
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Tables
-  #
-  # create_table is `CREATE ... TABLE (schema_name '.')? table_name`, so the name
-  # is under table_name — never under tableview_name, which this pattern used to
-  # name and which appears in create_table only in the rare PARENT clause. The
-  # pattern matched nothing: an Oracle export of 35358 files yielded 0 Table
-  # entities while carrying 75121 Table->Column edges, and the CONTAINS rel table
-  # group then referenced a node table that was never created.
   - data_key: tables
     graph_label: Table
     pattern: "//create_table/table_name"
     name_capture: name
     type: entity
 
-  # Views
-  #
-  # create_view names the view with a bare id_expression (`VIEW (schema_name '.')?
-  # v = id_expression`), not a tableview_name — same miss as tables above, 0 View
-  # entities extracted. The other id_expression that can sit directly under
-  # create_view belongs to DEFAULT COLLATION, which no view in the reference
-  # corpus uses.
   - data_key: views
     graph_label: View
     pattern: "//create_view/id_expression"
     name_capture: name
     type: entity
 
-  # Materialized Views
   - data_key: mviews
     graph_label: MaterializedView
     pattern: "//create_materialized_view/tableview_name"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # COLUMN-GRAIN DML
-  # ═══════════════════════════════════════════════════════════════════════════
-  #
-  # The table is the column's SIBLING in the tree, neither ancestor nor descendant:
-  #
-  #   update_statement : UPDATE general_table_ref update_set_clause ...
-  #   insert_into_clause : INTO general_table_ref paren_column_list?
-  #
-  # So the qualifier is anchored at an ANCESTOR — the first segment is the rule to
-  # climb to, the rest walks down from there. A pattern matching the column could not
-  # reach the table any other way, and one matching the statement would take only the
-  # PRIMEIRA coluna de um `SET a = 1, b = 2`.
-
-  # UPDATE <t> SET <c> = ...  — one row per assigned column.
   - data_key: column_writes_update
     pattern: "//column_based_update_set_clause/column_name"
     name_capture: name
@@ -203,7 +127,6 @@ queries:
     type: relation
     relation_type: WRITES_COLUMN
 
-  # INSERT INTO <t> (<c>, ...) — a lista de colunas nomeadas.
   - data_key: column_writes_insert
     pattern: "//paren_column_list/column_list/column_name"
     name_capture: name
@@ -211,7 +134,6 @@ queries:
     type: relation
     relation_type: WRITES_COLUMN
 
-  # Indexes
   - data_key: indexes
     graph_label: Index
     pattern: "//create_index"
@@ -220,120 +142,72 @@ queries:
     value_label: Value
     type: entity
 
-  # An index used to be a NAME and nothing else: which table it is on, which columns
-  # it covers and whether it is UNIQUE were all absent. That makes the one question an
-  # index exists to answer — "is this rule enforced by the database, or only by the
-  # application?" — unanswerable from the graph, and an agent that trusts an empty
-  # result concludes the opposite of the truth.
-  #
-  #   create_index : CREATE UNIQUE? BITMAP? INDEX index_name ON table_index_clause ...
-  #   table_index_clause : tableview_name table_alias? '(' index_expr (',' index_expr)* ')'
-  #   index_expr : column_name | expression
-  #
-  # UNIQUE is a keyword, not a rule, which is why a capture may name a token — see
-  # ChildByRule. The same UID and label as the query above, so this MERGES into that
-  # entity and fills its `value` instead of producing a second index node; a
-  # non-unique index simply never matches and keeps `value` empty.
-  # The table the index is on. A relation rather than a property, so
-  # "which indexes cover this table" is a traversal from either end.
   - data_key: index_table
     pattern: "//create_index/table_index_clause/tableview_name"
     name_capture: name
     type: relation
     relation_type: REFERENCES
 
-  # The covered columns. Order is semantic in a composite index — a leading column can
-  # serve a query that a trailing one cannot — and it survives as the line order of the
-  # nodes under the index.
   - data_key: columns
     graph_label: Column
     pattern: "//create_index/table_index_clause/index_expr/column_name"
     name_capture: name
     type: entity
 
-  # Sequences
   - data_key: sequences
     graph_label: Sequence
     pattern: "//create_sequence/sequence_name"
     name_capture: name
     type: entity
 
-  # Synonyms
   - data_key: synonyms
     graph_label: Synonym
     pattern: "//create_synonym/synonym_name"
     name_capture: name
     type: entity
 
-  # Database Links
   - data_key: dblinks
     graph_label: DBLink
     pattern: "//create_database_link/link_name"
     name_capture: name
     type: entity
 
-  # Tablespace
   - data_key: tablespaces
     graph_label: Tablespace
     pattern: "//create_tablespace/tablespace_name"
     name_capture: name
     type: entity
 
-  # Directory objects
   - data_key: directories
     graph_label: Directory
     pattern: "//create_directory/directory_name"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # COLUMNS, PARAMETERS & DECLARATIONS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Column definitions (inside CREATE TABLE)
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition/column_name"
     name_capture: name
     type: entity
 
-  # Function/procedure parameters
   - data_key: parameters
     graph_label: Parameter
     pattern: "//parameter/parameter_name"
     name_capture: name
     type: entity
 
-  # Variable declarations (DECLARE block or package body)
-  #
-  # Oracle has no constant_declaration rule: a constant is a variable_declaration
-  # carrying the CONSTANT keyword —
-  #
-  #   variable_declaration : identifier CONSTANT? type_spec (NOT? NULL_)? default_value_part? ';'
-  #
-  # so the two are told apart by the keyword guard. Without it every constant was
-  # indexed as a Variable and the query against //constant_declaration matched
-  # nothing, because that rule does not exist.
   - data_key: variables
     graph_label: Variable
     pattern: "//variable_declaration[!CONSTANT]"
     name_capture: identifier
     type: entity
 
-  # Constant declarations
   - data_key: constants
     graph_label: Constant
     pattern: "//variable_declaration[CONSTANT]"
     name_capture: identifier
     type: entity
 
-  # Declared default values. The value becomes a node contained by the column or
-  # variable that declares it, so "which column is born with this status" is a
-  # traversal, and the value itself is reachable by search.
-  #
-  # These match the declaration itself, not its name terminal, because the value
-  # is a sibling of the name: value_capture resolves a rule path downward from the
-  # matched node.
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition"
@@ -356,67 +230,54 @@ queries:
     value_label: Value
     type: entity
 
-  # Cursor declarations
   - data_key: cursors
     graph_label: Cursor
     pattern: "//cursor_declaration/identifier"
     name_capture: name
     type: entity
 
-  # Exception declarations (user-defined exceptions)
   - data_key: exceptions
     graph_label: Exception
     pattern: "//exception_declaration/identifier"
     name_capture: name
     type: entity
 
-  # Record type definitions (TYPE rec IS RECORD)
   - data_key: types
     graph_label: Type
     pattern: "//record_type_definition/identifier"
     name_capture: name
     type: entity
 
-  # Collection type definitions (TYPE t IS TABLE OF)
   - data_key: types
     graph_label: Type
     pattern: "//table_type_definition/identifier"
     name_capture: name
     type: entity
 
-  # VARRAY type definitions (TYPE v IS VARRAY)
   - data_key: types
     graph_label: Type
     pattern: "//varray_type_definition/identifier"
     name_capture: name
     type: entity
 
-  # REF CURSOR type definitions
   - data_key: types
     graph_label: Type
     pattern: "//ref_cursor_type_definition/identifier"
     name_capture: name
     type: entity
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # CONSTRAINTS & COMMENTS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # Inline constraints
   - data_key: constraints
     graph_label: Constraint
     pattern: "//inline_constraint/constraint_name"
     name_capture: name
     type: entity
 
-  # Out-of-line constraints
   - data_key: constraints
     graph_label: Constraint
     pattern: "//out_of_line_constraint/constraint_name"
     name_capture: name
     type: entity
 
-  # Foreign key references (references_clause → table being referenced)
   - data_key: fk_references
     graph_label: ""
     pattern: "//references_clause/tableview_name"
@@ -424,15 +285,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # COMMENT ON ... IS '<text>' — the comment TEXT is the entity name.
-  #
-  # These used to be relations pointing at the commented column or table, with the text
-  # never captured at all. In an Oracle export that is the whole data dictionary thrown
-  # away: 2209 files in the reference corpus contain nothing but COMMENT ON statements,
-  # and they yielded zero entities.
-  #
-  # The commented object still gets a reference edge below, so "what is documented" and
-  # "what does the documentation say" are both answerable.
   - data_key: comments
     graph_label: Comment
     pattern: "//comment_on_column/quoted_string"
@@ -451,7 +303,6 @@ queries:
     name_capture: name
     type: entity
 
-  # The object each comment documents.
   - data_key: comment_refs
     graph_label: ""
     pattern: "//comment_on_column/column_name"
@@ -473,37 +324,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # FUNCTION/PROCEDURE CALLS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # WHY THE THREE CALL QUERIES NEED `name_reject`, and why the list lives
-  # here and not in the engine:
-  #
-  # `call_statement` (PlSqlParser.g4) is `CALL? routine_name function_argument?` — BOTH
-  # optionals may be absent, so a bare identifier in statement position IS already a
-  # complete call. And `routine_name` resolves via `regular_id`, whose
-  # `non_reserved_keywords_pre12c` list has 1753 words, including BEGIN, DECLARE, FUNCTION,
-  # IF, PROCEDURE and RETURN. That is: by the grammar's own rules, `IF` in statement
-  # position is a call to something called IF — and the parse is CLEAN. The hypothesis that
-  # it came from error recovery was tested and DISCARDED: with and without discarding the
-  # recovered subtree, the result was identical.
-  #
-  # Measured on a real corpus before the filter: `PROCEDURE` 16367, `IF` 2567, `DECLARE` 2050,
-  # `FUNCTION` 1021, `begin` 976, `.` 818 — 25k call edges to reserved words, out of 58k coming from screen code.
-  #
-  # The list is words that NEVER name a routine in PL/SQL: block, flow control,
-  # DML, and statements that are not calls (`commit`, `rollback`, `savepoint`). The
-  # `^[^A-Za-z_]` at the end covers the rest — an unquoted PL/SQL identifier starts with a letter,
-  # so a target starting with punctuation (the lone `.`) is not a name at all.
-  #
-  # ANCHORED at both ends on purpose: `^(?i)(if)$` rejects the word `if`; `if` without
-  # anchors would reject `if_valida_cliente` as well.
-  #
-  # Intentionally OUTSIDE here: `dyn_sql` (`execute_immediate`), whose "name" is a whole
-  # expression — filtering keywords there does not solve its problem, which is different.
-
-  # Explicit CALL statement (CALL pkg.proc())
   - data_key: calls
     graph_label: ""
     pattern: "//call_statement/routine_name"
@@ -512,7 +332,6 @@ queries:
     relation_type: CALLS
     name_reject: '(?i)^(begin|declare|end|if|elsif|then|else|case|when|loop|while|for|exit|continue|goto|return|null|procedure|function|package|body|exception|raise|commit|rollback|savepoint|set|select|insert|update|delete|merge|values|into|from|where|and|or|not|is|as|declare|cursor|record|type|subtype|constant|pragma|open|close|fetch|forall|bulk|using|out|in)$|^[^A-Za-z_]'
 
-  # Function calls within expressions (func(x), pkg.func(x))
   - data_key: calls
     graph_label: ""
     pattern: "//function_call/routine_name"
@@ -521,7 +340,6 @@ queries:
     relation_type: CALLS
     name_reject: '(?i)^(begin|declare|end|if|elsif|then|else|case|when|loop|while|for|exit|continue|goto|return|null|procedure|function|package|body|exception|raise|commit|rollback|savepoint|set|select|insert|update|delete|merge|values|into|from|where|and|or|not|is|as|declare|cursor|record|type|subtype|constant|pragma|open|close|fetch|forall|bulk|using|out|in)$|^[^A-Za-z_]'
 
-  # Procedure calls in body (proc_name(args))
   - data_key: calls
     graph_label: ""
     pattern: "//procedure_call/routine_name"
@@ -530,7 +348,6 @@ queries:
     relation_type: CALLS
     name_reject: '(?i)^(begin|declare|end|if|elsif|then|else|case|when|loop|while|for|exit|continue|goto|return|null|procedure|function|package|body|exception|raise|commit|rollback|savepoint|set|select|insert|update|delete|merge|values|into|from|where|and|or|not|is|as|declare|cursor|record|type|subtype|constant|pragma|open|close|fetch|forall|bulk|using|out|in)$|^[^A-Za-z_]'
 
-  # EXECUTE IMMEDIATE (dynamic SQL)
   - data_key: dyn_sql
     graph_label: ""
     pattern: "//execute_immediate//expression"
@@ -538,11 +355,6 @@ queries:
     type: relation
     relation_type: CALLS
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DML TABLE REFERENCES
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SELECT ... FROM table
   - data_key: selects
     graph_label: ""
     pattern: "//from_clause/table_ref_list//tableview_name"
@@ -550,7 +362,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # SELECT ... FROM table (subquery_basic_elements for inline views)
   - data_key: selects
     graph_label: ""
     pattern: "//query_block/from_clause//tableview_name"
@@ -558,7 +369,6 @@ queries:
     type: relation
     relation_type: SELECTS
 
-  # INSERT INTO table
   - data_key: inserts
     graph_label: ""
     pattern: "//insert_into_clause/general_table_ref//tableview_name"
@@ -566,7 +376,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # Multi-table insert (INSERT ALL INTO ...)
   - data_key: inserts
     graph_label: ""
     pattern: "//multi_table_insert//tableview_name"
@@ -574,7 +383,6 @@ queries:
     type: relation
     relation_type: INSERTS
 
-  # UPDATE table
   - data_key: updates
     graph_label: ""
     pattern: "//update_statement/general_table_ref//tableview_name"
@@ -582,7 +390,6 @@ queries:
     type: relation
     relation_type: UPDATES
 
-  # DELETE FROM table
   - data_key: deletes
     graph_label: ""
     pattern: "//delete_statement/general_table_ref//tableview_name"
@@ -590,7 +397,6 @@ queries:
     type: relation
     relation_type: DELETES
 
-  # MERGE INTO table
   - data_key: merges
     graph_label: ""
     pattern: "//merge_statement//tableview_name"
@@ -598,11 +404,6 @@ queries:
     type: relation
     relation_type: UPDATES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DDL OPERATIONS (ALTER, DROP, TRUNCATE)
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # ALTER TABLE
   - data_key: alters
     graph_label: ""
     pattern: "//alter_table/tableview_name"
@@ -610,7 +411,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # ALTER INDEX
   - data_key: alters
     graph_label: ""
     pattern: "//alter_index/index_name"
@@ -618,7 +418,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # ALTER VIEW
   - data_key: alters
     graph_label: ""
     pattern: "//alter_view/tableview_name"
@@ -626,7 +425,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # ALTER SEQUENCE
   - data_key: alters
     graph_label: ""
     pattern: "//alter_sequence/sequence_name"
@@ -634,7 +432,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # ALTER TRIGGER
   - data_key: alters
     graph_label: ""
     pattern: "//alter_trigger/trigger_name"
@@ -642,7 +439,6 @@ queries:
     type: relation
     relation_type: ALTERS
 
-  # DROP TABLE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_table/tableview_name"
@@ -650,7 +446,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP INDEX
   - data_key: drops
     graph_label: ""
     pattern: "//drop_index/index_name"
@@ -658,7 +453,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP VIEW
   - data_key: drops
     graph_label: ""
     pattern: "//drop_view/tableview_name"
@@ -666,7 +460,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP FUNCTION
   - data_key: drops
     graph_label: ""
     pattern: "//drop_function/function_name"
@@ -674,7 +467,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP PROCEDURE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_procedure/procedure_name"
@@ -682,7 +474,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP PACKAGE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_package/package_name"
@@ -690,7 +481,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP TRIGGER
   - data_key: drops
     graph_label: ""
     pattern: "//drop_trigger/trigger_name"
@@ -698,7 +488,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP SEQUENCE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_sequence/sequence_name"
@@ -706,7 +495,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP TYPE
   - data_key: drops
     graph_label: ""
     pattern: "//drop_type/type_name"
@@ -714,7 +502,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP SYNONYM
   - data_key: drops
     graph_label: ""
     pattern: "//drop_synonym/synonym_name"
@@ -722,7 +509,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # DROP DATABASE LINK
   - data_key: drops
     graph_label: ""
     pattern: "//drop_database_link/link_name"
@@ -730,7 +516,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # TRUNCATE TABLE
   - data_key: truncates
     graph_label: ""
     pattern: "//truncate_table/tableview_name"
@@ -738,11 +523,6 @@ queries:
     type: relation
     relation_type: DROPS
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DCL — GRANT & REVOKE
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # GRANT on table/view/etc.
   - data_key: grants
     graph_label: ""
     pattern: "//grant_statement//tableview_name"
@@ -750,7 +530,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # REVOKE on table/view/etc.
   - data_key: revokes
     graph_label: ""
     pattern: "//revoke_statement//tableview_name"
@@ -758,18 +537,12 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DTL / TCL — TRANSACTION CONTROL
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # SAVEPOINT declarations (SAVEPOINT sp_name)
   - data_key: savepoints
     graph_label: Savepoint
     pattern: "//savepoint_statement/savepoint_name"
     name_capture: name
     type: entity
 
-  # ROLLBACK TO savepoint_name (reference to a named savepoint)
   - data_key: rollback_to
     graph_label: ""
     pattern: "//rollback_statement/savepoint_name"
@@ -777,8 +550,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # COMMIT statement — captures "COMMIT" as name so we know which
-  # procedures/functions perform transaction commits
   - data_key: commits
     graph_label: ""
     pattern: "//commit_statement"
@@ -786,7 +557,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ROLLBACK statement (without TO) — captures "ROLLBACK" as name
   - data_key: rollbacks
     graph_label: ""
     pattern: "//rollback_statement"
@@ -794,7 +564,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # SET TRANSACTION (isolation level, read only/write)
   - data_key: set_transaction
     graph_label: ""
     pattern: "//set_transaction_command"
@@ -802,11 +571,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # LOCK & OTHER OPERATIONS
-  # ═══════════════════════════════════════════════════════════════════════════
-
-  # LOCK TABLE
   - data_key: locks
     graph_label: ""
     pattern: "//lock_table_statement/tableview_name"
@@ -814,7 +578,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # OPEN cursor FOR (dynamic cursor)
   - data_key: cursor_refs
     graph_label: ""
     pattern: "//open_for_statement/cursor_name"
@@ -822,7 +585,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # FETCH cursor INTO
   - data_key: cursor_refs
     graph_label: ""
     pattern: "//fetch_statement/cursor_name"
@@ -830,7 +592,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # CLOSE cursor
   - data_key: cursor_refs
     graph_label: ""
     pattern: "//close_statement/cursor_name"
@@ -838,7 +599,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # RAISE exception (user-defined or predefined)
   - data_key: raises
     graph_label: ""
     pattern: "//raise_statement/exception_name"
@@ -846,7 +606,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # EXCEPTION WHEN handler → exception name
   - data_key: exception_refs
     graph_label: ""
     pattern: "//exception_handler/exception_name"
@@ -854,22 +613,9 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-# No export detection for PL/SQL (all objects are schema-level)
 exports:
   strategy: none
 
-# PL/SQL parent context types (for resolving entity nesting)
-#
-# Every rule that a query above turns into a container entity MUST be listed here,
-# or the entities inside it are attributed to whatever encloses IT. procedure_spec
-# and function_spec were the ones missing: a package SPEC declares its subprograms
-# as procedure_spec/function_spec (not procedure_body, which is the package BODY),
-# so resolveParentContextAntlr walked straight past them to create_package and
-# every parameter of every spec-declared subprogram came out owned by the package.
-# Measured on a 36k-file Oracle export: 9052 parameters — all of them under
-# schema/packages/ — pointed at a Package instead of the Procedure or Function that
-# actually declares them, which also collides the uids of same-named parameters
-# across subprograms of one package.
 context_types:
   create_package: Package
   create_package_body: Package
@@ -883,24 +629,21 @@ context_types:
   create_type_body: Type
   create_trigger: Trigger
   create_table: Table
-  # So the columns an index covers, and the table it is on, belong to the INDEX —
-  # without this they float at file level and the index stays a bare name.
+
   create_index: Index
   create_view: View
   create_materialized_view: MaterializedView
-  # Package-level type declarations own their fields and elements the same way.
+
   record_type_definition: Type
   table_type_definition: Type
   varray_type_definition: Type
   ref_cursor_type_definition: Type
   subtype_declaration: Type
 
-# ANTLR comment token types
 comment_types:
   - SINGLE_LINE_COMMENT
   - MULTI_LINE_COMMENT
 
-# All PL/SQL declaration types for docstring attachment
 declaration_types:
   - create_function_body
   - create_procedure_body
@@ -921,11 +664,6 @@ declaration_types:
   - create_synonym
   - create_database_link
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the real ANTLR parse tree (rule names, not guessed). elsif_part is
-# its own rule (IF does not re-nest ELSIF), and case_when_part_statement is
-# counted per WHEN, not once for the whole CASE — case_statement itself is
-# left out to avoid double-counting the branches its WHEN parts already add.
 complexity:
   node_types:
     - if_statement
@@ -935,10 +673,6 @@ complexity:
     - exception_handler
   operators: ["AND", "OR"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Package
   - Procedure

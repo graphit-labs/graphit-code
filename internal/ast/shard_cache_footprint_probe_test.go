@@ -9,16 +9,6 @@ import (
 	"testing"
 )
 
-// TestShardCacheFootprint measures what a REAL parse cache costs in live heap once the
-// rebuild has retained it, in bytes per graph element, so the cost of a corpus can be
-// projected from its shard count instead of guessed.
-//
-// It samples. Loading a whole large store is the thing that gets this process killed, and
-// reproducing an OOM in order to study it is not a measurement, it is the same outage.
-//
-//	GRAPHIT_SHARD_FOOTPRINT=~/.graphit/ast/project/<id> \
-//	GRAPHIT_SHARD_FILES=4000 \
-//	go test -run TestShardCacheFootprint ./internal/ast/ -v -timeout 30m
 func TestShardCacheFootprint(t *testing.T) {
 	dir := os.Getenv("GRAPHIT_SHARD_FOOTPRINT")
 	if dir == "" {
@@ -47,8 +37,6 @@ func TestShardCacheFootprint(t *testing.T) {
 	if sample > len(paths) {
 		sample = len(paths)
 	}
-	// Stride rather than take a prefix: shard sizes vary by orders of magnitude between
-	// clusters, and the sorted prefix is one cluster.
 	stride := len(paths) / sample
 	if stride < 1 {
 		stride = 1
@@ -139,8 +127,6 @@ func TestShardCacheStringDuplication(t *testing.T) {
 		stride = 1
 	}
 
-	// A string costs its bytes rounded up to Go's size class, plus a 16-byte header at
-	// every use. Interning removes the bytes, never the header.
 	const header = 16
 	var occurrences, byteTotal int64
 	unique := make(map[string]int64)
@@ -163,12 +149,6 @@ func TestShardCacheStringDuplication(t *testing.T) {
 		f[1] += int64(len(s))
 	}
 
-	// localSum accumulates, per field, the SUM across files of that file's own distinct-value
-	// count. Comparing it to the GLOBAL distinct count isolates cross-file duplication: a
-	// per-file (local) interner already collapses repeats within one file, so localSum is
-	// what local interning alone would leave allocated. The gap between localSum and the
-	// global distinct count is duplication ACROSS files, which only corpus-wide (shared)
-	// interning would catch.
 	localSum := make(map[string]int64)
 	localSeen := make(map[string]map[string]bool)
 	noteLocal := func(field, s string) {

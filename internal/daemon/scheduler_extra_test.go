@@ -57,8 +57,6 @@ func TestRemoveCronEntry_MultipleMarkers(t *testing.T) {
 	}
 }
 
-// removeCronEntry — marker at end of crontab (no following line)
-
 func TestRemoveCronEntry_MarkerAtEndNoCronLine(t *testing.T) {
 	t.Parallel()
 	marker := "# MARKER"

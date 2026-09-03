@@ -118,7 +118,6 @@ func TestVersionConstraintMatches(t *testing.T) {
 		want       bool
 	}{
 		{name: "latest matches any", constraint: "", version: "1.2.3", want: true},
-		// Major only
 		{name: "major match", constraint: "1", version: "1.2.3", want: true},
 		{name: "major mismatch", constraint: "2", version: "1.2.3", want: false},
 		{name: "major.minor match", constraint: "1.2", version: "1.2.3", want: true},
@@ -129,7 +128,6 @@ func TestVersionConstraintMatches(t *testing.T) {
 		{name: "non-numeric major in version", constraint: "1", version: "abc", want: false},
 		{name: "non-numeric minor in version", constraint: "1.2", version: "1.abc", want: false},
 		{name: "non-numeric patch in version", constraint: "1.2.3", version: "1.2.abc", want: false},
-		// Missing parts in version
 		{name: "version lacks minor", constraint: "1.2", version: "1", want: false},
 		{name: "version lacks patch", constraint: "1.2.3", version: "1.2", want: false},
 		{name: "empty version parts", constraint: "1", version: "", want: false},

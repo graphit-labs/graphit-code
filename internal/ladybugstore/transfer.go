@@ -33,8 +33,6 @@ const bundleVersion = 1
 // BundleDir is where an artifact keeps its exported tables, relative to the artifact root.
 const BundleDir = "graph"
 
-// bundleFile is the manifest. It is written LAST, so its presence means the export
-// finished — a directory of Parquet files without it is an export that died halfway.
 const bundleFile = "tables.json"
 
 // BundleTable is one exported file.
@@ -88,8 +86,6 @@ func ExportTables(c Conn, outDir string) (*Bundle, error) {
 	}
 
 	bundle := &Bundle{Version: bundleVersion}
-	// Node tables first: a relationship table cannot be declared before the tables it
-	// joins exist.
 	for _, pass := range []string{"NODE", "REL"} {
 		for _, tb := range tables {
 			if tb.kind != pass {
@@ -154,8 +150,6 @@ func ImportTables(c Conn, inDir string) (*Bundle, error) {
 		}
 	}
 
-	// Node tables before relationship tables: an edge cannot reference a node that is not
-	// there yet.
 	for _, pass := range []string{"node", "rel"} {
 		for _, t := range bundle.Tables {
 			if t.Kind != pass {
@@ -200,8 +194,6 @@ func listTables(c Conn) ([]tableRef, error) {
 	return out, nil
 }
 
-// describeTable reconstructs the CREATE statement of one table from the catalog, which is
-// what removes the guess on the consumer's side.
 func describeTable(c Conn, tb tableRef) (string, error) {
 	rows, err := c.Query(fmt.Sprintf("CALL table_info('%s') RETURN *", tb.name), nil)
 	if err != nil {
@@ -216,7 +208,6 @@ func describeTable(c Conn, tb tableRef) (string, error) {
 			continue
 		}
 		cols = append(cols, fmt.Sprintf("%s %s", QuoteIdent(name), typ))
-		// "primary key" is absent on relationship tables, which have none.
 		if b, ok := rec["primary key"].(bool); ok && b {
 			pk = name
 		}
@@ -275,9 +266,6 @@ func exportNodeTable(c Conn, table, outDir string) ([]BundleTable, error) {
 		return nil, fmt.Errorf("export: count %s: %w", table, err)
 	}
 	if n == 0 {
-		// An empty table is not written. The schema comes from the manifest, so a missing
-		// file means "no rows", not "no table" — and a store with many empty tables would
-		// otherwise ship a footer for the consumer to open for nothing.
 		return nil, nil
 	}
 	file := fmt.Sprintf("node-%s.parquet", table)
@@ -313,9 +301,6 @@ func exportRelTable(c Conn, table, outDir string) ([]BundleTable, error) {
 			continue
 		}
 		file := fmt.Sprintf("rel-%s-%s-%s.parquet", table, p.src, p.dst)
-		// The FROM and TO keys come first and are NOT part of r.*: COPY of a relationship
-		// table expects them ahead of the edge's own properties, and r.* alone offers two
-		// columns where four are expected.
 		q := fmt.Sprintf("COPY (%s RETURN a.%s, b.%s, r.*) TO '%s'",
 			pattern, QuoteIdent(p.srcKey), QuoteIdent(p.dstKey),
 			EscapeLiteral(filepath.Join(outDir, file)))

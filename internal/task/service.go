@@ -60,10 +60,6 @@ func (s *Service) withLock(ctx context.Context, actor string, fn func(*tables) e
 	return s.withLockReconcile(ctx, actor, false, fn)
 }
 
-// withLockFast keeps the scheduler lease, manifest refresh and fenced writes,
-// but skips the full-project projection repair. High-frequency lifecycle hooks
-// use it and project only the owned task they mutate; session boundaries and
-// explicit task operations continue through withLock and reconcile everything.
 func (s *Service) withLockFast(ctx context.Context, actor string, fn func(*tables) error) error {
 	return s.withLockReconcile(ctx, actor, false, fn)
 }
@@ -90,9 +86,6 @@ func (s *Service) withLockReconcile(ctx context.Context, actor string, reconcile
 				release := lancestore.Row{"key": "scheduler", "token": "", "owner": "", "acquired_at": stamp(s.now().UTC()), "expires_at": "", "revision": int64(1)}
 				_, _ = t.control.Merge(context.Background(), lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.token = " + quote(token)}, []lancestore.Row{release})
 			}()
-			// The tables were opened before this lease was acquired. Another
-			// scheduler may have committed while we waited, so advance every
-			// handle before reading task state or attempting its fenced CAS.
 			if err := t.refresh(ctx); err != nil {
 				return fmt.Errorf("refreshing task tables after scheduler lease: %w", err)
 			}
@@ -142,8 +135,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 		if err := t.ensureIndexes(ctx); err != nil {
 			return err
 		}
-		// Resolve by the durable idempotency key first. Besides making retries
-		// cheap, this preserves tasks created by versions that used longer IDs.
 		if current, ok, err := t.getTaskByIdempotencyKey(ctx, key); err != nil {
 			return err
 		} else if ok {
@@ -216,8 +207,6 @@ func (s *Service) availableTaskID(ctx context.Context, t *tables, key string) (s
 			return id, nil
 		}
 	}
-	// A full SHA-256 collision is not silently accepted: failing closed keeps
-	// distinct tasks from ever overwriting each other.
 	return "", fmt.Errorf("cannot allocate a collision-free task id")
 }
 
@@ -437,9 +426,6 @@ func (s *Service) Remove(ctx context.Context, id, confirmation, actor, reason st
 }
 
 func finishTaskRemoval(ctx context.Context, t *tables, id string) error {
-	// Delete the authoritative snapshot first. The durable task_control intent
-	// then acts as a tombstone until every derived row is gone, preventing a
-	// task from becoming referenceable again during interrupted cleanup.
 	if err := t.tasks.DeleteByKey(ctx, "id", []string{id}); err != nil {
 		return err
 	}
@@ -716,7 +702,7 @@ func (s *Service) List(ctx context.Context, opts ListOptions) ([]Task, error) {
 			decorate(&v, byID)
 			v.ClaimToken = ""
 			if opts.Status != "" {
-				if opts.Status == "blocked" && !(len(v.BlockedBy) > 0 && v.Status == StatusOpen) {
+				if opts.Status == "blocked" && (len(v.BlockedBy) == 0 || v.Status != StatusOpen) {
 					continue
 				}
 				if opts.Status == "flagged" && !v.Flagged {
@@ -884,9 +870,6 @@ func (s *Service) reconcileLocked(ctx context.Context, t *tables, actor string) 
 		}
 		id := strings.TrimPrefix(key, taskRemovalPrefix)
 		if reference := taskReference(all, id); reference != "" {
-			// A reference means this intent predates the current tombstone
-			// protocol or was externally injected. Preserve the authoritative
-			// task and discard the unsafe intent instead of creating an orphan.
 			if err := t.control.DeleteByKey(ctx, "key", []string{key}); err != nil {
 				return err
 			}
@@ -939,10 +922,6 @@ func (s *Service) reconcileLocked(ctx context.Context, t *tables, actor string) 
 		}
 	}
 
-	// A hook may race a normal task mutation because it deliberately does not
-	// hold the global scheduler lease. Re-read the authoritative snapshots and
-	// repair every projection in table-sized batches. Projection merges are
-	// revision-fenced, so this pass cannot overwrite a newer targeted write.
 	if err := t.refresh(ctx); err != nil {
 		return err
 	}
@@ -953,10 +932,6 @@ func (s *Service) reconcileLocked(ctx context.Context, t *tables, actor string) 
 	return s.projectAllTasks(ctx, t, all, actor)
 }
 
-// projectAllTasks repairs the denormalized Task tables with a fixed number of
-// remote reads and writes. The former per-task projection loop performed four
-// or more S3/LanceDB round trips for every backlog item and made session-start
-// latency grow linearly with the number of tasks.
 func (s *Service) projectAllTasks(ctx context.Context, t *tables, all []Task, actor string) error {
 	eventRows, err := t.allProjectionRows(ctx, t.events)
 	if err != nil {

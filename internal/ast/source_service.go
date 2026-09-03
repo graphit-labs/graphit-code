@@ -54,8 +54,7 @@ type EntityInfo struct {
 // text and nothing said so. The search index is the only copy that is queryable, so
 // it is now the only copy: one store, one writer, no divergence to reconcile.
 type SourceService struct {
-	db GraphDB
-	// indexPath is the search index. Empty means no source can be served.
+	db        GraphDB
 	indexPath string
 }
 
@@ -247,9 +246,6 @@ func (s *SourceService) resolveEntity(ctx context.Context, req SourceRequest) (*
 		foldRes, foldErr := s.db.Query(ctx, query(entityMatchFold), params)
 		switch {
 		case foldErr != nil:
-			// The exact match already said no, so the fold is the only remaining chance and
-			// it broke on some other row's bytes. Report both facts: the entity was not
-			// found under its own name, and the case-insensitive retry could not run.
 			return nil, fmt.Errorf("entity %q not found in %q, and the case-insensitive "+
 				"retry failed — a value in this graph cannot be lowercased, which a "+
 				"reindex of the affected file repairs: %w", req.Entity, req.Path, foldErr)
@@ -279,9 +275,6 @@ func (s *SourceService) resolveEntity(ctx context.Context, req SourceRequest) (*
 	return info, nil
 }
 
-// searchPattern, formatMatches and formatWithLineNumbers delegate to textslice:
-// slicing text is identical whether it came from the code graph or from a wiki
-// directory, and only the fetching differs. Fetching is what stays here.
 func (s *SourceService) searchPattern(lines []string, lineOffset int, req SourceRequest) ([]SourceMatch, error) {
 	matches, err := textslice.Search(lines, lineOffset, req.Pattern, req.IsRegex, req.Before, req.After)
 	if err != nil {

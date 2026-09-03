@@ -11,9 +11,6 @@ import (
 	"testing"
 )
 
-// The explorer's Schema panel used to list every label in one flat run — Function next
-// to CssClass next to Heading — with no way to tell which language contributed which.
-// /api/schema now also groups the counts per language, and this is that grouping.
 func TestSchemaLangGroupsGroupsLabelsByLanguage(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +32,6 @@ func TestSchemaLangGroupsGroupsLabelsByLanguage(t *testing.T) {
 		`CREATE (:Comment {uid:'g4', name:'// note', lang:'go'})`,
 		`CREATE (:Comment {uid:'g5', name:'// other', lang:'go'})`,
 		`CREATE (:Function {uid:'t1', name:'D', lang:'tsx'})`,
-		// Call-target stubs carry no lang — they are what the "(no language)" group holds.
 		`CREATE (:Function {uid:'s1', name:'E'})`,
 		`CREATE (:Function {uid:'s2', name:'F'})`,
 	}
@@ -47,8 +43,6 @@ func TestSchemaLangGroupsGroupsLabelsByLanguage(t *testing.T) {
 
 	groups := schemaLangGroups(ctx, db)
 
-	// go (5 nodes) outranks tsx (1); the language-less group is last even though its
-	// 2 nodes beat tsx — it is not a language, so it never competes on count.
 	wantOrder := []string{"go", "tsx", ""}
 	if len(groups) != len(wantOrder) {
 		t.Fatalf("got %d groups, want %d: %v", len(groups), len(wantOrder), groups)
@@ -66,7 +60,6 @@ func TestSchemaLangGroupsGroupsLabelsByLanguage(t *testing.T) {
 		t.Errorf("the language-less group totals %d nodes, want 2", got)
 	}
 
-	// Within a group, only that language's labels, biggest first.
 	goLabels, ok := groups[0]["labels"].([]map[string]any)
 	if !ok {
 		t.Fatalf("go labels are %T, want []map[string]any", groups[0]["labels"])
@@ -81,8 +74,6 @@ func TestSchemaLangGroupsGroupsLabelsByLanguage(t *testing.T) {
 		t.Errorf("go's second label is %v, want Comment x2", goLabels[1])
 	}
 
-	// The same label appears under every language that produced it — the grouping
-	// splits the flat count, it does not pick one owner per label.
 	var functions int
 	for _, g := range groups {
 		labels, _ := g["labels"].([]map[string]any)
@@ -97,9 +88,6 @@ func TestSchemaLangGroupsGroupsLabelsByLanguage(t *testing.T) {
 	}
 }
 
-// noLangPropertyDB answers the label and edge queries, and fails the one that reads
-// `n.lang` — the shape of a graph caught mid-rebuild, whose partial schema has the
-// property on no table at all.
 type noLangPropertyDB struct {
 	emptyGraphDB
 }

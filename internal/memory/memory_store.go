@@ -11,22 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// The memory store's backend, after git and then after markdown.
-//
-// THE CHAIN LOST ITS MIDDLE STEP TWICE:
-//
-//	first:  branch memory/<scope>/<id>                  --fetch/rebase--> raw dir (TRUTH) --compile--> wiki
-//	then:   s3://<bucket>/<prefix>/memory/<scope>/<id>/ --sync-->         raw dir (TRUTH) --compile--> wiki
-//	now:    s3://<bucket>/<prefix>/memory/<scope>/<id>  the Lance table IS the truth  --compile--> wiki
-//
-// A "scope path" is what a branch name used to be — `memory/<scope>/<id>`. It survives as the
-// addressing scheme because it was never really a git concept: it is a two-level namespace, and it
-// is already a valid key path, so the translation to a prefix is the identity.
-//
-// WHAT IS LEFT OF THIS TYPE IS A HANDLE, and that is the whole of it. It used to own an S3 client, a
-// scope's directory, a per-object upload path and a listing cache; the table owns all of that now,
-// and LanceDB talks to object storage itself. What remains is the local root a scope's table lives
-// under when there is no bucket, plus the scope-reference bookkeeping in scope_lock.go.
 const memoryPrefix = "memory"
 
 // MemoryStore is the memory scopes' persistence backend.
@@ -80,20 +64,12 @@ func (m *MemoryStore) EnsureInitialised() error { return nil }
 // between them to mean "skip the network", and initialisation no longer touches it at all.
 func (m *MemoryStore) EnsureInitialisedFast() error { return m.EnsureInitialised() }
 
-// remotePrefix is the key prefix holding one scope's table.
-//
-// A scope path is already `memory/<scope>/<id>`, so the translation is the identity and the layout
-// the git branches described is preserved exactly. A leading `memory/` is stripped first so it
-// cannot be doubled by a caller that passes the path either way.
 func remotePrefix(scopePath string) string {
 	trimmed := strings.Trim(scopePath, "/")
 	trimmed = strings.TrimPrefix(trimmed, memoryPrefix+"/")
 	return s3store.JoinKey(memoryPrefix, trimmed)
 }
 
-// scopeDir is a scope's local table directory, addressed by its scope PATH rather than by the
-// (scope, id) pair TableDirFor takes. The flattening is the same one store.MemoryTableDir applies,
-// so both spellings name the same directory.
 func (m *MemoryStore) scopeDir(scopePath string) string {
 	safe := strings.NewReplacer("/", "-", " ", "_").Replace(scopePath)
 	return filepath.Join(m.tableBase, safe)

@@ -14,9 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// newLocalService wires a memory service to a store with no bucket, so its table is a local
-// directory. The chain lives in that table: a superseded revision is a row, not a file under
-// `history/`.
 func newLocalService(t *testing.T) *MemoryService {
 	t.Helper()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
@@ -53,8 +50,6 @@ func TestMemoryStartsAtRevisionOneWithNoPrevious(t *testing.T) {
 	}
 }
 
-// THE ASK: the history git carried lives in the frontmatter, and points at the previous version's
-// path. Following `previous` must land on a file holding exactly what the memory said before.
 func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	svc := newLocalService(t)
@@ -88,14 +83,12 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 		t.Errorf("revision_id = %q on the live memory, want empty", fm.RevisionID)
 	}
 
-	// The pointer has to resolve, and the archive has to hold what the memory said before.
 	archived := mustReadStored(t, svc, fm.Previous)
 	if !sameMemoryBody(string(archived), string(before)) {
 		t.Errorf("the archived revision is not what the memory said before:\n--- archived\n%s\n--- before\n%s",
 			archived, before)
 	}
 
-	// The other half of the chain: the archive names what replaced it, and itself.
 	afm := ParseMemoryFrontmatter(string(archived))
 	if afm.Next != MemoryFileName(id) {
 		t.Errorf("archive next = %q, want %q", afm.Next, MemoryFileName(id))
@@ -114,8 +107,6 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	}
 }
 
-// onlyArchivePath returns the single archived revision of a chain, failing when there is not
-// exactly one. Archive names are ULIDs, so a test cannot spell one — it asks the store.
 func onlyArchivePath(t *testing.T, svc *MemoryService, id string) string {
 	t.Helper()
 	found := archivePaths(t, svc, id)
@@ -162,13 +153,6 @@ func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 	}
 }
 
-// An archived revision is COMPILED — it is searchable and readable like any memory — but it is
-// not part of the CATALOGUE of what the project knows.
-//
-// This test used to assert the opposite for the wiki half, because history was deliberately
-// unreachable. See docs/decisions/2026-09-01-memory-history-is-searchable-and-the-chain-is-two-way.md
-// for why that reversed, and note what did NOT reverse: ListMemories still answers with live
-// memories only, and the two pages must not share a slug.
 func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	svc := newLocalService(t)
@@ -206,14 +190,10 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 	}
 }
 
-// Two hits from one chain are one memory, so a search must answer with the current revision and
-// say nothing about the old one. This is the property that made it safe to compile history at all.
 func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	svc := newLocalService(t)
 
-	// zarquon is in both revisions, so a query for it matches the whole chain. plesiosaur is only
-	// in the first, so a query for it reaches a revision the current memory cannot answer.
 	id, err := svc.AddMemory("Indexing throughput", "the shared marker zarquon and the plesiosaur benchmark", MemoryOpts{})
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +219,6 @@ func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 		t.Errorf("result memory_id = %q, want %q", results[0].MemoryID, id)
 	}
 
-	// And a query only the old revision answers must still reach it, annotated with the current id.
 	old := SearchChains(context.Background(), wikiDir, "plesiosaur", 10)
 	if len(old) == 0 {
 		t.Fatal("a query answered only by a superseded revision returned nothing — history is not searchable")
@@ -290,9 +269,6 @@ func TestSearchChainsWidensUntilTopKDistinctMemories(t *testing.T) {
 	}
 }
 
-// Deleting a memory keeps its trail, which is what git did — a removed file stayed reachable in
-// history. Nothing points at it afterwards, because the memory that would have carried the
-// pointer is the one that went away.
 func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	svc := newLocalService(t)
@@ -312,8 +288,6 @@ func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 	if !strings.Contains(string(archived), "Doomed") {
 		t.Error("the archive does not hold the deleted memory")
 	}
-	// Nothing replaced it, and that empty `next` is what distinguishes the last state of a
-	// deleted memory from a revision that was superseded.
 	if got := ParseMemoryFrontmatter(string(archived)).Next; got != "" {
 		t.Errorf("next = %q on the archive of a deleted memory, want empty", got)
 	}
@@ -356,7 +330,6 @@ func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {
 		}
 	}
 
-	// Start at the oldest revision and walk `next` until the live memory.
 	names := archivePaths(t, svc, id)
 	if len(names) != 2 {
 		t.Fatalf("history holds %d revisions, want 2", len(names))
@@ -407,8 +380,6 @@ func TestUserScopeIDFollowsTheUnit(t *testing.T) {
 	if a == b {
 		t.Error("two different units resolved to the same user scope")
 	}
-	// The raw value may be anything a person finds memorable, so the scope id has to be a token
-	// that is safe in a directory name and in an object key.
 	for _, got := range []string{a, b} {
 		if len(got) != 16 || strings.ContainsAny(got, "/@. ") {
 			t.Errorf("UserScopeID = %q, want a 16-character path-safe token", got)
@@ -433,8 +404,6 @@ func TestProjectRootComesFromTheLockfileNotGit(t *testing.T) {
 		t.Errorf("projectRootDir() = %q, want %q", got, root)
 	}
 
-	// A nested project with its own lockfile wins over the outer one — which `git rev-parse
-	// --show-toplevel` could not do, because it answers with the repository root.
 	if err := os.WriteFile(filepath.Join(inner, brand.LockFileName()), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -452,11 +421,6 @@ func resolvePath(t *testing.T, p string) string {
 	return resolved
 }
 
-// readStored is what `w.ReadFile(rel)` used to be: the markdown of a STORED RECORD.
-//
-// The argument is still a PATH — `<id>.md` for a live memory, `history/<id>/<rev>.md` for an archive
-// — because that is what the chain's `previous` and `next` fields hold, and the row key is derived
-// from it. After T2.2 the path is an identifier, not a location.
 func readStored(t *testing.T, svc *MemoryService, rel string) (string, bool) {
 	t.Helper()
 	ctx := context.Background()
@@ -480,7 +444,6 @@ func readStored(t *testing.T, svc *MemoryService, rel string) (string, bool) {
 	return rec.Markdown(), true
 }
 
-// mustReadStored fails when the record is absent.
 func mustReadStored(t *testing.T, svc *MemoryService, rel string) string {
 	t.Helper()
 	content, ok := readStored(t, svc, rel)
@@ -506,11 +469,6 @@ func compileFromTable(t *testing.T, svc *MemoryService, wikiDir string) *WikiRes
 	return res
 }
 
-// archivePaths lists a chain's archived revisions as `history/<id>/<rev>.md` paths, oldest first.
-//
-// It replaces listing `history/<id>/` on disk. The ORDER is the property that matters and it is
-// preserved: MemoryTable.Revisions sorts by revision_id, which is what the lexicographic order of
-// the file names gave — a zero-padded counter and a ULID are each ordered by age.
 func archivePaths(t *testing.T, svc *MemoryService, id string) []string {
 	t.Helper()
 	ctx := context.Background()

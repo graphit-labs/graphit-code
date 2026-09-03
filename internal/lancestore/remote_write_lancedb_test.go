@@ -11,13 +11,6 @@ import (
 	"time"
 )
 
-// T0 of docs/tasks/lancedb-is-the-only-store-for-knowledge-and-memory.md.
-//
-// Two properties the plan ASSUMES and nothing exercised, both of which gate retiring the raw
-// memory store: that a remote table can be written by concurrent writers, and that a destructive
-// write can be undone. Neither is a documentation question — the first was refused outright by
-// this package until now, and the second lives on an optional capability interface.
-
 // A PUBLISHED ARTIFACT STAYS IMMUTABLE. This is the property the writable flag must not cost, so
 // it is asserted first: the default for a remote URI is still that every write is refused.
 func TestARemoteStoreRefusesEveryWriteUnlessTheCallerAsked(t *testing.T) {
@@ -52,7 +45,6 @@ func TestARemoteStoreRefusesEveryWriteUnlessTheCallerAsked(t *testing.T) {
 		t.Fatalf("a read-only store must still OPEN a table: %v", err)
 	}
 
-	// Every mutating entry point, because a guard is only as good as the one that was forgotten.
 	writes := map[string]func() error{
 		"CreateTable":    func() error { _, e := consumer.CreateTable(ctx, "other", testSchema()); return e },
 		"DropTable":      func() error { return consumer.DropTable(ctx, "seeded") },
@@ -72,7 +64,6 @@ func TestARemoteStoreRefusesEveryWriteUnlessTheCallerAsked(t *testing.T) {
 		}
 	}
 
-	// And reading still works, which is the whole point of a published version.
 	if _, err := tbl.Count(ctx); err != nil {
 		t.Errorf("a read-only store must still read: %v", err)
 	}
@@ -89,7 +80,6 @@ func TestTwoWritersRaceOnOneRemoteTableAndBothCommit(t *testing.T) {
 	ctx := context.Background()
 	cfg := remoteConfig(t, "race")
 
-	// Two independent stores, as two processes would have. Sharing one handle would test a mutex.
 	first, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatalf("opening the first writer: %v", err)
@@ -105,8 +95,6 @@ func TestTwoWritersRaceOnOneRemoteTableAndBothCommit(t *testing.T) {
 	}
 	defer func() { _ = second.Close() }()
 
-	// The writers start together on a barrier, because two goroutines that merely begin at the
-	// same time drift apart after the first network round trip and stop overlapping.
 	const roundsPerWriter = 12
 	start := make(chan struct{})
 	writer := func(store *Store, tag string) []error {
@@ -151,29 +139,15 @@ func TestTwoWritersRaceOnOneRemoteTableAndBothCommit(t *testing.T) {
 
 	for _, errs := range results {
 		for _, err := range errs {
-			// A conflict that outlasted the retries is the interesting failure, and its message is
-			// the evidence the classifier is built from — so it is printed either way.
 			t.Errorf("a concurrent write failed: %v (classified as a commit conflict: %v)",
 				err, isCommitConflict(err))
 		}
 	}
 
-	// WHICH OF THE TWO HAPPENED. A retry loop that never ran and a retry loop that worked produce
-	// the same passing test, so the count is reported rather than asserted: what this test proves
-	// is that concurrent writers do not lose rows, and the count says whether the engine resolved
-	// the contention itself or whether this package's retry did.
-	//
-	// MEASURED: it is the engine. Four writers appending, deleting by key and upserting onto the
-	// SAME key produced zero conflicts — Lance's resolver treats concurrent data writes as
-	// compatible transactions. The retry earns its place on the maintenance path instead; see
-	// TestConcurrentCompactionConflictsAndTheRetryAbsorbsIt.
 	retried := CommitConflictsRetried() - conflictsBefore
 	t.Logf("commits retried after losing a race: %d (of %d concurrent appends)",
 		retried, 2*roundsPerWriter)
 
-	// Every row of both writers is present. This is the assertion that a lost commit breaks:
-	// Lance's manifest commit produces one winner per race, so a writer whose conflict was not
-	// retried silently contributes nothing.
 	reader, err := Open(ctx, Config{URI: cfg.URI, S3: cfg.S3})
 	if err != nil {
 		t.Fatalf("opening a reader: %v", err)
@@ -202,11 +176,6 @@ func TestTwoWritersRaceOnOneRemoteTableAndBothCommit(t *testing.T) {
 	}
 }
 
-// A DESTRUCTIVE WRITE IS UNDONE BY RESTORING THE VERSION BEFORE IT.
-//
-// This is the property that lets a store keep no second copy of its data: the raw markdown store
-// beside the memory table exists as a recovery path, and version history is one. Run against s3://
-// deliberately — the manifest history has to work where the data will actually live.
 func TestAnEarlierVersionIsRestorableAfterADestructiveWrite(t *testing.T) {
 	ctx := context.Background()
 	_, tbl := remoteTable(t, "rollback")
@@ -226,8 +195,6 @@ func TestAnEarlierVersionIsRestorableAfterADestructiveWrite(t *testing.T) {
 		t.Fatalf("seeded %d rows, want %d", before, len(testRows))
 	}
 
-	// The destructive write: exactly the shape of the accident this protects against — a pass that
-	// was meant to rewrite the rows and instead emptied them.
 	if err := tbl.DeleteWhere(ctx, "true"); err != nil {
 		t.Fatalf("the destructive write: %v", err)
 	}
@@ -258,7 +225,6 @@ func TestAnEarlierVersionIsRestorableAfterADestructiveWrite(t *testing.T) {
 		t.Fatalf("after restoring version %d: %d rows, want %d", good, after, before)
 	}
 
-	// The rows are the SAME rows, not merely the same number.
 	hits, err := tbl.Search(ctx, Query{Filter: "uid = 'u3'", Limit: 1})
 	if err != nil {
 		t.Fatalf("reading a restored row: %v", err)
@@ -267,17 +233,12 @@ func TestAnEarlierVersionIsRestorableAfterADestructiveWrite(t *testing.T) {
 		t.Errorf("restored row = %v; want the seeded u3", hits)
 	}
 
-	// A restore APPENDS a version rather than deleting the ones after it, so the mistake is still
-	// in the history and the restore is itself undoable. That is what makes this safe to use on a
-	// store holding the only copy of something.
 	if v, err := tbl.CurrentVersion(ctx); err != nil {
 		t.Fatalf("reading the version after the restore: %v", err)
 	} else if v <= good {
 		t.Errorf("version after restore = %d; want a NEW version above %d", v, good)
 	}
 
-	// And the table is not left pinned: a pinned table rejects writes, which would turn a
-	// successful recovery into a store nobody can write to.
 	if err := tbl.Append(ctx, []Row{{
 		"uid": "post-restore", "path": "z.md", "name": "PostRestore",
 		"body": "written after the rollback", "line": int64(1), "is_dependency": false,
@@ -351,8 +312,6 @@ func TestConcurrentCompactionConflictsAndTheRetryAbsorbsIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating the table: %v", err)
 	}
-	// Enough fragments and enough tombstones that compaction has real work to do, so the writers
-	// overlap on it rather than each finding nothing to merge.
 	for i := 0; i < 8; i++ {
 		if err := seed.Append(ctx, testRows); err != nil {
 			t.Fatalf("seeding round %d: %v", i, err)
@@ -403,16 +362,10 @@ func TestConcurrentCompactionConflictsAndTheRetryAbsorbsIt(t *testing.T) {
 	retried := CommitConflictsRetried() - conflictsBefore
 	t.Logf("compaction commits retried: %d (of %d concurrent compactions)", retried, compactors*roundsEach)
 	if retried == 0 {
-		// Not a failure: the point of the test is that concurrent maintenance does not fail, and
-		// the engine getting faster at resolving rewrites would be good news. But it does mean this
-		// run proved the absence of a problem rather than the retry, and the next person reading a
-		// green test should know which.
 		t.Log("no conflict arose in this run, so the retry loop was not exercised — " +
 			"the assertion that holds is that concurrent compaction did not fail")
 	}
 
-	// And the data survived the whole thing: compaction rewrites fragments, so a mishandled
-	// conflict is not a slow write, it is a lost one.
 	n, err := seed.Count(ctx)
 	if err != nil {
 		t.Fatalf("counting after the compactions: %v", err)
@@ -422,17 +375,6 @@ func TestConcurrentCompactionConflictsAndTheRetryAbsorbsIt(t *testing.T) {
 	}
 }
 
-// RETENTION IS A POLICY, and both halves of it are asserted here: a version SURVIVES a prune whose
-// window has not elapsed, and is reclaimed by one whose window has.
-//
-// This is what makes version history a recovery mechanism rather than a curiosity. A store keeping
-// no second copy of its data is recoverable only for as long as its versions live, so the retention
-// is the length of the safety net — and the 15 minutes the wiki uses was chosen when nothing used
-// time travel at all.
-//
-// MEASURED, and the reason this test sleeps: a sub-second `olderThan` prunes NOTHING. It reports
-// `OldVersions: 0` while the versions plainly exist, so "prune everything now" written as a tiny
-// duration silently does nothing.
 func TestVersionRetentionDecidesWhatAPruneReclaims(t *testing.T) {
 	ctx := context.Background()
 	_, tbl := remoteTable(t, "retention")
@@ -450,7 +392,6 @@ func TestVersionRetentionDecidesWhatAPruneReclaims(t *testing.T) {
 		t.Fatalf("history has %d versions; four writes must produce at least four", len(history))
 	}
 
-	// A long window keeps everything: the versions are younger than the retention.
 	kept, err := tbl.PruneVersions(ctx, time.Hour)
 	if err != nil {
 		t.Fatalf("pruning with an hour of retention: %v", err)
@@ -464,9 +405,6 @@ func TestVersionRetentionDecidesWhatAPruneReclaims(t *testing.T) {
 		t.Errorf("history went from %d to %d versions under an hour of retention", len(history), len(after))
 	}
 
-	// A window the versions have outlived reclaims them. One second is the floor — below it the
-	// engine prunes nothing at all — so the wait is what makes this assertion possible rather than
-	// an impatience.
 	time.Sleep(1100 * time.Millisecond)
 	reclaimed, err := tbl.PruneVersions(ctx, time.Second)
 	if err != nil {
@@ -476,13 +414,10 @@ func TestVersionRetentionDecidesWhatAPruneReclaims(t *testing.T) {
 		t.Errorf("a second of retention reclaimed nothing; the versions are older than that")
 	}
 
-	// The live data is untouched: pruning removes superseded versions, never the current one.
 	if n, err := tbl.Count(ctx); err != nil || n != 4 {
 		t.Errorf("after pruning: %d rows (err %v), want 4", n, err)
 	}
 
-	// A zero or negative window is refused rather than silently meaning "everything", because the
-	// engine's answer to it — prune nothing — is the opposite of what a caller writing 0 intends.
 	if _, err := tbl.PruneVersions(ctx, 0); err == nil {
 		t.Error("a zero retention must be refused, not treated as a window")
 	}

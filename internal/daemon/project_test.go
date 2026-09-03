@@ -61,7 +61,6 @@ func TestProjectSupervisor_AddCloser(t *testing.T) {
 
 func TestProjectSupervisor_Stop(t *testing.T) {
 	ps := newProjectSupervisor("test", "/tmp", nil)
-	// Stop without Start should not panic
 	ps.Stop()
 	if !ps.stopped {
 		t.Error("expected stopped to be true after Stop()")
@@ -80,7 +79,6 @@ func TestProjectSupervisor_Stop_WithCancel(t *testing.T) {
 
 func TestProjectSupervisor_ProjectLog_NoFile(t *testing.T) {
 	ps := newProjectSupervisor("test", "/tmp", nil)
-	// Should not panic with nil projectLogFile and nil globalLogFn
 	ps.projectLog("test %s", "message")
 }
 
@@ -148,7 +146,6 @@ func TestProjectSupervisor_Start_ModulesRunAndStop(t *testing.T) {
 		close(doneCh)
 	}()
 
-	// Wait for both modules to start
 	for i := 0; i < 2; i++ {
 		select {
 		case <-startedCh:
@@ -202,8 +199,6 @@ func TestProjectSupervisor_Start_WithCloserError(t *testing.T) {
 	}
 }
 
-// supervise — crash and restart behavior
-
 func TestSupervise_ModuleCrashesThenShutdown(t *testing.T) {
 	projectDir := t.TempDir()
 
@@ -226,7 +221,6 @@ func TestSupervise_ModuleCrashesThenShutdown(t *testing.T) {
 		close(doneCh)
 	}()
 
-	// Let it crash a few times with backoff (first backoff is 2s)
 	time.Sleep(2500 * time.Millisecond)
 	cancel()
 
@@ -262,8 +256,6 @@ func TestSupervise_ModuleFailsAfterMaxRestarts(t *testing.T) {
 		close(doneCh)
 	}()
 
-	// Wait for the module to hit maxRestarts; with exponential backoff 1+2+4+8+16+30+30+30+30+30 ~= 181s
-	// But we cancel early to not wait that long
 	time.Sleep(200 * time.Millisecond)
 	cancel()
 
@@ -273,11 +265,9 @@ func TestSupervise_ModuleFailsAfterMaxRestarts(t *testing.T) {
 		t.Fatal("did not finish")
 	}
 
-	// Verify the module state changed to crashed or failed
 	if len(ps.modules) != 1 {
 		t.Fatalf("expected 1 module, got %d", len(ps.modules))
 	}
-	// Could be crashed, failed, or stopped depending on timing
 	if ps.modules[0].restarts == 0 {
 		t.Error("expected some restarts")
 	}
@@ -337,7 +327,7 @@ func TestSupervise_ContextCancelledBeforeStart(t *testing.T) {
 	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel before Start
+	cancel()
 
 	doneCh := make(chan struct{})
 	go func() {
@@ -352,8 +342,6 @@ func TestSupervise_ContextCancelledBeforeStart(t *testing.T) {
 	}
 }
 
-// Touch / IdleFor
-
 func TestNewProjectSupervisor_StartsWithFreshIdleClock(t *testing.T) {
 	ps := newProjectSupervisor("proj", "/tmp/project", nil)
 	if idle := ps.IdleFor(); idle > time.Second {
@@ -364,7 +352,6 @@ func TestNewProjectSupervisor_StartsWithFreshIdleClock(t *testing.T) {
 func TestProjectSupervisor_TouchResetsIdleFor(t *testing.T) {
 	ps := newProjectSupervisor("proj", "/tmp/project", nil)
 
-	// Simulate the project having gone quiet a while ago.
 	ps.lastActivity.Store(time.Now().Add(-time.Hour).UnixNano())
 	if idle := ps.IdleFor(); idle < 55*time.Minute {
 		t.Fatalf("expected IdleFor() to reflect the backdated timestamp, got %v", idle)

@@ -23,7 +23,6 @@ func TestHashFile(t *testing.T) {
 		if hash == "" {
 			t.Error("expected non-empty hash")
 		}
-		// Same file should give same hash
 		hash2, err := HashFile(f)
 		if err != nil {
 			t.Fatal(err)

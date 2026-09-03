@@ -12,12 +12,10 @@ import (
 )
 
 func TestIsModuleDisabled(t *testing.T) {
-	// Without any config, AST should be enabled by default (not in OptInModules).
 	if IsModuleDisabled("ast", nil, nil) {
 		t.Error("expected AST module to be enabled by default")
 	}
 
-	// If explicitly set to true, it should be enabled (IsModuleDisabled = false).
 	cfgTrue := ConfigMap{
 		"modules": map[string]any{
 			"ast": "true",
@@ -27,7 +25,6 @@ func TestIsModuleDisabled(t *testing.T) {
 		t.Error("expected AST module to be enabled when explicitly configured to true")
 	}
 
-	// If explicitly set to false, it should be disabled (IsModuleDisabled = true).
 	cfgFalse := ConfigMap{
 		"modules": map[string]any{
 			"ast": "false",
@@ -53,7 +50,6 @@ func TestConfigCRUD(t *testing.T) {
 		t.Errorf("expected nested.key=value, got %q (ok=%t)", val, ok)
 	}
 
-	// Test SetConfigValue (nested overwrite non-map)
 	cfg["nested_bad"] = "not_a_map"
 	SetConfigValue(cfg, "nested_bad.key", "new_val")
 	val, ok = GetConfigValue(cfg, "nested_bad.key")
@@ -61,7 +57,6 @@ func TestConfigCRUD(t *testing.T) {
 		t.Errorf("expected nested_bad.key=new_val, got %q (ok=%t)", val, ok)
 	}
 
-	// Test GetConfigValue when key is not a string
 	cfg["non_string"] = 123
 	val, ok = GetConfigValue(cfg, "non_string")
 	if ok || val != "" {
@@ -103,17 +98,14 @@ func TestResolveConfig(t *testing.T) {
 	defer func() { CompiledDefaults = origCompiledDefaults }()
 	CompiledDefaults = "default.key=default_val,other.key=other_val"
 
-	// Reset default cache for testing
 	parsedDefaults = nil
 	defaultsOnce = sync.Once{}
 
-	// Test 1: Fallback to defaults
 	val := ResolveConfig("default.key", nil, nil)
 	if val != "default_val" {
 		t.Errorf("ResolveConfig(default.key) = %q; want %q", val, "default_val")
 	}
 
-	// Test 2: Project config overrides defaults
 	projectCfg := ConfigMap{
 		"default": map[string]any{
 			"key": "project_val",
@@ -124,7 +116,6 @@ func TestResolveConfig(t *testing.T) {
 		t.Errorf("ResolveConfig(default.key) = %q; want %q", val, "project_val")
 	}
 
-	// Test 3: Env overrides project and defaults
 	origEnv := os.Getenv("GRAPHIT_DEFAULT_KEY")
 	defer func() { _ = os.Setenv("GRAPHIT_DEFAULT_KEY", origEnv) }()
 	_ = os.Setenv("GRAPHIT_DEFAULT_KEY", "env_val")
@@ -134,7 +125,6 @@ func TestResolveConfig(t *testing.T) {
 		t.Errorf("ResolveConfig(default.key) = %q; want %q", val, "env_val")
 	}
 
-	// Test 4: Inline config overrides Env, project, and defaults
 	inlineCfg := ConfigMap{
 		"default": map[string]any{
 			"key": "inline_val",
@@ -147,12 +137,10 @@ func TestResolveConfig(t *testing.T) {
 }
 
 func TestResolveIDEAndCLI(t *testing.T) {
-	// Isolate Brand
 	origBrand := brand.Brand
 	brand.Brand = "graphit"
 	defer func() { brand.Brand = origBrand }()
 
-	// Isolate HOME
 	origHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "config-ide-cli-test")
 	if err != nil {
@@ -162,7 +150,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 	_ = os.Setenv("HOME", tempDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Save env and restore
 	origEnvIDE := os.Getenv("GRAPHIT_IDE")
 	origEnvCLI := os.Getenv("GRAPHIT_CLI")
 	defer func() {
@@ -172,7 +159,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 	_ = os.Unsetenv("GRAPHIT_IDE")
 	_ = os.Unsetenv("GRAPHIT_CLI")
 
-	// Reset CompiledDefaults and cache for testing to ensure clean slate
 	origCompiledDefaults := CompiledDefaults
 	defer func() { CompiledDefaults = origCompiledDefaults }()
 	CompiledDefaults = ""
@@ -238,7 +224,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 }
 
 func TestResolveProjectIDE(t *testing.T) {
-	// Test priority 1: flagValue
 	ide := ResolveProjectIDE("flag_ide", nil, nil, nil)
 	if ide != "flag_ide" {
 		t.Errorf("ResolveProjectIDE flag = %q; want %q", ide, "flag_ide")
@@ -256,7 +241,6 @@ func TestResolveProjectIDE(t *testing.T) {
 		t.Errorf("ResolveProjectIDE project = %q; want %q", ide, "project_ide")
 	}
 
-	// Test priority 4: lockfileIDEs matching ambient resolved
 	origEnv := os.Getenv("GRAPHIT_IDE")
 	defer func() { _ = os.Setenv("GRAPHIT_IDE", origEnv) }()
 	_ = os.Setenv("GRAPHIT_IDE", "ambient_ide")
@@ -266,7 +250,6 @@ func TestResolveProjectIDE(t *testing.T) {
 		t.Errorf("ResolveProjectIDE lockfile match = %q; want %q", ide, "ambient_ide")
 	}
 
-	// Test priority 5: lockfileIDEs first element when no ambient match
 	ide = ResolveProjectIDE("", nil, nil, []string{"first_ide", "other_ide"})
 	if ide != "first_ide" {
 		t.Errorf("ResolveProjectIDE lockfile first = %q; want %q", ide, "first_ide")
@@ -274,7 +257,6 @@ func TestResolveProjectIDE(t *testing.T) {
 }
 
 func TestRepoURLsAndDirs(t *testing.T) {
-	// Test HubBucket, HubRepoDirPath, ResolveIndexSource, ResolveDocsDir
 	inline := ConfigMap{
 		"hub": map[string]any{
 			"bucket": "hub-bucket",
@@ -300,8 +282,6 @@ func TestRepoURLsAndDirs(t *testing.T) {
 	if ResolveDocsDir(inline, nil) != "custom_docs" {
 		t.Errorf("expected custom_docs")
 	}
-	// "docs", not "." — the whole project was the old default and it made the wiki
-	// index every indexable file in the repository.
 	if got := ResolveDocsDir(nil, nil); got != DefaultDocsDir {
 		t.Errorf("default docs dir = %q; want %q", got, DefaultDocsDir)
 	}
@@ -385,7 +365,6 @@ func TestLoadProjectConfig(t *testing.T) {
 }
 
 func TestGlobalConfigOperations(t *testing.T) {
-	// Set HOME to a temporary directory so we don't mutate local user files
 	origHome := os.Getenv("HOME")
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
@@ -404,8 +383,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 		t.Errorf("AppDir() = %q; expected prefix %q", appDir, tempDir)
 	}
 
-	// Validate paths
-
 	hubPath, err := HubRepoDirPath()
 	if err != nil {
 		t.Fatalf("HubRepoDirPath() error: %v", err)
@@ -414,7 +391,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 		t.Errorf("expected path to contain 'hub', got %q", hubPath)
 	}
 
-	// Test CRUD via Save & Load
 	err = SetGlobalConfigValue("test.key", "value123")
 	if err != nil {
 		t.Fatalf("failed to set global config value: %v", err)
@@ -441,7 +417,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 		t.Errorf("expected test.key to be unset, got %q (ok=%t)", val, ok)
 	}
 
-	// Test loading invalid JSON
 	path, _ := globalConfigPath()
 	err = os.WriteFile(path, []byte("{invalid-json"), 0644)
 	if err != nil {
@@ -453,7 +428,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 		t.Error("expected error loading invalid json")
 	}
 
-	// Test loading null global config
 	err = os.WriteFile(path, []byte("null"), 0644)
 	if err != nil {
 		t.Fatalf("failed to write null json: %v", err)
@@ -468,7 +442,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 }
 
 func TestResolveUrls(t *testing.T) {
-	// Save envs
 	origBucketEnv := os.Getenv("GRAPHIT_HUB_BUCKET")
 	defer func() {
 		_ = os.Setenv("GRAPHIT_HUB_BUCKET", origBucketEnv)
@@ -584,7 +557,6 @@ func TestAppDirMkdirError(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tempDir) }()
 	_ = os.Setenv("HOME", tempDir)
 
-	// Create a regular file where the brand directory should be created
 	conflictPath := filepath.Join(tempDir, ".graphit")
 	err = os.WriteFile(conflictPath, []byte("regular file"), 0644)
 	if err != nil {
@@ -598,7 +570,6 @@ func TestAppDirMkdirError(t *testing.T) {
 }
 
 func TestSaveGlobalConfigError(t *testing.T) {
-	// Set invalid JSON value (a channel or function cannot be marshaled)
 	cfg := ConfigMap{
 		"invalid": make(chan int),
 	}
@@ -609,7 +580,6 @@ func TestSaveGlobalConfigError(t *testing.T) {
 }
 
 func TestUncoveredBranches(t *testing.T) {
-	// 1. SaveGlobalConfig empty section deletion
 	tempDir, err := os.MkdirTemp("", "config-uncovered-home")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -632,7 +602,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Error("expected empty_sec to be deleted")
 	}
 
-	// 2. SetConfigValue nested map append
 	cfg2 := ConfigMap{
 		"mysec": map[string]any{"other_key": "val"},
 	}
@@ -642,7 +611,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected mysec.key=val, got %q (ok=%t)", val, ok)
 	}
 
-	// 3. ResolveIDE and ResolveCLI when ResolveConfig returns non-empty value
 	inlineCfg := ConfigMap{"ide": "myide", "cli": "mycli"}
 	resIDE := ResolveIDE("", inlineCfg, nil)
 	if resIDE != "myide" {
@@ -653,7 +621,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected mycli, got %q", resCLI)
 	}
 
-	// 4. ResolveProjectIDE when lockfileIDEs is empty
 	origEnv := os.Getenv("GRAPHIT_IDE")
 	defer func() { _ = os.Setenv("GRAPHIT_IDE", origEnv) }()
 	_ = os.Setenv("GRAPHIT_IDE", "ambient_ide")
@@ -662,7 +629,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected ambient_ide, got %q", ide)
 	}
 
-	// 5. resolveAmbientIDE branch coverage: global config has it, and defaults has it
 	_ = os.Unsetenv("GRAPHIT_IDE")
 
 	err = SetGlobalConfigValue("ide", "global_ide")
@@ -674,7 +640,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected global_ide, got %q", ide)
 	}
 
-	// 5b. Defaults has it
 	err = UnsetGlobalConfigValue("ide")
 	if err != nil {
 		t.Fatalf("failed to unset global ide: %v", err)
@@ -691,7 +656,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected default_ide, got %q", ide)
 	}
 
-	// 5c. resolveAmbientIDE falls back to FallbackIDE
 	CompiledDefaults = ""
 	parsedDefaults = nil
 	defaultsOnce = sync.Once{}
@@ -709,7 +673,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected resolved_global_val, got %q", valGlobal)
 	}
 
-	// 6. ResolveIndexSource defaults to true when empty
 	if !ResolveIndexSource(nil, nil) {
 		t.Error("expected ResolveIndexSource to default to true")
 	}
@@ -723,7 +686,6 @@ func TestIsSetupDone(t *testing.T) {
 	tempDir := t.TempDir()
 	_ = os.Setenv("HOME", tempDir)
 
-	// Before creating config file, IsSetupDone should return false
 	if IsSetupDone() {
 		t.Error("expected IsSetupDone() to be false before config exists")
 	}
@@ -733,7 +695,6 @@ func TestIsSetupDone(t *testing.T) {
 		t.Fatalf("failed to set global config: %v", err)
 	}
 
-	// After creating config file, IsSetupDone should return true
 	if !IsSetupDone() {
 		t.Error("expected IsSetupDone() to be true after config exists")
 	}
@@ -750,7 +711,6 @@ func TestIsSetupDoneHomeError(t *testing.T) {
 	_ = os.Unsetenv("HOME")
 	_ = os.Unsetenv("USERPROFILE")
 
-	// Should return false when HOME is not set (globalConfigPath errors)
 	if IsSetupDone() {
 		t.Error("expected IsSetupDone() to be false when HOME is unset")
 	}
@@ -769,7 +729,6 @@ func TestLoadGlobalConfigReadError(t *testing.T) {
 		t.Fatalf("failed to create app dir: %v", err)
 	}
 
-	// Create config as a directory (not a file) to cause a non-NotExist read error
 	configPath := filepath.Join(appDir, "config.json")
 	err = os.MkdirAll(configPath, 0o755)
 	if err != nil {
@@ -786,12 +745,10 @@ func TestLoadGlobalConfigReadError(t *testing.T) {
 }
 
 func TestIsModuleDisabledOptIn(t *testing.T) {
-	// "dream" is in OptInModules, so by default it should be disabled
 	if !IsModuleDisabled("dream", nil, nil) {
 		t.Error("expected 'dream' opt-in module to be disabled by default")
 	}
 
-	// Explicitly enabling it
 	cfgTrue := ConfigMap{
 		"modules": map[string]any{
 			"dream": "true",
@@ -801,7 +758,6 @@ func TestIsModuleDisabledOptIn(t *testing.T) {
 		t.Error("expected 'dream' module to be enabled when explicitly set to true")
 	}
 
-	// Explicitly disabling it
 	cfgFalse := ConfigMap{
 		"modules": map[string]any{
 			"dream": "false",
@@ -813,7 +769,6 @@ func TestIsModuleDisabledOptIn(t *testing.T) {
 }
 
 func TestIsOptInModule(t *testing.T) {
-	// "dream" should be opt-in
 	if !isOptInModule("dream") {
 		t.Error("expected 'dream' to be an opt-in module")
 	}
@@ -821,7 +776,6 @@ func TestIsOptInModule(t *testing.T) {
 		t.Error("expected case-insensitive match for 'DREAM' as opt-in module")
 	}
 
-	// "ast" should not be opt-in
 	if isOptInModule("ast") {
 		t.Error("expected 'ast' to NOT be an opt-in module")
 	}
@@ -890,10 +844,6 @@ func TestResolveWikiVersionRetention(t *testing.T) {
 		t.Errorf("72h = %s, want 72h", got)
 	}
 
-	// A SUB-SECOND WINDOW IS REFUSED, and this is measured rather than defensive: the engine prunes
-	// nothing at all below one second — it reports zero old versions while they plainly exist — so
-	// honouring "1ms" would silently disable pruning while reading as the most aggressive setting
-	// available.
 	for _, bad := range []string{"1ms", "999ms", "0", "-5m", "not-a-duration"} {
 		cfg := ConfigMap{"wiki": map[string]any{"version_retention": bad}}
 		if got := ResolveWikiVersionRetention(cfg, nil); got != defaultWikiVersionRetention {
@@ -901,20 +851,12 @@ func TestResolveWikiVersionRetention(t *testing.T) {
 		}
 	}
 
-	// Exactly one second is the floor and is honoured.
 	atFloor := ConfigMap{"wiki": map[string]any{"version_retention": "1s"}}
 	if got := ResolveWikiVersionRetention(atFloor, nil); got != time.Second {
 		t.Errorf("1s = %s, want 1s", got)
 	}
 }
 
-// 🔒 THE MEMORY STORE'S RETENTION IS A DIFFERENT NUMBER FROM THE WIKI'S, and this pins that they
-// cannot be collapsed back into one key.
-//
-// The wiki's fifteen minutes is a margin for in-flight readers of a derived index — a pruned version
-// costs a rebuild. The memory store is the only copy of what it holds, so its history is the recovery
-// path D2 accepted, and the retention is the length of the safety net. Sharing one key honours D2's
-// letter and breaks it in fact: a bad pass noticed the next morning finds nothing to roll back to.
 func TestResolveMemoryVersionRetentionIsIndependentOfTheWikis(t *testing.T) {
 	if got := ResolveMemoryVersionRetention(nil, nil); got != defaultMemoryVersionRetention {
 		t.Errorf("unset = %s, want the %s default", got, defaultMemoryVersionRetention)
@@ -925,7 +867,6 @@ func TestResolveMemoryVersionRetentionIsIndependentOfTheWikis(t *testing.T) {
 			defaultMemoryVersionRetention, defaultWikiVersionRetention)
 	}
 
-	// Setting one must not move the other.
 	onlyWiki := ConfigMap{"wiki": map[string]any{"version_retention": "1h"}}
 	if got := ResolveMemoryVersionRetention(onlyWiki, nil); got != defaultMemoryVersionRetention {
 		t.Errorf("the wiki's key moved the memory store's retention to %s", got)
@@ -938,8 +879,6 @@ func TestResolveMemoryVersionRetentionIsIndependentOfTheWikis(t *testing.T) {
 		t.Errorf("the memory key moved the wiki's retention to %s", got)
 	}
 
-	// The same measured one-second floor: below it the engine prunes nothing at all, so honouring a
-	// smaller value would silently disable pruning.
 	for _, bad := range []string{"1ms", "0", "-5m", "nonsense"} {
 		cfg := ConfigMap{"memory": map[string]any{"version_retention": bad}}
 		if got := ResolveMemoryVersionRetention(cfg, nil); got != defaultMemoryVersionRetention {

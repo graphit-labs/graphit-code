@@ -39,9 +39,6 @@ const (
 	lanceSyncLogTable = "sync_log"
 	lanceMetaTable    = "meta"
 
-	// Lance FTS targets one column. Body stays in its canonical column; compact derived metadata
-	// lives in search_terms. Two ranked passes are fused deterministically, so search no longer
-	// stores a second full copy of every document merely to make its title and slug searchable.
 	lanceWikiBody  = "body"
 	lanceWikiTerms = "search_terms"
 
@@ -106,17 +103,6 @@ func (w *WikiDB) Compact(ctx context.Context) error {
 	return err
 }
 
-// lanceWikiVersionRetention is how long a superseded dataset version survives before pruning.
-//
-// NOT zero. Lance is MVCC: a reader answers from the snapshot it opened, so compaction never
-// takes a query down, but pruning a version a live reader still holds does.
-//
-// IT IS A POLICY NOW, not a constant, and the reason is the premise this used to state: "nothing
-// here uses time travel, so retention beyond a margin for in-flight reads buys nothing". That is
-// true of the knowledge wiki, which is rebuilt from `docs/` and whose recovery path is therefore
-// its sources. It is NOT true of a store holding the only copy of its data, where the version
-// history IS the recovery path and the retention is the length of the safety net — proved
-// restorable in internal/lancestore. `wiki.version_retention` is how the two are told apart.
 func lanceWikiVersionRetention() time.Duration { return config.WikiVersionRetention() }
 
 // Maintain reclaims the disk a rebuild leaves behind: dead rows still occupying their fragments,
@@ -165,11 +151,6 @@ func (w *WikiDB) Maintain(ctx context.Context) {
 // Remote reports whether this is a published index, which is read-only.
 func (w *WikiDB) Remote() bool { return w.store != nil && w.store.Remote() }
 
-// ---------- schema ----------
-
-// lanceChunksSchema takes the vector width as a parameter rather than assuming
-// ai.EmbeddingDimensions — see the identical note on lanceEntitiesSchema in
-// internal/ast/search_lance.go, which this mirrors.
 func lanceChunksSchema(vectorDim int) lancestore.Schema {
 	return lancestore.Schema{Fields: []lancestore.Field{
 		{Name: "slug", Type: lancestore.FieldString},
@@ -192,13 +173,6 @@ func lanceChunksSchema(vectorDim int) lancestore.Schema {
 		{Name: "revision_id", Type: lancestore.FieldString, Nullable: true},
 		{Name: "superseded", Type: lancestore.FieldBool},
 		{Name: "current_id", Type: lancestore.FieldString, Nullable: true},
-		// The rest of what was page frontmatter and nowhere else.
-		//
-		// The compiled page carried `revision`, `previous`, `next`, `created`, and the three
-		// staleness fields; the explorer and the memory protocol read them off it. With no page
-		// there is no other record, so removing the page without these columns would drop facts
-		// quietly — a stale page and a fresh one look identical without `stale_since`, and a
-		// revision chain with no `previous` is a chain that cannot be walked.
 		{Name: "revision", Type: lancestore.FieldInt64},
 		{Name: "previous", Type: lancestore.FieldString, Nullable: true},
 		{Name: "next", Type: lancestore.FieldString, Nullable: true},
@@ -224,11 +198,6 @@ func lanceSyncLogSchema() lancestore.Schema {
 		{Name: "total_docs", Type: lancestore.FieldInt64},
 		{Name: "articles_written", Type: lancestore.FieldInt64},
 		{Name: "backlinks_added", Type: lancestore.FieldInt64},
-		// The three slug lists and the per-document details are JSON in one column each.
-		//
-		// A column store has no natural place for a variable-length list of strings that is only
-		// ever read whole, and modelling them as rows would make a log entry a join. They are
-		// written and read as a unit, so they are stored as one.
 		{Name: "added_json", Type: lancestore.FieldString, Nullable: true},
 		{Name: "updated_json", Type: lancestore.FieldString, Nullable: true},
 		{Name: "deleted_json", Type: lancestore.FieldString, Nullable: true},
@@ -243,8 +212,6 @@ func lanceMetaSchema() lancestore.Schema {
 	}}
 }
 
-// lanceWikiMinRowsForVectorIndex is the engine's IVF-PQ training floor, the same 256 the AST index
-// hit. A wiki with fewer pages than that keeps answering semantic queries by scanning.
 const lanceWikiMinRowsForVectorIndex = 256
 
 func lanceChunkIndexes() []lancestore.Index {
@@ -254,24 +221,12 @@ func lanceChunkIndexes() []lancestore.Index {
 		{Column: lanceWikiVector, Kind: lancestore.IndexVectorIVFPQ},
 		{Column: "slug", Kind: lancestore.IndexScalarBTree},
 		{Column: "doc_type", Kind: lancestore.IndexScalarBitmap},
-		// Two values, and one of them selects almost the whole table — which is exactly what a
-		// bitmap is for. It is the index that makes "the current revisions only" a scan the engine
-		// skips rather than a filter it applies row by row.
 		{Column: "superseded", Kind: lancestore.IndexScalarBitmap},
 		{Column: "mandatory", Kind: lancestore.IndexScalarBitmap},
 		{Column: "entity_id", Kind: lancestore.IndexScalarBTree},
 	}
 }
 
-// ---------- the document ----------
-
-// wikiSearchTerms renders only derived metadata for the second full-text pass.
-//
-// Title first and twice-present through its split form, because a page's title is the strongest
-// evidence of what it is about; then the summary, then the body. The gram bag covers the slug and
-// the title so a truncated query reaches them, and it deliberately does NOT cover the body: a
-// page's whole text expanded into two- and three-character grams is tens of thousands of tokens
-// that match everything, which is the opposite of recall.
 func wikiSearchTerms(c WikiChunk) string {
 	parts := []string{c.Title, splitWikiSlug(c.Slug), c.Summary, c.Breadcrumb, c.DocType, strings.Join(c.Tags, " ")}
 	parts = append(parts, wikiGramBag(c.Title, c.Slug))
@@ -284,15 +239,12 @@ func wikiSearchTerms(c WikiChunk) string {
 	return strings.Join(out, " ")
 }
 
-// splitWikiSlug turns a slug into words, since a slug carries the title of a page that may have
-// been written before the title was.
 func splitWikiSlug(slug string) string {
 	return strings.Join(strings.FieldsFunc(slug, func(r rune) bool {
 		return r == '-' || r == '_' || r == '.' || r == '/'
 	}), " ")
 }
 
-// wikiGramBag is the 2+3-gram bag of the title and the slug, deduplicated.
 func wikiGramBag(title, slug string) string {
 	seen := map[string]bool{}
 	var out []string
@@ -335,10 +287,6 @@ func WikiQueryText(query string) string {
 	return strings.Join(out, " ")
 }
 
-// ---------- rows ----------
-
-// buildChunkRow is the ONLY place a chunk row is composed, for the same reason the AST index has
-// one: two constructors drift, and the drift is silent.
 func buildChunkRow(c WikiChunk, vec []float32) lancestore.Row {
 	tagsJSON := ""
 	if len(c.Tags) > 0 {
@@ -376,16 +324,11 @@ func buildChunkRow(c WikiChunk, vec []float32) lancestore.Row {
 		lanceWikiTerms:  wikiSearchTerms(c),
 		lanceWikiVector: nil,
 	}
-	// See the identical comment on buildEntityRow in internal/ast/search_lance.go: a failed
-	// embed reports as empty, which is the only case to tell apart from a real vector — not a
-	// fixed width, or every provider except the local 768-dim one loses its vectors silently.
 	if len(vec) > 0 {
 		row[lanceWikiVector] = vec
 	}
 	return row
 }
-
-// ---------- incremental sync ----------
 
 const lanceWikiWriteBatch = 500
 
@@ -632,11 +575,6 @@ func (w *WikiDB) resetTables(ctx context.Context, chunksSchema lancestore.Schema
 	return err
 }
 
-// openTables opens what a published artifact already contains.
-//
-// A missing table is TOLERATED here, unlike locally: an artifact published by an older build may
-// have no sync log, and refusing to open the whole wiki over that would make one absent table cost
-// the pages. Only `chunks` is required — without it there is no wiki.
 func (w *WikiDB) openTables(ctx context.Context) error {
 	if w.chunks == nil {
 		t, err := w.store.OpenTable(ctx, lanceChunksTable)
@@ -667,8 +605,6 @@ func (w *WikiDB) writeXRefs(ctx context.Context, xrefs map[string][]string) erro
 	if len(xrefs) == 0 {
 		return nil
 	}
-	// Sorted, so the table is byte-identical for identical input. A published index that differs
-	// only in row order would re-upload every object for no change.
 	sources := make([]string, 0, len(xrefs))
 	for s := range xrefs {
 		sources = append(sources, s)
@@ -698,8 +634,6 @@ func (w *WikiDB) writeXRefs(ctx context.Context, xrefs map[string][]string) erro
 	}
 	return nil
 }
-
-// ---------- search ----------
 
 // Search runs the keyword half.
 //
@@ -764,7 +698,6 @@ func (w *WikiDB) HybridSearch(ctx context.Context, query string, vec []float32, 
 	}
 	text := WikiQueryText(query)
 	if text == "" && len(vec) == 0 {
-		// Neither channel has anything to search with. Empty, not an error — see Search.
 		return nil, nil
 	}
 	if text == "" {
@@ -829,8 +762,6 @@ func wikiSearchFilter(opts WikiSearchOptions) string {
 	return ""
 }
 
-// fuseWikiRankings combines the independent body and metadata rankings with deterministic RRF.
-// A fixed scale keeps scores useful in the compact one-decimal output while preserving RRF order.
 func fuseWikiRankings(topK int, rankings ...[]WikiSearchResult) []WikiSearchResult {
 	const rrfK = 60.0
 	type fused struct {
@@ -902,7 +833,6 @@ func (w *WikiDB) search(ctx context.Context, q lancestore.Query) ([]WikiSearchRe
 	return out, nil
 }
 
-// wikiSnippet is the summary when there is one, and the head of the body otherwise.
 func wikiSnippet(body, summary string) string {
 	if s := strings.TrimSpace(summary); s != "" {
 		return s
@@ -919,8 +849,6 @@ func wikiSnippet(body, summary string) string {
 	return b[:cut] + "…"
 }
 
-// ---------- browse ----------
-
 // Browse lists pages by filter, which is a predicate and a limit rather than a search.
 func (w *WikiDB) Browse(ctx context.Context, filter BrowseFilter) ([]BrowseEntry, error) {
 	if err := w.ensureTables(ctx); err != nil {
@@ -936,8 +864,6 @@ func (w *WikiDB) Browse(ctx context.Context, filter BrowseFilter) ([]BrowseEntry
 	if filter.Important != nil {
 		conds = append(conds, fmt.Sprintf("important = %t", *filter.Important))
 	}
-	// A filter-only query needs SOME predicate, so an unfiltered browse gets one that is always
-	// true rather than a special code path.
 	if len(conds) == 0 {
 		conds = append(conds, "word_count >= 0")
 	}
@@ -966,8 +892,6 @@ func (w *WikiDB) Browse(ctx context.Context, filter BrowseFilter) ([]BrowseEntry
 			WordCount:   int(i64(h.Row["word_count"])),
 		})
 	}
-	// Ordered here rather than by the engine: a filter query has no ranking channel, so the rows
-	// come back in storage order and the caller expects a stable list.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].DocType != out[j].DocType {
 			return out[i].DocType < out[j].DocType
@@ -976,8 +900,6 @@ func (w *WikiDB) Browse(ctx context.Context, filter BrowseFilter) ([]BrowseEntry
 	})
 	return out, nil
 }
-
-// ---------- cross-references ----------
 
 // FindXRefs walks the cross-reference graph breadth-first to the given depth.
 //
@@ -1088,11 +1010,6 @@ func (w *WikiDB) slugTitles(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
-// ---------- sync log ----------
-
-// syncLogKeep bounds the retained history. The SQLite version kept the table unbounded and read
-// the tail; a column store has no cheap "delete all but the newest N", so the bound is applied
-// where the rows are written instead.
 const syncLogKeep = 50
 
 // AppendSyncLog records one sync.
@@ -1154,7 +1071,6 @@ func (w *WikiDB) recentSyncLog(ctx context.Context, limit int) ([]SyncLogEntry, 
 		_ = json.Unmarshal([]byte(str(h.Row["details_json"])), &e.Details)
 		out = append(out, e)
 	}
-	// Newest first. The timestamp is RFC3339Nano, which sorts lexicographically in time order.
 	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp > out[j].Timestamp })
 	if len(out) > limit {
 		out = out[:limit]
@@ -1162,15 +1078,11 @@ func (w *WikiDB) recentSyncLog(ctx context.Context, limit int) ([]SyncLogEntry, 
 	return out, nil
 }
 
-// ---------- embeddings ----------
-
 // PendingEmbeddings lists chunks with no vector yet, which is what the embedder consumes.
 func (w *WikiDB) PendingEmbeddings(ctx context.Context) ([]chunkRow, error) {
 	if err := w.ensureTables(ctx); err != nil {
 		return nil, err
 	}
-	// `embedding IS NULL` is the predicate that matters; it is expressed by the engine's filter
-	// rather than by fetching everything and checking in Go.
 	hits, err := w.chunks.Search(ctx, lancestore.Query{
 		Filter: lanceWikiVector + " IS NULL", Limit: 100000,
 	})
@@ -1299,12 +1211,6 @@ func (w *WikiDB) VectorsBySource(ctx context.Context) (map[string][]float32, err
 	return out, nil
 }
 
-// Chunk returns one page's whole row, and it is the only way a page is read.
-//
-// There was a `PageBody` beside it returning just the text and the title, which is what a page read
-// used to be. It went when a read started carrying the page's frontmatter again: rebuilding the
-// header needs every column, so the narrow reader had no caller left. Keeping it would have left two
-// ways to read a page differing in what they return — the shape of drift this line of work removes.
 func (w *WikiDB) Chunk(ctx context.Context, slug string) (*WikiChunk, error) {
 	if err := w.ensureTables(ctx); err != nil {
 		return nil, err
@@ -1381,9 +1287,6 @@ func (w *WikiDB) AllXRefs(ctx context.Context) (map[string][]string, error) {
 	if w.xrefs == nil {
 		return map[string][]string{}, nil
 	}
-	// A filter-only query needs SOME predicate, and `source_slug` is non-nullable, so this one is
-	// the always-true form for a table with no numeric column to compare — the same trick Browse
-	// uses with `word_count >= 0`.
 	hits, err := w.xrefs.Search(ctx, lancestore.Query{
 		Filter: "source_slug IS NOT NULL", Limit: 200000,
 	})
@@ -1405,9 +1308,6 @@ func (w *WikiDB) AllXRefs(ctx context.Context) (map[string][]string, error) {
 	return out, nil
 }
 
-// rowToChunk is the inverse of buildChunkRow, and belongs beside it for the same reason there is
-// only one constructor: a column added to one and forgotten in the other is a field that reads as
-// empty everywhere without anything failing.
 func rowToChunk(row map[string]any) WikiChunk {
 	c := WikiChunk{
 		Slug:        str(row["slug"]),
@@ -1461,8 +1361,6 @@ func (w *WikiDB) Slugs(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// ---------- stats ----------
-
 // HasContent reports whether anything is indexed.
 func (w *WikiDB) HasContent(ctx context.Context) bool {
 	if err := w.ensureTables(ctx); err != nil {
@@ -1489,17 +1387,9 @@ func (w *WikiDB) Stats(ctx context.Context) (chunks, slugs, xrefs, logEntries in
 	if err != nil {
 		return
 	}
-	// One chunk per page here: the wiki compiles a page into a single row, so slugs and chunks are
-	// the same count. It stays a separate return value because the callers print both.
 	return int(c), int(c), int(x), int(l), nil
 }
 
-// ---------- small helpers ----------
-
-// lanceQuote renders a string literal for the engine's filter dialect.
-//
-// SAFETY: single quotes, doubled to escape. A slug comes from a file name and can contain one, and
-// an unescaped quote there does not fail — it changes which rows match.
 func lanceQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

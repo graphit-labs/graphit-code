@@ -12,13 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
-// T2.1 of docs/tasks/lancedb-is-the-only-store-for-knowledge-and-memory.md.
-//
-// The question these answer is the one that could invalidate every later slice: can a row hold a
-// memory without losing anything? Six fields existed ONLY in the markdown file and had no column
-// anywhere — `scope`, `scope_id`, `project_id`, `updated_by`, `tags`, and the real `updated_at` —
-// so a record type that forgot one would lose it silently on migration.
-
 func tableAt(t *testing.T) *MemoryTable {
 	t.Helper()
 	tbl, err := OpenMemoryTable(context.Background(), t.TempDir())
@@ -56,8 +49,6 @@ func TestOpenMemoryTableResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
 	}
 }
 
-// A record with every field set, so a dropped column shows up rather than reading as an empty
-// optional.
 func fullRecord() MemoryRecord {
 	return MemoryRecord{
 		ID:          "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -133,8 +124,6 @@ func TestArchivedRevisionsAreSeparateRowsOfOneChain(t *testing.T) {
 		t.Fatalf("the chain holds %d rows, want 3 — the keys collided", n)
 	}
 
-	// The catalogue is the live memories only: a superseded revision stays readable by key, and
-	// listing it would multiply every listing by the revision count.
 	liveOnly, err := table.Live(ctx)
 	if err != nil {
 		t.Fatalf("listing live: %v", err)
@@ -143,9 +132,6 @@ func TestArchivedRevisionsAreSeparateRowsOfOneChain(t *testing.T) {
 		t.Errorf("Live() = %d record(s) %+v, want just the head", len(liveOnly), liveOnly)
 	}
 
-	// Revisions come back oldest-first, which is what a forward walk needs. The order is by
-	// revision_id, preserving what the lexicographic order of file names used to give — correct for
-	// both the zero-padded and the ULID naming schemes.
 	revs, err := table.Revisions(ctx, live.ID)
 	if err != nil {
 		t.Fatalf("listing revisions: %v", err)
@@ -185,7 +171,6 @@ func TestPutReplacesAndDeleteRemoves(t *testing.T) {
 	if _, found, err := table.Get(ctx, r.Key()); err != nil || found {
 		t.Errorf("after delete: found=%v err=%v", found, err)
 	}
-	// A key that is not there is not an error: the caller's intent is that it must not be there.
 	if err := table.Delete(ctx, "never-existed"); err != nil {
 		t.Errorf("deleting an absent key: %v", err)
 	}
@@ -296,8 +281,6 @@ func TestMandatoryMarkAndUnmarkAreIndependentFromImportance(t *testing.T) {
 	}
 }
 
-// ---------- the migration ----------
-
 // A record must survive the round trip with EVERY field, and the field list is the point.
 //
 // Six of these existed only in the markdown file and had no column anywhere in the wiki — `Scope`,
@@ -382,7 +365,6 @@ func TestAMemoryRecordSurvivesTheRoundTripWithEveryField(t *testing.T) {
 		}
 	}
 
-	// The row key is what Upsert and DeleteByKey address, so a revision has to be reachable by it.
 	if want.Key() != want.ID+"/"+want.RevisionID {
 		t.Errorf("Key() = %q, want the id and revision joined", want.Key())
 	}

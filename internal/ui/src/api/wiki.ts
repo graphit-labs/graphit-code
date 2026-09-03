@@ -1,10 +1,4 @@
-/**
- * Wiki page browsing.
- *
- * The live search moved to ./search.ts, along with its sessions and follow-up chat:
- * it spans wikis and code graphs, so it was never a wiki-only concern and its
- * endpoints are no longer under /api/wiki.
- */
+
 
 const API = () => window.__API_BASE__ ?? ''
 

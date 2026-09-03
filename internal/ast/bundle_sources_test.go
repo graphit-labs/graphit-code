@@ -12,8 +12,6 @@ import (
 	"testing"
 )
 
-// bundleMembers reads a bundle back: the manifest, and the text of every sources/
-// member keyed by its path inside the archive.
 func bundleMembers(t *testing.T, bundlePath string) (BundleManifest, map[string]string) {
 	t.Helper()
 

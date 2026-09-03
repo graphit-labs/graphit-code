@@ -7,21 +7,6 @@ import (
 	"testing"
 )
 
-// _score AND _relevance_score ARE TWO DIFFERENT COLUMNS, and a hybrid row carries both.
-//
-// They used to share one `case` arm in the hit assembly, both assigning to Hit.Score, inside a
-// `for k, v := range row`. Go randomises map iteration, so which of the two survived was decided
-// per row, per call. The caller sorts by that field, so the effect was not a wobbly number but a
-// wrong ORDER: on the AST index the entity a query named by name dropped out of rank one.
-//
-// The two tests below are what that defect could not survive.
-
-// TestHybridRowScoreIsStableAcrossIdenticalQueries runs the same hybrid query many times against
-// ONE unchanged index. The rows cannot change, so any variation in the score comes from this
-// package rather than from the engine.
-//
-// Measured with the columns collapsed: EVERY row returned exactly two distinct scores across
-// twenty runs — RowGroups at 0.015625 three times and 1.0 seventeen times, and so on for the rest.
 func TestHybridRowScoreIsStableAcrossIdenticalQueries(t *testing.T) {
 	ctx := context.Background()
 	tbl := hybridScoreTable(t)
@@ -83,8 +68,6 @@ func TestHybridScoreAgreesWithTheEnginesOrder(t *testing.T) {
 		}
 	}
 
-	// And the fused column is the one being exposed — not the raw channel score, which on this
-	// fixture runs the other way (0.834, 0, 0.883, 0.939, 1.0 against the engine's order).
 	for i, h := range hits {
 		if h.Score != h.RelevanceScore {
 			t.Errorf("hit[%d] exposes Score %g but RelevanceScore is %g; a fused query must rank by the fused column",

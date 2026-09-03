@@ -94,8 +94,6 @@ func TestSpliceIgnoresNonPlpgsqlLanguages(t *testing.T) {
 	walk(tree)
 }
 
-// TestSpliceDoesNotTouchOrdinaryStringConstants confirms the splice only
-// fires for the dollar-quoted alternative of anysconst.
 func TestSpliceDoesNotTouchOrdinaryStringConstants(t *testing.T) {
 	src := `CREATE FUNCTION f() RETURNS INTEGER AS 'IF x > 0 THEN RETURN 1; END IF;' LANGUAGE plpgsql;`
 	d := &Driver{}

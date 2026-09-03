@@ -73,7 +73,6 @@ func TestCleanupOldRuntimes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// stale-file.txt + current dir should remain (file is not IsDir so not processed)
 		names := make(map[string]bool)
 		for _, e := range entries {
 			names[e.Name()] = true

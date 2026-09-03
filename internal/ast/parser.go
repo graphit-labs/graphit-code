@@ -75,7 +75,6 @@ func (pf *ParsedFile) AddEntity(dataKey string, e Entity) {
 		pf.Entities = make(map[string][]Entity)
 	}
 	pf.Entities[dataKey] = append(pf.Entities[dataKey], e)
-	// A later AddOrMergeEntity has to see this, or it appends a duplicate of it.
 	if idx := pf.mergeIdx[dataKey]; idx != nil {
 		id := identityOf(e)
 		if _, seen := idx.pos[id]; !seen {
@@ -114,8 +113,6 @@ func (pf *ParsedFile) AddOrMergeEntity(dataKey string, e Entity) {
 	}
 }
 
-// mergeEntityInto completes an entity already recorded with what the second match
-// brought and the first lacked.
 func mergeEntityInto(existing *Entity, e Entity) {
 	if existing.Docstring == "" {
 		existing.Docstring = e.Docstring
@@ -136,7 +133,6 @@ func mergeEntityInto(existing *Entity, e Entity) {
 	}
 }
 
-// entityIdentity is what AddOrMergeEntity treats as one node.
 type entityIdentity struct {
 	label   string
 	name    string
@@ -148,25 +144,11 @@ func identityOf(e Entity) entityIdentity {
 	return entityIdentity{e.GraphLabel, e.Name, e.Context, e.Line}
 }
 
-// entityIndex locates an identity in ParsedFile.Entities[dataKey].
-//
-// slen is the slice length the index was built for. This file is not the only
-// writer -- adapters take pointers into the slice and rewrite fields in place in
-// later passes, and callers build a ParsedFile with Entities already populated --
-// so a length that no longer matches means rebuild rather than trust.
 type entityIndex struct {
 	pos  map[entityIdentity]int
 	slen int
 }
 
-// entityIndexFor returns the index for dataKey, building it when missing or stale.
-//
-// It exists because AddOrMergeEntity used to scan every entity already recorded
-// under the same key, which is quadratic in entities per file. That stayed
-// invisible until value nodes made every literal an entity: on a 114k-line XML
-// file one worker sat inside that scan long after every other worker had
-// finished, with no disk I/O and no subprocess alive, and an index of 36k files
-// looked hung with no way to tell it from idle.
 func (pf *ParsedFile) entityIndexFor(dataKey string) *entityIndex {
 	if pf.mergeIdx == nil {
 		pf.mergeIdx = make(map[string]*entityIndex)
@@ -180,9 +162,6 @@ func (pf *ParsedFile) entityIndexFor(dataKey string) *entityIndex {
 	if idx.slen == len(list) {
 		return idx
 	}
-	// Rebuilt whole rather than patched: the first occurrence has to win, and a
-	// patch cannot know which that is. O(n) once per divergence, against O(n) on
-	// every insert before.
 	clear(idx.pos)
 	for i := range list {
 		id := identityOf(list[i])

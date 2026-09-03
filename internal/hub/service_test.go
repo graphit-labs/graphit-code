@@ -172,7 +172,6 @@ func TestHubService_UpdateAll(t *testing.T) {
 		_ = SaveLockfile(lockPath, lf)
 
 		result := svc.UpdateAll(context.Background(), "claude", dir)
-		// Should skip entries with no RemoteID
 		if len(result) != 0 {
 			t.Errorf("expected empty result, got %d", len(result))
 		}
@@ -226,7 +225,6 @@ func TestHubService_UpdateOne(t *testing.T) {
 		_ = SaveLockfile(lockPath, lf)
 
 		err := svc.UpdateOne(context.Background(), "my-alias", TypeRule, "claude", dir)
-		// Will fail because entry not in registry
 		if err == nil {
 			t.Error("expected error since entry not in registry")
 		}
@@ -346,7 +344,6 @@ func TestHubService_RecordPublish(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify the lockfile was updated
 		lf2, _ := LoadLockfile(lockPath)
 		meta := lf2.Artifacts[TypeRule]["my-rule"]
 		if meta.Version != "1.0.0" {
@@ -386,7 +383,6 @@ func TestHubService_RecordPublish(t *testing.T) {
 func TestHubService_RecordPublishInGlobalLock(t *testing.T) {
 	t.Parallel()
 	svc := &HubService{lockMgr: nil}
-	// Should not panic when lockMgr is nil
 	svc.recordPublishInGlobalLock("test", TypeRule, "1.0.0", "proj", "/dir")
 }
 

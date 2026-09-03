@@ -1,13 +1,11 @@
 language: ruby
 grammar: tree-sitter-ruby
 extensions: [".rb"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
 queries:
-  # === Entity queries ===
+
   - data_key: functions
     graph_label: Function
     pattern: '(method name: (identifier) @name)'
@@ -30,7 +28,6 @@ queries:
     graph_label: Variable
     pattern: '(assignment left: (constant) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: variables
     graph_label: Variable
     pattern: '(assignment left: (constant) @name right: [(integer) (float) (true) (false) (nil) (string) (simple_symbol) (delimited_symbol)] @value)'
@@ -43,7 +40,6 @@ queries:
     graph_label: Field
     pattern: '(instance_variable) @name'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -61,17 +57,13 @@ queries:
     relation_type: INHERITS
     pattern: '(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "extend"))'
 
-# Export detection strategy — Ruby treats _prefix names as private by convention
 exports:
   strategy: no_prefix
   config:
     prefix: "_"
 
-# Self/this keywords for receiver type resolution
 self_keywords: ["self."]
 
-# Parent context type mapping — Ruby tree-sitter node types only
-# Used by resolveParentContext() to walk up the AST and find enclosing scope.
 context_types:
   class: Class
   module: Module
@@ -79,14 +71,11 @@ context_types:
   singleton_method: Method
   singleton_class: Class
 
-# Ruby has lambda, block, and do_block as anonymous function types
 anon_func_types:
   - lambda
   - block
   - do_block
 
-# Declaration node types that can have docstrings (comments immediately above).
-# Ruby tree-sitter uses these exact node types.
 declaration_types:
   - method
   - singleton_method
@@ -94,13 +83,9 @@ declaration_types:
   - module
   - singleton_class
 
-# Ruby tree-sitter uses a single "comment" node type for # comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. elsif/when/rescue are each their own node, not
-# nested inside the primary if/case/begin — they need explicit entries.
 complexity:
   node_types:
     - if
@@ -111,10 +96,6 @@ complexity:
     - conditional
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Class
   - Module

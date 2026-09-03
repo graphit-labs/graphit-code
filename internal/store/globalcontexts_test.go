@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// writeGlobalLock writes a global lock holding the artifacts given, each as a
-// (type, id, version, publisher, owners) tuple rendered into the real file shape.
 func writeGlobalLock(t *testing.T, body string) {
 	t.Helper()
 	root := brand.GlobalDir()
@@ -82,8 +80,6 @@ func TestAPublishedArtifactIsFoundByBothItsNames(t *testing.T) {
 		if rec.Name != "01PUBLISHER" {
 			t.Errorf("%s: name = %q, want the publishing project", ref, rec.Name)
 		}
-		// A Hub context resolves to the version-scoped store itself, not to a
-		// graph.icebug beneath it: what is staged there is the mounted DDL.
 		want := ASTHubDir("01PUBLISHER", "3.0.0")
 		if got := ASTContextIcebugDirIn("", ref); got != want {
 			t.Errorf("%s: store = %q, want %q", ref, got, want)
@@ -174,10 +170,8 @@ func TestSplitQualified(t *testing.T) {
 		"demo":            {"demo", ""},
 		"demo@1.0.0":      {"demo", "1.0.0"},
 		"demo@1.0.0-rc.1": {"demo", "1.0.0-rc.1"},
-		// A leading "@" is part of the name, not a separator: scoped names exist and
-		// splitting there would leave an empty id.
-		"@scoped":       {"@scoped", ""},
-		"@scoped@2.0.0": {"@scoped", "2.0.0"},
+		"@scoped":         {"@scoped", ""},
+		"@scoped@2.0.0":   {"@scoped", "2.0.0"},
 	}
 	for ref, want := range cases {
 		id, version := SplitQualified(ref)

@@ -33,12 +33,10 @@ func TestScopedRunWithAnEmptyCacheRediscoversTheProject(t *testing.T) {
 	}
 	_ = db.Close()
 
-	// The cache is discarded — which is exactly what a shardCacheVersion bump does.
 	if err := os.RemoveAll(cacheDir); err != nil {
 		t.Fatalf("drop cache: %v", err)
 	}
 
-	// The watcher reports one file. Before the fallback, this published a one-file graph.
 	touched := filepath.Join(work, "faa.go")
 	if err := os.WriteFile(touched, []byte("package p\n\nfunc FAa() { _ = 1 }\n"), 0o644); err != nil {
 		t.Fatalf("touch: %v", err)

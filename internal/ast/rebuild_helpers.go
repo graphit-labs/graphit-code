@@ -16,8 +16,6 @@ var engineOwnedRelTypes = map[string]bool{
 	"DECORATOR": true, "EXPORT": true,
 }
 
-// shortHex is the unique suffix used to name temporary working directories beside a
-// live store — a build target and its orphan cleanup, but never a store path itself.
 func shortHex() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
@@ -45,14 +43,8 @@ func BuildEmbLookup(cache *ShardCache, embCache *ShardEmbCache) func(relPath, ui
 	}
 }
 
-// copyBatchBytes caps the payload of one COPY in paths that still batch rows into
-// documents. It is measured by bytes, not rows, because row sizes span six orders
-// of magnitude: an entity row is tens of bytes and a File row is its whole source.
 const copyBatchBytes = 64 << 20
 
-// batchRows splits rows into groups whose estimated JSON payload stays under
-// maxBytes. A row larger than the budget still gets its own batch: the point is to
-// bound the document, not to reject content.
 func batchRows(data []map[string]any, maxBytes int) [][]map[string]any {
 	if len(data) == 0 {
 		return nil
@@ -73,9 +65,6 @@ func batchRows(data []map[string]any, maxBytes int) [][]map[string]any {
 	return append(batches, data[start:])
 }
 
-// estimateRowBytes approximates a row's encoded size. Only strings are measured
-// exactly — they are the only values that can be arbitrarily large — and everything
-// else is charged a flat width plus per-key overhead for quotes and separators.
 func estimateRowBytes(row map[string]any) int {
 	n := 2
 	for k, v := range row {
@@ -92,7 +81,6 @@ func estimateRowBytes(row map[string]any) int {
 	return n
 }
 
-// writeJSONFile writes a JSON array of rows to a path.
 func writeJSONFile(path string, data []map[string]any) error {
 	f, err := os.Create(path)
 	if err != nil {

@@ -27,8 +27,6 @@ func (m *mockAIClient) Complete(_ context.Context, _, _ string) (string, error) 
 	return r, nil
 }
 
-// A compiled index, not a directory of pages — including the catalogue, which used to be the
-// `index.md` fixture and is now a Browse over these same rows.
 func setupWikiDir(t *testing.T) string {
 	t.Helper()
 	return indexedWiki(t, []WikiChunk{
@@ -160,7 +158,7 @@ func TestSearchWiki_DefaultMaxTurns(t *testing.T) {
 
 	result, err := SearchWiki(context.Background(), client, "query", SearchConfig{
 		WikiDir:  dir,
-		MaxTurns: 0, // should default to 6
+		MaxTurns: 0,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -209,7 +207,6 @@ func TestSearchWiki_BM25PreFilter(t *testing.T) {
 func TestSearchWiki_PageRefRetry(t *testing.T) {
 	t.Parallel()
 	dir := setupWikiDir(t)
-	// First response is DONE but with page-ref-only answer, second is the retry
 	client := &mockAIClient{responses: []string{
 		"DONE: [[Architecture]]\n[[Setup]]\n[[API_Reference]]",
 		"After detailed analysis, the architecture uses microservices with event-driven patterns.",
@@ -222,7 +219,6 @@ func TestSearchWiki_PageRefRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// The retry should have produced a better answer
 	if strings.HasPrefix(result.Answer, "[[") {
 		t.Errorf("expected retry to produce non-ref answer, got %q", result.Answer)
 	}
@@ -233,7 +229,7 @@ func TestSearchWiki_AlreadyLoadedPages(t *testing.T) {
 	dir := setupWikiDir(t)
 	client := &mockAIClient{responses: []string{
 		"Architecture",
-		"Architecture", // request same page again
+		"Architecture",
 		"DONE: Final comprehensive answer about the architecture.",
 	}}
 
@@ -252,7 +248,6 @@ func TestSearchWiki_AlreadyLoadedPages(t *testing.T) {
 func TestSearchWiki_NoParsedPages(t *testing.T) {
 	t.Parallel()
 	dir := setupWikiDir(t)
-	// Reply that has no parseable page list and no DONE prefix → treated as final answer
 	client := &mockAIClient{responses: []string{
 		"This is a direct answer without any page requests or DONE prefix, providing comprehensive analysis.",
 	}}
@@ -302,8 +297,6 @@ func TestExtractSnippet(t *testing.T) {
 			strings.Repeat("word ", 100),
 			"zzzzz",
 			func(t *testing.T, snippet string) {
-				// Bounded by the window, plus room for the ellipsis and for pulling the
-				// edge out to a word boundary.
 				if len(snippet) > wikiSnippetWidth+64 {
 					t.Errorf("snippet too long: %d chars", len(snippet))
 				}
@@ -436,7 +429,6 @@ func TestGetTrigrams(t *testing.T) {
 	t.Run("normal_string", func(t *testing.T) {
 		t.Parallel()
 		tg := GetTrigrams("hello")
-		// "hel", "ell", "llo" → 3 trigrams
 		if len(tg) != 3 {
 			t.Errorf("GetTrigrams(\"hello\") len = %d, want 3", len(tg))
 		}
@@ -468,7 +460,7 @@ func TestTrigramSimilarity(t *testing.T) {
 		{"identical", "hello", "hello", 1.0, 1.0},
 		{"similar", "architecture", "architectur", 0.7, 1.0},
 		{"different", "hello", "world", 0.0, 0.1},
-		{"empty_both", "", "", 0.0, 1.0}, // union=0 → returns 0
+		{"empty_both", "", "", 0.0, 1.0},
 	}
 
 	for _, tt := range tests {
@@ -492,8 +484,6 @@ func TestSearchWiki_FinalSynthesisError(t *testing.T) {
 	client.responses = nil
 	client.err = nil
 
-	// We need a custom client that succeeds for first calls then fails on the final synthesis.
-	// Use a wrapper approach.
 	finalErrClient := &finalErrorAIClient{
 		normalResponses: []string{"Architecture", "Setup", "API_Reference"},
 		finalErr:        errors.New("final synthesis error"),
@@ -504,9 +494,7 @@ func TestSearchWiki_FinalSynthesisError(t *testing.T) {
 		MaxTurns: 3,
 	})
 	_ = callNum
-	// After max turns, the final Complete call fails
 	if err == nil {
-		// The error might be wrapped
 		_ = result
 	}
 }

@@ -12,7 +12,7 @@ type flakyModule struct {
 	mu     sync.Mutex
 	name   string
 	starts int
-	fail   int // fail this many times before blocking on ctx
+	fail   int
 	panics bool
 }
 
@@ -40,10 +40,6 @@ func (m *flakyModule) startCount() int {
 	return m.starts
 }
 
-// A global module that dies has to be restarted, and its death has to be visible. Both used to
-// be false: memory-sync and the embedding server ran as `go func() { _ = mod.Start(ctx) }()`,
-// which discards the error and never tries again — a watcher that died stopped recompiling
-// memory with nothing in any log to say so.
 func TestSuperviseGlobalRestartsAndLogs(t *testing.T) {
 	mod := &flakyModule{name: "flaky", fail: 2}
 

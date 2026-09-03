@@ -13,53 +13,9 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// Embedded language parsing: the body of a single-file component's <script> and
-// <style>, parsed with the grammar of the language it is actually written in.
-//
-// tree-sitter-vue, tree-sitter-svelte and tree-sitter-html all hand that body over
-// as a single `raw_text` node — not a limitation of our queries, it is what the
-// grammars produce. Before this existed, a .vue contributed no IMPORTS edge, no
-// entity from its script, and no export flag: `import { ref } from 'vue'` bought
-// the file no dependency at all. The body was still findable as TEXT, because the
-// whole file source is an indexed FTS5 column; what was missing was STRUCTURE.
-//
-// The mechanism is a second parse of the block's text with the inner language's
-// config, followed by a merge into the outer result. Three things make that correct
-// rather than nearly correct:
-//
-//   - THE LINE OFFSET. The inner parse sees only the block, so every line it
-//     reports is relative to the block. The offset is the row the text node starts
-//     on, applied once by shiftParsedLines. This is the part that fails silently,
-//     which is why the tests put the script at the END of the file: with the script
-//     first, an offset of zero passes.
-//   - THE PATH. The inner parse is told the OUTER file's path, deliberately: the
-//     IMPORTS edge has to leave the .vue, not a synthetic path nobody can open.
-//   - THE SELECTOR IS A QUERY. A block is selected by a tree-sitter pattern, the
-//     same language every `queries[].pattern` is written in. There is ONE mechanism:
-//     the `<script>` of a Vue component and the `<execute>` of some project's XML go
-//     down the same path, because "which node is this block" is the same question in
-//     both and only a query answers it generally. A node kind cannot say "this
-//     element and not its siblings", and hardcoded attribute kinds cannot read an
-//     attribute in a grammar that spells them differently.
-//
-// The optional-attribute case — `<script lang="ts">` and `<script>` are both valid —
-// is what makes ORDER part of the design. A block declares two patterns, specific
-// first, and the FIRST block whose pattern matches a given body node claims it. The
-// claim happens at the MATCH, not after the language resolves, which is what makes
-// `lang="scss"` skip rather than fall through to the generic block's `default: css`
-// and be parsed as CSS.
-
-// maxEmbedDepth bounds the sub-parse.
-//
-// One level is all any real component needs — a <script> holds TypeScript, and
-// TypeScript declares no embedded blocks. The bound exists because the config is
-// declarative and nothing stops a language from naming ITSELF as the language of
-// its own block, which without this recurses until the stack ends.
 const maxEmbedDepth = 1
 
-// embedWarnOnce keeps the misconfiguration warnings to one per language, not one
-// per file. A project of 400 components would otherwise log 400 identical lines.
-var embedWarnOnce sync.Map // map[string]struct{}
+var embedWarnOnce sync.Map
 
 func embedWarn(key string, msg string, args ...any) {
 	if _, loaded := embedWarnOnce.LoadOrStore(key, struct{}{}); loaded {
@@ -95,15 +51,8 @@ func (t *TreeSitterParser) parseEmbedded(path string, root *sitter.Node, src []b
 	}
 }
 
-// embeddedQueryCache holds the compiled pattern of a pattern-form block.
-//
-// Compilation is a cgo call, and a block is matched once per file: without this it
-// would be recompiled for every file of the language. Keyed by the pattern text and
-// the grammar, because the same pattern compiled against a different grammar is a
-// different query.
-var embeddedQueryCache sync.Map // map[string]*sitter.Query
+var embeddedQueryCache sync.Map
 
-// compileEmbeddedPattern compiles a block's pattern against a grammar, memoised.
 func compileEmbeddedPattern(lang *sitter.Language, pattern string) (*sitter.Query, error) {
 	if lang == nil {
 		return nil, fmt.Errorf("no grammar")
@@ -120,13 +69,6 @@ func compileEmbeddedPattern(lang *sitter.Language, pattern string) (*sitter.Quer
 	return q, nil
 }
 
-// parseEmbeddedBlock runs one block's pattern over the tree.
-//
-// The pattern is the general selector, and the reason it is worth reusing rather
-// than inventing one: `#eq?` and `#match?` on a captured tag name express "only
-// <execute>" and "any tag matching ^sql", which a node kind cannot, and the language
-// value is located by the pattern itself rather than by node kinds the engine
-// hardcodes.
 func (t *TreeSitterParser) parseEmbeddedBlock(path string, root *sitter.Node, src []byte,
 	lang *sitter.Language, host *ExternalQueryFile, blk *EmbeddedBlock, out *ParsedFile,
 	claimed map[uintptr]bool,
@@ -134,8 +76,6 @@ func (t *TreeSitterParser) parseEmbeddedBlock(path string, root *sitter.Node, sr
 
 	q, err := compileEmbeddedPattern(lang, blk.Pattern)
 	if err != nil {
-		// A pattern that does not compile selects nothing, in silence. That is the
-		// failure mode this warning exists to break.
 		embedWarn("pattern|"+blk.Pattern, "embedded pattern does not compile",
 			"pattern", blk.Pattern, "path", path, "error", err)
 		return
@@ -163,10 +103,6 @@ func (t *TreeSitterParser) parseEmbeddedBlock(path string, root *sitter.Node, sr
 		if SafeIsNull(textNode) {
 			continue
 		}
-		// The claim is taken HERE, on the match, and not after the language
-		// resolves. A `<style lang="scss">` matches the specific block, which maps
-		// no language for it and skips — and the claim is what stops the generic
-		// block behind it from picking the same body up and parsing SCSS as CSS.
 		if claimed[textNode.Id()] {
 			continue
 		}
@@ -175,9 +111,6 @@ func (t *TreeSitterParser) parseEmbeddedBlock(path string, root *sitter.Node, sr
 		langValue := ""
 		if langIdx >= 0 {
 			langValue = strings.TrimSpace(captureTextAt(match, langIdx, src))
-			// A grammar may or may not include the quotes in the value node —
-			// tree-sitter-xml's AttValue spans them, tree-sitter-html's
-			// attribute_value does not. dataText already knows this.
 			if v := dataText(langValue); v != "" {
 				langValue = v
 			}
@@ -187,8 +120,6 @@ func (t *TreeSitterParser) parseEmbeddedBlock(path string, root *sitter.Node, sr
 	}
 }
 
-// parseEmbeddedBody resolves the language for one matched body, sub-parses it, and
-// merges the result in.
 func (t *TreeSitterParser) parseEmbeddedBody(path string, textNode *sitter.Node, src []byte,
 	host *ExternalQueryFile, blk *EmbeddedBlock, langValue string, langSelected bool,
 	out *ParsedFile,
@@ -215,10 +146,6 @@ func (t *TreeSitterParser) parseEmbeddedBody(path string, textNode *sitter.Node,
 	if len(strings.TrimSpace(string(body))) == 0 {
 		return
 	}
-	// A fragment becomes a compilation unit. After normalising, because the wrapping is
-	// syntax and the normaliser is about escaping; and neither side may contain a line
-	// break, which the loader already enforced — so line 1 of the sub-parse is still the
-	// block's first line. See EmbeddedBlock.WrapPrefix.
 	if blk.WrapPrefix != "" || blk.WrapSuffix != "" {
 		wrapped := make([]byte, 0, len(blk.WrapPrefix)+len(body)+len(blk.WrapSuffix))
 		wrapped = append(wrapped, blk.WrapPrefix...)
@@ -227,30 +154,18 @@ func (t *TreeSitterParser) parseEmbeddedBody(path string, textNode *sitter.Node,
 		body = wrapped
 	}
 
-	// The row the text node STARTS on is the offset, not the row after it: the text
-	// begins immediately after the `>`, on that same row, so the block's own line 1
-	// is that row. Line 1 of the inner parse plus that row is the absolute line.
 	innerOffset := lineOffset + int(textNode.StartPosition().Row)
 
 	innerOpts := opts
-	// The outer parse already holds the whole file's source; a second copy of the
-	// block's text would be stored nowhere and discarded immediately.
 	innerOpts.IndexSource = false
 
 	var inner *ParsedFile
 	var err error
 	switch {
 	case lc.ts != nil:
-		// The tree-sitter path applies the offset itself, inside parseSource, because
-		// that is also where a nested embedded block is resolved.
 		inner, err = t.parseSource(path, lc.ext, lc.ts, body,
 			innerOffset, embedDepth+1, isDepend, innerOpts)
 	case lc.antlr != nil:
-		// The ANTLR backend was already source-based — parseWithConfig takes the
-		// bytes and driver.Parse works on them — so embedding it needed no new
-		// plumbing there. The offset is applied here instead of inside, because
-		// shiftParsedLines works on a *ParsedFile and knows nothing about which
-		// backend produced it. That is the whole reason it was written that way.
 		inner, err = (&AntlrParser{projectDir: t.projectDir}).
 			parseWithConfig(path, lc.ext, lc.antlr, body, isDepend, innerOpts)
 		if err == nil {
@@ -258,22 +173,10 @@ func (t *TreeSitterParser) parseEmbeddedBody(path string, textNode *sitter.Node,
 		}
 	}
 	if err != nil || inner == nil {
-		// A grammar that fails to load is a fact about the installation, not about
-		// this file, so it is worth exactly one line per language.
 		embedWarn("parse|"+innerLang, "embedded block parse failed",
 			"language", innerLang, "pattern", blk.Pattern, "error", err)
 		return
 	}
-	// Before the merge, while the block's own position is still in hand.
-	//
-	// The block declares which of the host's entities are units (`host_labels`); with
-	// none declared the host is whatever strictly contains the block.
-	//
-	// The block's FIRST LINE is innerOffset + 1, not innerOffset: the offset is what a
-	// 1-based line of the sub-parse is shifted by, so it names the line BEFORE the
-	// block. Passing it as the block's position asked "what is around the line above
-	// this block", and in indented XML the answer is the preceding sibling — the
-	// `<key>` of the `<entry>` whose `<value>` carries the statement.
 	attributeToHostEntity(out, inner,
 		innerOffset+1, lineOffset+int(textNode.EndPosition().Row)+1, blk.HostLabels)
 	mergeParsedInto(out, inner)
@@ -315,64 +218,16 @@ func attributeToHostEntity(outer, inner *ParsedFile, blockFirstLine, blockLastLi
 	for i := range inner.CallSites {
 		if inner.CallSites[i].SourceName == "" {
 			inner.CallSites[i].SourceName = host
-			// And the host's LABEL, or the edge is written from a caller of the inner
-			// language's default label — a Function that does not exist — and dropped.
 			inner.CallSites[i].SourceType = hostLabel
 		}
 	}
 }
 
-// hostEntityAt names the INNERMOST entity of pf that CONTAINS the whole block.
-//
-// Innermost — smallest span — because a document nests: the element carrying a value
-// is inside the one describing a step, which is inside the one describing the flow.
-// The outermost would make the root element the source of everything in the file,
-// which is the File answer again with extra steps.
-//
-// CONTAINING the block, and STRICTLY — extending beyond it on at least one side — is
-// what separates a host from a wrapper. Two failures come out of that one rule:
-//
-//   - An entity that ends INSIDE the block is not hosting it. In a data grammar an
-//     entity's span runs from its name to the end of that name's parent — the START
-//     TAG, for `(STag (Name) @name)` — so the element that literally holds the text
-//     spans one line and is indistinguishable from the sibling above it.
-//   - An entity whose span COINCIDES with the block is the thing carrying the block,
-//     not a unit around it. A one-line `<value>select …</value>` is the case: the
-//     element's tag and the statement share the only line there is, so containment
-//     alone would pick it and the answer would be the word "value". Measured on a real
-//     corpus: 3 of 28 statements in one flow are written on one line.
-//
-// What is left is whatever entity the grammar declared with a span wide enough to hold
-// the block. That is what `span_capture` is for; without it, a data grammar has no host
-// to offer and the source stays the file, which is the honest answer rather than a
-// nearby node.
-//
-// Content-named labels are skipped on top of that. The block's text IS a Text/CharData
-// node, so its span equals the block's and it would qualify, and attributing a
-// statement to the text of that statement says nothing.
-//
-// A block that DECLARES its host labels replaces both filters with that list, and drops
-// the strictness: those labels are the format's units by declaration, so an entity of one
-// of them spanning exactly the block is the unit that holds it — which is what a block
-// living in an attribute of its own unit's element looks like.
-//
-// Ties are broken by the later start and then by name, because Entities is a map and
-// map order is not an order — without it the same file could attribute differently
-// between two runs of the same binary.
 func hostEntityAt(pf *ParsedFile, firstLine, lastLine int, hostLabels []string) string {
 	name, _ := hostEntityWithLabel(pf, firstLine, lastLine, hostLabels)
 	return name
 }
 
-// hostEntityWithLabel is hostEntityAt plus the host's graph label.
-//
-// The label is not decoration: a CALL carries its caller's label explicitly
-// (`CallInfo.SourceType`, which becomes the FROM end of the CALLS pair in the schema),
-// and it comes from the INNER language's context — empty for a bare statement, which
-// then defaults to Function. Stamping the name without the label writes an edge from a
-// Function that does not exist, and the writer drops it: the DML edge appeared and the
-// CALLS edge did not, from the very same block. A reference needs no equivalent, because
-// its source label is derived from the uid at rebuild time.
 func hostEntityWithLabel(pf *ParsedFile, firstLine, lastLine int, hostLabels []string) (string, string) {
 	dataKeys := make([]string, 0, len(pf.Entities))
 	for k := range pf.Entities {
@@ -416,14 +271,6 @@ func hostEntityWithLabel(pf *ParsedFile, firstLine, lastLine int, hostLabels []s
 	return best, bestLabel
 }
 
-// resolveEmbeddedLang decides which language a matched body is written in.
-//
-// Returns "" for "skip this body", which is what a value with no mapping means —
-// `lang="scss"` on a block that maps no style language.
-//
-// langSelected says whether the block declares a `lang_capture` at all: a block
-// without one is always Default, which is a different thing from one that declares a
-// capture and found it empty.
 func resolveEmbeddedLang(blk *EmbeddedBlock, value string, langSelected bool) string {
 	if !langSelected || value == "" {
 		return blk.Default
@@ -437,24 +284,12 @@ func resolveEmbeddedLang(blk *EmbeddedBlock, value string, langSelected bool) st
 	return ""
 }
 
-// embeddedLang is a language resolved by name, on either backend.
-//
-// The config names a LANGUAGE; which backend parses it is the engine's problem.
-// `plsql` (ANTLR) and `sql` (tree-sitter) are both valid answers for the same
-// block, and whoever writes the YAML should not have to know the difference —
-// especially since the dialect grammars are the ones that know what a `SELECT`
-// reads, which is the whole point of embedding SQL in the first place.
 type embeddedLang struct {
 	ts    *tsLangConfig
 	antlr *antlrLangConfig
 	ext   string
 }
 
-// embeddedLangConfig resolves a language name across both backends, project files
-// first and then the global tables — the same precedence as everywhere else.
-//
-// Tree-sitter wins a tie. Nothing ships under both names today, and if something
-// ever did, the in-process backend is the cheaper one to reach for.
 func embeddedLangConfig(projectDir, name string) (embeddedLang, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
@@ -473,9 +308,6 @@ func embeddedLangConfig(projectDir, name string) (embeddedLang, bool) {
 	return embeddedLang{}, false
 }
 
-// antlrLangConfigByName resolves an ANTLR language by name. The counterpart of
-// tsLangConfigByName: antlrExtMap answers "what parses .sql" and antlrGrammarMap
-// "what is antlr-plsql", and neither answers "what is the language called plsql".
 func antlrLangConfigByName(projectDir, name string) (*antlrLangConfig, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
@@ -500,8 +332,6 @@ func antlrLangConfigByName(projectDir, name string) (*antlrLangConfig, bool) {
 	return match, true
 }
 
-// antlrConfigByLanguage scans the registered grammars for one language name. The
-// caller holds extTablesMu.
 func antlrConfigByLanguage(name string) (*antlrLangConfig, bool) {
 	for _, cfg := range antlrGrammarMap {
 		if strings.EqualFold(cfg.Language, name) {
@@ -511,12 +341,6 @@ func antlrConfigByLanguage(name string) (*antlrLangConfig, bool) {
 	return nil, false
 }
 
-// shiftParsedLines moves every line-bearing record in pf by delta.
-//
-// One place, applied after every pass has run, rather than a `+ lineOffset` at each
-// of the dozen sites that compute a line from a node position. The offset is the
-// part of embedded parsing that fails silently — a wrong line is still a plausible
-// line — so it is worth having exactly one implementation to test.
 func shiftParsedLines(pf *ParsedFile, delta int) {
 	if pf == nil || delta == 0 {
 		return
@@ -533,34 +357,9 @@ func shiftParsedLines(pf *ParsedFile, delta int) {
 	for i := range pf.References {
 		pf.References[i].Line += delta
 	}
-	// Identity includes the line, so every position the index holds is now stale.
-	// Dropping it makes the next AddOrMergeEntity rebuild.
 	pf.mergeIdx = nil
 }
 
-// mergeParsedInto folds an embedded block's parse into the file's.
-//
-// Entities go through AddOrMergeEntity rather than AddEntity for the reason that
-// function exists: the two parses can describe the same node. Keys are merged in
-// sorted order because map iteration is not deterministic, and the order entities
-// land in decides which row wins when ConvertToCache completes a repeated one.
-//
-// EVERYTHING THE INNER PARSE PRODUCED IS STAMPED WITH THE INNER LANGUAGE, and that
-// is the whole reason this function takes it rather than only concatenating. The
-// merge used to hand its output to the outer file unlabelled, so the language
-// downstream was the HOST's: SQL embedded in XML arrived as `xml`. Two things then
-// resolve against the wrong world:
-//
-//   - resolveNamed refuses to cross languages, on purpose — a `fill()` in .tsx must
-//     not bind to the Go function of the same name. Under the host's language the
-//     embedded SQL could never reach a table declared in a .sql file, because those
-//     are `plsql` and it claimed to be `xml`.
-//   - refRule picks the TargetRule by language, and the DML rules with `fallback:
-//     Table` belong to the SQL grammars. Under `xml` there is no such rule, so an
-//     unresolved target fell back to the file and the edge became File → File.
-//
-// A nested block keeps the innermost language: only an empty Lang is filled, so the
-// stamp applied by a deeper merge survives this one.
 func mergeParsedInto(outer, inner *ParsedFile) {
 	if outer == nil || inner == nil {
 		return
@@ -590,10 +389,6 @@ func mergeParsedInto(outer, inner *ParsedFile) {
 	}
 }
 
-// langOr is "the language this thing was produced by, or the file's".
-//
-// Empty is the overwhelmingly common case — a file parsed by one grammar — so the
-// per-item field stays unset except where an embedded parse filled it.
 func langOr(itemLang, fileLang string) string {
 	if itemLang != "" {
 		return itemLang
@@ -617,8 +412,6 @@ func applyTextNormalizer(b []byte, n *TextNormalizer) []byte {
 	if n == nil || len(b) == 0 {
 		return b
 	}
-	// Longest key first, so a scheme declaring both `&amp;` and `&amp;amp;` resolves
-	// the specific one. Map order is not an order.
 	keys := make([]string, 0, len(n.Replace))
 	for k := range n.Replace {
 		keys = append(keys, k)
@@ -662,8 +455,6 @@ func applyTextNormalizer(b []byte, n *TextNormalizer) []byte {
 // that is not a valid rune. Returns the rune and how many bytes it consumed.
 func decodeNumericCharRef(b []byte) (rune, int, bool) {
 	end := bytes.IndexByte(b, ';')
-	// A reference is short. Without this bound, an ampersand used as an operator
-	// would scan to the next semicolon anywhere in the statement.
 	if end < 3 || end > 12 || b[1] != '#' {
 		return 0, 0, false
 	}

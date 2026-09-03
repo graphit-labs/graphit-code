@@ -10,34 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// A KEYWORD IS NOT A CALL, and in PL/SQL that needs saying out loud.
-//
-// `call_statement` is `CALL? routine_name function_argument?` with BOTH optionals allowed
-// absent, so a bare identifier in statement position is a complete call statement — and
-// `routine_name` resolves through `regular_id`, whose `non_reserved_keywords_pre12c` list
-// carries 1753 words including BEGIN, DECLARE, FUNCTION, IF, PROCEDURE and RETURN. The
-// parse is CLEAN; error recovery is not involved (that hypothesis was measured and
-// rejected). By the grammar's own rules, `IF` in statement position IS a call to
-// something named IF.
-//
-// Measured on a real corpus before this: PROCEDURE 16367, IF 2567, DECLARE 2050,
-// FUNCTION 1021, begin 976, `.` 818 — 25 thousand of the 58 thousand call edges leaving
-// screen code, and 9 thousand of those resolved onto a real database trigger whose name
-// is the quoted identifier "BEGIN".
 func TestKeywordIsNotACallTarget(t *testing.T) {
-	// The shape that produced them, and it is not exotic: a program unit body as an
-	// exporter writes it — a bare `PROCEDURE … IS`, no CREATE around it, all on one line
-	// because the newlines were encoded. It does not parse as a compilation unit (that is
-	// what EmbeddedBlock.WrapPrefix exists for), and the ONLY thing it used to produce was
-	// the word PROCEDURE as a call target.
 	fragment := plsqlFixture(t, "fragment.sql",
 		`PROCEDURE CGFK$CHK(p_field_level IN BOOLEAN) IS BEGIN IF 1 = 1 THEN `+
 			`pck_pedido.pr_grava(1); END IF; COMMIT; END;`)
 	assertNoKeywordCalls(t, fragment, "bare fragment")
 
-	// And a body that DOES parse keeps every real call while the keywords in it — IF,
-	// THEN, END, COMMIT — stay out. Without this half, the test would also pass on a
-	// build that stopped extracting calls altogether.
 	whole := plsqlFixture(t, "whole.sql", `
 CREATE OR REPLACE PROCEDURE p_grava IS
 BEGIN
@@ -64,8 +42,6 @@ END;
 	}
 }
 
-// assertNoKeywordCalls fails for any call target that is a word PL/SQL can never use to
-// name a routine, or that does not start like an identifier at all.
 func assertNoKeywordCalls(t *testing.T, pf *ParsedFile, what string) {
 	t.Helper()
 	forbidden := map[string]bool{
@@ -119,8 +95,6 @@ func TestNameRejectIsDeclaredByTheGrammar(t *testing.T) {
 				t.Errorf("name_reject %q does not reject %q", q.NameReject, word)
 			}
 		}
-		// And it must not reject a name that merely CONTAINS one: the expression is
-		// anchored for exactly this reason.
 		for _, name := range []string{"if_valida_cliente", "pr_begin_lote", "PCK_END_MES",
 			"procedure_helper", "_privado"} {
 			if re.MatchString(name) {
@@ -156,7 +130,6 @@ func TestPLSQLCallsCannotTargetATrigger(t *testing.T) {
 			t.Errorf("CALLS may target %s; labels = %v", LabelTrigger, rule.Labels)
 		}
 	}
-	// The control: the labels that ARE callable are still there.
 	for _, want := range []string{LabelFunction, LabelProcedure, "Package"} {
 		found := false
 		for _, l := range rule.Labels {
@@ -204,7 +177,6 @@ queries:
 	if got := files[0].Queries[0].NameReject; got != "" {
 		t.Errorf("name_reject = %q, want it dropped: the expression does not compile", got)
 	}
-	// And the reader on the parse path must not panic on a bad expression either.
 	if re := nameRejectMatcher("(?i)^(unclosed"); re != nil {
 		t.Error("nameRejectMatcher compiled an invalid expression")
 	}

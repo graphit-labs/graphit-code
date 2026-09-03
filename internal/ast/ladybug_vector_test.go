@@ -10,25 +10,6 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// TestLadybugVectorIndex probes LadybugDB's native vector index, which is the
-// half of the consolidation question the FTS measurements never touched.
-//
-// Why it matters more than FTS parity: the semantic path carries real weight
-// (TestSemanticReachOfAbbreviations — CFG_LOAD, reachable by no lexical method,
-// ranks first), and today that path runs on sqlite-vec's vec0, which allocates
-// fixed 1024-row chunks and NEVER reclaims space on delete — only flipping a
-// validity bit. That single property is why RebuildFromCache cannot update in
-// place and must write a whole new file and rename it (see the comment in
-// fts_sqlite.go). If Ladybug's index updates on insert/delete, that forced
-// full-file rebuild disappears.
-//
-// Probed here, in order of what would kill the idea soonest:
-//  1. the extension loads at all;
-//  2. a 768-float column (ai.EmbeddingDimensions) can be created and indexed;
-//  3. vectors bind from Go as parameters, not just as literals;
-//  4. nearest-neighbour queries rank correctly;
-//  5. DELETE + INSERT is reflected without rebuilding the index — the claim that
-//     decides whether the vec0 workaround can be dropped.
 func TestLadybugVectorIndex(t *testing.T) {
 	const dim = 768
 
@@ -53,28 +34,22 @@ func TestLadybugVectorIndex(t *testing.T) {
 		return nil
 	}
 
-	// (1) Extension availability.
 	_ = run("INSTALL vector")
 	if err := run("LOAD EXTENSION vector"); err != nil {
 		t.Skipf("vector extension cannot load — native semantic search is not available in this build: %v", err)
 	}
 	t.Log("vector extension loaded")
 
-	// (2) A column of the production embedding width.
 	if err := run(fmt.Sprintf("CREATE NODE TABLE V(uid STRING, name STRING, emb FLOAT[%d], PRIMARY KEY(uid))", dim)); err != nil {
 		t.Fatalf("FLOAT[%d] column rejected — the production embedding width is unusable: %v", dim, err)
 	}
 
-	// Deterministic, well-separated unit vectors: each entity's mass sits in its
-	// own band of the 768 dimensions, so nearest-neighbour order is predictable
-	// without depending on a model.
 	vecFor := func(band int) []float32 {
 		v := make([]float32, dim)
 		start := band * 64
 		for i := start; i < start+64 && i < dim; i++ {
 			v[i] = 1
 		}
-		// Normalise so cosine and L2 order agree.
 		norm := float32(math.Sqrt(64))
 		for i := range v {
 			v[i] /= norm
@@ -92,8 +67,6 @@ func TestLadybugVectorIndex(t *testing.T) {
 		{"e4", "retryPolicy", 3},
 	}
 
-	// (3) Parameter binding of a Go []float32 — production cannot build 768-element
-	// literals per entity.
 	insert, err := conn.Prepare("CREATE (:V {uid: $uid, name: $name, emb: $emb})")
 	if err != nil {
 		t.Fatalf("prepare vector insert: %v", err)
@@ -114,8 +87,6 @@ func TestLadybugVectorIndex(t *testing.T) {
 	}
 
 	if !bound {
-		// Fall back to literals so the remaining probes still produce an answer;
-		// record that production would need this workaround.
 		if err := run("MATCH (v:V) DELETE v"); err != nil {
 			t.Logf("cleanup before literal fallback: %v", err)
 		}
@@ -140,7 +111,6 @@ func TestLadybugVectorIndex(t *testing.T) {
 	}
 	t.Log("vector index created")
 
-	// (4) Nearest-neighbour ranking. Query near band 1, expect loadUserConfig first.
 	queryNames := func(band int, k int) []string {
 		q, err := conn.Prepare(fmt.Sprintf(
 			"CALL QUERY_VECTOR_INDEX('V', 'v_idx', $q, %d) RETURN node.name AS n, distance ORDER BY distance", k))
@@ -177,8 +147,6 @@ func TestLadybugVectorIndex(t *testing.T) {
 		t.Errorf("nearest neighbour is %q, want loadUserConfig — ranking is wrong (%v)", got[0], got)
 	}
 
-	// (5) The decisive property: does a delete followed by an insert show up
-	// WITHOUT rebuilding the index? This is what sqlite-vec cannot do.
 	if err := run("MATCH (v:V {uid: 'e2'}) DELETE v"); err != nil {
 		t.Fatalf("delete indexed vector: %v", err)
 	}

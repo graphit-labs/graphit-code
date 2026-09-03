@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// reWikiLinkResolvable matches [[target]] and [[target|label]] wikilinks.
 var reWikiLinkResolvable = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
 
 // ResolveWikiLinksInBody rewrites every [[wikilink]] in body using titlesMap into

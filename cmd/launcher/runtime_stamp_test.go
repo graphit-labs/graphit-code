@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
-// stampFixture lays out the two stamps the decision reads: one inside the runtime
-// directory, one global. Empty content means "no such file".
 type stampFixture struct {
 	runtime string
 	global  string
@@ -70,8 +68,6 @@ func TestShouldExtractRuntime(t *testing.T) {
 	}
 }
 
-// A core binary sitting in the runtime directory used to be the whole condition,
-// which made an interrupted extraction permanent for a versioned build.
 func TestCoreBinaryAloneDoesNotSatisfyTheCheck(t *testing.T) {
 	version.BuildID = "build-under-test"
 	t.Cleanup(func() { version.BuildID = "" })
@@ -91,8 +87,6 @@ func TestCoreBinaryAloneDoesNotSatisfyTheCheck(t *testing.T) {
 	}
 }
 
-// The regression this whole change exists for: after an extraction the launcher
-// must be satisfied, and after a REBUILD under the same version it must not be.
 func TestStampsRoundTripAcrossARebuild(t *testing.T) {
 	t.Cleanup(func() { version.BuildID = "" })
 
@@ -109,7 +103,6 @@ func TestStampsRoundTripAcrossARebuild(t *testing.T) {
 		t.Fatal("right after extracting, the runtime must be considered current")
 	}
 
-	// Same VERSION, new binary — what `make install` produces.
 	version.BuildID = "second-build"
 	if !shouldExtractRuntime(appDir, runtimeDir) {
 		t.Error("a rebuilt launcher must re-extract; this is the bug that kept the old core running")

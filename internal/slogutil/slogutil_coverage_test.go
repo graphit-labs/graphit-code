@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// resetLogFileState resets the package-level logFile global so tests don't leak
-// state to each other. Must be called under no concurrent access (sequential subtests).
 func resetLogFileState(t *testing.T) {
 	t.Helper()
 	logFileMu.Lock()
@@ -23,7 +21,6 @@ func TestInitFileLogger_EmptyDir(t *testing.T) {
 	defer resetLogFileState(t)
 
 	InitFileLogger("")
-	// Should be a no-op: logFile must remain nil.
 	logFileMu.Lock()
 	lf := logFile
 	logFileMu.Unlock()
@@ -67,7 +64,6 @@ func TestInitFileLogger_TruncatesLargeFile(t *testing.T) {
 	}
 
 	logPath := filepath.Join(logDir, "graphit.log")
-	// Create a file larger than 5 MB.
 	f, err := os.Create(logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +82,6 @@ func TestInitFileLogger_TruncatesLargeFile(t *testing.T) {
 
 	InitFileLogger(dir)
 
-	// After init, the file was truncated then opened for append.
-	// The file size should be 0 (truncated, nothing written yet via the file handle).
 	info, err = os.Stat(logPath)
 	if err != nil {
 		t.Fatalf("log file missing after truncation: %v", err)
@@ -119,7 +113,6 @@ func TestInitFileLogger_SmallFileNotTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// File should still contain the original content (append mode, not truncated).
 	if info.Size() < int64(len(content)) {
 		t.Errorf("expected file to retain content, got size %d", info.Size())
 	}
@@ -130,7 +123,6 @@ func TestInitFileLogger_MkdirAllFails(t *testing.T) {
 	defer resetLogFileState(t)
 
 	dir := t.TempDir()
-	// Create a regular file where the "logs" directory should go, so MkdirAll fails.
 	blocker := filepath.Join(dir, "logs")
 	if err := os.WriteFile(blocker, []byte("block"), 0o644); err != nil {
 		t.Fatal(err)
@@ -156,7 +148,6 @@ func TestInitFileLogger_OpenFileFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create "graphit.log" as a directory so OpenFile fails.
 	logPath := filepath.Join(logDir, "graphit.log")
 	if err := os.MkdirAll(logPath, 0o755); err != nil {
 		t.Fatal(err)
@@ -178,7 +169,6 @@ func TestCloseFileLogger_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 	InitFileLogger(dir)
 
-	// First close should succeed.
 	CloseFileLogger()
 	logFileMu.Lock()
 	lf := logFile
@@ -187,13 +177,11 @@ func TestCloseFileLogger_Idempotent(t *testing.T) {
 		t.Fatal("expected logFile to be nil after CloseFileLogger")
 	}
 
-	// Second close should be a safe no-op (no panic).
 	CloseFileLogger()
 }
 
 func TestCloseFileLogger_WithoutInit(t *testing.T) {
 	resetLogFileState(t)
 
-	// Calling close without init should be a safe no-op.
 	CloseFileLogger()
 }

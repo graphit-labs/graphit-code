@@ -62,12 +62,6 @@ func NewHubService(registry *RegistryManager) *HubService {
 	return &HubService{registry: registry, tracker: tracker, lockMgr: lockMgr}
 }
 
-// globallyInstalled lists the artifacts installed with no project — the global lock's
-// equivalent of reading a project's lockfile.
-//
-// The reserved owner is what distinguishes them. An artifact whose only owners are real
-// projects is in the global lock because that is where every install is recorded, not
-// because anyone installed it globally.
 func (s *HubService) globallyInstalled() []*GlobalArtifact {
 	if s.lockMgr == nil {
 		return nil
@@ -181,20 +175,6 @@ func (s *HubService) Install(
 		pp = paths.GetPathsForProject(ide, projectDir)
 	}
 
-	// NOTHING MOUNTABLE IS TRANSFERRED ANY MORE. Both artifact families are read where they were
-	// published: a knowledge artifact is a search index and mounts as one, and an AST artifact is
-	// an icebug graph plus a search index, both of which the engines open over `s3://`.
-	//
-	// Decided BEFORE the clone, because the clone is the transfer. The rest of the install still
-	// runs — the lockfile entry, the dependencies, the telemetry — and the lockfile entry is what
-	// makes the mount resolvable later: the location is DERIVED from it rather than stored. See
-	// internal/hub/mount.go.
-	//
-	// The graph half carries known gaps, ACCEPTED rather than hidden: multi-hop traversal over a
-	// mounted graph is weaker than over a native one, and a relationship table holds one CSR so
-	// every label is folded into `Entity` with the label as a column. Both are format limits,
-	// measured and recorded in Graphit Task tsk-2b2208eee9b1, and stated again in
-	// internal/ast/icebug_transfer.go where a caller will meet them.
 	mountArtifact := s.registry.MountsArtifact(artType)
 	if artType == TypeKnowledge && s.registry.IsReady() && !lancestore.Available() {
 		return nil, fmt.Errorf("installing knowledge artifact %q: %w", realID, lancestore.ErrNotBuilt)
@@ -202,9 +182,6 @@ func (s *HubService) Install(
 
 	var cachePath string
 	var cloneDir string
-	// The mounted path still has work to do for AST: the local CATALOG has to exist, or there is
-	// nothing for a query to resolve against. It is the DDL and nothing else — no graph bytes —
-	// which is why it lives here, outside the clone branch, instead of looking like part of it.
 	if mountArtifact && artType == TypeAST {
 		contextID := ast.HubContextID(entry.ProjectID, realID)
 		storeDir, err := s.ensureASTStore(ctx, "", contextID, resolvedVersion,
@@ -255,7 +232,6 @@ func (s *HubService) Install(
 				name := ce.Name()
 				src := filepath.Join(cloneDir, name)
 
-				// YAML query definitions.
 				if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 					if err := copyFile(src, filepath.Join(queriesDir, name)); err != nil {
 						s.log().Warn("installing query yaml", "file", name, "error", err)
@@ -263,7 +239,6 @@ func (s *HubService) Install(
 					continue
 				}
 
-				// Grammar archives: extract platform binary to global grammars dir.
 				if strings.HasSuffix(name, ".grammar") {
 					if err := installGrammarArchive(src, globalDir, ""); err != nil {
 						s.log().Warn("installing grammar archive", "file", name, "error", err)
@@ -273,10 +248,6 @@ func (s *HubService) Install(
 
 		default:
 
-			// Materialising into an IDE directory needs a project to put it in. A
-			// global install stops at the clone, which is not a degraded outcome:
-			// the clone in the shared cache IS the artifact, and it is what
-			// hub content serves to a caller that has no checkout to read files from.
 			if artType != TypeRule && ide != "" && !globalInstall {
 				targetPath, err := ideAdapter.ArtifactTypePath(pp.ActiveProjectDir, ide, string(artType), localID)
 				if err == nil {
@@ -387,8 +358,6 @@ func (s *HubService) Install(
 
 	for _, dep := range entry.Dependencies {
 
-		// The set of what is already claimed comes from the project's lockfile, or
-		// from the global lock when there is no project. Same question, two records.
 		if alreadyClaimed[dep.ID] {
 			continue
 		}
@@ -562,12 +531,6 @@ func (s *HubService) UninstallGlobal(ctx context.Context, entryID string, entryT
 	return nil
 }
 
-// findGlobalInstall resolves one globally installed artifact from a reference that may
-// or may not carry a version and may or may not carry a type.
-//
-// An ambiguous reference is REFUSED rather than resolved by picking one. Two versions of
-// the same artifact are two different stores, and silently dropping the wrong one is not
-// a mistake the caller can see afterwards.
 func (s *HubService) findGlobalInstall(id string, artType ArtifactType, version string) (*GlobalArtifact, error) {
 	var matches []*GlobalArtifact
 	for _, art := range s.globallyInstalled() {
@@ -707,12 +670,9 @@ func (s *HubService) Uninstall(
 			s.log().Warn("deregister", "id", entryID, "version", meta.Version, "error", gcErr)
 		}
 		if orphaned {
-			// For language artifacts, clean up global files only when orphaned.
 			if artType == TypeLanguage {
 				s.cleanupGlobalLanguageFiles(meta, entryID, pp)
 			}
-			// An AST store is shared by every project on its version, so an
-			// uninstall removes nothing until the last of them lets go.
 			if artType == TypeAST {
 				s.cleanupSharedASTStore(meta, entryID)
 			}
@@ -907,9 +867,6 @@ func (s *HubService) postInstallHook(ctx context.Context, artType ArtifactType, 
 func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType, id string, meta *LockfileArtifactMeta, pp *paths.ProjectPaths) error {
 	switch artType {
 	case TypeKnowledge:
-		// The wiki is shared by every project that installed the artifact, so an
-		// uninstall drops this project's claim and nothing else. The directory is
-		// collected when the global lock reports the artifact orphaned.
 		name := id
 		if meta != nil && meta.ProjectID != "" {
 			name = meta.ProjectID
@@ -917,16 +874,8 @@ func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType,
 		_ = store.RemoveContext(pp.ActiveProjectDir, store.KindKnowledge, name)
 		return nil
 	case TypeAST:
-		// Same reasoning: the store is shared across every project pinned to this
-		// version and is removed only when the last of them lets go — handled in
-		// Uninstall once RegisterUninstall reports the artifact orphaned. The
-		// project's claim lives in its lockfile, which the caller is already
-		// rewriting, so there is nothing project-local left to clean up.
 		return nil
 	case TypeLanguage:
-		// Language artifacts live in global dirs and are shared across projects.
-		// File cleanup happens only when orphaned (no project references remain),
-		// handled in Uninstall after RegisterUninstall confirms orphaned status.
 		return nil
 	}
 	return nil
@@ -978,8 +927,6 @@ func (s *HubService) Link(
 		if _, err := os.Stat(sourceAST); err != nil {
 			return nil, fmt.Errorf("source AST not found at %s — index the source project first", sourceAST)
 		}
-		// The sibling's DIRECTORY is what gets recorded; its store is derived on every
-		// read. sourceAST above is only the existence check.
 		if err := ast.LinkImportedContext(pp.ActiveProjectDir, artifactName, absSource); err != nil {
 			return nil, fmt.Errorf("registering linked AST context: %w", err)
 		}
@@ -1038,8 +985,6 @@ func (s *HubService) Link(
 		if globalDir == "" {
 			break
 		}
-		// Where that project keeps its grammars is its own configuration
-		// (ast.queries_dir), not a fixed path under the brand directory.
 		sourceQueries := ast.ProjectQueriesDir(absSource)
 		queriesDir := filepath.Join(globalDir, "ast", "queries")
 		_ = os.MkdirAll(queriesDir, 0o755)
@@ -1136,7 +1081,6 @@ func (s *HubService) Unlink(
 		_ = store.RemoveContext(pp.ActiveProjectDir, store.KindKnowledge, artifactName)
 
 	case TypeRule:
-		// Dynamic rule links have no project-local IDE artifact to remove.
 
 	default:
 		if targetPath, err := ideArtifactPath(pp.ActiveProjectDir, ide, string(artType), artifactName); err == nil {
@@ -1230,9 +1174,6 @@ func resolveArtifactPath(meta *LockfileArtifactMeta, artType ArtifactType, artID
 	return filepath.Join(pp.ResourcesDir, folder, artID, meta.Version)
 }
 
-// cleanupGlobalLanguageFiles removes language artifact files (YAMLs and grammar
-// binaries) from the global directories. Called only when the artifact is orphaned
-// — i.e., no other project references it in the global lock.
 func (s *HubService) cleanupGlobalLanguageFiles(meta *LockfileArtifactMeta, id string, pp *paths.ProjectPaths) {
 	globalDir := brand.GlobalDir()
 	if globalDir == "" {

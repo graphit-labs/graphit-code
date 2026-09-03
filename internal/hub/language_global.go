@@ -60,7 +60,6 @@ func EnsureGlobalLanguageArtifacts(lockfilePath string) error {
 			name := ce.Name()
 			src := filepath.Join(cloneDir, name)
 
-			// YAML query definitions → global queries dir.
 			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 				if err := os.MkdirAll(queriesDir, 0o755); err != nil {
 					slog.Warn("ensure global lang: create queries dir", "error", err)
@@ -72,7 +71,6 @@ func EnsureGlobalLanguageArtifacts(lockfilePath string) error {
 				continue
 			}
 
-			// Grammar archives → global grammars dir.
 			if strings.HasSuffix(name, ".grammar") {
 				if err := installGrammarArchive(src, globalDir, ""); err != nil {
 					slog.Warn("ensure global lang: install grammar", "file", name, "error", err)

@@ -36,10 +36,3 @@ func TestHandleSearch_FallbackLinearSearch(t *testing.T) {
 	}
 	t.Logf("Got %d results for tiny file search", len(results))
 }
-
-// handleMultiSearch additional edge cases
-
-// The module-discovery tests that used to live here built wikis inside the project —
-// `.graphit/knowledge/...`, `.graphit/memory/...` — which is where they lived before the
-// storage centralization and where nothing lives now. Their replacements are in
-// wiki_modules_test.go, against an isolated global store.

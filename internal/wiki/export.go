@@ -13,18 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Markdown is an EXPORT now, not a stage of the build.
-//
-// The compiler writes into LanceDB and nothing else: the frontmatter is columns, the text is a
-// column, the cross-references are a table, the sync history is a table. That covers every consumer
-// inside this project, and it does not cover the one outside it — a person who wants the wiki in
-// Obsidian, or in a git repository, or open in an editor.
-//
-// So the pages are produced on demand, from the index, by this file. That is the difference from
-// what was removed: the same renderer used to run on every build, writing a second copy of every
-// chunk that then had to be pruned, re-rendered when a sibling changed, and read back by four
-// passes that could disagree with the index they were derived from.
-
 // ExportResult reports what an export produced.
 type ExportResult struct {
 	OutputDir string `json:"output_dir"`
@@ -32,22 +20,6 @@ type ExportResult struct {
 	HasLog    bool   `json:"has_log"`
 }
 
-// okfPageFrontmatter is a page's frontmatter, in the field order it is written.
-//
-// It is MARSHALLED, not printed. A title containing `: ` is invalid YAML when a line is assembled
-// with Fprintf, and this project has already paid for that once: 27 live memories and 20 archived
-// revisions became unreadable, and a re-render from the failed parse destroyed 20 of them. An
-// encoder cannot emit a block it could not read back.
-//
-// The shape is OKF v0.2: `type` is the one required field (§11), `generated` is a mapping with a
-// required `by` (§5.2), and each `sources` entry is a mapping with a required `resource` (§5.1).
-//
-// ONE DEFINITION, TWO CONSUMERS: the markdown export and `ReadPageFrom`. A page read used to be an
-// `os.ReadFile` of the compiled `.md`, so it returned frontmatter and body together; when reads
-// moved to the index it became the `body` column alone, and everything the header carried became
-// unreachable — including the revision chain the memory protocol tells agents to read off the page.
-// Sharing the struct is what makes an exported page and a read page the same page rather than two
-// renderings that can drift.
 type okfPageFrontmatter struct {
 	Type  string `yaml:"type"`
 	Title string `yaml:"title"`
@@ -160,11 +132,6 @@ func ExportMarkdown(ctx context.Context, wikiDir, outDir, moduleTag string) (*Ex
 	return result, nil
 }
 
-// pageFrontmatter builds a page's header from its columns.
-//
-// actor is the producing module's OKF actor, or empty for a read — see the note on the Generated
-// field. Every other value comes from the row, because every one of them WAS the page's frontmatter
-// before the pages stopped being written.
 func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 	fm := okfPageFrontmatter{
 		Type:        c.DocType,
@@ -184,8 +151,6 @@ func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 		Next:        c.Next,
 	}
 	if c.EntityID != "" {
-		// The entity is what `id` means on a memory page: every revision of a memory carries the
-		// same one, which is what makes two pages provably one thing.
 		fm.ID = c.EntityID
 	}
 	if c.Superseded {
@@ -214,9 +179,6 @@ func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 		fm.Cluster = &cluster
 	}
 	if c.StaleSince != "" {
-		// §5.5: stale_after is an absolute instant, so staleness is `now >= stale_after` with no
-		// reference to when the page is read. The page is already stale, so the moment it became
-		// stale IS the threshold. stale_since and stale_reason stay as producer extensions (§4.1).
 		fm.StaleAfter = c.StaleSince
 		fm.StaleSince = c.StaleSince
 		fm.StaleReason = c.StaleReason
@@ -224,11 +186,6 @@ func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 	return fm
 }
 
-// RenderPageHeader renders a page's frontmatter block, delimiters included.
-//
-// It is what makes a page READ carry the same header an exported page carries: `ReadPageFrom`
-// prepends this to the body column, which is what an `os.ReadFile` of the compiled `.md` used to
-// return before the pages stopped being written.
 func RenderPageHeader(c WikiChunk, actor string) (string, error) {
 	block, err := yaml.Marshal(pageFrontmatter(c, actor))
 	if err != nil {
@@ -302,11 +259,6 @@ func renderPage(c WikiChunk, actor string, outbound []string, graph *CrossRefGra
 	return strings.TrimRight(page, "\n") + "\n", nil
 }
 
-// renderIndexPage writes the catalogue.
-//
-// §8: an index file carries NO frontmatter, with exactly one exception — a bundle-root index.md MAY
-// declare okf_version, and §12 makes that the only place a bundle may declare it at all. An
-// exported tree is its own bundle root, so this is that file.
 func renderIndexPage(chunks []WikiChunk) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
@@ -368,8 +320,6 @@ func renderIndexPage(chunks []WikiChunk) string {
 	return b.String()
 }
 
-// renderLogPage replays the sync history into a §9 log, oldest first so the newest entry ends up at
-// the top — AppendOKFLogEntries prepends.
 func renderLogPage(logPath, moduleTag string, entries []SyncLogEntry) error {
 	_ = os.Remove(logPath)
 	header := strings.ToUpper(moduleTag[:1]) + moduleTag[1:] + " Wiki Update Log"

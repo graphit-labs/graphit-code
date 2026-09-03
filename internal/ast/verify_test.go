@@ -8,13 +8,6 @@ import (
 	"testing"
 )
 
-// verifyFixture stages a real file and a graph that describes it, and returns the
-// project root plus an open database.
-//
-// The graph is built by hand rather than by indexing, because the subject of these
-// tests is a database that returns text no parser ever produced: LadybugDB's silent
-// corruption hands back the valid text of ANOTHER row. Indexing can only produce
-// correct rows, so it cannot stage the case at all.
 func verifyFixture(t *testing.T) (string, *LadybugBackend) {
 	t.Helper()
 
@@ -52,8 +45,6 @@ func Flush() {}
 	return root, db
 }
 
-// The recheck pause is the probe's discriminator in production, and dead weight in a
-// test whose database nobody is writing to.
 func init() { verifyRecheckDelay = 0 }
 
 func seed(t *testing.T, db *LadybugBackend, q string) {
@@ -73,7 +64,6 @@ func TestVerifyReportsNoDivergenceOnAGraphThatMatchesDisk(t *testing.T) {
 		path:'engine/store.go', line_number:3, end_line:3, is_stub:false, is_dependency:false})`)
 	seed(t, db, `CREATE (:Comment {uid:'c2', name:'Renders the sidebar and nothing else.',
 		path:'ui/panel.tsx', line_number:2, end_line:2, is_stub:false, is_dependency:false})`)
-	// A declaration too: its name has to appear on the line the graph claims.
 	seed(t, db, `CREATE (:Function {uid:'f1', name:'Flush', path:'engine/store.go',
 		line_number:4, end_line:4, is_stub:false, is_dependency:false})`)
 
@@ -103,7 +93,6 @@ func TestVerifyCatchesTextBorrowedFromAnotherFile(t *testing.T) {
 
 	seed(t, db, `CREATE (:Comment {uid:'c1', name:'The buffer is flushed on close, never per write.',
 		path:'engine/store.go', line_number:3, end_line:3, is_stub:false, is_dependency:false})`)
-	// The corrupted row: a .tsx line carrying a comment from the Go file.
 	seed(t, db, `CREATE (:Comment {uid:'c2', name:'The buffer is flushed on close, never per write.',
 		path:'ui/panel.tsx', line_number:2, end_line:2, is_stub:false, is_dependency:false})`)
 
@@ -120,8 +109,6 @@ func TestVerifyCatchesTextBorrowedFromAnotherFile(t *testing.T) {
 	if d.Path != "ui/panel.tsx" {
 		t.Errorf("blamed %s, want the row whose file does not contain the text", d.Path)
 	}
-	// The report has to show BOTH sides. The whole difficulty of this corruption is
-	// that the graph's answer is plausible read alone; only the comparison exposes it.
 	out := FormatVerifyReport(report)
 	if !strings.Contains(out, "buffer is flushed") || !strings.Contains(out, "Renders the sidebar") {
 		t.Errorf("report does not show graph and file side by side:\n%s", out)
@@ -181,7 +168,6 @@ func TestVerifyAcceptsAMultiLineCommentAfterMarkerStripping(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// Exactly what cleanDocstring produces for those three lines.
 	stored := cleanDocstring("// First line of the note.\n//\n// Third line, after a blank one.")
 	seed(t, db, `CREATE (:Comment {uid:'c1', name:'`+stored+`',
 		path:'note.go', line_number:3, end_line:5, is_stub:false, is_dependency:false})`)
@@ -217,18 +203,9 @@ func TestVerifySkipsNodesWhoseFileIsGone(t *testing.T) {
 	}
 }
 
-// The second pass is what makes this probe usable, and it needs its own case.
-//
-// The same corruption has a transient form — a read landing inside the daemon's write
-// window returns another row's text and agrees with disk moments later. Measured while
-// building this: a pass right after a sync reported 1915 divergences over a graph that
-// was intact, and the next pass reported none. Without the recheck the probe would
-// shout on that, get switched off, and the durable case would have nowhere to appear.
 func TestVerifyTreatsARecoveringNodeAsTransientNotCorruption(t *testing.T) {
 	root, db := verifyFixture(t)
 
-	// The node in the database is CORRECT. This is the situation after a transient
-	// bad read: the first pass saw garbage, and asking again returns the truth.
 	seed(t, db, `CREATE (:Comment {uid:'c1', name:'Renders the sidebar and nothing else.',
 		path:'ui/panel.tsx', line_number:2, end_line:2, is_stub:false, is_dependency:false})`)
 

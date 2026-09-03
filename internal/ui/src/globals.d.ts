@@ -8,8 +8,7 @@ declare global {
     __LOGIN_URL__?: string
     __LOGOUT_URL__?: string
     __PROJECT_NAME__?: string
-    // Injected by the server. Undefined means "assume available", which is right for the
-    // hub-only server and for `npm run dev`, where no Go server injected anything.
+
     __AGENT_FEATURES__?: boolean
   }
 }

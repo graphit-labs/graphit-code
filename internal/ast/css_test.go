@@ -74,8 +74,6 @@ nav {
 		}
 	}
 
-	// A pseudo-class writes its name under class_name, the same node a class
-	// selector uses, so an unanchored pattern reports `:root` as a class.
 	if got[[2]string{"CssClass", "root"}].present {
 		t.Error("the pseudo-class :root was indexed as a CssClass")
 	}
@@ -83,15 +81,12 @@ nav {
 		t.Error("the pseudo-class :hover was indexed as a CssClass")
 	}
 
-	// Declarations are key/value: both halves are nodes, joined by containment.
 	wantNode(t, got, "Value", "none", "display", "CssProperty")
 	wantNode(t, got, "Value", "#ff6600", "--brand-color", "CssVariable")
 	wantNode(t, got, "Value", "arrow", "content", "CssProperty")
 	wantNode(t, got, "Value", "600px", "max-width", "MediaFeature")
 	wantNode(t, got, "AttributeValue", "open", "data-state", "Attribute")
 
-	// @import is a dependency edge, like an import in any other language: the
-	// cache turns an `imports` entity into a Module node plus an IMPORTS edge.
 	var sawImport bool
 	for _, e := range pf.Entities["imports"] {
 		if e.Name == "reset.css" {
@@ -115,8 +110,6 @@ nav {
 		t.Errorf("no IMPORTS edge to reset.css; got %+v", entry.Imports)
 	}
 
-	// var(--brand-color) points at the custom property declared above it, and
-	// url() at the asset it pulls in.
 	refs := map[string]bool{}
 	for _, r := range pf.References {
 		refs[r.TargetName] = true
@@ -128,11 +121,6 @@ nav {
 	}
 }
 
-// CSS allows whitespace inside the parentheses of a function, so the node these two
-// queries capture — plain_value in var(), string_content in url() — can carry padding.
-// Neither declares a value or a parent capture, which is what used to leave the
-// reference target unnormalised: the edge pointed at " --brand-color " and resolved to
-// nothing, while the declaration it should have found sat in the same file.
 func TestCSSPaddedFunctionReferencesAreNormalised(t *testing.T) {
 	projectDir := stageGrammar(t, "css", "tree-sitter-css", ".css", "css.yaml")
 	pf := parseFixture(t, projectDir, "padded.css", `:root {
@@ -204,21 +192,16 @@ func TestHTMLDetailIsExtracted(t *testing.T) {
 		t.Errorf("no Doctype node; got %v", have)
 	}
 
-	// An attribute on a script or style tag, whose start_tag hangs off
-	// script_element rather than element.
 	wantNode(t, got, "Attribute", "src", "script", "Element")
 	wantNode(t, got, "AttributeValue", "/app.js", "src", "Attribute")
 
-	// An attribute with no value at all, and one whose value is unquoted.
 	wantNode(t, got, "Attribute", "disabled", "input", "Element")
 	wantNode(t, got, "Attribute", "type", "input", "Element")
 	wantNode(t, got, "AttributeValue", "text", "type", "Attribute")
 
-	// Inline bodies.
 	wantNode(t, got, "Text", `window.APP_ENV="prod";`, "script", "Element")
 	wantNode(t, got, "Text", ".card{color:red}", "style", "Element")
 
-	// And ordinary visible text still works.
 	wantNode(t, got, "Text", "Pedidos", "title", "Element")
 	wantNode(t, got, "AttributeValue", "pt-BR", "lang", "Attribute")
 }
@@ -242,13 +225,10 @@ func TestSvelteIsExtracted(t *testing.T) {
 	wantNode(t, got, "Element", "div", "", "")
 	wantNode(t, got, "Attribute", "class", "div", "Element")
 	wantNode(t, got, "AttributeValue", "card", "class", "Attribute")
-	// An event handler is an attribute whose value is an expression.
 	wantNode(t, got, "Attribute", "on:click", "div", "Element")
 	wantNode(t, got, "Value", "handleClick", "on:click", "Attribute")
-	// The {#if} block sits inside the div, so that is what contains it.
 	wantNode(t, got, "Condition", "count > 0", "div", "Element")
 
-	// `{title}` reads something the script block declares.
 	var sawBinding bool
 	for _, r := range pf.References {
 		if r.TargetName == "title" {
@@ -260,15 +240,6 @@ func TestSvelteIsExtracted(t *testing.T) {
 	}
 }
 
-// `{ title }` is as valid as `{title}`, and the padded form used to produce a
-// reference to "title " — tree-sitter-svelte hands the braces' content over with
-// the trailing space intact, and the engine only normalises a captured name when
-// the query declares value_capture or parent_capture.
-//
-// A reference target that carries whitespace resolves to nothing: the edge is
-// written, points at a name no declaration has, and no error is reported. Svelte
-// escaped it for as long as it did only because `{title}` is the idiom; Vue's
-// `{{ title }}` cannot be written without spaces and is what surfaced the class.
 func TestSvelteBindingIsNormalised(t *testing.T) {
 	projectDir := stageGrammar(t, "svelte", "tree-sitter-svelte", ".svelte", "svelte.yaml")
 	pf := parseFixture(t, projectDir, "Padded.svelte", `<script>
@@ -292,8 +263,6 @@ func TestSvelteBindingIsNormalised(t *testing.T) {
 		if !targets[want] {
 			t.Errorf("no REFERENCES edge to %q; got %v", want, keysOfBool(targets))
 		}
-		// The element that renders the binding comes from context_types, through
-		// the ancestor walk — this holds without a parent_capture on the pattern.
 		if got := sources[want]; got != "div" {
 			t.Errorf("the {%s} binding is attributed to %q, want the div that renders it", want, got)
 		}
@@ -383,11 +352,8 @@ const title = "Pedidos";
 	wantNode(t, got, "Element", "TodoItem", "div", "Element")
 	wantNode(t, got, "Attribute", "class", "div", "Element")
 	wantNode(t, got, "AttributeValue", "list", "class", "Attribute")
-	// <script setup> — a valueless attribute on a tag the grammar keeps under
-	// script_element rather than element.
 	wantNode(t, got, "Attribute", "setup", "script", "Element")
 
-	// The shorthand sigils, each resolved to its own kind.
 	wantNode(t, got, "Prop", "label", "TodoItem", "Element")
 	wantNode(t, got, "Value", "item.text", "label", "Prop")
 	wantNode(t, got, "EventHandler", "click", "div", "Element")
@@ -395,13 +361,10 @@ const title = "Pedidos";
 	wantNode(t, got, "EventHandler", "remove", "TodoItem", "Element")
 	wantNode(t, got, "Slot", "actions", "span", "Element")
 
-	// And the long forms, which the sigil alone cannot tell apart.
 	wantNode(t, got, "Prop", "done", "TodoItem", "Element")
 	wantNode(t, got, "EventHandler", "edit", "TodoItem", "Element")
 	wantNode(t, got, "Slot", "footer", "template", "Element")
 
-	// `v-on:edit` must NOT also surface as a prop, and `v-slot:footer` must not
-	// either — that is exactly what an unanchored `:` pattern would do.
 	if got[[2]string{"Prop", "edit"}].present {
 		t.Error("v-on:edit was indexed as a Prop")
 	}
@@ -409,17 +372,14 @@ const title = "Pedidos";
 		t.Error("v-slot:footer was indexed as a Prop")
 	}
 
-	// Template logic.
 	wantNode(t, got, "Condition", "visible", "TodoItem", "Element")
 	wantNode(t, got, "Loop", "item in items", "TodoItem", "Element")
 	wantNode(t, got, "Directive", "v-model", "input", "Element")
 	wantNode(t, got, "Value", "draft", "v-model", "Directive")
 
-	// The embedded bodies, which this grammar hands over as one raw_text.
 	wantNode(t, got, "Text", `const title = "Pedidos";`, "script", "Element")
 	wantNode(t, got, "Text", ".list{color:red}", "style", "Element")
 
-	// `{{ title }}` reads something the script block declares.
 	refs := map[string]bool{}
 	for _, r := range pf.References {
 		refs[r.TargetName] = true
@@ -429,15 +389,6 @@ const title = "Pedidos";
 	}
 }
 
-// The same normalisation gap, in a second grammar and a second node kind, which is
-// what makes it a class rather than a svelte quirk. html.yaml's id/class/href/src
-// queries are `type: relation` and declare neither value_capture nor parent_capture,
-// so a padded attribute value — routine in generated or templated markup — used to
-// become the reference target verbatim.
-//
-// Trimming lives in the engine rather than in each query because the fix has to hold
-// for a grammar nobody has written yet: a query file can be added by a project or a
-// Hub artifact, and it cannot be expected to know this.
 func TestPaddedAttributeReferenceIsNormalised(t *testing.T) {
 	projectDir := stageGrammar(t, "html", "tree-sitter-html", ".html", "html.yaml")
 	pf := parseFixture(t, projectDir, "padded.html", `<div id=" main " class=" card ">
@@ -461,15 +412,6 @@ func TestPaddedAttributeReferenceIsNormalised(t *testing.T) {
 	}
 }
 
-// grammarsWithoutDefaultQueries records grammars that stay registered on purpose
-// while shipping no query file, so no extension of theirs is indexed by default.
-//
-// Registration and indexing are different questions. A grammar in this map is
-// still compiled in and still resolvable, which is what lets a project opt the
-// language back in with its own query file under ast.queries_dir — an override
-// cannot resolve a grammar that is not registered. Everything NOT in this map is
-// covered by the check below, where a missing query file is the silent failure it
-// was for CSS and Svelte.
 var grammarsWithoutDefaultQueries = map[string]string{
 	"markdown": "documents belong to the knowledge wiki, which chunks, links and ranks " +
 		"prose; in the code graph they were a File node per page and a Heading node per " +

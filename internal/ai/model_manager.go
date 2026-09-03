@@ -46,13 +46,6 @@ type ModelManager struct {
 	// runs silently, which is what every non-interactive caller wants.
 	OnProgress ProgressFunc
 
-	// Where the model and tokenizer are fetched from. Empty means the shipped
-	// constants above, which is every production path — NewModelManager does not
-	// set these. They exist so a test can point EnsureModel at a local server:
-	// without them the only way to exercise the download branch was to let it
-	// reach huggingface.co and move 132 MB, which made the suite depend on a
-	// third party being reachable and cost more wall-clock than every other test
-	// in this package combined.
 	modelURL     string
 	tokenizerURL string
 }
@@ -73,29 +66,6 @@ func (m *ModelManager) tokenizerSource() string {
 
 func (m *ModelManager) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
-// ModelCacheDir is where the model bundle lives: one copy per machine, shared by
-// every project and every installed version.
-//
-// It is exported because a caller that has to explain a failed download needs to
-// name the directory, and a failure is precisely the case where EnsureModel
-// returns no path to derive it from.
-// ModelsDir is the directory that holds ONE SUBDIRECTORY PER MODEL — the retrieval embedder, the
-// reranker, and anything added later.
-//
-// <BRAND>_MODEL_CACHE overrides it, and the reason is a cost that was invisible: these models are
-// large, the path is derived from HOME, and every test binary gets its OWN throwaway HOME (see
-// internal/brand/testhome.go). So a test run downloaded the ~132 MB embedding model once PER
-// PACKAGE and left each copy behind — measured on this machine, 29 abandoned homes holding 4.3 GB,
-// on a tmpfs, which is RAM. The override points every one of them at a single shared directory;
-// `make test` does exactly that.
-//
-// It is not only a test knob. These are by far the largest things this framework stores — the
-// reranker alone is ~1.1 GiB — and an operator whose home is on a small volume has no other way to
-// move them.
-//
-// THE OVERRIDE NAMES THE ROOT, not one model's directory, and that is load-bearing: the reranker
-// resolves its own path from this same root, so overriding a leaf would move one model and leave
-// the other behind in the real home.
 func ModelsDir() (string, error) {
 	if d := os.Getenv(brand.EnvVar("MODEL_CACHE")); d != "" {
 		return d, nil
@@ -200,8 +170,6 @@ func (m *ModelManager) download(ctx context.Context, url, destPath string) error
 		return err
 	}
 
-	// The name reported is the final one, not the .tmp the bytes land in —
-	// the caller is showing this to a person who asked for a model.
 	var dst io.Writer = f
 	if m.OnProgress != nil {
 		name := filepath.Base(destPath)
@@ -234,8 +202,6 @@ func (m *ModelManager) download(ctx context.Context, url, destPath string) error
 	return nil
 }
 
-// progressWriter counts bytes on their way to the file and reports each write.
-// It deliberately does not throttle: see ProgressFunc.
 type progressWriter struct {
 	w          io.Writer
 	file       string

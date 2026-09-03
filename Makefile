@@ -8,7 +8,6 @@ CMD      := ./cmd/graphit
 BIN_DIR  := .build
 
 BRAND        ?= graphit
-# The env-var prefix, mirroring brand.EnvPrefix() in Go.
 BRAND_ENV    := $(shell echo $(BRAND) | tr '[:lower:]' '[:upper:]')
 DISPLAY_NAME ?= Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems
 VERSION      ?= dev
@@ -18,16 +17,9 @@ DEFAULT_HUB_REGION   ?=
 DEFAULT_HUB_ENDPOINT ?=
 SELF_UPDATE_URL ?=
 COMPILE_CONFIG ?=
-# Install directory for Linux/macOS (override: make install PREFIX=$$HOME/.local/bin)
 PREFIX       ?= /usr/local/bin
-# Install directory for Windows/MSYS2 (override: make install-windows PREFIX_WIN='C:\Tools\graphit')
 PREFIX_WIN   ?=
 
-# One invocation must stamp the core, MCP proxy and launcher with the SAME id.
-# `?=` creates a recursively-expanded variable, which evaluated `$(shell ...)`
-# once per recipe line and made the freshly installed launcher disagree with
-# its own embedded runtime. Preserve an explicit caller override while making
-# the generated default immediate and stable for this make process.
 ifeq ($(origin BUILD_ID), undefined)
   ifeq ($(OS),Windows_NT)
     BUILD_ID := $(shell powershell -Command "[System.Guid]::NewGuid().ToString()")
@@ -47,30 +39,13 @@ LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.DefaultHubEnd
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.SelfUpdateURL=$(SELF_UPDATE_URL)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/config.CompiledDefaults=$(COMPILE_CONFIG)'
 
-# SQLITE IS GONE, and with it the `fts5` tag that existed only to compile FTS5 into
-# go-sqlite3. Search is LanceDB and nothing else, which is why `lancedb` is not optional:
-# a binary built without it links the ErrNotBuilt stubs and has no search at all.
 BUILD_TAGS := lancedb
 
-# LOCAL_TAGS is what the local loop uses.
 LOCAL_TAGS := $(BUILD_TAGS)
 
 
-# Where the LanceDB native lives for LOCAL builds and tests.
-#
-# NOT cmd/launcher/runtime — that is the launcher's staging area and `build-linux` ends with
-# `rm -rf cmd/launcher/runtime/*`, so a release build would silently break the next `go test`.
-# The link path is compiled into internal/lancestore/cgo_lancedb.go via ${SRCDIR}, so this
-# directory name is part of that contract; changing one without the other breaks the link.
-# `lancedb-native` populates it automatically: existing copy → symlink into the extracted dev
-# runtime → cargo build, in that order.
 LANCEDB_LIB_DIR := .native
 
-# The library name is mapped with MAKE conditionals and not with a shell `case`, because make
-# does not parse shell syntax: inside `$(shell ...)` the first unbalanced `)` — which `case`
-# arms are made of — closes the function call and silently truncates the value. That produced
-# a path ending in `.native/ echo liblancedb_go.dylib ;; ...`, which never exists, so the
-# guard rebuilt the native on every single invocation.
 LANCEDB_GOOS := $(shell go env GOOS)
 ifeq ($(LANCEDB_GOOS),darwin)
 LANCEDB_LIB_NAME := liblancedb_go.dylib
@@ -81,58 +56,18 @@ LANCEDB_LIB_NAME := liblancedb_go.so
 endif
 LANCEDB_LIB := $(LANCEDB_LIB_DIR)/$(LANCEDB_LIB_NAME)
 
-# The generated parsers are excluded from the race detector run and get their own
-# pass in `test`; node_modules is excluded from both.
-#
-# `make ui` runs npm ci, and one of the UI's transitive packages ships Go sources
-# under internal/ui/node_modules — so after a UI build `go list ./...` starts
-# returning a package that is not ours. `make ci` runs ui first, which means vet,
-# lint and test would all cover third-party code that the GitHub jobs never see:
-# they only create a dist placeholder, so node_modules does not exist there.
-# .golangci.yml already excludes the directory for this reason; these two keep the
-# go tool consistent with it.
 GO_PKGS_SKIP    := /antlr/|/treesitter/|/node_modules/
 GO_PKGS_PARSERS := /antlr/|/treesitter/
 
-# Pinned so the check is reproducible and cacheable. See the `vulncheck` target for why
-# @latest is not an option, and the `security` job in .github/workflows/ci.yml, which runs
-# `make vulncheck` rather than declaring its own version.
 GOVULNCHECK_VERSION := v1.7.0
 ACTIONLINT_VERSION  := v1.7.7
 
-# `go test -p N` builds and runs N packages at a time. It was hardcoded to 4, which is
-# correct on a GitHub runner and wasteful on a workstation: on 20 cores it left 16 idle
-# while internal/ast (106 s of execution, on top of linking 1.29M lines of generated ANTLR)
-# ran alone. Capped at 8 rather than nproc because the race detector multiplies the memory
-# each concurrent test binary holds, and the cap is what keeps a 20-core machine from
-# swapping. Override on the command line when you know better: `make test GO_TEST_P=16`.
 NPROC     := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 GO_TEST_P ?= $(shell if [ "$(NPROC)" -gt 8 ]; then echo 8; else echo "$(NPROC)"; fi)
 
-# Must satisfy the ORT_API_VERSION the onnxruntime_go binding in go.mod compiles
-# against (v1.31.0 declares 26). A runtime older than that aborts at
-# InitializeEnvironment with "requested API version [26] is not available", which
-# leaves the embedder nil and degrades semantic search to FTS-only in silence.
-# Bump this together with the binding.
 ORT_VERSION  := 1.26.0
 ORT_CACHE    := /tmp/onnxruntime-cache
 
-# The HOST's ONNX Runtime, for `make test`.
-#
-# The library is only ever CO-LOCATED WITH THE BINARY inside the launcher payload, so nothing
-# built from this tree finds it: a `go test` binary lives in a temp directory the toolchain
-# made, and findORTLibrary's next stop is the loader path, which nothing was setting. The
-# consequence was invisible rather than loud — every test that needs an embedder called
-# t.Skip, so TestHybridSearchQualityFloor reported success for months without running.
-#
-# What it was hiding, measured the first time it ran: the hybrid channel answered 0 of its 11
-# decisive probes. See the comment on that test.
-# The embedding model cache, shared by every test binary.
-#
-# Without this each test binary resolves the cache from its own throwaway HOME and downloads the
-# ~132 MB model again — measured, 29 abandoned copies holding 4.3 GB of tmpfs. One shared
-# directory outside the operator's home is the same trade ORT_CACHE and LANCEDB_CACHE already
-# make. Overridable so CI can point it at a path it knows how to cache between runs.
 MODEL_CACHE ?= /tmp/$(BRAND)-model-cache
 
 ORT_HOST_GOOS := $(shell go env GOOS)
@@ -147,82 +82,20 @@ ORT_HOST_FETCH := fetch-ort-linux
 ORT_HOST_LIB   := $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib
 endif
 
-# STRIP_LDFLAGS omits the DWARF tables and the symbol table used by external
-# debuggers from the core binary. MEASURED on linux/amd64: 257.6 MiB -> 192.9 MiB,
-# a 25.1% cut, and 27.3 MiB off the compressed release artifact.
-#
-# It costs no runtime capability. -s -w does not touch the runtime's pclntab, so
-# panic stack traces keep their function names and file:line, and
-# runtime.Caller, runtime.FuncForPC, debug.Stack and debug.ReadBuildInfo all
-# behave identically — verified by diffing the output of a program built both
-# ways. The -X values above survive too. What is lost is source-level debugging
-# of a released binary with delve or gdb, and `go tool nm` on the artifact.
-#
-# Override to keep a debuggable build: make build-linux STRIP_LDFLAGS=
 STRIP_LDFLAGS ?= -s -w
 
-# The embedding model is NOT built into the binary. It is ~132 MB, which is more
-# than everything else the launcher carries put together, and it changes on a
-# different schedule from the code. `graphit setup` downloads it once into
-# ~/.<brand>/models/coderankembed/, and ModelManager fetches it on first use if
-# setup could not. So there is no fetch-model target and no model in the build.
 
-# ── LanceDB native ────────────────────────────────────────────────────────────
-#
-# The Go module and the native library MUST come from this one commit. They are two
-# halves of one cgo boundary, and a mismatch does not fail the build — it fails at
-# runtime, inside the FFI. So the SHA is pinned here AND in go.mod, and both move together.
-#
-# Why a commit and not a release: the only published release, v0.1.2 (2025-09-30),
-# DOES NOT IMPLEMENT full-text search at all. MEASURED — the index is created and the
-# query returns "Full-text search is not currently supported", because the binding's own
-# rust/src/query.rs carries a `// placeholder for future implementation`. FTS, the RRF
-# reranker and hybrid vector+FTS landed on main in April 2026 (#31, #32, #33) and no
-# release has been cut since. The published artifact also ships 3 platforms while its
-# release notes promise 5, which building per platform fixes for free.
 LANCEDB_SHA   := fa14ce29c7724354f2cea630a1d3488b56bbd64b
 LANCEDB_REPO  := https://github.com/lancedb/lancedb-go.git
-# Overridable so CI can point it at a path it knows how to cache between runs.
 LANCEDB_CACHE ?= /tmp/lancedb-native-cache
-# Where the launcher extracts the dev runtime — the same machine-global location embedding_local.go
-# resolves libonnxruntime from. lancedb-native links against a copy found here before considering a
-# cargo build, so one install serves every checkout. Follows the GRAPHIT_GLOBAL_DIR override.
 LANCEDB_RUNTIME_SOURCE ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),$($(BRAND_ENV)_GLOBAL_DIR),$(HOME)/.$(BRAND))/runtime/dev
 
-# The toolchain is pinned because UPSTREAM DOES NOT PIN ONE, and its committed Cargo.lock
-# has already rotted: it holds ethnum 1.5.2, which fails on newer rustc with
-# "E0512: cannot transmute between types of different sizes" (() is 0 bits,
-# TryFromIntError is 8). ethnum is three levels down — jsonb, pulled by lance-arrow,
-# lance-datafusion and lance-index — so it is nothing this project chose. The bump below
-# is the whole fix; keep it and the toolchain pinned together, and re-verify both when
-# moving LANCEDB_SHA.
 LANCEDB_RUST     := 1.98.0
 LANCEDB_ETHNUM   := 1.5.3
 
-# The `aws` feature is enabled locally, and WITHOUT IT THERE IS NO ON-THE-FLY QUERY AT ALL.
-# The binding depends on lancedb with default-features = false, and the crate declares
-# default = [], so object-store support is compiled out — including S3. MEASURED: connecting
-# to s3://… fails with "No object store provider found for scheme: 's3'. Valid schemes:
-# file". This is true of the PUBLISHED artifacts too, since they are built from the same
-# manifest, so no released native could ever have served a remote context. Proven against
-# MinIO once enabled: table created on s3://, FTS index built on s3://, and hybrid
-# vector+FTS answered with the engine's RRF — nothing downloaded.
-#
-# cdylib is re-enabled locally. Upstream set crate-type = ["staticlib"] in the pinned
-# commit ("drop unused cdylib"), and a Rust staticlib does not carry its transitive C
-# dependencies — linking it needs -lbz2 and friends spelled out per platform, which is a
-# list this project would then own. The shared object resolves them itself, so the core
-# binary links against it and the launcher puts it on the library path exactly as it
-# already does for libonnxruntime. MEASURED: 8.9 MiB core against a 217 MiB .so, versus a
-# 260 MiB core with the static link.
 
 LBUG_VERSION := v0.17.0
 
-# The extension server publishes per ENGINE version, which is NOT the go-ladybug module
-# version: go-ladybug v0.17.0 ships liblbug 0.18.2, and the server has no 0.18.2 build —
-# v0.18.1 is the newest published. MEASURED (internal/ladybugstore/httpfs_probe_test.go):
-# the 0.18.1 binary loads on the 0.18.2 runtime and show_loaded_extensions() confirms it.
-# Bump only after checking the URL returns 200 for the newer version.
 LBUG_EXT_VERSION := 0.18.1
 LBUG_EXT_HOST    := https://extension.ladybugdb.com
 LBUG_EXT_CACHE   := /tmp/lbug-extension-cache
@@ -231,9 +104,6 @@ LBUG_CACHE   := /tmp/lbug-cache
 
 LBUG_PLATFORMS ?= $(shell uname -s | sed 's/Darwin/darwin/;s/Linux/linux-amd64/;s/MINGW.*/windows/')
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Grammar Build (for Hub distribution only — defaults are compiled natively)
-# ═══════════════════════════════════════════════════════════════════════════════
 
 
 TS_OUTDIR     := .build/grammars/treesitter
@@ -266,8 +136,6 @@ TS_CXXFLAGS   := -shared -fPIC -O2 -std=c++14 \
     -Dts_current_realloc=realloc -Dts_current_calloc=calloc
 
 
-# Grammars sourced from Go modules that ship generated parser.c under bindings/go.
-# Format: key:modulepath[:subdir]  (subdir for multi-grammar modules like php/xml/typescript).
 GRAMMAR_MODULES := \
     bash:github.com/tree-sitter/tree-sitter-bash \
     c:github.com/tree-sitter/tree-sitter-c \
@@ -296,7 +164,6 @@ GRAMMAR_MODULES := \
     zig:github.com/tree-sitter-grammars/tree-sitter-zig
 
 
-# Grammars vendored in-repo (parser.c.inc under internal/ast/treesitter/<key>).
 GRAMMAR_VENDORED := clojure dockerfile elixir graphql groovy kotlin markdown \
     objc proto r sql svelte swift dart vue
 
@@ -359,13 +226,6 @@ define compile_ts_grammar
 	echo "  ✓ $${name} ($${size})"
 endef
 
-# fetch_lbug_ext <server platform token>
-#
-# Puts the httpfs extension in the launcher payload, which is what makes a remote graph
-# query offline: the core loads it by path from the extracted runtime and never calls
-# INSTALL. NOTE: the server's platform tokens are its own and do NOT match GOOS/GOARCH —
-# macOS is `osx` and Windows is `win`. curl -f is load-bearing: without it a 404 lands a
-# 153-byte HTML error page in the payload and ships as if it were an extension.
 define fetch_lbug_ext
 	@mkdir -p $(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1) cmd/launcher/runtime/lbug
 	@if [ ! -s "$(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1)/httpfs.lbug_extension" ]; then \
@@ -457,16 +317,6 @@ endef
 
 
 
-# The go.mod written into node_modules is the fix for a long-standing local/CI divergence,
-# and it is not a hack for its own sake: one of the UI's transitive packages (flatted) ships
-# Go sources, so after `npm ci` the parent module's `./...` pattern starts matching a
-# third-party package. `go list` skips any directory that declares its own module, so one
-# stub file removes the whole tree from `./...` for EVERY go tool at once — vet, test,
-# golangci-lint and govulncheck — instead of each of them carrying its own grep. It is
-# regenerated here because npm owns the directory and wipes it.
-#
-# GO_PKGS_SKIP still names /node_modules/ as a belt-and-braces measure, for a checkout where
-# npm ran before this target existed.
 ui:
 	cd internal/ui && npm ci --prefer-offline
 	@printf 'module nodemodules\n\ngo 1.26\n' > internal/ui/node_modules/go.mod
@@ -512,18 +362,6 @@ setup-lbug:
 		esac; \
 	done
 
-# curl_fetch <url> <destination>
-#
-# Downloads with retries and fails loudly on the real error.
-#
-# The plain `curl -sSL` this replaces had three problems: no retry, so one
-# transient CDN timeout failed the whole build; no -f, so an HTTP error page
-# was written to the file as if it were the payload; and no cleanup, so the
-# following `mv` reported "cannot stat" and that misleading message is the one
-# that ends up in the CI log, several lines below the actual cause.
-#
-# --retry-all-errors is what covers connection timeouts; --retry alone only
-# retries responses curl considers transient.
 define curl_fetch
 	if ! curl -fSL --retry 5 --retry-delay 5 --retry-all-errors \
 		--connect-timeout 30 --progress-bar "$(1)" -o "$(2).tmp"; then \
@@ -536,14 +374,6 @@ define curl_fetch
 	mv "$(2).tmp" "$(2)"
 endef
 
-# fetch-lancedb builds the LanceDB native for THIS platform and puts it in the launcher
-# payload. There is no cross-compile and no shared prebuilt: each platform builds its own,
-# which is also what covers windows_amd64 and linux_arm64 — absent from the upstream
-# release despite its release notes.
-#
-# The three edits below are the entire delta against LANCEDB_SHA: a crate-type line, the
-# lancedb `aws` feature, and one lockfile bump. NO SOURCE IS PATCHED — all three are build
-# configuration, and each is explained where it is pinned above.
 fetch-lancedb:
 	@command -v cargo >/dev/null 2>&1 || { \
 		echo "✗ cargo not found — the LanceDB native is built from source."; \
@@ -595,16 +425,6 @@ fetch-lancedb:
 	echo "  ✓ $$lib ($$(du -h $(LANCEDB_LIB_DIR)/$$lib | cut -f1)) → $(LANCEDB_LIB_DIR)/"; \
 	printf '%s\n' '$(LANCEDB_SHA)' > "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha"
 
-# lancedb-native is the CHEAP guard: a file target, so an existing library is left alone and
-# `make test` does not shell out to cargo on every run. `fetch-lancedb` stays as the explicit
-# "rebuild it" entry point.
-#
-# When the library is missing, it resolves like every other native this tree links: from what the
-# last install already extracted. The launcher payload carries liblancedb_go into
-# $(LANCEDB_RUNTIME_SOURCE), the same directory embedding_local.go reads libonnxruntime from, so a
-# checkout that has ANY working install can link and test without cargo. Only when neither the
-# project copy nor the extracted runtime has it does this build from source. The runtime copy does
-# not record which LANCEDB_SHA produced it; if the pin moved since that install, rebuild explicitly.
 lancedb-native:
 	@if [ -s "$(LANCEDB_LIB)" ]; then exit 0; fi; \
 	runtime_lib="$(LANCEDB_RUNTIME_SOURCE)/$(LANCEDB_LIB_NAME)"; \
@@ -621,8 +441,6 @@ lancedb-native:
 	echo "  → LanceDB native missing ($(LANCEDB_LIB)) and none in $(LANCEDB_RUNTIME_SOURCE); building…"; \
 	$(MAKE) --no-print-directory fetch-lancedb
 
-# lancedb-cgo-env prints the CGO flags a build needs, so a developer can export them.
-# The header and the library both live in the cache; nothing is copied into the repo.
 lancedb-cgo-env:
 	@echo "export CGO_CFLAGS=\"-I$(LANCEDB_CACHE)/src/include\""
 	@echo "export CGO_LDFLAGS=\"-L$(LANCEDB_CACHE)/src/rust/target/release -llancedb_go\""
@@ -656,9 +474,6 @@ fetch-ort-windows:
 
 build: build-linux
 
-# build-local builds for the HOST with `lancedb` linked in, which is the only way to get a
-# binary whose search works end to end. The cross-compiled targets below cannot do this — see
-# LOCAL_TAGS.
 build-local: setup-lbug lancedb-native
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=1 go build -tags "$(LOCAL_TAGS)" -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-local $(CMD)
@@ -734,24 +549,6 @@ build-linux: ui setup-lbug fetch-ort-linux lancedb-native
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-# ICU is NOT bundled, on any platform.
-#
-# Nothing in the bundle loads it. Measured on linux: `objdump -p` shows no ICU in the
-# NEEDED list of graphit-core, liblbug.so or libonnxruntime.so; `strings -a` finds no
-# "libicu" in any of them, so it is not dlopen'd by name either; and a runtime with the
-# ICU files deleted still answers `ast query --hybrid`, which exercises LadybugDB, the
-# full-text index, the vector index and ONNX inference at once. LadybugDB's own build
-# documentation lists no ICU dependency on any platform.
-#
-# It cost 37-73 MiB on linux, varying with how many ICU majors the build machine had,
-# because the glob took every one of them.
-#
-# macOS and Windows were NOT verified — that needs an artifact of each platform, and the
-# Engineer chose to remove it anyway and put it back if something turns out to need it.
-# The failure mode differs by platform and is worth knowing: on macOS a missing dylib
-# aborts the process at startup, so a break there is total rather than partial.
-#
-# libicu-dev / icu4c may still be needed to COMPILE. That is separate, and unchanged.
 build-darwin: ui setup-lbug fetch-ort-darwin lancedb-native
 	@mkdir -p cmd/launcher/runtime
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
@@ -766,8 +563,6 @@ build-darwin: ui setup-lbug fetch-ort-darwin lancedb-native
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-# Windows releases are built natively under MSYS2. Do not replace this with a
-# cross-build: LanceDB is compiled for the host and search must remain available.
 build-windows-native: ui setup-lbug fetch-ort-windows lancedb-native
 	@mkdir -p cmd/launcher/runtime
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
@@ -784,8 +579,6 @@ build-windows-native: ui setup-lbug fetch-ort-windows lancedb-native
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-# EVERY BUILD HAPPENS ON ITS OWN PLATFORM NOW, so there is nothing for one machine to build all of.
-#
 build-all:
 	@echo "  ✗ build-all no longer exists as one machine's job."
 	@echo ""
@@ -800,13 +593,6 @@ build-all:
 
 
 
-# The rm -rf below sweeps the isolated test homes from the PREVIOUS run, not this one.
-# internal/brand's init points HOME at a fresh directory under that parent for every test
-# binary (see internal/brand/testhome.go for why), and nothing can delete them at exit:
-# os.Exit skips deferred functions, and a package without its own TestMain has no hook
-# after m.Run(). Sweeping before the run bounds the residue to one run's worth, and does
-# it without yanking HOME out from under a process a leaked test left running — which
-# sweeping afterwards would do.
 test: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	@LBUG_LIB="$(LBUG_MOD)/lib"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
@@ -853,37 +639,12 @@ test-short: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	fi; \
 	exit $$status
 
-# No --build-tags here on purpose. The tags live in .golangci.yml, which is the one file both
-# this target and the GitHub lint job read; passing the flag here OVERRODE that list and is
-# exactly how local lint (lancedb) and CI lint (the stale fts5 from the config) came to
-# analyse two different builds. See the comment on `run.build-tags` in .golangci.yml.
 lint: lancedb-native
 	golangci-lint run ./...
 
-# govulncheck loads and type-checks the packages before it looks at anything, so it
-# needs BUILD_TAGS for the same reason vet and lint do. Without the tag, internal/ast
-# and internal/wiki resolved to a `!fts5` guard file instead of the package, and the
-# load aborts on the undefined guard symbol before a single vulnerability is reported —
-# which reads like a broken tool rather than a missing flag.
-#
-# The version is PINNED, not @latest. `@latest` resolves over the network on every run — so
-# the check is neither reproducible nor cacheable, and a new govulncheck release turns a green
-# pipeline red without a commit. Pinned, the binary is built once and then served from the
-# build cache; the vulnerability DATABASE is still fetched live, which is the part that has to
-# be current. Bump GOVULNCHECK_VERSION deliberately.
-#
-# lancedb-native is a prerequisite for the same reason it is one for vet, lint and test: the
-# tag is not optional, and every tool that type-checks with it needs the native resolvable.
 vulncheck: lancedb-native
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) -tags "$(LOCAL_TAGS)" ./...
 
-# actionlint validates the GitHub workflow files, and it is in `ci` because of a defect it
-# would have caught the day it was introduced: `permissions: code-quality: write` is not a
-# GitHub permission scope, GitHub rejects a workflow file containing an unknown one, and a
-# rejected file does not fail — it never runs. The repository showed no CI runs at all, which
-# looks like "nothing to report" rather than like six missing jobs.
-#
-# Cheap enough to be unconditional: one pinned binary, milliseconds per file.
 actionlint:
 	@go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -no-color .github/workflows/*.yml
 
@@ -893,32 +654,14 @@ ui-lint:
 fmt:
 	gofmt -w .
 
-# GO_PKGS_SKIP keeps the generated grammars off the list, but that is not enough:
-# internal/ast and the sidecar IMPORT them, and go vet reports the diagnostics of a
-# dependency whenever it has to analyse that dependency itself — which it does only
-# when the analysis cache is cold. So this passed locally and failed in CI, on
-# 255k lines of generated db2_parser.go where ANTLR emits a return after a panic.
-#
-# `unreachable` is the only analyser that fires on the generated code, and there is
-# no way to ask vet for "diagnostics of the named packages only", so it is the one
-# turned off. Everything else vet does still runs over the whole project.
-#
-# BUILD_TAGS is passed for the same reason lint sets build-tags in .golangci.yml: vet
-# has to analyse the configuration that actually ships. Without the tag it analyses a
-# build where internal/ast and internal/wiki were a `!fts5` guard file instead of the
-# package — so it would both miss every real diagnostic in them and stop on the guard.
 vet: lancedb-native
 	go vet -tags "$(LOCAL_TAGS)" -unreachable=false $$(go list -tags "$(LOCAL_TAGS)" ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
-# ci-fast is the PR gate: static checks in parallel and tests with -short (skips model download and heavy LanceDB paths).
 ci-fast: lancedb-native
 	@echo "  → Running actionlint, vet, lint, ui-lint in parallel (vulncheck and full test are ci)…"
 	@$(MAKE) -j4 actionlint vet lint ui-lint
 	@$(MAKE) test-short
 
-# `ui` runs first and alone because vet, lint and test all need internal/ui/dist to exist —
-# it is embedded — and because it is what creates internal/ui/node_modules, whose go.mod stub
-# has to be in place before any go tool expands ./...
 ci: lancedb-native
 	@echo "  → Building UI, then actionlint/vet/lint/vulncheck/ui-lint in parallel, then full test…"
 	@$(MAKE) ui

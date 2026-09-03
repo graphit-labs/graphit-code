@@ -6,11 +6,6 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// loadGoLangForComplexityTest returns the dynamically loaded Go grammar, or
-// skips the test — the same trade-off BenchmarkTS_LangLookup_Dynamic makes:
-// the shared library is extracted by the launcher at binary setup time, not
-// committed to the repo, so a raw dev checkout without it skips rather than
-// fails.
 func loadGoLangForComplexityTest(t *testing.T) *sitter.Language {
 	t.Helper()
 	loader := NewDynGrammarLoader(WithProjectDir("."))
@@ -33,7 +28,6 @@ func parseGoForComplexityTest(t *testing.T, lang *sitter.Language, src string) (
 	tree := p.Parse(b, nil)
 	t.Cleanup(tree.Close)
 	root := tree.RootNode()
-	// The function under test is the entity: root -> function_declaration.
 	for i := 0; i < int(root.ChildCount()); i++ {
 		if c := root.Child(uint(i)); c.Kind() == "function_declaration" {
 			return c, b
@@ -78,21 +72,21 @@ func TestComplexityWalksRealSyntaxTree(t *testing.T) {
 			src: "package p\nfunc f(x int) int {\n" +
 				"\tif x > 0 {\n\t\treturn x\n\t} else if x < 0 {\n\t\treturn -x\n\t}\n" +
 				"\treturn 0\n}",
-			want: 3, // base 1 + if + the re-nested else-if
+			want: 3,
 		},
 		{
 			name: "for loop with a boolean-combined condition inside",
 			src: "package p\nfunc f(a, b, c bool) int {\n" +
 				"\tfor i := 0; i < 10; i++ {\n\t\tif a && b || c {\n\t\t\tcontinue\n\t\t}\n\t}\n" +
 				"\treturn 0\n}",
-			want: 5, // base 1 + for + if + && + ||
+			want: 5,
 		},
 		{
 			name: "switch with two case labels, no default",
 			src: "package p\nfunc f(x int) int {\n" +
 				"\tswitch x {\n\tcase 1:\n\t\treturn 1\n\tcase 2:\n\t\treturn 2\n\t}\n" +
 				"\treturn 0\n}",
-			want: 3, // base 1 + two expression_case — default_case is not counted
+			want: 3,
 		},
 	}
 
@@ -148,8 +142,6 @@ func TestComplexityStopsAtNestedDeclaration(t *testing.T) {
 	if !m.on {
 		t.Fatal("matcher did not activate")
 	}
-	// base 1 + the outer if. The nested func_literal's own if/else-if (2 more
-	// branches) must NOT be folded in — it is a separate entity in the graph.
 	if got, want := m.score(outer, b), 2; got != want {
 		t.Errorf("score() = %d, want %d — nested declaration was not skipped\nsource:\n%s", got, want, b)
 	}

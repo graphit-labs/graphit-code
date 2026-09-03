@@ -16,7 +16,7 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const base = getApiBase()
-  
+
   const fullBase = base.endsWith('/api') ? base : `${base}/api`
   const cleanPath = path.startsWith('/api/') ? path.slice(4) : path
 

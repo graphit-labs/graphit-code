@@ -11,21 +11,6 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-// A single-file component mixes languages in one file, and tree-sitter-vue and
-// tree-sitter-svelte hand the body of <script> and <style> over as one opaque
-// raw_text. Until the sub-parse existed, a .vue contributed no IMPORTS edge, no
-// entity from the script, and no export flag — the body was searchable as text
-// (file_fts indexes the whole source) but had no structure at all.
-//
-// The part that fails silently is the LINE OFFSET: the inner parse sees only the
-// block's own text, so every line it reports is relative to the block. Every
-// fixture here therefore puts the script AFTER the template — a fixture with the
-// script at the top passes with a broken offset of zero.
-
-// stageEmbedded stages the outer language's query file plus the query files of
-// every language its blocks embed. The inner languages have to be resolvable from
-// the PROJECT directory: the runtime install is not guaranteed to be present, and
-// a test that silently falls back to it is testing the machine, not the code.
 func stageEmbedded(t *testing.T, langName, grammar, ext, queryFile string, inner ...string) string {
 	t.Helper()
 	projectDir := stageGrammar(t, langName, grammar, ext, queryFile)
@@ -42,7 +27,6 @@ func stageEmbedded(t *testing.T, langName, grammar, ext, queryFile string, inner
 	return projectDir
 }
 
-// entityAt finds an entity by label and name, returning its line span.
 func entityAt(pf *ParsedFile, label, name string) (Entity, bool) {
 	for _, ents := range pf.Entities {
 		for _, e := range ents {
@@ -72,8 +56,6 @@ func wantEntityLine(t *testing.T, pf *ParsedFile, label, name string, line int) 
 	}
 }
 
-// The <script> is at the END of the file and the import is on line 8, so a
-// line offset of zero reports line 2 and the assertion catches it.
 const vueSFCFixture = `<template>
   <div class="wrap">
     <h1>{{ title }}</h1>
@@ -95,8 +77,6 @@ func TestVueScriptBodyContributesImportsAndEntitiesAtAbsoluteLines(t *testing.T)
 	projectDir := stageEmbedded(t, "vue", "tree-sitter-vue", ".vue", "vue.yaml", "javascript.yaml")
 	pf := parseFixture(t, projectDir, "App.vue", vueSFCFixture)
 
-	// The IMPORTS edge is built from an entity under the "imports" data key, and
-	// the statement's own line is what makes it navigable.
 	imp, ok := entityAt(pf, "Import", "vue")
 	if !ok {
 		t.Fatalf("no Import entity for 'vue'; entities: %v", entityLabelsOf(pf))
@@ -105,10 +85,8 @@ func TestVueScriptBodyContributesImportsAndEntitiesAtAbsoluteLines(t *testing.T)
 		t.Errorf("import of 'vue' is at line %d, want 8 (line offset not applied)", imp.Line)
 	}
 
-	// A function declared in the script is a Function at its absolute line.
 	wantEntityLine(t, pf, "Function", "reload", 12)
 
-	// The markup entity is untouched: the Element and its attributes survive.
 	if _, ok := entityAt(pf, "Element", "script"); !ok {
 		t.Error("the script Element disappeared; the outer parse must be unchanged")
 	}
@@ -139,7 +117,6 @@ interface Props {
 	if _, ok := entityAt(pf, "Import", "vue"); !ok {
 		t.Errorf("no Import for 'vue' from a lang=\"ts\" block; entities: %v", entityLabelsOf(pf))
 	}
-	// `interface` is TypeScript-only: seeing it proves the ts grammar ran, not js.
 	wantEntityLine(t, pf, "Interface", "Props", 8)
 }
 
@@ -181,11 +158,9 @@ $brand: red;
 .card { color: $brand; }
 </style>
 `)
-	// Nothing from the scss body.
 	if _, ok := entityAt(pf, "CssClass", "card"); ok {
 		t.Error("the scss body produced a CssClass; it has no grammar and must be skipped")
 	}
-	// The rest of the file is indexed normally.
 	if _, ok := entityAt(pf, "Import", "vue"); !ok {
 		t.Error("the script block was lost because the style block was skipped")
 	}
@@ -266,7 +241,6 @@ func TestHTMLInlineScriptAndStyleAreParsed(t *testing.T) {
 	if _, ok := entityAt(pf, "CssClass", "card"); !ok {
 		t.Error("no CssClass from the inline <style>")
 	}
-	// The JSON payload is not code, and `type` is what says so.
 	if _, ok := entityAt(pf, "Variable", "not"); ok {
 		t.Error("the application/json body was parsed as JavaScript")
 	}
@@ -281,8 +255,6 @@ func entityLabelsOf(pf *ParsedFile) []string {
 	}
 	return out
 }
-
-// The offset and the merge, as units
 
 // shiftParsedLines is the one place the offset is applied, so it is the one place
 // worth testing directly: every entity, every call site and every reference moves,
@@ -337,8 +309,7 @@ func TestMergeParsedIntoFoldsEntitiesCallsAndReferences(t *testing.T) {
 		Entities: map[string][]Entity{
 			"imports":   {{Name: "vue", Line: 8, EndLine: 8, GraphLabel: "Import"}},
 			"functions": {{Name: "reload", Line: 12, EndLine: 14, GraphLabel: "Function"}},
-			// Same identity as the outer entity: label, name, context and line.
-			"elements": {{Name: "script", Line: 7, EndLine: 15, GraphLabel: "Element"}},
+			"elements":  {{Name: "script", Line: 7, EndLine: 15, GraphLabel: "Element"}},
 		},
 		CallSites:  []CallInfo{{Name: "ref", Line: 10}},
 		References: []ReferenceInfo{{TargetName: "title", Line: 13}},
@@ -361,8 +332,6 @@ func TestMergeParsedIntoFoldsEntitiesCallsAndReferences(t *testing.T) {
 		t.Errorf("references merged as %v", outer.References)
 	}
 }
-
-// The config, which fails OPEN
 
 // A node kind that does not exist in the grammar matches nothing, in silence —
 // the same failure mode a broken query pattern has. So a malformed `embedded`
@@ -443,9 +412,6 @@ func TestEveryShippedEmbeddedBlockNamesRealGrammarNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load queries: %v", err)
 	}
-	// Resolved against the SHIPPED set, not against the installed runtime: a
-	// machine with no runtime extraction would otherwise fail this for a reason
-	// that has nothing to do with the query files under test.
 	shipped := make(map[string]bool, len(files))
 	for _, qf := range files {
 		if qf.Parser != "antlr4" {
@@ -483,8 +449,6 @@ func TestEveryShippedEmbeddedBlockNamesRealGrammarNodes(t *testing.T) {
 				t.Errorf("%s: embedded lang_capture %q is not in the pattern",
 					qf.Language, blk.LangCapture)
 			}
-			// The languages a block names must be languages that exist, or the
-			// mapping is a promise the engine cannot keep.
 			for attr, target := range blk.Languages {
 				if !shipped[strings.ToLower(target)] {
 					t.Errorf("%s: embedded lang=%q maps to unknown language %q",
@@ -601,19 +565,13 @@ func TestMappingANewInnerLanguageIsYAMLOnly(t *testing.T) {
 </body>
 </html>
 `)
-	// json.yaml's own labels, from a body html.yaml previously skipped.
 	wantEntityLine(t, pf, "Pair", "feature", 4)
 	wantEntityLine(t, pf, "Value", "flags", 4)
-	// And the markup is untouched.
 	if _, ok := entityAt(pf, "AttributeValue", "application/json"); !ok {
 		t.Error("the type attribute disappeared")
 	}
 }
 
-// A body that is one statement used to be the only case that produced anything at
-// all — as a Text node, because dataText rejects an interior newline. That Text
-// node is still written, so the element's text stays searchable alongside the
-// structure now extracted from it.
 func TestSingleStatementScriptKeepsItsTextNodeAndGainsStructure(t *testing.T) {
 	projectDir := stageEmbedded(t, "vue", "tree-sitter-vue", ".vue", "vue.yaml", "javascript.yaml")
 	pf := parseFixture(t, projectDir, "One.vue", `<template>
@@ -644,7 +602,6 @@ func TestEmbeddedParseDoesNotRecurseIntoItself(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(qdir, "vue.yaml"), []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Completing at all is the assertion.
 	parseFixture(t, projectDir, "Loop.vue", `<template>
   <p>x</p>
 </template>

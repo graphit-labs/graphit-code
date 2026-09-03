@@ -47,9 +47,6 @@ func TestLadybugFTSRejectsControlCharacters(t *testing.T) {
 		t.Skipf("fts unavailable: %v", err)
 	}
 
-	// Multi-byte text repeated to a target byte size. If LOWER processes in fixed-size
-	// chunks it will eventually split a two-byte character, and the size at which that
-	// starts failing is the answer.
 	sized := func(target int) string {
 		unit := "criação de índice não padrão para pedido \u0083 x "
 		out := make([]byte, 0, target+len(unit))
@@ -116,9 +113,6 @@ func TestLadybugFTSRejectsControlCharacters(t *testing.T) {
 	}
 	t.Logf("rejected: %v", rejected)
 
-	// Every input here is valid UTF-8 by Go's definition, so a rejection means the engine's
-	// notion of valid is narrower than the standard's. That is worth reporting upstream and
-	// worth sanitising on our side, since the corpus cannot be changed.
 	for _, c := range cases {
 		if !utf8.ValidString(c.text) {
 			t.Fatalf("test bug: %q is not valid UTF-8, so a rejection would prove nothing", c.name)

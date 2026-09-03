@@ -147,12 +147,8 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	}
 	closeMCP = runCloseMCP
 
-	// Coordinate Go-side parallelism with the shared CPU budget that also sizes
-	// the parse-worker pool, LadybugDB threads, and ONNX threads.
 	runtime.GOMAXPROCS(sysutil.CPUBudget())
 
-	// Run the background daemon at lowered CPU/IO priority so indexing and
-	// embedding yield to the user's interactive work. Best-effort.
 	if err := sysutil.LowerPriority(); err != nil {
 		output.NewPrinter("daemon").Warn("could not lower process priority: %v", err)
 	}
@@ -256,9 +252,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			mcpHandler.ServeHTTP(w, r)
 		})
 
-		// Host and port are configuration now. The defaults reproduce the previous behaviour
-		// exactly — loopback, kernel-assigned port — and a container overrides both, because it
-		// must publish the port and must know its number before the process starts.
 		mcpHost := config.ResolveMCPHost(nil, nil)
 		mcpPort := config.ResolveMCPPort(nil, nil)
 		listener, listenErr := net.Listen("tcp", net.JoinHostPort(mcpHost, strconv.Itoa(mcpPort)))
@@ -269,9 +262,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		port := listener.Addr().(*net.TCPAddr).Port
 		portStr := strconv.Itoa(port)
 
-		// Wait for PID to be claimed before writing port/key files.
-		// This prevents a duplicate daemon from overwriting our files
-		// before discovering the PID conflict and exiting.
 		select {
 		case <-pidClaimed:
 		case <-ctx.Done():
@@ -307,7 +297,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			runCloseMCP()
 		}()
 
-		// Self-healing: periodically re-confirm port/key files are correct.
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
@@ -356,15 +345,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 
 	d := daemon.New(cfg, builder)
 
-	// Global, not per-project: one ONNX session every process on the machine shares. It used to run
-	// as a bare goroutine with its error discarded and no restart.
-	//
-	// A memory watcher used to be registered here as well. It watched the root every scope's raw
-	// markdown directory lived under and recompiled the wiki of whichever scope changed. There is no
-	// markdown and no directory to watch: a write commits to the scope's table and recompiles the
-	// wiki inline, and a table in object storage produces no local event to notice at all. The user
-	// table still needs one maintenance owner; this loop is global so several project supervisors do
-	// not compact the same authoritative table concurrently.
 	if sharedEmbedClient != nil {
 		d.AddGlobalModule(daemon.NewEmbedServer(sharedEmbedClient))
 	}
@@ -378,9 +358,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		}
 	}
 
-	// Opt-in, and the case it exists for is a container: there, one process has to bring up the
-	// MCP server AND serve the UI, and it is PID 1. On a workstation `graphit ui` remains the way
-	// to get a UI, which is why this is off unless asked for.
 	if config.DaemonServesUI(nil, nil) {
 		d.AddGlobalModule(newDaemonUIModule(""))
 	}

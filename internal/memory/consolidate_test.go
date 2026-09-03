@@ -30,7 +30,6 @@ func TestCoverageNoteStatesWhatASplitPassCouldNotCompare(t *testing.T) {
 			t.Errorf("note does not mention %q: %s", want, note)
 		}
 	}
-	// Worded as a limit on the pass, not a finding about the corpus.
 	if strings.Contains(note, "no duplicates") {
 		t.Errorf("the note claims something about the corpus it did not check: %s", note)
 	}
@@ -47,8 +46,6 @@ func TestCoverageNoteReachesTheOutcomeMarkdown(t *testing.T) {
 	}
 }
 
-// mkVec builds a unit-ish vector pointing mostly along one axis, so "similar" is
-// something the test states rather than hopes for.
 func mkVec(axis int, dims int) []float32 {
 	v := make([]float32, dims)
 	v[axis] = 1
@@ -63,11 +60,11 @@ func TestOrderBySimilarityPutsNearDuplicatesNextToEachOther(t *testing.T) {
 		{ID: "a1", Title: "indexing throughput"},
 		{ID: "b1", Title: "unrelated: git remotes"},
 		{ID: "c1", Title: "unrelated: terminal colours"},
-		{ID: "d1", Title: "indexing throughput, again"}, // the duplicate of a1
+		{ID: "d1", Title: "indexing throughput, again"},
 	}
 	vecs := map[string][]float32{
 		"a1": mkVec(0, 8),
-		"d1": mkVec(0, 8), // identical direction: the near-duplicate
+		"d1": mkVec(0, 8),
 		"b1": mkVec(3, 8),
 		"c1": mkVec(6, 8),
 	}

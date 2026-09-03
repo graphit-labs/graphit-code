@@ -34,8 +34,6 @@ func (n *TreeNode) StartLine() int { return n.Start[0] }
 // EndLine returns the 1-indexed end line.
 func (n *TreeNode) EndLine() int { return n.End[0] }
 
-// FirstTerminalText returns the text of the first terminal descendant.
-// Used to extract entity names from rule nodes.
 func (n *TreeNode) FirstTerminalText() string {
 	if n.IsTerminal() {
 		return n.Text
@@ -99,8 +97,6 @@ func (n *TreeNode) dottedName(skipLeading bool) string {
 				afterDot = true
 				continue
 			}
-			// A keyword or a delimiter: it ends the name if one has started,
-			// and precedes it otherwise.
 			if last != "" || !skipLeading {
 				break
 			}
@@ -112,8 +108,6 @@ func (n *TreeNode) dottedName(skipLeading bool) string {
 			}
 			continue
 		}
-		// Two identifiers side by side with no '.' between them are two
-		// different names (SYNONYM x FOR y), not one qualified name.
 		if last != "" && !afterDot {
 			break
 		}
@@ -125,9 +119,6 @@ func (n *TreeNode) dottedName(skipLeading bool) string {
 	return last
 }
 
-// componentText is the text of one component of a qualified name. The component
-// may itself be qualified — function_name is `identifier ('.' id_expression)?` —
-// so it resolves recursively before falling back to the leading terminal.
 func (n *TreeNode) componentText() string {
 	if n.IsTerminal() {
 		return n.Text
@@ -138,9 +129,6 @@ func (n *TreeNode) componentText() string {
 	return n.FirstTerminalText()
 }
 
-// isNameRule reports whether a rule node can hold one component of a name. The
-// grammars in this family name those rules "<thing>_name" or "<thing>Name", plus
-// the generic identifier rules every SQL grammar shares.
 func isNameRule(rule string) bool {
 	switch rule {
 	case "identifier", "id_expression", "regular_id":
@@ -173,9 +161,6 @@ func (n *TreeNode) ChildByRule(rule string) *TreeNode {
 		}
 	}
 	for _, child := range n.Children {
-		// A terminal's Token is the grammar's spelling of it, and a literal keyword
-		// is spelled quoted — `'UNIQUE'`, not `UNIQUE`. Callers write the bare word,
-		// which is also how the keyword guards in the query patterns spell it.
 		if strings.Trim(child.Token, "'") == rule {
 			return child
 		}

@@ -18,7 +18,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    // Single file: all assets inlined into index.html
+
     assetsInlineLimit: 100_000_000,
     cssCodeSplit: false,
     rollupOptions: {

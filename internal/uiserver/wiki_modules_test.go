@@ -18,23 +18,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// The tests in this file pin one property: /api/wiki/modules reports the wikis the
-// STORE resolves for a project, and never a directory inside the project.
-//
-// The regression they exist for shipped with the storage centralization. Every wiki
-// moved to the global brand directory keyed by identity, and this handler kept probing
-// `<project>/.graphit/knowledge/project`, `<project>/.graphit/memory/{project,user}` and
-// `<global>/{knowledge,memory}` — all four of which stopped holding anything. The
-// symptom was not an error: the endpoint answered 200 with an empty list, so the
-// knowledge context page showed "no contexts available" and the memory entries
-// disappeared from the sidebar while all three wikis sat intact on disk.
-//
-// The tests that used to cover discovery walked a tree they created inside the project,
-// so they passed throughout. That is why these build their fixtures through the store
-// resolvers instead, in a HOME this test owns.
-
-// isolateHome points the global store at a directory this test owns, so nothing it
-// resolves — or reports — can come from the developer's real ~/.graphit.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -45,8 +28,6 @@ func isolateHome(t *testing.T) string {
 
 const testProjectID = "01TESTPROJECT0000000000000"
 
-// initProject writes the lockfile that gives a project its identity, which is what
-// keys its stores.
 func initProject(t *testing.T, projectDir, name string) {
 	t.Helper()
 	body := `{"project":{"id":"` + testProjectID + `","name":"` + name + `"},"artifacts":{}}`
@@ -55,11 +36,6 @@ func initProject(t *testing.T, projectDir, name string) {
 	}
 }
 
-// writeWiki compiles a wiki holding the named pages.
-//
-// It used to drop one `.md` file per name into the directory, which is what the handler counted.
-// The handler counts INDEXED pages, and reports HasLog from the `sync_log` table rather than from the
-// existence of a `log.md` — so the fixture records one sync, which is what a compiled wiki always has.
 func writeWiki(t *testing.T, dir string, pages ...string) {
 	t.Helper()
 	if dir == "" {
@@ -130,8 +106,6 @@ func TestProjectWikisResolveFromTheGlobalStore(t *testing.T) {
 	if mem.Path != memProjectDir {
 		t.Errorf("memory-project path = %q; want %q", mem.Path, memProjectDir)
 	}
-	// The sidebar builds the Memory section from ids prefixed "memory-", and routes to
-	// /memory/explorer/<context>. Both halves have to keep holding.
 	if !strings.HasPrefix(mem.ID, "memory-") || mem.Context != "project" {
 		t.Errorf("memory-project module = %+v; want id memory-* and context %q", mem, "project")
 	}
@@ -157,8 +131,6 @@ func TestALegacyProjectLocalWikiIsNotReported(t *testing.T) {
 func TestTheUserMemoryWikiIsListedForAnyProject(t *testing.T) {
 	isolateHome(t)
 	project := t.TempDir()
-	// Deliberately NOT initialised: user memory is the user's, and is readable from a
-	// project that has no identity of its own.
 
 	userDir := memory.WikiDirFor(project, string(memory.MemoryScopeUser))
 	if userDir == "" {

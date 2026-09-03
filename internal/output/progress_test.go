@@ -111,7 +111,6 @@ func TestProgressLineIsTruncatedToTheTerminal(t *testing.T) {
 
 	p.StepProgress("%s", strings.Repeat("x", 500))
 
-	// Stdout is not a terminal under `go test`, so termWidth falls back to 80.
 	out := strings.TrimPrefix(buf.String(), "\r\033[K")
 	if len([]rune(out)) > 80 {
 		t.Errorf("progress line is %d columns wide, wider than the terminal: %q", len([]rune(out)), out)
@@ -128,7 +127,6 @@ func TestTruncateLeavesShortLinesAlone(t *testing.T) {
 	if got := truncate("abcdef", 4); got != "abc…" {
 		t.Errorf("truncate(%q, 4) = %q, want %q", "abcdef", got, "abc…")
 	}
-	// Counted in runes, not bytes — a multi-byte line must not be cut mid-glyph.
 	if got := truncate("ãéîõü", 3); got != "ãé…" {
 		t.Errorf("truncate cut a multi-byte line by bytes: %q", got)
 	}

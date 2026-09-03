@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// TestStderrHelperProcess is not a test: it is the child half of
-// TestAttachStderrToFileAppendsChildStderr. It writes to stderr the way the Go
-// runtime does for a panic or a SIGQUIT stack dump -- output that never passes
-// through the logger, and that a spawned daemon used to throw away.
 func TestStderrHelperProcess(t *testing.T) {
 	if os.Getenv("DAEMONCTL_STDERR_HELPER") == "" {
 		t.Skip("not the helper subprocess")
@@ -56,7 +52,7 @@ func TestAttachStderrToFileAppendsChildStderr(t *testing.T) {
 		closeLog()
 		t.Fatalf("start helper: %v", err)
 	}
-	closeLog() // the child holds its own copy from here on
+	closeLog()
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("helper exited badly: %v", err)
 	}

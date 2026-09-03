@@ -52,15 +52,12 @@ func TestNewEmbedServer_SockFilePath(t *testing.T) {
 	_ = os.Setenv("HOME", tempHome)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Use a nil client since we're only testing the path configuration
 	srv := NewEmbedServer(nil)
 	expected := filepath.Join(GlobalDaemonDir(), sockFileName)
 	if srv.sockFile != expected {
 		t.Errorf("expected sockFile %q, got %q", expected, srv.sockFile)
 	}
 }
-
-// EmbedServer — Start and handlers (full integration)
 
 func TestEmbedServer_StartAndShutdown(t *testing.T) {
 	tempHome := t.TempDir()
@@ -78,15 +75,12 @@ func TestEmbedServer_StartAndShutdown(t *testing.T) {
 		errCh <- srv.Start(ctx)
 	}()
 
-	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify sock file was created
 	if _, err := os.Stat(srv.sockFile); os.IsNotExist(err) {
 		t.Fatalf("sock file not created")
 	}
 
-	// Test embed batch request via socket
 	conn, err := net.Dial("unix", srv.sockFile)
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
@@ -113,7 +107,6 @@ func TestEmbedServer_StartAndShutdown(t *testing.T) {
 		t.Errorf("expected 2 vectors, got %d", len(embedResp.Vectors))
 	}
 
-	// Test embed query request
 	queryBody := `{"query":"test query"}` + "\n"
 	_, err = conn.Write([]byte(queryBody))
 	if err != nil {
@@ -133,7 +126,6 @@ func TestEmbedServer_StartAndShutdown(t *testing.T) {
 		t.Errorf("expected 1 vector, got %d", len(queryResp.Vectors))
 	}
 
-	// Shutdown
 	cancel()
 
 	startErr := <-errCh
@@ -141,7 +133,6 @@ func TestEmbedServer_StartAndShutdown(t *testing.T) {
 		t.Errorf("Start error: %v", startErr)
 	}
 
-	// sock file should be removed after shutdown
 	time.Sleep(50 * time.Millisecond)
 	if _, err := os.Stat(srv.sockFile); !os.IsNotExist(err) {
 		t.Log("sock file may still exist briefly after shutdown")

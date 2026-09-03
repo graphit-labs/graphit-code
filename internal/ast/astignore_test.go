@@ -21,7 +21,6 @@ import (
 func TestAstIgnoreCheckerExcludesBrandDirByDefault(t *testing.T) {
 	t.Parallel()
 
-	// No .gitignore and no .astignore: the default has to carry this alone.
 	root := t.TempDir()
 
 	ic := NewAstIgnoreChecker(root)
@@ -35,7 +34,6 @@ func TestAstIgnoreCheckerExcludesBrandDirByDefault(t *testing.T) {
 		t.Errorf("%s is not ignored by default — an indexer would index its own output", shard)
 	}
 
-	// The default must not be so broad that it swallows real source.
 	for _, keep := range []string{"a.sql", "src/b.go", ".hidden.sql"} {
 		if ic.IsIgnored(keep, false) {
 			t.Errorf("%s should not be ignored", keep)
@@ -67,8 +65,6 @@ func TestAstIgnoreCheckerExcludesTheFrameworkLockfileByDefault(t *testing.T) {
 		t.Errorf("a nested %s was excluded — the pattern is not anchored to the project "+
 			"root, so it reaches lockfiles that are not ours", lock)
 	}
-	// A directory of that name is not the lockfile, and neither is a longer name
-	// that merely starts with it.
 	for _, keep := range []string{lock + ".bak", "graphit.lock.json.tmpl"} {
 		if ic.IsIgnored(keep, false) {
 			t.Errorf("%s should not be ignored", keep)
@@ -93,12 +89,9 @@ func TestAstIgnoreCheckerExcludesTheDocsTreeByDefault(t *testing.T) {
 		t.Error("a document under docs/ is indexed by the AST pipeline")
 	}
 
-	// Anchored to the project root: a "docs" directory nested inside real source is
-	// somebody else's, and a bare gitignore "docs/" would have swallowed it too.
 	if ic.IsIgnored("internal/x/docs/nota.md", false) {
 		t.Error("a nested docs/ directory was excluded — the pattern is not anchored")
 	}
-	// dirOnly: a *file* called docs is not the docs tree.
 	if ic.IsIgnored("docs", false) {
 		t.Error("a file named docs was excluded as if it were the directory")
 	}

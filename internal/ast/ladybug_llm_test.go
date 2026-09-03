@@ -76,12 +76,6 @@ func TestLadybugLLMExtension(t *testing.T) {
 	}
 	t.Log("llm extension loaded")
 
-	// CREATE_EMBEDDING is a scalar function, not a table function ("CALL" is
-	// rejected by the binder), so it is invoked in a RETURN expression.
-	//
-	// Under-specified first, on purpose: the error enumerates what the function
-	// demands, which is what distinguishes a locally executed model from a call to
-	// a hosted provider.
 	probes := []string{
 		"RETURN CREATE_EMBEDDING('hello world')",
 		"RETURN CREATE_EMBEDDING('hello world', 'open-ai', 'text-embedding-3-small')",

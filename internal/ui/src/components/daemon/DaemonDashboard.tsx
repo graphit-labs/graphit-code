@@ -9,9 +9,6 @@ export default function DaemonDashboard() {
   const [stopping, setStopping] = useState(false)
   const [copiedKey, setCopiedKey] = useState(false)
 
-  // Pointing an external MCP client at this daemon needs the endpoint AND the bearer key, and the
-  // key lives in a 0600 file in the global directory that a browser cannot read. Copying it is the
-  // whole reason it is served.
   const copyMcpKey = async () => {
     if (!status?.mcp_key) return
     try {
@@ -263,9 +260,9 @@ export default function DaemonDashboard() {
             </div>
           </div>
 
-          {/* The endpoint and key above are only useful if you know what to do with them. Anyone
-              landing on this page is one copy away from wiring up an agent, and saying so here is
-              cheaper than hoping they find the guide. */}
+          {
+
+}
           {status?.mcp_endpoint && (
             <div className="glass-panel p-5 rounded-2xl space-y-3">
               <div className="flex items-center gap-2">
@@ -304,9 +301,6 @@ export default function DaemonDashboard() {
   )
 }
 
-// maskKey shows enough of the key to tell two daemons apart and no more. The full value goes to
-// the clipboard, never to the screen: a bearer token rendered in full is one screen-share away
-// from being someone else's.
 function maskKey(key: string): string {
   if (key.length <= 12) return '••••••••'
   return `${key.slice(0, 6)}…${key.slice(-4)}`

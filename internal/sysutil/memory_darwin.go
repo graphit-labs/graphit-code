@@ -12,6 +12,4 @@ func physicalMemoryBytes() uint64 {
 	return v
 }
 
-// cgroupMemoryLimitBytes has no macOS equivalent; container limits on macOS are
-// enforced inside the Linux VM, where the linux build applies.
 func cgroupMemoryLimitBytes() uint64 { return 0 }

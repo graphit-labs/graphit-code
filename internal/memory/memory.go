@@ -88,19 +88,6 @@ func newMemorySvcInternal(scope MemoryScope, scopeID string, store *MemoryStore)
 	return svc
 }
 
-// localScope is the (scope, scopeID) pair a scope's LOCAL artifacts are named from — both its wiki
-// and its table directory.
-//
-// An imported context names both halves after itself, while the project and user scopes use their
-// scope word and their id. That doubling is what lets AllContextDirs recognise a context by its
-// directory name alone, rather than by matching the names of the other two scopes.
-//
-// 🔒 THE WIKI USED TO BE NAMED FROM `string(scope)` INSTEAD, and for a context that is the literal
-// word "context" — so a service built by NewMemoryServiceForContext compiled into
-// `wiki/memory/context/<name>` while every reader of a context's memories looked in
-// `wiki/memory/<name>/<name>`: the UI's picker, `SyncContextFromMemoryRepo`, and the removal path
-// that deletes a context. Compiling through the service therefore produced a wiki nothing opened,
-// and left an empty `wiki/memory/context/` directory behind as the only sign of it.
 func localScope(scope MemoryScope, scopeID string) (string, string) {
 	if scope == MemoryScopeContext {
 		return scopeID, scopeID
@@ -108,12 +95,6 @@ func localScope(scope MemoryScope, scopeID string) (string, string) {
 	return string(scope), scopeID
 }
 
-// openTable opens this scope's store for one operation.
-//
-// Per operation rather than held on the service, matching what OpenScopeLocal did: a write is a
-// short transaction against object storage, and a long-lived handle would pin a dataset version for
-// the life of the process — which is what makes a reader answer from a snapshot taken before every
-// write it is about to be asked about.
 func (m *MemoryService) openTable(ctx context.Context) (*MemoryTable, error) {
 	uri := m.resolveTableURI()
 	if uri == "" {
@@ -122,14 +103,6 @@ func (m *MemoryService) openTable(ctx context.Context) (*MemoryTable, error) {
 	return OpenMemoryTable(ctx, uri)
 }
 
-// resolveTableURI is the scope's store location, derived when the field is not set.
-//
-// The field is an OVERRIDE, not a cache: it exists so a test can point a scope at a temporary
-// directory instead of the machine's real store. Deriving when it is empty is not a fallback in the
-// sense this project forbids — there is one location for a scope and this computes it from the same
-// two inputs the constructor uses. What it removes is the possibility of a service that was built
-// without going through the constructor answering "not configured" about a scope that is perfectly
-// well defined.
 func (m *MemoryService) resolveTableURI() string {
 	if m.tableURI != "" {
 		return m.tableURI
@@ -140,17 +113,6 @@ func (m *MemoryService) resolveTableURI() string {
 	return MemoryTableURI(m.ScopePrefix(), TableDirFor(localScope(m.scope, m.scopeID)))
 }
 
-// putMarkdown writes content that one of the content transforms produced.
-//
-// 🔒 THE MARKDOWN IS A TRANSIT FORMAT HERE, NOT A FILE. Nothing is written to disk: the four content
-// transforms — buildMemoryFile, updatedMemoryContent, archivedRevisionContent, withImportantFlag —
-// keep operating on text, and this converts their output into the row that is actually stored.
-//
-// Keeping them is deliberate. They carry the revision, previous/next and classification bookkeeping
-// that a data-loss bug was once found in, and recordFromMarkdown enforces the guard that came out of
-// it: a frontmatter that does not parse is REFUSED rather than re-rendered from an empty struct.
-// Rewriting all four to operate on MemoryRecord directly is the cleaner end state and belongs in a
-// slice of its own, with tests, not in the one that moves the storage.
 func (m *MemoryService) putMarkdown(ctx context.Context, tbl *MemoryTable, rel, content string) error {
 	rec, ok := recordFromMarkdown(rel, []byte(content))
 	if !ok {
@@ -159,7 +121,6 @@ func (m *MemoryService) putMarkdown(ctx context.Context, tbl *MemoryTable, rel, 
 	return tbl.Put(ctx, rec)
 }
 
-// readMarkdown renders a stored record back into the text the content transforms expect.
 func (m *MemoryService) readMarkdown(ctx context.Context, tbl *MemoryTable, key string) (string, bool, error) {
 	rec, ok, err := tbl.Get(ctx, key)
 	if err != nil || !ok {
@@ -198,14 +159,6 @@ func (m *MemoryService) EnsureInitialised() error {
 	return nil
 }
 
-// ensureWikiDir makes sure the scope's wiki directory exists, so a reader that opens
-// it before anything has been compiled finds an empty wiki rather than a missing
-// path.
-//
-// This replaces ensureProjectCopy, which pushed the compiled wiki into a replica
-// inside whichever project the working directory happened to name — one project, on a
-// best guess, with the rest left to a daemon fan-out. There is one wiki now and it is
-// read where it is written.
 func (m *MemoryService) ensureWikiDir() {
 	if m.wikiDir == "" {
 		return
@@ -293,9 +246,6 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		return fmt.Errorf("memory %q not found", id)
 	}
 
-	// Archive the version being replaced BEFORE overwriting it, and point the new one at the
-	// archive. This is the history the git repository used to carry: object storage has no commit
-	// to hang it on, so the chain lives in the memory itself.
 	archived, err := m.archiveRevision(ctx, tbl, id, data, relPath)
 	if err != nil {
 		return err
@@ -339,12 +289,6 @@ func (m *MemoryService) RemoveMemory(id string) error {
 		return fmt.Errorf("memory %q not found", id)
 	}
 
-	// Archive the version being deleted, so the trail survives the deletion — which is what the
-	// git repository did, where a removed file stayed reachable in history.
-	//
-	// Nothing points AT the archive afterwards: the memory that would have carried the `previous`
-	// field is the one being removed. So a deleted memory's chain is found by its id, through
-	// MemoryTable.Revisions, not by following a pointer.
 	m.archiveBeforeDelete(ctx, tbl, id)
 
 	if err := tbl.Delete(ctx, id); err != nil {
@@ -357,13 +301,6 @@ func (m *MemoryService) RemoveMemory(id string) error {
 	return nil
 }
 
-// archiveBeforeDelete copies the memory file into the history directory. A failure is logged
-// and not returned: losing the archive is bad, and refusing to delete a memory the user asked
-// to delete is worse.
-//
-// The archive's `next` is left empty, because nothing replaced this revision — the chain ends
-// here, and its head is gone. That is what tells a later reader the difference between a
-// superseded revision and the last state of a deleted memory.
 func (m *MemoryService) archiveBeforeDelete(ctx context.Context, tbl *MemoryTable, id string) {
 	data, ok, err := m.readMarkdown(ctx, tbl, id)
 	if err != nil || !ok {
@@ -374,18 +311,10 @@ func (m *MemoryService) archiveBeforeDelete(ctx context.Context, tbl *MemoryTabl
 	}
 }
 
-// archiveRevision writes one superseded revision into the chain and returns its path.
-//
-// nextPath is what replaced this revision: the live memory's file name on an update, empty on a
-// delete. The archive that was previously the newest is repointed forward at this one, which is
-// what keeps the chain walkable in both directions rather than only backwards.
 func (m *MemoryService) archiveRevision(ctx context.Context, tbl *MemoryTable, id, content, nextPath string) (string, error) {
 	revisionID := NewRevisionID()
 	archived := HistoryPath(id, revisionID)
 
-	// The path is passed as the record's `rel`, which is what makes recordFromMarkdown mark the row
-	// superseded and recover its revision id — the same derivation the migration used, so a native
-	// archive and a migrated one are indistinguishable rows.
 	if err := m.putMarkdown(ctx, tbl, archived, archivedRevisionContent(id, content, revisionID, nextPath)); err != nil {
 		return "", fmt.Errorf("archiving the previous revision: %w", err)
 	}
@@ -394,18 +323,6 @@ func (m *MemoryService) archiveRevision(ctx context.Context, tbl *MemoryTable, i
 	return archived, nil
 }
 
-// repointArchiveNext moves an older archive's forward pointer onto the revision that now follows
-// it.
-//
-// A failure is logged and swallowed on purpose: the chain degrades to what it was before `next`
-// existed — walkable backwards, and with the head still named by every archive's `id` — which is
-// not worth failing a write the caller asked for.
-// repointArchiveNext moves an older archive's forward pointer onto the revision that now follows it.
-//
-// `archiveRel` is a `history/<id>/<rev>.md` PATH, because that is what `previous` holds — in the 84
-// migrated records that already carry one and in every archive written since. The path is an
-// IDENTIFIER now rather than a location: the row key it names is derived from it, which is why the
-// values were carried across the migration verbatim instead of being rewritten.
 func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable, archiveRel, nextPath string) {
 	if archiveRel == "" {
 		return
@@ -420,7 +337,6 @@ func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable
 	}
 	fm, parsed := ParseMemoryFrontmatterOK(data)
 	if !parsed {
-		// SAFETY: a forward pointer is not worth the classification of the revision it is on.
 		m.log().Warn("archive frontmatter unreadable; leaving it alone", "archive", archiveRel)
 		return
 	}
@@ -437,11 +353,6 @@ func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable
 	}
 }
 
-// archiveKeyFromPath turns a `history/<id>/<rev>.md` path into the row key that holds it.
-//
-// It mirrors MemoryRecord.Key for an archived revision, and it uses the SAME two derivations the
-// migration used — the chain id from the directory, the revision id from the file name — so a
-// pointer written before the store was a table still resolves.
 func archiveKeyFromPath(archiveRel string) string {
 	id := chainIDFromHistoryPath(archiveRel)
 	rev := RevisionIDFromHistoryPath(archiveRel)
@@ -496,9 +407,6 @@ func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 		return fmt.Errorf("memory %q not found", id)
 	}
 
-	// No revision is archived: importance is not a content change. The early return matters for the
-	// same reason — a no-op promote must not produce a write, or every idempotent call would add a
-	// dataset version to a store whose version history is the recovery path D2 accepted.
 	fm, parsed := ParseMemoryFrontmatterOK(data)
 	if !parsed {
 		return fmt.Errorf("refusing to change %s of %q: its frontmatter did not parse", field, id)
@@ -536,17 +444,6 @@ func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 	return nil
 }
 
-// ListMemories is the catalogue of what this scope knows: its LIVE memories, never the archived
-// revisions of them.
-//
-// It reads the store rather than the compiled wiki, which is what makes it the read that cannot be
-// behind: a memory written a moment ago is here before search can see it, and that difference is
-// documented in the memory protocol as the reason to list when confirming a write.
-//
-// The id no longer needs recovering. It used to be taken from the file name and then corrected from
-// the file's own frontmatter — `MemoryIDFor(data, name)` — because a name could disagree with what
-// the memory declared, and that disagreement is what forked 184 memories into twins. A row has one
-// id and it is the declared one.
 func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
 	ctx := context.Background()
 	tbl, err := m.openTable(ctx)
@@ -600,19 +497,11 @@ func (m *MemoryService) SyncWiki() error {
 	return nil
 }
 
-// syncWikiAfterWrite keeps the write paths explicit about the derived work they trigger.
 func (m *MemoryService) syncWikiAfterWrite() error {
 	return m.SyncWiki()
 }
 
 func (m *MemoryService) IndexMemories(ctx context.Context) error {
-	// THE REPAIR PASS IS GONE, and it is gone because the defect it healed cannot happen.
-	//
-	// It folded twin memories — 184 of them — that a write path had forked by recovering an id from
-	// a FILE NAME. A row is keyed by the id the memory declares, so two twins collapse into one row
-	// on upsert and there is nothing left to fold. It ran on every index because the twins lived in
-	// the shared bucket and each clone had to heal itself; a defect that cannot be expressed needs
-	// no funnel.
 	tbl, err := m.openTable(ctx)
 	if err != nil {
 		return err
@@ -674,9 +563,6 @@ type MemoryFrontmatter struct {
 	CreatedAt string `yaml:"created_at,omitempty"`
 	UpdatedAt string `yaml:"updated_at"`
 
-	// Revision counts the writes this memory has had, starting at 1. It is the history the git
-	// repository used to carry, moved in-band: object storage has no commit to hang it on, and a
-	// memory that cannot say whether it was edited is a memory you cannot trust twice.
 	Revision int `yaml:"revision"`
 
 	// UpdatedBy is the unit that made the last write. It replaces the git author, and it is why
@@ -695,12 +581,6 @@ type MemoryFrontmatter struct {
 	// A live memory has no Next, and that absence is its definition: it is the head of its chain.
 	Next string `yaml:"next,omitempty"`
 
-	// RevisionID is an archived revision's own address — the stem of its file under
-	// `history/<id>/`. It is empty on a live memory, which is addressed by ID.
-	//
-	// ID stays the CHAIN id on an archive, deliberately: it is what lets a search hit on an old
-	// revision name the current one without walking anything, and what lets two hits from the
-	// same chain be recognised as one memory.
 	RevisionID string `yaml:"revision_id,omitempty"`
 
 	Tags []string `yaml:"tags,flow"`
@@ -725,19 +605,6 @@ func ParseMemoryFrontmatter(content string) MemoryFrontmatter {
 	return fm
 }
 
-// ParseMemoryFrontmatterOK is ParseMemoryFrontmatter with the outcome reported.
-//
-// A false return is a memory whose classification could not be read AT ALL — not a memory with
-// missing fields. Any caller that intends to WRITE the file back must check it, because
-// re-rendering from a failed parse replaces a full frontmatter with an empty one, and the file
-// stays valid markdown while its type, importance, tags and timestamps are gone.
-//
-// The recovering pass exists because that failure is not hypothetical. A title is a free-text
-// sentence, and a sentence containing `: ` is not valid YAML unless it is quoted — so every memory
-// whose title reads like "Telemetria do Hub: eventos vão para refs/events/*" was unreadable, and
-// silently so: measured at 47 files in this repository's own project scope. Writes go through
-// yaml.Marshal and are quoted correctly, so this recovers legacy files rather than excusing new
-// ones.
 func ParseMemoryFrontmatterOK(content string) (MemoryFrontmatter, bool) {
 	block, ok := wiki.FrontmatterBlock(content)
 	if !ok {
@@ -756,8 +623,6 @@ func ParseMemoryFrontmatterOK(content string) (MemoryFrontmatter, bool) {
 	return MemoryFrontmatter{}, false
 }
 
-// frontmatterScalarKeys are the frontmatter keys whose value is a free-text scalar, and therefore
-// the keys whose value can break the block by containing a colon.
 var frontmatterScalarKeys = map[string]bool{
 	"title": true, "scope": true, "scope_id": true, "project_id": true,
 	"type": true, "created_at": true, "updated_at": true,
@@ -790,8 +655,6 @@ func quoteUnquotedScalars(block string) string {
 	return strings.Join(lines, "\n")
 }
 
-// memoryUpdate is the input to updatedMemoryContent. Empty NewTitle, NewBody and
-// NewType each mean "leave that alone".
 type memoryUpdate struct {
 	ID       string
 	Scope    string
@@ -805,16 +668,6 @@ type memoryUpdate struct {
 	Previous string
 }
 
-// updatedMemoryContent computes the file content for an update, preserving every
-// classification field the memory already had.
-//
-// It is a pure function so the preservation rule is testable without a git store.
-// That matters because the rule was silently broken: the update path rebuilt the
-// frontmatter from the handful of fields its author remembered — id, title, scope,
-// scope_id, created_at, updated_at and a hardcoded `tags: [memory]` — which dropped
-// type, importance, project_id and every user tag. An important `correction` tagged
-// `auth,security` became an untyped, untagged memory on its first edit, and nothing
-// reported it, because the result was still a valid file with the right body.
 func updatedMemoryContent(oldContent string, u memoryUpdate) string {
 	fm, parsed := ParseMemoryFrontmatterOK(oldContent)
 	// SAFETY: an unreadable frontmatter must not be replaced by an empty one. The title is the one
@@ -825,19 +678,13 @@ func updatedMemoryContent(oldContent string, u memoryUpdate) string {
 	fm.ID = u.ID
 	fm.Scope = u.Scope
 	fm.ScopeID = u.ScopeID
-	// Overwritten deliberately: this is the one timestamp an update owns.
 	fm.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	// The chain. A memory with no revision recorded is treated as revision 1, so the first edit
-	// of one written before this existed becomes revision 2 rather than restarting the count.
 	if fm.Revision < 1 {
 		fm.Revision = 1
 	}
 	fm.Revision++
 	fm.Previous = u.Previous
 	fm.UpdatedBy = unitOrEmpty()
-	// The result of an update is always the head of its chain, so it carries neither of the two
-	// fields that mark a superseded revision. Clearing them matters when the source content came
-	// from an archive — a repair promoting an orphaned revision back to being the live memory.
 	fm.Next = ""
 	fm.RevisionID = ""
 
@@ -845,8 +692,6 @@ func updatedMemoryContent(oldContent string, u memoryUpdate) string {
 		fm.Title = u.NewTitle
 	}
 	if u.NewType != "" && ValidMemoryType(u.NewType) && u.NewType != fm.Type {
-		// Keep the tag list consistent with the type it describes, otherwise a
-		// reclassified memory stays searchable under the old one.
 		fm.Tags = replaceTypeTag(fm.Tags, fm.Type, u.NewType)
 		fm.Type = u.NewType
 	}
@@ -859,28 +704,17 @@ func updatedMemoryContent(oldContent string, u memoryUpdate) string {
 
 	body := u.NewBody
 	if body == "" {
-		// An update that passes no body is changing the title. Erasing the body
-		// because it was not restated is not what any caller means.
 		body = extractBodyAfterFrontmatter(oldContent)
 	}
 
 	return renderMemoryFile(fm, body)
 }
 
-// archivedRevisionContent turns a live memory's content into the archived revision of it,
-// preserving every classification field and adding the two that only an archive has.
-//
-// It is a pure function for the same reason updatedMemoryContent is: the preservation rule is
-// the part that breaks silently, and it has to be testable without a store.
 func archivedRevisionContent(chainID, content, revisionID, nextPath string) string {
 	fm, parsed := ParseMemoryFrontmatterOK(content)
 	if !parsed {
 		fm.Title = firstH1(content)
 	}
-	// The chain id is imposed rather than inherited. On a normal update the two already agree, but
-	// the repair path archives content whose declared id is the corrupted one it was forked
-	// under — and carrying that into the archive would put a revision in the chain that does not
-	// name the chain.
 	if chainID != "" {
 		fm.ID = chainID
 	}
@@ -899,16 +733,12 @@ func archivedRevisionContent(chainID, content, revisionID, nextPath string) stri
 func withImportantFlag(content string, important bool) string {
 	fm, parsed := ParseMemoryFrontmatterOK(content)
 	if !parsed {
-		// SAFETY: promotion is a one-field change. Re-rendering from a failed parse would trade
-		// the whole classification for it, so the change is refused instead.
 		return content
 	}
 	fm.Important = important
 	return renderMemoryFile(fm, extractBodyAfterFrontmatter(content))
 }
 
-// withMandatoryFlag is the mandatory-state counterpart of withImportantFlag. The two fields are
-// independent: making a memory unconditional does not silently alter its importance ranking.
 func withMandatoryFlag(content string, mandatory bool) string {
 	fm, parsed := ParseMemoryFrontmatterOK(content)
 	if !parsed {
@@ -918,7 +748,6 @@ func withMandatoryFlag(content string, mandatory bool) string {
 	return renderMemoryFile(fm, extractBodyAfterFrontmatter(content))
 }
 
-// firstH1 recovers a title from the body of a memory whose frontmatter cannot be read.
 func firstH1(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "# ") {
@@ -928,8 +757,6 @@ func firstH1(content string) string {
 	return ""
 }
 
-// replaceTypeTag swaps the tag that mirrors the memory type, leaving every other
-// tag — including the user's own — untouched.
 func replaceTypeTag(tags []string, oldType, newType string) []string {
 	out := make([]string, 0, len(tags)+1)
 	replaced := false
@@ -950,9 +777,6 @@ func replaceTypeTag(tags []string, oldType, newType string) []string {
 	return out
 }
 
-// renderMemoryFile writes a memory file from its frontmatter and body. It is the
-// single place the on-disk shape is defined, so add and update cannot disagree
-// about which fields a memory has.
 func renderMemoryFile(fm MemoryFrontmatter, body string) string {
 	if fm.UpdatedAt == "" {
 		fm.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -983,11 +807,6 @@ func renderMemoryFile(fm MemoryFrontmatter, body string) string {
 	return b.String()
 }
 
-// sameMemoryBody compares two memories by BODY only, ignoring their frontmatter.
-//
-// It survived the retirement of repair.go because the question it answers is not about repair: two
-// revisions of one memory differ in their frontmatter on every write — revision, updated_at,
-// previous — so "did the text actually change" needs the frontmatter excluded.
 func sameMemoryBody(a, b string) bool {
 	return strings.TrimSpace(extractBodyAfterFrontmatter(a)) ==
 		strings.TrimSpace(extractBodyAfterFrontmatter(b))

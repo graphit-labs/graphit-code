@@ -31,16 +31,11 @@ func TestSearchOrderIsDeterministic(t *testing.T) {
 	corpus := prefixCorpus()
 	queries := []string{"valid", "config", "conf", "database", "schema"}
 
-	// Independent indexes over the same corpus. Each gets its own ShardCache, whose
-	// map iteration order differs, which is what reproduces the cross-run flip
-	// inside a single test.
 	assertStableAcrossRebuilds(t, corpus, queries, func(si *SearchIndex, q string) ([]SearchResult, error) {
 		return si.Search(context.Background(), q, 10)
 	})
 }
 
-// assertStableAcrossRebuilds builds the same corpus repeatedly and requires each
-// query's result order to be identical every time.
 func assertStableAcrossRebuilds(t *testing.T, corpus []gateEntity, queries []string,
 	search func(*SearchIndex, string) ([]SearchResult, error)) {
 	t.Helper()
@@ -87,8 +82,6 @@ func assertStableAcrossRebuilds(t *testing.T, corpus []gateEntity, queries []str
 // TestHybridSearchOrderIsDeterministic covers the same defect on the hybrid path,
 // which builds its ranking with the identical map-then-sort.Slice shape.
 func TestHybridSearchOrderIsDeterministic(t *testing.T) {
-	// Rebuilds, not repeated calls on one index: repeated calls agree even with the
-	// defect present, so that form of the test passed vacuously.
 	assertStableAcrossRebuilds(t, prefixCorpus(), []string{"valid", "config", "database"},
 		func(si *SearchIndex, q string) ([]SearchResult, error) {
 			return si.HybridSearch(context.Background(), q, nil, 10)

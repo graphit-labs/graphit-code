@@ -8,16 +8,6 @@ import (
 	"time"
 )
 
-// MemoryWriter is the subset of MemoryService that applying a consolidation plan
-// needs. Every mutation goes through it rather than through the store directly, so each
-// change is recorded and the wiki is recompiled — a plan applied by writing storage
-// directly leaves the search index describing a store that no longer exists.
-//
-// 🔒 IT READS THE STORE, IT DOES NOT NAME A DIRECTORY. `LocalDir() string` used to be the first
-// method here, and ApplyConsolidation loaded the plan's starting state by enumerating the markdown
-// files in it. When the raw store was retired that directory kept existing as a name and stopped
-// having files, so every action was refused with "memory no longer exists" — a plan that applied
-// nothing, reported as a clean run. The same failure RunConsolidation had, one layer down.
 type MemoryWriter interface {
 	// LiveMemories is the scope's live records, which is what the plan is verified against.
 	LiveMemories(ctx context.Context) ([]MemoryRecord, error)
@@ -73,9 +63,6 @@ func (o *ConsolidationOutcome) Markdown() string {
 		b.WriteString("> The analysis step failed, so only deterministic checks ran.\n\n")
 	}
 
-	// Stated even when actions were found: "three duplicates resolved" and "the pass
-	// could not see across its own batches" are both true, and dropping the second
-	// makes the first read as completeness.
 	if o.CoverageNote != "" {
 		_, _ = fmt.Fprintf(&b, "> %s\n\n", o.CoverageNote)
 	}
@@ -126,10 +113,6 @@ func sanitiseCell(s string) string {
 	return s
 }
 
-// typePriority orders memory types from most to least specific. When a merge
-// group disagrees about type, the most specific one survives: a `correction`
-// folded together with a `fact` is still a correction, and demoting it to fact
-// loses the reason it exists.
 var typePriority = map[string]int{
 	string(MemoryTypeCorrection): 6,
 	string(MemoryTypeConvention): 5,
@@ -187,8 +170,6 @@ func ApplyConsolidation(ctx context.Context, scope string, report *Consolidation
 	return outcome, nil
 }
 
-// applyState is the store as it actually is, refreshed as actions mutate it, so a
-// later action cannot operate on a memory an earlier one removed.
 type applyState struct {
 	present map[string]memorySnapshot
 }
@@ -229,11 +210,6 @@ func (s *applyState) setMandatory(id string, mandatory bool) {
 
 func (s *applyState) count() int { return len(s.present) }
 
-// applyGroupAction folds a duplicate group or resolves a contradiction.
-//
-// The order is: write the survivor first, then remove the others. Reversed, a
-// failure between the two steps loses the content permanently; this way the worst
-// case is a duplicate that survives to the next cycle.
 func applyGroupAction(action ConsolidationAction, state *applyState, w MemoryWriter, outcome *ConsolidationOutcome) {
 	members := make([]memorySnapshot, 0, len(action.MemoryIDs))
 	for _, id := range action.MemoryIDs {
@@ -258,10 +234,6 @@ func applyGroupAction(action ConsolidationAction, state *applyState, w MemoryWri
 
 	body := action.NewContent
 	if body == "" {
-		// The analysis did not supply merged content. Build it by preserving every
-		// member verbatim rather than skipping the action: the point of the merge
-		// is one memory instead of several, and prose that summarises away a
-		// detail is worse than a longer memory that keeps it.
 		body = buildUnionBody(members, keepID, action.Type, action.Reason)
 	}
 	if strings.TrimSpace(body) == "" {
@@ -281,9 +253,6 @@ func applyGroupAction(action ConsolidationAction, state *applyState, w MemoryWri
 		}
 	}
 
-	// The survivor inherits the most specific type in the group. Folding a
-	// correction into a fact and keeping "fact" would drop the very thing that
-	// makes the memory load-bearing.
 	if err := w.UpdateMemoryTyped(keepID, title, body, resolveSurvivingType(members)); err != nil {
 		outcome.Failed = append(outcome.Failed, AppliedAction{
 			Type: action.Type, Kept: keepID, Reason: action.Reason,
@@ -292,9 +261,6 @@ func applyGroupAction(action ConsolidationAction, state *applyState, w MemoryWri
 		return
 	}
 
-	// Importance is a property of the group, not of whichever member the analysis
-	// happened to pick. If any of them mattered enough to be marked important, the
-	// memory that replaces them all inherits that.
 	anyImportant := false
 	for _, m := range members {
 		if m.Important {
@@ -363,8 +329,6 @@ func applyGroupAction(action ConsolidationAction, state *applyState, w MemoryWri
 	})
 }
 
-// buildUnionBody concatenates every member's content under a provenance heading.
-// Nothing is paraphrased, so nothing can be lost.
 func buildUnionBody(members []memorySnapshot, keepID, actionType, reason string) string {
 	ordered := make([]memorySnapshot, len(members))
 	copy(ordered, members)
@@ -456,9 +420,6 @@ func applyUpdate(action ConsolidationAction, state *applyState, w MemoryWriter, 
 		return
 	}
 
-	// A stale flag is a prompt to re-read, not a rewrite. Without replacement
-	// content there is nothing to apply, and inventing some would be worse than
-	// leaving the memory as it is.
 	if strings.TrimSpace(action.NewContent) == "" && strings.TrimSpace(action.NewTitle) == "" {
 		outcome.Skipped = append(outcome.Skipped, AppliedAction{
 			Type: action.Type, Kept: id, Title: snap.Title, Reason: action.Reason,
@@ -478,8 +439,6 @@ func applyUpdate(action ConsolidationAction, state *applyState, w MemoryWriter, 
 	})
 }
 
-// applyDelete is the only path that destroys knowledge without carrying it
-// forward, so it is the most constrained.
 func applyDelete(action ConsolidationAction, state *applyState, w MemoryWriter, outcome *ConsolidationOutcome) {
 	id := action.KeepID
 	snap, ok := state.get(id)
@@ -530,9 +489,6 @@ func applyDelete(action ConsolidationAction, state *applyState, w MemoryWriter, 
 	})
 }
 
-// resolveSurvivingType picks the type a merged memory should keep: the most
-// specific one present in the group. Returns empty when no member is typed, which
-// UpdateMemoryTyped reads as "leave the existing type alone".
 func resolveSurvivingType(members []memorySnapshot) string {
 	best := ""
 	bestScore := 0

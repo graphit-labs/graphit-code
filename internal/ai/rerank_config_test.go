@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// The "local" / "" branch is NewCrossEncoderReranker's existing download-on-demand behavior,
-// already covered by rerank_test.go; it is deliberately not re-exercised here to avoid a network
-// dependency in this package's unit tests.
-
 func TestNewRerankerFromConfig_UnknownProviderIsAnError(t *testing.T) {
 	t.Setenv("GRAPHIT_AI_RERANK_PROVIDER", "not-a-real-provider")
 	_, err := NewRerankerFromConfig(context.Background())

@@ -5,16 +5,7 @@ import (
 	"testing"
 )
 
-// A Comment's `name` IS the comment text, and entityUID used to build the uid by
-// concatenating it after the path. Two comments with byte-for-byte identical text —
-// a repeated license header is the common real case — collapsed onto the same uid,
-// which the (uid, label) dedup in ConvertToCache then treats as one entity matched
-// twice, silently dropping the second occurrence as a distinct node.
 func TestContentNamedEntitiesGetDistinctUIDsEvenWithIdenticalText(t *testing.T) {
-	// Not t.Parallel(): stageGrammar mutates a shared extension-table map keyed by
-	// ".go", and this package has more than one test staging that same grammar —
-	// running two of them in parallel races on that map. Pre-existing fragility in
-	// the test helper, not something to work around per-test by hand here.
 	pd := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
 	pf := parseFixture(t, pd, "main.go", `package main
 
@@ -54,7 +45,6 @@ func b() {}
 // key, a Cypher literal, and a Go map key downstream, none of which should scale with
 // source text size.
 func TestContentNamedEntityUIDDoesNotScaleWithContentLength(t *testing.T) {
-	// Not t.Parallel() — see the comment in TestContentNamedEntitiesGetDistinctUIDsEvenWithIdenticalText.
 	longComment := "// " + strings.Repeat("this line explains something at length. ", 60)
 	pd := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
 	pf := parseFixture(t, pd, "main.go", longComment+`

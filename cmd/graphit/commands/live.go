@@ -20,18 +20,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// `graphit live` is a second front end onto the same session runtime the web UI
-// uses, not a second implementation of it.
-//
-// It runs the manager in this process rather than talking to a server over SSE. A
-// server is a thing to start, a port to find and a process to leave running; a
-// question asked from a terminal should not require any of that. What the two front
-// ends share is everything that decides behaviour — the session, its event log, the
-// ephemeral project, the agent invocation — so an answer here and an answer in the
-// browser are the same answer.
-//
-// The old `wiki search` command is untouched and still does what it did.
-
 func newLiveCmd() *cobra.Command {
 	var (
 		artifacts []string
@@ -115,13 +103,6 @@ type liveOptions struct {
 	verbose   bool
 }
 
-// parseArtifactSpec reads one -a value.
-//
-// The version is split on the first "@" and not the last, which is the rule
-// hub.Install applies to the string this is reassembled into. An artifact ID may
-// legally contain "@", so neither rule is right for every input — but agreeing with
-// the installer means the artifact this command reports is the artifact that gets
-// installed, which is the property worth having.
 func parseArtifactSpec(spec string) (livesearch.Artifact, error) {
 	raw := strings.TrimSpace(spec)
 	if raw == "" {
@@ -129,7 +110,6 @@ func parseArtifactSpec(spec string) (livesearch.Artifact, error) {
 	}
 
 	var artType string
-	// A type prefix is unambiguous because an artifact ID cannot contain a colon.
 	if prefix, rest, found := strings.Cut(raw, ":"); found {
 		artType, raw = prefix, rest
 		if !validArtifactType(artType) {
@@ -193,8 +173,6 @@ func runLive(ctx context.Context, opts liveOptions) error {
 	}
 
 	mgr := livesearch.NewManagerFromConfig("", prep.Prepare)
-	// Closed, not removed. The session's transcript outlives this command so it can
-	// be read again from the web UI; deleting it is something the user asks for.
 	defer mgr.CloseAll()
 
 	session, err := mgr.Create(livesearch.Options{
@@ -214,19 +192,11 @@ func runLive(ctx context.Context, opts liveOptions) error {
 	events, stop := session.Subscribe(0)
 	defer stop()
 
-	// This command owns Ctrl-C, so it has to take it. The process installs a global
-	// handler that prints "Interrupted." and exits immediately, which is right for a
-	// command that either finishes or is abandoned — and wrong for this one, where
-	// the first Ctrl-C means "stop this answer" and the session is meant to survive
-	// it. Without the reset the process would die before the turn was cancelled, and
-	// the behaviour promised in --help would never happen.
 	signal.Reset(os.Interrupt)
 	interrupts := make(chan os.Signal, 2)
 	signal.Notify(interrupts, os.Interrupt)
 	defer signal.Stop(interrupts)
 
-	// One question: stream it and leave. The turn was dispatched by the session
-	// itself once the workspace was ready, so nothing has to be sent here.
 	if opts.question != "" {
 		return r.streamTurn(ctx, session, events, interrupts)
 	}
@@ -237,19 +207,14 @@ func runLive(ctx context.Context, opts liveOptions) error {
 	return r.converse(ctx, session, events, interrupts, os.Stdin)
 }
 
-// liveRenderer turns session events into terminal output.
 type liveRenderer struct {
 	out     io.Writer
 	p       *output.Printer
 	asJSON  bool
 	verbose bool
-	// midText records that the last thing written was a chunk of the answer, so a
-	// following message can start on its own line.
 	midText bool
 }
 
-// newLiveRenderer points the answer stream and the printed messages at the same
-// destination, which is what keeps them in order.
 func newLiveRenderer(out io.Writer, asJSON, verbose bool) *liveRenderer {
 	return &liveRenderer{
 		out:     out,
@@ -259,11 +224,8 @@ func newLiveRenderer(out io.Writer, asJSON, verbose bool) *liveRenderer {
 	}
 }
 
-// render writes one event. It reports whether the event ended a turn.
 func (r *liveRenderer) render(ev livesearch.Event) bool {
 	if r.asJSON {
-		// One event per line, exactly as it was recorded, so a script downstream
-		// sees what the log holds rather than a prettified summary of it.
 		if data, err := json.Marshal(ev); err == nil {
 			_, _ = fmt.Fprintf(r.out, "%s\n", data)
 		}
@@ -272,8 +234,6 @@ func (r *liveRenderer) render(ev livesearch.Event) bool {
 
 	switch ev.Kind {
 	case livesearch.KindText:
-		// Written raw and unbuffered: chunks concatenate into the answer, and any
-		// prefix or newline this added would be inside a sentence.
 		_, _ = fmt.Fprint(r.out, ev.Text)
 		r.midText = ev.Text != ""
 	case livesearch.KindPrep:
@@ -291,7 +251,6 @@ func (r *liveRenderer) render(ev livesearch.Event) bool {
 		r.breakText()
 		r.p.Step("%s %s", ev.Tool, firstLine(ev.Detail, 96))
 	case livesearch.KindToolResult:
-		// Tool output is large and mostly evidence for the answer that follows.
 		if r.verbose {
 			r.breakText()
 			r.p.Detail(ev.Tool, firstLine(ev.Detail, 96))
@@ -305,9 +264,6 @@ func (r *liveRenderer) render(ev livesearch.Event) bool {
 		r.breakText()
 		r.p.Error("%s", ev.Text)
 	case livesearch.KindState:
-		// Deliberately silent. A failure is always preceded by the error event that
-		// explains it, and the command's exit message says the run is over — a line
-		// here would repeat one of them.
 	case livesearch.KindTurnDone:
 		r.breakText()
 		return true
@@ -315,7 +271,6 @@ func (r *liveRenderer) render(ev livesearch.Event) bool {
 	return false
 }
 
-// breakText ends the answer's line before something else is printed.
 func (r *liveRenderer) breakText() {
 	if r.midText {
 		_, _ = fmt.Fprintln(r.out)
@@ -334,19 +289,10 @@ func firstLine(s string, max int) string {
 	return s
 }
 
-// errInterrupted reports that the user asked to stop while nothing was running.
 var errInterrupted = errors.New("interrupted")
 
-// errSessionFailed ends the command with a non-zero status without repeating the
-// reason.
-//
-// The reason was already streamed as an error event and printed the moment it
-// happened. Returning it again would print the same sentence twice, which reads like
-// two things went wrong.
 var errSessionFailed = errors.New("the session could not be prepared")
 
-// streamUntilReady shows preparation progress and returns when the session can take
-// a question.
 func (r *liveRenderer) streamUntilReady(ctx context.Context, s *livesearch.Session, events <-chan livesearch.Event, interrupts <-chan os.Signal) error {
 	for {
 		select {
@@ -371,11 +317,6 @@ func (r *liveRenderer) streamUntilReady(ctx context.Context, s *livesearch.Sessi
 	}
 }
 
-// streamTurn renders events until the turn ends.
-//
-// An interrupt cancels the turn and keeps reading, because cancelling produces the
-// events that say it was cancelled — returning immediately would leave the last thing
-// on screen looking like the agent stopped for no reason.
 func (r *liveRenderer) streamTurn(ctx context.Context, s *livesearch.Session, events <-chan livesearch.Event, interrupts <-chan os.Signal) error {
 	cancelled := false
 	for {
@@ -392,8 +333,6 @@ func (r *liveRenderer) streamTurn(ctx context.Context, s *livesearch.Session, ev
 			}
 		case <-interrupts:
 			if cancelled {
-				// Asked twice: stop waiting and let the deferred close tear the
-				// session down.
 				r.breakText()
 				return errInterrupted
 			}
@@ -408,7 +347,6 @@ func (r *liveRenderer) streamTurn(ctx context.Context, s *livesearch.Session, ev
 	}
 }
 
-// converse is the interactive loop: read a question, stream the answer, repeat.
 func (r *liveRenderer) converse(ctx context.Context, s *livesearch.Session, events <-chan livesearch.Event, interrupts <-chan os.Signal, in io.Reader) error {
 	lines := newLineReader(in)
 	defer lines.stop()
@@ -421,8 +359,6 @@ func (r *liveRenderer) converse(ctx context.Context, s *livesearch.Session, even
 		select {
 		case l, open := <-lines.lines:
 			if !open {
-				// End of input — a pipe closing or Ctrl-D. Leaving is the only
-				// sensible reading of it.
 				_, _ = fmt.Fprintln(r.out)
 				return nil
 			}
@@ -454,10 +390,6 @@ func (r *liveRenderer) converse(ctx context.Context, s *livesearch.Session, even
 	}
 }
 
-// lineReader reads lines in the background.
-//
-// A goroutine, because the loop has to wait on a keystroke and a signal at the same
-// time, and a blocking read cannot be selected on.
 type lineReader struct {
 	lines chan string
 	done  chan struct{}

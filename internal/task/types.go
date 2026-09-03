@@ -1,4 +1,3 @@
-// Package task owns the durable, shared work scheduler used by agents.
 package task
 
 import "time"

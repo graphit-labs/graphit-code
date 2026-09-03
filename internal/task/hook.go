@@ -74,10 +74,6 @@ func AgentIDFromHook(input []byte) string {
 // Reconcile repairs projections and expires stale claims. It is safe to call at
 // every supported lifecycle boundary and is idempotent when nothing changed.
 func (s *Service) Reconcile(ctx context.Context) error {
-	// Reconciliation is a repair reader, not an allocation decision. Task state
-	// transitions remain revision-CAS fenced and projections are merged by
-	// revision, so holding the global scheduler lease here only makes a killed
-	// hook block every following lifecycle boundary until the lease expires.
 	return s.withTables(ctx, func(t *tables) error {
 		if err := t.refresh(ctx); err != nil {
 			return err
@@ -91,9 +87,6 @@ func (s *Service) Reconcile(ctx context.Context) error {
 // fencing token returned by Claim.
 func (s *Service) HeartbeatOwned(ctx context.Context, actor string, lease time.Duration) error {
 	if actor == "" {
-		// A post-tool payload without a host identity cannot safely select an
-		// owner. Keep the deterministic scheduler/manifest boundary lightweight;
-		// session-start and explicit task operations perform full reconciliation.
 		return s.withLockFast(ctx, "hook", func(*tables) error { return nil })
 	}
 	if lease <= 0 {

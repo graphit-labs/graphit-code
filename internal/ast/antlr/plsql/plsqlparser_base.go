@@ -16,13 +16,10 @@ type PlSqlParserBase struct {
 	*antlr.BaseParser
 }
 
-// isVersion12 returns true, accepting Oracle 12c+ syntax.
 func (p *PlSqlParserBase) isVersion12() bool { return true }
 
-// isVersion11 returns true, accepting Oracle 11g syntax.
 func (p *PlSqlParserBase) isVersion11() bool { return true }
 
-// isVersion10 returns true, accepting Oracle 10g syntax.
 func (p *PlSqlParserBase) isVersion10() bool { return true }
 
 // IsNotNumericFunction returns false when the next token is a numeric aggregate
@@ -48,7 +45,6 @@ func (p *PlSqlParserBase) IsNotNumericFunction() bool {
 	return true
 }
 
-// isNotStartOfJoin returns false when the next token starts a join clause.
 func (p *PlSqlParserBase) isNotStartOfJoin() bool {
 	lt1 := p.GetTokenStream().LT(1)
 	if lt1 == nil {

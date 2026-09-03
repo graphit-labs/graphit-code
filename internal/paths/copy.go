@@ -127,11 +127,6 @@ func copyDirRecursive(source, dest string) error {
 	return copyDirRecursiveExcept(source, dest, nil)
 }
 
-// copyDirRecursiveExcept copies a tree, honouring the caller's skip rule.
-//
-// The rule has to be applied HERE and not only in the mirroring walks: a missing
-// destination takes this path instead, so an exclusion enforced only by the mirror
-// was silently ignored on the very first copy — which is the common case.
 func copyDirRecursiveExcept(source, dest string, skip func(rel string) bool) error {
 	return filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {

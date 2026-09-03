@@ -28,8 +28,6 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 
 	st := mountIcebug(t, dir)
 
-	// The truth comes from the CSR the tool wrote, so the comparison never depends on a query
-	// that might itself be affected.
 	ptr, err := readUint64Column(filepath.Join(dir, "indptr_demo_rel.parquet"), "ptr")
 	if err != nil {
 		t.Fatalf("reading indptr: %v", err)
@@ -41,7 +39,6 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 	totalEdges := int64(len(targets))
 	t.Logf("tool output: %d nodes, %d edges", len(ptr)-1, totalEdges)
 
-	// A node with several outgoing edges, taken from the CSR itself.
 	var probe uint64
 	var outDegree int64
 	for i := 0; i+1 < len(ptr); i++ {
@@ -80,16 +77,13 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 		t.Logf("[%s] %s\n    got=%d want=%d in %dms -> %s", defect, q, got, want, took.Milliseconds(), verdict)
 	}
 
-	// Baseline: the whole edge count, anchored nowhere. This is the form known to work.
 	got, took := ask("MATCH ()-[r:demo_rel]->() RETURN count(r) AS c")
 	report("baseline", "count(r), anonymous", got, totalEdges, took)
 
-	// DEFECT 1 — filtering the SOURCE side.
 	q1 := fmt.Sprintf("MATCH (a:demo)-[r:demo_rel]->(b:demo) WHERE a.id = %d RETURN count(*) AS c", probe)
 	got, took = ask(q1)
 	report("1 source-side filter", q1, got, outDegree, took)
 
-	// The same question anchored on the TARGET, for contrast: in-degree from the CSR.
 	var inDegree int64
 	for _, tgt := range targets {
 		if tgt == probe {
@@ -100,9 +94,6 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 	got, took = ask(q1b)
 	report("1 target-side filter (contrast)", q1b, got, inDegree, took)
 
-	// THE DISTINCTION THAT MATTERS: on this graph the filter column `id` IS the primary key, so
-	// both sides above may be defect 5 rather than a source/target asymmetry. `name` is a
-	// NON-key column, which separates the two.
 	nodeName := fmt.Sprintf("node_%d", probe)
 	q1c := fmt.Sprintf("MATCH (a:demo)-[r:demo_rel]->(b:demo) WHERE a.name = '%s' RETURN count(*) AS c", nodeName)
 	got, took = ask(q1c)
@@ -112,9 +103,6 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 	got, took = ask(q1d)
 	report("1 target-side filter on a NON-key column", q1d, got, inDegree, took)
 
-	// THE PRECISE SHAPE OF DEFECT 1: does a source-side filter break when it matches MORE THAN
-	// ONE node? On our own export the failing filter matched two nodes; here every name is
-	// unique, so the multi-match case has to be built.
 	second := probe + 1
 	if int(second)+1 >= len(ptr) {
 		second = probe - 1
@@ -133,12 +121,10 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 	got, took = ask(qSingle)
 	report("1 source-side filter matching ONE node", qSingle, got, outDegree, took)
 
-	// DEFECT 4 — count of a bound node variable.
 	q4 := "MATCH (a:demo)-[:demo_rel]->(b:demo) RETURN count(a) AS c"
 	got, took = ask(q4)
 	report("4 count(node variable)", q4, got, totalEdges, took)
 
-	// DEFECT 5 — equality against the primary key.
 	q5 := fmt.Sprintf("MATCH (n:demo) WHERE n.id = %d RETURN count(n) AS c", probe)
 	got, took = ask(q5)
 	report("5 primary-key equality", q5, got, 1, took)
@@ -148,15 +134,6 @@ func TestIcebugDefectsReproduceOnTheReferenceToolOutput(t *testing.T) {
 	report("5 primary key via IN (workaround)", q5b, got, 1, took)
 }
 
-// DEFECT 3 needs two relationship tables, and the tool emits one graph per directory — so two
-// of its graphs are mounted side by side and the alternatives form is asked across them.
-//
-// IT IS ASKED IN BOTH DECLARATION ORDERS, and that is the whole point of this test.
-//
-// An earlier round mounted the tool's graphs in directory order, which happened to declare the
-// BIGGER table first, got the right answer, and concluded the defect was ours. It is not: the
-// engine bounds every alternative by the row count of the FIRST-CREATED one, so a bigger-first
-// mount has nothing to truncate and comes out right. Declaring the smaller one first exposes it.
 func TestIcebugAlternativesDefectOnToolOutput(t *testing.T) {
 	root := os.Getenv("GRAPHIT_TOOL_ICEBUG_MULTI")
 	if root == "" {
@@ -190,7 +167,6 @@ func TestIcebugAlternativesDefectOnToolOutput(t *testing.T) {
 	}
 	sort.Slice(graphs, func(i, j int) bool { return graphs[i].edges > graphs[j].edges })
 
-	// Largest first, then smallest first. Same files both times.
 	for _, order := range []string{"largest-first", "smallest-first"} {
 		ordered := make([]graph, len(graphs))
 		copy(ordered, graphs)
@@ -207,8 +183,6 @@ func TestIcebugAlternativesDefectOnToolOutput(t *testing.T) {
 			}
 			defer st.Close()
 
-			// One shared node table, taken from the first graph, so `[:A|B]` is expressible over
-			// tables that connect the same pair — the shape our own export produces.
 			host := ordered[0]
 			if execErr := st.Exec(fmt.Sprintf(
 				"CREATE NODE TABLE %s(id INT64, name STRING, PRIMARY KEY(id)) WITH (storage = '%s', format = 'icebug-disk')",
@@ -261,15 +235,6 @@ func TestIcebugAlternativesDefectOnToolOutput(t *testing.T) {
 	}
 }
 
-// TestIcebugFilteredAlternativesDefectOnToolOutput reproduces DEFECT TWO — alternatives with a
-// filter on a bound endpoint — on files the reference tool produced.
-//
-// It mounts two of the tool's graphs against one shared node table, LARGEST FIRST so the
-// count-truncation defect is not in play, and compares the alternatives form against the sum of the
-// single-type forms. The single-type form is exact on the real graph, so it is the baseline.
-//
-// The defect is asserted. If this test starts failing because the numbers agree, the engine has
-// been fixed and relationship-per-pair partitioning is worth reconsidering.
 func TestIcebugFilteredAlternativesDefectOnToolOutput(t *testing.T) {
 	root := os.Getenv("GRAPHIT_TOOL_ICEBUG_MULTI")
 	if root == "" {
@@ -325,8 +290,6 @@ func TestIcebugFilteredAlternativesDefectOnToolOutput(t *testing.T) {
 		alts = append(alts, QuoteIdent(g.relTable))
 	}
 
-	// Largest first, so the unfiltered count is exact. If it is not, this fixture cannot isolate
-	// the filtered defect from the truncation one.
 	var sum int64
 	for _, g := range graphs {
 		sum += g.edges
@@ -335,7 +298,6 @@ func TestIcebugFilteredAlternativesDefectOnToolOutput(t *testing.T) {
 		t.Fatalf("unfiltered alternatives = %d, want %d — cannot isolate the filtered defect", got, sum)
 	}
 
-	// A target with a high in-degree in the largest table.
 	top, err := st.Query(fmt.Sprintf(
 		"MATCH ()-[r:%s]->(b) RETURN b.name AS n, count(*) AS c ORDER BY c DESC LIMIT 1",
 		QuoteIdent(host.relTable)), nil)

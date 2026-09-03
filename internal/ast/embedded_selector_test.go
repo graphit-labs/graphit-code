@@ -8,26 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// A block used to be selected by node KIND, and that is static in a way the
-// problem is not: in tree-sitter-xml `<execute>` is an `element` like every other
-// one — its name lives in `STag/Name` — so `node: element` matches the whole
-// document. Enumerating names (`names: [execute, statement]`) would answer one
-// example and nothing beyond it: not "any tag matching ^sql", not "only inside
-// <mapper>", not "whichever tag carries a type attribute".
-//
-// The engine already has a dynamic, declarative, compiled node-selection language:
-// the tree-sitter pattern. These tests pin that a block can be selected by one.
-//
-// The inner language here is JavaScript, not SQL, and that is not a matter of
-// taste. Measured 2026-08-05: the tree-sitter `sql` grammar assigns NO field names
-// to `create_table`'s children, while every pattern in `sql.yaml` requires a `name:`
-// field — so all three of them match zero times, and a `.sql` file only produces
-// entities because CompositeParser silently falls back to ANTLR. Writing these
-// tests against `sql` would have asserted that bug rather than this selector.
-// See docs/specs/embedded_language_parsing.md.
-
-// stageEmbeddedYAML stages a language plus its inner languages, then appends an
-// `embedded:` section to the staged outer YAML.
 func stageEmbeddedYAML(t *testing.T, langName, grammar, ext, queryFile, embedded string, inner ...string) string {
 	t.Helper()
 	projectDir := stageEmbedded(t, langName, grammar, ext, queryFile, inner...)
@@ -69,11 +49,9 @@ func TestEmbeddedPatternSelectsElementByName(t *testing.T) {
 	if tbl.Line != 4 {
 		t.Errorf("the variable is at line %d, want 4 (absolute)", tbl.Line)
 	}
-	// <note> is an element too, and must NOT have been handed to the javascript grammar.
 	if _, ok := entityAt(pf, "Variable", "nao_deve_existir"); ok {
 		t.Error("<note> was parsed as JavaScript; the pattern must select only <execute>")
 	}
-	// The XML markup is untouched.
 	if _, ok := entityAt(pf, "Element", "execute"); !ok {
 		t.Error("the execute Element disappeared")
 	}
@@ -124,7 +102,6 @@ embedded:
 	if _, ok := entityAt(pf, "Variable", "cliente"); !ok {
 		t.Errorf("type=\"js\" did not select the javascript grammar; entities: %v", entityLabelsOf(pf))
 	}
-	// `ruby` is not in the allowlist, so that block is skipped in silence.
 	if _, ok := entityAt(pf, "Variable", "nao_deve_existir"); ok {
 		t.Error("type=\"ruby\" was parsed; it is not in the languages allowlist")
 	}
@@ -176,8 +153,6 @@ import { ref } from 'vue'
 	}
 }
 
-// The config, which still fails OPEN
-
 func TestEmbeddedPatternConfigValidation(t *testing.T) {
 	cases := []struct {
 		name string
@@ -210,10 +185,6 @@ func TestEmbeddedPatternConfigValidation(t *testing.T) {
 			1,
 		},
 		{
-			// An explicit empty map is a declaration, not an omission: "claim these
-			// bodies and map none of them". It is how a <style lang="..."> block
-			// refuses every preprocessor without letting the generic block behind it
-			// parse SCSS as CSS.
 			"lang_capture with an explicitly empty languages map",
 			"pattern: '(x) @body'\n    text_capture: body\n    lang_capture: lang\n    languages: {}",
 			1,
@@ -252,13 +223,9 @@ $brand: red;
 .card { color: $brand; }
 </style>
 `)
-	// The specific script block won: TypeScript ran, not the generic block's
-	// javascript default. `interface` is TypeScript-only, so this is proof.
 	if _, ok := entityAt(pf, "Interface", "Props"); !ok {
 		t.Errorf("the lang=\"ts\" block did not win; entities: %v", entityLabelsOf(pf))
 	}
-	// The specific style block matched, mapped nothing for scss, and CLAIMED the
-	// body — so the generic style block must not have parsed it as CSS.
 	if _, ok := entityAt(pf, "CssClass", "card"); ok {
 		t.Error("the scss body fell through to the generic block and was parsed as CSS")
 	}

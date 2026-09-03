@@ -15,21 +15,14 @@ import (
 type cliClient struct {
 	executablePath string
 	binaryName     string
-	// agentArgs are operator-configured arguments added only to agentic runs,
-	// typically the flag that lets the CLI edit files without prompting.
-	// See agentArgsFromConfig for the keys.
-	agentArgs []string
+	agentArgs      []string
 }
 
-// inputMode determines how the prompt is delivered to the CLI.
 type inputMode int
 
 const (
-	// inputStdin delivers the prompt via stdin pipe (most secure).
 	inputStdin inputMode = iota
-	// inputFile writes the prompt to a temp file and passes the path via a flag.
 	inputFile
-	// inputArg passes the prompt as a positional command-line argument (least secure).
 	inputArg
 )
 
@@ -48,31 +41,15 @@ Constraints you MUST follow:
 
 `
 
-// cliSpec defines how to invoke a specific CLI binary in non-interactive mode.
 type cliSpec struct {
-	// mode determines how the prompt is delivered.
-	mode inputMode
-	// stdinArgs are the arguments when delivering prompt via stdin.
-	// Only used when mode == inputStdin.
-	stdinArgs []string
-	// fileFlag is the flag before the temp file path (e.g. "-i", "-f").
-	// Only used when mode == inputFile.
-	fileFlag string
-	// fileArgs are any arguments that precede the fileFlag.
-	// Only used when mode == inputFile.
-	fileArgs []string
-	// argArgs are arguments that precede the prompt text.
-	// Only used when mode == inputArg.
-	argArgs []string
-	// sessionFlag is the flag name for resuming a conversation.
-	// Empty means the CLI does not support session continuity.
+	mode        inputMode
+	stdinArgs   []string
+	fileFlag    string
+	fileArgs    []string
+	argArgs     []string
 	sessionFlag string
 }
 
-// knownCLIs maps binary names to their invocation spec.
-// Non-interactive behavior is achieved via the CLI's headless/print mode flag
-// (e.g. -p, exec, run, --headless) combined with the nonInteractivePreamble
-// in the prompt — NOT via permission-bypass flags like --yolo.
 var knownCLIs = map[string]cliSpec{
 	"claude": {
 		mode:        inputStdin,
@@ -205,7 +182,6 @@ func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPromp
 	case inputStdin:
 		cmd.Stdin = strings.NewReader(prompt)
 	case inputArg, inputFile:
-		// No stdin needed; prevent deadlocks by providing empty reader
 		cmd.Stdin = strings.NewReader("")
 	}
 
@@ -224,8 +200,6 @@ func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPromp
 	return response, returnedSessionID, nil
 }
 
-// writeTempPrompt writes the prompt to a temporary file and returns the path.
-// The caller is responsible for removing the file after use.
 func writeTempPrompt(prompt string) (string, error) {
 	dir := tempPromptDir()
 	f, err := os.CreateTemp(dir, "graphit-prompt-*.md")
@@ -245,14 +219,11 @@ func writeTempPrompt(prompt string) (string, error) {
 	}
 
 	if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
-		// Best effort — non-fatal on systems that don't support chmod
 		_ = chmodErr
 	}
 	return path, nil
 }
 
-// tempPromptDir returns the directory for temp prompt files.
-// Uses XDG_RUNTIME_DIR if available (RAM-backed, more secure), falls back to os.TempDir.
 func tempPromptDir() string {
 	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
 		subDir := filepath.Join(d, "graphit")
@@ -314,16 +285,6 @@ func tryFallbackCLI(provider string, userCLI string) Client {
 	return nil
 }
 
-// agentArgsFromConfig resolves the extra arguments for agentic runs, most
-// specific key first:
-//
-//	ai.agent_args.<binary>   e.g. ai.agent_args.claude
-//	ai.agent_args            applies to whichever CLI is selected
-//
-// The value is split on whitespace. This is deliberately operator-configured
-// rather than a built-in table: the flag that grants workspace write differs per
-// CLI, changes between releases, and carries real blast radius — a wrong guess
-// either fails to parse or hands the agent more authority than intended.
 func agentArgsFromConfig(binary string) []string {
 	cfg, err := config.LoadGlobalConfig()
 	if err != nil {

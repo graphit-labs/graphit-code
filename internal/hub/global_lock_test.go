@@ -99,7 +99,6 @@ func TestGlobalLockManager_RegisterInstall(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	// First install
 	art, err := mgr.RegisterInstall(InstallRecord{ID: "my-rule", Version: "1.0.0", Type: TypeRule, Name: "My Rule", Description: "desc", Hash: "hash123", CachePath: "/cache", Owner: "proj1", OwnerDir: "/proj", LocalPath: "/local"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -111,7 +110,6 @@ func TestGlobalLockManager_RegisterInstall(t *testing.T) {
 		t.Errorf("Name = %q, want %q", art.Name, "My Rule")
 	}
 
-	// Update existing
 	art2, err := mgr.RegisterInstall(InstallRecord{ID: "my-rule", Version: "1.0.0", Type: TypeRule, Name: "Updated Name", Description: "new desc", Hash: "newhash", CachePath: "/newcache", Owner: "proj2", OwnerDir: "/proj2", LocalPath: "/local2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -158,7 +156,6 @@ func TestGlobalLockManager_GCOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Manually create a lock with an orphaned artifact (no projects)
 	lock := &GlobalHubLock{
 		Version:  GlobalLockVersion,
 		Projects: make(map[string]*ProjectEntry),
@@ -168,7 +165,7 @@ func TestGlobalLockManager_GCOrphans(t *testing.T) {
 				Version:   "1.0.0",
 				Type:      TypeRule,
 				CachePath: cacheDir,
-				Projects:  map[string]*ProjectInstall{}, // empty = orphan
+				Projects:  map[string]*ProjectInstall{},
 			},
 		},
 	}
@@ -184,7 +181,6 @@ func TestGlobalLockManager_GCOrphans(t *testing.T) {
 		t.Errorf("expected 1 removed, got %d", len(removed))
 	}
 
-	// Verify cache dir was removed
 	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
 		t.Error("expected cache dir to be removed")
 	}
@@ -217,7 +213,6 @@ func TestGlobalLockManager_RegisterProject(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Load and verify
 	lock, err := mgr.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +228,6 @@ func TestGlobalLockManager_RegisterProject(t *testing.T) {
 		t.Errorf("Name = %q, want %q", entry.Instances[0].Name, "My Project")
 	}
 
-	// Re-register updates existing
 	err = mgr.RegisterProject("proj1", dir, WithProjectName("Updated"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -264,7 +258,6 @@ func TestGlobalLockManager_UnregisterProject(t *testing.T) {
 		t.Error("expected project to be removed")
 	}
 
-	// Unregister non-existent is no-op
 	err = mgr.UnregisterProject("nonexistent", dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -291,7 +284,6 @@ func TestGlobalLockManager_SetCluster(t *testing.T) {
 		t.Errorf("expected [backend], got %v", vals)
 	}
 
-	// Set duplicate value is no-op
 	err = mgr.SetCluster("proj1", dir, "team", "backend")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -329,7 +321,6 @@ func TestGlobalLockManager_UnsetCluster(t *testing.T) {
 		t.Errorf("expected nil, got %v", vals)
 	}
 
-	// Unset on nonexistent instance is no-op
 	err = mgr.UnsetCluster("proj1", "/nonexistent", "team")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -370,7 +361,6 @@ func TestGlobalLockManager_ValidateProjectDirs(t *testing.T) {
 	_ = mgr.RegisterProject("proj1", "/nonexistent/dir")
 	_ = mgr.RegisterProject("proj2", dir)
 
-	// Create lockfile for proj2
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "proj2", Name: "test"},
 		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
@@ -454,7 +444,6 @@ func TestClusterMapUnmarshalJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(data), &cm); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// Non-string items should be skipped
 		if len(cm["key"]) != 1 {
 			t.Errorf("expected 1 value (only strings), got %d", len(cm["key"]))
 		}

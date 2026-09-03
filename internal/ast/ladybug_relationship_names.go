@@ -23,9 +23,6 @@ type relationshipStatsProvider interface {
 	logicalRelationshipStats() ([]relationshipTypeStat, bool)
 }
 
-// canonicalLogicalRelationshipType resolves the table mounted by the engine back
-// to the logical relationship type used by public Cypher. The manifest is the same
-// source of truth used by the canonical traversal planner.
 func canonicalLogicalRelationshipType(man *ladybug.CanonicalManifest, physical string) string {
 	if man == nil || physical == "" {
 		return physical
@@ -54,9 +51,6 @@ func (k *LadybugBackend) logicalRelationshipType(physical string) string {
 	return canonicalLogicalRelationshipType(k.canonical, physical)
 }
 
-// logicalRelationshipStats returns one row per public relationship type. Counts
-// come from forward members only: reverse members mirror storage for traversal and
-// are not additional logical edges.
 func (k *LadybugBackend) logicalRelationshipStats() ([]relationshipTypeStat, bool) {
 	k.mu.Lock()
 	defer k.mu.Unlock()

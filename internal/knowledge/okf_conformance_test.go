@@ -39,8 +39,6 @@ func TestExportedWikiConformsToOKF(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A description lifted from a folded scalar, a title with a colon, and a body linking
-	// to a repository file: the three shapes that broke the frontmatter or the link graph.
 	write("architecture/storage.md", "---\ntitle: \"Storage: where it lives\"\ndescription: >\n  Where every artifact lives\n---\n\n# Storage\n\nSee [pipeline.go](../../internal/ast/pipeline.go) and [Routing](routing.md).\n")
 	write("architecture/routing.md", "# Routing\n\nRoutes.\n")
 
@@ -70,7 +68,6 @@ func TestExportedWikiConformsToOKF(t *testing.T) {
 		}
 		content := string(data)
 
-		// §3.1 + §8 + §9: the reserved filenames are not concept documents.
 		if e.Name() == "index.md" {
 			assertIndexFile(t, content)
 			continue
@@ -94,8 +91,6 @@ func TestExportedWikiConformsToOKF(t *testing.T) {
 			t.Errorf("%s: §11.2 — `type` is the one required field and it is missing or empty", e.Name())
 		}
 
-		// §5.2: `generated` is a mapping, and `by` is REQUIRED inside it. Not a flat
-		// `generated.at` key, which is the spec's prose notation and not a field.
 		if _, dotted := doc["generated.at"]; dotted {
 			t.Errorf("%s: §5.2 — `generated.at` is not an OKF key; `generated` is a mapping", e.Name())
 		}
@@ -108,7 +103,6 @@ func TestExportedWikiConformsToOKF(t *testing.T) {
 			t.Errorf("%s: §5.3 — a generated page must not claim a human actor (%q)", e.Name(), by)
 		}
 
-		// §5.1: every `sources` entry is a mapping whose `resource` is REQUIRED.
 		srcs, ok := doc["sources"].([]any)
 		if !ok {
 			t.Errorf("%s: §5.1 — `sources` must be a list, got %T", e.Name(), doc["sources"])
@@ -137,8 +131,6 @@ func assertIndexFile(t *testing.T, content string) {
 	if !ok {
 		return
 	}
-	// §8: an index carries no frontmatter, with one exception — a bundle-root index.md MAY
-	// declare okf_version, and §12 makes that the only place a bundle may declare it.
 	var doc map[string]any
 	if err := yaml.Unmarshal([]byte(fm), &doc); err != nil {
 		t.Errorf("index.md: frontmatter does not parse: %v", err)

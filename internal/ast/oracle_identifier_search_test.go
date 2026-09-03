@@ -9,27 +9,6 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// NOTE: probe identifiers in this file are synthetic, and should stay that way.
-// These tests seed their own database, so any identifier of the right shape
-// serves the purpose — the measurement is whether a fragment of a compound name
-// finds it. Keeping them synthetic also keeps the tests independent of whatever
-// corpus GRAPHIT_E2E_SQL_DIR happens to point at.
-
-// TestOracleIdentifierSearch decides whether a trigram index is worth carrying
-// for THIS corpus.
-//
-// Trigram indexing pays off when queries are partial words that word
-// tokenisation cannot reach. The target corpus is Oracle PL/SQL whose
-// identifiers are underscore-separated abbreviations
-// (XPTO_EXTRAIR_ABCD01_DOC_LOTE), and the FTS tokenizer splits on underscores —
-// so a developer searching "ABCD01", "DOC" or "ENTRG" is already searching whole
-// tokens. Measured here: plain FTS 6/6, trigram 6/6, i.e. the trigram index adds
-// nothing while costing an extra property, an extra index and precision at
-// scale (trigrams match promiscuously on large corpora).
-//
-// Conclusion: for this corpus, consolidate onto Ladybug FTS alone — stemming is
-// on by default and per-field weighting comes from one index per field. A
-// camelCase-heavy corpus could reach a different answer; rerun this to check.
 func TestOracleIdentifierSearch(t *testing.T) {
 	dir := t.TempDir()
 	db, err := lbug.OpenDatabase(filepath.Join(dir, "ora"), lbug.DefaultSystemConfig())
@@ -83,7 +62,6 @@ func TestOracleIdentifierSearch(t *testing.T) {
 	_ = run("CALL CREATE_FTS_INDEX('O','fts',['name'])")
 	_ = run("CALL CREATE_FTS_INDEX('O','tri',['tri'])")
 
-	// Queries a developer actually types: a fragment of the compound name.
 	cases := []struct{ query, want string }{
 		{"ABCD01", "XPTO_EXTRAIR_ABCD01_DOC_LOTE"},
 		{"SORTEIA", "VERIF_ZZP_SORTEIA_BX"},

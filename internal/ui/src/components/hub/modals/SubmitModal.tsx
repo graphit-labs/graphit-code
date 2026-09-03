@@ -47,9 +47,7 @@ export function SubmitModal({
       setAuthor(artifact.registry_author || gitAuthor)
       setDeps((artifact.registry_dependencies || []).map((d) => ({ ...d })))
     })
-    // Deliberately keyed on open/artifact only: this seeds the form when the modal
-    // opens. Adding isUpdate/existingScope/gitAuthor would re-run it while the modal
-    // is open and overwrite whatever the user has typed.
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, artifact])
 

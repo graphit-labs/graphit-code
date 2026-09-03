@@ -55,8 +55,6 @@ func TestLadybugBulkInsertStringIntegrity(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// Accented, multi-byte content of varied length, so a truncation lands mid-character
-	// often rather than rarely.
 	unit := "criação de índice não padrão para pedido em açaí — linha "
 	body := func(i int) string {
 		var b strings.Builder

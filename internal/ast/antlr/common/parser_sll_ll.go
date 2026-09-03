@@ -33,13 +33,6 @@ func NewSilentErrorStrategy() *SilentErrorStrategy {
 func (s *SilentErrorStrategy) ReportError(_ antlr.Parser, _ antlr.RecognitionException) {
 }
 
-// silentBailErrorStrategy is a BailErrorStrategy (fail-fast: RecoverInline/Recover
-// throw so the SLL stage aborts to the LL stage) with reporting suppressed.
-// BailErrorStrategy does NOT override ReportError, so it inherits
-// DefaultErrorStrategy.ReportError, whose default switch case prints
-// "unknown recognition error type" to STDOUT — which corrupts the stdio MCP
-// stream on malformed SQL during the fast SLL pass. This override silences that
-// while keeping the bail (throw) recovery behavior intact.
 type silentBailErrorStrategy struct {
 	*antlr.BailErrorStrategy
 }
@@ -85,9 +78,6 @@ func WithCacheReset(fn func()) {
 	fn()
 }
 
-// resetters holds each linked grammar's cache-reset function. Grammar packages
-// self-register from their init(), so any binary — the indexer or the standalone
-// sidecar — can release the caches without importing every grammar explicitly.
 var resetters []func()
 
 // RegisterCacheResetter records a grammar's ResetCaches function. Called from
@@ -104,14 +94,6 @@ func ResetAllCaches() {
 	})
 }
 
-// FreshDFA builds a new, empty per-decision DFA slice for an ATN.
-//
-// ANTLR's generated parsers/lexers share a package-level decisionToDFA cache and
-// PredictionContextCache that grow as new input patterns are seen and are NEVER
-// evicted (the Go runtime has no ClearDFA). Measured on a real Oracle PL/SQL
-// corpus this retains ~2 MB per newly parsed file — ~70 GB for a 35k-file repo.
-// Grammar packages use this to rebuild their caches periodically; the ATN itself
-// is read-only and deliberately kept (deserializing it is expensive).
 func FreshDFA(atn *antlr.ATN) []*antlr.DFA {
 	dfa := make([]*antlr.DFA, len(atn.DecisionToState))
 	for i, state := range atn.DecisionToState {
@@ -120,22 +102,6 @@ func FreshDFA(atn *antlr.ATN) []*antlr.DFA {
 	return dfa
 }
 
-// Prediction-strategy selection.
-//
-// SLL prediction is normally cheaper than full-context LL, but on an ambiguous
-// grammar its configuration exploration can grow without bound and exhaust
-// memory — and an in-flight ANTLR parse cannot be cancelled, so no watchdog can
-// rescue it: the process simply dies. Measured on a production Oracle corpus, a
-// 1.7 KB function consumed >2 GB in SLL and was OOM-killed, while the same file
-// parsed in LL in 362 ms using 81 MB.
-//
-// The upstream PL/SQL grammar (antlr/grammars-v4) is documented as ambiguous, so
-// it defaults to LL only. Grammars with no known blowup keep the faster
-// two-stage path; skipping SLL costs ~37% parse time where SLL does succeed.
-//
-// GRAPHIT_ANTLR_SLL=1 forces the SLL attempt even for LL-only grammars, and
-// GRAPHIT_ANTLR_LL_ONLY=1 forces LL everywhere — escape hatches for corpora
-// whose behavior is known.
 var (
 	forceSLL    = os.Getenv("GRAPHIT_ANTLR_SLL") == "1"
 	forceLLOnly = os.Getenv("GRAPHIT_ANTLR_LL_ONLY") == "1"
@@ -158,9 +124,6 @@ const (
 	LLOnly
 )
 
-// Parse parses using the grammar's declared prediction strategy. Both stages
-// recover from panics; a failed stage returns nil and falls through to LL.
-// p is the parser being driven, used to detect a failed SLL parse.
 func Parse(strategy Strategy, p antlr.Parser, parse func() antlr.ParseTree, configure func(mode int)) antlr.ParseTree {
 	useSLL := strategy == SLLThenLL
 	if forceSLL {
@@ -200,7 +163,6 @@ func trySLLParse(p antlr.Parser, parse func() antlr.ParseTree, configure func(mo
 	return tree
 }
 
-// llParse runs full-context LL prediction with the SilentErrorStrategy.
 func llParse(parse func() antlr.ParseTree, configure func(mode int)) (tree antlr.ParseTree) {
 	defer func() {
 		if r := recover(); r != nil {

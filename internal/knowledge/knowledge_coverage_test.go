@@ -89,7 +89,6 @@ func TestClassifyDocType(t *testing.T) {
 		{"release/notes.md", "", "changelog"},
 		{"architecture/overview.md", "", "architecture"},
 		{"random/notes.md", "", "document"},
-		// paradigm-based
 		{"service.proto", "syntax = proto3;", "grpc"},
 		{"schema.graphql", "type Query {}", "graphql"},
 		{"schema.gql", "type Query {}", "graphql"},
@@ -255,11 +254,8 @@ func TestTrigramSimilarity(t *testing.T) {
 		t.Errorf("dissimilar strings should have low similarity, got %.2f", s2)
 	}
 	s3 := wiki.TrigramSimilarity("", "")
-	// Both empty → union = 0 → returns 0.0
 	if s3 != 0.0 {
-		// Union of two empty trigram sets where both contain "" is 1,
-		// and intersection is 1, so similarity is 1.0. Accept either.
-		_ = s3 // flexible check
+		_ = s3
 	}
 }
 
@@ -270,7 +266,6 @@ func TestFindBestFuzzyTitleMatch(t *testing.T) {
 		"API Gateway":           "API_Gateway",
 	}
 
-	// Close match
 	slug, ok := wiki.FindBestFuzzyTitleMatch("Authenticaton Module", titlesMap)
 	if !ok || slug != "Auth_Module" {
 		t.Errorf("expected Auth_Module match, got %q (ok=%v)", slug, ok)
@@ -281,7 +276,6 @@ func TestFindBestFuzzyTitleMatch(t *testing.T) {
 		t.Error("expected no fuzzy match for completely different string")
 	}
 
-	// Empty target
 	_, ok3 := wiki.FindBestFuzzyTitleMatch("", titlesMap)
 	if ok3 {
 		t.Error("expected no fuzzy match for empty target")
@@ -294,7 +288,6 @@ func TestAutoLinkContentFrontmatter(t *testing.T) {
 	}
 	body := "---\ntitle: Daemon Service\n---\nDaemon Service is great."
 	linked, refs := wiki.AutoLinkContent(body, wiki.BuildAutoLinkTargets(titlesMap), "Other")
-	// Frontmatter should not be linked
 	if strings.Contains(linked, "[[Daemon_Service|Daemon Service]]") && strings.Contains(linked, "---\ntitle: [[") {
 		t.Error("should not auto-link inside frontmatter")
 	}
@@ -309,7 +302,6 @@ func TestAutoLinkContentShortTermFiltered(t *testing.T) {
 	}
 	body := "The AB module is here."
 	linked, refs := wiki.AutoLinkContent(body, wiki.BuildAutoLinkTargets(titlesMap), "Other")
-	// "AB" is less than 3 chars, should be skipped
 	if linked != body {
 		t.Errorf("short terms should not be linked, got %q", linked)
 	}
@@ -323,7 +315,6 @@ func TestAutoLinkLineMdLinks(t *testing.T) {
 	refs := make(map[string]bool)
 	line := "Check [My Page](https://example.com) for details."
 	result := wiki.AutoLinkLine(line, targets, "Other", refs)
-	// Should not auto-link inside markdown links
 	if strings.Contains(result, "[[My_Page") {
 		t.Errorf("should not auto-link inside markdown links, got %q", result)
 	}
@@ -340,15 +331,12 @@ func TestGenerateKnowledgeWiki(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "auth.md"), []byte("---\ntitle: Auth Module\ndescription: Handles authentication\n---\n# Auth Module\n\nAuth body content here."), 0o644)
 	_ = os.WriteFile(filepath.Join(docsDir, "setup.md"), []byte("# Setup Guide\n\nSetup instructions here."), 0o644)
 
-	// Create an ignored dir
 	nodeModules := filepath.Join(rootDir, "node_modules")
 	_ = os.MkdirAll(nodeModules, 0o755)
 	_ = os.WriteFile(filepath.Join(nodeModules, "lib.md"), []byte("# Should be ignored"), 0o644)
 
-	// Create a file that's too large (over 1MB) — simulate
 	_ = os.WriteFile(filepath.Join(docsDir, "big.md"), []byte("# Big\n"+strings.Repeat("x", 1024*1024+1)), 0o644)
 
-	// Create an unsupported extension
 	_ = os.WriteFile(filepath.Join(docsDir, "image.png"), []byte("binary"), 0o644)
 
 	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
@@ -365,19 +353,16 @@ func TestGenerateKnowledgeWiki(t *testing.T) {
 		t.Errorf("expected output dir %q, got %q", wikiDir, result.OutputDir)
 	}
 
-	// The catalogue is the index, not an `index.md`. Both documents must be reachable by slug,
-	// which is what the generated index page used to list.
 	slugs := indexedKnowledgeSlugs(t, wikiDir)
 	if len(slugs) < 2 {
 		t.Fatalf("expected at least 2 indexed pages, got %v", slugs)
 	}
 
-	// Run again — articles are regenerated because timestamp in frontmatter changes
 	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
-	_ = result2 // timestamp changes mean articles may be rewritten
+	_ = result2
 }
 
 func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
@@ -389,33 +374,26 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "page1.md"), []byte("# Page One\nOriginal content"), 0o644)
 	_ = os.WriteFile(filepath.Join(docsDir, "page2.md"), []byte("# Page Two\nContent"), 0o644)
 
-	// First generation
 	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Modify page1 and delete page2
 	_ = os.WriteFile(filepath.Join(docsDir, "page1.md"), []byte("# Page One\nUpdated content now"), 0o644)
 	_ = os.Remove(filepath.Join(docsDir, "page2.md"))
 
-	// Second generation — should detect updates and deletions
 	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = result2
 
-	// The deleted document is gone from the INDEX, which is the only place a page exists. This
-	// used to look for a leftover `Page_Two.md` and then discard the answer.
 	for _, slug := range indexedKnowledgeSlugs(t, wikiDir) {
 		if strings.Contains(strings.ToLower(slug), "page_two") {
 			t.Errorf("the deleted document is still indexed as %q", slug)
 		}
 	}
 
-	// The history is the `sync_log` table, which is what `log.md` was rendered from. It records
-	// the update and the deletion of the second run.
 	db, err := wiki.OpenWikiDB(context.Background(), wikiDir)
 	if err != nil {
 		t.Fatalf("opening the index: %v", err)
@@ -441,7 +419,6 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 	}
 }
 
-// indexedKnowledgeSlugs is what a glob of `*.md` used to answer: which pages this wiki holds.
 func indexedKnowledgeSlugs(t *testing.T, wikiDir string) []string {
 	t.Helper()
 	slugs := wiki.ListPagesAt(context.Background(), wikiDir)
@@ -451,7 +428,6 @@ func indexedKnowledgeSlugs(t *testing.T, wikiDir string) []string {
 	return slugs
 }
 
-// indexedKnowledgeBody reads one indexed page's text.
 func indexedKnowledgeBody(t *testing.T, wikiDir, slug string) string {
 	t.Helper()
 	res, err := wiki.ReadPageAt(context.Background(), wikiDir, slug, textslice.Request{})
@@ -462,7 +438,6 @@ func indexedKnowledgeBody(t *testing.T, wikiDir, slug string) string {
 }
 
 func TestGenerateKnowledgeWikiMkdirError(t *testing.T) {
-	// Try to create wiki dir in a non-existent root with no permissions
 	_, err := GenerateKnowledgeWiki(context.Background(), "/nonexistent/path", "/nonexistent/wiki", nil, WikiScope{})
 	if err == nil {
 		t.Error("expected error for non-existent wiki dir")
@@ -483,8 +458,6 @@ func TestGenerateKnowledgeWikiKeepsDocumentWhole(t *testing.T) {
 	docsDir := filepath.Join(rootDir, "docs")
 	_ = os.MkdirAll(docsDir, 0o755)
 
-	// The shape that used to split worst: an H1 holding nothing but H2s, one of them
-	// holding nothing but its own subsection.
 	longContent := strings.Repeat("word ", 160)
 	content := "# Parent Doc\n\n## Long Section\n\n" + longContent +
 		"\n\n## Container\n\n### Only Child\n\nLeaf text.\n\n## Short\n\nShort text.\n"
@@ -498,8 +471,6 @@ func TestGenerateKnowledgeWikiKeepsDocumentWhole(t *testing.T) {
 		t.Errorf("one document must produce one page, got %d", result.ArticlesWritten)
 	}
 
-	// One indexed page, and no reserved names to skip: `index` and `log` were generated files in
-	// the same directory, and there is no directory.
 	docPages := indexedKnowledgeSlugs(t, wikiDir)
 	if len(docPages) != 1 {
 		t.Fatalf("expected a single document page, got %v", docPages)
@@ -509,7 +480,6 @@ func TestGenerateKnowledgeWikiKeepsDocumentWhole(t *testing.T) {
 	if strings.Contains(body, "**Parent:**") {
 		t.Error("a whole document has no parent page to point at")
 	}
-	// Every heading's content has to be present in the one page.
 	for _, want := range []string{"Long Section", "Container", "Only Child", "Leaf text.", "Short text."} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lost %q", want)
@@ -559,7 +529,6 @@ func TestRunIndexPipelineReset(t *testing.T) {
 	rootDir := t.TempDir()
 	wikiDir := filepath.Join(rootDir, "wiki-out")
 
-	// Pre-create wiki dir with old content
 	_ = os.MkdirAll(wikiDir, 0o755)
 	_ = os.WriteFile(filepath.Join(wikiDir, "old.md"), []byte("old"), 0o644)
 
@@ -575,7 +544,6 @@ func TestRunIndexPipelineReset(t *testing.T) {
 		t.Error("expected indexed files after reset")
 	}
 
-	// Old file should be gone
 	if _, err := os.Stat(filepath.Join(wikiDir, "old.md")); err == nil {
 		t.Error("old.md should have been removed after reset")
 	}
@@ -587,7 +555,6 @@ func TestRunIndexPipelineDefaultWikiDir(t *testing.T) {
 	_ = os.MkdirAll(docsDir, 0o755)
 	_ = os.WriteFile(filepath.Join(docsDir, "test.md"), []byte("# Test\nBody"), 0o644)
 
-	// Use empty wikiDir to trigger default
 	oldDir, _ := os.Getwd()
 	_ = os.Chdir(rootDir)
 	defer func() { _ = os.Chdir(oldDir) }()
@@ -608,8 +575,6 @@ func TestRunIndexPipelineError(t *testing.T) {
 	}
 }
 
-// paths.go
-
 // A context counts as installed when the project's registry claims it AND its wiki
 // exists. Both halves matter: the registry alone would offer a wiki that was never
 // built, and the global directory alone would report every context anybody on this
@@ -623,7 +588,6 @@ func TestInstalledContexts(t *testing.T) {
 	if err := store.AddContext(projectDir, store.KindKnowledge, store.ContextRecord{Name: "ctx1"}); err != nil {
 		t.Fatalf("AddContext: %v", err)
 	}
-	// Claimed but never built — must not be reported.
 	if err := store.AddContext(projectDir, store.KindKnowledge, store.ContextRecord{Name: "ctx2"}); err != nil {
 		t.Fatalf("AddContext: %v", err)
 	}
@@ -636,7 +600,6 @@ func TestInstalledContexts(t *testing.T) {
 		t.Errorf("expected [ctx1], got %v", names)
 	}
 
-	// Another project shares the global wiki but has claimed nothing.
 	if got := InstalledContextsIn(t.TempDir()); len(got) != 0 {
 		t.Errorf("a project that imported nothing reported %v", got)
 	}
@@ -647,7 +610,6 @@ func TestInstalledContextsNoDir(t *testing.T) {
 	_ = os.Chdir(tempDir)
 	defer func() { _ = os.Chdir(origDir) }()
 
-	// No knowledge dir exists
 	names := InstalledContextsIn(tempDir)
 	if names != nil {
 		t.Errorf("expected nil, got %v", names)
@@ -665,11 +627,11 @@ func TestWikiDirForContextProject(t *testing.T) {
 
 func TestKnowledgeRuleContent(t *testing.T) {
 	content := KnowledgeRuleContent(nil, "docs")
-	if !strings.Contains(content, "Knowledge Maintenance Rule") {
+	if !strings.Contains(content, "# Graphit Knowledge") {
 		t.Error("missing rule header")
 	}
-	if !strings.Contains(content, "Integration Documentation Maintenance Rule") {
-		t.Error("missing integration section")
+	if !strings.Contains(content, "## Reading knowledge") {
+		t.Error("missing reading section")
 	}
 }
 
@@ -685,30 +647,21 @@ func TestKnowledgeRuleContentCustomDocsDir(t *testing.T) {
 
 func TestKnowledgeRuleContentDefaultDocsDir(t *testing.T) {
 	content := KnowledgeRuleContent(nil, "")
-	if !strings.Contains(content, "Knowledge Maintenance Rule") {
+	if !strings.Contains(content, "# Graphit Knowledge") {
 		t.Error("should still generate content")
 	}
-	// An empty docsDir means "unset", which resolves to the same default the
-	// pipeline uses — so the rule the agent reads names the directory the wiki
-	// actually indexes, and the substitution above is left alone.
 	if !strings.Contains(content, "`"+config.DefaultDocsDir+"/") {
 		t.Errorf("the rule does not name %s/ as the docs tree", config.DefaultDocsDir)
 	}
-	// The two keys that decide the wiki's scope have to be discoverable from the
-	// rule itself: an agent that cannot find them reports missing pages as bugs.
-	for _, key := range []string{"knowledge.docs_dir", "knowledge.include_readme", "ast.index_docs"} {
+	for _, key := range []string{"graphit_knowledge_search", "graphit_wiki_search", "graphit_wiki_source"} {
 		if !strings.Contains(content, key) {
-			t.Errorf("the rule never mentions %s", key)
+			t.Errorf("the rule does not expose %s", key)
 		}
-	}
-	if !strings.Contains(content, "README.md") {
-		t.Error("the rule does not say the root README is in the wiki")
 	}
 }
 
 func TestResolveDocsDirFromProject(t *testing.T) {
 	dir := t.TempDir()
-	// No lockfile → should use default
 	result := resolveDocsDirFromProject(dir)
 	if result == "" {
 		t.Error("should return non-empty default docs dir")
@@ -756,7 +709,6 @@ func TestResolveWikiLinksInBodySlugged(t *testing.T) {
 	titlesMap := map[string]string{
 		"Auth Module": "Auth_Module",
 	}
-	// Case-insensitive slugified lookup
 	body := "See [[auth module]] for details."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[auth module](Auth_Module.md)") {
@@ -768,7 +720,6 @@ func TestResolveWikiLinksInBodyFuzzy(t *testing.T) {
 	titlesMap := map[string]string{
 		"Authentication Service": "Auth_Service",
 	}
-	// Fuzzy match via trigrams
 	body := "See [[Authenticaton Service]] for details."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[Authenticaton Service](Auth_Service.md)") {
@@ -788,7 +739,6 @@ func TestResolveWikiLinksInBodyNoMatch(t *testing.T) {
 }
 
 func TestResolveWikiLinksInBodySubmatchShort(t *testing.T) {
-	// Edge case: submatch < 2 should return original match (unlikely in practice)
 	titlesMap := map[string]string{}
 	body := "Plain text with no links."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
@@ -808,15 +758,13 @@ func TestResolveWikiLinksInBodyWithLabel(t *testing.T) {
 	}
 }
 func TestComputeDocConfidenceCap(t *testing.T) {
-	// Force score > 1.0 to test the capping branch (line 311-313)
 	doc := knowledgeDoc{
 		title:     "Title",
 		path:      "path.md",
-		summary:   strings.Repeat("x", 60),                               // 0.20 + 0.10 = 0.30
-		docType:   "specification",                                       // 0.15
-		body:      "---\ntitle: T\n---\n" + strings.Repeat("word ", 500), // bodyLen > 2000 → 0.25
-		crossRefs: []string{"a", "b", "c"},                               // 0.10
-		// Total: 0.20 (title) + 0.30 (summary) + 0.15 (docType) + 0.25 (body) + 0.10 (crossRefs) = 1.00
+		summary:   strings.Repeat("x", 60),
+		docType:   "specification",
+		body:      "---\ntitle: T\n---\n" + strings.Repeat("word ", 500),
+		crossRefs: []string{"a", "b", "c"},
 	}
 	got := computeDocConfidence(doc)
 	if got > 1.0 {
@@ -828,13 +776,9 @@ func TestComputeDocConfidenceCap(t *testing.T) {
 }
 
 func TestResolveWikiLinksInBodySluggifiedFallback(t *testing.T) {
-	// Trigger the case-insensitive slugified lookup (wiki.go:898-907)
-	// The title has special chars that get cleaned by safeFilename
 	titlesMap := map[string]string{
 		"My: Special/Page": "My-_Special-Page",
 	}
-	// Use a link that does NOT match directly or case-insensitively,
-	// but DOES match when slugified
 	body := "See [[My: Special/Page]] for details."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[My: Special/Page](My-_Special-Page.md)") {
@@ -843,7 +787,6 @@ func TestResolveWikiLinksInBodySluggifiedFallback(t *testing.T) {
 }
 
 func TestResolveWikiLinksInBodySlugMatchOnly(t *testing.T) {
-	// Trigger the case where the slug value matches (strings.ToLower(s) == targetSlugLower)
 	titlesMap := map[string]string{
 		"Original Title": "original_title",
 	}
@@ -855,8 +798,6 @@ func TestResolveWikiLinksInBodySlugMatchOnly(t *testing.T) {
 }
 
 func TestFindBestFuzzyTitleMatchSlugBased(t *testing.T) {
-	// Trigger slug-based similarity (wiki.go:986-991)
-	// Make the slug more similar to the target than the title
 	titlesMap := map[string]string{
 		"Very Different Title Name": "auth_modulex",
 	}
@@ -877,15 +818,11 @@ func TestGenerateKnowledgeWikiWithExistingDirAndSubdir(t *testing.T) {
 
 	_ = os.WriteFile(filepath.Join(docsDir, "page.md"), []byte("# Page\nContent"), 0o644)
 
-	// First pass
 	_, _ = GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 
-	// Create a subdirectory and a non-.md file in the wiki dir
-	// to test filtering (wiki.go:115-116: entry.IsDir() || ext != ".md")
 	_ = os.MkdirAll(filepath.Join(wikiDir, "subdir"), 0o755)
 	_ = os.WriteFile(filepath.Join(wikiDir, "notes.txt"), []byte("txt"), 0o644)
 
-	// Second pass with existing wiki dir
 	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatal(err)
@@ -897,10 +834,8 @@ func TestGenerateKnowledgeWikiIgnoredFile(t *testing.T) {
 	rootDir := t.TempDir()
 	wikiDir := filepath.Join(rootDir, ".wiki")
 
-	// Create a .wikiignore with a custom pattern
 	_ = os.WriteFile(filepath.Join(rootDir, ".wikiignore"), []byte("secret.md\n"), 0o644)
 
-	// Create the file that should be ignored
 	_ = os.WriteFile(filepath.Join(rootDir, "secret.md"), []byte("# Secret\nHidden"), 0o644)
 	_ = os.WriteFile(filepath.Join(rootDir, "visible.md"), []byte("# Visible\nOK"), 0o644)
 
@@ -914,8 +849,6 @@ func TestGenerateKnowledgeWikiIgnoredFile(t *testing.T) {
 }
 
 func TestAutoLinkLineRegexCompileError(t *testing.T) {
-	// Test with a target term that would create an invalid regex (shouldn't happen
-	// with QuoteMeta, but the error path at line 730-731 exists)
 	targets := wiki.BuildAutoLinkTargets(map[string]string{"Normal Term": "Normal_Term"})
 	refs := make(map[string]bool)
 	line := "This mentions Normal Term here."
@@ -925,33 +858,16 @@ func TestAutoLinkLineRegexCompileError(t *testing.T) {
 	}
 }
 func TestResolveWikiLinksInBodyTrueSlugifiedFallback(t *testing.T) {
-	// Create a scenario where:
-	// 1. Direct map lookup fails (target != key)
-	// 2. wiki.SafeSlug(target) lookup fails (wiki.SafeSlug(target) != key)
-	// 3. Case-insensitive lookup fails (neither title nor slug matches toLower(target))
-	// 4. Slugified lookup SUCCEEDS (wiki.SafeSlug(title) == wiki.SafeSlug(target) case-insensitively)
-
-	// Title: "My—Special–Page" (em-dash and en-dash) → safeFilename gives "My_Special_Page"
-	// Link target: "my_special_page" → safeFilename gives "my_special_page"
-	// Direct: titlesMap["my_special_page"] → fails
-	// wiki.SafeSlug("my_special_page") = "my_special_page" → titlesMap["my_special_page"] → fails
-	// Case-insensitive: "my_special_page" != toLower("My—Special–Page") and "my_special_page" != toLower("Result_Slug")
-	// Slugified: toLower(wiki.SafeSlug("My—Special–Page")) == toLower("my_special_page") → MATCH!
 
 	titlesMap := map[string]string{
 		"My\u2014Special\u2013Page": "Result_Slug",
 	}
 	body := "See [[my_special_page]] for details."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
-	// The link should have been resolved through slugified or fuzzy fallback.
-	// Either [[Result_Slug]] (slugified match) or some other resolution is acceptable,
-	// as long as the original raw link is no longer present unchanged when resolution succeeds.
 	if !strings.Contains(resolved, "[[Result_Slug]]") && strings.Contains(resolved, "[[my_special_page]]") {
 		t.Log("wikilink remained unresolved — resolution fallback did not match")
 	}
 }
-
-// Wiki generation: read-only wiki dir for WriteFile errors
 
 func TestGenerateKnowledgeWikiWriteFileError(t *testing.T) {
 	rootDir := t.TempDir()
@@ -962,20 +878,14 @@ func TestGenerateKnowledgeWikiWriteFileError(t *testing.T) {
 
 	_ = os.WriteFile(filepath.Join(docsDir, "page.md"), []byte("# Page\nContent"), 0o644)
 
-	// Make wiki dir read-only to trigger WriteFile errors
 	_ = os.Chmod(wikiDir, 0o555)
 	defer func() { _ = os.Chmod(wikiDir, 0o755) }()
 
-	// This should handle error gracefully (continue on write failure)
 	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
-	// The index write fails, which returns an error
 	if err == nil {
-		// If we're running as root, it might still succeed
 		_ = result
 	}
 }
-
-// Wiki generation: deletion of old slugs
 
 func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 	rootDir := t.TempDir()
@@ -986,23 +896,19 @@ func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "keep.md"), []byte("# Keep\nStaying"), 0o644)
 	_ = os.WriteFile(filepath.Join(docsDir, "remove.md"), []byte("# Remove\nGoing away"), 0o644)
 
-	// First generation
 	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Now delete the "remove" source file
 	_ = os.Remove(filepath.Join(docsDir, "remove.md"))
 
-	// Second generation should prune the Remove page
 	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = result
 
-	// Count wiki .md files (excluding index.md and log.md) in both passes
 	countArticles := func() int {
 		count := 0
 		entries, _ := os.ReadDir(wikiDir)
@@ -1018,7 +924,6 @@ func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 		}
 		return count
 	}
-	// After removing the "Remove" source, the article count should decrease
 	articlesAfter := countArticles()
 	if articlesAfter >= 2 {
 		t.Logf("expected fewer than 2 articles after deletion, got %d", articlesAfter)
@@ -1026,26 +931,20 @@ func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 
 }
 
-// Wiki generation: idempotent content (no timestamp changes)
-
 func TestComputeDocConfidenceExactlyMaximum(t *testing.T) {
-	// Make sure the cap is reachable by adding more components
 	doc := knowledgeDoc{
 		title:     "A Title That Is Different",
 		path:      "different_path.md",
-		summary:   strings.Repeat("summary content ", 5),                              // > 50 chars → 0.30
-		docType:   "api-reference",                                                    // != "document" → 0.15
-		body:      "---\ntitle: T\n---\n" + strings.Repeat("content data here ", 200), // > 2000 chars → 0.25
-		crossRefs: []string{"ref1"},                                                   // 0.10
-		// Total: 0.20 + 0.30 + 0.15 + 0.25 + 0.10 = 1.00
+		summary:   strings.Repeat("summary content ", 5),
+		docType:   "api-reference",
+		body:      "---\ntitle: T\n---\n" + strings.Repeat("content data here ", 200),
+		crossRefs: []string{"ref1"},
 	}
 	got := computeDocConfidence(doc)
 	if got != 1.0 {
 		t.Errorf("expected exactly 1.0, got %.2f", got)
 	}
 }
-
-// Walk error propagation
 
 func TestGenerateKnowledgeWikiWithUnreadableFile(t *testing.T) {
 	rootDir := t.TempDir()
@@ -1058,7 +957,6 @@ func TestGenerateKnowledgeWikiWithUnreadableFile(t *testing.T) {
 	_ = os.Chmod(unreadable, 0o000)
 	defer func() { _ = os.Chmod(unreadable, 0o644) }()
 
-	// Should still succeed, skipping the unreadable file
 	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
 	if err != nil {
 		t.Fatal(err)

@@ -76,7 +76,6 @@ func (receiver *PostgreSQLLexerBase) HandleLessLessGreaterGreater() {
 }
 
 func (receiver *PostgreSQLLexerBase) UnterminatedBlockCommentDebugAssert() {
-	// Debug.Assert(InputStream.LA(1) == -1 /*EOF*/);
 }
 
 func (receiver *PostgreSQLLexerBase) CheckIfUtf32Letter() bool {

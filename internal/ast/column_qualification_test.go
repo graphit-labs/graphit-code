@@ -9,8 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// The object names here are synthetic.
-
 // A column write's target has to come out QUALIFIED. Without that the edge is the
 // harmful one, not a lesser version of the good one: `ST_PROC` lives in dozens of
 // tables, so all of them collapse onto a single node and "who writes this column"
@@ -37,13 +35,10 @@ END;
 		}
 	}
 
-	// And the source is the unit doing the writing, not the file.
 	if src := got["PEDIDO.ST_PROC"]; src != "p_grava" {
 		t.Errorf("source of the write = %q, want the enclosing procedure", src)
 	}
 
-	// No target may have escaped unqualified — a single one already reintroduces the
-	// aggregation for that column.
 	for target := range got {
 		if !strings.Contains(target, ".") {
 			t.Errorf("unqualified write target %q leaked; it would merge every table's column of that name", target)
@@ -62,8 +57,6 @@ func TestQualifiedColumnTargetResolvesToTheDeclaredColumn(t *testing.T) {
 		},
 	}})
 	ri := newRebuildIndex(map[string]*parseCacheEntry{
-		// Two tables with a column of the SAME NAME — exactly the case bare-name
-		// resolution cannot decide, and qualification can.
 		"schema/pedido.sql": {
 			RelPath: "schema/pedido.sql", Language: "plsql",
 			FileRow: []string{"schema/pedido.sql", "pedido.sql", "schema/pedido.sql", "false", "plsql", ""},
@@ -108,8 +101,6 @@ func TestQualifiedColumnTargetResolvesToTheDeclaredColumn(t *testing.T) {
 			"other table's column means qualification is not doing its job", uid)
 	}
 
-	// The control proving qualification is what decides: the BARE name is ambiguous
-	// between the two tables, and must keep failing to resolve.
 	if _, ok := ri.resolveNamed("ST_PROC", "plsql",
 		ri.rules.ForRelation("plsql", "WRITES_COLUMN")); ok {
 		t.Error("the bare column name resolved despite living in two tables; " +
@@ -137,9 +128,6 @@ func TestColumnWritesAreQualifiedInEverySQLDialectThatDeclaresThem(t *testing.T)
 			want: []string{"PEDIDO.ST_PROC", "ITEM.ID_ITEM", "ITEM.QT"},
 		},
 		{
-			// db2 on UPDATE only: this grammar's INSERT does not descend into column
-			// nodes, so declaring the query would be a pattern matching zero — worse
-			// than absence, because it looks like coverage.
 			lang: "db2", grammar: "antlr-db2", ext: ".sql",
 			src:  "UPDATE PEDIDO SET ST_PROC = 'S';",
 			want: []string{"PEDIDO.ST_PROC"},
@@ -174,7 +162,6 @@ func TestColumnWritesAreQualifiedInEverySQLDialectThatDeclaresThem(t *testing.T)
 	}
 }
 
-// dialectProject stages this repository's query file for one language.
 func dialectProject(t *testing.T, lang string) string {
 	t.Helper()
 	proj := t.TempDir()
@@ -197,9 +184,6 @@ func dialectProject(t *testing.T, lang string) string {
 // shape at once. Without this case that side's code would have no user at all — a
 // feature that exists in only one backend is half a feature.
 func TestTreeSitterBackendQualifiesColumnWritesToo(t *testing.T) {
-	// parseSource directly, PURE tree-sitter. Over CompositeParser this test would
-	// start lying: it falls back to ANTLR on seeing zero entities, and a relation
-	// query leaves no entity behind — processRelations consumes them.
 	proj := dialectProject(t, "sql")
 	cfg, ok := tsLangConfigByName(proj, "sql")
 	if !ok {

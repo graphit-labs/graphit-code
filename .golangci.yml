@@ -1,19 +1,6 @@
 version: "2"
 run:
-  # This is the ONLY place the lint build tags are declared, and it is deliberate.
-  #
-  # It used to say `fts5`, a tag that no longer exists — Makefile:43 records that SQLite and
-  # its `fts5` tag are gone and that `lancedb` replaced them. Meanwhile `make lint` passed
-  # `--build-tags lancedb` on the command line, which OVERRIDES this list, and the GitHub
-  # lint job passed no tags at all and therefore used it. Local and remote lint were
-  # analysing two different builds: everything behind `//go:build lancedb`
-  # (internal/lancestore/cgo_lancedb.go and friends) was never linted in CI.
-  #
-  # Both callers now read this list, so there is nothing left to drift. The Makefile comments
-  # at :828 and :852 describe what a wrong tag costs: internal/ast and internal/wiki resolve
-  # to a build-guard file instead of the package, so the checker misses every real diagnostic
-  # in them and then stops on an undefined guard symbol — which reads like a broken tool
-  # rather than a missing flag. Keep this in step with BUILD_TAGS in the Makefile.
+
   build-tags:
     - lancedb
 linters:
@@ -21,43 +8,33 @@ linters:
     - gosec
     - errorlint
     - gocritic
-    # unused is the only automated guard against dead code here, and it covers
-    # exactly half the problem: staticcheck's unused reports UNEXPORTED
-    # identifiers only. Every package in this repository is internal/, so an
-    # export nobody references is unreachable too — and for that half there is no
-    # linter at all, only a query against the AST graph, run by hand.
-    #
-    # Turning it on cost 0 issues, so the half that CAN be automated is now kept
-    # clean between one manual sweep and the next. A false positive — a struct
-    # field read only through encoding/json reflection, a method satisfying an
-    # interface by duck typing — takes a //nolint:unused at the site with its
-    # reason on the same line, never a second blanket disable.
+
   settings:
     govet:
       disable-all: false
     gosec:
       excludes:
-        - G104  # Unhandled errors in defers — project convention: _ = f.Close()
-        - G110  # Decompression bomb — controlled model extraction in launcher
-        - G112  # Slow body reads — CLI tool, not a public server
-        - G115  # Integer overflow — architecture-safe int→uint64 conversions
-        - G118  # tls.Listen — internal-only dev servers
-        - G120  # URL handling — CLI operates on user-provided URLs
-        - G122  # Net/http URL — internal-only dev servers
-        - G204  # Subprocess via variable — CLI tool spawns processes by design
-        - G304  # File inclusion via variable — CLI tool operates on user-provided paths
-        - G305  # File traversal in archive — controlled extraction in launcher
-        - G306  # File permissions > 0600 — executables require 0755
-        - G404  # Weak random — used for non-crypto purposes (IDs, temp names)
-        - G602  # Slice bounds — false positive on controlled loops
-        - G702  # Command injection — CLI tool executes commands by design
-        - G703  # Path traversal — CLI tool operates on user-provided paths
-        - G705  # Map range mutation — false positive on controlled patterns
-        - G101  # Hardcoded credentials — false positive on HuggingFace model URLs
+        - G104
+        - G110
+        - G112
+        - G115
+        - G118
+        - G120
+        - G122
+        - G204
+        - G304
+        - G305
+        - G306
+        - G404
+        - G602
+        - G702
+        - G703
+        - G705
+        - G101
     gocritic:
       disabled-checks:
-        - ifElseChain      # Too noisy for command routing patterns
-        - singleCaseSwitch # Intentional in some places for future extensibility
+        - ifElseChain
+        - singleCaseSwitch
   exclusions:
     generated: strict
     presets:

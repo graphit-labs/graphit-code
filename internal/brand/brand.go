@@ -71,11 +71,6 @@ func MCPToolRef(parts ...string) string { return "`" + MCPToolName(parts...) + "
 
 func TempDirPrefix(module string) string { return Brand + "-" + module + "-" }
 
-// processStartDir is the working directory as it was before anything in this process
-// could change it.
-//
-// NOTE: the daemon chdirs into GlobalDir(), so resolving a relative override against
-// the live working directory would answer one level deeper on every later call.
 var processStartDir, _ = os.Getwd()
 
 // GlobalDir resolves the global brand directory.

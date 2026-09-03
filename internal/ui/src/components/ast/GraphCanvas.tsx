@@ -172,11 +172,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
   }, [degreeMap, maxDegree])
 
   const nodeMeshesRef = useRef<Map<string, any>>(new Map())
-  
+
   const linkMatsRef = useRef<Map<string, any>>(new Map())
-  
+
   const clusterSpheresRef = useRef<Map<string, any>>(new Map())
-  
+
   const langSpheresRef = useRef<Map<string, any>>(new Map())
 
   const clusterMapRef = useRef<Map<string, string[]>>(new Map())
@@ -261,8 +261,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
       try {
         const renderer = graphRef.current.renderer?.()
         if (renderer?.dispose) renderer.dispose()
-      } catch { /* renderer cleanup */ }
-      try { graphRef.current._destructor?.() } catch { /* destructor cleanup */ }
+      } catch { /* ignored */ }
+      try { graphRef.current._destructor?.() } catch { /* ignored */ }
       graphRef.current = null
     }
     const el = containerRef.current
@@ -341,16 +341,16 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
         ctx.globalAlpha = 1
 
         const baseDensity = physicsRef.current.labelDensity ?? 1.2
-        
+
         const importance = maxDegreeRef.current > 0 ? deg / maxDegreeRef.current : 0
-        
+
         const nodeThreshold = baseDensity * (2.5 - importance * 2.35)
         const isNeighbour = neighbourhood?.has(n.id) ?? false
         const showLabel = isSelected || isNeighbour || globalScale >= nodeThreshold
 
         if (showLabel) {
           const label = (n.name || n.id).slice(0, 28)
-          
+
           const fontSize = isSelected ? 15.5 / globalScale : 12 / globalScale
           ctx.font = `${isSelected ? '600 ' : ''}${fontSize}px Inter,sans-serif`
           ctx.globalAlpha = dimmed ? 0.15 : 1
@@ -441,18 +441,18 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
         if (!bounds || bounds.r < 5) continue
 
         ctx.save()
-        
+
         ctx.beginPath()
         ctx.arc(bounds.cx, bounds.cy, bounds.r, 0, 2 * Math.PI)
         ctx.fillStyle = color + '12'
         ctx.fill()
-        
+
         ctx.setLineDash([6 / globalScale, 4 / globalScale])
         ctx.strokeStyle = color + '50'
         ctx.lineWidth = 1.5 / globalScale
         ctx.stroke()
         ctx.setLineDash([])
-        
+
         if (globalScale >= 0.4) {
           const fontSize = Math.max(8, 11 / globalScale)
           ctx.font = `600 ${fontSize}px Inter,sans-serif`
@@ -473,18 +473,18 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
         if (!bounds || bounds.r < 5) continue
 
         ctx.save()
-        
+
         ctx.beginPath()
         ctx.arc(bounds.cx, bounds.cy, bounds.r, 0, 2 * Math.PI)
         ctx.fillStyle = color + '0a'
         ctx.fill()
-        
+
         ctx.setLineDash([4 / globalScale, 4 / globalScale])
         ctx.strokeStyle = color + '40'
         ctx.lineWidth = 1.0 / globalScale
         ctx.stroke()
         ctx.setLineDash([])
-        
+
         if (globalScale >= 0.4) {
           const fontSize = Math.max(8, 11 / globalScale)
           ctx.font = `italic 500 ${fontSize}px Inter,sans-serif`
@@ -587,7 +587,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
         const n = node as GraphNode
         return n.name || n.id
       })
-      
+
       .nodeThreeObject((node: any) => {
         const n = node as GraphNode
         const deg = degreeMapRef.current.get(n.id) ?? 0
@@ -632,7 +632,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
         return (neighbourhood?.has(src) && neighbourhood?.has(tgt)) ? 1.5 : 0.1
       })
       .linkLabel((l: any) => (l.type ?? '') as string)
-      
+
       .linkMaterial((l: any) => {
         const src = typeof l.source === 'object' ? (l.source as any)?.id : l.source as string
         const tgt = typeof l.target === 'object' ? (l.target as any)?.id : l.target as string
@@ -813,7 +813,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
     })
 
     setTimeout(() => fg.zoomToFit(400, 60), 1500)
-  
+
   }, [destroyGraph, getClusterColor, getLangColor, getNodeColor, containerRef])
 
   useEffect(() => {

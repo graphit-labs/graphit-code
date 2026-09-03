@@ -13,18 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-// exportGraphToIcebug writes the graph at storeDir as an icebug directory under outDir, and copies
-// the search index beside it.
-//
-// Test-only helper: it materializes the artifact shape of a store that is ALREADY an icebug
-// bundle (see exportDirectFromRebuildIndexFromStore) and is used by the corpus/canonical tests
-// (GRAPHIT_REAL_STORE and the mounted-graph fixtures) to stage a publish the same way
-// internal/hub's prepareASTPublish does for production.
-//
-// storageURI is what every table will declare as its `storage`, so it must be the location the
-// CONSUMER will read from — the artifact's own prefix on object storage — not the directory being
-// written now. Getting that wrong produces an artifact that mounts against the publisher's local
-// disk and fails everywhere else, which is why it is a required argument rather than derived here.
 func exportGraphToIcebug(storeDir, outDir, searchDir, storageURI string, logger *slog.Logger) (*ladybug.CanonicalManifest, error) {
 	log := slogutil.Resolve(logger)
 	if strings.TrimSpace(storageURI) == "" {
@@ -32,10 +20,6 @@ func exportGraphToIcebug(storeDir, outDir, searchDir, storageURI string, logger 
 			"the publisher's disk")
 	}
 
-	// The store IS the bundle: data was written directly from shards into the store
-	// directory, so "exporting" is materializing the same artifact shape the local
-	// graph already has. That is the whole point of the unified format — the S3
-	// artifact is the local graph with the storage clause pointing at S3.
 	man, err := exportDirectFromRebuildIndexFromStore(storeDir, outDir, storageURI)
 	if err != nil {
 		return nil, fmt.Errorf("icebug export: %w", err)
@@ -62,10 +46,6 @@ func exportGraphToIcebug(storeDir, outDir, searchDir, storageURI string, logger 
 	return man, nil
 }
 
-// exportDirectFromRebuildIndexFromStore materializes the artifact shape of a store that is
-// ALREADY an icebug bundle: the Parquets are copied as-is and the schema.cypher is rewritten
-// with the destination storage URI (filesystem → s3://, or a new prefix). No graph is
-// re-derived — the publisher's local graph and the Hub artifact are the same physical files.
 func exportDirectFromRebuildIndexFromStore(storeDir, outDir, storageURI string) (*ladybug.CanonicalManifest, error) {
 	src := filepath.Join(storeDir, IcebugBundleDir)
 	rawMan, err := os.ReadFile(filepath.Join(storeDir, ladybug.IcebugManifestFile))
@@ -116,8 +96,6 @@ func copyDirContents(src, dst string) error {
 	return nil
 }
 
-// rewriteSchemaStorageURI replaces every storage = '...' in a schema.cypher with newURI,
-// preserving every other byte — the shape of the statements never changes.
 func rewriteSchemaStorageURI(schemaPath, newURI string) error {
 	raw, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -146,11 +124,6 @@ func rewriteSchemaStorageURI(schemaPath, newURI string) error {
 	return os.WriteFile(schemaPath, []byte(b.String()), 0o644)
 }
 
-// copyLanceIndex copies a Lance directory into the artifact, returning the bytes written.
-//
-// A plain recursive copy is correct here in a way it would not be for a live database file: a
-// Lance directory is immutable data files plus a manifest, so a copy taken while nothing is
-// writing is a valid dataset, and the publisher holds the store closed for exactly that reason.
 func copyLanceIndex(srcDir, dstDir string) (int64, error) {
 	info, err := os.Stat(srcDir)
 	if err != nil || !info.IsDir() {

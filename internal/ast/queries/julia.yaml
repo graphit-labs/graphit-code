@@ -1,14 +1,11 @@
 language: julia
 grammar: tree-sitter-julia
 extensions: [".jl"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function, Macro] }
 queries:
-  # === Entity queries ===
-  # Julia tree-sitter uses positional children, not named fields
+
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition (signature (call_expression (identifier) @name)))'
@@ -34,7 +31,6 @@ queries:
     graph_label: Variable
     pattern: '(assignment (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: constants
     graph_label: Constant
     pattern: '(const_statement (assignment (identifier) @name [(integer_literal) (float_literal) (boolean_literal) (character_literal) (string_literal)] @value))'
@@ -45,10 +41,7 @@ queries:
     pattern: '(assignment (identifier) @name [(integer_literal) (float_literal) (boolean_literal) (character_literal) (string_literal)] @value)'
     value_capture: value
     value_label: Value
-  # Owner stated by the pattern. julia keeps a function's name inside its signature, so
-  # the ancestor walk found function_definition, could not name it (no "name" field) and
-  # gave up: every parameter came out with an EMPTY context, and ConvertToCache discards
-  # a parameter with no owner — so they were not misfiled, they were lost.
+
   - data_key: parameters
     graph_label: Parameter
     pattern: '(function_definition (signature (call_expression (identifier) @parent (argument_list (identifier) @name))))'
@@ -59,7 +52,7 @@ queries:
     pattern: '(function_definition (signature (call_expression (identifier) @parent (argument_list (typed_expression (identifier) @name)))))'
     parent_capture: parent
     parent_label: Function
-  # Short form `f(x) = ...`: same shape without a signature node.
+
   - data_key: parameters
     graph_label: Parameter
     pattern: '(assignment (call_expression (identifier) @parent (argument_list (identifier) @name)))'
@@ -81,7 +74,6 @@ queries:
     graph_label: Export
     pattern: '(export_statement (identifier) @name)'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -95,16 +87,13 @@ queries:
     relation_type: IMPORTS
     pattern: '(using_statement (identifier) @name)'
 
-# Julia export detection: explicit 'export' keyword in module blocks
 exports:
   strategy: modifier
   config:
     keyword: "export"
 
-# Julia has no self/this keyword — methods dispatch on types
 self_keywords: []
 
-# Parent context type mapping — Julia tree-sitter node types
 context_types:
   function_definition: Function
   struct_definition: Struct
@@ -113,7 +102,6 @@ context_types:
 anon_func_types:
   - lambda_expression
 
-# Declaration node types for docstring attachment
 declaration_types:
   - function_definition
   - macro_definition
@@ -122,15 +110,9 @@ declaration_types:
   - module_definition
   - const_statement
 
-# Julia tree-sitter uses comment
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. && / || are leaves whose kind is the generic
-# "operator" — every operator shares it — so they are matched by their own
-# text, not by kind (see complexityMatcher.score). "else if" needs no entry
-# of its own — elseif_clause already covers the chain on its own account.
 complexity:
   node_types:
     - if_statement
@@ -141,10 +123,6 @@ complexity:
     - ternary_expression
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Module
   - Struct

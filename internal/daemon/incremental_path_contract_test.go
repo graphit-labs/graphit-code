@@ -48,8 +48,3 @@ func TestClassifyBatchEmitsRepoRelativeASTPaths(t *testing.T) {
 		t.Errorf("paths are not repo-relative slash form: changed=%v removed=%v", got.astChanged, got.astRemoved)
 	}
 }
-
-// Memory used to have the opposite contract here, and it is gone with the watcher that needed it:
-// `anyUnder` answered "does this batch touch this scope's directory" over absolute paths, to pick
-// which memory wiki to recompile. A memory write recompiles its own wiki inline now, so no batch is
-// ever classified against a memory scope.

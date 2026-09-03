@@ -116,22 +116,18 @@ func TestRemoveCronEntry_MultipleOccurrences(t *testing.T) {
 
 func TestSchedulerStatus_NoCrontab(t *testing.T) {
 	status := SchedulerStatus()
-	// On systems without crontab, this should return a "not installed" message
 	if status == "" {
 		t.Error("expected non-empty status")
 	}
 }
 
 func TestInstallScheduler_RequiresCrontab(t *testing.T) {
-	// Skip if crontab is not available
 	if _, err := exec.LookPath("crontab"); err != nil {
 		t.Skip("crontab not in PATH")
 	}
 
-	// Save the current crontab
 	out, _ := exec.Command("crontab", "-l").Output()
 	defer func() {
-		// Restore
 		cmd := exec.Command("crontab", "-")
 		cmd.Stdin = strings.NewReader(string(out))
 		_ = cmd.Run()
@@ -141,7 +137,6 @@ func TestInstallScheduler_RequiresCrontab(t *testing.T) {
 		t.Fatalf("InstallScheduler: %v", err)
 	}
 
-	// Verify it's installed
 	status := SchedulerStatus()
 	if !strings.Contains(status, "installed") {
 		t.Errorf("expected 'installed' in status after install, got %q", status)
@@ -151,7 +146,6 @@ func TestInstallScheduler_RequiresCrontab(t *testing.T) {
 		t.Fatalf("RemoveScheduler: %v", err)
 	}
 
-	// Verify it's removed
 	status = SchedulerStatus()
 	if !strings.Contains(status, "not installed") {
 		t.Errorf("expected 'not installed' after remove, got %q", status)
@@ -159,12 +153,10 @@ func TestInstallScheduler_RequiresCrontab(t *testing.T) {
 }
 
 func TestRemoveScheduler_NoCrontab(t *testing.T) {
-	// RemoveScheduler should not fail when there's nothing to remove
 	if _, err := exec.LookPath("crontab"); err != nil {
 		t.Skip("crontab not in PATH")
 	}
 
-	// If crontab doesn't have our entry, RemoveScheduler should not error
 	err := RemoveScheduler()
 	if err != nil {
 		t.Logf("RemoveScheduler returned error (may be expected): %v", err)

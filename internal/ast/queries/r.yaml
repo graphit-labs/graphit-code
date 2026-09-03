@@ -1,14 +1,11 @@
 language: r
 grammar: tree-sitter-r
 extensions: [".r", ".R", ".Rmd"]
-# Target resolution: a relation captures its target by NAME, and the name alone does
-# not say what kind of thing it is. Without this the target could match any label the
-# grammar declares — a Parameter sharing the called function's name.
+
 target_rules:
   CALLS: { labels: [Function] }
 queries:
-  # === Entity queries ===
-  # R functions are defined by assigning function_definition to a variable via <- or =
+
   - data_key: functions
     graph_label: Function
     pattern: '(binary_operator (identifier) @name (function_definition))'
@@ -16,33 +13,22 @@ queries:
     graph_label: Variable
     pattern: '(binary_operator (identifier) @name)'
 
-  # Declared literal values — the literal becomes a node contained by the name.
   - data_key: variables
     graph_label: Variable
     pattern: '(binary_operator lhs: (identifier) @name rhs: [(float) (integer) (complex) (string) (true) (false) (null) (na) (inf) (nan)] @value)'
     value_capture: value
     value_label: Value
-  # A parameter's owner is stated by the pattern, not derived by walking ancestors.
-  #
-  # The walk cannot get it right here: r names a function through the assignment around
-  # it (`f <- function(x)`), so the name is a SIBLING of function_definition, and
-  # context_name_paths only descends. Left to the walk, every parameter came out owned
-  # by a Function literally named "function" — the keyword, not the function.
+
   - data_key: parameters
     graph_label: Parameter
     pattern: '(binary_operator (identifier) @parent (function_definition (parameters (parameter (identifier) @name))))'
     parent_capture: parent
     parent_label: Function
 
-  # An anonymous function has no name to state, so its parameters fall to the ancestor
-  # walk, which now names the enclosing assignment: `f <- function(x) sapply(xs, function(i)
-  # ...)` puts `i` under `f`. Not the lambda — r gives it no name — but the function whose
-  # body it is, which is where the code lives.
   - data_key: parameters
     graph_label: Parameter
     pattern: '(parameters (parameter (identifier) @name))'
 
-  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -60,47 +46,26 @@ queries:
     relation_type: IMPORTS
     pattern: '(call function: (identifier) @_fn arguments: (arguments (argument value: (string) @name)))'
 
-# R has no native export system
 exports:
   strategy: none
 
-# R does not use self/this
 self_keywords: []
 
-# Parent context type mapping — R tree-sitter node types only
-# function_definition is deliberately NOT a context: it has no "name" field, and the field
-# lookup returns the `function` KEYWORD, so every entity inside came out owned by a Function
-# literally named "function".
-#
-# binary_operator is, named by its lhs — which is exactly the node the Function entity is
-# named from, so the owner always exists. It is also every `a + b`, but a binary operator
-# whose lhs is not an identifier resolves to nothing and stays transparent, and nothing
-# nests inside an arithmetic expression anyway.
-#
-# This is what gives an ANONYMOUS function's parameters an owner: they have no name of their
-# own to state, so the walk attributes them to the named function whose body they sit in.
 context_types:
   binary_operator: Function
 
 context_name_paths:
   binary_operator: lhs
 
-# R has anonymous functions
 anon_func_types:
   - function_definition
 
-# Declaration node types for docstring attachment
 declaration_types:
   - binary_operator
 
-# R uses a single "comment" node type for # comments
 comment_types:
   - comment
 
-# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
-# against the actual grammar. R has no switch/ternary syntax of its own
-# (switch() is an ordinary call, and if/else used as an expression is the
-# same if_statement node, already counted) — nothing invented to cover them.
 complexity:
   node_types:
     - if_statement
@@ -108,10 +73,6 @@ complexity:
     - while_statement
   operators: ["&&", "||"]
 
-# Labels of this language that get a vector, so semantic search reaches them and
-# not only keyword search. Order decides which label keeps a (path, uid) that two
-# of them claim -- earlier wins. Every entity is in the keyword index regardless;
-# this list is only about meaning. See docs/specs/ast_module.md.
 embed_labels:
   - Function
   - Variable

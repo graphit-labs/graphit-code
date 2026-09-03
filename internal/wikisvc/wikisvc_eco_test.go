@@ -18,7 +18,6 @@ import (
 // TestResolveEcosystemSource_FullIntegration tests the ecosystem source resolution
 // using a real GlobalLockManager with a synthetic global.lock.json and temp HOME.
 func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
-	// We need to override HOME so brand.GlobalDir() returns our temp dir.
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
@@ -38,13 +37,11 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create the lock file for the eco project (ListActiveProjects checks for this)
 	lockFilePath := filepath.Join(ecoProjectDir, brand.LockFileName())
 	if err := os.WriteFile(lockFilePath, []byte(`{"project":{"id":"eco-proj"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create the wiki directory for the ecosystem project
 	wikiDir := knowledgeWikiDirFor(t, ecoProjectDir)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -73,7 +70,6 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Reset to use real GlobalLockManager (since HOME is now our temp dir)
 	newGlobalLockManager = hub.NewGlobalLockManager
 
 	t.Run("project found with wiki dir", func(t *testing.T) {
@@ -94,7 +90,6 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 	})
 
 	t.Run("project found but wiki dir missing", func(t *testing.T) {
-		// Create another project without a wiki dir
 		ecoProject2Dir := filepath.Join(tmp, "eco-proj2")
 		if err := os.MkdirAll(ecoProject2Dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -104,7 +99,6 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Update global lock to include this project
 		lockData2 := hub.GlobalHubLock{
 			Version: hub.GlobalLockVersion,
 			Projects: map[string]*hub.ProjectEntry{
@@ -140,11 +134,6 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 	})
 
 	t.Run("project found with wiki subdir fallback", func(t *testing.T) {
-		// Create a project where the knowledge/project dir doesn't exist
-		// but knowledge/project/wiki does.
-		// This is tricky because MkdirAll creates parents. So we
-		// create knowledge/project/wiki, then remove knowledge/project
-		// (replace it with a file to make stat succeed but not as dir).
 
 		ecoProject3Dir := filepath.Join(tmp, "eco-proj3")
 		if err := os.MkdirAll(ecoProject3Dir, 0o755); err != nil {
@@ -180,30 +169,11 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// The project dir exists, knowledge/project exists (as a dir),
-		// so Stat succeeds and we get the dir path. To trigger the
-		// wikiSub fallback, we need Stat(dir) to fail. Since MkdirAll
-		// already creates the parent "project" dir, let's remove just
-		// the dir marker (can't really do this easily on standard fs).
-		//
-		// Actually, when MkdirAll creates .graphit/knowledge/project/wiki,
-		// .graphit/knowledge/project IS a directory. So stat on that succeeds.
-		// The fallback to wiki/ sub is only triggered when the primary dir
-		// does NOT exist or stat fails. In practice this path is exercised
-		// when the project dir structure has only a "wiki" subfolder.
-		//
-		// Since both dir and dir/wiki exist, this test verifies the
-		// dir-exists path (no fallback needed). The wiki subdir fallback
-		// in ecosystem source is the same pattern as resolveLocalSource.
-		// Let's test the resolveLocalSource fallback instead.
-
 		svc := NewWikiService(t.TempDir())
 		src, err := svc.resolveEcosystemSource("eco-proj3")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// Should resolve to the knowledge/project dir (not wiki/ subdir)
-		// since both exist
 		if src.ID != "eco-proj3" {
 			t.Errorf("ID = %q; want %q", src.ID, "eco-proj3")
 		}
@@ -221,7 +191,6 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 	})
 
 	t.Run("project ID doesn't match (skip)", func(t *testing.T) {
-		// eco-proj is registered, but we search for something else
 		lockData4 := hub.GlobalHubLock{
 			Version: hub.GlobalLockVersion,
 			Projects: map[string]*hub.ProjectEntry{
@@ -266,7 +235,6 @@ func TestResolveEcosystemSource_ListActiveProjectsError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write a corrupt lock file that will cause unmarshal error in ListActiveProjects
 	lockPath := filepath.Join(globalDir, hub.GlobalHubLockFile)
 	if err := os.WriteFile(lockPath, []byte("{invalid json"), 0o644); err != nil {
 		t.Fatal(err)
@@ -290,13 +258,6 @@ func TestResolveEcosystemSource_ListActiveProjectsError(t *testing.T) {
 // On a standard filesystem this is impossible with os.MkdirAll since creating
 // dir/wiki implicitly creates dir. To trigger this path, we use a permission trick.
 func TestResolveLocalSource_WikiSubdirFallback(t *testing.T) {
-	// This path requires stat(dir) to fail. Since the "wiki" subdir inside
-	// it requires the parent to exist, the only way to trigger this is when
-	// the parent has issues (permissions, or has been replaced).
-	// The existing test TestResolveLocalSource_FallbackToWikiSubdir already
-	// uses MkdirAll which creates both parent and child.
-	// The fallback code is an optimization for edge cases.
-	// Let's verify the error path at least (both dir and wiki fail).
 
 	tmp := t.TempDir()
 	svc := NewWikiService(tmp)
@@ -307,8 +268,6 @@ func TestResolveLocalSource_WikiSubdirFallback(t *testing.T) {
 	}
 }
 
-// TestResolveWikiSource_EcosystemViaResolveWikiSource tests the default case
-// in ResolveWikiSource which routes to resolveEcosystemSource.
 func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
@@ -359,7 +318,6 @@ func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 	newGlobalLockManager = hub.NewGlobalLockManager
 
 	svc := NewWikiService(t.TempDir())
-	// "my-eco" is not "project" or "memory", so goes to ecosystem path
 	src, err := svc.ResolveWikiSource("my-eco")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -369,7 +327,6 @@ func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 	}
 }
 
-// TestSearchMultiWiki_WithHubRefs tests SearchMultiWiki with only hub refs.
 func TestSearchMultiWiki_WithHubRefs(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()

@@ -48,14 +48,12 @@ func (l *DynGrammarLoader) Load(lang string) (*sitter.Language, error) {
 		return nil, fmt.Errorf("dynload: grammar %q: %w", lang, err)
 	}
 
-	// Load the shared library directly.
 	return l.loadFromPath(lang, libPath)
 }
 
 // LoadFromPath loads a tree-sitter grammar from an explicit shared library path.
 // This bypasses the search path resolution and loads directly from the given file.
 func (l *DynGrammarLoader) LoadFromPath(lang, libPath string) (*sitter.Language, error) {
-	// Check cache first.
 	if cached, ok := l.cache.Load(lang); ok {
 		return cached.(*sitter.Language), nil
 	}
@@ -73,7 +71,6 @@ func (l *DynGrammarLoader) Loaded() []string {
 	return names
 }
 
-// findLibrary searches for the grammar shared library in the configured search paths.
 func (l *DynGrammarLoader) findLibrary(lang string) (string, error) {
 	candidates := l.libraryCandidates(lang)
 	searchDirs := l.searchDirs()
@@ -112,17 +109,11 @@ func (l *DynGrammarLoader) libraryCandidates(lang string) []string {
 	baseName := "tree-sitter-" + strings.ReplaceAll(lang, "_", "-")
 
 	candidates := []string{
-		// Most specific: tree-sitter-go-linux-amd64.so
 		fmt.Sprintf("%s-%s-%s%s", baseName, osName, archName, ext),
-		// Platform only: tree-sitter-go-linux.so
 		fmt.Sprintf("%s-%s%s", baseName, osName, ext),
-		// Generic: tree-sitter-go.so
 		fmt.Sprintf("%s%s", baseName, ext),
 	}
 
-	// Fallback: always try .so regardless of platform.
-	// Some build systems produce .so universally, and both macOS dlopen
-	// and Windows LoadLibrary can load shared libraries regardless of extension.
 	if ext != ".so" {
 		candidates = append(candidates, fmt.Sprintf("%s.so", baseName))
 	}
@@ -130,7 +121,6 @@ func (l *DynGrammarLoader) libraryCandidates(lang string) []string {
 	return candidates
 }
 
-// sharedLibExt returns the platform-appropriate shared library file extension.
 func sharedLibExt() string {
 	switch runtime.GOOS {
 	case "darwin":

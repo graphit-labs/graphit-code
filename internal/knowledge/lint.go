@@ -43,7 +43,6 @@ func LintKnowledgeWiki(graph *wiki.CrossRefGraph, docs []knowledgeDoc, slugs []s
 
 	result.TotalPages = len(graph.AllPages)
 
-	// 1. Broken links — references pointing to non-existent pages
 	for src, targets := range graph.Outbound {
 		for _, target := range targets {
 			if !graph.AllPages[target] {
@@ -56,7 +55,6 @@ func LintKnowledgeWiki(graph *wiki.CrossRefGraph, docs []knowledgeDoc, slugs []s
 		}
 	}
 
-	// 2. Orphan pages — no inbound and no outbound references
 	for slug := range graph.AllPages {
 		hasInbound := len(graph.Inbound[slug]) > 0
 		hasOutbound := len(graph.Outbound[slug]) > 0
@@ -69,11 +67,6 @@ func LintKnowledgeWiki(graph *wiki.CrossRefGraph, docs []knowledgeDoc, slugs []s
 		}
 	}
 
-	// 3, 4, 5. What each document itself is missing.
-	//
-	// `index` and `log` are not skipped any more because they are not documents: they were
-	// generated pages sitting in the same directory, and the only reason this pass had to know
-	// their names was that it read a directory.
 	for i, doc := range docs {
 		slug := ""
 		if i < len(slugs) {
@@ -112,13 +105,6 @@ func LintKnowledgeWiki(graph *wiki.CrossRefGraph, docs []knowledgeDoc, slugs []s
 		}
 	}
 
-	// The "uncited source" check is GONE, and it is worth saying why rather than leaving a check
-	// that cannot fail. It looked for a source path that no page's text mentioned, which was
-	// meaningful when a page could be a slice of a document. One document has been one page since
-	// the per-heading chunker was removed, and every page carried its own `**Source:**` line, so
-	// the check has been vacuously true for as long as it has existed.
-
-	// Sort findings by severity (errors first)
 	severityOrder := map[LintSeverity]int{LintError: 0, LintWarning: 1, LintInfo: 2}
 	sort.Slice(result.Findings, func(i, j int) bool {
 		si, sj := severityOrder[result.Findings[i].Severity], severityOrder[result.Findings[j].Severity]

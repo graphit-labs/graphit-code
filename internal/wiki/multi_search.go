@@ -69,9 +69,6 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 
 	var contextBuilder strings.Builder
 	for _, src := range cfg.Sources {
-		// The catalogue comes from the index. It used to be `index.md` read off disk, a page
-		// rewritten on every build; the table already knows every slug, so the overview is a
-		// query and cannot disagree with what is searchable.
 		db, err := src.Open(ctx)
 		if err != nil {
 			continue
@@ -428,10 +425,6 @@ func WikiOverviewFrom(ctx context.Context, db *WikiDB) string {
 	return b.String()
 }
 
-// loadWikiPageFromIndex fetches one requested page out of a wiki's index.
-//
-// It replaced loadWikiPage, which did os.ReadFile on `<dir>/<slug>.md`. The pages are not written
-// any more, so a multi-wiki loop that read them found nothing and answered in one turn.
 func loadWikiPageFrom(ctx context.Context, db *WikiDB, page string) (content, slug string) {
 	res, err := ReadPageFrom(ctx, db, page, textslice.Request{})
 	if err != nil {

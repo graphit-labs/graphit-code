@@ -8,17 +8,6 @@ const (
 	TargetFallbackFile = "file"
 )
 
-// TargetRule says how the target of one relation resolves, for one language.
-//
-// The rule exists because a relation query captures its target by NAME, and a name
-// says nothing about what kind of thing it is. Which labels a name may mean, and what
-// to do when it means nothing here, are properties of the LANGUAGE — so they belong
-// to the grammar that declares the relation, not to a constant in the engine.
-//
-// They used to be constants in the engine, and every one of them was wrong for some
-// grammar: the plsql grammar declares Tablespace and Savepoint, which the engine's
-// list of schema objects never mentioned, and a grammar added by yaml alone could not
-// resolve any of its own labels.
 type TargetRule struct {
 	// Labels the target may resolve to. Empty means every label the grammar declares.
 	Labels map[string]bool
@@ -42,10 +31,7 @@ func (r TargetRule) fallbackKind() string {
 
 // TargetRules is the resolution table for every language the grammars describe.
 type TargetRules struct {
-	// byLang[language][relationType] is what that grammar declared for that relation.
-	byLang map[string]map[string]TargetRule
-	// declared[language] is every label the grammar produces, which is the default
-	// target set and the set a documentation edge resolves against.
+	byLang   map[string]map[string]TargetRule
 	declared map[string]map[string]bool
 }
 
@@ -71,7 +57,6 @@ func BuildTargetRules(files []ExternalQueryFile) *TargetRules {
 			t.byLang[lang] = make(map[string]TargetRule)
 		}
 
-		// Language level first, so a query can narrow what the language declared.
 		for rel, decl := range f.TargetRules {
 			rule := TargetRule{Fallback: decl.Fallback}
 			for _, l := range decl.Labels {
@@ -87,7 +72,6 @@ func BuildTargetRules(files []ExternalQueryFile) *TargetRules {
 		}
 
 		for _, q := range f.Queries {
-			// Every label the grammar can produce, from wherever it declares one.
 			for _, l := range []string{q.GraphLabel, q.ValueLabel, q.ParentLabel} {
 				if l != "" {
 					t.declared[lang][l] = true

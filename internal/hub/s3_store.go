@@ -20,7 +20,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-// The Hub's backend. Key convention and document schemas: docs/specs/hub-s3-object-layout.md.
 const (
 	registryPrefix = "registry"
 	artifactPrefix = "artifacts"
@@ -32,26 +31,11 @@ const (
 	eventsStagingSubdir = "events-staging"
 )
 
-// mountableTypes are published for the query engines to read in place. Everything else is
-// downloaded, because the IDE reads it from disk.
 var mountableTypes = map[ArtifactType]bool{
 	TypeAST:       true,
 	TypeKnowledge: true,
 }
 
-// S3Store is the Hub's persistence and retrieval backend.
-//
-// It replaces GitStore. The five things the git repository carried — the registry, one
-// orphan branch per artifact version, refs/events/* telemetry, rule distribution, and
-// memory stores — are all key prefixes here.
-//
-// Two properties differ from git in ways callers can feel:
-//
-//   - There is no commit. Every write is durable when it returns, so there is nothing to
-//     push and no working tree to be dirty. What used to be atomicity across a commit is
-//     now ordering: an artifact's prefix is uploaded BEFORE the registry entry names it.
-//   - There is no clone. A mountable artifact is never downloaded; the engines read the
-//     prefix over the network.
 type S3Store struct {
 	Logger *slog.Logger
 
@@ -108,15 +92,6 @@ func (s *S3Store) EnsureReachable(ctx context.Context) error {
 	return s.objects.EnsureBucket(ctx)
 }
 
-// ---------- registry mirror ----------
-//
-// The registry is small JSON metadata, and the code that reads it walks a directory. So it
-// is mirrored locally, exactly as the git clone used to be, and AbsPath keeps working.
-//
-// This does NOT reintroduce the download the migration removed: what must never be
-// transferred is the heavy half — the graph and the search index of a mountable artifact —
-// and those are read in place from their own prefix.
-
 // RegistryMirrorDir is the local copy of the registry prefix.
 func (s *S3Store) RegistryMirrorDir() string {
 	return filepath.Join(s.cacheBase, registryPrefix)
@@ -140,10 +115,6 @@ func (s *S3Store) SyncRegistry(ctx context.Context) error {
 	if err := os.RemoveAll(staging); err != nil {
 		return err
 	}
-	// Created up front, not by the download. DownloadPrefix writes one file per object and makes
-	// their parent directories on the way, so an EMPTY registry — a bucket nobody has published to
-	// yet, which is every bucket right after setup — leaves nothing behind and the rename below
-	// fails with "no such file or directory". An empty registry is a normal state, not an error.
 	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return err
 	}
@@ -183,8 +154,6 @@ func (s *S3Store) RegistryRevision(ctx context.Context) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ---------- registry documents ----------
-
 // ReadFile reads one registry document.
 func (s *S3Store) ReadFile(ctx context.Context, relPath string) ([]byte, error) {
 	if !s.Configured() {
@@ -207,10 +176,6 @@ func (s *S3Store) ReadArtifactFile(ctx context.Context, key string) ([]byte, err
 	return s.objects.Get(ctx, key)
 }
 
-// WriteFile writes one registry document, remotely and into the local mirror.
-//
-// It is durable on return — there is no commit step. Writing both sides here is what keeps a
-// read immediately after a publish consistent, which is what the commit used to guarantee.
 func (s *S3Store) WriteFile(ctx context.Context, relPath string, data []byte) error {
 	if !s.Configured() {
 		return s3store.ErrNotConfigured
@@ -260,8 +225,6 @@ func (s *S3Store) ListDir(ctx context.Context, relPath string) ([]string, error)
 	sort.Strings(out)
 	return out, nil
 }
-
-// ---------- artifacts ----------
 
 // ArtifactPrefix is the key prefix of one published artifact version.
 //
@@ -353,13 +316,6 @@ func (s *S3Store) EnsureArtifactLocal(ctx context.Context, artType ArtifactType,
 }
 
 // DownloadArtifact materialises an artifact prefix locally, including a mountable one.
-//
-// TODO(T9): the mountable types must stop being downloaded — see
-// Graphit Task tsk-2b2208eee9b1. Until the graph is mounted with
-// `storage = 's3://…'` and the search index is opened from its prefix, installing an ast or
-// knowledge context still needs the bytes, and this is the one door that provides them.
-// EnsureArtifactLocal is the destination behaviour and refuses them; this is the exception
-// that has to disappear, which is why it is named separately instead of being a flag.
 func (s *S3Store) DownloadArtifact(ctx context.Context, artType ArtifactType, id, version, projectID string) (string, error) {
 	dest := s.ArtifactCacheDir(artType, id, version, projectID)
 	if entries, err := os.ReadDir(dest); err == nil && len(entries) > 0 {
@@ -378,8 +334,6 @@ func (s *S3Store) DownloadArtifact(ctx context.Context, artType ArtifactType, id
 		return "", fmt.Errorf("%s %s@%s: no objects under %s: %w", artType, id, version, prefix, s3store.ErrNotFound)
 	}
 
-	// Download beside the destination and move into place, so an interrupted download does
-	// not leave a partial directory that the reuse check above would then trust forever.
 	staging := dest + ".partial"
 	if err := os.RemoveAll(staging); err != nil {
 		return "", err
@@ -399,32 +353,8 @@ func (s *S3Store) DownloadArtifact(ctx context.Context, artType ArtifactType, id
 	return dest, nil
 }
 
-// ---------- telemetry ----------
-//
-// AN EVENT IS UPLOADED WHEN IT HAPPENS. It is not queued.
-//
-// It used to be staged on disk and drained later, and that made sense against git: an event was a
-// write under refs/events/* plus a push, which is expensive enough per event that batching earned
-// its keep. Against object storage it earns nothing — SyncEvents did one Put PER EVENT, so the
-// queue deferred the same number of requests instead of reducing them, and it was drained from
-// exactly one place (`graphit sync`), so events from every other command accumulated on disk until
-// somebody happened to run it.
-//
-// So the staging directory is now the FAILURE path only: an event that cannot be uploaded is kept
-// so the next flush can retry it, and nothing else is ever written there. With no bucket configured
-// there is no destination at all and the event is dropped, because a queue with no consumer is a
-// disk leak, not durability.
-
-// maxStagedEvents bounds the failure path. A remote that is broken rather than briefly unreachable
-// would otherwise grow the directory without limit, and telemetry is not worth unbounded disk.
 const maxStagedEvents = 256
 
-// stagedEvent is an event that failed to upload, with the key it was meant to have.
-//
-// The key is stored rather than recovered from the file name, and that fixes a real defect: the old
-// code staged under `strings.ReplaceAll(key, "/", "_")` and rebuilt the key with the inverse
-// replacement — but a key already contains underscores, in the ULID and in the action, so every
-// retried event was uploaded under a mangled key.
 type stagedEvent struct {
 	Key  string `json:"key"`
 	Body string `json:"body"`
@@ -442,7 +372,6 @@ func WaitForPendingEvents() { pendingEvents.Wait() }
 // worse than telemetry that is missing.
 func (s *S3Store) WriteEventFile(key string, data []byte) {
 	if !s.Configured() {
-		// Nothing to send it to. Dropped rather than queued — see the note above.
 		s.log().Debug("event dropped, no bucket configured", "key", key)
 		return
 	}
@@ -464,7 +393,6 @@ func (s *S3Store) WriteEventFile(key string, data []byte) {
 	}()
 }
 
-// stageEvent keeps an event that failed to upload, so the next flush can retry it.
 func (s *S3Store) stageEvent(objectKey string, data []byte) {
 	dir := s.eventsStagingDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -477,14 +405,12 @@ func (s *S3Store) stageEvent(objectKey string, data []byte) {
 	if err != nil {
 		return
 	}
-	// The file name only has to be unique; the key travels inside.
 	name := fmt.Sprintf("%x.json", sha256.Sum256(append(raw, []byte(objectKey)...)))
 	if err := os.WriteFile(filepath.Join(dir, name), raw, 0o644); err != nil {
 		s.log().Debug("staging event", "error", err)
 	}
 }
 
-// evictOldestStaged drops the oldest staged events until there is room for one more.
 func (s *S3Store) evictOldestStaged(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) < maxStagedEvents {
@@ -536,7 +462,6 @@ func (s *S3Store) SyncEvents(ctx context.Context) {
 		}
 		var ev stagedEvent
 		if json.Unmarshal(raw, &ev) != nil || ev.Key == "" {
-			// Not something this build wrote, and there is no key to send it under.
 			_ = os.Remove(path)
 			continue
 		}
@@ -564,8 +489,6 @@ func EventKey(projectID, artifactType, action string, at time.Time, unique strin
 	}
 	return s3store.JoinKey(project, kind, at.UTC().Format("20060102T150405Z")+"_"+unique+"_"+action+".json")
 }
-
-// ---------- rules ----------
 
 // ReadRule reads one team-wide rule override.
 func (s *S3Store) ReadRule(ctx context.Context, name string) ([]byte, error) {
@@ -599,8 +522,6 @@ func (s *S3Store) WriteRule(ctx context.Context, name string, data []byte) error
 	}
 	return s.objects.Put(ctx, s3store.JoinKey(rulesPrefix, name), data)
 }
-
-// ---------- manifest helpers ----------
 
 // ReadJSON reads a registry document and refuses a manifest version this build does not
 // know, rather than parsing it into a shape it may not have.

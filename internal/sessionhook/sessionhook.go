@@ -208,7 +208,7 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 		if event.InvocationNum == nil {
 			return nil, fmt.Errorf("decoding first-invocation hook input: invocationNum is missing")
 		}
-		injected := routingContext(context.Instructions)
+		var injected string
 		if *event.InvocationNum == 0 {
 			injected = protocolWithContext(context)
 		} else {

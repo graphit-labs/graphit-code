@@ -92,7 +92,6 @@ func TestFormatRecordsTOON(t *testing.T) {
 			{"LABEL(n)": "Function", "name": "foo"},
 		}
 		got := FormatRecordsTOON(records)
-		// The header should use "label" instead of "LABEL(n)"
 		lines := strings.SplitN(got, "\n", 2)
 		if !strings.Contains(lines[0], "label") {
 			t.Errorf("expected 'label' in header, got %q", lines[0])
@@ -108,7 +107,6 @@ func TestFormatRecordsTOON(t *testing.T) {
 		if len(lines) < 2 {
 			t.Fatalf("expected at least 2 lines, got %d", len(lines))
 		}
-		// Data line should contain pipe separator
 		if !strings.Contains(lines[1], "|") {
 			t.Errorf("expected pipe separator in data line, got %q", lines[1])
 		}

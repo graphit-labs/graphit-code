@@ -80,11 +80,9 @@ func TestContextTypeToLabel(t *testing.T) {
 		{"sequence", "Sequence"},
 		{"synonym", "Synonym"},
 		{"index", "Index"},
-		// Case insensitivity
 		{"CLASS", "Class"},
 		{"Function", "Function"},
 		{"PACKAGE", "Package"},
-		// Unknown context type → title-cased
 		{"widget", "Widget"},
 		{"myType", "MyType"},
 	}

@@ -16,14 +16,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
 )
 
-// fakeInstaller stands in for the Hub service. The real one clones a git repository,
-// which does not belong in a unit test.
 type fakeInstaller struct {
 	calls []installCall
-	// fail names the artifact IDs that must fail.
-	fail map[string]error
-	// place is called for a successful install, so a test can put files where the
-	// real installer would have.
+	fail  map[string]error
 	place func(projectDir string, call installCall) error
 }
 
@@ -52,7 +47,6 @@ func (f *fakeInstaller) Install(_ context.Context, entryID, _, ide string, entry
 	return &hub.InstallResult{EntryID: id, Name: id, Version: version, ArtType: entryType}, nil
 }
 
-// withInstaller swaps the Hub open for a fake, restoring it afterwards.
 func withInstaller(t *testing.T, inst artifactInstaller, openErr error) *fakeInstaller {
 	t.Helper()
 	previous := newInstaller
@@ -86,8 +80,6 @@ func TestArtifactsOfAnyTypeAreInstalledIntoTheWorkspace(t *testing.T) {
 	isolateHome(t)
 	fake := withInstaller(t, &fakeInstaller{}, nil)
 
-	// Any type: the user may pick a wiki, a graph, a rule, a skill, a command, an
-	// agent, an MCP server or a language pack, and none is a precondition of another.
 	chosen := []livesearch.Artifact{
 		{ID: "some-wiki", Type: string(hub.TypeKnowledge)},
 		{ID: "some-graph", Type: string(hub.TypeAST), Version: "2.1.0"},
@@ -111,7 +103,6 @@ func TestArtifactsOfAnyTypeAreInstalledIntoTheWorkspace(t *testing.T) {
 			t.Fatalf("artifact %d was installed for ide %q, want claude", i, call.ide)
 		}
 	}
-	// A pinned version must travel as "id@version", which is how the Hub expresses it.
 	var sawPinned bool
 	for _, call := range fake.calls {
 		if call.entryID == "some-graph@2.1.0" {
@@ -165,9 +156,6 @@ func TestOneFailedArtifactDoesNotLoseTheOthers(t *testing.T) {
 }
 
 func TestASessionWithNoUsableArtifactFailsInsteadOfSearchingNothing(t *testing.T) {
-	// The failure this guards is a plausible-looking answer: an empty workspace
-	// makes the agent report that the sources say nothing on the subject, which
-	// reads as a fact about the sources rather than about the download.
 	isolateHome(t)
 	withInstaller(t, &fakeInstaller{
 		fail: map[string]error{"gone": errors.New("not in the registry")},
@@ -196,8 +184,6 @@ func TestAnUnreachableHubFailsPreparationLoudly(t *testing.T) {
 }
 
 func TestASessionWithNoArtifactsNeverOpensTheHub(t *testing.T) {
-	// Opening the registry clones a repository. A session that chose nothing must
-	// not pay for it.
 	isolateHome(t)
 	withInstaller(t, nil, errors.New("the hub must not be opened"))
 
@@ -208,9 +194,6 @@ func TestASessionWithNoArtifactsNeverOpensTheHub(t *testing.T) {
 }
 
 func TestAnMCPArtifactsServersReachTheProjectConfigAndThePermissions(t *testing.T) {
-	// A user who chose an MCP artifact chose its tools. If its servers are missing
-	// from the project's own configuration the choice does nothing, and if they are
-	// missing from the allowlist the agent stops to ask a question nobody will read.
 	isolateHome(t)
 
 	artifactDir := t.TempDir()
@@ -225,9 +208,6 @@ func TestAnMCPArtifactsServersReachTheProjectConfigAndThePermissions(t *testing.
 		t.Fatalf("setup: %v", err)
 	}
 
-	// The fake places the lockfile entry the real installer would have written.
-	// LinkSource is what resolveArtifactPath honours first, so it points the
-	// adapter at the artifact directory without a hub clone.
 	withInstaller(t, &fakeInstaller{place: func(projectDir string, call installCall) error {
 		lockPath := filepath.Join(projectDir, brand.LockFileName())
 		lf, err := hub.LoadLockfile(lockPath)
@@ -270,7 +250,6 @@ func TestAnMCPArtifactsServersReachTheProjectConfigAndThePermissions(t *testing.
 		sort.Strings(names)
 		t.Fatalf("the artifact's server is missing from the project config: %v", names)
 	}
-	// And graphit's own server is still there.
 	if _, ok := conf.MCPServers[brand.MCPServerName("code-stdio")]; !ok {
 		t.Fatal("the graphit server was dropped when the artifact's was added")
 	}
@@ -301,7 +280,6 @@ func TestAnMCPArtifactsServersReachTheProjectConfigAndThePermissions(t *testing.
 }
 
 func TestInstalledArtifactsReadsTheProjectsOwnLockfile(t *testing.T) {
-	// The exported accessor the MCP configuration depends on.
 	isolateHome(t)
 	ws := t.TempDir()
 
@@ -345,8 +323,6 @@ func TestCountNounReadsProperly(t *testing.T) {
 }
 
 func TestDescribeArtifactOmitsWhatWasNotGiven(t *testing.T) {
-	// The type is optional because the registry resolves it, so an absent type is a
-	// normal choice — printing it as empty parentheses would read as a missing value.
 	cases := []struct {
 		in   livesearch.Artifact
 		want string

@@ -11,11 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// registryWith builds an in-memory registry holding the entries given.
-//
-// It has no S3 store, so IsReady() is false and nothing is cloned — which is exactly the
-// isolation these tests want. What a project-less install CHANGES is where membership is
-// recorded; the store work itself is the same code path a project-scoped install takes.
 func registryWith(entries ...*Entry) *RegistryManager {
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -97,7 +92,6 @@ func TestAProjectlessInstallRecordsGloballyAndTouchesNoProject(t *testing.T) {
 		t.Errorf("owner dir = %q, want empty — a global owner has no project directory", got)
 	}
 
-	// Nothing anywhere near the working directory.
 	if _, err := os.Stat(filepath.Join(bystander, brand.LockFileName())); !os.IsNotExist(err) {
 		t.Error("a lockfile was created in the working directory: the install bound itself to a project it was not given")
 	}
@@ -129,7 +123,6 @@ func TestAProjectlessInstallRecordsThePublishingProject(t *testing.T) {
 		t.Errorf("projectId = %q, want the publishing project — without it the store cannot be addressed", art.ProjectID)
 	}
 
-	// And the store resolves, from the global record alone, to the shared versioned dir.
 	rec, ok := store.LookupContext("", store.KindAST, "demo-ast@2.1.0")
 	if !ok {
 		t.Fatal("the install is not resolvable as a global context")
@@ -202,7 +195,6 @@ func TestUninstallGlobalDropsTheGlobalClaim(t *testing.T) {
 		t.Fatal("setup: the install was not recorded")
 	}
 
-	// Routed through Uninstall with no project_dir, which is how the MCP tool reaches it.
 	if err := svc.Uninstall(context.Background(), "demo-rule", TypeRule, true, "", ""); err != nil {
 		t.Fatalf("global uninstall failed: %v", err)
 	}

@@ -127,7 +127,6 @@ func TestExtractZip(t *testing.T) {
 		dir := t.TempDir()
 		zipPath := filepath.Join(dir, "test.zip")
 
-		// Create a zip file
 		var buf bytes.Buffer
 		w := zip.NewWriter(&buf)
 		f, _ := w.Create("hello.txt")
@@ -466,7 +465,6 @@ func TestUIServer_handleInstall(t *testing.T) {
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	// Should fail because registry entry doesn't exist
 	if resp["success"] == true {
 		t.Error("expected install to fail (no registry entry)")
 	}
@@ -497,7 +495,6 @@ func TestUIServer_handleUninstall(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.handleUninstall(w, req)
 
-	// Always writes JSON response
 	if w.Header().Get("Content-Type") != "application/json" {
 		t.Error("expected JSON content type")
 	}
@@ -543,7 +540,6 @@ func TestUIServer_handleUpdateOne(t *testing.T) {
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	// Should fail
 	if resp["success"] == true {
 		t.Error("expected update to fail")
 	}
@@ -622,10 +618,8 @@ func TestUIServer_handleSubmit_WithTags(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.handleSubmit(w, req)
 
-	// Will fail because no git store, but we exercise the tag parsing code
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	// OK if it fails at the publish step
 }
 
 func TestUIServer_handleSubmit_ProjectScoped(t *testing.T) {
@@ -686,7 +680,6 @@ func TestUIServer_handleGitAuthor(t *testing.T) {
 
 	var resp map[string]string
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	// author may be empty if git is not configured
 	if _, ok := resp["author"]; !ok {
 		t.Error("expected author key in response")
 	}
@@ -702,7 +695,6 @@ func TestUIServer_handleGlobalProjects(t *testing.T) {
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	// Should have projects key (may be empty or error)
 	if _, ok := resp["projects"]; !ok {
 		t.Error("expected 'projects' key in response")
 	}
@@ -790,7 +782,6 @@ func TestUIServer_RegisterAPIRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	s.RegisterAPIRoutes(mux)
 
-	// Verify routes are registered by making test requests
 	req := httptest.NewRequest("GET", "/api/projects", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -809,12 +800,10 @@ func TestUIServer_Start(t *testing.T) {
 		errCh <- s.Start(ctx)
 	}()
 
-	// Give it a moment to start, then cancel
 	cancel()
 
 	err := <-errCh
 	if err != nil {
-		// May fail if port is in use, that's OK
 		t.Logf("Start returned: %v", err)
 	}
 }

@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-// deepChainBundle builds a corpus whose CALLS graph is one chain `files` long: file f's
-// Symbol{f}_{i} calls file f+1's Symbol{f+1}_{i}. The depth behind any anchor is the whole
-// corpus, which is what separates a planner that stops at its hop bound from one that walks
-// to visited saturation.
 func deepChainBundle(t *testing.T, files int) *LadybugBackend {
 	t.Helper()
 	entries := syntheticCorpus(files)
@@ -30,11 +26,6 @@ func deepChainBundle(t *testing.T, files int) *LadybugBackend {
 	return db
 }
 
-// A bounded plan must stop at its bound. The filter in the frontier loop already refuses
-// every uid found deeper than maxHops, so continuing to expand is work whose result is
-// discarded — and the discarded work is proportional to the DEPTH behind the anchor, not
-// to the answer. MEASURED before the bound was honoured: 1.8 s at 300 files, 28.9 s at
-// 1500, over 180 s at 6000.
 func TestBoundedTraversalStopsAtItsHopBound(t *testing.T) {
 	const files = 1500
 	db := deepChainBundle(t, files)
@@ -62,8 +53,6 @@ func TestBoundedTraversalStopsAtItsHopBound(t *testing.T) {
 			if len(res.Records) != tc.want {
 				t.Errorf("rows = %d, want %d", len(res.Records), tc.want)
 			}
-			// Generous by two orders of magnitude against the 28.9 s this cost when the
-			// loop ran to saturation: this asserts "bounded", not a benchmark figure.
 			if took > 5*time.Second {
 				t.Errorf("took %s — the plan is bounded to %d hop(s) and must not walk the whole component",
 					took.Round(time.Millisecond), tc.want)
@@ -84,17 +73,11 @@ func TestUnboundedTraversalStillReachesTheWholeComponent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	// The chain is a cycle over every file, so an unbounded walk reaches every OTHER node:
-	// the anchor is seeded into the visited set at depth 0, so coming back round to it does
-	// not re-admit it.
 	if len(res.Records) != files-1 {
 		t.Errorf("unbounded traversal reached %d nodes, want %d — saturation must be unaffected", len(res.Records), files-1)
 	}
 }
 
-// A traversal that projects PROPERTIES returns its rows in a specified order. It used to
-// fall out of the iteration — reached uid, then candidate label — which is keyed on a uid
-// the caller never sees and moves whenever the planner batches differently.
 func TestTraversalProjectionIsOrderedAndDeduplicated(t *testing.T) {
 	const files = 400
 	db := deepChainBundle(t, files)
@@ -124,7 +107,6 @@ func TestTraversalProjectionIsOrderedAndDeduplicated(t *testing.T) {
 		t.Errorf("rows are not in the specified order: %v", keys)
 	}
 
-	// And it is the same order on a second execution.
 	again, err := db.Query(context.Background(), cypher, nil)
 	if err != nil {
 		t.Fatalf("query again: %v", err)

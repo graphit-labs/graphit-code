@@ -7,8 +7,6 @@ import (
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
 )
 
-// sidecarBin returns the path to the pre-built sidecar binary from the
-// ANTLR_SIDECAR_BIN environment variable. It skips the test if unset.
 func sidecarBin(t testing.TB) string {
 	t.Helper()
 	bin := os.Getenv("ANTLR_SIDECAR_BIN")
@@ -60,7 +58,6 @@ func TestSidecarDriver_PLSQL(t *testing.T) {
 		t.Fatal("root node has no children")
 	}
 
-	// Verify we can find terminal nodes deep in the tree.
 	var terminalCount int
 	countTerminals(tree, &terminalCount)
 	if terminalCount == 0 {
@@ -80,8 +77,6 @@ func countTerminals(n *antlrcommon.TreeNode, count *int) {
 	}
 }
 
-// TestSidecarDriver_MultipleRequests verifies the sidecar handles multiple
-// sequential requests on a single long-lived process.
 func TestSidecarDriver_MultipleRequests(t *testing.T) {
 	bin := sidecarBin(t)
 
@@ -100,8 +95,6 @@ func TestSidecarDriver_MultipleRequests(t *testing.T) {
 	t.Log("5 sequential requests completed successfully on single process")
 }
 
-// TestSidecarDriver_UnknownGrammar verifies the sidecar returns an error
-// for unknown grammar names.
 func TestSidecarDriver_UnknownGrammar(t *testing.T) {
 	bin := sidecarBin(t)
 
@@ -115,8 +108,6 @@ func TestSidecarDriver_UnknownGrammar(t *testing.T) {
 	t.Logf("correctly returned error: %v", err)
 }
 
-// BenchmarkANTLR_Sidecar_PLSQL benchmarks PL/SQL parsing via a single
-// sidecar process (pool size = 1).
 func BenchmarkANTLR_Sidecar_PLSQL(b *testing.B) {
 	bin := sidecarBin(b)
 
@@ -125,7 +116,6 @@ func BenchmarkANTLR_Sidecar_PLSQL(b *testing.B) {
 
 	src := []byte(samplePLSQL)
 
-	// Warm up: first call pays process startup cost.
 	if _, err := drv.Parse(src); err != nil {
 		b.Fatalf("warmup failed: %v", err)
 	}
@@ -143,8 +133,6 @@ func BenchmarkANTLR_Sidecar_PLSQL(b *testing.B) {
 	}
 }
 
-// BenchmarkANTLR_Sidecar_PLSQL_Pooled benchmarks PL/SQL parsing via a
-// pool of 4 sidecar processes with parallel callers.
 func BenchmarkANTLR_Sidecar_PLSQL_Pooled(b *testing.B) {
 	bin := sidecarBin(b)
 
@@ -154,7 +142,6 @@ func BenchmarkANTLR_Sidecar_PLSQL_Pooled(b *testing.B) {
 
 	src := []byte(samplePLSQL)
 
-	// Warm up all pool slots.
 	for i := 0; i < poolSize; i++ {
 		if _, err := drv.Parse(src); err != nil {
 			b.Fatalf("warmup %d failed: %v", i, err)

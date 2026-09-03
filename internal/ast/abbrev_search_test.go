@@ -72,16 +72,14 @@ func TestAbbreviatedIdentifierSearch(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// Abbreviated names plus their spelled-out siblings, so a strategy that only
-	// matches the exact spelling is visibly distinguishable from one that bridges.
 	ids := []string{
-		"coreConf",           // abbreviation of "config"
-		"CONF_MGR",           // abbreviation, snake+upper (Oracle style)
-		"CFG_LOAD",           // heavier abbreviation, shares no trigram with "config"
-		"configLoader",       // spelled out
-		"initConfiguration",  // longer inflection
-		"computeChecksum",    // unrelated, must not dominate
-		"PKG_ACCOUNT_UPDATE", // unrelated
+		"coreConf",
+		"CONF_MGR",
+		"CFG_LOAD",
+		"configLoader",
+		"initConfiguration",
+		"computeChecksum",
+		"PKG_ACCOUNT_UPDATE",
 	}
 	for i, n := range ids {
 		if err := run(fmt.Sprintf("CREATE (:A {uid:'u%d', name:'%s', split:'%s', tri:'%s'})",
@@ -99,16 +97,12 @@ func TestAbbreviatedIdentifierSearch(t *testing.T) {
 		}
 	}
 
-	// Each probe names every identifier a developer would accept as a hit.
 	cases := []struct {
 		query string
 		want  []string
 	}{
-		// Query longer than the stored token (query "config", token "conf").
 		{"config", []string{"coreConf", "CONF_MGR", "configLoader", "initConfiguration"}},
-		// Query shorter than the stored token (query "conf", token "config").
 		{"conf", []string{"coreConf", "CONF_MGR", "configLoader", "initConfiguration"}},
-		// Spelled-out query against a heavy abbreviation sharing no trigram.
 		{"config", []string{"CFG_LOAD"}},
 	}
 
@@ -163,10 +157,6 @@ func TestAbbreviatedIdentifierSearch(t *testing.T) {
 		t.Fatal("no expectations were probed — the test measured nothing")
 	}
 
-	// The claim under test: index-time splitting alone cannot serve abbreviated
-	// identifiers, so a corpus that abbreviates DOES need the trigram field.
-	// If this ever fails because split caught up, the trigram field can be
-	// dropped — and that would be the evidence to drop it.
 	if triTotal <= splitTotal {
 		t.Errorf("trigram (%d) did not beat split (%d) on abbreviated identifiers — "+
 			"if this holds, the FTS+split-only design is sufficient after all",

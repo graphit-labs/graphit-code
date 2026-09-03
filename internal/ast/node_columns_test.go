@@ -10,9 +10,6 @@ import (
 	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 )
 
-// The reference implementation: node rows as a slice of maps, which is what the exporter
-// did before it streamed them into typed columns. It is kept here, and only here, so the
-// streaming path has something to be proven equal to.
 func referenceColumnsForLabel(label string, rows []map[string]any) ([]ladybug.Field, string) {
 	seen := map[string]bool{}
 	var names []string
@@ -52,8 +49,6 @@ func referenceColumnsForLabel(label string, rows []map[string]any) ([]ladybug.Fi
 	return cols, referencePrimaryKey(label, rows)
 }
 
-// NOTE: only the FIRST row decides the key, mirroring how the production writer infers a
-// table's shape. A `for … { break }` said the same thing, but read as a loop.
 func referencePrimaryKey(label string, rows []map[string]any) string {
 	if len(rows) == 0 {
 		return "uid"
@@ -221,8 +216,6 @@ func TestNodeColumnsMatchTheRowMapTable(t *testing.T) {
 	}
 }
 
-// sameCell compares what the streaming column stores against what the raw map value
-// coerces to, for the column's declared type.
 func sameCell(cypherType string, got, want any) bool {
 	switch cypherType {
 	case "INT64":

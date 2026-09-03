@@ -22,8 +22,6 @@ func TestNewOpenAIEmbeddingClient_MissingKeyWhenRequired(t *testing.T) {
 }
 
 func TestNewOpenAIEmbeddingClient_OpenAICompatibleAllowsNoKey(t *testing.T) {
-	// A self-hosted server has no entry in the known-model table, so the width must come from an
-	// explicit override — this test is about the missing-key path, not the width resolution.
 	t.Setenv("GRAPHIT_AI_EMBEDDING_DIMENSIONS", "1536")
 	c, err := newOpenAIEmbeddingClient(openAIEmbeddingConfig{
 		provider:   "openai-compatible",
@@ -82,8 +80,6 @@ func TestOpenAIEmbeddingClient_EmbedBatch_MapsResponseIndexBackToInputOrder(t *t
 		}
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Header().Set("Content-Type", "application/json")
-		// Deliberately out of input order, to prove the client maps by index rather than by
-		// response position.
 		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2],"index":1},{"embedding":[0.3,0.4],"index":0}]}`))
 	}))
 	defer srv.Close()

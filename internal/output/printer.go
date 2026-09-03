@@ -59,8 +59,6 @@ type Printer struct {
 	prefix string
 	w      io.Writer
 
-	// mu guards progress, which says the cursor is parked at the end of a
-	// transient line that no newline has terminated yet.
 	mu       sync.Mutex
 	progress bool
 }
@@ -102,9 +100,6 @@ func (p *Printer) tagLine(content string) string {
 	return p.tag() + " " + content
 }
 
-// println writes one finished line. Every printing method goes through here
-// so that a transient progress line — which has no newline of its own — is
-// erased first; otherwise the next line lands on top of half of it.
 func (p *Printer) println(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -119,7 +114,6 @@ func (p *Printer) printf(format string, args ...any) {
 	_, _ = fmt.Fprintf(p.w, format, args...)
 }
 
-// erase clears the progress line if one is on screen. Caller holds mu.
 func (p *Printer) erase() {
 	if !p.progress {
 		return
@@ -173,14 +167,10 @@ func (p *Printer) StepProgress(msg string, args ...any) {
 		return
 	}
 
-	// A line longer than the terminal wraps, and a wrapped line survives the
-	// next \r\033[K from the second row down — leaving debris on screen.
 	line = truncate(line, termWidth()-len("  "+SymbolStep+" "))
 	p.overwrite("  " + dim.Sprint(SymbolStep) + " " + dim.Sprint(line))
 }
 
-// overwrite replaces the transient line with content and leaves the cursor
-// sitting on it. Both StepProgress and the task spinner are made of this.
 func (p *Printer) overwrite(line string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

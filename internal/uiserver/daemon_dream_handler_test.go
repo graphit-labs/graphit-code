@@ -36,7 +36,6 @@ func TestHandleDaemonStatus(t *testing.T) {
 		t.Fatalf("failed to decode daemon status response: %v", err)
 	}
 
-	// The daemon may or may not be running on the test machine, so we just check that the field exists and is decodeable
 	t.Logf("Daemon running: %v, PID: %d", res.Running, res.PID)
 }
 
@@ -57,11 +56,9 @@ func TestHandleDaemonStatus_ResponseFields(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// PIDFilePath should always be present
 	if res.PIDFilePath == "" {
 		t.Error("expected non-empty pid_file_path")
 	}
-	// SchedulerStatus should always be present
 	t.Logf("scheduler_status: %q, pid_file_path: %q", res.SchedulerStatus, res.PIDFilePath)
 }
 
@@ -118,7 +115,6 @@ func TestHandleDreamStatus_MissingDir(t *testing.T) {
 func TestHandleDreamStatus_ValidDir(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create minimal lock file in tmp project dir with nested map for dream config
 	lockContent := []byte(`{
 		"project": {
 			"id": "test-id",
@@ -168,7 +164,6 @@ func TestHandleDreamStatus_ValidDir(t *testing.T) {
 
 func TestHandleDreamStatus_NoLockFile(t *testing.T) {
 	tmp := t.TempDir()
-	// No lockfile — should still work with defaults
 
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
@@ -200,7 +195,6 @@ func TestHandleDreamStatus_NoLockFile(t *testing.T) {
 
 func TestHandleDreamStatus_WithDreamDir(t *testing.T) {
 	tmp := t.TempDir()
-	// Create dream dir with reports to exercise the TotalReports counting
 	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -336,7 +330,6 @@ func TestHandleDreamReports_MultipleReports(t *testing.T) {
 		t.Errorf("expected 3 reports, got %d", len(reports))
 	}
 
-	// Should be sorted by created date descending
 	for i := 1; i < len(reports); i++ {
 		if reports[i].Created.After(reports[i-1].Created) {
 			t.Errorf("reports not sorted by date descending: %v > %v", reports[i].Created, reports[i-1].Created)
@@ -413,19 +406,6 @@ func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
 	}
 }
 
-// Should return an empty array, not null
-
-// It could be null if backlog.List returns nil
-
-// 1. Add an item
-
-// The wire contract is snake_case, matching every other result struct and
-// the TypeScript BacklogItem interface.
-
-// Register using non-pattern route to test method check inside handler
-
-// Register without method pattern to test the handler's own method check
-
 func TestSplitLastNLocal(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -490,7 +470,6 @@ func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	// Verify routes exist by making requests
 	endpoints := []struct {
 		method string
 		path   string

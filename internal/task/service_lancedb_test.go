@@ -672,9 +672,6 @@ func TestRemovalIntentBlocksNewReferencesAndReconcileRejectsStaleReferencedInten
 		t.Fatalf("subtask was not blocked by removal intent: %v", err)
 	}
 
-	// Model an intent written by an older implementation after a reference
-	// already existed. Reconciliation must preserve the task and clear the
-	// unsafe intent rather than orphan the dependent.
 	if err := tablesReopenDeleteIntent(ctx, uri, svc, intentKey); err != nil {
 		t.Fatal(err)
 	}

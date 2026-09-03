@@ -28,8 +28,6 @@ func TestAgentFeaturesDisabledByConfigAndByEnvironment(t *testing.T) {
 		}
 	})
 
-	// The environment variable is what a container uses, and it must reach this without the image
-	// writing a config file. The name is not declared anywhere — ConfigEnvVar derives it.
 	t.Run("environment variable", func(t *testing.T) {
 		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 		t.Setenv(ConfigEnvVar("modules."+AgentModule), "false")
@@ -38,8 +36,6 @@ func TestAgentFeaturesDisabledByConfigAndByEnvironment(t *testing.T) {
 		}
 	})
 
-	// A project may re-enable what the machine turned off, because the module flag is an ordinary
-	// config key and project outranks global.
 	t.Run("project config outranks global", func(t *testing.T) {
 		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 		if err := SetGlobalConfigValue("modules."+AgentModule, "false"); err != nil {

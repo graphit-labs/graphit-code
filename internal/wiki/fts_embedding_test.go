@@ -10,19 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// The embedding half of fts.go was the part fts_db_test.go left uncovered:
-// PendingEmbeddings, SetChunkVector, EmbeddingStats, SemanticSearch and
-// HybridSearch. It looked like it needed a model, and it does not — these
-// functions take and return vectors, so synthetic ones exercise every branch.
-// What is being tested is the storage and ranking, not the quality of an
-// embedding.
-//
-// Like the rest of that file these fail rather than skip when the vector
-// extension is missing, since a binary that cannot load it has a broken wiki.
-
-// unitVec builds a deterministic unit vector pointing mostly along one axis, so
-// two vectors built from different axes are far apart and two from the same axis
-// are close. That is all the geometry these tests need.
 func unitVec(axis int) []float32 {
 	v := make([]float32, ai.EmbeddingDimensions)
 	for i := range v {
@@ -42,22 +29,18 @@ func unitVec(axis int) []float32 {
 	return v
 }
 
-// nudge returns a vector near the given axis but not identical to it.
 func nudge(axis int) []float32 {
 	v := unitVec(axis)
 	v[(axis+1)%len(v)] += 0.02
 	return v
 }
 
-// slugAxis assigns each test chunk its own axis so a query aimed at one is
-// unambiguously nearer to it than to the others.
 var slugAxis = map[string]int{
 	"autenticacao": 0,
 	"indexacao":    1,
 	"implantacao":  2,
 }
 
-// embeddedTestDB rebuilds the standard fixture and embeds every chunk.
 func embeddedTestDB(t *testing.T) *WikiDB {
 	t.Helper()
 	db := rebuiltTestDB(t)

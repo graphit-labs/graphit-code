@@ -12,7 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
-// The schema the search index needs: text to match, a vector to compare, scalars to filter.
 func testSchema() Schema {
 	return Schema{Fields: []Field{
 		{Name: "uid", Type: FieldString},
@@ -59,7 +58,6 @@ func names(hits []Hit) []string {
 	return out
 }
 
-// openLocal is the mode a project's own index uses: a directory, full write access.
 func openLocal(t *testing.T) *Store {
 	t.Helper()
 	st, err := Open(context.Background(), Config{URI: t.TempDir()})
@@ -88,7 +86,6 @@ func TestLocalStoreServesAllThreeSearches(t *testing.T) {
 		t.Fatalf("count = %d, %v; want %d", n, err, len(testRows))
 	}
 
-	// Full text: BM25 over the inverted index.
 	fts, err := tbl.Search(ctx, Query{Text: "fusion rankings", TextColumn: "body", Limit: 3})
 	if err != nil {
 		t.Fatalf("fts: %v", err)
@@ -100,7 +97,6 @@ func TestLocalStoreServesAllThreeSearches(t *testing.T) {
 		t.Errorf("hit mode = %q, want fts", fts[0].Mode)
 	}
 
-	// Semantic: nearest neighbour.
 	sem, err := tbl.Search(ctx, Query{
 		Vector: []float32{0, 0.95, 0.05, 0}, VectorColumn: "embedding", Limit: 3})
 	if err != nil {
@@ -110,9 +106,6 @@ func TestLocalStoreServesAllThreeSearches(t *testing.T) {
 		t.Errorf("semantic returned %v, want MemoryStore first", names(sem))
 	}
 
-	// HYBRID, and the assertion is the REORDERING: the BM25 winner is promoted above the
-	// vector winner, which is what reciprocal rank fusion does and what proves the fusion is
-	// the engine's rather than ours.
 	hyb, err := tbl.Search(ctx, Query{
 		Text: "fusion rankings", TextColumn: "body",
 		Vector: []float32{0, 0.95, 0.05, 0}, VectorColumn: "embedding", Limit: 3})
@@ -128,8 +121,6 @@ func TestLocalStoreServesAllThreeSearches(t *testing.T) {
 	if hyb[0].Mode != "hybrid" {
 		t.Errorf("hit mode = %q, want hybrid", hyb[0].Mode)
 	}
-	// The vector winner must still be in the fused set — a hybrid that dropped it would be an
-	// FTS query wearing a different name.
 	var sawVectorWinner bool
 	for _, h := range hyb {
 		if h.Row["name"] == "MemoryStore" {
@@ -302,8 +293,6 @@ func contains(s, sub string) bool {
 	})()
 }
 
-// ---------- the remote half: on-the-fly, against a real object store ----------
-
 // THE POINT OF THE MIGRATION: a published version is queried over the network, with nothing
 // downloaded. This runs against MinIO because a fake cannot prove object-store behaviour.
 //
@@ -326,12 +315,10 @@ func TestRemoteStoreIsQueriedOnTheFly(t *testing.T) {
 		t.Fatal("an s3:// URI did not report itself remote")
 	}
 
-	// The publisher's side: writes once, by extraction from a populated local index.
 	pub, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatalf("open for publish: %v", err)
 	}
-	// Opened against s3://, so the guard is on: flip it off for the publish half only.
 	pub.remote = false
 	_ = pub.DropTable(ctx, "entities")
 	tbl, err := pub.CreateTable(ctx, "entities", testSchema())
@@ -341,7 +328,6 @@ func TestRemoteStoreIsQueriedOnTheFly(t *testing.T) {
 	populate(t, tbl)
 	_ = pub.Close()
 
-	// The consumer's side: a fresh connection, read-only, nothing downloaded.
 	st, err := Open(ctx, cfg)
 	if err != nil {
 		t.Fatalf("open remote: %v", err)
@@ -359,7 +345,6 @@ func TestRemoteStoreIsQueriedOnTheFly(t *testing.T) {
 		t.Fatalf("remote count = %d, %v; want %d", n, err, len(testRows))
 	}
 
-	// The schema was recovered from the table, so a consumer needs no manifest.
 	if _, ok := rt.Schema().Field("embedding"); !ok {
 		t.Error("the remote schema lost the vector column")
 	}
@@ -374,8 +359,6 @@ func TestRemoteStoreIsQueriedOnTheFly(t *testing.T) {
 		t.Errorf("hybrid over s3 returned %v, want the BM25 winner first", names(hyb))
 	}
 
-	// And a write must be refused: a consumer that could write would fork the published version
-	// the registry names.
 	if err := rt.Append(ctx, testRows[:1]); err == nil {
 		t.Error("a write to a published version was accepted")
 	}
@@ -397,7 +380,6 @@ func TestIdentifierQuotingActuallyMatchesRows(t *testing.T) {
 	}
 	populate(t, tbl)
 
-	// The form this package uses must delete.
 	if err := tbl.DeleteByKey(ctx, "uid", []string{"u2"}); err != nil {
 		t.Fatalf("DeleteByKey: %v", err)
 	}
@@ -409,8 +391,6 @@ func TestIdentifierQuotingActuallyMatchesRows(t *testing.T) {
 		t.Fatalf("count = %d, want %d — quoteIdent no longer matches rows", n, len(testRows)-1)
 	}
 
-	// And the double-quoted form is still the trap, so the comment on quoteIdent stays true.
-	// If this ever starts deleting, the dialect changed and quoteIdent can be revisited.
 	before, _ := tbl.Count(ctx)
 	if err := tbl.DeleteWhere(ctx, `"uid" IN ('u3')`); err != nil {
 		t.Logf("the double-quoted form now errors instead of no-opping: %v", err)
@@ -423,10 +403,6 @@ func TestIdentifierQuotingActuallyMatchesRows(t *testing.T) {
 	}
 }
 
-// ---------- the opt-in second stage ----------
-
-// fakeReranker reverses the engine's order, which is a reordering no scoring would produce by
-// accident — so a test asserting it proves the stage ran rather than that the numbers agreed.
 type fakeReranker struct {
 	calls   int
 	widened int
@@ -478,10 +454,6 @@ func TestRerankRunsAndWidensTheCandidateSet(t *testing.T) {
 	}
 	populate(t, tbl)
 
-	// A limit of ONE against a query that matches several: that is what makes the widening
-	// observable. Asking for six candidates cannot show anything when the corpus only has two
-	// matches — the widening is in the REQUEST, and the only way to see it in the response is for
-	// the caller's limit to be smaller than the matchable set.
 	const limit = 1
 	plain, err := tbl.Search(ctx, Query{Text: "search", TextColumn: "body", Limit: limit})
 	if err != nil {
@@ -508,7 +480,6 @@ func TestRerankRunsAndWidensTheCandidateSet(t *testing.T) {
 	if len(ranked) != limit {
 		t.Errorf("the result was not trimmed back to the limit: %d hits, want %d", len(ranked), limit)
 	}
-	// The fake reverses the candidate list, so the engine's top must no longer be on top.
 	if ranked[0].String() == plain[0].String() {
 		t.Errorf("the order did not change, so the stage did not take effect: %v", names(ranked))
 	}

@@ -33,11 +33,6 @@ func newTestS3Store(t *testing.T) (*S3Store, *testsupport.FakeS3) {
 	return store, fake
 }
 
-// newFakeBackedStore wires a store to an in-memory bucket with its local mirror in dir, so a
-// test can assert on either side.
-//
-// It cannot be used from a parallel test: it sets environment variables, which is how the Hub
-// configuration is injected.
 func newFakeBackedStore(t *testing.T, dir string) (*S3Store, *testsupport.FakeS3) {
 	t.Helper()
 	st, fake := newTestS3Store(t)
@@ -45,8 +40,6 @@ func newFakeBackedStore(t *testing.T, dir string) (*S3Store, *testsupport.FakeS3
 	return st, fake
 }
 
-// An unset bucket is local-only mode, which every caller must be able to keep working in —
-// it is what an unset hub.repo used to mean.
 func TestNewS3StoreWithoutABucketIsLocalOnlyNotAnError(t *testing.T) {
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 
@@ -286,8 +279,6 @@ func TestEnsureArtifactLocalReusesACompleteCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A published version is immutable, so the second call must not go to the network even
-	// after the remote changed underneath.
 	fake.Put("artifacts/skills/_global/s/1.0.0/SKILL.md", []byte("second"))
 
 	dir, err := store.EnsureArtifactLocal(ctx, TypeSkill, "s", "1.0.0", "")
@@ -300,11 +291,6 @@ func TestEnsureArtifactLocalReusesACompleteCache(t *testing.T) {
 	}
 }
 
-// AN EVENT IS UPLOADED WHEN IT HAPPENS, and the staging directory stays empty.
-//
-// It used to be staged and drained by `graphit sync`, which was the only caller of SyncEvents — so
-// events from every other command accumulated on disk indefinitely, and SyncEvents uploaded one
-// object per event anyway, so the queue deferred requests without reducing them.
 func TestEventsUploadDirectlyAndDoNotAccumulate(t *testing.T) {
 	store, fake := newTestS3Store(t)
 	store.cacheBase = t.TempDir()
@@ -318,7 +304,6 @@ func TestEventsUploadDirectlyAndDoNotAccumulate(t *testing.T) {
 		t.Fatalf("event not uploaded under the events prefix: %v", keys)
 	}
 
-	// Nothing queued: the staging directory is the failure path and this did not fail.
 	if entries, err := os.ReadDir(filepath.Join(store.cacheBase, eventsStagingSubdir)); err == nil && len(entries) != 0 {
 		t.Errorf("a successful event was staged anyway: %v", entries)
 	}
@@ -334,7 +319,6 @@ func TestAFailedEventRetriesUnderTheSameKey(t *testing.T) {
 	key := EventKey("payments", "ast", "artifact.install", time.Date(2026, 8, 21, 15, 4, 5, 0, time.UTC), "01ABC")
 	wantKey := "events/" + key
 
-	// Stage it as a failed upload would, then drain.
 	store.stageEvent(wantKey, []byte(`{"action":"artifact.install"}`))
 	staged, err := os.ReadDir(filepath.Join(store.cacheBase, eventsStagingSubdir))
 	if err != nil || len(staged) != 1 {
@@ -509,13 +493,6 @@ func TestIsMountableCoversExactlyTheTwoStoreTypes(t *testing.T) {
 	}
 }
 
-// An EMPTY registry is a normal state, not an error.
-//
-// MEASURED on a real `setup` against a fresh MinIO bucket: SyncRegistry reported
-// "rename …/registry.partial …/registry: no such file or directory" and the setup printed
-// "Registry sync failed (will retry on next command)" — on every command, forever, because the
-// bucket nobody has published to yet has no registry prefix, so the download created no staging
-// directory for the rename to move.
 func TestSyncRegistryOnAnEmptyBucketSucceeds(t *testing.T) {
 	dir := t.TempDir()
 	store, _ := newFakeBackedStore(t, dir)
@@ -536,7 +513,6 @@ func TestSyncRegistryOnAnEmptyBucketSucceeds(t *testing.T) {
 		t.Errorf("the mirror of an empty registry holds %d entries, want 0", len(entries))
 	}
 
-	// And it stays fine on the second call, which is the "retry on next command" path.
 	if err := store.SyncRegistry(context.Background()); err != nil {
 		t.Fatalf("second SyncRegistry: %v", err)
 	}

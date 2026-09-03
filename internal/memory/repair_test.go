@@ -12,16 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// The fork this repairs: a write path recovered a memory id from the FILE NAME, so
-// `<ulid>_important_.md` became a memory whose id was `<ulid>_important_`. It then accumulated
-// revisions of its own and compiled as a second page for one memory, which search answered twice.
-//
-// Measured in this repository's project scope before the fix: 496 files for 312 ids.
-
-// indexedMemoryPages reports how many live and superseded rows the compiled index holds.
-//
-// It replaced globbing `*.md` in the wiki directory: pages are not written any more, and the
-// index is what a search can answer with.
 func indexedMemoryPages(t *testing.T, wikiDir string) (live, superseded int, ids []string) {
 	t.Helper()
 	db, err := wiki.OpenWikiDB(context.Background(), wikiDir)
@@ -114,9 +104,6 @@ func TestChainTOONOmitsTheChainColumnsWhenNothingIsSuperseded(t *testing.T) {
 	}
 }
 
-// A title is a free-text sentence, and a sentence containing ": " is not valid YAML unquoted.
-// Measured in this repository's project scope: 47 files whose frontmatter therefore parsed to
-// NOTHING — their type, importance and tags invisible to search, listing and consolidation alike.
 func TestFrontmatterWithAnUnquotedColonStillParses(t *testing.T) {
 	content := "---\n" +
 		"id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n" +
@@ -150,7 +137,6 @@ func TestFrontmatterWithAnUnquotedColonStillParses(t *testing.T) {
 // write must not replace it with an empty one. That trade is how a full memory becomes a valid
 // file with no type, no tags and no timestamps, reported as a success.
 func TestAnUnreadableFrontmatterIsNeverRewrittenEmpty(t *testing.T) {
-	// A tab-indented mapping under a scalar cannot be recovered by quoting.
 	broken := "---\nid: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n\ttitle: x\n  - y\n---\n\n# Recoverable Title\n\nbody\n"
 
 	if _, ok := ParseMemoryFrontmatterOK(broken); ok {
@@ -192,11 +178,6 @@ func TestQuoteUnquotedScalarsLeavesGoodLinesAlone(t *testing.T) {
 	}
 }
 
-// Chain collapse must be answerable from the index alone. It used to open each hit's page and
-// parse its frontmatter — a file read per hit for something the columns can project.
-//
-// The test proves it by making the pages unreadable after the index is built: if the search still
-// resolves the chain, it did not touch them.
 func TestChainResolvesFromTheIndexAndNotFromThePages(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	svc := newLocalService(t)
@@ -212,7 +193,6 @@ func TestChainResolvesFromTheIndexAndNotFromThePages(t *testing.T) {
 	wikiDir := filepath.Join(t.TempDir(), "wiki")
 	compileFromTable(t, svc, wikiDir)
 
-	// Blank every page. The index keeps its columns; the frontmatter is gone.
 	pages, err := filepath.Glob(filepath.Join(wikiDir, "*.md"))
 	if err != nil {
 		t.Fatal(err)

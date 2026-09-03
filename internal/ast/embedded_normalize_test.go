@@ -5,22 +5,6 @@ import (
 	"testing"
 )
 
-// An embedded block in XML is almost never plain text: the body is escaped, because
-// `<` and `&` are markup. A `WHERE qt > 0` reaches the file as `qt &gt; 0`, and the
-// host grammar splits the content into CharData / EntityRef / CharData — so capturing
-// `(CharData)` takes only the FIRST piece and the sub-parse receives truncated SQL
-// at the first comparison operator. Silently.
-//
-// The way out is to capture the whole `content` and decode before sub-parsing.
-
-// The INVARIANT that makes this safe: decoding must not change the NEWLINE COUNT. The
-// line offset is computed over the host file, and a
-// an entity turning into a newline would shift everything after it inside the block.
-// that `&#10;` and `&#xa;` are left as they are: decoding them would trade a visible
-// error for a line-number error, which is the failure mode this whole module exists to
-// avoid.
-// xmlNormalizer is the declaration a grammar makes, not a table the engine owns.
-// It is written here exactly as xml.yaml writes it.
 func xmlNormalizer() *TextNormalizer {
 	return &TextNormalizer{
 		Replace: map[string]string{
@@ -121,15 +105,11 @@ SELECT id
     </properties>
 </processor>
 `)
-	// The created table exists only if the body arrived WHOLE: it comes after the
-	// first `&gt;` in text order? No — but the WHERE is, and a body
-	// truncado no `&gt;` deixa o statement sintaticamente incompleto.
 	if _, ok := entityAt(pf, "Table", "PEDIDO_ATIVO"); !ok {
 		if _, ok := entityAt(pf, "Table", "pedido_ativo"); !ok {
 			t.Errorf("no Table from the decoded body; entities: %v", entityLabelsOf(pf))
 		}
 	}
-	// O markup do XML segue intacto.
 	if _, ok := entityAt(pf, "Element", "properties"); !ok {
 		t.Error("the XML markup disappeared")
 	}
@@ -186,7 +166,6 @@ embedded:
 		t.Fatalf("the block did not survive: %+v", qf.Embedded)
 	}
 	n := qf.TextNormalizers["weird"]
-	// The pair that would introduce a newline is gone; the harmless one stays.
 	if _, bad := n.Replace["\\n"]; bad {
 		t.Error("a replacement containing a line break survived validation")
 	}

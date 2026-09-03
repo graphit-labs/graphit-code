@@ -52,7 +52,7 @@ func TestComputeCohesion(t *testing.T) {
 				"c": {"b"},
 			},
 			members: []string{"a", "b", "c"},
-			want:    0.67, // 2/3
+			want:    0.67,
 		},
 		{
 			name: "two_members_connected",
@@ -119,7 +119,6 @@ func TestLouvain(t *testing.T) {
 		if len(result) != 3 {
 			t.Errorf("expected 3 entries, got %d", len(result))
 		}
-		// Each isolated node should get its own community
 		seen := make(map[int]bool)
 		for _, cid := range result {
 			seen[cid] = true
@@ -143,7 +142,6 @@ func TestLouvain(t *testing.T) {
 		if len(result) != 6 {
 			t.Fatalf("expected 6 entries, got %d", len(result))
 		}
-		// Nodes in the same clique should have the same community
 		if result["a"] != result["b"] || result["b"] != result["c"] {
 			t.Errorf("clique {a,b,c} not in same community: a=%d b=%d c=%d",
 				result["a"], result["b"], result["c"])
@@ -165,7 +163,6 @@ func TestLouvain(t *testing.T) {
 			"c": {"a", "b"},
 		}
 		result := Louvain(adj)
-		// All should end up in the same community
 		if result["a"] != result["b"] || result["b"] != result["c"] {
 			t.Errorf("fully connected graph should be one community, got %v", result)
 		}
@@ -209,7 +206,6 @@ func TestLouvain(t *testing.T) {
 			ids = append(ids, cid)
 		}
 		sort.Ints(ids)
-		// IDs should start at 0 and be contiguous
 		if ids[0] != 0 {
 			t.Errorf("expected community IDs to start at 0, got %d", ids[0])
 		}

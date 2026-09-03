@@ -48,7 +48,6 @@ func skipIfNoSharedLib(t *testing.T, path string) {
 	}
 }
 
-// TestDynGrammarLoader_LoadGo loads the Go grammar dynamically and parses Go source.
 func TestDynGrammarLoader_LoadGo(t *testing.T) {
 	skipIfNoSharedLib(t, testGoGrammarPath)
 
@@ -63,7 +62,6 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 		t.Fatal("loaded language is nil")
 	}
 
-	// Parse Go source.
 	parser := sitter.NewParser()
 	_ = parser.SetLanguage(lang)
 
@@ -81,7 +79,6 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 		t.Fatal("root node is nil")
 	}
 
-	// Verify the root is a source_file with children.
 	if root.Kind() != "source_file" {
 		t.Errorf("expected root type 'source_file', got %q", root.Kind())
 	}
@@ -91,7 +88,6 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 
 	t.Logf("Parsed Go source: root=%s children=%d", root.Kind(), root.ChildCount())
 
-	// Walk top-level children and verify key declarations exist.
 	foundPackage := false
 	foundFunc := false
 	foundType := false
@@ -119,7 +115,6 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 	}
 }
 
-// TestDynGrammarLoader_LoadPython loads the Python grammar dynamically and parses Python source.
 func TestDynGrammarLoader_LoadPython(t *testing.T) {
 	skipIfNoSharedLib(t, testPythonGrammarPath)
 
@@ -158,7 +153,6 @@ func TestDynGrammarLoader_LoadPython(t *testing.T) {
 	t.Logf("Parsed Python source: root=%s children=%d", root.Kind(), root.ChildCount())
 }
 
-// TestDynGrammarLoader_Cache verifies that loading the same grammar twice returns the cached version.
 func TestDynGrammarLoader_Cache(t *testing.T) {
 	skipIfNoSharedLib(t, testGoGrammarPath)
 
@@ -185,15 +179,12 @@ func TestDynGrammarLoader_Cache(t *testing.T) {
 	}
 }
 
-// TestDynGrammarLoader_SearchPath verifies that the search path mechanism works
-// via project directory.
 func TestDynGrammarLoader_SearchPath(t *testing.T) {
 	skipIfNoSharedLib(t, testGoGrammarPath)
 
 	loader := NewDynGrammarLoader()
 	defer loader.Close()
 
-	// Use LoadFromPath directly since search path only covers project/user dirs.
 	lang, err := loader.LoadFromPath("go", testGoGrammarPath)
 	if err != nil {
 		t.Fatalf("Load via path failed: %v", err)
@@ -202,7 +193,6 @@ func TestDynGrammarLoader_SearchPath(t *testing.T) {
 		t.Fatal("loaded language is nil")
 	}
 
-	// Verify it actually works by parsing.
 	parser := sitter.NewParser()
 	_ = parser.SetLanguage(lang)
 
@@ -217,7 +207,6 @@ func TestDynGrammarLoader_SearchPath(t *testing.T) {
 	}
 }
 
-// TestDynGrammarLoader_NotFound verifies error handling for missing grammars.
 func TestDynGrammarLoader_NotFound(t *testing.T) {
 	loader := NewDynGrammarLoader()
 	defer loader.Close()
@@ -229,7 +218,6 @@ func TestDynGrammarLoader_NotFound(t *testing.T) {
 	t.Logf("Expected error: %v", err)
 }
 
-// TestDynGrammarLoader_InvalidPath verifies error handling for invalid library paths.
 func TestDynGrammarLoader_InvalidPath(t *testing.T) {
 	loader := NewDynGrammarLoader()
 	defer loader.Close()
@@ -246,7 +234,6 @@ func TestDynGrammarLoader_InvalidPath(t *testing.T) {
 func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	skipIfNoSharedLib(t, testGoGrammarPath)
 
-	// Parse with native CGO grammar.
 	nativeLang := NativeLanguage("go")
 	nativeParser := sitter.NewParser()
 	_ = nativeParser.SetLanguage(nativeLang)
@@ -257,7 +244,6 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	}
 	defer nativeTree.Close()
 
-	// Parse with dynamically loaded grammar.
 	loader := NewDynGrammarLoader()
 	defer loader.Close()
 
@@ -275,7 +261,6 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	}
 	defer dynTree.Close()
 
-	// Compare results.
 	nativeRoot := nativeTree.RootNode()
 	dynRoot := dynTree.RootNode()
 
@@ -286,7 +271,6 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 		t.Errorf("root child count mismatch: native=%d dynamic=%d", nativeRoot.ChildCount(), dynRoot.ChildCount())
 	}
 
-	// Deep compare the S-expressions.
 	nativeSexp := nativeRoot.ToSexp()
 	dynSexp := dynRoot.ToSexp()
 	if nativeSexp != dynSexp {
@@ -296,7 +280,6 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	}
 }
 
-// BenchmarkTS_Dynamic benchmarks parsing with dynamically loaded grammar.
 func BenchmarkTS_Dynamic(b *testing.B) {
 	skipIfNoSharedLibBench(b, testGoGrammarPath)
 
@@ -324,7 +307,6 @@ func BenchmarkTS_Dynamic(b *testing.B) {
 	}
 }
 
-// BenchmarkTS_Native benchmarks parsing with native CGO-linked grammar.
 func BenchmarkTS_Native(b *testing.B) {
 	lang := NativeLanguage("go")
 	src := []byte(testGoSource)

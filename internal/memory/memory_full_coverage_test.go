@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// memory_git_store.go — using real git init in TempDir
-
 // EnsureInitialised has nothing to create, and that is the assertion.
 //
 // It asserted that the store's local root EXISTS afterwards, back when that root held markdown a
@@ -45,7 +43,6 @@ func TestMemoryStore_RegisterDeregisterScope_Full(t *testing.T) {
 		t.Fatalf("RegisterScope: %v", err)
 	}
 
-	// Register again (duplicate check)
 	if err := store.RegisterScope(branch, ref); err != nil {
 		t.Fatalf("RegisterScope (dup): %v", err)
 	}
@@ -95,12 +92,10 @@ func TestMemoryStore_ValidateScopeRefs_Full(t *testing.T) {
 
 	branch := "memory/project/validate-test"
 
-	// Register with non-existent ref path — should be cleaned
 	if err := store.RegisterScope(branch, "/nonexistent/ref/path"); err != nil {
 		t.Fatalf("RegisterScope: %v", err)
 	}
 
-	// Also register with "user" ref — should be preserved
 	if err := store.RegisterScope(branch, "user"); err != nil {
 		t.Fatalf("RegisterScope: %v", err)
 	}
@@ -131,17 +126,10 @@ func TestMemoryStore_DeregisterScope_NotFound(t *testing.T) {
 	}
 }
 
-// Pruning a scope removes its local TABLE directory and nothing else.
-//
-// It used to delete a branch ref, then a raw markdown directory, and this test staged whichever of
-// those the code of the day created. The table is what a scope has locally now — and it is the only
-// copy of its memories when there is no bucket, which is why the assertion names the directory the
-// scope actually stores into rather than any directory the prune happens to remove.
-// The remote prefix must survive, because another machine may still be using the scope.
 func TestMemoryStore_PruneLocalBranch_Full(t *testing.T) {
 	tableBase := filepath.Join(t.TempDir(), "tables")
 	store := &MemoryStore{tableBase: tableBase}
-	t.Setenv("HOME", t.TempDir()) // isolate from the developer's global lock file
+	t.Setenv("HOME", t.TempDir())
 
 	const scopePath = "memory/prune/target"
 	dir := store.scopeDir(scopePath)
@@ -157,14 +145,10 @@ func TestMemoryStore_PruneLocalBranch_Full(t *testing.T) {
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("expected the table directory to be gone, got %v", err)
 	}
-	// The scope's directory name is the one the store itself derives, so the two spellings of it
-	// cannot drift apart: a prune that removed a differently-named directory would be a no-op.
 	if dir != filepath.Join(tableBase, "memory-prune-target") {
 		t.Errorf("scopeDir = %q, want the flattened scope path under the table root", dir)
 	}
 }
-
-// memory.go — MemoryService operations against a local table
 
 func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
@@ -260,7 +244,6 @@ func TestMemoryServiceSyncWiki(t *testing.T) {
 		t.Fatalf("SyncWiki: %v", err)
 	}
 
-	// The sync may or may not find the file depending on branch setup
 	_ = id
 }
 
@@ -291,9 +274,7 @@ func TestProjectRootDirAlwaysAnswers(t *testing.T) {
 }
 
 func TestUserScopeID_Coverage(t *testing.T) {
-	// This calls git config — may or may not return a hash
 	hash, _ := UserScopeID()
-	// Just verify it doesn't panic — may be empty if git user not configured
 	_ = hash
 }
 
@@ -346,12 +327,8 @@ func TestMemoryWikiGlobalDir_Coverage(t *testing.T) {
 
 func TestWikiDir_Coverage(t *testing.T) {
 	dir := WikiDir("project")
-	// dir may be empty if global dir is not configured
 	_ = dir
 }
-
-// consolidate.go — the analysis, over a corpus handed to it. RunConsolidation reads that corpus
-// from the scope's table; nothing below depends on where it came from.
 
 func TestRunConsolidation_WithAIClient_Coverage(t *testing.T) {
 	now := time.Now().UTC()
@@ -430,7 +407,6 @@ func TestRunConsolidation_ImportantMemory_Coverage(t *testing.T) {
 	}
 }
 
-// fakeAIClient implements ai.Client for tests (renamed to avoid collision with mockAIClient)
 type fakeAIClient struct {
 	response string
 	err      error
@@ -440,10 +416,6 @@ func (f *fakeAIClient) Complete(_ context.Context, _, _ string) (string, error) 
 	return f.response, f.err
 }
 
-// Indexing compiles what the STORE holds. It used to be given markdown files in a temp directory
-// and asserted that the wiki directory was non-empty afterwards — which stayed green once the
-// compile started reading the table instead, because the Lance index directory is itself an entry.
-// So this seeds through the service and counts the indexed rows.
 func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 	wikiDir := filepath.Join(t.TempDir(), "wiki")
@@ -496,12 +468,10 @@ func TestFirstLineFromContent_HeadingSkip(t *testing.T) {
 func TestFirstLineFromContent_LongLine(t *testing.T) {
 	line := strings.Repeat("X", 150)
 	got := firstLineFromContent(line)
-	if len(got) > 103 { // 100 chars + "…" (3 bytes UTF-8)
+	if len(got) > 103 {
 		t.Errorf("expected truncated, got len=%d", len(got))
 	}
 }
-
-// consolidate.go — aiConsolidation edge cases
 
 func TestAIConsolidation_WithImportantFlag(t *testing.T) {
 	client := &fakeAIClient{response: `{"duplicates": [], "contradictions": [], "suggestions": []}`}
@@ -534,8 +504,6 @@ func TestAIConsolidation_WithConflictsAndSuggestions(t *testing.T) {
 }`
 
 	client := &fakeAIClient{response: aiResponse}
-	// Every ID the analysis names has to exist in the corpus, otherwise it is
-	// filtered out — see TestAIConsolidation_DropsActionsNamingUnknownIDs.
 	memories := []memorySnapshot{
 		{ID: "01J5XABC1234567890", Title: "Mem1", Body: "Body1", Type: "fact", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ID: "01J5XDEF1234567890", Title: "Mem2", Body: "Body2", Type: "fact", CreatedAt: "2026-01-02T00:00:00Z"},
@@ -554,7 +522,6 @@ func TestAIConsolidation_WithConflictsAndSuggestions(t *testing.T) {
 	if len(report.Suggestions) != 2 {
 		t.Errorf("expected 2 suggestions, got %d", len(report.Suggestions))
 	}
-	// The survivor the analysis recommended must be the one that survives.
 	if got := report.Contradictions[0].KeepID; got != "01J5XABC1234567890" {
 		t.Errorf("KeepID = %q; want the recommended survivor", got)
 	}
@@ -579,7 +546,6 @@ func TestAIConsolidation_DropsActionsNamingUnknownIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	// One of the two duplicate IDs is unknown, leaving fewer than two — not a merge.
 	if len(report.Duplicates) != 0 {
 		t.Errorf("expected the merge to be dropped, got %d", len(report.Duplicates))
 	}
@@ -618,8 +584,6 @@ func TestAIConsolidation_ParsesFencedJSON(t *testing.T) {
 		t.Errorf("NewContent = %q; want the merged content from the JSON", got.NewContent)
 	}
 }
-
-// wiki.go — memoryEntityPage with all type emojis
 
 func TestMemoryAppService_InsertValidated_EmptyTitle(t *testing.T) {
 	svc := NewMemoryAppService("/some/project")
@@ -671,7 +635,6 @@ func TestExtractBodyAfterFrontmatter_WithHeadingAfterFrontmatter(t *testing.T) {
 
 func TestParseMemoryType_TypeWithQuotes(t *testing.T) {
 	got := parseMemoryType("---\ntype: \"decision\"\n---\n")
-	// May or may not strip quotes depending on implementation
 	if got == "" {
 		t.Error("expected non-empty type")
 	}

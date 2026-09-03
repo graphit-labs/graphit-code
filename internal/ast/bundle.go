@@ -48,9 +48,6 @@ type BundleOptions struct {
 	NoSources bool
 }
 
-// bundleSourceDir is the archive member prefix under which file text is written, one
-// entry per file rather than one large map, so extracting a bundle yields a tree and
-// reading one file out of it does not require parsing all of them.
 const bundleSourceDir = "sources/"
 
 func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string,
@@ -165,10 +162,6 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string,
 	return nil
 }
 
-// writeBundleSources streams every indexed file's text into the archive.
-//
-// A path that would escape the archive root is skipped rather than written: the paths
-// come from an index built elsewhere, and a bundle is something a person extracts.
 func writeBundleSources(zw *zip.Writer, indexPath string) (int, error) {
 	count := 0
 	err := EachFileSource(context.Background(), indexPath, func(relPath, src string) error {

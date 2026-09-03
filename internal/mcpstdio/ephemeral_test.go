@@ -35,7 +35,6 @@ func TestAnEphemeralSessionResolvesNoKnowledgeWikiOfItsOwn(t *testing.T) {
 	if got := resolveWikiDir("knowledge", ws, ""); got != "" {
 		t.Errorf("resolveWikiDir = %q; a session has no documentation wiki of its own", got)
 	}
-	// Naming a context still resolves — that is the only way in.
 	if got := resolveWikiDir("knowledge", ws, "acme-docs"); got != store.KnowledgeContextDir("acme-docs") {
 		t.Errorf("a named context resolved to %q, want its context store", got)
 	}
@@ -49,9 +48,6 @@ func TestARealProjectStillResolvesItsKnowledgeWiki(t *testing.T) {
 }
 
 func TestAnEphemeralSessionsProjectMemoryIsServedFromTheUserScope(t *testing.T) {
-	// The redirect exists because opening a project scope CREATES it, and creating it
-	// means an orphan branch and a worktree in the shared memory repository named
-	// after a session that exists for one search.
 	ws := ephemeralWorkspace(t)
 
 	if notice := memoryScopeNotice(false, ws); notice == "" {
@@ -66,8 +62,6 @@ func TestAnEphemeralSessionsProjectMemoryIsServedFromTheUserScope(t *testing.T) 
 }
 
 func TestTheMemoryWikiRedirectAgreesWithTheScopeRedirect(t *testing.T) {
-	// If these two disagree, a search returns user memory slugs and reading one back
-	// resolves to a directory that does not exist.
 	ws := ephemeralWorkspace(t)
 	viaProject := resolveWikiDir("memory", ws, "project")
 	viaUser := resolveWikiDir("memory", ws, "user")
@@ -87,8 +81,6 @@ func TestAnEphemeralSessionIsRefusedItsOwnCodeGraph(t *testing.T) {
 }
 
 func TestAnEphemeralSessionCanStillWriteAnImportedContext(t *testing.T) {
-	// Installing and querying contexts is most of what a live search does, so the
-	// refusal must be about the project's own graph and nothing else.
 	ws := ephemeralWorkspace(t)
 	db, err := openASTDBReadWrite(ws, "some-context")
 	if err != nil {

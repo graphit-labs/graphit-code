@@ -1,28 +1,5 @@
 package ladybugstore
 
-// The type-alternatives form `[:A|B|…]` on icebug storage, and the two DISTINCT engine defects
-// in it. Both are silent — neither ever raises an error.
-//
-// DEFECT ONE — the count is bounded by the FIRST-CREATED alternative. The engine truncates every
-// alternative's scan to the row count of the alternative with the lowest table id, which is
-// creation order. Query order is irrelevant.
-//
-//	created 54.823 then 92.396 -> 109.646   (= 2x54.823; the second is truncated)
-//	created 92.396 then 54.823 -> 147.219   (exact; there is nothing to truncate)
-//
-// FIXED HERE, by ordering: writeIcebugSchema creates the relationship tables largest first, so the
-// lowest-id member of ANY subset is also the largest member of that subset and no alternative is
-// ever truncated. See sortRelsLargestFirst. When the largest is first the edges are exact in
-// identity too, not merely in count — TestIcebugAlternativesKeepEdgeIdentity.
-//
-// DEFECT TWO — with a filter on a bound endpoint, the alternatives are matched against the wrong
-// node set, and ordering does NOT help. NOT fixable here.
-//
-// BOTH are reproduced on output produced by the reference `icebug-format` tool, so both are
-// UPSTREAM — see icebug_upstream_test.go. An earlier round attributed defect one to this writer
-// because the single comparison run against the tool happened to create the bigger table first,
-// which is exactly the case that cannot fail.
-
 import (
 	"fmt"
 	"os"
@@ -34,25 +11,13 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 )
 
-// --- the controlled harness -------------------------------------------------------------------
-//
-// The real graph varies row count, property shape and degree distribution across eight tables at
-// once, so nothing can be isolated from it. This writes an icebug directory with each of those
-// set independently, using the SAME primitives the real export uses.
-
-// synthRel is one relationship table to write.
 type synthRel struct {
-	name string
-	// edges is the CSR, already sorted by (source, target).
-	edges []csrEdge
-	// props is how many INT64 property columns the indices file carries.
-	props int
-	// strProps is how many STRING property columns it carries, after the INT64 ones.
+	name     string
+	edges    []csrEdge
+	props    int
 	strProps int
 }
 
-// edgesFrom puts count edges on consecutive source nodes starting at base, one each — so a
-// table's sources occupy a known id range and cannot be confused with another table's.
 func edgesFrom(base uint64, count int, n uint64) []csrEdge {
 	edges := make([]csrEdge, 0, count)
 	for i := 0; i < count; i++ {
@@ -61,8 +26,6 @@ func edgesFrom(base uint64, count int, n uint64) []csrEdge {
 	return edges
 }
 
-// writeSynthGraph writes a mountable icebug directory: one folded node table and the given
-// relationship tables, created in the order given.
 func writeSynthGraph(t *testing.T, dir string, nodes uint64, rels []synthRel) {
 	t.Helper()
 
@@ -132,17 +95,6 @@ func min64(a, b int64) int64 {
 	return b
 }
 
-// --- the rule, on synthetic files ------------------------------------------------------------
-
-// TestIcebugAlternativesBoundIsTheFirstTable pins the rule the export's table ordering relies on.
-//
-// Two candidate bounds fit two-table evidence equally well — the FIRST alternative's row count, or
-// the MINIMUM over the alternatives. With three tables of different sizes they differ, and it is
-// the first alternative's count. That is what makes "declare largest first" a complete fix rather
-// than a partial one: with the minimum bound, ordering could not have saved it.
-//
-// Each case is a subtest so its mounted store closes before the next opens one — MEASURED, opening
-// dozens of stores in one process fails with "failed to open database with status 1".
 func TestIcebugAlternativesBoundIsTheFirstTable(t *testing.T) {
 	const nodes = 60000
 
@@ -150,8 +102,6 @@ func TestIcebugAlternativesBoundIsTheFirstTable(t *testing.T) {
 		name string
 		rows int
 	}
-	// The two-table cases use the real HAS_FIELD and CALLS row counts, a pair that answers
-	// correctly on the real export precisely because CALLS is declared first there.
 	cases := [][]tbl{
 		{{"T1", 2957}, {"T2", 55040}},
 		{{"T1", 55040}, {"T2", 2957}},
@@ -183,7 +133,6 @@ func TestIcebugAlternativesBoundIsTheFirstTable(t *testing.T) {
 			writeSynthGraph(t, dir, nodes, rels)
 			st := mountIcebug(t, dir)
 
-			// Each table alone must be exact, or the fixture is what is broken.
 			for _, x := range order {
 				if got := scalar(t, st, fmt.Sprintf("MATCH ()-[r:%s]->() RETURN count(r) AS c", x.name)); got != int64(x.rows) {
 					t.Fatalf("[:%s] alone = %d, want %d", x.name, got, x.rows)
@@ -198,7 +147,6 @@ func TestIcebugAlternativesBoundIsTheFirstTable(t *testing.T) {
 					"The rule sortRelsLargestFirst relies on has changed — re-measure before trusting the order",
 					names, got, predicted, want)
 			}
-			// Largest first is the case the export produces, and it must be exact.
 			if predicted == want && got != want {
 				t.Errorf("%v: largest-first must be exact, got %d want %d", names, got, want)
 			}
@@ -206,22 +154,11 @@ func TestIcebugAlternativesBoundIsTheFirstTable(t *testing.T) {
 	}
 }
 
-// TestIcebugAlternativesKeepEdgeIdentity checks the EDGES, not the count.
-//
-// A count that matches never proved the alternatives were read as themselves — the oldest trap in
-// this export. So the two tables' source nodes are put in disjoint id ranges and the pattern is
-// asked which sources it reports. With the larger table declared first, both the total and the
-// per-range breakdown are exact.
-//
-// (`count(<property>)` is NOT a way to tell the alternatives apart here: MEASURED, count(r.line_number)
-// equals count(r) even for a table with no such column, so it does not skip nulls. An earlier round
-// inferred "every row came from CALLS" from that, and the premise was never valid.)
 func TestIcebugAlternativesKeepEdgeIdentity(t *testing.T) {
 	const nodes = 60000
 	const bigRows, smallRows = 2000, 500
 	const smallBase = 50000
 
-	// Largest first, which is the order the export writes.
 	a := synthRel{name: "A", edges: edgesFrom(0, bigRows, nodes)}
 	b := synthRel{name: "B", edges: edgesFrom(smallBase, smallRows, nodes)}
 
@@ -238,7 +175,6 @@ func TestIcebugAlternativesKeepEdgeIdentity(t *testing.T) {
 			IcebugEntityTable, pattern, IcebugIDColumn, predicate))
 	}
 
-	// Baseline: each table alone reports its own source range.
 	if got := sources("B", fmt.Sprintf(">= %d", smallBase)); got != smallRows {
 		t.Fatalf("[:B] alone reports %d edges from sources >= %d, want %d — the fixture is wrong",
 			got, smallBase, smallRows)
@@ -256,16 +192,6 @@ func TestIcebugAlternativesKeepEdgeIdentity(t *testing.T) {
 	}
 }
 
-// --- the rule, on the real graph ---------------------------------------------------------------
-
-// TestIcebugEveryPairOfTypesSumsExactly is the regression guard for the ordering fix.
-//
-// Before it, 9 of these 28 pairs were silently wrong — every pair whose alphabetically-first table
-// was also the smaller one. The other 19 were right only because there was nothing to truncate,
-// which is why the defect looked like it belonged to one pair of tables.
-//
-//	GRAPHIT_REAL_STORE=/tmp/icebug-fix/ladybugdb \
-//	  go test -tags lancedb -run TestIcebugEveryPairOfTypesSumsExactly ./internal/ladybugstore/ -v
 func TestIcebugEveryPairOfTypesSumsExactly(t *testing.T) {
 	src := openRealStore(t)
 
@@ -275,7 +201,6 @@ func TestIcebugEveryPairOfTypesSumsExactly(t *testing.T) {
 		t.Fatalf("ExportIcebug: %v", err)
 	}
 
-	// The order in schema.cypher IS the fix. Check it before checking what it buys.
 	var prev int64 = 1 << 62
 	for _, r := range man.Rels {
 		if r.Rows > prev {
@@ -307,7 +232,6 @@ func TestIcebugEveryPairOfTypesSumsExactly(t *testing.T) {
 		}
 	}
 
-	// Every type at once — the widest alternatives list the graph can produce.
 	alts := make([]string, 0, len(types))
 	var wantAll int64
 	for _, typ := range types {
@@ -322,13 +246,6 @@ func TestIcebugEveryPairOfTypesSumsExactly(t *testing.T) {
 		len(types)*(len(types)-1)/2, failures, len(types), gotAll, wantAll)
 }
 
-// TestIcebugPairsSumWithPerTableStorage keeps a hypothesis that was ELIMINATED from coming back.
-//
-// Every relationship table in the export declares the same `storage` directory and is told apart
-// by file name, so a shared directory was the obvious suspect for two CSRs being confused. It is
-// not: re-laying the same bytes one directory per table left all 9 failures exactly as they were.
-// The test stays because per-table prefixes are a plausible S3 layout, and it says that layout
-// neither causes the defect nor cures it.
 func TestIcebugPairsSumWithPerTableStorage(t *testing.T) {
 	src := openRealStore(t)
 
@@ -338,7 +255,6 @@ func TestIcebugPairsSumWithPerTableStorage(t *testing.T) {
 		t.Fatalf("ExportIcebug: %v", err)
 	}
 
-	// Re-lay the SAME bytes, one directory per table.
 	split := t.TempDir()
 	place := func(table, file string) {
 		dir := filepath.Join(split, table)
@@ -375,7 +291,6 @@ func TestIcebugPairsSumWithPerTableStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The creation ORDER of schema.cypher is preserved; only `storage` is rewritten.
 	for _, stmt := range strings.Split(string(raw), ";") {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
@@ -412,7 +327,6 @@ func TestIcebugPairsSumWithPerTableStorage(t *testing.T) {
 	}
 }
 
-// ddlTableName reads the table name out of a CREATE NODE/REL TABLE statement.
 func ddlTableName(stmt string) string {
 	for _, prefix := range []string{"CREATE NODE TABLE ", "CREATE REL TABLE "} {
 		if !strings.HasPrefix(stmt, prefix) {
@@ -428,24 +342,6 @@ func ddlTableName(stmt string) string {
 	return ""
 }
 
-// TestIcebugAlternativesWithAFilteredEndpointIsWRONG documents DEFECT TWO, which the ordering fix
-// does NOT address and which is not fixable here.
-//
-// Unfiltered, `[:A|B]` is now exact for every pair. Add a filter on a bound endpoint and it is
-// wrong again — each alternative is matched against the wrong node set. MEASURED on the real graph,
-// filtering on the most-called function:
-//
-//	[:CALLS]                = 3.769  (exact)
-//	[:CONTAINS]             = 0      (exact)
-//	[:CONTAINS|CALLS]       = 0      (CONTAINS is created first; CALLS's 3.769 edges vanish)
-//	[:CALLS|WRITES_FIELD]   = 3.798  (CALLS is created first; WRITES_FIELD invents 29 edges)
-//
-// Reproduced on the reference tool's own output, so it is UPSTREAM — see
-// TestIcebugFilteredAlternativesDefectOnToolOutput.
-//
-// The defect is asserted, so the day it is fixed upstream this test FAILS and says what to do. It
-// is also the reason relationship-per-pair partitioning stays off the table: that layout turns
-// every `MATCH (f:Function)-[:CALLS]->(g) WHERE g.name = …` into exactly this shape.
 func TestIcebugAlternativesWithAFilteredEndpointIsWRONG(t *testing.T) {
 	src := openRealStore(t)
 
@@ -457,8 +353,6 @@ func TestIcebugAlternativesWithAFilteredEndpointIsWRONG(t *testing.T) {
 	rows := map[string]int64{}
 	for _, r := range man.Rels {
 		if r.Reverse {
-			// Reverse tables carry Type of the base relationship and would overwrite the
-			// direct counts here; their Rows also exclude self-loops on purpose.
 			continue
 		}
 		rows[r.Type] = r.Rows
@@ -478,8 +372,6 @@ func TestIcebugAlternativesWithAFilteredEndpointIsWRONG(t *testing.T) {
 			"MATCH (a:%s)-[r:%s]->(b:%s) WHERE b.name = '%s' RETURN count(*) AS c", e, pattern, e, name))
 	}
 
-	// A SINGLE type with a filtered endpoint is exact — that is the row-group fix holding, and it
-	// is what makes the folded layout usable at all.
 	for _, typ := range []string{"CALLS", "CONTAINS", "WRITES_FIELD"} {
 		want := scalar(t, src, fmt.Sprintf(
 			"MATCH (a)-[r:%s]->(b) WHERE b.name = '%s' RETURN count(*) AS c", typ, name))
@@ -490,7 +382,6 @@ func TestIcebugAlternativesWithAFilteredEndpointIsWRONG(t *testing.T) {
 	wantCalls := scalar(t, src, fmt.Sprintf(
 		"MATCH (a)-[r:CALLS]->(b) WHERE b.name = '%s' RETURN count(*) AS c", name))
 
-	// Unfiltered, the pair is exact and must stay exact.
 	if got := scalar(t, mounted, "MATCH ()-[r:CALLS|CONTAINS]->() RETURN count(r) AS c"); got != rows["CALLS"]+rows["CONTAINS"] {
 		t.Errorf("unfiltered [:CALLS|CONTAINS] = %d, want %d — the ordering fix regressed",
 			got, rows["CALLS"]+rows["CONTAINS"])

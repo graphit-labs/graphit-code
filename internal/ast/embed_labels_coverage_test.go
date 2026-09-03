@@ -9,16 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// Which labels get a vector is declared per grammar, in `embed_labels`. That
-// makes it extensible — a grammar the binary has never seen still decides for
-// itself — and it makes it silently skippable, which is what these two tests are
-// for.
-//
-// The failure mode has no symptom at the point of the mistake: a grammar that
-// says nothing, or names a label with a typo, still parses, still indexes, still
-// answers keyword search. Only semantic search goes quiet for it, and a quiet
-// half of a hybrid search reads exactly like a corpus that had no good match.
-
 func shippedQueryFiles(t *testing.T) []ExternalQueryFile {
 	t.Helper()
 
@@ -67,8 +57,6 @@ func TestEmbedLabelsAreLabelsTheGrammarProduces(t *testing.T) {
 				}
 			}
 		}
-		// Comments are emitted by the engine's own pass rather than by a query,
-		// so the grammar declaring comment_types is what makes Comment reachable.
 		if len(qf.CommentTypes) > 0 {
 			produced[LabelComment] = true
 		}
@@ -84,19 +72,8 @@ func TestEmbedLabelsAreLabelsTheGrammarProduces(t *testing.T) {
 	}
 }
 
-// embedLabelsTestLang is a language no shipped grammar declares, so a project
-// file for it exercises the resolution rather than overriding a runtime answer.
 const embedLabelsTestLang = "embedlabelslang"
 
-// stageEmbedLabelsIn writes a project-level query file declaring embed_labels for
-// embedLabelsTestLang under projectDir.
-//
-// Every embedder test stages its own grammar this way rather than naming a real
-// language, because the shipped YAMLs a test process can see are the ones the
-// launcher extracted to the runtime directory — which is machine state, not
-// repository state. A test asserting on `go` would be asserting on whatever
-// version of go.yaml this machine last installed. See the memory on query YAMLs
-// not being go:embed.
 func stageEmbedLabelsIn(t *testing.T, projectDir string, labels ...string) {
 	t.Helper()
 
@@ -123,7 +100,6 @@ func stageEmbedLabelsIn(t *testing.T, projectDir string, labels ...string) {
 	}
 }
 
-// stageEmbedLabelsGrammar is stageEmbedLabelsIn into a fresh project directory.
 func stageEmbedLabelsGrammar(t *testing.T, labels ...string) string {
 	t.Helper()
 	projectDir := t.TempDir()
@@ -136,7 +112,6 @@ func sortedKeys(m map[string]bool) []string {
 	for k := range m {
 		out = append(out, k)
 	}
-	// sort.Strings via the package's own helper keeps the message stable.
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0 && out[j] < out[j-1]; j-- {
 			out[j], out[j-1] = out[j-1], out[j]

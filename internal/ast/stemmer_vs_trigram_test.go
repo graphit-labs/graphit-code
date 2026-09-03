@@ -85,12 +85,12 @@ func TestStemmerVsTrigram(t *testing.T) {
 	}
 
 	cases := []struct{ kind, query, want string }{
-		{"morphological", "parsing", "parseConfig"}, // 'Parses' in doc
+		{"morphological", "parsing", "parseConfig"},
 		{"morphological", "validation", "validateSchema"},
 		{"morphological", "retrying", "retryPolicy"},
-		{"substring", "onfig", "parseConfig"}, // partial word
+		{"substring", "onfig", "parseConfig"},
 		{"substring", "chema", "validateSchema"},
-		{"typo", "confg", "parseConfig"}, // missing letter
+		{"typo", "confg", "parseConfig"},
 		{"exact word", "configuration", "parseConfig"},
 	}
 

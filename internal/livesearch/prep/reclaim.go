@@ -30,9 +30,6 @@ func Reclaim(sessionID string) {
 	_ = os.RemoveAll(store.MemoryWikiDir(string(memory.MemoryScopeProject), sessionID))
 	_ = os.RemoveAll(store.MemoryTableDir(string(memory.MemoryScopeProject), sessionID))
 
-	// The memory scope is the one that reached outside the global directory: opening
-	// it created an orphan branch and a worktree in the shared memory repository, so
-	// deleting the wiki alone would leave the branch behind.
 	if gs, err := memory.NewMemoryStore(); err == nil {
 		_ = gs.PruneScope(string(memory.MemoryScopeProject), sessionID)
 	}

@@ -2,21 +2,6 @@ package ast
 
 import "testing"
 
-// The object and parameter names here are synthetic; the SHAPE is the one that broke.
-
-// TestPackageSpecParametersBelongToTheirSubprogram is the reported failure.
-//
-// In a package SPEC the subprograms are declared as procedure_spec / function_spec.
-// plsql.yaml turns both into entities but listed neither in context_types, so
-// resolveParentContextAntlr — which returns the FIRST enclosing rule that is a
-// declared context — walked straight past them to create_package. Every parameter of
-// every spec-declared subprogram therefore came out owned by the package: measured on
-// one Oracle export, 9052 parameters, all of them under the packages directory, with
-// HAS_PARAMETER pointing at a Package instead of the Procedure or Function that
-// declares them.
-//
-// It also collided uids: two subprograms of one package that share a parameter name
-// (E_TX_ERRO below) produced the same path::PACKAGE.E_TX_ERRO.
 func TestPackageSpecParametersBelongToTheirSubprogram(t *testing.T) {
 	pf := plsqlFixture(t, "pck_cobranca.sql", `
 CREATE EDITIONABLE PACKAGE PCK_COBRANCA
@@ -46,7 +31,6 @@ END PCK_COBRANCA;
 		owners[p.Name] = p
 	}
 
-	// One parameter per subprogram, each unambiguous within the package.
 	want := map[string]struct{ context, contextType string }{
 		"P_ID_LOTE":     {"LISTAR_PENDENCIA", "Procedure"},
 		"P_LOG_TX":      {"ATUALIZAR_INTEGRACAO", "Procedure"},

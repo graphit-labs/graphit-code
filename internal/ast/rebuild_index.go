@@ -9,26 +9,18 @@ import (
 type rebuildIndex struct {
 	entries map[string]*parseCacheEntry
 
-	labels        []string
-	labelSet      map[string]bool
-	containsPairs [][2]string
-	callerLabels  []string
-	// calleeLabels are the node tables call targets live in. Function is always one of
-	// them — it is where the stubs go — and Method joins it as soon as some call
-	// resolves to a declared method.
-	calleeLabels    []string
-	dmlTypes        []string
-	dmlTargetLabels []string
-	dmlSourceLabels []string
-	// filePaths are this rebuild's relPaths, so refSourceLabel can recognise a
-	// reference whose source is the file rather than an entity.
-	filePaths map[string]bool
-	// hasCallTargets says some call has a target, and therefore that stubFunctionJSON
-	// may emit Function nodes — the table has to exist even with no caller at all.
-	hasCallTargets   bool
-	paramOwnerLabels []string
-	fieldOwnerLabels []string
-	// fieldAccessSourceLabels are the node tables a READS_FIELD/WRITES_FIELD starts from.
+	labels                  []string
+	labelSet                map[string]bool
+	containsPairs           [][2]string
+	callerLabels            []string
+	calleeLabels            []string
+	dmlTypes                []string
+	dmlTargetLabels         []string
+	dmlSourceLabels         []string
+	filePaths               map[string]bool
+	hasCallTargets          bool
+	paramOwnerLabels        []string
+	fieldOwnerLabels        []string
 	fieldAccessSourceLabels []string
 	inheritLabels           []string
 	decoratorOwnerLabels    []string
@@ -39,33 +31,16 @@ type rebuildIndex struct {
 	hasDecorators           bool
 	hasImports              bool
 
-	entityUIDs  map[string]string
-	fieldUIDs   map[string]bool
-	dirPathSet  map[string]bool
-	fileEntries []fileEntry
-	// emittedTable is the node table a uid was first written into, and emittedExtra
-	// holds the rare uid written into a second one.
-	//
-	// SAFETY: this used to be map[string]map[string]bool. A Go map holding one entry
-	// costs ~200 B of header and bucket before the entry itself, so at tens of millions
-	// of uids the bookkeeping outweighed the data it was tracking.
+	entityUIDs   map[string]string
+	fieldUIDs    map[string]bool
+	dirPathSet   map[string]bool
+	fileEntries  []fileEntry
 	emittedTable map[string]string
 	emittedExtra map[uidTable]bool
-	// decls resolves a target's name to the declarations it may mean. It indexes EVERY
-	// declared label, with no fixed list: which subset counts is the grammar's
-	// decision, through TargetRule.
-	decls map[string][]declRef
-	// rules are the resolution rules the grammars declare.
-	rules *TargetRules
+	decls        map[string][]declRef
+	rules        *TargetRules
 }
 
-// declRef is one declaration a target's name may mean.
-//
-// The index keeps EVERY candidate for a name rather than a count: which labels count
-// depends on the relation being resolved — see TargetRule — so ambiguity can only be
-// judged at lookup time. With the right set, a name the whole list would reject
-// resolves: a call to `Rule` is unique among functions even when a `Rule` struct also
-// exists.
 type declRef struct {
 	uid   string
 	label string
@@ -134,13 +109,6 @@ func (ri *rebuildIndex) detachEmitState() (restore func()) {
 	return func() { ri.emittedTable, ri.emittedExtra = table, extra }
 }
 
-// refSourceLabel says which node table a reference starts from.
-//
-// Normally the entity containing it. When there is no entity — a statement at the top
-// of a script, a `var(--x)` at the top of a rule — the UID is the file's path and the
-// source is the File. `LabelFile` deliberately stays out of ri.labels: the File table
-// is created unconditionally by the rebuild, and adding it there would emit the node's
-// COPY twice.
 func (ri *rebuildIndex) refSourceLabel(uid string) string {
 	if lbl := ri.entityUIDs[uid]; lbl != "" {
 		return lbl
@@ -152,8 +120,6 @@ func (ri *rebuildIndex) refSourceLabel(uid string) string {
 }
 
 func (ri *rebuildIndex) scan() {
-	// Filled from the KEYS of ri.entries rather than from ri.fileEntries: that one is
-	// built inside the loop below, so an init before it would see an empty list.
 	ri.filePaths = make(map[string]bool, len(ri.entries))
 	for relPath := range ri.entries {
 		ri.filePaths[relPath] = true
@@ -181,9 +147,6 @@ func (ri *rebuildIndex) scan() {
 			labelSet[ent.Label] = true
 			ri.entityUIDs[ent.UID] = ent.Label
 			if ent.Name != "" {
-				// The file's language is the fallback for the entity's: not every
-				// extractor fills ent.Lang, and without it the same-language guard
-				// would reject every candidate — resolving nothing.
 				declLang := ent.Lang
 				if declLang == "" {
 					declLang = entry.Language
@@ -191,12 +154,6 @@ func (ri *rebuildIndex) scan() {
 				ref := declRef{uid: ent.UID, label: ent.Label, lang: declLang}
 				decls[ent.Name] = append(decls[ent.Name], ref)
 
-				// Also under `owner.name`, so a target that names what it belongs to
-				// resolves to ONE declaration instead of to the dozens that share a
-				// bare name. `PEDIDO.ORDER_ID` is a different key from `ORDER_ID`, and
-				// only a query that qualified its target ever asks for it — see
-				// QualifierCapture. Both keys are kept: an unqualified target still
-				// resolves the way it always did.
 				if ent.Context != "" {
 					qualified := ent.Context + "." + ent.Name
 					decls[qualified] = append(decls[qualified], ref)
@@ -213,11 +170,6 @@ func (ri *rebuildIndex) scan() {
 			}
 		}
 
-		// Who owns a parameter decides which HAS_PARAMETER pairs the schema needs.
-		// Deriving them from the CALL sources instead — as this used to — held only
-		// by luck: a package whose procedure takes a parameter and calls nothing
-		// produced no caller labels, and the group fell back to a hardcoded
-		// `FROM Function`, a node table that corpus never creates.
 		for _, p := range entry.Parameters {
 			ri.hasParams = true
 			if owner := ri.entityUIDs[p.FuncUID]; owner != "" {
@@ -260,22 +212,6 @@ func (ri *rebuildIndex) scan() {
 				ri.hasCallTargets = true
 			}
 			if call.CallerUID != "" && call.SourceType != "" {
-				// Whatever label the caller carries, including File — a call with no
-				// entity around it is made by the FILE (an `init()` at the end of a
-				// module, a bare script statement), and unlike DML the CALLS schema
-				// has no fixed File step: it derives its pairs from this set, so a
-				// label missing here is a group that never gets declared and an edge
-				// with nowhere to go.
-				//
-				// This used to be a FIXED LIST — Function, Method, Procedure, Trigger,
-				// Package, File — and that made the caller of a call un-extensible:
-				// an embedded block attributed to a unit its own grammar declared
-				// (a screen's trigger, a flow's processor, a report's query) carried a
-				// label absent from the list, so the DML edge from that block appeared
-				// and the CALLS edge from the SAME block did not. Nothing here has to
-				// vet the label: `canWriteCallerLabel` requires it to have been
-				// emitted, `callRelPairs` intersects with the node tables that exist,
-				// and `callEdgeJSON` demands the caller uid live in that very table.
 				callerSet[call.SourceType] = true
 			}
 		}
@@ -293,12 +229,6 @@ func (ri *rebuildIndex) scan() {
 		for _, ref := range entry.References {
 			if ref.SourceUID != "" {
 				dmlTypeSet[ref.RelType] = true
-				// File deliberately stays OUT of dmlSrcSet: the schema already
-				// declares `FROM File TO <target>` unconditionally for every DML type
-				// (ladybug.go), so announcing it here would emit the pair twice and
-				// LadybugDB rejects the whole group with "duplicate FROM-TO pairs".
-				// File-sourced edges have their own COPY step in json_rebuild,
-				// mirroring the step the schema already had.
 				if lbl := ri.entityUIDs[ref.SourceUID]; lbl != "" {
 					dmlSrcSet[lbl] = true
 				}
@@ -310,13 +240,6 @@ func (ri *rebuildIndex) scan() {
 		}
 	}
 
-	// The Function table has to exist when ANY call has a target, not only when some
-	// call has a caller. stubFunctionJSON creates a Function node for every unresolved
-	// target regardless of who calls it — and a call at the top of a script has no
-	// entity around it, so `callerSet` stays empty. In that state the stub rows were
-	// emitted against a table that did not exist and the COPY failed with "Table
-	// Function does not exist", aborting the whole rebuild. Latent until a bare
-	// embedded SQL block made the case reachable.
 	if len(callerSet) > 0 || ri.hasCallTargets {
 		labelSet["Function"] = true
 	}
@@ -324,15 +247,8 @@ func (ri *rebuildIndex) scan() {
 		labelSet["Module"] = true
 	}
 
-	// Every object is known now, so a reference can be resolved to the node that
-	// defines it. What a reference resolves to also decides which rel table groups
-	// the schema needs: hardcoding Table as the only DML target both dropped edges
-	// to views and sequences and made the DML graph vanish entirely on a corpus
-	// with no CREATE TABLE files.
 	ri.decls = decls
 
-	// Segundo passo, depois de ri.decls estar completo: resolver um alvo de chamada
-	// needs the whole index, and inside the loop above it is still being built.
 	calleeSet := map[string]bool{LabelFunction: true}
 	for _, fe := range ri.fileEntries {
 		for _, call := range fe.entry.Calls {
@@ -393,13 +309,6 @@ func (ri *rebuildIndex) scan() {
 		}
 	}
 	sort.Strings(ri.dmlTargetLabels)
-	// A CONTAINS pair is only writable when both ends have a node table. The
-	// parent side comes from an entity's declared context type, which is not
-	// guaranteed to name a label any entity carries: 75121 Table->Column edges
-	// against zero Table entities made LadybugDB reject the whole rel table group
-	// ("Table Table does not exist") and abort the rebuild, losing the entire
-	// graph. The writer already drops these edges — see streamContainsEntity — so
-	// filtering here costs nothing and keeps the DDL buildable.
 	for p := range containsSet {
 		if labelSet[p[0]] && labelSet[p[1]] {
 			ri.containsPairs = append(ri.containsPairs, p)
@@ -487,13 +396,6 @@ func entityToJSON(ent cachedEntity, isStub bool, cluster string) map[string]any 
 	return m
 }
 
-// stubJSON is the node left behind when a target is declared nowhere in the corpus —
-// a call to `fmt.Println`, an inheritance from a library class.
-//
-// lang comes from the file the reference originated in, never empty: a stub has no
-// file of its own, but the language of whoever invoked it is the only correct answer
-// and is what lets it be grouped. It used to be "" and every stub fell into a group
-// with no language, indistinguishable from a directory node.
 func stubJSON(uid, lang, cluster string) map[string]any {
 	m := map[string]any{
 		"uid": uid, "name": uid, "path": "",
@@ -542,16 +444,6 @@ func (ri *rebuildIndex) streamModules(emit func(map[string]any)) {
 	}
 }
 
-// resolveNamed joins a target captured by name to the declaration it means, under the
-// rule the grammar declared for that relation.
-//
-// Two guards stay in the engine because they are correctness invariants, not language
-// policy:
-//
-//   - exactly one candidate. With homonyms inside the allowed set, picking one would
-//     invent an edge nobody wrote.
-//   - same language. A canvas `fill()` in .tsx does not call the Go function of the
-//     same name that happens to be the only one in the repository.
 func (ri *rebuildIndex) resolveNamed(name, lang string, rule TargetRule) (declRef, bool) {
 	var hit declRef
 	found := 0
@@ -589,9 +481,6 @@ func (ri *rebuildIndex) resolveCallee(calleeUID, callerLang string) (uid, label 
 	if d, ok := ri.resolveNamed(calleeUID, callerLang, rule); ok {
 		return d.uid, d.label
 	}
-	// An unresolved call stays a stub whatever fallback was declared: it is written
-	// into the Function table, and pointing it at the file would lose the name of what
-	// was called, which is the only information left.
 	return calleeUID, LabelFunction
 }
 
@@ -605,8 +494,6 @@ func (ri *rebuildIndex) streamStubFunctions(emit func(map[string]any)) {
 			if call.CalleeUID == "" {
 				continue
 			}
-			// A resolved target was already emitted as an entity — entities come
-			// before stubs in write order — so emittedAny discards it here.
 			uid, label := ri.resolveCallee(call.CalleeUID, langOr(call.Lang, fe.entry.Language))
 			if label != LabelFunction || ri.emittedAny(uid) {
 				continue
@@ -639,12 +526,6 @@ func (ri *rebuildIndex) streamStubInterfaces(emit func(map[string]any)) {
 	}
 }
 
-// resolveFieldTarget says which node a field access reaches.
-//
-// The access is cached as the field's bare name, so it needs the same join a call does
-// — and the same guards: a field of the same name in ten structs, or a `length` from
-// another language, is worse resolved than left alone. Unresolved, the stub remains,
-// recording an access to a field declared outside this corpus.
 func (ri *rebuildIndex) resolveFieldTarget(name, lang string) string {
 	// The access edge ends in the Field table by the writer's construction, so that
 	// label is an engine invariant rather than language policy: the grammar's rule says
@@ -707,21 +588,12 @@ func (ri *rebuildIndex) resolveRefTarget(ref cachedReference, lang string) (uid,
 	case TargetFallbackFile:
 		return ref.Path, LabelFile
 	case TargetFallbackStub:
-		// With no declared label there is no table to write the stub into, and the
-		// reference has nowhere to go: the file is the target that always exists.
 		return ref.Path, LabelFile
 	default:
 		return ref.TargetUID, kind
 	}
 }
 
-// refRule chooses between the grammar's rule and the engine's.
-//
-// The documentation edge — a comment to what it documents — is emitted by the ENGINE,
-// for every language, and no yaml declares it. It cannot simply share the grammar's
-// REFERENCES rule: nine grammars declare that relation, and for the SQL family an
-// unresolved REFERENCES really does mean a table. The source is what separates the
-// two — only the engine's starts from a Comment.
 func (ri *rebuildIndex) refRule(ref cachedReference, lang string) TargetRule {
 	if ri.refSourceLabel(ref.SourceUID) == LabelComment {
 		return ri.rules.ForDocumentation(lang)
@@ -840,16 +712,6 @@ func (ri *rebuildIndex) streamImportEdges(emit func(map[string]any)) {
 	}
 }
 
-// canWriteCallerLabel says whether the CALLS group has both ends for this caller.
-//
-// File passes without being in labelSet, and the asymmetry is deliberate: the File
-// node table is created unconditionally by the rebuild, so putting it in labelSet would
-// emit the node's COPY twice — but the original gate consulted labelSet alone, and so
-// top-level calls kept being dropped even after the file became a caller.
-//
-// It exists as a function rather than an inline condition because that is precisely
-// what a test over callEdgeJSON did not cover: that test calls the row generator
-// directly and skips the gate, so it passed while the real path was broken.
 func (ri *rebuildIndex) canWriteCallerLabel(callerLabel string) bool {
 	if !ri.labelSet[LabelFunction] {
 		return false
@@ -901,9 +763,6 @@ func (ri *rebuildIndex) streamInheritEdges(relType, fromLabel, toLabel string, e
 	}
 }
 
-// srcLabel is a parameter because a method reads fields as much as a function does — in
-// Go, more. The COPY this replaced pinned Function as the source, so every access made
-// from inside a method had no group to be written into.
 func (ri *rebuildIndex) streamFieldAccessEdges(write bool, srcLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, fa := range fe.entry.FieldAccess {

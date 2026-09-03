@@ -9,12 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// important.go — ListImportantMemories, RenderImportantBlock,
-// ListRecentMemories, RenderRecentBlock, firstLineFromContent,
-// extractBodyAfterFrontmatter
-
-// ListRecentMemories and RenderRecentBlock — filesystem-based
-
 func TestExtractBodyAfterFrontmatter_AllCases(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -72,8 +66,6 @@ func TestExtractBodyAfterFrontmatter_AllCases(t *testing.T) {
 	}
 }
 
-// consolidate.go — ConsolidationReport methods
-
 func TestConsolidationReport_HasActions_Boost(t *testing.T) {
 	r := &ConsolidationReport{}
 	if r.HasActions() {
@@ -104,11 +96,11 @@ func TestDetectStaleMemories_AllBranches(t *testing.T) {
 	recentDate := time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339)
 
 	memories := []memorySnapshot{
-		{ID: "old", Title: "Old One", CreatedAt: oldDate, Important: false},            // stale
-		{ID: "recent", Title: "Recent One", CreatedAt: recentDate, Important: false},   // not stale
-		{ID: "important", Title: "Important Old", CreatedAt: oldDate, Important: true}, // skipped (important)
-		{ID: "nodate", Title: "No Date", CreatedAt: "", Important: false},              // skipped (no date)
-		{ID: "baddate", Title: "Bad Date", CreatedAt: "invalid", Important: false},     // skipped (bad date format)
+		{ID: "old", Title: "Old One", CreatedAt: oldDate, Important: false},
+		{ID: "recent", Title: "Recent One", CreatedAt: recentDate, Important: false},
+		{ID: "important", Title: "Important Old", CreatedAt: oldDate, Important: true},
+		{ID: "nodate", Title: "No Date", CreatedAt: "", Important: false},
+		{ID: "baddate", Title: "Bad Date", CreatedAt: "invalid", Important: false},
 	}
 
 	stale := detectStaleMemories(memories)
@@ -159,9 +151,6 @@ func TestMemoryService_ScopePrefix(t *testing.T) {
 		})
 	}
 }
-
-// memory.go — AddMemory / UpdateMemory / RemoveMemory / changeRelevance
-// (nil gitStore error paths)
 
 func TestMemoryService_AddMemory_NilStore(t *testing.T) {
 	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
@@ -271,7 +260,6 @@ func TestBuildMemoryFile_EmptyBody(t *testing.T) {
 	if !strings.Contains(content, "# Title") {
 		t.Error("should contain h1")
 	}
-	// Should not have extra newline after title when body is empty
 	if strings.Contains(content, "type:") {
 		t.Error("should not contain type when empty")
 	}
@@ -286,7 +274,6 @@ func TestBuildMemoryFile_BodyWithoutTrailingNewline(t *testing.T) {
 
 func TestBuildMemoryFile_BodyWithTrailingNewline(t *testing.T) {
 	content := buildMemoryFile("ID", "Title", "body with newline\n", "project", "sid", "", false, "fact", nil)
-	// Should not have double trailing newline
 	if strings.HasSuffix(content, "\n\n\n") {
 		t.Error("should not have triple newline at end")
 	}
@@ -344,7 +331,6 @@ func TestUniqueMemSlug_Boost(t *testing.T) {
 		t.Errorf("third slug = %q; want 'test_3'", slug3)
 	}
 
-	// Different base should work
 	slug4 := wiki.UniqueSlug("other", used)
 	if slug4 != "other" {
 		t.Errorf("different base = %q; want 'other'", slug4)
@@ -430,8 +416,6 @@ func TestMemoryAppService_InsertValidated_InvalidType(t *testing.T) {
 	}
 }
 
-// memory_git_store.go — copyDirRecursive with files
-
 func TestMemoryScopeConstants_Boost(t *testing.T) {
 	if MemoryScopeProject != "project" {
 		t.Errorf("MemoryScopeProject = %q", MemoryScopeProject)
@@ -467,9 +451,6 @@ func TestEnsureScopeDirs_WithValidProjectDir(t *testing.T) {
 		t.Fatalf("EnsureScopeDirs: %v", err)
 	}
 
-	// A project without a lockfile has no project scope, so there is nothing to
-	// create and nothing to fail — the wiki lives under the global dir keyed by the
-	// project id, not under the project.
 	if got := WikiDirFor(dir, "project"); got != "" {
 		t.Errorf("expected no project scope without a lockfile, got %q", got)
 	}
@@ -488,7 +469,6 @@ func TestSaveMemLock_Success(t *testing.T) {
 		t.Fatalf("saveMemLock: %v", err)
 	}
 
-	// Verify file was written
 	data, err := os.ReadFile(scopeLockPath())
 	if err != nil {
 		t.Fatal(err)
@@ -541,8 +521,6 @@ func TestDetectStaleMemories_RecentDate(t *testing.T) {
 		t.Errorf("expected 0 stale for recent date, got %d", len(stale))
 	}
 }
-
-// memory.go — MemoryService creation edge cases
 
 func TestNewMemorySvcInternal_NilStore(t *testing.T) {
 	svc := newMemorySvcInternal(MemoryScopeProject, "id", nil)

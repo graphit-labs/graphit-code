@@ -81,7 +81,7 @@ func (s *EmbedServer) handleConnection(ctx context.Context, conn net.Conn) {
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			return // Connection closed
+			return
 		}
 
 		var req embedRequest

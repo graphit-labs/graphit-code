@@ -27,7 +27,6 @@ func TestProgressThrottleSuppressesWithinTheInterval(t *testing.T) {
 	now := time.Unix(0, 0)
 	th.allow("parsing", now)
 
-	// The pipeline calls this once per file — tens of thousands of times.
 	for i := 1; i < 5000; i++ {
 		if th.allow("parsing", now.Add(time.Duration(i)*time.Millisecond)) {
 			t.Fatalf("printed again after %dms, want silence until 10s", i)
@@ -75,7 +74,6 @@ func TestProgressThrottleAlwaysPrintsAPhaseChange(t *testing.T) {
 	if !th.allow("writing", now.Add(time.Millisecond)) {
 		t.Error("the phase change was throttled away")
 	}
-	// And the new phase then throttles on its own clock.
 	if th.allow("writing", now.Add(2*time.Millisecond)) {
 		t.Error("the new phase did not start throttling")
 	}

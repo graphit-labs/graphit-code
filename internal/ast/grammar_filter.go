@@ -8,17 +8,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
-// grammarFilter is one project's answer to "may this language be used", built
-// from ast.grammars_whitelist and ast.grammars_blacklist.
-//
-// See docs/specs/config_module.md for the keys and docs/specs/ast_module.md for
-// where the filter is enforced.
 type grammarFilter struct {
 	whitelist map[string]bool
 	blacklist map[string]bool
 }
 
-// inert reports that the filter allows everything, which is the default.
 func (f grammarFilter) inert() bool {
 	return len(f.whitelist) == 0 && len(f.blacklist) == 0
 }
@@ -41,8 +35,6 @@ func (f grammarFilter) allowsFile(qf ExternalQueryFile) bool {
 	return f.allows(qf.Language, effectiveGrammarName(qf))
 }
 
-// keepFiles returns the files whose language is enabled. The input slice is
-// returned untouched when nothing is filtered, which is the common case.
 func (f grammarFilter) keepFiles(files []ExternalQueryFile) []ExternalQueryFile {
 	if f.inert() || len(files) == 0 {
 		return files
@@ -59,12 +51,6 @@ func (f grammarFilter) keepFiles(files []ExternalQueryFile) []ExternalQueryFile 
 	return kept
 }
 
-// grammarAliases is every name a language answers to: its own name, its grammar
-// name, and that grammar name without the backend prefix.
-//
-// The three differ often enough that matching only one of them would make an
-// obvious entry do nothing — csharp.yaml declares `language: csharp` and
-// `grammar: tree-sitter-c_sharp`, whose bare grammar name is `c_sharp`.
 func grammarAliases(language, grammar string) []string {
 	aliases := make([]string, 0, 3)
 	if l := normalizeGrammarName(language); l != "" {
@@ -80,8 +66,6 @@ func grammarAliases(language, grammar string) []string {
 	return aliases
 }
 
-// effectiveGrammarName is the grammar a query file resolves to, applying the
-// same default tsConfigOf and antlrConfigOf apply when `grammar:` is absent.
 func effectiveGrammarName(qf ExternalQueryFile) string {
 	if qf.Grammar != "" {
 		return qf.Grammar
@@ -142,13 +126,6 @@ func parseGrammarList(val string) map[string]bool {
 	return set
 }
 
-// grammarFilterState is one project's cached filter plus the configuration it was
-// built from.
-//
-// Deliberately the same shape as queryDirState: resolving the keys reads
-// ~/.graphit/config.json from disk on every call, and this is consulted once per
-// file discovered, so the re-resolve sits behind the same rate limit — which is
-// also what makes a config change land on a running daemon without a restart.
 type grammarFilterState struct {
 	mu        sync.Mutex
 	loaded    bool
@@ -187,32 +164,21 @@ func (s *grammarFilterState) get(projectDir string) (grammarFilter, bool) {
 	return s.filter, true
 }
 
-var grammarFilterStates sync.Map // map[string]*grammarFilterState
+var grammarFilterStates sync.Map
 
-// grammarFilterFor returns the filter for one project, re-resolving the keys at
-// most once per staleness interval.
-//
-// An empty projectDir is a supported key, not a mistake: it resolves the
-// environment variable, the global config and the compiled defaults, which is the
-// right answer for a caller with no project at hand.
 func grammarFilterFor(projectDir string) grammarFilter {
 	v, _ := grammarFilterStates.LoadOrStore(projectDir, &grammarFilterState{})
 	filter, changed := v.(*grammarFilterState).get(projectDir)
 	if changed {
-		// Outside the state's own lock: invalidateDerivedQueryCaches rebuilds the
-		// extension tables, and mergedQueryCache is derived from the filter.
 		invalidateDerivedQueryCaches()
 	}
 	return filter
 }
 
-// grammarEnabledIn reports whether a language may be used in one project.
 func grammarEnabledIn(projectDir, language, grammar string) bool {
 	return grammarFilterFor(projectDir).allows(language, grammar)
 }
 
-// invalidateGrammarFilters forces the next lookup to re-resolve the keys, without
-// waiting out the staleness interval.
 func invalidateGrammarFilters() {
 	grammarFilterStates.Range(func(_, v any) bool {
 		st := v.(*grammarFilterState)
