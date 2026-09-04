@@ -32,7 +32,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends protobuf-compiler
+          sudo apt-get install -y --no-install-recommends libprotobuf-dev protobuf-compiler
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

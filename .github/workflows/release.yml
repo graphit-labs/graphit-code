@@ -34,7 +34,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config protobuf-compiler
+          sudo apt-get install -y --no-install-recommends libicu-dev libprotobuf-dev pkg-config protobuf-compiler
 
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
