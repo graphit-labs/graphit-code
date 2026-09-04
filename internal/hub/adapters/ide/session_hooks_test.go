@@ -11,7 +11,8 @@ import (
 )
 
 func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
-	t.Setenv("GRAPHIT_LAUNCHER_PATH", "/opt/graphit/bin/graphit")
+	const launcherPath = "/opt/graphit/bin/graphit"
+	t.Setenv("GRAPHIT_LAUNCHER_PATH", launcherPath)
 	t.Setenv("HOME", t.TempDir())
 
 	tests := []struct {
@@ -96,6 +97,9 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			}
 			if strings.Contains(configContent, "--project-dir") {
 				t.Fatalf("%s hook must resolve its project from native runtime input: %s", tc.adapter, configContent)
+			}
+			if strings.Contains(configContent, launcherPath) {
+				t.Fatalf("%s hook embeds the sync machine's executable path: %s", tc.adapter, configContent)
 			}
 			if tc.adapter == "opencode" && !strings.Contains(configContent, `{ cwd: directory }`) {
 				t.Fatalf("OpenCode must execute the hook from its runtime directory: %s", configContent)
@@ -256,6 +260,26 @@ func TestHookExecutableQuotingIsPortable(t *testing.T) {
 			t.Parallel()
 			if got := quoteHookCommandArgument(tc.goos, tc.argument); got != tc.want {
 				t.Fatalf("quoted argument = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionHookCommandUsesPATHAcrossOperatingSystems(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		goos string
+		want string
+	}{
+		{goos: "linux", want: `'graphit' _session-hook --format session-start`},
+		{goos: "darwin", want: `'graphit' _session-hook --format session-start`},
+		{goos: "windows", want: `"graphit" _session-hook --format session-start`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.goos, func(t *testing.T) {
+			t.Parallel()
+			if got := sessionHookCommandForOS(tc.goos, "session-start"); got != tc.want {
+				t.Fatalf("session hook command = %q, want %q", got, tc.want)
 			}
 		})
 	}

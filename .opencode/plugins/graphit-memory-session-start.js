@@ -6,14 +6,14 @@ export const GraphitLifecycle = async ({ directory }) => {
   const loadBootstrap = () => {
     let bootstrap = "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP.\nGraphit session bootstrap:\n1. Call `graphit_memory_mandatory` once and consume every result before acting.\n2. For the current request, call `graphit_memory_search` with `exclude_mandatory: true` and a focused query.\n3. Search returns titles. Read only the relevant result(s) with `graphit_wiki_source` and `wiki: \"memory\"` before acting."
     try {
-      const result = Bun.spawnSync(["/usr/local/bin/graphit", "_session-hook", "--format", "plain-context"], { cwd: directory })
+      const result = Bun.spawnSync(["graphit", "_session-hook", "--format", "plain-context"], { cwd: directory })
       if (result.exitCode === 0) bootstrap = result.stdout.toString().trim() || bootstrap
     } catch {}
     return bootstrap
   }
   const dispatchFinalSync = () => {
     try {
-      const subprocess = Bun.spawn(["/usr/local/bin/graphit", "_session-hook", "--format", "no-output", "--sync"], { cwd: directory, stdout: "ignore", stderr: "ignore" })
+      const subprocess = Bun.spawn(["graphit", "_session-hook", "--format", "no-output", "--sync"], { cwd: directory, stdout: "ignore", stderr: "ignore" })
       subprocess.unref()
     } catch {}
   }
@@ -39,7 +39,7 @@ export const GraphitLifecycle = async ({ directory }) => {
   "experimental.session.compacting": async (_input, output) => {
     let compactContext = invariant
     try {
-      const result = Bun.spawnSync(["/usr/local/bin/graphit", "_session-hook", "--format", "tool-context"], { cwd: directory })
+      const result = Bun.spawnSync(["graphit", "_session-hook", "--format", "tool-context"], { cwd: directory })
       if (result.exitCode === 0) {
         const parsed = JSON.parse(result.stdout.toString())
         compactContext = parsed.additional_context || compactContext

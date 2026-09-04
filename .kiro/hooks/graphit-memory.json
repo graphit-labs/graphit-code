@@ -2,7 +2,7 @@
   "hooks": [
     {
       "action": {
-        "command": "'/usr/local/bin/graphit' _session-hook --format plain-context",
+        "command": "'graphit' _session-hook --format plain-context",
         "type": "command"
       },
       "description": "Initialize Graphit memory before the first response.",
@@ -22,7 +22,7 @@
     },
     {
       "action": {
-        "command": "'/usr/local/bin/graphit' _session-hook --format plain-unit",
+        "command": "'graphit' _session-hook --format plain-unit",
         "type": "command"
       },
       "description": "Checkpoint task management after the smallest completed work unit.",
@@ -42,7 +42,7 @@
     },
     {
       "action": {
-        "command": "'/usr/local/bin/graphit' _session-hook --format no-output --sync",
+        "command": "'graphit' _session-hook --format no-output --sync",
         "type": "command"
       },
       "description": "Dispatch a complete Graphit sync asynchronously whenever the agent stops.",
@@ -52,7 +52,7 @@
     },
     {
       "action": {
-        "command": "'/usr/local/bin/graphit' _session-hook --format plain-context",
+        "command": "'graphit' _session-hook --format plain-context",
         "type": "command"
       },
       "description": "Initialize Graphit memory when the CLI agent starts.",

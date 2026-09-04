@@ -1490,11 +1490,18 @@ func TestFolderBasedAdapterSyncReportsMCPReconciliationFailure(t *testing.T) {
 	}
 }
 
-func TestGetGraphitExecutable(t *testing.T) {
-	t.Parallel()
-	exe := getGraphitExecutable()
-	if exe == "" {
-		t.Error("expected non-empty executable path")
+func TestGetMCPProxyConfigUsesPortableCommand(t *testing.T) {
+	t.Setenv("GRAPHIT_LAUNCHER_PATH", "/opt/graphit/bin/graphit")
+
+	exe, args, env := getMCPProxyConfig()
+	if exe != brand.BinName() {
+		t.Fatalf("MCP executable = %q, want portable command %q", exe, brand.BinName())
+	}
+	if len(args) != 2 || args[0] != "mcp" || args[1] != "--stdio" {
+		t.Fatalf("MCP arguments = %v, want [mcp --stdio]", args)
+	}
+	if len(env) != 0 {
+		t.Fatalf("MCP environment = %v, want empty", env)
 	}
 }
 

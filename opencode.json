@@ -3,7 +3,7 @@
   "mcp": {
     "graphit-code-stdio-mcp": {
       "command": [
-        "/usr/local/bin/graphit",
+        "graphit",
         "mcp",
         "--stdio"
       ],

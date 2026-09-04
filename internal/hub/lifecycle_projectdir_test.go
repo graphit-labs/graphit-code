@@ -168,7 +168,7 @@ func TestSyncIDEAdapterTargetsTheGivenProjectNotTheWorkingDirectory(t *testing.T
 	}
 }
 
-func TestSyncIDEAdapterReconcilesMCPAndHooksTogether(t *testing.T) {
+func TestSyncIDEAdapterKeepsMCPAndHooksMachineIndependent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	tests := []struct {
@@ -205,18 +205,44 @@ func TestSyncIDEAdapterReconcilesMCPAndHooksTogether(t *testing.T) {
 				t.Fatalf("second sync: %v", err)
 			}
 
-			for surface, rel := range map[string]string{"hook": tc.hookPath, "MCP": tc.mcpPath} {
-				path := filepath.Join(projectDir, rel)
-				content, err := os.ReadFile(path)
+			hookPath := filepath.Join(projectDir, tc.hookPath)
+			hookContent, err := os.ReadFile(hookPath)
+			if err != nil {
+				t.Fatalf("read hook surface %s: %v", hookPath, err)
+			}
+			if strings.Contains(string(hookContent), oldExecutable) || strings.Contains(string(hookContent), newExecutable) {
+				t.Errorf("hook surface persisted a machine-specific executable: %s", hookContent)
+			}
+			portableHookCommand := "'" + brand.BinName() + "' _session-hook"
+			if tc.ide == "opencode" {
+				portableHookCommand = `Bun.spawnSync(["` + brand.BinName() + `", "_session-hook"`
+			}
+			if !strings.Contains(string(hookContent), portableHookCommand) {
+				t.Errorf("hook surface does not contain the portable command %q: %s", portableHookCommand, hookContent)
+			}
+
+			mcpPath := filepath.Join(projectDir, tc.mcpPath)
+			mcpContent, err := os.ReadFile(mcpPath)
+			if err != nil {
+				t.Fatalf("read MCP surface %s: %v", mcpPath, err)
+			}
+			if tc.ide == "gemini" {
+				var settings map[string]any
+				if err := json.Unmarshal(mcpContent, &settings); err != nil {
+					t.Fatalf("decode Gemini settings %s: %v", mcpPath, err)
+				}
+				mcpContent, err = json.Marshal(settings["mcpServers"])
 				if err != nil {
-					t.Fatalf("read %s surface %s: %v", surface, path, err)
+					t.Fatalf("encode Gemini MCP settings %s: %v", mcpPath, err)
 				}
-				if !strings.Contains(string(content), newExecutable) {
-					t.Errorf("%s surface was not updated by sync: %s", surface, content)
-				}
-				if strings.Contains(string(content), oldExecutable) {
-					t.Errorf("%s surface kept the previous executable after sync: %s", surface, content)
-				}
+			}
+			if strings.Contains(string(mcpContent), oldExecutable) || strings.Contains(string(mcpContent), newExecutable) {
+				t.Errorf("MCP surface persisted a machine-specific executable: %s", mcpContent)
+			}
+			portableJSONCommand := `"` + brand.BinName() + `"`
+			portableTOMLCommand := "command = '" + brand.BinName() + "'"
+			if !strings.Contains(string(mcpContent), portableJSONCommand) && !strings.Contains(string(mcpContent), portableTOMLCommand) {
+				t.Errorf("MCP surface does not contain the portable command %q: %s", brand.BinName(), mcpContent)
 			}
 		})
 	}

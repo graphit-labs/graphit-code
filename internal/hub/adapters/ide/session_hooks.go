@@ -8,10 +8,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 func sessionHookCommand(format string) string {
-	return quoteHookCommandArgument(runtime.GOOS, getGraphitExecutable()) + " _session-hook --format " + format
+	return sessionHookCommandForOS(runtime.GOOS, format)
+}
+
+func sessionHookCommandForOS(goos, format string) string {
+	return quoteHookCommandArgument(goos, brand.BinName()) + " _session-hook --format " + format
 }
 
 func quoteHookCommandArgument(goos, argument string) string {

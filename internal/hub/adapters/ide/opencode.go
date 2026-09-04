@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
@@ -191,7 +192,7 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 	fallback := strconv.Quote(sessionhook.Protocol())
 	invariant := strconv.Quote(sessionhook.CoreInvariant())
 	unitReminder := strconv.Quote(sessionhook.UnitCompletionReminder())
-	executable := strconv.Quote(getGraphitExecutable())
+	executable := strconv.Quote(brand.BinName())
 	content := opencodeManagedMarker + "\n" +
 		"const initializedSessions = new Set()\n" +
 		"\n" +

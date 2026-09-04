@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -308,19 +307,6 @@ func (a *FolderBasedAdapter) MCPConfig() string {
 	}
 	expanded, _ := expandHome(a.cfg.MCPFilePath)
 	return expanded
-}
-
-func getGraphitExecutable() string {
-	if p := os.Getenv(brand.EnvVar("LAUNCHER_PATH")); p != "" {
-		return p
-	}
-	if p, err := exec.LookPath(brand.BinName()); err == nil {
-		if eval, err := filepath.EvalSymlinks(p); err == nil {
-			return eval
-		}
-		return p
-	}
-	return brand.BinName()
 }
 
 // DesiredMCPServers is the set of MCP servers a project should declare: the graphit
@@ -715,5 +701,5 @@ func copyDirAll(src, dst string) error {
 }
 
 func getMCPProxyConfig() (exe string, args []string, env map[string]string) {
-	return getGraphitExecutable(), []string{"mcp", "--stdio"}, map[string]string{}
+	return brand.BinName(), []string{"mcp", "--stdio"}, map[string]string{}
 }

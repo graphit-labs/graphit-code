@@ -2,21 +2,21 @@
   "graphit-memory-session-start": {
     "PostInvocation": [
       {
-        "command": "'/usr/local/bin/graphit' _session-hook --format post-invocation",
+        "command": "'graphit' _session-hook --format post-invocation",
         "timeout": 10,
         "type": "command"
       }
     ],
     "PreInvocation": [
       {
-        "command": "'/usr/local/bin/graphit' _session-hook --format first-invocation",
+        "command": "'graphit' _session-hook --format first-invocation",
         "timeout": 10,
         "type": "command"
       }
     ],
     "Stop": [
       {
-        "command": "'/usr/local/bin/graphit' _session-hook --format antigravity-stop --sync",
+        "command": "'graphit' _session-hook --format antigravity-stop --sync",
         "type": "command"
       }
     ]
