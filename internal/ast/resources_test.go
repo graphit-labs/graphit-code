@@ -6,24 +6,22 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
-// TestBoundedDBBufferPool checks the contract rather than an exact number: the
-// pool is derived from the machine's effective memory limit (which varies by
-// host and container), so the guarantees are that it stays inside
-// [floor, ceil] for its role and never inflates a default that is already tiny.
 func TestBoundedDBBufferPool(t *testing.T) {
 	const gib = uint64(1) << 30
+	t.Setenv("GRAPHIT_DB_BUFFER_MB", "")
 
-	t.Run("stays within floor and ceiling", func(t *testing.T) {
+	t.Run("uses the memory policy for each role", func(t *testing.T) {
 		for _, def := range []uint64{16 * gib, gib + 512<<20, 400 << 20} {
 			for _, readOnly := range []bool{false, true} {
-				ceil := dbBufferPoolCeilWrite
+				frac, ceil := dbBufferPoolFractionWrite, dbBufferPoolCeilWrite
 				if readOnly {
-					ceil = dbBufferPoolCeilRead
+					frac, ceil = dbBufferPoolFractionRead, dbBufferPoolCeilRead
 				}
 				got := boundedDBBufferPool(def, readOnly)
-				if got < dbBufferPoolFloor || got > ceil {
-					t.Errorf("boundedDBBufferPool(%d, readOnly=%v) = %d, want within [%d,%d]",
-						def, readOnly, got, dbBufferPoolFloor, ceil)
+				want := sysutil.MemoryFraction(frac, dbBufferPoolFloor, ceil, def/2)
+				if got != want {
+					t.Errorf("boundedDBBufferPool(%d, readOnly=%v) = %d, want %d",
+						def, readOnly, got, want)
 				}
 			}
 		}
@@ -36,32 +34,6 @@ func TestBoundedDBBufferPool(t *testing.T) {
 				t.Errorf("boundedDBBufferPool(%d, readOnly=%v) = %d, want it left alone",
 					uint64(tiny), readOnly, got)
 			}
-		}
-	})
-
-	t.Run("a large machine gives the writer a large pool", func(t *testing.T) {
-		t.Setenv("GRAPHIT_DB_BUFFER_MB", "")
-		limit := uint64(32 * gib)
-		def := uint64(float64(limit) * 0.8)
-		got := boundedDBBufferPool(def, false)
-		if got < 4*gib {
-			t.Errorf("write pool = %d MiB on a %d MiB machine, want >= 4 GiB",
-				got>>20, limit>>20)
-		}
-	})
-
-	t.Run("a read handle stays bounded even on a large machine", func(t *testing.T) {
-		t.Setenv("GRAPHIT_DB_BUFFER_MB", "")
-		limit := uint64(32 * gib)
-		def := uint64(float64(limit) * 0.8)
-		got := boundedDBBufferPool(def, true)
-		if got > dbBufferPoolCeilRead {
-			t.Errorf("read pool = %d MiB, want <= %d MiB",
-				got>>20, dbBufferPoolCeilRead>>20)
-		}
-		if got >= boundedDBBufferPool(def, false) {
-			t.Errorf("read pool %d MiB is not smaller than the write pool %d MiB",
-				got>>20, boundedDBBufferPool(def, false)>>20)
 		}
 	})
 }

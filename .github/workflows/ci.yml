@@ -108,7 +108,7 @@ jobs:
 
   test:
     name: Tests
-    needs: native-linux
+    needs: [native-linux, ui-build]
     runs-on: ubuntu-22.04
 
     steps:
@@ -132,8 +132,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
 
-      - name: Create UI dist placeholder
-        run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
+      - name: Download built UI
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: internal/ui/dist
 
       - name: Configure git identity
         run: |
@@ -289,3 +292,10 @@ jobs:
 
       - name: Lint UI
         run: make ui-lint
+
+      - name: Upload built UI
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: internal/ui/dist
+          retention-days: 1
