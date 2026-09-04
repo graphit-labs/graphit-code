@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -32,7 +33,7 @@ func TestTagKnowledgePublicationContainsOnlyCurrentTableVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	staged, err := prepareKnowledgePublishVersion(ctx, srcDir, true)
+	staged, err := prepareKnowledgePublishVersion(ctx, srcDir, true, config.S3Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

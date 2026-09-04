@@ -910,6 +910,9 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *output.Printer) error {
 	projectCfg := loadProjectConfigFromDir(wd)
 	var adapterSyncErr error
+	if err := hub.HydrateProjectLance(ctx, wd, projectCfg); err != nil {
+		return fmt.Errorf("hydrate published Lance base: %w", err)
+	}
 
 	if !config.IsModuleDisabled("ast", nil, projectCfg) {
 		task := p.StartTask("Reindexing AST graph...")

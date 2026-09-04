@@ -44,15 +44,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             /tmp/lancedb-native-cache
-          key: lancedb-build-v2-linux-amd64-${{ hashFiles('Makefile') }}
+          key: lancedb-build-v3-linux-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
           restore-keys: |
-            lancedb-build-v2-linux-amd64-
+            lancedb-build-v3-linux-amd64-
 
       - name: Cache LanceDB native library
         uses: actions/cache@v4
         with:
           path: .native
-          key: lancedb-native-v2-linux-amd64-${{ hashFiles('Makefile') }}
+          key: lancedb-native-v3-linux-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
 
       - name: Build LanceDB native library
         run: make lancedb-native

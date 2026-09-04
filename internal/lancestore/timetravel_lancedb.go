@@ -104,6 +104,30 @@ func (t *Table) RestoreVersion(ctx context.Context, version uint64) error {
 	return nil
 }
 
+// PutTag creates tag or moves it to version when it already exists.
+func (t *Table) PutTag(ctx context.Context, tag string, version uint64) error {
+	if t.store.readOnly {
+		return ErrReadOnly
+	}
+	tt, err := t.timeTravel()
+	if err != nil {
+		return err
+	}
+	if _, exists := func() (uint64, bool) {
+		v, getErr := tt.TagGetVersion(ctx, tag)
+		return v, getErr == nil
+	}(); exists {
+		if err := tt.TagUpdate(ctx, tag, version); err != nil {
+			return fmt.Errorf("lancestore: updating tag %s on %s: %w", tag, t.name, err)
+		}
+		return nil
+	}
+	if err := tt.TagCreate(ctx, tag, version); err != nil {
+		return fmt.Errorf("lancestore: creating tag %s on %s: %w", tag, t.name, err)
+	}
+	return nil
+}
+
 func sortVersionsNewestFirst(vs []Version) {
 	for i := 1; i < len(vs); i++ {
 		for j := i; j > 0 && vs[j].Version > vs[j-1].Version; j-- {

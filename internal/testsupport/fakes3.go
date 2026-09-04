@@ -9,12 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 )
 
-// FakeS3 implements the handful of S3 REST operations internal/s3store issues, in memory.
+// FakeS3 implements the S3 REST subset used by internal/s3store and native Lance tests.
 //
 // It exists so no test in this repository needs a bucket, credentials, or the network to
 // exercise the Hub's object backend. It is deliberately minimal: the operations the store
@@ -104,6 +105,8 @@ func (f *FakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPut:
 		body, _ := io.ReadAll(r.Body)
 		f.objects[key] = body
+		sum := sha256.Sum256(body)
+		w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
 		w.WriteHeader(http.StatusOK)
 
 	case r.Method == http.MethodHead:
@@ -121,6 +124,27 @@ func (f *FakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`<Error><Code>NoSuchKey</Code></Error>`))
 			return
 		}
+		if rawRange := strings.TrimPrefix(r.Header.Get("Range"), "bytes="); rawRange != "" {
+			startText, endText, _ := strings.Cut(rawRange, "-")
+			start, startErr := strconv.Atoi(startText)
+			end := len(data) - 1
+			var endErr error
+			if endText != "" {
+				end, endErr = strconv.Atoi(endText)
+			}
+			if startErr != nil || endErr != nil || start < 0 || end < start || start >= len(data) {
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			if end >= len(data) {
+				end = len(data) - 1
+			}
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(data)))
+			w.Header().Set("Content-Length", strconv.Itoa(end-start+1))
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(data[start : end+1])
+			return
+		}
 		_, _ = w.Write(data)
 
 	case r.Method == http.MethodDelete:
@@ -134,9 +158,11 @@ func (f *FakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (f *FakeS3) list(w http.ResponseWriter, prefix string) {
 	type contents struct {
-		Key  string `xml:"Key"`
-		Size int64  `xml:"Size"`
-		ETag string `xml:"ETag"`
+		Key          string `xml:"Key"`
+		LastModified string `xml:"LastModified"`
+		Size         int64  `xml:"Size"`
+		ETag         string `xml:"ETag"`
+		StorageClass string `xml:"StorageClass"`
 	}
 	type result struct {
 		XMLName     xml.Name   `xml:"ListBucketResult"`
@@ -156,7 +182,11 @@ func (f *FakeS3) list(w http.ResponseWriter, prefix string) {
 	for _, k := range keys {
 		sum := sha256.Sum256(f.objects[k])
 		res.Contents = append(res.Contents, contents{
-			Key: k, Size: int64(len(f.objects[k])), ETag: `"` + hex.EncodeToString(sum[:]) + `"`,
+			Key:          k,
+			LastModified: "2026-01-01T00:00:00.000Z",
+			Size:         int64(len(f.objects[k])),
+			ETag:         `"` + hex.EncodeToString(sum[:]) + `"`,
+			StorageClass: "STANDARD",
 		})
 	}
 	w.Header().Set("Content-Type", "application/xml")

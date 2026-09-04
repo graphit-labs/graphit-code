@@ -2,6 +2,8 @@ package lancestore
 
 import (
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -14,6 +16,7 @@ const (
 	storageKeySecretKey     = "secret_access_key"
 	storageKeyVirtualHosted = "virtual_hosted_style_request"
 	storageKeyAllowHTTP     = "allow_http"
+	storageKeyV2Manifests   = "new_table_enable_v2_manifest_paths"
 )
 
 // Config says where a store lives and, when it is remote, how to reach it.
@@ -23,7 +26,7 @@ type Config struct {
 	URI string
 
 	// S3 carries the bucket's region, endpoint, addressing and optional explicit credentials.
-	// It is IGNORED for a local URI.
+	// A local clone uses it to read inherited fragments from an S3 source.
 	S3 config.S3Config
 
 	Writable bool
@@ -75,10 +78,10 @@ func (c Config) Validate() error {
 //     servers do not serve virtual-host style buckets;
 //   - an `http://` endpoint has to be allowed explicitly, or object_store refuses it.
 func (c Config) storageOptions() map[string]string {
-	if !c.IsRemote() {
+	if !c.IsRemote() && !c.S3.Configured() {
 		return nil
 	}
-	opts := map[string]string{}
+	opts := map[string]string{storageKeyV2Manifests: "false"}
 	if c.S3.Region != "" {
 		opts[storageKeyRegion] = c.S3.Region
 	}
@@ -94,4 +97,12 @@ func (c Config) storageOptions() map[string]string {
 		opts[storageKeySecretKey] = c.S3.SecretAccessKey
 	}
 	return opts
+}
+
+func localFileURI(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absolute)}).String(), nil
 }

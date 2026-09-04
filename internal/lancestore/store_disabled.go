@@ -45,6 +45,9 @@ func (s *Store) CreateTable(_ context.Context, _ string, _ Schema) (*Table, erro
 func (s *Store) EnsureTable(_ context.Context, _ string, _ Schema) (*Table, error) {
 	return nil, ErrNotBuilt
 }
+func (s *Store) CloneTable(_ context.Context, _, _ string, _ CloneOptions) (*Table, error) {
+	return nil, ErrNotBuilt
+}
 
 func (t *Table) Close() error                                  { return nil }
 func (t *Table) Name() string                                  { return "" }
@@ -56,7 +59,11 @@ func (t *Table) DeleteByKey(_ context.Context, _ string, _ []string) error {
 	return ErrNotBuilt
 }
 func (t *Table) Upsert(_ context.Context, _ string, _ []Row) error { return ErrNotBuilt }
-func (t *Table) Refresh(_ context.Context) error                   { return ErrNotBuilt }
+func (t *Table) ReplaceSnapshot(_ context.Context, _ []string, _ []Row) (uint64, error) {
+	return 0, ErrNotBuilt
+}
+func (t *Table) Rows(_ context.Context) ([]Row, error) { return nil, ErrNotBuilt }
+func (t *Table) Refresh(_ context.Context) error       { return ErrNotBuilt }
 func (t *Table) Merge(_ context.Context, _ MergeOptions, _ []Row) (MergeResult, error) {
 	return MergeResult{}, ErrNotBuilt
 }
@@ -83,3 +90,4 @@ func (t *Table) CheckoutVersion(context.Context, uint64) error  { return ErrNotB
 func (t *Table) CheckoutLatest(context.Context) error           { return ErrNotBuilt }
 func (t *Table) RestoreVersion(context.Context, uint64) error   { return ErrNotBuilt }
 func (t *Table) CurrentVersion(context.Context) (uint64, error) { return 0, ErrNotBuilt }
+func (t *Table) PutTag(context.Context, string, uint64) error   { return ErrNotBuilt }

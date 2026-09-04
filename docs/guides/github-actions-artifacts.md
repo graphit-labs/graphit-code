@@ -62,10 +62,10 @@ Add these environment variables:
 | `GRAPHIT_AI_RERANK_MODEL` | provider dependent | provider model name |
 | `GRAPHIT_AI_RERANK_BASE_URL` | no | custom rerank endpoint |
 
-The S3 principal needs list, read, write, and delete permission under `GRAPHIT_HUB_PREFIX`. Delete is
-required because republishing a prefix is an exact mirror: objects no longer present in the locally
-staged LanceDB are removed after the new files upload successfully. This self-contained example
-requires the S3 access key and secret as GitHub environment secrets.
+The S3 principal needs list, read, write, and delete permission under `GRAPHIT_HUB_PREFIX`. Branch
+publication preserves Lance data and commit manifests while mirroring the remaining artifact files;
+tag publication replaces its compact snapshot exactly. This self-contained example requires the S3
+access key and secret as GitHub environment secrets.
 
 ## Workflow
 
@@ -114,6 +114,7 @@ jobs:
       GRAPHIT_AI_RERANK_API_KEY: ${{ secrets.GRAPHIT_AI_RERANK_API_KEY }}
       GRAPHIT_AST_ARTIFACT_BASENAME: ${{ vars.GRAPHIT_AST_ARTIFACT_BASENAME }}
       GRAPHIT_KNOWLEDGE_ARTIFACT_BASENAME: ${{ vars.GRAPHIT_KNOWLEDGE_ARTIFACT_BASENAME }}
+      GRAPHIT_GIT_BASE_BRANCH: ${{ github.ref_type == 'branch' && github.ref_name || github.event.repository.default_branch }}
       GRAPHIT_IDE: codex
       GRAPHIT_CLI: codex
       GRAPHIT_MODULES_AGENT: "false"
@@ -131,6 +132,8 @@ jobs:
     steps:
       - name: Check out the pushed ref
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate publishing inputs
         shell: bash
@@ -234,7 +237,12 @@ jobs:
 `graphit sync --no-background` runs both the normal phase and the heavy phase synchronously. The two
 explicit embedding commands are intentional completion barriers: they are incremental after sync,
 but make the job fail if either AST or project-wiki embeddings are unavailable or incomplete. A
-fresh `GRAPHIT_GLOBAL_DIR` also prevents an ephemeral runner from publishing a stale local index.
+fresh `GRAPHIT_GLOBAL_DIR` prevents an ephemeral runner from publishing stale local state. Before
+parsing, `graphit sync` inspects the Git repository, branch, HEAD, ancestry, and dirty state. If the
+Hub contains a compatible snapshot for the exact commit or its nearest published ancestor, Graphit
+shallow-clones each Lance table into that fresh filesystem directory. Inherited fragments remain on
+S3, while parsing changes and new embeddings are written locally. Ladybug/Icebug is rebuilt normally
+because its graph is derived from source.
 
 The Hub accepts named versions, including Git branch paths with `/`. Prefixing the name with
 `branch/` or `tag/` distinguishes a branch and tag with the same display name. The logical version
@@ -246,6 +254,10 @@ LanceDB table is compacted, all superseded MVCC versions are pruned, and publica
 exactly one current table version remains. The current rows and search indexes are preserved. This
 does not mutate the runner's working database and does not require another workflow command.
 
+`GRAPHIT_GIT_BASE_BRANCH` gives a detached tag checkout a branch lineage to reuse. Full checkout
+history is required so Graphit can walk from the tagged commit to the nearest published ancestor.
+For branch pushes the variable resolves to the branch name itself, including names containing `/`.
+
 The validation step intentionally requires S3 credentials and a remote embedding provider, model,
 and API key. Do not change the provider to `local` in this publishing job: a hosted runner must build
 the production embeddings through the configured provider so the generated artifact is independent
@@ -253,18 +265,30 @@ of runner-local model state.
 
 ## Update and cleanup semantics
 
-A Hub artifact is mutable registry state. This workflow republishes the named branch/tag version,
-updates its content hash, and mirrors the new directory over the existing prefix with
-last-writer-wins semantics. Consumers must run `graphit hub update` and close/reopen a mounted
-context after publication; replacing a known version is not an atomic cutover for a reader that
-already has that S3 prefix open. When live readers require snapshot isolation, publish a new numeric
-version and move consumers to it after the registry pointer is written.
+A Hub artifact is mutable registry state. For `branch/...`, every clean Git commit is recorded in a
+small manifest and protected by a native Lance tag on every table. Publication advances the branch
+by applying one exact table snapshot; unchanged rows and fragments remain reusable. The Graphit
+release version is audit metadata only. Cache compatibility depends on the artifact format plus the
+embedding provider, model, and dimensions, so a CI job that always installs `latest` does not
+invalidate compatible embeddings.
 
-Graphit's LanceDB maintenance does not delete Hub data. It compacts local indexes and prunes only
-superseded local Lance versions after their retention period; remote mounted stores are skipped. Hub
-artifact versions remain in S3 and in the registry until explicitly retracted. Do not apply an S3
-lifecycle rule that deletes published version prefixes while registry entries still reference them,
-because installation must treat such a pointer as an integrity error.
+The local project still points only at its filesystem LanceDB. Sync reads inherited fragments from
+S3 through the shallow clone, but it never turns the project store into an S3 store and never writes
+the Hub during parsing. Only `hub submit` updates the authoritative remote branch. Publishing is
+rejected for a dirty worktree or for a branch name that differs from `--version branch/...`, because
+otherwise the remote snapshot could not be attributed to one Git commit.
+
+Consumers must run `graphit hub update` and close/reopen a mounted context after publication;
+advancing a known branch prefix is not an atomic cutover for a reader that already has it open. When
+live readers require an immutable cutover, publish a numeric version or a `tag/...` snapshot and
+move consumers after the registry pointer is written.
+
+Graphit's normal maintenance does not delete Hub branch history. It compacts project-local indexes
+and skips remote mounted stores. Branch commit tags protect every source version that a future sync
+may shallow-clone, so do not run external Lance pruning or an S3 lifecycle rule against a live branch
+prefix. Removing those manifests or fragments can orphan existing shallow clones. Obsolete branch
+history needs an explicit retention operation that first proves no published tag or clone depends on
+it; Graphit does not perform that cleanup automatically.
 
 Tag snapshots are stricter than normal local maintenance: the staged LanceDB contains no edit or
 time-travel history. Republishing the same tag mirrors that compact snapshot over the tag's prefix,

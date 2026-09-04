@@ -4,6 +4,6 @@ package lancestore
 
 import "context"
 
-func CompactLatestSnapshot(context.Context, string) (SnapshotResult, error) {
+func CompactLatestSnapshot(context.Context, Config) (SnapshotResult, error) {
 	return SnapshotResult{}, ErrNotBuilt
 }

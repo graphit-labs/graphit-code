@@ -83,3 +83,14 @@ func ResolveConfiguredEmbeddingDimensions() int {
 	}
 	return EmbeddingDimensions
 }
+
+// ConfiguredEmbeddingIdentity returns the non-secret inputs that determine vector compatibility.
+func ConfiguredEmbeddingIdentity() (provider, model string, dimensions int) {
+	provider = normalizeProvider(config.ResolveConfig("ai.embedding.provider", nil, nil))
+	if provider == "" {
+		provider = "local"
+	}
+	model = embeddingModelOrDefault(provider, config.ResolveConfig("ai.embedding.model", nil, nil))
+	dimensions = ResolveConfiguredEmbeddingDimensions()
+	return
+}

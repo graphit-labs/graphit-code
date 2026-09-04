@@ -94,6 +94,12 @@ An upload is an exact mirror: after every local object has uploaded successfully
 missing from the local directory are deleted from that version prefix. No unrelated version or
 artifact prefix is touched.
 
+`branch/...` is the deliberate exception to exact directory mirroring. Its `*.lance` directories
+are authoritative mutable lineages, and `graphit-history.json` maps Git commits to protected native
+Lance tags and versions for each table. Republishing mirrors non-Lance files but never deletes these
+datasets or their history manifest. A fresh sync shallow-clones a protected table tag, so removing a
+referenced branch manifest or data fragment can orphan that local clone.
+
 **The registry entry is the commit for a new version.** The prefix is uploaded first, and only then
 does the entry file under `registry/` name it. A publication interrupted midway leaves an orphan
 prefix that no entry points at — wasted bytes, never a half-visible version. Replacing an already

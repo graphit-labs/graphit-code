@@ -37,7 +37,7 @@ func TestCompactLatestSnapshotKeepsCurrentRowsAndOneVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := CompactLatestSnapshot(ctx, dir)
+	result, err := CompactLatestSnapshot(ctx, Config{URI: dir})
 	if err != nil {
 		t.Fatal(err)
 	}

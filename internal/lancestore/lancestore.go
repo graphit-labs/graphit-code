@@ -153,6 +153,12 @@ func (s Schema) Validate() error {
 // which is refused for a non-nullable column.
 type Row map[string]any
 
+// CloneOptions selects the immutable source snapshot for a shallow clone.
+type CloneOptions struct {
+	SourceVersion *uint64
+	SourceTag     string
+}
+
 // IndexKind is the kind of index to build on a column.
 type IndexKind int
 
@@ -328,6 +334,8 @@ type Version struct {
 }
 
 var ErrNoTimeTravel = errors.New("lancestore: this table does not support version history")
+
+var ErrNoShallowClone = errors.New("lancestore: this build does not support shallow clones")
 
 // ErrCommitConflict is returned when a write lost a commit race and the retries ran out.
 //

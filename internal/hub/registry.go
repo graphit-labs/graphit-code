@@ -17,6 +17,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -450,6 +451,15 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 
 	publishPath := localPath
 	latestOnly := publicationKeepsLatestOnly(version)
+	branchLance := IsMountable(meta.Type) && strings.HasPrefix(version, "branch/")
+	var snapshot gitstate.Snapshot
+	if branchLance {
+		var err error
+		snapshot, err = gitstate.InspectSnapshot(localPath)
+		if err != nil {
+			return fmt.Errorf("resolve publishing Git snapshot: %w", err)
+		}
+	}
 
 	switch meta.Type {
 	case TypeAST:
@@ -458,14 +468,14 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 			return fmt.Errorf("preparing AST publish: the hub is not configured, so there is no " +
 				"location to point the published graph at")
 		}
-		prepared, err := prepareASTPublishVersion(ctx, localPath, storageURI, m.projectConfig, m.Logger, latestOnly)
+		prepared, err := prepareASTPublishVersion(ctx, localPath, storageURI, m.projectConfig, m.Logger, latestOnly, m.store.cfg)
 		if err != nil {
 			return fmt.Errorf("preparing AST publish: %w", err)
 		}
 		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
 	case TypeKnowledge:
-		prepared, err := prepareKnowledgePublishVersion(ctx, localPath, latestOnly)
+		prepared, err := prepareKnowledgePublishVersion(ctx, localPath, latestOnly, m.store.cfg)
 		if err != nil {
 			return fmt.Errorf("preparing knowledge publish: %w", err)
 		}
@@ -477,8 +487,19 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 		return fmt.Errorf("computing artifact hash: %w", err)
 	}
 
-	if err := m.store.PublishArtifact(ctx, meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
-		return fmt.Errorf("publishing artifact to branch: %w", err)
+	if branchLance {
+		history, err := m.publishBranchLance(ctx, entryID, version, meta, publishPath, snapshot)
+		if err != nil {
+			return fmt.Errorf("publishing Lance branch: %w", err)
+		}
+		if err := m.store.PublishBranchFiles(ctx, meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
+			return fmt.Errorf("publishing branch files: %w", err)
+		}
+		if err := m.store.writeBranchHistory(ctx, meta.Type, entryID, version, meta.ProjectID, history); err != nil {
+			return fmt.Errorf("recording Lance branch history: %w", err)
+		}
+	} else if err := m.store.PublishArtifact(ctx, meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
+		return fmt.Errorf("publishing artifact: %w", err)
 	}
 
 	existing := m.entries[meta.Type][entryID]
@@ -631,10 +652,10 @@ func (m *RegistryManager) EnsureArtifactClone(ctx context.Context, artType Artif
 }
 
 func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger) (string, error) {
-	return prepareASTPublishVersion(context.Background(), srcDir, storageURI, projectCfg, logger, false)
+	return prepareASTPublishVersion(context.Background(), srcDir, storageURI, projectCfg, logger, false, config.ResolveHubS3(nil, projectCfg))
 }
 
-func prepareASTPublishVersion(ctx context.Context, srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger, latestOnly bool) (string, error) {
+func prepareASTPublishVersion(ctx context.Context, srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger, latestOnly bool, s3Cfg config.S3Config) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("ast-pub"))
 	if err != nil {
 		return "", err
@@ -704,7 +725,7 @@ func prepareASTPublishVersion(ctx context.Context, srcDir, storageURI string, pr
 		if latestOnly {
 			searchDir := filepath.Join(tmpDir, ast.SearchBundleDir)
 			if info, err := os.Stat(searchDir); err == nil && info.IsDir() {
-				if _, err := lancestore.CompactLatestSnapshot(ctx, searchDir); err != nil {
+				if _, err := lancestore.CompactLatestSnapshot(ctx, lancestore.Config{URI: searchDir, S3: s3Cfg}); err != nil {
 					_ = os.RemoveAll(tmpDir)
 					return "", fmt.Errorf("compact AST search snapshot: %w", err)
 				}
@@ -952,17 +973,21 @@ func copyFileWithBrand(src, dst string) error {
 //
 // A memory wiki never reaches here, and must not: it is read-and-write and multi-writer, so it
 // carries its source and a consumer extends it.
-func prepareKnowledgePublishVersion(ctx context.Context, srcDir string, latestOnly bool) (string, error) {
+func prepareKnowledgePublishVersion(ctx context.Context, srcDir string, latestOnly bool, s3Cfg config.S3Config) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("kn-pub"))
 	if err != nil {
 		return "", err
 	}
-	if _, err := wiki.StagePublishedIndex(ctx, srcDir, tmpDir); err != nil {
+	wikiDir := srcDir
+	if info, err := os.Stat(wiki.WikiIndexPath(wikiDir)); err != nil || !info.IsDir() {
+		wikiDir = store.KnowledgeProjectDir(srcDir)
+	}
+	if _, err := wiki.StagePublishedIndex(ctx, wikiDir, tmpDir); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", err
 	}
 	if latestOnly {
-		if _, err := lancestore.CompactLatestSnapshot(ctx, wiki.WikiIndexPath(tmpDir)); err != nil {
+		if _, err := lancestore.CompactLatestSnapshot(ctx, lancestore.Config{URI: wiki.WikiIndexPath(tmpDir), S3: s3Cfg}); err != nil {
 			_ = os.RemoveAll(tmpDir)
 			return "", fmt.Errorf("compact knowledge snapshot: %w", err)
 		}

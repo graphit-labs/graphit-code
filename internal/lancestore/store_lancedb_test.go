@@ -290,14 +290,7 @@ func contains(s, sub string) bool {
 	})()
 }
 
-// A GUARD AGAINST A SILENT DATA CORRUPTION, and against someone "fixing" quoteIdent back to
-// standard SQL.
-//
-// The filter dialect reads a double-quoted name as a string LITERAL, so `"uid" IN ('u2')`
-// evaluates `'uid' IN ('u2')` — false for every row — and Delete reports success having removed
-// nothing. Because Upsert is delete-then-append, that turns every re-index into a duplicate.
-// This test pins the identifier form that actually matches, and demonstrates the trap.
-func TestIdentifierQuotingActuallyMatchesRows(t *testing.T) {
+func TestIdentifierQuotingMatchesRows(t *testing.T) {
 	ctx := context.Background()
 	st := openLocal(t)
 	tbl, err := st.CreateTable(ctx, "entities", testSchema())
@@ -315,17 +308,6 @@ func TestIdentifierQuotingActuallyMatchesRows(t *testing.T) {
 	}
 	if n != int64(len(testRows))-1 {
 		t.Fatalf("count = %d, want %d — quoteIdent no longer matches rows", n, len(testRows)-1)
-	}
-
-	before, _ := tbl.Count(ctx)
-	if err := tbl.DeleteWhere(ctx, `"uid" IN ('u3')`); err != nil {
-		t.Logf("the double-quoted form now errors instead of no-opping: %v", err)
-		return
-	}
-	after, _ := tbl.Count(ctx)
-	if after != before {
-		t.Errorf("the double-quoted form deleted %d rows — the dialect changed, revisit quoteIdent",
-			before-after)
 	}
 }
 

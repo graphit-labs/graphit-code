@@ -30,6 +30,7 @@ type Store struct {
 	uri      string
 	remote   bool
 	readOnly bool
+	options  map[string]string
 
 	mu     sync.Mutex
 	tables map[string]*Table
@@ -65,7 +66,15 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 		opts.ReadConsistencyInterval = &zero
 	}
 
-	conn, err := lancedb.Connect(ctx, cfg.URI, opts)
+	connectionURI := cfg.URI
+	if !cfg.IsRemote() && cfg.S3.Configured() {
+		resolved, err := localFileURI(cfg.URI)
+		if err != nil {
+			return nil, fmt.Errorf("lancestore: resolving %s: %w", cfg.URI, err)
+		}
+		connectionURI = resolved
+	}
+	conn, err := lancedb.Connect(ctx, connectionURI, opts)
 	if err != nil {
 		return nil, fmt.Errorf("lancestore: connecting to %s: %w", cfg.URI, err)
 	}
@@ -74,6 +83,7 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 		uri:      cfg.URI,
 		remote:   cfg.IsRemote(),
 		readOnly: cfg.ReadOnly(),
+		options:  cfg.storageOptions(),
 		tables:   map[string]*Table{},
 	}, nil
 }
@@ -159,6 +169,18 @@ func (s *Store) CreateTable(ctx context.Context, name string, schema Schema) (*T
 		return nil, fmt.Errorf("lancestore: creating %s: %w", name, err)
 	}
 	return s.remember(name, tbl, schema), nil
+}
+
+// CloneTable creates a writable shallow clone in this store. Source fragments remain at sourceURI;
+// only subsequent writes are stored under this store's URI.
+func (s *Store) CloneTable(ctx context.Context, name, sourceURI string, opts CloneOptions) (*Table, error) {
+	if s.readOnly {
+		return nil, ErrReadOnly
+	}
+	if err := cloneTableNative(s.uri, name, sourceURI, opts, s.options); err != nil {
+		return nil, fmt.Errorf("lancestore: cloning %s from %s: %w", name, sourceURI, err)
+	}
+	return s.OpenTable(ctx, name)
 }
 
 // OpenTable opens an existing table.
@@ -361,6 +383,75 @@ func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error 
 		return fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	return nil
+}
+
+// ReplaceSnapshot atomically makes the table contain exactly rows, matched by keyColumns.
+func (t *Table) ReplaceSnapshot(ctx context.Context, keyColumns []string, rows []Row) (uint64, error) {
+	if t.store.readOnly {
+		return 0, ErrReadOnly
+	}
+	if len(keyColumns) == 0 {
+		return 0, errors.New("lancestore: replacing a snapshot needs at least one key column")
+	}
+	for _, key := range keyColumns {
+		if _, ok := t.schema.Field(key); !ok {
+			return 0, fmt.Errorf("lancestore: %s has no key column %q", t.name, key)
+		}
+	}
+	if len(rows) == 0 {
+		if err := t.DeleteWhere(ctx, "true"); err != nil {
+			return 0, err
+		}
+		return t.CurrentVersion(ctx)
+	}
+	for _, row := range rows {
+		for _, key := range keyColumns {
+			if _, ok := row[key]; !ok {
+				return 0, fmt.Errorf("lancestore: snapshot row has no %q", key)
+			}
+		}
+	}
+	rec, err := recordOf(t.schema, rows)
+	if err != nil {
+		return 0, err
+	}
+	defer rec.Release()
+
+	what := fmt.Sprintf("replacing %s with %d rows", t.name, len(rows))
+	var merged *contracts.MergeResult
+	if err := withCommitRetry(ctx, what, func() error {
+		var mergeErr error
+		merged, mergeErr = t.tbl.MergeInsert(keyColumns).
+			WhenMatchedUpdateAll(nil).
+			WhenNotMatchedInsertAll().
+			WhenNotMatchedBySourceDelete(nil).
+			Execute(ctx, []arrow.Record{rec})
+		return mergeErr
+	}, func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return 0, fmt.Errorf("lancestore: %s: %w", what, err)
+	}
+	if merged != nil && merged.Version > 0 {
+		return merged.Version, nil
+	}
+	return t.CurrentVersion(ctx)
+}
+
+// Rows returns the full current table snapshot in bounded pages.
+func (t *Table) Rows(ctx context.Context) ([]Row, error) {
+	const pageSize = 1024
+	var rows []Row
+	for offset := 0; ; offset += pageSize {
+		hits, err := t.Search(ctx, Query{Filter: "true", Limit: pageSize, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		for _, hit := range hits {
+			rows = append(rows, hit.Row)
+		}
+		if len(hits) < pageSize {
+			return rows, nil
+		}
+	}
 }
 
 // Merge conditionally replaces rows and optionally inserts missing rows in one
@@ -909,7 +1000,7 @@ func sqlQuote(s string) string {
 }
 
 func quoteIdent(s string) string {
-	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 func batchStrings(in []string, size int) [][]string {

@@ -11,8 +11,7 @@ import (
 
 // CompactLatestSnapshot rewrites a local store for publication and removes every superseded
 // table version. It must run on a private staging copy because pruning invalidates old readers.
-func CompactLatestSnapshot(ctx context.Context, uri string) (SnapshotResult, error) {
-	cfg := Config{URI: uri}
+func CompactLatestSnapshot(ctx context.Context, cfg Config) (SnapshotResult, error) {
 	if cfg.IsRemote() {
 		return SnapshotResult{}, fmt.Errorf("lancestore: latest snapshot requires a local staging directory")
 	}

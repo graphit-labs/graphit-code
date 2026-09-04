@@ -93,6 +93,8 @@ STRIP_LDFLAGS ?= -s -w
 
 LANCEDB_SHA   := fa14ce29c7724354f2cea630a1d3488b56bbd64b
 LANCEDB_REPO  := https://github.com/lancedb/lancedb-go.git
+LANCEDB_PATCH := $(CURDIR)/patches/lancedb-go-main.patch
+LANCEDB_BUILD_ID := $(LANCEDB_SHA) $(shell git hash-object "$(LANCEDB_PATCH)" 2>/dev/null)
 LANCEDB_CACHE ?= /tmp/lancedb-native-cache
 LANCEDB_RUNTIME_SOURCE ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),$($(BRAND_ENV)_GLOBAL_DIR),$(HOME)/.$(BRAND))/runtime/dev
 
@@ -402,6 +404,13 @@ fetch-lancedb:
 			git checkout -q -- rust/Cargo.toml rust/Cargo.lock; \
 		fi
 	@cd "$(LANCEDB_CACHE)/src" && \
+		git checkout -q -- include/lancedb.h rust/Cargo.lock rust/Cargo.toml \
+			rust/src/connection.rs rust/src/data.rs rust/src/index.rs \
+			rust/src/schema_evolve.rs rust/src/table.rs && \
+		git apply --unidiff-zero --check "$(LANCEDB_PATCH)" && \
+		echo "→ Applying Graphit LanceDB binding patch…" && \
+		git apply --unidiff-zero "$(LANCEDB_PATCH)"
+	@cd "$(LANCEDB_CACHE)/src" && \
 		grep -q 'crate-type = \["staticlib", "cdylib"\]' rust/Cargo.toml || { \
 			echo "→ Re-enabling cdylib…"; \
 			sed -i.bak 's/crate-type = \["staticlib"\]/crate-type = ["staticlib", "cdylib"]/' rust/Cargo.toml && \
@@ -429,24 +438,27 @@ fetch-lancedb:
 		*)       lib=liblancedb_go.so ;; \
 	esac; \
 	[ -s "$$src/$$lib" ] || { echo "✗ expected $$lib in $$src"; ls -la "$$src" | head; exit 1; }; \
-	cp -L "$$src/$$lib" $(LANCEDB_LIB_DIR)/; \
+	cp -L "$$src/$$lib" "$(LANCEDB_LIB).tmp"; \
+	mv -f "$(LANCEDB_LIB).tmp" "$(LANCEDB_LIB)"; \
 	echo "  ✓ $$lib ($$(du -h $(LANCEDB_LIB_DIR)/$$lib | cut -f1)) → $(LANCEDB_LIB_DIR)/"; \
-	printf '%s\n' '$(LANCEDB_SHA)' > "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha"
+	printf '%s\n' '$(LANCEDB_BUILD_ID)' > "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha"
 
 lancedb-native:
-	@if [ -s "$(LANCEDB_LIB)" ]; then exit 0; fi; \
+	@current="$$(cat "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha" 2>/dev/null || true)"; \
+	if [ -s "$(LANCEDB_LIB)" ] && [ "$$current" = '$(LANCEDB_BUILD_ID)' ]; then exit 0; fi; \
 	runtime_lib="$(LANCEDB_RUNTIME_SOURCE)/$(LANCEDB_LIB_NAME)"; \
-	if [ -s "$$runtime_lib" ]; then \
+	runtime_build_id="$$(cat "$(LANCEDB_RUNTIME_SOURCE)/lancedb_go_build.sha" 2>/dev/null || true)"; \
+	if [ -s "$$runtime_lib" ] && [ "$$runtime_build_id" = '$(LANCEDB_BUILD_ID)' ]; then \
 		mkdir -p "$(LANCEDB_LIB_DIR)"; \
 		case "$(LANCEDB_GOOS)" in \
 			windows) cp -L "$$runtime_lib" "$(LANCEDB_LIB)" ;; \
 			*)       ln -sf "$$runtime_lib" "$(LANCEDB_LIB)" ;; \
 		esac; \
+		printf '%s\n' '$(LANCEDB_BUILD_ID)' > "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha"; \
 		echo "  ✓ LanceDB native linked to $$runtime_lib (no cargo needed)"; \
-		echo "    provenance unrecorded — if LANCEDB_SHA moved since that install, 'make fetch-lancedb' rebuilds"; \
 		exit 0; \
 	fi; \
-	echo "  → LanceDB native missing ($(LANCEDB_LIB)) and none in $(LANCEDB_RUNTIME_SOURCE); building…"; \
+	echo "  → Compatible LanceDB native missing; building from the pinned source and patch…"; \
 	$(MAKE) --no-print-directory fetch-lancedb
 
 lancedb-cgo-env:

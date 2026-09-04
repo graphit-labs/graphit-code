@@ -169,8 +169,17 @@ The registry is mutable. A version may be a numeric release or an exact named ch
 `branch/main`, `branch/feature/api`, or `tag/v2.0.0`. Publishing a new version appends it to the
 artifact and advances resolution for unqualified installs. Republishing an existing numeric or
 named version is also valid: its payload prefix is mirrored, stale objects within that exact prefix
-are deleted after successful upload, and the version's content hash changes. Concurrent writes to
-the same entry or version remain last-writer-wins and should be serialized by the publisher.
+are deleted after successful upload for immutable and tag snapshots, and the version's content hash
+changes. Branch publication preserves Lance history while mirroring only non-Lance files. Concurrent
+writes to the same entry or version remain last-writer-wins and should be serialized by the publisher.
+
+A `branch/...` publication is a mutable, Git-addressed Lance lineage. The branch prefix remains
+stable; every clean Git commit advances its tables, receives a native `git-<sha>` tag per table, and
+is appended to the branch history manifest only after all tables and non-Lance files are durable.
+Sync may shallow-clone the exact commit or nearest compatible ancestor into an empty local
+filesystem store. Compatibility is semantic (artifact format plus embedding provider, model, and
+dimensions); the Graphit producer version is retained only for audit. Project writes remain local
+until the next explicit publication.
 
 A `tag/...` publication is a compact release snapshot. The publisher operates on its temporary
 staging copy, compacts every LanceDB table, prunes every superseded MVCC version, and verifies that
@@ -183,10 +192,10 @@ after the new prefix exists. A same-version replacement is useful for mutable br
 but a reader that already mounted the known prefix must close and reopen it after publication and
 may not treat the replacement as an atomic snapshot switch.
 
-Lance maintenance does not garbage-collect Hub artifacts. It compacts local indexes, prunes only
-superseded local Lance versions after retention, and skips remote mounts. Published Hub versions are
-retained until explicitly retracted; deleting their S3 prefixes independently would leave registry
-pointers that correctly fail integrity checks. See
+Lance maintenance does not garbage-collect Hub artifacts. It compacts local indexes and skips remote
+mounts. Branch commit tags protect historical versions used as shallow-clone bases; deleting or
+pruning their manifests and fragments independently can orphan a local clone. Published Hub versions
+are retained until explicitly retracted. See
 [Publishing Graphit artifacts from GitHub Actions](../guides/github-actions-artifacts.md) for the
 unattended named-channel workflow.
 

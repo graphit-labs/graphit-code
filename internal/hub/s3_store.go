@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -176,6 +177,17 @@ func (s *S3Store) ReadArtifactFile(ctx context.Context, key string) ([]byte, err
 	return s.objects.Get(ctx, key)
 }
 
+func (s *S3Store) writeArtifactFile(ctx context.Context, key string, data []byte) error {
+	if !s.Configured() {
+		return s3store.ErrNotConfigured
+	}
+	return s.objects.Put(ctx, key, data)
+}
+
+func (s *S3Store) lanceConfig(uri string, writable bool) lancestore.Config {
+	return lancestore.Config{URI: uri, S3: s.cfg, Writable: writable}
+}
+
 func (s *S3Store) WriteFile(ctx context.Context, relPath string, data []byte) error {
 	if !s.Configured() {
 		return s3store.ErrNotConfigured
@@ -274,6 +286,74 @@ func (s *S3Store) PublishArtifact(ctx context.Context, artType ArtifactType, id,
 		return fmt.Errorf("publishing %s %s@%s: %w", artType, id, version, err)
 	}
 	return nil
+}
+
+// PublishBranchFiles mirrors non-Lance files while preserving the branch's authoritative Lance
+// datasets and commit history.
+func (s *S3Store) PublishBranchFiles(ctx context.Context, artType ArtifactType, id, version, projectID, srcDir string) error {
+	if !s.Configured() {
+		return s3store.ErrNotConfigured
+	}
+	prefix := ArtifactPrefix(artType, id, version, projectID)
+	wanted := map[string]bool{}
+	err := filepath.Walk(srcDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		if artifactPathIsLance(rel) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() || rel == branchHistoryFile {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		key := s3store.JoinKey(prefix, rel)
+		if err := s.objects.Put(ctx, key, data); err != nil {
+			return err
+		}
+		wanted[key] = true
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("publishing branch files for %s %s@%s: %w", artType, id, version, err)
+	}
+	objects, err := s.objects.List(ctx, prefix)
+	if err != nil {
+		return err
+	}
+	for _, object := range objects {
+		rel := strings.TrimPrefix(strings.TrimPrefix(object.Key, prefix), "/")
+		if artifactPathIsLance(rel) || rel == branchHistoryFile || wanted[object.Key] {
+			continue
+		}
+		if err := s.objects.Delete(ctx, object.Key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func artifactPathIsLance(rel string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(rel), "/") {
+		if strings.HasSuffix(segment, ".lance") {
+			return true
+		}
+	}
+	return false
 }
 
 // DeleteArtifact removes a published version entirely.
