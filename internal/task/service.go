@@ -928,6 +928,202 @@ func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 	return out, err
 }
 
+func (s *Service) Export(ctx context.Context, id string) (ExportDocument, error) {
+	id = strings.TrimSpace(id)
+	out := ExportDocument{
+		SchemaVersion: ExportSchemaVersion,
+		ProjectID:     s.projectID,
+		TaskID:        id,
+		Tasks:         []Task{},
+		Dependencies:  []DependencyRecord{},
+		Checks:        []CheckRecord{},
+		Events:        []Event{},
+		Comments:      []Comment{},
+		SpecRevisions: []SpecRevision{},
+	}
+	err := s.withTables(ctx, func(t *tables) error {
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		byID := indexTasks(all)
+		if id != "" {
+			if _, ok := byID[id]; !ok {
+				return ErrNotFound
+			}
+		}
+		included := make(map[string]bool, len(all))
+		if id == "" {
+			for _, task := range all {
+				included[task.ID] = true
+			}
+		} else {
+			included[id] = true
+			for changed := true; changed; {
+				changed = false
+				for _, task := range all {
+					if !included[task.ID] && included[task.ParentID] {
+						included[task.ID] = true
+						changed = true
+					}
+				}
+			}
+		}
+
+		checksByTask := make(map[string]map[string]Check, len(included))
+		for _, task := range all {
+			if !included[task.ID] {
+				continue
+			}
+			decorate(&task, byID)
+			task.ClaimToken = ""
+			out.Tasks = append(out.Tasks, task)
+			checksByTask[task.ID] = make(map[string]Check, len(task.Checks))
+			for _, check := range task.Checks {
+				checksByTask[task.ID][check.ID] = check
+			}
+		}
+
+		dependencyRows, err := t.allProjectionRows(ctx, t.dependencies)
+		if err != nil {
+			return err
+		}
+		for _, row := range dependencyRows {
+			record := dependencyRecordFromRow(row)
+			if included[record.TaskID] {
+				out.Dependencies = append(out.Dependencies, record)
+			}
+		}
+		checkRows, err := t.allProjectionRows(ctx, t.checks)
+		if err != nil {
+			return err
+		}
+		for _, row := range checkRows {
+			record := checkRecordFromRow(row)
+			if !included[record.TaskID] {
+				continue
+			}
+			if check, ok := checksByTask[record.TaskID][record.ID]; ok {
+				record.Check = check
+			}
+			out.Checks = append(out.Checks, record)
+		}
+		eventRows, err := t.allProjectionRows(ctx, t.events)
+		if err != nil {
+			return err
+		}
+		for _, row := range eventRows {
+			event := eventFromRow(row)
+			if included[event.TaskID] {
+				out.Events = append(out.Events, event)
+			}
+		}
+		commentRows, err := t.allProjectionRows(ctx, t.comments)
+		if err != nil {
+			return err
+		}
+		for _, row := range commentRows {
+			comment := commentFromRow(row)
+			if included[comment.TaskID] {
+				out.Comments = append(out.Comments, comment)
+			}
+		}
+		revisionRows, err := t.allProjectionRows(ctx, t.specRevisions)
+		if err != nil {
+			return err
+		}
+		for _, row := range revisionRows {
+			revision := specRevisionFromRow(row)
+			if included[revision.TaskID] {
+				out.SpecRevisions = append(out.SpecRevisions, revision)
+			}
+		}
+
+		sort.Slice(out.Dependencies, func(i, j int) bool { return out.Dependencies[i].Key < out.Dependencies[j].Key })
+		sort.Slice(out.Checks, func(i, j int) bool {
+			if out.Checks[i].TaskID != out.Checks[j].TaskID {
+				return out.Checks[i].TaskID < out.Checks[j].TaskID
+			}
+			return out.Checks[i].ID < out.Checks[j].ID
+		})
+		sort.Slice(out.Events, func(i, j int) bool {
+			if out.Events[i].TaskID != out.Events[j].TaskID {
+				return out.Events[i].TaskID < out.Events[j].TaskID
+			}
+			if out.Events[i].Sequence != out.Events[j].Sequence {
+				return out.Events[i].Sequence < out.Events[j].Sequence
+			}
+			return out.Events[i].Key < out.Events[j].Key
+		})
+		sort.Slice(out.Comments, func(i, j int) bool {
+			if out.Comments[i].TaskID != out.Comments[j].TaskID {
+				return out.Comments[i].TaskID < out.Comments[j].TaskID
+			}
+			if out.Comments[i].Sequence != out.Comments[j].Sequence {
+				return out.Comments[i].Sequence < out.Comments[j].Sequence
+			}
+			return out.Comments[i].ID < out.Comments[j].ID
+		})
+		sort.Slice(out.SpecRevisions, func(i, j int) bool {
+			if out.SpecRevisions[i].TaskID != out.SpecRevisions[j].TaskID {
+				return out.SpecRevisions[i].TaskID < out.SpecRevisions[j].TaskID
+			}
+			if out.SpecRevisions[i].SourceRevision != out.SpecRevisions[j].SourceRevision {
+				return out.SpecRevisions[i].SourceRevision < out.SpecRevisions[j].SourceRevision
+			}
+			return out.SpecRevisions[i].Key < out.SpecRevisions[j].Key
+		})
+		return nil
+	})
+	return out, err
+}
+
+func (s *Service) Catalog(ctx context.Context, opts CatalogOptions) ([]CatalogItem, error) {
+	query := strings.ToLower(strings.TrimSpace(opts.Query))
+	status := strings.TrimSpace(opts.Status)
+	if status != "" && status != "blocked" && status != "flagged" && !ValidStatus(status) {
+		return nil, fmt.Errorf("invalid task status %q", status)
+	}
+	out := []CatalogItem{}
+	err := s.withTables(ctx, func(t *tables) error {
+		all, err := t.catalogTasks(ctx)
+		if err != nil {
+			return err
+		}
+		byID := indexTasks(all)
+		selected := make([]Task, 0, len(all))
+		for _, task := range all {
+			decorate(&task, byID)
+			if status == "blocked" && (task.Status != StatusOpen || len(task.BlockedBy) == 0) {
+				continue
+			}
+			if status == "flagged" && !task.Flagged {
+				continue
+			}
+			if status != "" && status != "blocked" && status != "flagged" && string(task.Status) != status {
+				continue
+			}
+			if query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{
+				task.ID, task.Title, task.Description, task.Type, task.Owner,
+				task.ProgressSummary, task.NextStep, task.FlagReason,
+			}, "\n")), query) {
+				continue
+			}
+			selected = append(selected, task)
+		}
+		sortTasks(selected)
+		for _, task := range selected {
+			out = append(out, CatalogItem{
+				ID: task.ID, Title: task.Title, Type: task.Type, Status: task.Status,
+				Priority: task.Priority, Owner: task.Owner, Flagged: task.Flagged,
+				Ready: task.Ready, BlockedBy: task.BlockedBy, UpdatedAt: task.UpdatedAt,
+			})
+		}
+		return nil
+	})
+	return out, err
+}
+
 func (s *Service) List(ctx context.Context, opts ListOptions) ([]Task, error) {
 	var out []Task
 	err := s.withLock(ctx, "reader", func(t *tables) error {

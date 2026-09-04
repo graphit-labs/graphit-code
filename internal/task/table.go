@@ -302,6 +302,25 @@ func specRevisionFromRow(r lancestore.Row) SpecRevision {
 	return v
 }
 
+func dependencyRecordFromRow(r lancestore.Row) DependencyRecord {
+	return DependencyRecord{
+		Key: text(r, "key"), TaskID: text(r, "task_id"), DependsOn: text(r, "depends_on"),
+		Active: boolValue(r, "active"), CreatedAt: text(r, "created_at"), CreatedBy: text(r, "created_by"),
+		Revision: number(r, "revision"),
+	}
+}
+
+func checkRecordFromRow(r lancestore.Row) CheckRecord {
+	return CheckRecord{
+		Key: text(r, "key"), TaskID: text(r, "task_id"),
+		Check: Check{
+			ID: text(r, "key"), Kind: text(r, "kind"), Text: text(r, "text"), Status: text(r, "status"),
+			Evidence: text(r, "evidence"), VerifiedBy: text(r, "verified_by"), VerifiedAt: text(r, "verified_at"),
+		},
+		Active: boolValue(r, "active"), Revision: number(r, "revision"),
+	}
+}
+
 func (t *tables) getTask(ctx context.Context, id string) (Task, bool, error) {
 	hits, err := t.tasks.Search(ctx, lancestore.Query{Filter: "id = " + quote(id), Limit: 1})
 	if err != nil {
@@ -328,9 +347,23 @@ func (t *tables) getTaskByIdempotencyKey(ctx context.Context, key string) (Task,
 }
 
 func (t *tables) allTasks(ctx context.Context) ([]Task, error) {
+	return t.tasksWithColumns(ctx, nil)
+}
+
+func (t *tables) catalogTasks(ctx context.Context) ([]Task, error) {
+	return t.tasksWithColumns(ctx, []string{
+		"id", "parent_id", "title", "description", "type", "status", "priority",
+		"depends_on_json", "flagged", "flag_reason", "owner", "progress_summary",
+		"next_step", "created_at", "updated_at", "revision",
+	})
+}
+
+func (t *tables) tasksWithColumns(ctx context.Context, columns []string) ([]Task, error) {
 	var out []Task
 	for offset := 0; ; offset += pageSize {
-		hits, err := t.tasks.Search(ctx, lancestore.Query{Filter: "revision >= 1", Limit: pageSize, Offset: offset})
+		hits, err := t.tasks.Search(ctx, lancestore.Query{
+			Filter: "revision >= 1", Columns: columns, Limit: pageSize, Offset: offset,
+		})
 		if err != nil {
 			return nil, err
 		}

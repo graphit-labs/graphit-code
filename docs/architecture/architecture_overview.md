@@ -38,6 +38,7 @@ flowchart LR
     UI --> AST
     UI --> Knowledge
     UI --> Memory
+    UI --> Task
     UI --> Hub
     UI --> Live
 
@@ -88,7 +89,7 @@ One machine-wide daemon supervises registered projects, receives file events, sc
 
 ### Unified UI
 
-The Go server embeds the production React bundle from `internal/ui/dist/` and serves both the SPA and its JSON endpoints. The Graphit Observatory visualizes project, context, registry, daemon, Dream, and live-search state without maintaining a second data model.
+The Go server embeds the production React bundle from `internal/ui/dist/` and serves both the SPA and its JSON endpoints. The Graphit Observatory visualizes project, context, registry, Task, daemon, Dream, and live-search state without maintaining a second data model. Its Task API separates lightweight paginated discovery from the complete exact/project export shared by CLI and MCP.
 
 The UI binds to the configured `ui.host`, with the IPv4 loopback address as the safe default. Exact-origin CORS is a browser policy, not authorization. Reachable deployments require network controls or an authenticated proxy.
 

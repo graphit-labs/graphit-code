@@ -154,7 +154,7 @@ its always-loaded token cost remains small.
 
 ## Interfaces
 
-The CLI group is `graphit task`; its subcommands cover batch, create, list/ready, get, search, claim,
+The CLI group is `graphit task`; its subcommands cover batch, create, list/ready, get, search, export, claim,
 revise, progress, heartbeat, comment, check/check supersede, flag/unflag, dependency add/remove,
 release, complete, cancel, and confirmed remove.
 The MCP tools expose the same operations as `graphit_task_*` and return compact TOON by default for
@@ -178,6 +178,20 @@ changed request fails instead of silently skipping or duplicating work. Search i
 `task_get` is the authoritative retrieval call and includes the snapshot, ordered events, ordered
 comments, and immutable specification revisions.
 
+`graphit task export [task-id]`, `graphit_task_export`, and `GET /api/tasks/export` call the same
+domain operation. With no ID it emits every project task. With an exact ID it emits that task and
+all recursive subtasks. The versioned normalized JSON contains decorated task snapshots plus every
+public dependency, check, event, comment, and specification-revision entity in stable key/sequence
+order. Fencing tokens and `task_control` scheduler rows are deliberately excluded because they are
+coordination secrets rather than transferable task data.
+
+The Observatory Task Explorer uses `GET /api/tasks` for lightweight paginated discovery. The
+endpoint accepts `project_dir`, `query`, `status`, `page_size`, and an opaque query-bound `cursor`;
+responses contain only catalogue summaries and never include audit entities. Catalogue and export
+are read-only LanceDB paths: neither acquires the scheduler mutation lease nor repairs projections.
+Selecting an exact task or explicitly downloading the project uses the complete export contract,
+so the browser does not maintain a second authoritative task projection.
+
 ## Source map
 
 | Concern | Location |
@@ -189,3 +203,4 @@ comments, and immutable specification revisions.
 | Skill and mandate | `internal/task/rule.go`, `internal/task/rule_compact.go` |
 | MCP interface | `internal/mcpstdio/tools_task.go` |
 | CLI interface | `cmd/graphit/commands/task.go` |
+| Observatory API and explorer | `internal/uiserver/task_handler.go`, `internal/ui/src/components/task/TaskExplorerPage.tsx` |

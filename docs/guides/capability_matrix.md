@@ -26,9 +26,9 @@ from a similar command on another interface.
 | AI wiki answers and chat sessions | Yes | No | Yes | Requires `modules.agent=true` and a supported agent CLI |
 | Persistent project and user memory | Yes | Yes | Memory Explorer | `modules.memory`, `unit.id`, optional S3-compatible shared storage |
 | Mandatory and important memory lifecycle | Yes | Yes | Read-oriented explorer | Mandatory rows load unconditionally before contextual search |
-| Deterministic Task backlog and search | Yes | Yes | No | `modules.task`; authoritative LanceDB tables; `task.prefix` |
-| Claims, leases, fencing, takeover, dependencies, subtasks | Yes | Yes | No | Mutations require current ownership and deterministic lifecycle gates |
-| Acceptance/test checks, flags, audited revision, completion | Yes | Yes | No | Completion fails until required checks and child work satisfy the specification |
+| Deterministic Task backlog, search, and complete JSON export | Yes | Yes | Task Explorer | `modules.task`; authoritative LanceDB tables; `task.prefix`; UI discovery is paginated, while detail/download share the versioned export contract with CLI and MCP |
+| Claims, leases, fencing, takeover, dependencies, subtasks | Yes | Yes | Read-only detail | Mutations require current ownership and deterministic lifecycle gates |
+| Acceptance/test checks, flags, audited revision, completion | Yes | Yes | Read-only detail | Completion fails until required checks and child work satisfy the specification |
 | Hub discover, show, install, update, submit, link, unlink | Yes | Yes | Registry and project artifacts | `modules.hub`, `hub.*`, version-pinned lockfile membership |
 | Hub conventional type paths | Yes | Yes | Registry details | Artifact types define adapter destinations and reusable content |
 | Bounded Hub artifact content reads | No | Yes | Registry details | Agents can read selected artifact source without downloading unrelated content |

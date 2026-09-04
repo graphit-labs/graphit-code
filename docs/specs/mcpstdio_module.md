@@ -267,6 +267,7 @@ tasks; deterministic ownership belongs to the Task module.
 | Tool | Description |
 |---|---|
 | `graphit_task_search`, `graphit_task_get`, `graphit_task_list` | Discover and retrieve current/prior work, audit history, checks, comments, dependencies, and subtasks. |
+| `graphit_task_export` | Export a versioned, normalized complete JSON document for all tasks or one exact task and its recursive subtasks. |
 | `graphit_task_batch` | Run up to 100 ordered mutations with an explicit result for every item while reusing the normal lifecycle gates. |
 | `graphit_task_create` | Idempotently create a robust task specification in shared LanceDB tables. |
 | `graphit_task_claim`, `graphit_task_heartbeat`, `graphit_task_release` | Own and transfer work through leases and fencing tokens. |

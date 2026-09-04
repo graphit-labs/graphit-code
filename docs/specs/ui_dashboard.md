@@ -11,6 +11,7 @@ The UI provides:
 - project and imported knowledge explorers;
 - project, user, and imported memory explorers;
 - project and imported AST explorers;
+- a project Task explorer with complete lifecycle and audit detail;
 - live multi-source agent sessions;
 - daemon, Dream, and ecosystem status.
 
@@ -66,7 +67,7 @@ Every project-scoped request must use the active project directory or context. B
 Switching projects updates:
 
 - project name and identity;
-- Knowledge, AST, and Memory navigation entries;
+- Knowledge, AST, Memory, and Task navigation entries;
 - Hub target context;
 - explorer API parameters;
 - ecosystem and system views that depend on project scope.
@@ -103,6 +104,49 @@ Both explorers share a document workspace:
 
 Knowledge shows maintained project or imported documentation. Memory shows project, user, or imported memory scopes. Search results are page titles; selecting a title loads the page content.
 
+### Task Explorer
+
+The Task Explorer uses the lightweight `GET /api/tasks` catalogue for paginated discovery. Its
+server-side text and lifecycle filters show status, priority, flags, and dependency blocks without
+transferring checks or audit history for every task. Selecting a task loads the exact versioned
+export document and presents its robust specification, current ownership/progress, checks and
+evidence, dependencies, subtasks, typed
+comments, lifecycle events, immutable specification revisions, and raw JSON. Users can download
+either the complete project document or the selected task/subtask document.
+
+The frontend never reconstructs authoritative Task state. Catalogue summaries and derived readiness
+fields come from the Task service, while detail arrays come from the shared export service. Query,
+status, project, and page size are bound into opaque cursors; stale responses are discarded when
+the view changes.
+
+`GET /api/tasks` accepts `project_dir`, `query`, `status`, `page_size`, and `cursor`. It returns a
+bounded `results` array and `next_cursor`; page size defaults to 20 and is capped by the shared API
+pagination limit. A cursor from another query, status, project, or page size returns `400`.
+
+`GET /api/tasks/export` accepts `project_dir` and `id` as query parameters. `project_dir` defaults
+to the server's active project; omitting `id` returns the complete project document, while an exact
+`id` returns that task and its recursive subtasks. A missing task returns `404`; an unavailable Task
+module also returns `404`; invalid project resolution returns `400`.
+
+Successful responses use this versioned envelope:
+
+```json
+{
+  "schema_version": 1,
+  "project_id": "project-ulid",
+  "task_id": "tsk-abcd",
+  "tasks": [],
+  "dependencies": [],
+  "checks": [],
+  "events": [],
+  "comments": [],
+  "spec_revisions": []
+}
+```
+
+`task_id` is omitted for a project-wide export. The API never returns fencing tokens or
+`task_control` scheduler rows.
+
 ### Hub
 
 The Hub routes present:
@@ -130,7 +174,7 @@ Live Search lets the user choose compatible artifacts, select a target IDE, ente
 
 - serves the embedded SPA;
 - resolves the active project and imported contexts;
-- exposes JSON handlers for AST, wiki, memory, Hub, live search, daemon, Dream, and ecosystem operations;
+- exposes JSON handlers for AST, wiki, memory, Task, Hub, live search, daemon, Dream, and ecosystem operations;
 - applies one UI host and exact-origin CORS configuration;
 - returns domain-friendly names rather than storage implementation names.
 
@@ -154,6 +198,7 @@ The server has no authentication. CORS limits browser origins but does not autho
 - AST relationship names match the active manifest's friendly names.
 - Screenshot and public documentation examples use the current Graphit Observatory UI.
 - The production bundle builds with `npm run build`.
+- Task discovery uses a bounded paginated catalogue; exact detail and explicit JSON download consume the canonical complete export contract.
 - The embedded server serves the SPA and same-origin API calls.
 - The default network configuration remains local; documentation does not present CORS as authentication.
 

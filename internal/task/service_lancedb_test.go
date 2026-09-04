@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -349,6 +350,172 @@ func TestTaskSpecificationRevisionsAndCheckSupersession(t *testing.T) {
 	}
 	if _, err := svc.Complete(ctx, current.ID, claimed.ClaimToken, "agent-a", "active checks passed"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExportIncludesCompleteDeterministicTaskEntities(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-export", t.TempDir())
+
+	baseInput := testCreate("Export dependency", "export-dependency")
+	baseInput.Actor = "planner"
+	base, err := svc.Create(ctx, baseInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseClaim, err := svc.Claim(ctx, base.ID, "agent-base", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range baseClaim.Checks {
+		if _, err := svc.VerifyCheck(ctx, base.ID, baseClaim.ClaimToken, "agent-base", check.ID, true, "Dependency verified", time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Complete(ctx, base.ID, baseClaim.ClaimToken, "agent-base", "Dependency completed"); err != nil {
+		t.Fatal(err)
+	}
+	rootInput := testCreate("Export root", "export-root")
+	rootInput.Actor = "planner"
+	rootInput.DependsOn = []string{base.ID}
+	root, err := svc.Create(ctx, rootInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childInput := testCreate("Export child", "export-child")
+	childInput.Actor = "planner"
+	childInput.ParentID = root.ID
+	child, err := svc.Create(ctx, childInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, root.ID, "agent-a", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Progress(ctx, root.ID, claimed.ClaimToken, "agent-a", "Export implementation started", "Verify the document", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Flag(ctx, root.ID, claimed.ClaimToken, "agent-a", "Export review is pending"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddComment(ctx, root.ID, claimed.ClaimToken, "agent-a", "decision", "Keep the export normalized and deterministic.", "export-decision", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	description := "A revised export specification containing all public Task entities."
+	current, err := svc.Get(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Revise(ctx, root.ID, claimed.ClaimToken, "agent-a", ReviseInput{
+		ExpectedRevision: current.Task.Revision,
+		Reason:           "Record the complete normalized export scope.",
+		Description:      &description,
+	}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	cancelledInput := testCreate("Export cancellation", "export-cancellation")
+	cancelledInput.Actor = "planner"
+	cancelled, err := svc.Create(ctx, cancelledInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(ctx, cancelled.ID, "", "planner", "Direction changed"); err != nil {
+		t.Fatal(err)
+	}
+	locked, err := openTables(ctx, svc.uri, svc.s3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := locked.control.Upsert(ctx, "key", []lancestore.Row{{
+		"key": "scheduler", "token": "foreign-writer", "owner": "another-agent",
+		"acquired_at": stamp(now), "expires_at": stamp(now.Add(time.Hour)), "revision": int64(1),
+	}}); err != nil {
+		_ = locked.close()
+		t.Fatal(err)
+	}
+	if err := locked.close(); err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := svc.Export(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := svc.Export(ctx, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(document, repeated) {
+		t.Fatal("repeated export changed without a task mutation")
+	}
+	if document.SchemaVersion != ExportSchemaVersion || document.ProjectID != "project-export" || document.TaskID != root.ID {
+		t.Fatalf("export envelope = %#v", document)
+	}
+	if len(document.Tasks) != 2 || document.Tasks[0].ID > document.Tasks[1].ID {
+		t.Fatalf("specific export tasks = %#v", document.Tasks)
+	}
+	foundRoot, foundChild := false, false
+	for _, exported := range document.Tasks {
+		if exported.ClaimToken != "" {
+			t.Fatal("task export exposed a fencing token")
+		}
+		if exported.ID == root.ID {
+			foundRoot = true
+			if !exported.Flagged || exported.FlagReason == "" || exported.Owner != "agent-a" || exported.ClaimEpoch < 1 {
+				t.Fatalf("flagged claim metadata = %#v", exported)
+			}
+		}
+		foundChild = foundChild || exported.ID == child.ID
+	}
+	if !foundRoot || !foundChild {
+		t.Fatalf("specific export omitted root or subtask: %#v", document.Tasks)
+	}
+	if len(document.Dependencies) != 1 || document.Dependencies[0].TaskID != root.ID || document.Dependencies[0].DependsOn != base.ID {
+		t.Fatalf("dependencies = %#v", document.Dependencies)
+	}
+	if len(document.Checks) != len(root.Checks)+len(child.Checks) {
+		t.Fatalf("checks = %d, want %d", len(document.Checks), len(root.Checks)+len(child.Checks))
+	}
+	if len(document.Events) < 5 || len(document.Comments) != 1 || len(document.SpecRevisions) < 1 {
+		t.Fatalf("audit entities: events=%d comments=%d revisions=%d", len(document.Events), len(document.Comments), len(document.SpecRevisions))
+	}
+	for i := 1; i < len(document.Events); i++ {
+		previous, next := document.Events[i-1], document.Events[i]
+		if previous.TaskID > next.TaskID || (previous.TaskID == next.TaskID && previous.Sequence > next.Sequence) {
+			t.Fatalf("events are not deterministic: %#v", document.Events)
+		}
+	}
+
+	all, err := svc.Export(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.TaskID != "" || len(all.Tasks) != 4 {
+		t.Fatalf("all-task export = %#v", all)
+	}
+	foundCompleted, foundCancelled := false, false
+	for _, exported := range all.Tasks {
+		if exported.ID == base.ID {
+			foundCompleted = exported.Status == StatusCompleted && exported.CompletedBy == "agent-base" && exported.CompletedAt != ""
+		}
+		if exported.ID == cancelled.ID {
+			foundCancelled = exported.Status == StatusCancelled && exported.ProgressSummary == "cancelled: Direction changed"
+		}
+	}
+	if !foundCompleted || !foundCancelled {
+		t.Fatalf("terminal task metadata missing: completed=%v cancelled=%v", foundCompleted, foundCancelled)
+	}
+	flaggedCatalog, err := svc.Catalog(ctx, CatalogOptions{Query: "Export", Status: "flagged"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flaggedCatalog) != 1 || flaggedCatalog[0].ID != root.ID || !flaggedCatalog[0].Flagged {
+		t.Fatalf("flagged catalog = %#v", flaggedCatalog)
+	}
+	if _, err := svc.Export(ctx, "tsk-missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing task export error = %v, want ErrNotFound", err)
 	}
 }
 

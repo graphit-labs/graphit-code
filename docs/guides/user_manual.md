@@ -186,6 +186,29 @@ before/after history; obsolete checks are superseded rather than rewritten. When
 agents cancel work whose history remains useful or explicitly remove certainly erroneous,
 unreferenced work. Dream never consumes the Task backlog.
 
+Open **Task → _project name_** in the Observatory to inspect this state without creating a second
+task model. The catalogue searches IDs, titles, specifications, ownership, progress, and next steps,
+and filters both stored lifecycle states and the derived blocked/flagged views. It requests bounded
+pages and loads more only on demand, so routine browsing does not transfer every task's audit data.
+Selecting a task loads its authoritative complete record: specification, claim metadata, progress, checks and
+evidence, dependencies, subtasks, comments, events, and specification revisions. The project and
+task download actions save the same versioned JSON returned by the CLI and MCP surfaces.
+
+Use the complete export when another tool needs a portable machine-readable snapshot:
+
+```bash
+# Every task in the current project.
+graphit task export > tasks.json
+
+# One exact task plus all of its recursive subtasks.
+graphit task export tsk-abcd > tsk-abcd.json
+```
+
+The MCP equivalent is `graphit_task_export`: omit `id` for the project document or pass one exact
+task ID. Both surfaces return arrays for task snapshots, dependency and check projection records,
+lifecycle events, comments, and specification revisions in deterministic order. Claim fencing
+tokens and internal scheduler-control rows remain private and are never part of the export.
+
 ## Retrieval and reranking
 
 Graphit's retrieval surfaces are deliberately different:
@@ -216,6 +239,7 @@ The Graphit Observatory groups routes by intent:
 - **Knowledge** — project and imported documentation contexts;
 - **AST** — project and imported code contexts;
 - **Memory** — project and user scopes;
+- **Task** — deterministic project backlog and complete lifecycle records;
 - **System** — daemon, Dream, and ecosystem state.
 
 Always verify the active workspace before interpreting explorer data. The selected workspace is persisted between browser sessions.

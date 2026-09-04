@@ -43,7 +43,7 @@ machines, and model providers:
 | **AST** | Language-aware entities, source, and exact graph relationships | Find candidates with FTS + vectors, then prove callers, imports, inheritance, dependencies, and impact with Cypher |
 | **Knowledge** | A compiled wiki built from maintained project documentation | Search pages, read only the relevant source, follow cross-references, and verify provenance |
 | **Memory** | Durable project and user scopes with revision history | Carry corrections, conventions, decisions, and learned procedures across sessions and repositories |
-| **Task** | A shared LanceDB scheduler with fenced claims, dependencies, checks, comments, and immutable audit history | Coordinate parallel agents, make takeover safe, and make incomplete work impossible to close |
+| **Task** | A shared LanceDB scheduler with fenced claims, dependencies, checks, comments, immutable audit history, and complete JSON export | Coordinate parallel agents, make takeover safe, inspect work in the Task Explorer, and make incomplete work impossible to close |
 | **Hub** | A versioned registry for reusable agent capabilities and contexts | Share rules, skills, agents, commands, MCP servers, languages, ASTs, and knowledge across systems |
 | **Observatory** | One operational workspace over the same stores agents use | Explore code, docs, memory, live runs, daemon state, Dream, and ecosystem projects without a second data model |
 
@@ -71,7 +71,9 @@ The web UI is an operational view over the same project context exposed to agent
 |---|---|
 | ![Graphit Knowledge Explorer showing project architecture](docs/site/assets/observatory-knowledge-explorer.jpg) | ![Graphit Memory Explorer showing a design decision](docs/site/assets/observatory-memory-explorer.jpg) |
 
-These screenshots use Graphit Code itself as the example project.
+These screenshots use Graphit Code itself as the example project. The same Observatory also includes
+a Task Explorer with a paginated task catalogue, server-side status/search filters, complete specs,
+checks, dependencies, subtasks, comments, lifecycle events, revision history, and JSON download.
 
 ## Install
 
@@ -170,7 +172,7 @@ Project memory captures repository-specific decisions and corrections. User memo
 
 ### Deterministic control that survives the agent
 
-Graphit Task replaces host-native TODO lists and repository Markdown task logs with one project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, revise scope through expected-revision fencing, supersede obsolete checks without erasing history, verify active acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. With S3 configured, every project agent reads and writes the same LanceDB tables directly.
+Graphit Task replaces host-native TODO lists and repository Markdown task logs with one project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, revise scope through expected-revision fencing, supersede obsolete checks without erasing history, verify active acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. The Observatory discovers work through a lightweight paginated catalogue and loads the same versioned complete JSON export as CLI and MCP only for exact detail or an explicit project download. With S3 configured, every project agent reads and writes the same LanceDB tables directly.
 
 ### Reusable context across systems
 

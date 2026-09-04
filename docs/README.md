@@ -17,7 +17,8 @@ current guidance without mixing it with historical implementation records.
 | Choose an agent CLI, embedding model, or rerank provider | [AI Models, Providers, and Agent CLIs](guides/ai_models.md) | [AI Engine](specs/ai_engine.md) |
 | Start, monitor, and troubleshoot the background service | [Daemon Operations and Monitoring](guides/daemon_operations.md) | [Daemon Module](specs/daemon_module.md) |
 | Configure an agent or MCP client | [MCP Tools Reference](guides/mcp_tools_reference.md) | [Retrieval Architecture](guides/retrieval_architecture.md) |
-| Coordinate resumable work across agents | [Task Module](specs/task_module.md) | [MCP Tools Reference](guides/mcp_tools_reference.md) |
+| Coordinate resumable work across agents | [Task workflow](guides/user_manual.md#dream-and-task) | [Task Module](specs/task_module.md) |
+| Inspect or export complete Task records | [Task workflow](guides/user_manual.md#dream-and-task) | [CLI Reference](guides/cli_reference.md#task) |
 | Choose between FTS, semantic, hybrid, graph, AI, and live search | [Retrieval Architecture](guides/retrieval_architecture.md) | [AI Engine](specs/ai_engine.md) |
 | Add or customize a language parser | [AST Grammars and Parser Extensibility](guides/ast_extensibility.md) | [AST Module](specs/ast_module.md) |
 | Share context across repositories and machines | [User Manual](guides/user_manual.md#teams-agents-and-software-ecosystems) | [Hub Collaboration](specs/hub_collaboration.md) |

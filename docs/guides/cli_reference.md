@@ -558,6 +558,7 @@ graphit task <subcommand> [flags]
 - `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask.
 - `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, or parent.
 - `get`, `search`: Retrieve authoritative history or search task/comment text.
+- `export [task-id]`: Print a stable complete JSON document for every project task, or one exact task and its recursive subtasks. The document contains task snapshots, dependency/check projections, events, comments, and specification revisions; private fencing tokens are never exported.
 - `claim`, `heartbeat`, `release`: Own or hand off work with a fenced lease.
 - `progress`, `comment`, `check`: Record checkpoints, typed context, and acceptance/test evidence.
 - `revise <task-id> <patch-file|->`: Apply a strict JSON specification patch with `--expected-revision`, `--reason`, and the current claim token.
@@ -567,6 +568,20 @@ graphit task <subcommand> [flags]
 - `complete`: Finish only after every active check and subtask passes and no flag remains.
 - `cancel`: Preserve an obsolete task as an audited terminal record with a required reason.
 - `remove` / `rm`: Hard-delete certainly erroneous work with `--confirm <exact-id>` and `--reason`; referenced tasks are refused.
+
+Complete exports always write JSON and can be redirected without an additional format flag:
+
+```bash
+# Export the complete project Task document.
+graphit task export > tasks.json
+
+# Export one exact task and every nested subtask below it.
+graphit task export tsk-abcd > tsk-abcd.json
+```
+
+Both forms use the same versioned export contract as `graphit_task_export` and the Observatory
+`/api/tasks/export` endpoint. Arrays are ordered deterministically. Claim fencing tokens and
+internal scheduler-control rows are excluded.
 
 Claims default to one hour. Renewing through heartbeat, progress, checks, comments, or lifecycle
 hooks never shortens a longer active lease.

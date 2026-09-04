@@ -31,6 +31,7 @@ import {
   Search,
   Sparkles,
   FileCode2,
+  ListChecks,
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -268,6 +269,15 @@ export function Sidebar({ onClose }: SidebarProps) {
             })}
           </NavSection>
         )}
+
+        <NavSection title="Task">
+          <NavItem
+            to="/task/explorer"
+            icon={<ListChecks className="w-3.5 h-3.5" />}
+            label={pName}
+            onClick={close}
+          />
+        </NavSection>
 
         {}
         <NavSection title="System">

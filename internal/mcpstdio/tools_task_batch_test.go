@@ -82,6 +82,44 @@ func TestTaskRevisionToolSchemas(t *testing.T) {
 	}
 }
 
+func TestTaskExportToolSchema(t *testing.T) {
+	session := testMCPClient(t)
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := brand.MCPToolName("task", "export")
+	for _, tool := range listed.Tools {
+		if tool.Name != name {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema struct {
+			Properties map[string]any `json:"properties"`
+			Required   []string       `json:"required"`
+		}
+		if err := json.Unmarshal(encoded, &schema); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := schema.Properties["project_dir"]; !ok {
+			t.Fatal("task export schema does not expose project_dir")
+		}
+		if _, ok := schema.Properties["id"]; !ok {
+			t.Fatal("task export schema does not expose optional id")
+		}
+		for _, field := range schema.Required {
+			if field == "id" {
+				t.Fatal("task export id must be optional for all-task export")
+			}
+		}
+		return
+	}
+	t.Fatalf("tool %s was not listed", name)
+}
+
 func TestTaskActorPrefersStableProxySession(t *testing.T) {
 	request := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{Header: http.Header{mcpproxy.AgentSessionHeader: []string{"stable-session"}}}}
 	if got, want := taskActor(request, ""), graphtask.AgentIDForSession("stable-session"); got != want {

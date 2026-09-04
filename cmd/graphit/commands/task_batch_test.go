@@ -55,3 +55,20 @@ func TestTaskRevisionCommandsAreReachable(t *testing.T) {
 		t.Fatalf("task check supersede command not found: %v", err)
 	}
 }
+
+func TestTaskExportCommandAcceptsAllOrOneTask(t *testing.T) {
+	root := newTaskCmd()
+	command, _, err := root.Find([]string{"export"})
+	if err != nil || command == root {
+		t.Fatalf("task export command not found: %v", err)
+	}
+	if err := command.Args(command, nil); err != nil {
+		t.Fatalf("all-task export arguments rejected: %v", err)
+	}
+	if err := command.Args(command, []string{"tsk-abcd"}); err != nil {
+		t.Fatalf("single-task export arguments rejected: %v", err)
+	}
+	if err := command.Args(command, []string{"tsk-abcd", "tsk-ef01"}); err == nil {
+		t.Fatal("task export accepted more than one task ID")
+	}
+}

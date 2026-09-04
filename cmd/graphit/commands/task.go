@@ -20,7 +20,7 @@ func newTaskCmd() *cobra.Command {
 Open, unclaimed tasks are the backlog. Dependencies determine readiness. Agents
 must claim before work, checkpoint progress, and complete or release the claim.
 The returned claim token fences stopped or replaced agents from later writes.`}
-	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
+	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
 	return cmd
 }
 
@@ -192,6 +192,25 @@ func newTaskGetCmd() *cobra.Command {
 		return printTaskJSON(v)
 	}}
 }
+
+func newTaskExportCmd() *cobra.Command {
+	return &cobra.Command{Use: "export [id]", Short: "Export complete task data as JSON", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		svc, err := currentTaskService()
+		if err != nil {
+			return err
+		}
+		id := ""
+		if len(args) == 1 {
+			id = args[0]
+		}
+		value, err := svc.Export(cmd.Context(), id)
+		if err != nil {
+			return err
+		}
+		return printTaskJSON(value)
+	}}
+}
+
 func newTaskSearchCmd() *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{Use: "search <query>", Short: "Search current and prior tasks", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {

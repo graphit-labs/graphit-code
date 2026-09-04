@@ -1098,6 +1098,7 @@ native TODO/task mechanisms. The main contracts are:
 | Tools | Required state and result |
 |---|---|
 | `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments/spec revisions. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
+| `graphit_task_export` | Returns stable complete JSON for every project task, or an exact task ID and its recursive subtasks. The versioned normalized document contains task snapshots, dependency/check projection records, events, comments, and specification revisions in deterministic order; fencing tokens and scheduler-control rows remain private. |
 | `graphit_task_batch` | Runs 1-100 mutations sequentially in input order. Every item returns its index, optional key, action, task ID, `ok`, and either a value or explicit error; all normal lifecycle gates still apply. |
 | `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `parent_id`, dependencies, priority, type, and stable `idempotency_key`. |
 | `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
@@ -1111,6 +1112,22 @@ native TODO/task mechanisms. The main contracts are:
 | `graphit_task_complete` | Succeeds only when all active checks passed with evidence, every subtask completed, and no flag remains. |
 | `graphit_task_cancel` | Records a terminal cancellation and required reason; cancelling active work also requires its fencing token. |
 | `graphit_task_remove` | Hard-removes only after exact-ID confirmation plus a reason; dependents and subtasks refuse deletion. |
+
+`graphit_task_export` accepts only the project scope and optional exact task ID:
+
+```json
+{"project_dir":"/path/to/project"}
+```
+
+```json
+{"project_dir":"/path/to/project","id":"tsk-abcd"}
+```
+
+The first call exports all project tasks. The second exports `tsk-abcd` and its recursive subtasks.
+Both return a JSON object containing `schema_version`, `project_id`, optional `task_id`, and the
+ordered `tasks`, `dependencies`, `checks`, `events`, `comments`, and `spec_revisions` arrays. Unlike
+compact retrieval tools, export always returns the complete JSON document and has no
+`ai_optimized` parameter.
 
 Open, unclaimed tasks are backlog. Claims default to one hour, renew without shortening a longer
 lease, and expire or are released by stop hooks so another agent can

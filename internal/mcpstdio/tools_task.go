@@ -36,6 +36,11 @@ type taskGetInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
+type taskExportInput struct {
+	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID         string `json:"id,omitempty" jsonschema:"Exact task ID; omit to export every task in the project"`
+}
+
 type taskListInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Status      string `json:"status,omitempty" jsonschema:"open, blocked, flagged, in_progress, completed, or cancelled"`
@@ -313,6 +318,17 @@ func registerTaskTools(server *mcp.Server) {
 			return errResult(err)
 		}
 		return taskResult(value, in.AiOptimized)
+	}))
+	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "export"), Description: "Export stable complete JSON for every project task or one exact task and its subtasks, including all public Task entities and audit history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskExportInput) (*mcp.CallToolResult, any, error) {
+		svc, _, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		value, err := svc.Export(ctx, in.ID)
+		if err != nil {
+			return errResult(err)
+		}
+		return jsonResult(value)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "list"), Description: "List authoritative tasks. ready=true is the dependency-aware work queue; open and unclaimed tasks are the backlog."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, any, error) {
 		if in.Status != "" && in.Status != "blocked" && in.Status != "flagged" && !graphtask.ValidStatus(in.Status) {

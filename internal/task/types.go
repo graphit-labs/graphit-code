@@ -109,6 +109,41 @@ type Detail struct {
 	SpecRevisions []SpecRevision `json:"spec_revisions"`
 }
 
+const ExportSchemaVersion = 1
+
+type DependencyRecord struct {
+	Key       string `json:"key"`
+	TaskID    string `json:"task_id"`
+	DependsOn string `json:"depends_on"`
+	Active    bool   `json:"active"`
+	CreatedAt string `json:"created_at"`
+	CreatedBy string `json:"created_by"`
+	Revision  int64  `json:"revision"`
+}
+
+type CheckRecord struct {
+	Key    string `json:"key"`
+	TaskID string `json:"task_id"`
+	Check
+	Active   bool  `json:"active"`
+	Revision int64 `json:"revision"`
+}
+
+// ExportDocument is the stable, normalized representation of every public Task
+// entity. Claim tokens and scheduler-control rows are intentionally private
+// because exposing either would bypass fencing.
+type ExportDocument struct {
+	SchemaVersion int                `json:"schema_version"`
+	ProjectID     string             `json:"project_id"`
+	TaskID        string             `json:"task_id,omitempty"`
+	Tasks         []Task             `json:"tasks"`
+	Dependencies  []DependencyRecord `json:"dependencies"`
+	Checks        []CheckRecord      `json:"checks"`
+	Events        []Event            `json:"events"`
+	Comments      []Comment          `json:"comments"`
+	SpecRevisions []SpecRevision     `json:"spec_revisions"`
+}
+
 type TaskSpec struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
@@ -171,6 +206,24 @@ type ListOptions struct {
 	Owner    string
 	ParentID string
 	Ready    bool
+}
+
+type CatalogOptions struct {
+	Query  string
+	Status string
+}
+
+type CatalogItem struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Type      string   `json:"type"`
+	Status    Status   `json:"status"`
+	Priority  int      `json:"priority"`
+	Owner     string   `json:"owner,omitempty"`
+	Flagged   bool     `json:"flagged"`
+	Ready     bool     `json:"ready"`
+	BlockedBy []string `json:"blocked_by,omitempty"`
+	UpdatedAt string   `json:"updated_at"`
 }
 
 type SearchResult struct {

@@ -34,7 +34,9 @@ func RuleContent() string {
 		"",
 		"Every mutation is revision-checked and audited. Dependencies gate readiness; expired or stopped claims become open for takeover. Search is discovery; `get` and filtered `list` read authoritative state.",
 		"",
-		"Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_batch`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_revise`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_check_supersede`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.",
+		"Use " + t("task", "export") + " only when a machine-readable complete archive is required. Pass an exact task ID for that task and its subtasks, or omit it for every project task; the JSON includes all public Task entities in deterministic order and never exposes fencing tokens.",
+		"",
+		"Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_export`, `graphit_task_batch`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_revise`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_check_supersede`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.",
 	}, "\n") + "\n"
 }
 
@@ -53,6 +55,6 @@ func MandateTrigger() string {
 			"cancelling or certainly removing obsolete work so no task garbage remains",
 			"an agent starts, stops, resumes, delegates, or finishes a work unit",
 		},
-		[]string{"task_search", "task_list", "task_get", "task_batch", "task_create", "task_claim", "task_revise", "task_progress", "task_comment_add", "task_check", "task_check_supersede", "task_flag", "task_release", "task_complete", "task_cancel", "task_remove"},
+		[]string{"task_search", "task_list", "task_get", "task_export", "task_batch", "task_create", "task_claim", "task_revise", "task_progress", "task_comment_add", "task_check", "task_check_supersede", "task_flag", "task_release", "task_complete", "task_cancel", "task_remove"},
 	)
 }
