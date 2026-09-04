@@ -12,12 +12,22 @@ vi.mock('@/api/task', async importOriginal => {
   const actual = await importOriginal<typeof import('@/api/task')>()
   return { ...actual, taskApi: { list: vi.fn(), export: vi.fn() } }
 })
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation(query => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+})))
 
 const first: Task = {
   id: 'tsk-aaaa', project_id: 'project-1', idempotency_key: 'first', title: 'First task',
-  description: 'Build the first deterministic feature.', type: 'feature', status: 'in_progress',
+  description: '# Objective\n\nBuild the **first deterministic feature**.\n\n- Preserve audit history\n- Render rich fields', type: 'feature', status: 'in_progress',
   priority: 1, checks: [], flagged: false, owner: 'agent-a', claim_epoch: 1,
-  progress_sequence: 1, comment_sequence: 1, progress_summary: 'Core landed', next_step: 'Verify UI',
+  progress_sequence: 1, comment_sequence: 1, progress_summary: '**Core** landed with `go test ./internal/task`.', next_step: 'Verify the **Task Explorer** UI.',
   created_at: '2026-09-04T10:00:00Z', updated_at: '2026-09-04T11:00:00Z', revision: 4,
   ready: false,
 }
@@ -34,10 +44,14 @@ const completeExport: TaskExportDocument = {
   project_id: 'project-1',
   tasks: [first, second],
   dependencies: [{ key: 'tsk-bbbb/tsk-aaaa', task_id: 'tsk-bbbb', depends_on: 'tsk-aaaa', active: true, created_at: '2026-09-04T10:00:00Z', created_by: 'planner', revision: 1 }],
-  checks: [],
-  events: [{ key: 'tsk-aaaa/1', task_id: 'tsk-aaaa', sequence: 1, type: 'created', actor: 'planner', at: '2026-09-04T10:00:00Z', revision: 1 }],
-  comments: [{ id: 'cmt-1', task_id: 'tsk-aaaa', idempotency_key: 'decision', sequence: 1, kind: 'decision', body: 'Use one canonical export.', actor: 'agent-a', at: '2026-09-04T11:00:00Z', revision: 3 }],
-  spec_revisions: [],
+  checks: [{ key: 'tsk-aaaa/chk-1', task_id: 'tsk-aaaa', id: 'chk-1', kind: 'acceptance', text: 'The UI shows the **observable outcome**.', status: 'passed', evidence: 'Verified with `npm test`.', active: true, revision: 3 }],
+  events: [{ key: 'tsk-aaaa/1', task_id: 'tsk-aaaa', sequence: 1, type: 'progress', actor: 'planner', at: '2026-09-04T10:00:00Z', summary: '**Implementation** completed.', next_step: 'Run `make test`.', revision: 1 }],
+  comments: [{ id: 'cmt-1', task_id: 'tsk-aaaa', idempotency_key: 'decision', sequence: 1, kind: 'decision', body: 'Use one **canonical export**.', actor: 'agent-a', at: '2026-09-04T11:00:00Z', revision: 3 }],
+  spec_revisions: [{
+    key: 'tsk-aaaa/1', task_id: 'tsk-aaaa', source_revision: 2, kind: 'revised', actor: 'agent-a', reason: 'Clarified the **observable behavior**.', at: '2026-09-04T10:30:00Z',
+    before: { title: 'First task', description: 'Initial **specification**.', type: 'feature', priority: 1, checks: [] },
+    after: { title: 'First task', description: 'Revised **specification**.', type: 'feature', priority: 1, checks: [{ id: 'chk-1', kind: 'acceptance', text: 'The UI shows the **observable outcome**.', status: 'pending' }] },
+  }],
 }
 
 const firstCatalogItem: TaskCatalogItem = {
@@ -87,8 +101,15 @@ describe('Task Explorer', () => {
     )
 
     expect(await screen.findByText('Specification')).toBeTruthy()
-    expect(screen.getByText('Build the first deterministic feature.')).toBeTruthy()
-    expect(screen.getByText('Use one canonical export.')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Objective' })).toBeTruthy()
+    expect(screen.getByText('first deterministic feature')).toBeTruthy()
+    expect(screen.getByText('canonical export')).toBeTruthy()
+    expect(screen.getAllByText('observable outcome').length).toBeGreaterThan(0)
+    expect(screen.getByText('npm test')).toBeTruthy()
+    expect(screen.getByText('make test')).toBeTruthy()
+    const specification = screen.getByText('Specification').closest('section')
+    expect(specification).not.toBeNull()
+    expect(within(specification!).queryByText(/# Objective/)).toBeNull()
     expect(taskApi.list).toHaveBeenCalledWith({ projectDir: '/project', query: undefined, status: 'all', pageSize: 20, cursor: undefined })
     expect(taskApi.export).toHaveBeenCalledWith('/project', 'tsk-aaaa')
     expect(taskApi.export).not.toHaveBeenCalledWith('/project')
@@ -102,6 +123,25 @@ describe('Task Explorer', () => {
     await waitFor(() => expect(taskApi.export).toHaveBeenCalledWith('/project', 'tsk-bbbb'))
     expect(screen.getByTestId('location').textContent).toBe('/task/explorer/tsk-bbbb')
     expect(await screen.findByText('Resolve a blocked follow-up.')).toBeTruthy()
+  })
+
+  it('renders Markdown in current and historical rich-text fields', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Core')).toBeTruthy()
+    expect(screen.getByText('Task Explorer')).toBeTruthy()
+    expect(screen.getByText('Implementation')).toBeTruthy()
+    expect(screen.getByText('observable behavior')).toBeTruthy()
+
+    await user.click(screen.getByText('rev 2 · revised'))
+    expect(screen.getByText('Before').parentElement?.textContent).toContain('Initial specification.')
+    expect(screen.getByText('After').parentElement?.textContent).toContain('Revised specification.')
+    expect(screen.getAllByText('observable outcome').length).toBeGreaterThan(1)
   })
 
   it('uses the custom status selector and sends search and status to the catalogue API', async () => {

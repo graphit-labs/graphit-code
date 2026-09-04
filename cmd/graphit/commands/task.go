@@ -141,16 +141,16 @@ func newTaskCreateCmd() *cobra.Command {
 		}
 		return printTaskJSON(v)
 	}}
-	cmd.Flags().StringVar(&description, "description", "", "Robust self-contained task specification")
+	cmd.Flags().StringVar(&description, "description", "", "Self-contained Markdown task specification")
 	_ = cmd.MarkFlagRequired("description")
-	cmd.Flags().StringSliceVar(&acceptance, "acceptance", nil, "Observable acceptance criterion (repeat or comma-separate)")
+	cmd.Flags().StringSliceVar(&acceptance, "acceptance", nil, "Imperative statement of what the system must or must not do (repeat or comma-separate)")
 	_ = cmd.MarkFlagRequired("acceptance")
-	cmd.Flags().StringSliceVar(&tests, "test", nil, "Concrete test or validation (repeat or comma-separate)")
+	cmd.Flags().StringSliceVar(&tests, "test", nil, "Given-When-Then behavior check or explicit validation (repeat or comma-separate)")
 	_ = cmd.MarkFlagRequired("test")
 	cmd.Flags().StringVar(&kind, "type", "task", "Task type")
 	cmd.Flags().IntVarP(&priority, "priority", "p", 2, "Priority 0-4")
 	cmd.Flags().StringVar(&deps, "depends-on", "", "Comma-separated blocking task IDs")
-	cmd.Flags().StringVar(&parentID, "parent", "", "Parent task ID for a subtask")
+	cmd.Flags().StringVar(&parentID, "parent", "", "Parent delivery task ID for a subtask or finalization work")
 	cmd.Flags().StringVar(&key, "idempotency-key", "", "Stable caller key (defaults to canonical title)")
 	cmd.Flags().StringVar(&actor, "agent", "", "Agent identity (defaults to this Graphit unit)")
 	return cmd
@@ -276,9 +276,9 @@ func newTaskProgressCmd() *cobra.Command {
 		}
 		return printTaskJSON(v)
 	}}
-	cmd.Flags().StringVar(&summary, "summary", "", "What landed or was verified")
+	cmd.Flags().StringVar(&summary, "summary", "", "Markdown checkpoint of completed facts and evidence")
 	_ = cmd.MarkFlagRequired("summary")
-	cmd.Flags().StringVar(&next, "next-step", "", "Exact continuation step")
+	cmd.Flags().StringVar(&next, "next-step", "", "Markdown continuation action, target, and completion condition")
 	claimFlags(cmd, &token, &actor, &leaseText)
 	return cmd
 }
@@ -315,8 +315,8 @@ func newTaskReleaseCmd() *cobra.Command {
 		}
 		return printTaskJSON(v)
 	}}
-	cmd.Flags().StringVar(&summary, "summary", "", "Last completed work or blocker")
-	cmd.Flags().StringVar(&next, "next-step", "", "Exact continuation step")
+	cmd.Flags().StringVar(&summary, "summary", "", "Markdown completed work, current state, and blocker")
+	cmd.Flags().StringVar(&next, "next-step", "", "Markdown continuation action, target, and completion condition")
 	claimFlags(cmd, &token, &actor, nil)
 	return cmd
 }
@@ -333,7 +333,7 @@ func newTaskCompleteCmd() *cobra.Command {
 		}
 		return printTaskJSON(v)
 	}}
-	cmd.Flags().StringVar(&summary, "summary", "", "Acceptance evidence and result")
+	cmd.Flags().StringVar(&summary, "summary", "", "Markdown result mapped to acceptance evidence")
 	claimFlags(cmd, &token, &actor, nil)
 	return cmd
 }
@@ -433,7 +433,7 @@ func newTaskCheckCmd() *cobra.Command {
 		}
 		return printTaskJSON(v)
 	}}
-	cmd.Flags().StringVar(&evidence, "evidence", "", "Concrete command output, observation, or artifact")
+	cmd.Flags().StringVar(&evidence, "evidence", "", "Markdown command, observation, or artifact with actual result")
 	_ = cmd.MarkFlagRequired("evidence")
 	cmd.Flags().BoolVar(&failed, "failed", false, "Record this check as failed instead of passed")
 	claimFlags(cmd, &token, &actor, &leaseText)
@@ -504,7 +504,7 @@ func newTaskReviseCmd() *cobra.Command {
 	}}
 	cmd.Flags().Int64Var(&expected, "expected-revision", 0, "Current task revision fence")
 	_ = cmd.MarkFlagRequired("expected-revision")
-	cmd.Flags().StringVar(&reason, "reason", "", "Why the specification changed")
+	cmd.Flags().StringVar(&reason, "reason", "", "Markdown rationale and verification impact of the specification change")
 	_ = cmd.MarkFlagRequired("reason")
 	claimFlags(cmd, &token, &actor, &leaseText)
 	return cmd

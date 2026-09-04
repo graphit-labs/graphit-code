@@ -1260,3 +1260,182 @@ func TestReconcileBypassesSchedulerLeaseAndRepairsProjections(t *testing.T) {
 		t.Fatalf("reconcile modified scheduler lease: %#v", controlRows)
 	}
 }
+
+func TestReadOperationsDoNotCreateTableVersions(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-read-purity", t.TempDir())
+	input := testCreate("Read-only task operations", "read-only-task-operations")
+	input.Actor = "planner"
+	created, err := svc.Create(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before := currentTaskTableVersions(t, ctx, svc)
+	if _, err := svc.Get(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.List(ctx, ListOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Catalog(ctx, CatalogOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Export(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Search(ctx, "Read-only", 10); err != nil {
+		t.Fatal(err)
+	}
+	after := currentTaskTableVersions(t, ctx, svc)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("read operations changed table versions: before=%v after=%v", before, after)
+	}
+}
+
+func TestProjectTaskDoesNotWriteCurrentProjections(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-current-projections", t.TempDir())
+	input := testCreate("Current task projections", "current-task-projections")
+	input.Actor = "planner"
+	created, err := svc.Create(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tables, err := openTables(ctx, svc.uri, svc.s3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tables.close()
+	before := projectionVersions(t, ctx, tables)
+	if err := svc.projectTask(ctx, tables, created, "planner"); err != nil {
+		t.Fatal(err)
+	}
+	after := projectionVersions(t, ctx, tables)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("current projections changed table versions: before=%v after=%v", before, after)
+	}
+}
+
+func TestTaskMaintenancePrunesObsoleteVersions(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-maintenance", t.TempDir())
+	created, err := svc.Create(ctx, testCreate("Maintained task tables", "maintained-task-tables"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		claimed, err = svc.Progress(ctx, created.ID, claimed.ClaimToken, "agent", fmt.Sprintf("checkpoint %d", i), "continue", time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	svc.versionRetention = time.Second
+	time.Sleep(1100 * time.Millisecond)
+	result, err := svc.maintain(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.fragmentsRemoved == 0 {
+		t.Fatal("maintenance did not compact any fragments")
+	}
+	if result.oldVersions == 0 {
+		t.Fatal("maintenance did not prune any obsolete versions")
+	}
+}
+
+func TestTaskMaintenanceDoesNotOverlapMutationLease(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-maintenance-lease", t.TempDir())
+	if _, err := svc.Create(ctx, testCreate("Serialized maintenance", "serialized-maintenance")); err != nil {
+		t.Fatal(err)
+	}
+	tables, err := openTables(ctx, svc.uri, svc.s3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	lease := lancestore.Row{
+		"key": "scheduler", "token": "active-mutation", "owner": "writer",
+		"acquired_at": stamp(now), "expires_at": stamp(now.Add(time.Minute)), "revision": int64(1),
+	}
+	if _, err := tables.control.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "true", InsertIfMissing: true}, []lancestore.Row{lease}); err != nil {
+		t.Fatal(err)
+	}
+	_ = tables.close()
+
+	if _, err := svc.maintain(ctx); err == nil || !strings.Contains(err.Error(), "scheduler is busy") {
+		t.Fatalf("maintenance error = %v, want scheduler busy", err)
+	}
+}
+
+func TestBoundedContextAddsDeadlineAndPreservesEarlierDeadline(t *testing.T) {
+	bounded, cancel := boundedContext(context.Background(), time.Second)
+	defer cancel()
+	deadline, ok := bounded.Deadline()
+	if !ok || time.Until(deadline) > time.Second || time.Until(deadline) < 500*time.Millisecond {
+		t.Fatalf("bounded deadline = %v, ok=%v", deadline, ok)
+	}
+
+	earlierDeadline := time.Now().Add(20 * time.Millisecond)
+	earlier, earlierCancel := context.WithDeadline(context.Background(), earlierDeadline)
+	defer earlierCancel()
+	kept, keptCancel := boundedContext(earlier, time.Second)
+	defer keptCancel()
+	got, ok := kept.Deadline()
+	if !ok || !got.Equal(earlierDeadline) {
+		t.Fatalf("deadline = %v, want %v", got, earlierDeadline)
+	}
+}
+
+func TestUnavailableTaskStorageOperationReturnsContextualDeadline(t *testing.T) {
+	ctx, cancel := boundedContext(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	<-ctx.Done()
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("storage deadline took %s", elapsed)
+	}
+	if err := taskStorageError(ctx, errors.New("backend unavailable")); !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "task storage operation") {
+		t.Fatalf("storage deadline error = %v", err)
+	}
+}
+
+func currentTaskTableVersions(t *testing.T, ctx context.Context, svc *Service) map[string]uint64 {
+	t.Helper()
+	tables, err := openTables(ctx, svc.uri, svc.s3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tables.close()
+	versions := projectionVersions(t, ctx, tables)
+	versions[tasksTableName] = currentTableVersion(t, ctx, tables.tasks)
+	versions[controlTableName] = currentTableVersion(t, ctx, tables.control)
+	return versions
+}
+
+func projectionVersions(t *testing.T, ctx context.Context, tables *tables) map[string]uint64 {
+	t.Helper()
+	return map[string]uint64{
+		dependenciesTableName:  currentTableVersion(t, ctx, tables.dependencies),
+		eventsTableName:        currentTableVersion(t, ctx, tables.events),
+		checksTableName:        currentTableVersion(t, ctx, tables.checks),
+		commentsTableName:      currentTableVersion(t, ctx, tables.comments),
+		specRevisionsTableName: currentTableVersion(t, ctx, tables.specRevisions),
+	}
+}
+
+func currentTableVersion(t *testing.T, ctx context.Context, table *lancestore.Table) uint64 {
+	t.Helper()
+	version, err := table.CurrentVersion(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version
+}

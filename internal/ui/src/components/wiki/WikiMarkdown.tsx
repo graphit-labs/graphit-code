@@ -1,5 +1,5 @@
 import { useState, useMemo, isValidElement } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -102,15 +102,19 @@ export interface WikiMarkdownProps {
   onLink?: (page: string) => void
 }
 
-export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
-  const processed = useMemo(() => preprocessWikiLinks(content), [content])
+export interface MarkdownContentProps extends WikiMarkdownProps {
+  wikiLinks?: boolean
+}
+
+export function MarkdownContent({ content, onLink, wikiLinks = false }: MarkdownContentProps) {
+  const processed = useMemo(() => wikiLinks ? preprocessWikiLinks(content) : content, [content, wikiLinks])
   const { theme } = useTheme()
 
   return (
     <div className="wiki-prose prose prose-sm dark:prose-invert max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        urlTransform={(url) => url}
+        urlTransform={url => wikiLinks && url.startsWith('wiki://') ? url : defaultUrlTransform(url)}
         components={{
           h1: ({ children }) => (
             <h1 className="text-2xl font-heading font-extrabold tracking-tight text-foreground mt-8 mb-4 pb-2 border-b border-border/40 leading-snug">
@@ -138,7 +142,7 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
             </p>
           ),
           a: ({ href, children }) => {
-            if (href) {
+            if (href && wikiLinks) {
               const page = wikiPageTarget(href)
               if (page !== null) {
                 return (
@@ -301,4 +305,8 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
       </ReactMarkdown>
     </div>
   )
+}
+
+export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
+  return <MarkdownContent content={content} onLink={onLink} wikiLinks />
 }

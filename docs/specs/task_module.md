@@ -42,8 +42,8 @@ fencing tokens remain independent barriers against stale writers.
 
 The task snapshot embeds the dependency/check lists and the last event/comment because it is the
 single CAS decision record. The other tables make those fields independently queryable. If a
-process stops after the snapshot commit but before a projection commit, the next command or hook
-reconstructs the missing projection idempotently.
+process stops after the snapshot commit but before a projection commit, the lifecycle reconciliation
+path reconstructs the missing projection idempotently; observational commands never repair it.
 
 Task IDs begin with four hexadecimal digits of SHA-256 over project identity and caller
 `idempotency_key`, prefixed by `tsk-`. If that ID already belongs to another key, allocation
@@ -57,14 +57,33 @@ record instead of duplicating it.
 
 Creation requires all of the following:
 
-- a concise title;
-- a robust, self-contained description stating objective, context, scope, constraints, and intended
-  result;
-- at least one observable acceptance criterion;
-- at least one concrete test or validation;
+- a concise, action-oriented plain-text title that identifies one outcome;
+- a self-contained Markdown specification with detail proportional to the work. It states the
+  objective and value, context, in-scope and out-of-scope boundaries, requirements or observable
+  behavior, constraints and assumptions, interfaces or dependencies, material risks and edge cases,
+  and the intended result;
+- at least one singular acceptance criterion, written as an imperative statement of what the system
+  **must** do or **must not** allow under an applicable condition, with a measurable or observable
+  expected result;
+- at least one test or validation. Behavioral checks use Given-When-Then to state known
+  preconditions, one action or event, and observable outcomes. Mechanical validations instead name
+  the method or command, target and conditions, and expected evidence or result;
 - priority `0` through `4`;
 - optional type, parent task, and blocking dependency IDs;
 - a stable idempotency key (canonical title is the fallback).
+
+Requirements are necessary, singular, feasible, consistent, unambiguous, and implementation
+independent unless an implementation choice is itself a constraint. Acceptance criteria state
+required behavior rather than implementation procedure. Test checks include meaningful failure
+paths without duplicating equivalent scenarios.
+
+Descriptions, check text and evidence, progress and next steps, comments, reasons, and completion or
+release summaries support Markdown. Evidence identifies the command, observation, or artifact,
+relevant conditions, and actual result. Progress states completed facts and changed constraints; a
+next step names the exact action, target, and completion condition. Comments preserve durable
+context, rationale, impact, and references. Reasons state cause, impact, and the clearing condition or
+replacement when applicable. IDs, titles, types, statuses, priorities, actors, and timestamps remain
+compact plain text.
 
 Acceptance criteria and tests are structured checks, not prose interpreted at completion time.
 Each starts as `pending` and must be recorded as `passed` with non-empty evidence. A failed check
@@ -136,6 +155,11 @@ resolution, and unflag it.
 subtasks after reaching a terminal state and cannot complete before all descendants. Dependencies
 are separate directed ordering edges; missing targets, self-dependencies, and cycles are rejected.
 
+Cleanup, validation, review, documentation, commit preparation, release checks, and similar
+delivery-support or finalization work belong to the relevant delivery task as subtasks instead of
+unrelated top-level tasks. A pass/fail condition remains a check; the validation or finalization is a
+subtask when it is itself a work unit that needs ownership, resumability, or an audit trail.
+
 Agents append comments whenever a decision, problem, lesson, system discovery, or relevant note
 will help current work or takeover. Comments are ordered, searchable, idempotent, and returned with
 `task_get`; they do not replace progress checkpoints or durable Memory records when knowledge must
@@ -193,6 +217,30 @@ Catalogue results are ordered by creation time from newest to oldest, with task 
 tie-breaker before pagination.
 Selecting an exact task or explicitly downloading the project uses the complete export contract,
 so the browser does not maintain a second authoritative task projection.
+The detail view renders every Markdown-capable current and historical field through the shared safe
+Markdown component, while compact metadata remains plain text. Stored and exported values remain
+the original source Markdown.
+
+## Storage lifecycle
+
+Task queries are observational operations. `Get`, `List`, `Search`, catalogue, and export neither
+acquire the scheduler lease nor repair projections, create indexes, or commit table versions.
+Projection rows are written only after an authoritative mutation and only when the keyed projection
+is absent. Explicit reconciliation remains the recovery path for missing or stale projections.
+
+Every Task storage operation receives a deadline. `task.operation_timeout` configures ordinary
+operations and defaults to 30 seconds; a shorter caller deadline always wins. Deadline failures are
+reported as Task storage errors so callers can distinguish an unavailable backing store from domain
+validation. Scheduler release uses its own bounded cleanup context, preventing a failed store from
+holding a caller indefinitely.
+
+The daemon owns one `task_maintenance` loop per enabled project. It folds newly written rows into
+indexes, compacts fragments, and prunes obsolete LanceDB versions every 15 minutes. Maintenance
+runs under the same cross-process scheduler lease as mutations and has a five-minute deadline.
+`task.version_retention` controls the pruning window and defaults to 15 minutes. Each legitimate
+mutation still advances the LanceDB table version because a version is the immutable transaction
+snapshot; pruning removes snapshots older than the retention window after compaction has made the
+current layout efficient.
 
 ## Source map
 

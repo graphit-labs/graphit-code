@@ -18,13 +18,13 @@ import (
 
 type taskCreateInput struct {
 	ProjectDir         string   `json:"project_dir" jsonschema:"Project directory (required)"`
-	Title              string   `json:"title" jsonschema:"Concise task title (required)"`
-	Description        string   `json:"description" jsonschema:"Robust self-contained specification: objective, context, scope, constraints, and intended result (required)"`
-	AcceptanceCriteria []string `json:"acceptance_criteria" jsonschema:"Observable acceptance criteria; at least one required"`
-	Tests              []string `json:"tests" jsonschema:"Concrete tests or validations; at least one required"`
+	Title              string   `json:"title" jsonschema:"Concise action-oriented plain-text title naming one outcome (required)"`
+	Description        string   `json:"description" jsonschema:"Self-contained Markdown specification: objective/value, context, in/out of scope, requirements or observable behavior, constraints/assumptions, interfaces/dependencies, risks/edge cases, and intended result (required; proportional detail)"`
+	AcceptanceCriteria []string `json:"acceptance_criteria" jsonschema:"One singular imperative Markdown statement per item: what the system must do or must not allow, with condition and observable expected result; at least one required"`
+	Tests              []string `json:"tests" jsonschema:"Behavior checks in Given-When-Then; other validations name method/command, target/conditions, and expected evidence/result; at least one Markdown item required"`
 	Type               string   `json:"type,omitempty" jsonschema:"Task type such as task, bug, feature, epic, or chore"`
 	Priority           *int     `json:"priority,omitempty" jsonschema:"Priority 0 (critical) through 4 (lowest); default 2"`
-	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Parent task ID when creating a subtask"`
+	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Parent delivery task ID for a subtask; use for cleanup, validation, review, documentation, commit preparation, release checks, and similar finalization work"`
 	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Task IDs that must complete first"`
 	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Stable caller key; defaults to the canonical title"`
 	AgentID            string   `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
@@ -71,8 +71,8 @@ type taskProgressInput struct {
 	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary    string `json:"summary" jsonschema:"What landed or was verified (required)"`
-	NextStep   string `json:"next_step,omitempty" jsonschema:"Exact next action for this or a takeover agent"`
+	Summary    string `json:"summary" jsonschema:"Markdown checkpoint of completed facts, changed constraints, and concrete evidence (required)"`
+	NextStep   string `json:"next_step,omitempty" jsonschema:"Markdown exact next action with target and completion condition for this or a takeover agent"`
 	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
@@ -89,8 +89,8 @@ type taskReleaseInput struct {
 	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary    string `json:"summary,omitempty" jsonschema:"Last completed work or blocking evidence"`
-	NextStep   string `json:"next_step,omitempty" jsonschema:"Exact continuation step for the next agent"`
+	Summary    string `json:"summary,omitempty" jsonschema:"Markdown summary of completed work, current state, and blocking evidence"`
+	NextStep   string `json:"next_step,omitempty" jsonschema:"Markdown exact continuation action with target and completion condition for the next agent"`
 }
 
 type taskCompleteInput struct {
@@ -98,7 +98,7 @@ type taskCompleteInput struct {
 	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary    string `json:"summary,omitempty" jsonschema:"Acceptance evidence and final result"`
+	Summary    string `json:"summary,omitempty" jsonschema:"Markdown final result mapped to acceptance evidence, with any residual limitations"`
 }
 
 type taskCancelInput struct {
@@ -106,7 +106,7 @@ type taskCancelInput struct {
 	ID         string `json:"id" jsonschema:"Task ID to cancel (required)"`
 	ClaimToken string `json:"claim_token,omitempty" jsonschema:"Required fencing token when the task is in progress"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason     string `json:"reason" jsonschema:"Why the task is no longer needed (required)"`
+	Reason     string `json:"reason" jsonschema:"Markdown explanation of why the task is no longer needed and what replaces it, if anything (required)"`
 }
 
 type taskRemoveInput struct {
@@ -114,7 +114,7 @@ type taskRemoveInput struct {
 	ID         string `json:"id" jsonschema:"Task ID to remove (required)"`
 	ConfirmID  string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason     string `json:"reason" jsonschema:"Why hard deletion is certainly correct (required)"`
+	Reason     string `json:"reason" jsonschema:"Markdown explanation proving hard deletion is correct and no unique work history is needed (required)"`
 }
 
 type taskFlagInput struct {
@@ -122,7 +122,7 @@ type taskFlagInput struct {
 	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason     string `json:"reason" jsonschema:"Concrete reason the task must not be completed (required)"`
+	Reason     string `json:"reason" jsonschema:"Markdown unresolved condition, completion impact, and objective clearing condition (required)"`
 }
 
 type taskUnflagInput struct {
@@ -139,7 +139,7 @@ type taskCheckInput struct {
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
 	CheckID    string `json:"check_id" jsonschema:"Acceptance or test check ID (required)"`
 	Passed     bool   `json:"passed" jsonschema:"Whether this check passed"`
-	Evidence   string `json:"evidence" jsonschema:"Concrete command output, observation, or artifact proving the result (required)"`
+	Evidence   string `json:"evidence" jsonschema:"Markdown evidence naming the command, observation, or artifact, relevant conditions, and actual result (required)"`
 	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
@@ -149,15 +149,15 @@ type taskReviseInput struct {
 	ClaimToken            string    `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID               string    `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
 	ExpectedRevision      int64     `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
-	Reason                string    `json:"reason" jsonschema:"Why the specification changed (required)"`
-	Title                 *string   `json:"title,omitempty" jsonschema:"Replacement concise title"`
-	Description           *string   `json:"description,omitempty" jsonschema:"Replacement robust self-contained specification"`
+	Reason                string    `json:"reason" jsonschema:"Markdown rationale for the specification change and its scope or verification impact (required)"`
+	Title                 *string   `json:"title,omitempty" jsonschema:"Replacement concise action-oriented plain-text title naming one outcome"`
+	Description           *string   `json:"description,omitempty" jsonschema:"Replacement self-contained Markdown specification with proportional objective, context, scope, requirements, constraints, interfaces, risks, and intended result"`
 	Type                  *string   `json:"type,omitempty" jsonschema:"Replacement task type"`
 	Priority              *int      `json:"priority,omitempty" jsonschema:"Replacement priority 0 through 4"`
 	ParentID              *string   `json:"parent_id,omitempty" jsonschema:"Replacement parent task ID; empty clears the parent"`
 	DependsOn             *[]string `json:"depends_on,omitempty" jsonschema:"Complete replacement dependency list; empty clears dependencies"`
-	AddAcceptanceCriteria []string  `json:"add_acceptance_criteria,omitempty" jsonschema:"New acceptance checks to append"`
-	AddTests              []string  `json:"add_tests,omitempty" jsonschema:"New test checks to append"`
+	AddAcceptanceCriteria []string  `json:"add_acceptance_criteria,omitempty" jsonschema:"New singular imperative Markdown statements of what the system must do or must not allow"`
+	AddTests              []string  `json:"add_tests,omitempty" jsonschema:"New Given-When-Then behavior checks or explicit method-target-expected-result validations to append"`
 	Lease                 string    `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
@@ -168,8 +168,8 @@ type taskCheckSupersedeInput struct {
 	AgentID          string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
 	ExpectedRevision int64  `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
 	CheckID          string `json:"check_id" jsonschema:"Active acceptance or test check ID (required)"`
-	Reason           string `json:"reason" jsonschema:"Why this check no longer represents the task specification (required)"`
-	ReplacementText  string `json:"replacement_text,omitempty" jsonschema:"Optional replacement check text"`
+	Reason           string `json:"reason" jsonschema:"Markdown rationale explaining why this check no longer represents the task specification (required)"`
+	ReplacementText  string `json:"replacement_text,omitempty" jsonschema:"Optional replacement check using the same quality form as acceptance or test checks"`
 	ReplacementKind  string `json:"replacement_kind,omitempty" jsonschema:"Optional replacement kind: acceptance or test; defaults to the superseded kind"`
 	Lease            string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
@@ -180,7 +180,7 @@ type taskCommentInput struct {
 	ClaimToken     string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
 	Kind           string `json:"kind" jsonschema:"note, decision, problem, lesson, or knowledge (required)"`
-	Body           string `json:"body" jsonschema:"Durable self-contained comment (required)"`
+	Body           string `json:"body" jsonschema:"Durable self-contained Markdown comment with relevant context, rationale, impact, and references (required)"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"Stable caller key; defaults to canonical kind and body"`
 	Lease          string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }

@@ -27,10 +27,20 @@ var (
 )
 
 type Service struct {
-	projectID, uri string
-	s3             config.S3Config
-	now            func() time.Time
+	projectID, uri   string
+	s3               config.S3Config
+	now              func() time.Time
+	operationTimeout time.Duration
+	versionRetention time.Duration
 }
+
+const (
+	defaultOperationTimeout = 30 * time.Second
+	maintenanceTimeout      = 5 * time.Minute
+	defaultVersionRetention = 15 * time.Minute
+	schedulerLeaseDuration  = 30 * time.Second
+	schedulerReleaseTimeout = 5 * time.Second
+)
 
 func Open(projectDir string) (*Service, error) {
 	id := store.ProjectID(projectDir)
@@ -41,20 +51,29 @@ func Open(projectDir string) (*Service, error) {
 	if config.IsModuleDisabled("task", nil, projectCfg) {
 		return nil, ErrDisabled
 	}
-	return &Service{projectID: id, uri: TableURI(id, projectCfg), s3: config.ResolveHubS3(nil, projectCfg), now: time.Now}, nil
+	return &Service{
+		projectID: id, uri: TableURI(id, projectCfg), s3: config.ResolveHubS3(nil, projectCfg), now: time.Now,
+		operationTimeout: config.ResolveTaskOperationTimeout(nil, projectCfg),
+		versionRetention: config.ResolveTaskVersionRetention(nil, projectCfg),
+	}, nil
 }
 
 func OpenAt(projectID, uri string) *Service {
-	return &Service{projectID: projectID, uri: uri, now: time.Now}
+	return &Service{
+		projectID: projectID, uri: uri, now: time.Now,
+		operationTimeout: defaultOperationTimeout, versionRetention: defaultVersionRetention,
+	}
 }
 
 func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
+	ctx, cancel := boundedContext(ctx, s.operationTimeout)
+	defer cancel()
 	t, err := openTables(ctx, s.uri, s.s3)
 	if err != nil {
-		return err
+		return taskStorageError(ctx, err)
 	}
 	defer t.close()
-	return fn(t)
+	return taskStorageError(ctx, fn(t))
 }
 
 func (s *Service) withLock(ctx context.Context, actor string, fn func(*tables) error) error {
@@ -66,44 +85,98 @@ func (s *Service) withLockFast(ctx context.Context, actor string, fn func(*table
 }
 
 func (s *Service) withLockReconcile(ctx context.Context, actor string, reconcile bool, fn func(*tables) error) error {
+	return s.withLockTimeout(ctx, actor, reconcile, s.operationTimeout, fn)
+}
+
+func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile bool, timeout time.Duration, fn func(*tables) error) error {
+	ctx, cancel := boundedContext(ctx, timeout)
+	defer cancel()
 	if strings.TrimSpace(actor) == "" {
 		actor = "system"
 	}
 	t, err := openTables(ctx, s.uri, s.s3)
 	if err != nil {
-		return err
+		return taskStorageError(ctx, err)
 	}
 	defer t.close()
 	token := ulid.Make().String()
+	leaseDuration := schedulerLeaseDuration
+	if timeout > leaseDuration {
+		leaseDuration = timeout
+	}
 	for attempt := 0; attempt < 8; attempt++ {
 		now := s.now().UTC()
-		row := lancestore.Row{"key": "scheduler", "token": token, "owner": actor, "acquired_at": stamp(now), "expires_at": stamp(now.Add(30 * time.Second)), "revision": int64(1)}
+		row := lancestore.Row{"key": "scheduler", "token": token, "owner": actor, "acquired_at": stamp(now), "expires_at": stamp(now.Add(leaseDuration)), "revision": int64(1)}
 		res, merr := t.control.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.token = '' OR target.expires_at <= source.acquired_at", InsertIfMissing: true}, []lancestore.Row{row})
 		if merr != nil {
-			return fmt.Errorf("acquiring task scheduler lease: %w", merr)
+			return taskStorageError(ctx, fmt.Errorf("acquiring task scheduler lease: %w", merr))
 		}
 		if res.Changed() {
 			defer func() {
+				releaseCtx, releaseCancel := context.WithTimeout(context.Background(), schedulerReleaseTimeout)
+				defer releaseCancel()
 				release := lancestore.Row{"key": "scheduler", "token": "", "owner": "", "acquired_at": stamp(s.now().UTC()), "expires_at": "", "revision": int64(1)}
-				_, _ = t.control.Merge(context.Background(), lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.token = " + quote(token)}, []lancestore.Row{release})
+				_, _ = t.control.Merge(releaseCtx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "target.token = " + quote(token)}, []lancestore.Row{release})
 			}()
 			if err := t.refresh(ctx); err != nil {
-				return fmt.Errorf("refreshing task tables after scheduler lease: %w", err)
+				return taskStorageError(ctx, fmt.Errorf("refreshing task tables after scheduler lease: %w", err))
 			}
 			if reconcile {
 				if err := s.reconcileLocked(ctx, t, actor); err != nil {
 					return err
 				}
 			}
-			return fn(t)
+			return taskStorageError(ctx, fn(t))
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return taskStorageError(ctx, ctx.Err())
 		case <-time.After(time.Duration(attempt+1) * 25 * time.Millisecond):
 		}
 	}
 	return fmt.Errorf("task scheduler is busy; retry the operation")
+}
+
+func (s *Service) Maintain(ctx context.Context) error {
+	_, err := s.maintain(ctx)
+	return err
+}
+
+func (s *Service) maintain(ctx context.Context) (maintenanceResult, error) {
+	retention := s.versionRetention
+	if retention <= 0 {
+		retention = defaultVersionRetention
+	}
+	var result maintenanceResult
+	err := s.withLockTimeout(ctx, "maintenance", false, maintenanceTimeout, func(t *tables) error {
+		if err := t.ensureIndexes(ctx); err != nil {
+			return err
+		}
+		var err error
+		result, err = t.maintain(ctx, retention)
+		return err
+	})
+	return result, err
+}
+
+func boundedContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = defaultOperationTimeout
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= timeout {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func taskStorageError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("task storage operation: %w", ctxErr)
+	}
+	return err
 }
 
 func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
@@ -139,9 +212,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 		if current, ok, err := t.getTaskByIdempotencyKey(ctx, key); err != nil {
 			return err
 		} else if ok {
-			if err := s.projectTask(ctx, t, current, in.Actor); err != nil {
-				return err
-			}
 			out = current
 			return nil
 		}
@@ -216,9 +286,6 @@ func (s *Service) Revise(ctx context.Context, id, token, actor string, in Revise
 		}
 		if !ok {
 			return ErrNotFound
-		}
-		if err := s.projectTask(ctx, t, current, actor); err != nil {
-			return err
 		}
 		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token || (actor != "" && current.Owner != actor) {
 			return ErrFence
@@ -350,9 +417,6 @@ func (s *Service) SupersedeCheck(ctx context.Context, id, token, actor string, i
 		if !ok {
 			return ErrNotFound
 		}
-		if err := s.projectTask(ctx, t, current, actor); err != nil {
-			return err
-		}
 		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token || (actor != "" && current.Owner != actor) {
 			return ErrFence
 		}
@@ -455,9 +519,6 @@ func (s *Service) Claim(ctx context.Context, id, actor string, lease time.Durati
 		current, ok := byID[id]
 		if !ok {
 			return ErrNotFound
-		}
-		if err := s.projectTask(ctx, t, current, actor); err != nil {
-			return err
 		}
 		if current.Status == StatusInProgress && current.LeaseExpiresAt != "" && current.LeaseExpiresAt <= stamp(s.now().UTC()) {
 			old := current
@@ -759,9 +820,6 @@ func (s *Service) AddComment(ctx context.Context, id, token, actor, kind, body, 
 		if !ok {
 			return ErrNotFound
 		}
-		if err := s.projectTask(ctx, t, current, actor); err != nil {
-			return err
-		}
 		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token || (actor != "" && current.Owner != actor) {
 			return ErrFence
 		}
@@ -795,9 +853,6 @@ func (s *Service) claimMutation(ctx context.Context, id, token, actor string, le
 		}
 		if !ok {
 			return ErrNotFound
-		}
-		if err := s.projectTask(ctx, t, current, actor); err != nil {
-			return err
 		}
 		if current.Status != StatusInProgress || token == "" || current.ClaimToken != token {
 			return ErrFence
@@ -857,9 +912,6 @@ func (s *Service) changeDependency(ctx context.Context, id, dep, actor string, a
 		if !ok {
 			return ErrNotFound
 		}
-		if err := s.projectTask(ctx, t, current, actor); err != nil {
-			return err
-		}
 		if current.Status != StatusOpen {
 			return fmt.Errorf("dependencies can change only while a task is open")
 		}
@@ -893,16 +945,13 @@ func (s *Service) changeDependency(ctx context.Context, id, dep, actor string, a
 
 func (s *Service) Get(ctx context.Context, id string) (Detail, error) {
 	var out Detail
-	err := s.withLock(ctx, "reader", func(t *tables) error {
+	err := s.withTables(ctx, func(t *tables) error {
 		v, ok, err := t.getTask(ctx, id)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			return ErrNotFound
-		}
-		if err := s.projectTask(ctx, t, v, "reader"); err != nil {
-			return err
 		}
 		all, err := t.allTasks(ctx)
 		if err != nil {
@@ -1126,7 +1175,7 @@ func (s *Service) Catalog(ctx context.Context, opts CatalogOptions) ([]CatalogIt
 
 func (s *Service) List(ctx context.Context, opts ListOptions) ([]Task, error) {
 	var out []Task
-	err := s.withLock(ctx, "reader", func(t *tables) error {
+	err := s.withTables(ctx, func(t *tables) error {
 		all, err := t.allTasks(ctx)
 		if err != nil {
 			return err
@@ -1172,10 +1221,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int) ([]Search
 		limit = 20
 	}
 	var out []SearchResult
-	err := s.withLock(ctx, "reader", func(t *tables) error {
-		if err := t.ensureIndexes(ctx); err != nil {
-			return err
-		}
+	err := s.withTables(ctx, func(t *tables) error {
 		hits, err := t.tasks.Search(ctx, lancestore.Query{Text: query, TextColumn: "search_text", Limit: limit})
 		if err != nil {
 			return err
@@ -1544,7 +1590,11 @@ func ensureEvent(ctx context.Context, t *tables, event Event) error {
 	if event.Key == "" {
 		return nil
 	}
-	_, err := t.events.Merge(ctx, lancestore.MergeOptions{
+	exists, err := projectionExists(ctx, t.events, "key", event.Key)
+	if err != nil || exists {
+		return err
+	}
+	_, err = t.events.Merge(ctx, lancestore.MergeOptions{
 		KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true,
 	}, []lancestore.Row{eventRow(event)})
 	return err
@@ -1554,7 +1604,11 @@ func ensureComment(ctx context.Context, t *tables, comment Comment) error {
 	if comment.ID == "" {
 		return nil
 	}
-	_, err := t.comments.Merge(ctx, lancestore.MergeOptions{
+	exists, err := projectionExists(ctx, t.comments, "id", comment.ID)
+	if err != nil || exists {
+		return err
+	}
+	_, err = t.comments.Merge(ctx, lancestore.MergeOptions{
 		KeyColumn: "id", MatchCondition: "false", InsertIfMissing: true,
 	}, []lancestore.Row{commentRow(comment)})
 	return err
@@ -1564,10 +1618,19 @@ func ensureSpecRevision(ctx context.Context, t *tables, revision SpecRevision) e
 	if revision.Key == "" {
 		return nil
 	}
-	_, err := t.specRevisions.Merge(ctx, lancestore.MergeOptions{
+	exists, err := projectionExists(ctx, t.specRevisions, "key", revision.Key)
+	if err != nil || exists {
+		return err
+	}
+	_, err = t.specRevisions.Merge(ctx, lancestore.MergeOptions{
 		KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true,
 	}, []lancestore.Row{specRevisionRow(revision)})
 	return err
+}
+
+func projectionExists(ctx context.Context, table *lancestore.Table, column, key string) (bool, error) {
+	hits, err := table.Search(ctx, lancestore.Query{Filter: column + " = " + quote(key), Limit: 1})
+	return len(hits) > 0, err
 }
 
 func (s *Service) projectChecks(ctx context.Context, t *tables, v Task) error {

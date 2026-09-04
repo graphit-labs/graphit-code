@@ -516,6 +516,35 @@ func ResolveTaskPrefix(inlineCfg, projectCfg ConfigMap) string {
 	return value
 }
 
+const (
+	defaultTaskOperationTimeout = 30 * time.Second
+	defaultTaskVersionRetention = 15 * time.Minute
+)
+
+func ResolveTaskOperationTimeout(inlineCfg, projectCfg ConfigMap) time.Duration {
+	value := ResolveConfig("task.operation_timeout", inlineCfg, projectCfg)
+	if value == "" {
+		return defaultTaskOperationTimeout
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < time.Second {
+		return defaultTaskOperationTimeout
+	}
+	return duration
+}
+
+func ResolveTaskVersionRetention(inlineCfg, projectCfg ConfigMap) time.Duration {
+	value := ResolveConfig("task.version_retention", inlineCfg, projectCfg)
+	if value == "" {
+		return defaultTaskVersionRetention
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < time.Minute {
+		return defaultTaskVersionRetention
+	}
+	return duration
+}
+
 // ResolveDreamReportsDir returns the directory holding dream session reports,
 // relative to the project root. Override it with dream.reports_dir — inline,
 // GRAPHIT_DREAM_REPORTS_DIR, project lockfile, global config, in that order of

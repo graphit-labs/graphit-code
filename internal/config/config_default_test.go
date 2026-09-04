@@ -495,6 +495,33 @@ func TestTaskPrefixUsesNormalConfigPrecedenceAndNormalisation(t *testing.T) {
 	}
 }
 
+func TestTaskStorageDurationsUseSafeDefaultsAndConfigPrecedence(t *testing.T) {
+	t.Setenv("GRAPHIT_TASK_OPERATION_TIMEOUT", "")
+	t.Setenv("GRAPHIT_TASK_VERSION_RETENTION", "")
+	if got := ResolveTaskOperationTimeout(nil, nil); got != 30*time.Second {
+		t.Fatalf("default task operation timeout = %s", got)
+	}
+	if got := ResolveTaskVersionRetention(nil, nil); got != 15*time.Minute {
+		t.Fatalf("default task version retention = %s", got)
+	}
+
+	project := ConfigMap{"task": map[string]any{"operation_timeout": "45s", "version_retention": "1h"}}
+	if got := ResolveTaskOperationTimeout(nil, project); got != 45*time.Second {
+		t.Fatalf("project task operation timeout = %s", got)
+	}
+	if got := ResolveTaskVersionRetention(nil, project); got != time.Hour {
+		t.Fatalf("project task version retention = %s", got)
+	}
+
+	inline := ConfigMap{"task": map[string]any{"operation_timeout": "10s", "version_retention": "30m"}}
+	if got := ResolveTaskOperationTimeout(inline, project); got != 10*time.Second {
+		t.Fatalf("inline task operation timeout = %s", got)
+	}
+	if got := ResolveTaskVersionRetention(inline, project); got != 30*time.Minute {
+		t.Fatalf("inline task version retention = %s", got)
+	}
+}
+
 // Configured() is the single test for "the Hub has a remote", so a config carrying only a
 // region must not read as configured.
 func TestS3ConfigIsOnlyConfiguredWithABucket(t *testing.T) {

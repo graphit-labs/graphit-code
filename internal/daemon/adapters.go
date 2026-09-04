@@ -13,6 +13,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -22,7 +23,10 @@ type EmbeddingModule struct {
 	cacheDir string
 }
 
-const defaultMemoryMaintenanceInterval = 15 * time.Minute
+const (
+	defaultMemoryMaintenanceInterval = 15 * time.Minute
+	defaultTaskMaintenanceInterval   = 15 * time.Minute
+)
 
 // MemoryMaintenanceModule is the single maintenance owner of one authoritative memory table.
 // Writes stay independent and cheap; this daemon loop folds fragments into indexes, compacts them,
@@ -77,6 +81,50 @@ func maintainMemoryTable(ctx context.Context, uri string) error {
 		return err
 	}
 	return table.Maintain(ctx)
+}
+
+type TaskMaintenanceModule struct {
+	projectDir string
+	interval   time.Duration
+	maintain   func(context.Context, string) error
+}
+
+func NewTaskMaintenanceModule(projectDir string, interval time.Duration) *TaskMaintenanceModule {
+	if interval <= 0 {
+		interval = defaultTaskMaintenanceInterval
+	}
+	return &TaskMaintenanceModule{projectDir: projectDir, interval: interval, maintain: maintainTaskTables}
+}
+
+func (m *TaskMaintenanceModule) Name() string { return "task_maintenance" }
+
+func (m *TaskMaintenanceModule) Start(ctx context.Context) error {
+	if m.projectDir == "" {
+		return nil
+	}
+	if err := m.maintain(ctx, m.projectDir); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(m.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := m.maintain(ctx, m.projectDir); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func maintainTaskTables(ctx context.Context, projectDir string) error {
+	service, err := task.Open(projectDir)
+	if err != nil {
+		return err
+	}
+	return service.Maintain(ctx)
 }
 
 func NewEmbeddingModule(rootPath string, interval time.Duration, cacheDir string) *EmbeddingModule {

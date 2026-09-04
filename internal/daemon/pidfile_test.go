@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,6 +151,31 @@ func TestPIDFile_Remove_NoFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	pf := &PIDFile{path: filepath.Join(tmpDir, "nonexistent.pid")}
 	pf.Remove()
+}
+
+func TestPIDFileRemovePreservesLockedInode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.pid")
+	owner := &PIDFile{path: path}
+	if err := owner.Acquire(); err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Release()
+
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	(&PIDFile{path: path}).Remove()
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("locked PID file was removed: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("locked PID file inode changed")
+	}
+	if err := (&PIDFile{path: path}).Acquire(); !errors.Is(err, ErrAlreadyRunning) {
+		t.Fatalf("second acquisition error = %v, want %v", err, ErrAlreadyRunning)
+	}
 }
 
 func TestPIDFile_IsAlive_CurrentProcess(t *testing.T) {

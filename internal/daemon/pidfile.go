@@ -97,6 +97,15 @@ func (pf *PIDFile) Write() error {
 }
 
 func (pf *PIDFile) Remove() {
+	f, err := os.OpenFile(pf.path, os.O_RDWR, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if err := flockExclusive(f); err != nil {
+		return
+	}
+	defer flockRelease(f)
 	_ = os.Remove(pf.path)
 }
 
@@ -126,7 +135,7 @@ func (pf *PIDFile) Read() (*pidData, error) {
 func (pf *PIDFile) IsAlive() *pidData {
 	pd, err := pf.Read()
 	if err != nil {
-		_ = os.Remove(pf.path)
+		pf.Remove()
 		return nil
 	}
 	if pd == nil {

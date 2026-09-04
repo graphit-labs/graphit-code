@@ -75,6 +75,9 @@ func AgentIDFromHook(input []byte) string {
 // every supported lifecycle boundary and is idempotent when nothing changed.
 func (s *Service) Reconcile(ctx context.Context) error {
 	return s.withTables(ctx, func(t *tables) error {
+		if err := t.ensureIndexes(ctx); err != nil {
+			return err
+		}
 		if err := t.refresh(ctx); err != nil {
 			return err
 		}

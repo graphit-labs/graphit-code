@@ -74,6 +74,43 @@ func TestBuildDaemonProjectModulesHonorsSyncSwitch(t *testing.T) {
 	}
 }
 
+func TestBuildDaemonProjectModulesHonorsTaskSwitch(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	for _, tt := range []struct {
+		name     string
+		disabled bool
+	}{
+		{name: "enabled"},
+		{name: "disabled", disabled: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			value := "true"
+			if tt.disabled {
+				value = "false"
+			}
+			lockfile := `{"project":{"id":"project-id"},"config":{"modules":{"task":"` + value + `"}}}`
+			if err := os.WriteFile(filepath.Join(projectDir, brand.LockFileName()), []byte(lockfile), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := daemon.DefaultConfig()
+			cfg.DisableEmbedding = true
+			cfg.DisableDream = true
+			modules, _, err := buildDaemonProjectModules(projectDir, cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, module := range modules {
+				found = found || module.Name() == "task_maintenance"
+			}
+			if found == tt.disabled {
+				t.Fatalf("task maintenance present=%v, disabled=%v", found, tt.disabled)
+			}
+		})
+	}
+}
+
 func TestResolveDaemonMCPAPIKey(t *testing.T) {
 	t.Run("configured key", func(t *testing.T) {
 		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())

@@ -2,10 +2,51 @@ package daemonctl
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+func TestWaitForFileLockWaitsForReadiness(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.pid")
+	ready := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			close(ready)
+			return
+		}
+		defer file.Close()
+		if err := flockExclusiveBlocking(file); err != nil {
+			close(ready)
+			return
+		}
+		close(ready)
+		<-release
+		flockProbeRelease(file)
+	}()
+
+	if err := waitForFileLock(path, time.Second, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	<-ready
+	close(release)
+}
+
+func TestWaitForFileLockHasBoundedFailure(t *testing.T) {
+	start := time.Now()
+	err := waitForFileLock(filepath.Join(t.TempDir(), "missing.pid"), 20*time.Millisecond, time.Millisecond)
+	if err == nil {
+		t.Fatal("expected readiness timeout")
+	}
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("readiness timeout took %s", elapsed)
+	}
+}
 
 func TestResolveExe_LauncherPathEmpty(t *testing.T) {
 	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))

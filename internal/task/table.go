@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
@@ -32,6 +33,12 @@ type tables struct {
 	comments      *lancestore.Table
 	specRevisions *lancestore.Table
 	control       *lancestore.Table
+}
+
+type maintenanceResult struct {
+	fragmentsRemoved int64
+	oldVersions      int64
+	bytesRemoved     int64
 }
 
 func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, error) {
@@ -137,6 +144,49 @@ func (t *tables) refresh(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (t *tables) maintain(ctx context.Context, retention time.Duration) (maintenanceResult, error) {
+	var result maintenanceResult
+	indexed := []struct {
+		name  string
+		table *lancestore.Table
+	}{
+		{tasksTableName, t.tasks},
+		{dependenciesTableName, t.dependencies},
+		{eventsTableName, t.events},
+		{checksTableName, t.checks},
+		{commentsTableName, t.comments},
+		{specRevisionsTableName, t.specRevisions},
+	}
+	for _, entry := range indexed {
+		if err := entry.table.FoldNewRowsIntoIndexes(ctx); err != nil {
+			return result, fmt.Errorf("maintaining task table %s indexes: %w", entry.name, err)
+		}
+		compacted, err := entry.table.Compact(ctx)
+		if err != nil {
+			return result, fmt.Errorf("compacting task table %s: %w", entry.name, err)
+		}
+		result.fragmentsRemoved += compacted.FragmentsRemoved
+		pruned, err := entry.table.PruneVersions(ctx, retention)
+		if err != nil {
+			return result, fmt.Errorf("pruning task table %s: %w", entry.name, err)
+		}
+		result.oldVersions += pruned.OldVersions
+		result.bytesRemoved += pruned.BytesRemoved
+	}
+	compacted, err := t.control.Compact(ctx)
+	if err != nil {
+		return result, fmt.Errorf("compacting task table %s: %w", controlTableName, err)
+	}
+	result.fragmentsRemoved += compacted.FragmentsRemoved
+	pruned, err := t.control.PruneVersions(ctx, retention)
+	if err != nil {
+		return result, fmt.Errorf("pruning task table %s: %w", controlTableName, err)
+	}
+	result.oldVersions += pruned.OldVersions
+	result.bytesRemoved += pruned.BytesRemoved
+	return result, nil
 }
 
 func taskSchema() lancestore.Schema {

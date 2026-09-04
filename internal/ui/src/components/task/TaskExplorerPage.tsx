@@ -6,9 +6,10 @@ import {
   XCircle,
 } from 'lucide-react'
 
-import { taskApi, type TaskCatalogItem, type TaskExportDocument } from '@/api/task'
+import { taskApi, type TaskCatalogItem, type TaskExportDocument, type TaskSpec } from '@/api/task'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
 import { showToast } from '@/hooks/useToast'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
@@ -102,6 +103,33 @@ function downloadJSON(document: TaskExportDocument, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+function TaskMarkdown({ content }: { content: string }) {
+  return <div className="min-w-0 [&_.wiki-prose>*:last-child]:mb-0"><MarkdownContent content={content} /></div>
+}
+
+function SpecificationSnapshot({ label, spec }: { label: string; spec: TaskSpec }) {
+  const checks = spec.checks ?? []
+  return (
+    <div className="rounded-xl border border-border/35 bg-background/45 p-4">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+      {spec.title && <p className="mt-2 text-sm font-bold text-foreground">{spec.title}</p>}
+      {spec.description
+        ? <div className="mt-3"><TaskMarkdown content={spec.description} /></div>
+        : <p className="mt-2 text-sm text-muted-foreground">No specification content.</p>}
+      {checks.length > 0 && (
+        <div className="mt-4 space-y-2 border-t border-border/30 pt-3">
+          {checks.map(check => (
+            <div key={check.id}>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{check.kind} · {check.status}</p>
+              <TaskMarkdown content={check.text} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TaskDetail({ document, onBack }: { document: TaskExportDocument; onBack: () => void }) {
   const task = document.tasks.find(item => item.id === document.task_id) ?? document.tasks[0]
   if (!task) return <EmptyState icon={AlertTriangle} title="Task not found" description="The exported task document is empty." />
@@ -140,14 +168,14 @@ function TaskDetail({ document, onBack }: { document: TaskExportDocument; onBack
       <div className="mx-auto max-w-6xl space-y-5 p-6">
         <section className="glass-panel rounded-2xl p-5">
           <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Specification</p>
-          <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/85">{task.description}</p>
+          <TaskMarkdown content={task.description} />
         </section>
 
         {(task.progress_summary || task.next_step || task.flag_reason) && (
           <section className="grid gap-3 md:grid-cols-2">
-            {task.progress_summary && <div className="glass-panel rounded-2xl p-4"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Latest progress</p><p className="text-sm text-foreground/85">{task.progress_summary}</p></div>}
-            {task.next_step && <div className="glass-panel rounded-2xl p-4"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Next step</p><p className="text-sm text-foreground/85">{task.next_step}</p></div>}
-            {task.flag_reason && <div className="glass-panel rounded-2xl border-rose-500/20 p-4 md:col-span-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300">Flag reason</p><p className="text-sm text-foreground/85">{task.flag_reason}</p></div>}
+            {task.progress_summary && <div className="glass-panel rounded-2xl p-4"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Latest progress</p><TaskMarkdown content={task.progress_summary} /></div>}
+            {task.next_step && <div className="glass-panel rounded-2xl p-4"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Next step</p><TaskMarkdown content={task.next_step} /></div>}
+            {task.flag_reason && <div className="glass-panel rounded-2xl border-rose-500/20 p-4 md:col-span-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300">Flag reason</p><TaskMarkdown content={task.flag_reason} /></div>}
           </section>
         )}
 
@@ -164,20 +192,20 @@ function TaskDetail({ document, onBack }: { document: TaskExportDocument; onBack
           <div className="glass-panel rounded-2xl p-5">
             <div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-black"><ShieldCheck className="h-4 w-4 text-primary" /> Checks</h2><span className="text-xs text-muted-foreground">{checks.length}</span></div>
             <div className="space-y-2">
-              {checks.map(check => <div key={check.key} className="rounded-xl border border-border/35 bg-background/45 p-3"><div className="flex items-start gap-2">{check.status === 'passed' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> : check.status === 'failed' ? <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}<div><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{check.kind} · {check.status}</p><p className="mt-1 text-sm text-foreground/85">{check.text}</p>{check.evidence && <p className="mt-2 text-xs text-muted-foreground">{check.evidence}</p>}{check.superseded_reason && <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">{check.superseded_reason}</p>}</div></div></div>)}
+              {checks.map(check => <div key={check.key} className="rounded-xl border border-border/35 bg-background/45 p-3"><div className="flex items-start gap-2">{check.status === 'passed' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> : check.status === 'failed' ? <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}<div className="min-w-0"><p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{check.kind} · {check.status}</p><TaskMarkdown content={check.text} />{check.evidence && <div className="mt-2 border-l-2 border-emerald-500/30 pl-3"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Evidence</p><TaskMarkdown content={check.evidence} /></div>}{check.superseded_reason && <div className="mt-2 border-l-2 border-amber-500/30 pl-3 text-amber-600 dark:text-amber-300"><TaskMarkdown content={check.superseded_reason} /></div>}</div></div></div>)}
               {checks.length === 0 && <p className="text-sm text-muted-foreground">No checks recorded.</p>}
             </div>
           </div>
 
           <div className="space-y-5">
             <div className="glass-panel rounded-2xl p-5"><div className="mb-3 flex items-center gap-2"><GitBranch className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Relations</h2></div><div className="space-y-2 text-sm"><p><span className="text-muted-foreground">Parent:</span> <span className="font-mono">{task.parent_id || '—'}</span></p><p><span className="text-muted-foreground">Dependencies:</span> {dependencies.filter(item => item.active).map(item => item.depends_on).join(', ') || '—'}</p><p><span className="text-muted-foreground">Subtasks:</span> {subtasks.map(item => item.id).join(', ') || '—'}</p><p><span className="text-muted-foreground">Blocked by:</span> {task.blocked_by?.join(', ') || '—'}</p></div></div>
-            <div className="glass-panel rounded-2xl p-5"><div className="mb-3 flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Comments</h2><span className="ml-auto text-xs text-muted-foreground">{comments.length}</span></div><div className="space-y-3">{comments.map(comment => <div key={comment.id} className="border-l-2 border-primary/35 pl-3"><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{comment.kind} · {comment.actor} · {shortDate(comment.at)}</p><p className="mt-1 text-sm text-foreground/85">{comment.body}</p></div>)}{comments.length === 0 && <p className="text-sm text-muted-foreground">No comments recorded.</p>}</div></div>
+            <div className="glass-panel rounded-2xl p-5"><div className="mb-3 flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Comments</h2><span className="ml-auto text-xs text-muted-foreground">{comments.length}</span></div><div className="space-y-3">{comments.map(comment => <div key={comment.id} className="border-l-2 border-primary/35 pl-3"><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{comment.kind} · {comment.actor} · {shortDate(comment.at)}</p><TaskMarkdown content={comment.body} /></div>)}{comments.length === 0 && <p className="text-sm text-muted-foreground">No comments recorded.</p>}</div></div>
           </div>
         </section>
 
-        <section className="glass-panel rounded-2xl p-5"><div className="mb-4 flex items-center gap-2"><Clock3 className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Lifecycle</h2><span className="ml-auto text-xs text-muted-foreground">{events.length} events</span></div><div className="space-y-3">{events.map(event => <div key={event.key} className="grid gap-1 border-l border-border pl-4 sm:grid-cols-[170px_1fr]"><p className="font-mono text-[10px] text-muted-foreground">{shortDate(event.at)}<br />rev {event.revision}</p><div><p className="text-xs font-bold uppercase tracking-wider text-foreground">{statusLabel(event.type)}</p>{event.summary && <p className="mt-1 text-sm text-foreground/75">{event.summary}</p>}<p className="mt-1 text-[10px] text-muted-foreground">{event.actor}</p></div></div>)}</div></section>
+        <section className="glass-panel rounded-2xl p-5"><div className="mb-4 flex items-center gap-2"><Clock3 className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Lifecycle</h2><span className="ml-auto text-xs text-muted-foreground">{events.length} events</span></div><div className="space-y-3">{events.map(event => <div key={event.key} className="grid gap-1 border-l border-border pl-4 sm:grid-cols-[170px_1fr]"><p className="font-mono text-[10px] text-muted-foreground">{shortDate(event.at)}<br />rev {event.revision}</p><div><p className="text-xs font-bold uppercase tracking-wider text-foreground">{statusLabel(event.type)}</p>{event.summary && <TaskMarkdown content={event.summary} />}{event.next_step && <div className="mt-2"><p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Next step</p><TaskMarkdown content={event.next_step} /></div>}<p className="mt-1 text-[10px] text-muted-foreground">{event.actor}</p></div></div>)}</div></section>
 
-        <section className="glass-panel rounded-2xl p-5"><div className="mb-4 flex items-center gap-2"><RefreshCw className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Specification revisions</h2><span className="ml-auto text-xs text-muted-foreground">{revisions.length}</span></div><div className="space-y-3">{revisions.map(revision => <details key={revision.key} className="rounded-xl border border-border/35 bg-background/45 p-3"><summary className="cursor-pointer text-sm font-bold">rev {revision.source_revision} · {statusLabel(revision.kind)}</summary><p className="mt-2 text-sm text-foreground/80">{revision.reason}</p><p className="mt-2 text-[10px] text-muted-foreground">{revision.actor} · {shortDate(revision.at)}</p><pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-black/85 p-3 text-[10px] leading-5 text-white/75">{JSON.stringify({ before: revision.before, after: revision.after }, null, 2)}</pre></details>)}{revisions.length === 0 && <p className="text-sm text-muted-foreground">No specification revisions recorded.</p>}</div></section>
+        <section className="glass-panel rounded-2xl p-5"><div className="mb-4 flex items-center gap-2"><RefreshCw className="h-4 w-4 text-primary" /><h2 className="text-sm font-black">Specification revisions</h2><span className="ml-auto text-xs text-muted-foreground">{revisions.length}</span></div><div className="space-y-3">{revisions.map(revision => <details key={revision.key} className="rounded-xl border border-border/35 bg-background/45 p-3"><summary className="cursor-pointer text-sm font-bold">rev {revision.source_revision} · {statusLabel(revision.kind)}</summary><div className="mt-2"><TaskMarkdown content={revision.reason} /></div><p className="mt-2 text-[10px] text-muted-foreground">{revision.actor} · {shortDate(revision.at)}</p><div className="mt-3 grid gap-3 xl:grid-cols-2"><SpecificationSnapshot label="Before" spec={revision.before} /><SpecificationSnapshot label="After" spec={revision.after} /></div></details>)}{revisions.length === 0 && <p className="text-sm text-muted-foreground">No specification revisions recorded.</p>}</div></section>
 
         <details className="glass-panel rounded-2xl p-5"><summary className="cursor-pointer text-sm font-black">Complete JSON document</summary><pre className="mt-4 max-h-[520px] overflow-auto rounded-xl bg-black/90 p-4 text-[11px] leading-5 text-white/80">{JSON.stringify(document, null, 2)}</pre></details>
       </div>

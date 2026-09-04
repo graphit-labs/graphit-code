@@ -3,12 +3,19 @@
 package daemonctl
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
+)
+
+const (
+	daemonReadyTimeout = 5 * time.Second
+	daemonReadyPoll    = 10 * time.Millisecond
 )
 
 func DaemonDir() string {
@@ -80,11 +87,18 @@ func EnsureRunning() (bool, error) {
 		return false, err
 	}
 	go func() { _ = cmd.Wait() }()
+	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll); err != nil {
+		return true, fmt.Errorf("waiting for daemon readiness: %w", err)
+	}
 	return true, nil
 }
 
 func isDaemonLocked() bool {
-	f, err := os.Open(PIDFilePath())
+	return fileLocked(PIDFilePath())
+}
+
+func fileLocked(path string) bool {
+	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
@@ -95,6 +109,32 @@ func isDaemonLocked() bool {
 	}
 	flockProbeRelease(f)
 	return false
+}
+
+func waitForFileLock(path string, timeout, poll time.Duration) error {
+	if fileLocked(path) {
+		return nil
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("PID file lock was not acquired")
+	}
+	if poll <= 0 {
+		poll = daemonReadyPoll
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if fileLocked(path) {
+				return nil
+			}
+		case <-timer.C:
+			return fmt.Errorf("PID file lock was not acquired within %s", timeout)
+		}
+	}
 }
 
 func ResolveExe() string {

@@ -44,3 +44,39 @@ func TestMemoryMaintenanceModuleReportsMaintenanceFailure(t *testing.T) {
 		t.Fatalf("Start error = %v, want %v", got, want)
 	}
 }
+
+func TestTaskMaintenanceModuleRunsImmediatelyAndOwnsItsTicker(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	module := NewTaskMaintenanceModule("project", time.Millisecond)
+	calls := make(chan string, 2)
+	module.maintain = func(_ context.Context, projectDir string) error {
+		calls <- projectDir
+		return nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- module.Start(ctx) }()
+
+	for range 2 {
+		select {
+		case got := <-calls:
+			if got != "project" {
+				t.Fatalf("maintenance project = %q, want project", got)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("task maintenance did not run")
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Start returned after cancellation: %v", err)
+	}
+}
+
+func TestTaskMaintenanceModuleReportsMaintenanceFailure(t *testing.T) {
+	want := errors.New("task maintenance failed")
+	module := NewTaskMaintenanceModule("project", time.Hour)
+	module.maintain = func(context.Context, string) error { return want }
+	if got := module.Start(context.Background()); !errors.Is(got, want) {
+		t.Fatalf("Start error = %v, want %v", got, want)
+	}
+}

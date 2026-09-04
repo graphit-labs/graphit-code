@@ -22,28 +22,28 @@ type BatchOperation struct {
 	ID                 string   `json:"id,omitempty" jsonschema:"Task ID for every action except create"`
 	ClaimToken         string   `json:"claim_token,omitempty" jsonschema:"Fencing token for owner mutations"`
 	Lease              string   `json:"lease,omitempty" jsonschema:"Per-item lease override such as 2h"`
-	Title              string   `json:"title,omitempty" jsonschema:"Create or revise: concise task title"`
-	Description        string   `json:"description,omitempty" jsonschema:"Create or revise: robust self-contained specification"`
-	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" jsonschema:"Create criteria or revise additions"`
-	Tests              []string `json:"tests,omitempty" jsonschema:"Create tests or revise additions"`
+	Title              string   `json:"title,omitempty" jsonschema:"Create or revise: concise action-oriented plain-text title naming one outcome"`
+	Description        string   `json:"description,omitempty" jsonschema:"Create or revise: self-contained Markdown specification with objective, context, scope, requirements, constraints, interfaces, risks, and intended result"`
+	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" jsonschema:"Create or revise: singular imperative Markdown statements of what the system must do or must not allow"`
+	Tests              []string `json:"tests,omitempty" jsonschema:"Create or revise: Given-When-Then behavior checks or method-target-expected-result validations"`
 	Type               string   `json:"type,omitempty" jsonschema:"Create or revise: task type"`
 	Priority           *int     `json:"priority,omitempty" jsonschema:"Create or revise: priority 0 through 4; create defaults to 2"`
-	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Create or revise: parent task ID"`
+	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Create or revise: parent delivery task ID; required for cleanup, validation, review, documentation, commit preparation, release checks, and similar finalization work"`
 	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Create or revise: complete blocking task ID list"`
 	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Create or comment: stable caller key"`
-	Summary            string   `json:"summary,omitempty" jsonschema:"Progress, release, or complete summary"`
-	NextStep           string   `json:"next_step,omitempty" jsonschema:"Progress or release continuation step"`
-	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, flag, revise, or check supersede reason"`
+	Summary            string   `json:"summary,omitempty" jsonschema:"Progress, release, or complete Markdown summary with state and evidence"`
+	NextStep           string   `json:"next_step,omitempty" jsonschema:"Progress or release Markdown continuation action with target and completion condition"`
+	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, flag, revise, or check supersede Markdown rationale with cause and impact"`
 	ConfirmID          string   `json:"confirm_id,omitempty" jsonschema:"Remove: exact task ID confirmation"`
 	CheckID            string   `json:"check_id,omitempty" jsonschema:"Check: acceptance or test check ID"`
 	Passed             *bool    `json:"passed,omitempty" jsonschema:"Check: whether the check passed"`
-	Evidence           string   `json:"evidence,omitempty" jsonschema:"Check: concrete verification evidence"`
+	Evidence           string   `json:"evidence,omitempty" jsonschema:"Check: Markdown command, observation, or artifact with conditions and actual result"`
 	Kind               string   `json:"kind,omitempty" jsonschema:"Comment: note, decision, problem, lesson, or knowledge"`
-	Body               string   `json:"body,omitempty" jsonschema:"Comment: durable self-contained body"`
+	Body               string   `json:"body,omitempty" jsonschema:"Comment: durable self-contained Markdown context, rationale, impact, and references"`
 	DependencyID       string   `json:"dependency_id,omitempty" jsonschema:"Dependency actions: blocking task ID"`
 	ExpectedRevision   int64    `json:"expected_revision,omitempty" jsonschema:"Revise or check_supersede: current task revision"`
 	ClearParent        bool     `json:"clear_parent,omitempty" jsonschema:"Revise: clear the parent task relationship"`
-	ReplacementText    string   `json:"replacement_text,omitempty" jsonschema:"Check supersede: optional replacement check text"`
+	ReplacementText    string   `json:"replacement_text,omitempty" jsonschema:"Check supersede: optional replacement using the same quality form as acceptance or test checks"`
 	ReplacementKind    string   `json:"replacement_kind,omitempty" jsonschema:"Check supersede: optional acceptance or test replacement kind"`
 }
 

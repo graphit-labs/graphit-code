@@ -398,6 +398,7 @@ func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbed
 	disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
 	disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
 	disableMemory := config.IsModuleDisabled("memory", nil, projectCfg)
+	disableTask := config.IsModuleDisabled("task", nil, projectCfg)
 	cacheDir := store.ASTProjectDir(projectDir)
 
 	var modules []daemon.WatchModule
@@ -420,6 +421,9 @@ func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbed
 		modules = append(modules, daemon.NewMemoryMaintenanceModule(
 			memory.TableURIFor("project", lf.Project.ID), 15*time.Minute,
 		))
+	}
+	if !disableTask && lf != nil && lf.Project.ID != "" {
+		modules = append(modules, daemon.NewTaskMaintenanceModule(projectDir, 15*time.Minute))
 	}
 
 	return modules, nil, nil
