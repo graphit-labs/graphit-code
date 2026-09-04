@@ -193,6 +193,12 @@ type ReviseInput struct {
 	AddTests              []string
 }
 
+type ForceTakeoverInput struct {
+	ExpectedRevision int64
+	ConfirmID        string
+	Reason           string
+}
+
 type SupersedeCheckInput struct {
 	ExpectedRevision int64
 	CheckID          string

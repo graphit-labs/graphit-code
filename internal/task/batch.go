@@ -18,7 +18,7 @@ type BatchInput struct {
 
 type BatchOperation struct {
 	Key                string   `json:"key,omitempty" jsonschema:"Optional caller correlation key"`
-	Action             string   `json:"action" jsonschema:"create, claim, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, check_supersede, revise, comment, dependency_add, or dependency_remove"`
+	Action             string   `json:"action" jsonschema:"create, claim, force_takeover, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, check_supersede, revise, comment, dependency_add, or dependency_remove"`
 	ID                 string   `json:"id,omitempty" jsonschema:"Task ID for every action except create"`
 	ClaimToken         string   `json:"claim_token,omitempty" jsonschema:"Fencing token for owner mutations"`
 	Lease              string   `json:"lease,omitempty" jsonschema:"Per-item lease override such as 2h"`
@@ -33,15 +33,15 @@ type BatchOperation struct {
 	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Create or comment: stable caller key"`
 	Summary            string   `json:"summary,omitempty" jsonschema:"Progress, release, or complete Markdown summary with state and evidence"`
 	NextStep           string   `json:"next_step,omitempty" jsonschema:"Progress or release Markdown continuation action with target and completion condition"`
-	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, flag, revise, or check supersede Markdown rationale with cause and impact"`
-	ConfirmID          string   `json:"confirm_id,omitempty" jsonschema:"Remove: exact task ID confirmation"`
+	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, force takeover, flag, revise, or check supersede Markdown rationale with cause and impact"`
+	ConfirmID          string   `json:"confirm_id,omitempty" jsonschema:"Remove or force takeover: exact task ID confirmation"`
 	CheckID            string   `json:"check_id,omitempty" jsonschema:"Check: acceptance or test check ID"`
 	Passed             *bool    `json:"passed,omitempty" jsonschema:"Check: whether the check passed"`
 	Evidence           string   `json:"evidence,omitempty" jsonschema:"Check: Markdown command, observation, or artifact with conditions and actual result"`
 	Kind               string   `json:"kind,omitempty" jsonschema:"Comment: note, decision, problem, lesson, or knowledge"`
 	Body               string   `json:"body,omitempty" jsonschema:"Comment: durable self-contained Markdown context, rationale, impact, and references"`
 	DependencyID       string   `json:"dependency_id,omitempty" jsonschema:"Dependency actions: blocking task ID"`
-	ExpectedRevision   int64    `json:"expected_revision,omitempty" jsonschema:"Revise or check_supersede: current task revision"`
+	ExpectedRevision   int64    `json:"expected_revision,omitempty" jsonschema:"Force takeover, revise, or check_supersede: current task revision"`
 	ClearParent        bool     `json:"clear_parent,omitempty" jsonschema:"Revise: clear the parent task relationship"`
 	ReplacementText    string   `json:"replacement_text,omitempty" jsonschema:"Check supersede: optional replacement using the same quality form as acceptance or test checks"`
 	ReplacementKind    string   `json:"replacement_kind,omitempty" jsonschema:"Check supersede: optional acceptance or test replacement kind"`
@@ -121,6 +121,11 @@ func (s *Service) runBatchOperation(ctx context.Context, actor string, defaultLe
 		return s.Create(ctx, CreateInput{Title: operation.Title, Description: operation.Description, AcceptanceCriteria: operation.AcceptanceCriteria, Tests: operation.Tests, Type: operation.Type, Priority: priority, ParentID: operation.ParentID, DependsOn: operation.DependsOn, IdempotencyKey: operation.IdempotencyKey, Actor: actor})
 	case "claim":
 		return s.Claim(ctx, operation.ID, actor, lease)
+	case "force_takeover":
+		if strings.TrimSpace(operation.Lease) == "" {
+			return nil, errors.New("force_takeover action requires an explicit replacement lease")
+		}
+		return s.ForceTakeover(ctx, operation.ID, actor, ForceTakeoverInput{ExpectedRevision: operation.ExpectedRevision, ConfirmID: operation.ConfirmID, Reason: operation.Reason}, lease)
 	case "progress":
 		return s.Progress(ctx, operation.ID, operation.ClaimToken, actor, operation.Summary, operation.NextStep, lease)
 	case "heartbeat":

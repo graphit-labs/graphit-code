@@ -571,6 +571,83 @@ func (s *Service) Claim(ctx context.Context, id, actor string, lease time.Durati
 	return out, err
 }
 
+// ForceTakeover recovers an unexpired claim whose owner cannot release it.
+// Exact confirmation and revision fencing keep this exceptional path explicit,
+// while rotating the token prevents a recovered owner from writing later.
+func (s *Service) ForceTakeover(ctx context.Context, id, actor string, in ForceTakeoverInput, lease time.Duration) (Task, error) {
+	id = strings.TrimSpace(id)
+	actor = strings.TrimSpace(actor)
+	in.ConfirmID = strings.TrimSpace(in.ConfirmID)
+	in.Reason = strings.TrimSpace(in.Reason)
+	if id == "" || in.ConfirmID != id {
+		return Task{}, errors.New("force takeover requires exact task id confirmation")
+	}
+	if actor == "" {
+		return Task{}, errors.New("agent id is required")
+	}
+	if in.Reason == "" {
+		return Task{}, errors.New("force takeover reason is required")
+	}
+	if in.ExpectedRevision <= 0 {
+		return Task{}, errors.New("force takeover requires the current task revision")
+	}
+	if lease <= 0 {
+		return Task{}, errors.New("force takeover requires a positive lease duration")
+	}
+
+	var out Task
+	err := s.withLock(ctx, actor, func(t *tables) error {
+		all, err := t.allTasks(ctx)
+		if err != nil {
+			return err
+		}
+		byID := indexTasks(all)
+		current, ok := byID[id]
+		if !ok {
+			return ErrNotFound
+		}
+		if current.Revision != in.ExpectedRevision {
+			return fmt.Errorf("%w: %s revision is %d, expected %d", ErrConcurrent, id, current.Revision, in.ExpectedRevision)
+		}
+		if current.Status != StatusInProgress {
+			return fmt.Errorf("task %s is %s; force takeover requires in_progress", id, current.Status)
+		}
+		if current.Owner == actor {
+			return errors.New("current owner must renew or release its claim instead of forcing takeover")
+		}
+		if current.Owner == "" || current.ClaimToken == "" || current.LeaseExpiresAt == "" {
+			return fmt.Errorf("task %s has incomplete claim state", id)
+		}
+		now := s.now().UTC()
+		if current.LeaseExpiresAt <= stamp(now) {
+			return fmt.Errorf("task %s lease already expired; use normal claim", id)
+		}
+		for _, other := range all {
+			if other.ID != id && other.Status == StatusInProgress && other.Owner == actor && other.LeaseExpiresAt > stamp(now) {
+				return fmt.Errorf("agent %q already owns %s", actor, other.ID)
+			}
+		}
+
+		next := current
+		next.Owner = actor
+		next.ClaimToken = ulid.Make().String()
+		next.ClaimEpoch++
+		next.ClaimedAt = stamp(now)
+		next.HeartbeatAt = stamp(now)
+		next.LeaseExpiresAt = stamp(now.Add(lease))
+		next.Revision++
+		next.UpdatedAt = stamp(now)
+		next.LastEvent = newEvent(next, "force_takeover", actor, current.Status, next.Status,
+			fmt.Sprintf("forced takeover from %q to %q at revision %d -> %d: %s", current.Owner, actor, current.Revision, next.Revision, in.Reason), next.NextStep)
+		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			return err
+		}
+		out = next
+		return s.projectTask(ctx, t, next, actor)
+	})
+	return out, err
+}
+
 func (s *Service) Progress(ctx context.Context, id, token, actor, summary, nextStep string, lease time.Duration) (Task, error) {
 	if strings.TrimSpace(summary) == "" {
 		return Task{}, errors.New("progress summary is required")

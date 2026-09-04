@@ -28,9 +28,9 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"## Maintenance",
 		"",
-		"The daemon indexes `" + docsDir + "/` after writes. Use `" + brand.MCPToolName("knowledge", "sync") + "` only for knowledge-only freshness and `" + brand.MCPToolName("sync") + "` when all module indexes must be aligned. Check `" + brand.MCPToolName("daemon", "status") + "` on stale/locked reads. `" + brand.MCPToolName("knowledge", "lint") + "`, `schema`, `export`, `install`, and `remove` are administrative operations used only when the task calls for them; `" + brand.MCPToolName("wiki", "embed") + "` repairs semantic coverage.",
+		"The daemon indexes `" + docsDir + "/` after writes. Use `" + brand.MCPToolName("knowledge", "index") + "` for explicit indexing options or a specific directory, `" + brand.MCPToolName("knowledge", "sync") + "` only for knowledge-only freshness, and `" + brand.MCPToolName("sync") + "` when all module indexes must align. Check `" + brand.MCPToolName("daemon", "status") + "` on stale or locked reads. `" + brand.MCPToolName("knowledge", "lint") + "` and `" + brand.MCPToolName("knowledge", "schema") + "` are diagnostic. `" + brand.MCPToolName("knowledge", "remove") + "` without a context clears the project wiki, so use it only when the task explicitly requires removal. `" + brand.MCPToolName("wiki", "embed") + "` repairs semantic coverage.",
 		"",
-		"Tool index: `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_export`, `graphit_knowledge_install`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_daemon_stop`, `graphit_sync`.",
+		"Tool index: `graphit_knowledge_search`, `graphit_knowledge_index`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_sync`.",
 	}, "\n") + "\n"
 }
 

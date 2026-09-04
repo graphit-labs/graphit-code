@@ -56,6 +56,19 @@ func TestTaskRevisionCommandsAreReachable(t *testing.T) {
 	}
 }
 
+func TestTaskForceTakeoverCommandIsReachableAndGuarded(t *testing.T) {
+	root := newTaskCmd()
+	command, _, err := root.Find([]string{"force-takeover"})
+	if err != nil || command == root {
+		t.Fatalf("task force-takeover command not found: %v", err)
+	}
+	for _, name := range []string{"confirm-id", "expected-revision", "reason", "lease", "agent"} {
+		if command.Flags().Lookup(name) == nil {
+			t.Errorf("task force-takeover is missing --%s", name)
+		}
+	}
+}
+
 func TestTaskExportCommandAcceptsAllOrOneTask(t *testing.T) {
 	root := newTaskCmd()
 	command, _, err := root.Find([]string{"export"})

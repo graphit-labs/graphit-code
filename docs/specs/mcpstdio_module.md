@@ -271,6 +271,7 @@ tasks; deterministic ownership belongs to the Task module.
 | `graphit_task_batch` | Run up to 100 ordered mutations with an explicit result for every item while reusing the normal lifecycle gates. |
 | `graphit_task_create` | Idempotently create a robust task specification in shared LanceDB tables. |
 | `graphit_task_claim`, `graphit_task_heartbeat`, `graphit_task_release` | Own and transfer work through leases and fencing tokens. |
+| `graphit_task_force_takeover` | Recover an unexpired claim from a confirmed dead session with exact-ID confirmation, revision fencing, reason, replacement lease, token rotation, and an ownership audit event. |
 | `graphit_task_progress`, `graphit_task_comment_add` | Preserve resumable checkpoints and typed findings. |
 | `graphit_task_check` | Record acceptance/test pass or failure with evidence. |
 | `graphit_task_revise`, `graphit_task_check_supersede` | Correct claimed scope with expected-revision fencing and preserve obsolete checks as audited history. |

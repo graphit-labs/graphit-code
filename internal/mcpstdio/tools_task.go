@@ -68,6 +68,17 @@ type taskClaimInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
+type taskForceTakeoverInput struct {
+	ProjectDir       string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID               string `json:"id" jsonschema:"In-progress task ID (required)"`
+	ConfirmID        string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
+	ExpectedRevision int64  `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
+	Reason           string `json:"reason" jsonschema:"Markdown explanation proving the current owner is unrecoverable and takeover is necessary (required)"`
+	Lease            string `json:"lease" jsonschema:"Positive replacement lease duration such as 1h (required)"`
+	AgentID          string `json:"agent_id,omitempty" jsonschema:"Different new owner identity; host session identity is used when omitted"`
+	AiOptimized      *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+}
+
 type taskProgressInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
@@ -381,6 +392,21 @@ func registerTaskTools(server *mcp.Server) {
 			return errResult(err)
 		}
 		value, err := svc.Claim(ctx, in.ID, taskActor(req, in.AgentID), lease)
+		if err != nil {
+			return errResult(err)
+		}
+		return taskResult(value, in.AiOptimized)
+	}))
+	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "force", "takeover"), Description: "Explicitly recover an unexpired in-progress claim from an unrecoverable owner using exact-ID confirmation, revision fencing, a reason, and token rotation."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskForceTakeoverInput) (*mcp.CallToolResult, any, error) {
+		lease, err := parseTaskLease(in.Lease)
+		if err != nil {
+			return errResult(err)
+		}
+		svc, _, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		value, err := svc.ForceTakeover(ctx, in.ID, taskActor(req, in.AgentID), graphtask.ForceTakeoverInput{ExpectedRevision: in.ExpectedRevision, ConfirmID: in.ConfirmID, Reason: in.Reason}, lease)
 		if err != nil {
 			return errResult(err)
 		}

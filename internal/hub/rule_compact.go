@@ -17,7 +17,7 @@ func HubRuleContent() string {
 		"",
 		"1. For ecosystem projects, call `" + brand.MCPToolName("hub", "projects") + "` or `" + brand.MCPToolName("cluster", "projects") + "`; use the returned project id/path with that project's AST or wiki tools.",
 		"2. For artifacts, call `" + brand.MCPToolName("hub", "list") + "` when installed inventory may answer, otherwise `" + brand.MCPToolName("hub", "search") + "`. Search is discovery only.",
-		"3. Read the selected artifact with `" + brand.MCPToolName("hub", "show") + "`. Install it only when the current task needs local use, then query its installed AST/knowledge context.",
+		"3. Inspect selected artifact metadata with `" + brand.MCPToolName("hub", "show") + "`. Install only when the task needs its contents. Read installed rule, skill, command, or agent files with `" + brand.MCPToolName("hub", "content") + "`; query installed AST or knowledge contexts with their module tools.",
 		"4. If no relevant Hub artifact exists, use primary vendor documentation or web research and state that this is the fallback.",
 		"",
 		"Never infer another project's path, read its files directly, or treat a search title as content. Registry calls without a project operate on globally installed artifacts; project linking is explicit.",
@@ -26,7 +26,7 @@ func HubRuleContent() string {
 		"",
 		"`" + brand.MCPToolName("hub", "install") + "`, `" + brand.MCPToolName("hub", "update") + "`, and `" + brand.MCPToolName("hub", "uninstall") + "` manage installed artifacts. `" + brand.MCPToolName("hub", "link") + "`/`" + brand.MCPToolName("hub", "unlink") + "` change project claims. `" + brand.MCPToolName("hub", "submit") + "` publishes reusable work. Do not perform these state changes merely to inspect an artifact.",
 		"",
-		"Use `" + brand.MCPToolName("hub", "type", "path") + "` before creating a reusable rule/skill/command/agent. Use `" + brand.MCPToolName("config", "list") + "`/`get` to inspect configuration and `set`/`unset` only when requested. `" + brand.MCPToolName("cluster", "get") + "`/`set`/`unset` manage project grouping.",
+		"Use `" + brand.MCPToolName("hub", "type", "path") + "` before creating a reusable rule, skill, command, or agent. Inspect configuration with `" + brand.MCPToolName("config", "list") + "` or `" + brand.MCPToolName("config", "get") + "`; use `" + brand.MCPToolName("config", "set") + "` or `" + brand.MCPToolName("config", "unset") + "` only when requested. `" + brand.MCPToolName("cluster", "get") + "`, `" + brand.MCPToolName("cluster", "set") + "`, and `" + brand.MCPToolName("cluster", "unset") + "` manage project grouping.",
 		"",
 		"Tool index: `graphit_hub_search`, `graphit_hub_show`, `graphit_hub_content`, `graphit_hub_list`, `graphit_hub_install`, `graphit_hub_uninstall`, `graphit_hub_update`, `graphit_hub_link`, `graphit_hub_unlink`, `graphit_hub_submit`, `graphit_hub_projects`, `graphit_hub_type_path`, `graphit_cluster_projects`, `graphit_cluster_get`, `graphit_cluster_set`, `graphit_cluster_unset`, `graphit_config_list`, `graphit_config_get`, `graphit_config_set`, `graphit_config_unset`.",
 	}, "\n") + "\n"

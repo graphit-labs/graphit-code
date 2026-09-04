@@ -1102,6 +1102,7 @@ native TODO/task mechanisms. The main contracts are:
 | `graphit_task_batch` | Runs 1-100 mutations sequentially in input order. Every item returns its index, optional key, action, task ID, `ok`, and either a value or explicit error; all normal lifecycle gates still apply. |
 | `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `parent_id`, dependencies, priority, type, and stable `idempotency_key`. |
 | `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
+| `graphit_task_force_takeover` | Recovers an unexpired `in_progress` claim whose owner is confirmed unrecoverable; requires exact-ID confirmation, current revision, reason, different new owner, and replacement lease, then rotates the token and audits the ownership transition. |
 | `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_release` | Require task ID, current token, and agent identity; progress/release preserve an exact continuation step. |
 | `graphit_task_comment_add` | Requires token, typed `kind`, body, and optional idempotency key. |
 | `graphit_task_check` | Requires token, check ID, pass/fail result, and concrete evidence. |

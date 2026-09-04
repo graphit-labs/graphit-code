@@ -22,4 +22,8 @@ func TestMemorySkillCompactContract(t *testing.T) {
 	if len(content) > 5500 {
 		t.Fatalf("Memory skill exceeded its token budget: %d bytes", len(content))
 	}
+	mandate := MandateTrigger()
+	if len(mandate) > 1400 {
+		t.Fatalf("Memory mandate exceeded its resident token budget: %d bytes", len(mandate))
+	}
 }

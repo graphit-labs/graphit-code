@@ -10,7 +10,7 @@ func TestASTSkillCompactContract(t *testing.T) {
 	content := ASTRuleContent()
 	for _, want := range []string{
 		"Graphit AST precedes native search", "Before the first Cypher", "pair one exact", "Before editing an entity",
-		"required Graphit tool is unavailable", "Native tools cannot read an imported context",
+		"required Graphit tool is unavailable", "Native tools cannot read an imported context", "adapter stop hook dispatches completion sync asynchronously",
 		"graphit_ast_search", "graphit_ast_query", "graphit_ast_schema", "graphit_ast_source", "graphit_ast_list",
 		"graphit_ast_index", "graphit_ast_embed", "graphit_ast_export", "graphit_ast_install", "graphit_ast_remove",
 		"graphit_cluster_projects", "graphit_daemon_status", "graphit_sync",
@@ -21,6 +21,9 @@ func TestASTSkillCompactContract(t *testing.T) {
 	}
 	if len(content) > 6000 {
 		t.Fatalf("AST skill exceeded its token budget: %d bytes", len(content))
+	}
+	if strings.Contains(content, "before reporting a code-changing task complete") {
+		t.Fatal("AST skill duplicates the stop hook's completion sync")
 	}
 }
 

@@ -32,6 +32,7 @@ func RuleContent() string {
 		"Markdown is supported for descriptions, check text and evidence, progress and next steps, comments, reasons, and completion/release summaries. Use structure only when it improves comprehension. Evidence names the command, observation, or artifact and its result; progress records completed facts; next steps identify the exact action, target, and completion condition; comments preserve durable context and rationale; reasons identify cause, impact, and the condition or replacement that resolves the change. IDs, titles, types, statuses, priorities, actors, and timestamps remain compact plain text.",
 		"",
 		"Claim with " + t("task", "claim") + " before changing project state. A claim returns a fencing token; keep it private and pass it to progress, heartbeat, release, and complete. A rejected claim means another agent owns the task—choose other ready work. Never bypass a claim or edit task tables directly.",
+		"If that owner process or session is confirmed unrecoverable, use " + t("task", "force", "takeover") + " only with explicit user/operator intent, the current revision, exact task-ID confirmation, a reason, and a replacement lease. It rotates the token and audits both owners. Never use it to preempt a reachable owner; use normal claim after lease expiry.",
 		"",
 		"## Advance and hand off",
 		"",
@@ -45,7 +46,7 @@ func RuleContent() string {
 		"",
 		"Use " + t("task", "export") + " only when a machine-readable complete archive is required. Pass an exact task ID for that task and its subtasks, or omit it for every project task; the JSON includes all public Task entities in deterministic order and never exposes fencing tokens.",
 		"",
-		"Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_export`, `graphit_task_batch`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_revise`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_check_supersede`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.",
+		"Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_export`, `graphit_task_batch`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_force_takeover`, `graphit_task_revise`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_check_supersede`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.",
 	}, "\n") + "\n"
 }
 
@@ -64,6 +65,6 @@ func MandateTrigger() string {
 			"cancelling or certainly removing obsolete work so no task garbage remains",
 			"an agent starts, stops, resumes, delegates, or finishes a work unit",
 		},
-		[]string{"task_search", "task_list", "task_get", "task_export", "task_batch", "task_create", "task_claim", "task_revise", "task_progress", "task_comment_add", "task_check", "task_check_supersede", "task_flag", "task_release", "task_complete", "task_cancel", "task_remove"},
+		[]string{"task_search", "task_list", "task_get", "task_create", "task_claim", "task_force_takeover", "task_revise", "task_progress", "task_check", "task_release", "task_complete"},
 	)
 }

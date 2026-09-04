@@ -26,6 +26,7 @@ func TestTaskStructuredToolSchemasExposeAIOptimized(t *testing.T) {
 		brand.MCPToolName("task", "list"):                 false,
 		brand.MCPToolName("task", "search"):               false,
 		brand.MCPToolName("task", "claim"):                false,
+		brand.MCPToolName("task", "force", "takeover"):    false,
 		brand.MCPToolName("task", "progress"):             false,
 		brand.MCPToolName("task", "heartbeat"):            false,
 		brand.MCPToolName("task", "release"):              false,
@@ -166,6 +167,42 @@ func TestTaskRevisionToolSchemas(t *testing.T) {
 	for name := range wanted {
 		t.Errorf("tool %s was not listed", name)
 	}
+}
+
+func TestTaskForceTakeoverToolSchema(t *testing.T) {
+	session := testMCPClient(t)
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := brand.MCPToolName("task", "force", "takeover")
+	for _, tool := range listed.Tools {
+		if tool.Name != name {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema struct {
+			Properties map[string]any `json:"properties"`
+			Required   []string       `json:"required"`
+		}
+		if err := json.Unmarshal(encoded, &schema); err != nil {
+			t.Fatal(err)
+		}
+		required := make(map[string]bool, len(schema.Required))
+		for _, field := range schema.Required {
+			required[field] = true
+		}
+		for _, field := range []string{"project_dir", "id", "confirm_id", "expected_revision", "reason", "lease"} {
+			if _, ok := schema.Properties[field]; !ok || !required[field] {
+				t.Errorf("tool %s does not require %s", name, field)
+			}
+		}
+		return
+	}
+	t.Fatalf("tool %s was not listed", name)
 }
 
 func TestTaskExportToolSchema(t *testing.T) {

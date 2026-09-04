@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -86,6 +87,66 @@ func TestManagedSkillFrontmatterIsValid(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestManagedSkillBodiesMatchAcrossAdapters(t *testing.T) {
+	generators := map[string]func(string, string) error{
+		"ast":       ast.InstallSkill,
+		"hub":       hub.InstallSkill,
+		"knowledge": knowledge.InstallSkill,
+		"memory":    memory.InstallSkill,
+		"task":      graphtask.InstallSkill,
+	}
+
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolving repository root")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", ".."))
+
+	for module, install := range generators {
+		t.Run(module, func(t *testing.T) {
+			var canonical string
+			versionedCopies := 0
+			for _, ideName := range ide.SupportedIDEs() {
+				projectDir := t.TempDir()
+				if err := install(projectDir, ideName); err != nil {
+					t.Fatalf("installing the %s skill for %s: %v", module, ideName, err)
+				}
+				adapter := ide.GetAdapter(ideName)
+				skillDir := ide.GetSkillDir(adapter, projectDir, brand.SkillDirName(module))
+				data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+				if err != nil {
+					t.Fatalf("reading the %s skill for %s: %v", module, ideName, err)
+				}
+				_, body := splitFrontmatter(t, string(data))
+				if canonical == "" {
+					canonical = body
+				} else if body != canonical {
+					t.Fatalf("%s generated a different %s skill body", ideName, module)
+				}
+
+				relativeSkillDir, err := filepath.Rel(projectDir, skillDir)
+				if err != nil {
+					t.Fatalf("resolving the %s skill path for %s: %v", module, ideName, err)
+				}
+				versioned, err := os.ReadFile(filepath.Join(repoRoot, relativeSkillDir, "SKILL.md"))
+				if os.IsNotExist(err) {
+					continue
+				}
+				if err != nil {
+					t.Fatalf("reading the versioned %s skill for %s: %v", module, ideName, err)
+				}
+				versionedCopies++
+				if string(versioned) != string(data) {
+					t.Fatalf("the versioned %s skill for %s differs from its canonical generator", module, ideName)
+				}
+			}
+			if versionedCopies == 0 {
+				t.Fatalf("no versioned %s skill copy was verified", module)
+			}
+		})
 	}
 }
 

@@ -33,7 +33,7 @@ func ASTRuleContent() string {
 		"",
 		"Retry a database-open error once; it is commonly a transient lock. If the graph is absent, use `" + brand.MCPToolName("daemon", "status") + "` and then `" + brand.MCPToolName("ast", "index") + "`. Use `" + brand.MCPToolName("ast", "embed") + "` only when semantic embeddings are missing. Use native discovery when the required Graphit tool is unavailable to this agent or for unsupported/unindexed current-project text, and record the limitation. Native tools cannot read an imported context.",
 		"",
-		"The daemon normally indexes edits. Call `" + brand.MCPToolName("sync") + "` when a decision requires proven freshness or before reporting a code-changing task complete. Do not sync after every edit.",
+		"The daemon normally indexes edits. Call `" + brand.MCPToolName("sync") + "` only when a decision requires proven freshness. The adapter stop hook dispatches completion sync asynchronously; do not duplicate it, wait for it, or sync after every edit.",
 		"",
 		"## Administrative tools",
 		"",

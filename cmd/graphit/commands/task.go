@@ -20,7 +20,7 @@ func newTaskCmd() *cobra.Command {
 Open, unclaimed tasks are the backlog. Dependencies determine readiness. Agents
 must claim before work, checkpoint progress, and complete or release the claim.
 The returned claim token fences stopped or replaced agents from later writes.`}
-	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
+	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskForceTakeoverCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
 	return cmd
 }
 
@@ -247,6 +247,36 @@ func newTaskClaimCmd() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&actor, "agent", "", "Agent identity")
 	cmd.Flags().StringVar(&leaseText, "lease", graphtask.DefaultLease.String(), "Claim lease duration")
+	return cmd
+}
+
+func newTaskForceTakeoverCmd() *cobra.Command {
+	var actor, confirmation, reason, leaseText string
+	var expectedRevision int64
+	cmd := &cobra.Command{Use: "force-takeover <id>", Short: "Recover work from an unrecoverable claim owner", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		lease, err := cliTaskLease(leaseText)
+		if err != nil {
+			return err
+		}
+		svc, err := currentTaskService()
+		if err != nil {
+			return err
+		}
+		v, err := svc.ForceTakeover(context.Background(), args[0], cliTaskActor(actor), graphtask.ForceTakeoverInput{ExpectedRevision: expectedRevision, ConfirmID: confirmation, Reason: reason}, lease)
+		if err != nil {
+			return err
+		}
+		return printTaskJSON(v)
+	}}
+	cmd.Flags().StringVar(&confirmation, "confirm-id", "", "Exact task ID confirmation")
+	_ = cmd.MarkFlagRequired("confirm-id")
+	cmd.Flags().Int64Var(&expectedRevision, "expected-revision", 0, "Current task revision")
+	_ = cmd.MarkFlagRequired("expected-revision")
+	cmd.Flags().StringVar(&reason, "reason", "", "Why the current owner is unrecoverable and takeover is necessary")
+	_ = cmd.MarkFlagRequired("reason")
+	cmd.Flags().StringVar(&actor, "agent", "", "Different new owner identity")
+	cmd.Flags().StringVar(&leaseText, "lease", graphtask.DefaultLease.String(), "Replacement claim lease duration")
+	_ = cmd.MarkFlagRequired("lease")
 	return cmd
 }
 

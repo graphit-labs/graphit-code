@@ -179,7 +179,7 @@ its always-loaded token cost remains small.
 ## Interfaces
 
 The CLI group is `graphit task`; its subcommands cover batch, create, list/ready, get, search, export, claim,
-revise, progress, heartbeat, comment, check/check supersede, flag/unflag, dependency add/remove,
+force-takeover, revise, progress, heartbeat, comment, check/check supersede, flag/unflag, dependency add/remove,
 release, complete, cancel, and confirmed remove.
 The MCP tools expose the same operations as `graphit_task_*` and return compact TOON by default for
 read-heavy calls.
@@ -193,7 +193,9 @@ explicit error. A failed item therefore cannot make later independent outcomes a
 a transport optimization, not a weaker lifecycle path: every item invokes the same LanceDB-backed
 service method and retains claim fencing, dependency, check, flag, cancellation, and confirmed
 removal rules. `revise` and `check_supersede` batch actions use the same fencing and revision checks
-as their focused tools. A batch cannot be used to claim multiple live tasks for one agent.
+as their focused tools. A batch cannot be used to claim multiple live tasks for one agent. The
+`force_takeover` action retains exact-ID confirmation, current-revision fencing, reason, explicit
+per-operation replacement lease, and different-owner requirements.
 
 `task_search` uses LanceDB full-text indexes over task specs/check evidence and comment bodies. It
 accepts `page_size` plus the opaque `cursor` returned as `next_cursor`; `top_k` remains the cap for
@@ -220,6 +222,15 @@ so the browser does not maintain a second authoritative task projection.
 The detail view renders every Markdown-capable current and historical field through the shared safe
 Markdown component, while compact metadata remains plain text. Stored and exported values remain
 the original source Markdown.
+
+`graphit_task_force_takeover` and `graphit task force-takeover <id>` recover an unexpired
+`in_progress` claim only when its process or session is confirmed unrecoverable. The caller supplies
+the current revision, exact task-ID confirmation, a durable reason, a different new owner, and a
+replacement lease. The atomic mutation rotates the private fencing token, increments the claim
+epoch, preserves task state, and adds a `force_takeover` event naming the ownership transition and
+reason. It rejects stale revisions, the current owner, expired or non-active claims, invalid
+confirmation, and agents that already own other live work. Expired claims continue through normal
+`claim`; force takeover must not preempt a reachable owner.
 
 ## Storage lifecycle
 

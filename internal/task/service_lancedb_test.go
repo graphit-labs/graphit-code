@@ -243,6 +243,239 @@ func TestConcurrentClaimHasExactlyOneWinner(t *testing.T) {
 	}
 }
 
+func TestForceTakeoverRotatesFencePreservesStateAndAudits(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 9, 4, 18, 0, 0, 0, time.UTC)
+	svc := OpenAt("project-force-takeover", t.TempDir())
+	svc.now = func() time.Time { return now }
+
+	created, err := svc.Create(ctx, testCreate("Recover crashed work", "recover-crashed-work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-dead", 3*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := svc.Progress(ctx, created.ID, claimed.ClaimToken, "agent-dead", "implementation is half complete", "resume at the takeover method", 3*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(5 * time.Minute)
+	recovered, err := svc.ForceTakeover(ctx, created.ID, "agent-recovery", ForceTakeoverInput{
+		ExpectedRevision: checkpoint.Revision,
+		ConfirmID:        created.ID,
+		Reason:           "the owning process terminated and its token is unrecoverable",
+	}, 45*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Owner != "agent-recovery" || recovered.ClaimEpoch != claimed.ClaimEpoch+1 {
+		t.Fatalf("recovered claim = %#v", recovered)
+	}
+	if recovered.ClaimToken == "" || recovered.ClaimToken == claimed.ClaimToken {
+		t.Fatal("force takeover did not rotate the fencing token")
+	}
+	if recovered.LeaseExpiresAt != stamp(now.Add(45*time.Minute)) {
+		t.Fatalf("lease expiry = %s, want %s", recovered.LeaseExpiresAt, stamp(now.Add(45*time.Minute)))
+	}
+	if recovered.ProgressSummary != checkpoint.ProgressSummary || recovered.NextStep != checkpoint.NextStep || !reflect.DeepEqual(recovered.Checks, checkpoint.Checks) {
+		t.Fatalf("force takeover changed resumable state: before=%#v after=%#v", checkpoint, recovered)
+	}
+
+	for name, mutate := range map[string]func() error{
+		"progress": func() error {
+			_, err := svc.Progress(ctx, created.ID, claimed.ClaimToken, "agent-dead", "late progress", "", time.Minute)
+			return err
+		},
+		"heartbeat": func() error {
+			_, err := svc.Heartbeat(ctx, created.ID, claimed.ClaimToken, "agent-dead", time.Minute)
+			return err
+		},
+		"release": func() error {
+			_, err := svc.Release(ctx, created.ID, claimed.ClaimToken, "agent-dead", "late release", "")
+			return err
+		},
+		"complete": func() error {
+			_, err := svc.Complete(ctx, created.ID, claimed.ClaimToken, "agent-dead", "late completion")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := mutate(); !errors.Is(err, ErrFence) {
+				t.Fatalf("old owner mutation error = %v, want ErrFence", err)
+			}
+		})
+	}
+
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Task.ClaimToken != "" {
+		t.Fatal("task_get exposed the replacement fencing token")
+	}
+	last := detail.Events[len(detail.Events)-1]
+	if last.Type != "force_takeover" || last.Actor != "agent-recovery" || !strings.Contains(last.Summary, "agent-dead") || !strings.Contains(last.Summary, "revision 3 -> 4") || !strings.Contains(last.Summary, "owning process terminated") {
+		t.Fatalf("force takeover audit event = %#v", last)
+	}
+	document, err := svc.Export(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Tasks) != 1 || document.Tasks[0].ClaimToken != "" {
+		t.Fatalf("export exposed a fencing token: %#v", document.Tasks)
+	}
+}
+
+func TestForceTakeoverRejectsUnsafeRequestsWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+		edit  func(*ForceTakeoverInput, *string, *time.Duration)
+	}{
+		{name: "open task", state: "open"},
+		{name: "cancelled task", state: "cancelled"},
+		{name: "completed task", state: "completed"},
+		{name: "expired lease", state: "expired"},
+		{name: "same owner", state: "claimed", edit: func(_ *ForceTakeoverInput, actor *string, _ *time.Duration) { *actor = "agent-a" }},
+		{name: "wrong confirmation", state: "claimed", edit: func(in *ForceTakeoverInput, _ *string, _ *time.Duration) { in.ConfirmID = "tsk-wrong" }},
+		{name: "stale revision", state: "claimed", edit: func(in *ForceTakeoverInput, _ *string, _ *time.Duration) { in.ExpectedRevision-- }},
+		{name: "empty reason", state: "claimed", edit: func(in *ForceTakeoverInput, _ *string, _ *time.Duration) { in.Reason = "" }},
+		{name: "invalid lease", state: "claimed", edit: func(_ *ForceTakeoverInput, _ *string, lease *time.Duration) { *lease = 0 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			now := time.Date(2026, 9, 4, 19, 0, 0, 0, time.UTC)
+			svc := OpenAt("project-force-reject-"+strings.ReplaceAll(test.name, " ", "-"), t.TempDir())
+			svc.now = func() time.Time { return now }
+			current, err := svc.Create(ctx, testCreate("Guard takeover "+test.name, "guard-"+test.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch test.state {
+			case "cancelled":
+				current, err = svc.Cancel(ctx, current.ID, "", "planner", "obsolete")
+			case "completed":
+				current, err = svc.Claim(ctx, current.ID, "agent-a", time.Minute)
+				if err == nil {
+					for _, check := range current.Checks {
+						current, err = svc.VerifyCheck(ctx, current.ID, current.ClaimToken, "agent-a", check.ID, true, "verified", time.Minute)
+						if err != nil {
+							break
+						}
+					}
+				}
+				if err == nil {
+					current, err = svc.Complete(ctx, current.ID, current.ClaimToken, "agent-a", "done")
+				}
+			case "claimed", "expired":
+				current, err = svc.Claim(ctx, current.ID, "agent-a", time.Minute)
+				if test.state == "expired" {
+					now = now.Add(2 * time.Minute)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := svc.Get(ctx, current.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := ForceTakeoverInput{ExpectedRevision: current.Revision, ConfirmID: current.ID, Reason: "the old process died"}
+			actor := "agent-b"
+			lease := time.Minute
+			if test.edit != nil {
+				test.edit(&in, &actor, &lease)
+			}
+			if _, err := svc.ForceTakeover(ctx, current.ID, actor, in, lease); err == nil {
+				t.Fatal("unsafe force takeover succeeded")
+			}
+			after, err := svc.Get(ctx, current.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("rejected force takeover mutated task: before=%#v after=%#v", before, after)
+			}
+		})
+	}
+}
+
+func TestConcurrentForceTakeoverHasExactlyOneWinner(t *testing.T) {
+	ctx := context.Background()
+	uri := t.TempDir()
+	svc := OpenAt("project-force-race", uri)
+	created, err := svc.Create(ctx, testCreate("Recover exactly once", "recover-exactly-once"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-dead", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		task Task
+		err  error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, actor := range []string{"agent-b", "agent-c"} {
+		actor := actor
+		go func() {
+			<-start
+			recovered, takeoverErr := OpenAt("project-force-race", uri).ForceTakeover(ctx, created.ID, actor, ForceTakeoverInput{
+				ExpectedRevision: claimed.Revision,
+				ConfirmID:        created.ID,
+				Reason:           "the original process died",
+			}, time.Hour)
+			results <- result{task: recovered, err: takeoverErr}
+		}()
+	}
+	close(start)
+
+	winners, conflicts := 0, 0
+	for range 2 {
+		got := <-results
+		switch {
+		case got.err == nil:
+			winners++
+		case errors.Is(got.err, ErrConcurrent):
+			conflicts++
+		default:
+			t.Fatalf("force takeover race returned %v", got.err)
+		}
+	}
+	if winners != 1 || conflicts != 1 {
+		t.Fatalf("force takeover race winners=%d conflicts=%d", winners, conflicts)
+	}
+}
+
+func TestBatchForceTakeoverUsesGuardedServicePath(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-batch-force-takeover", t.TempDir())
+	created, err := svc.Create(ctx, testCreate("Recover through batch", "recover-through-batch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-dead", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Batch(ctx, BatchInput{Actor: "agent-recovery", Operations: []BatchOperation{{
+		Action: "force_takeover", ID: created.ID, ConfirmID: created.ID, ExpectedRevision: claimed.Revision, Reason: "the old process died", Lease: "30m",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Succeeded != 1 || len(result.Results) != 1 || !result.Results[0].OK {
+		t.Fatalf("batch force takeover result = %#v", result)
+	}
+}
+
 func TestBatchRunsEveryItemInOrderAndPreservesLifecycleChecks(t *testing.T) {
 	ctx := context.Background()
 	svc := OpenAt("project-batch", t.TempDir())
