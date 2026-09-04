@@ -48,7 +48,7 @@ flowchart LR
     Hub --> Global
     Hub -. optional publish/install .-> S3["S3-compatible object storage"]
     Task -. authoritative shared tables .-> S3
-    UI --> Browser["Graphite Observatory"]
+    UI --> Browser["Graphit Observatory"]
     MCP --> IDE["IDE / agent adapter"]
 ```
 
@@ -88,7 +88,7 @@ One machine-wide daemon supervises registered projects, receives file events, sc
 
 ### Unified UI
 
-The Go server embeds the production React bundle from `internal/ui/dist/` and serves both the SPA and its JSON endpoints. The Graphite Observatory visualizes project, context, registry, daemon, Dream, and live-search state without maintaining a second data model.
+The Go server embeds the production React bundle from `internal/ui/dist/` and serves both the SPA and its JSON endpoints. The Graphit Observatory visualizes project, context, registry, daemon, Dream, and live-search state without maintaining a second data model.
 
 The UI binds to the configured `ui.host`, with the IPv4 loopback address as the safe default. Exact-origin CORS is a browser policy, not authorization. Reachable deployments require network controls or an authenticated proxy.
 

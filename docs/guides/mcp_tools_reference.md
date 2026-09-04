@@ -1,6 +1,6 @@
 ---
 title: "MCP Tools Reference"
-description: "Complete reference of all MCP tools available to AI agents via the Graphit Code stdio server."
+description: "Complete reference of all MCP tools available to AI agents through Graphit Code."
 content-type: reference
 audience: developers, ai-agents
 keywords:
@@ -18,7 +18,10 @@ related:
 
 # MCP Tools Reference
 
-This document provides a complete reference for all MCP (Model Context Protocol) tools exposed by the Graphit Code stdio server. AI agents use these tools to interact with the Graphit platform — indexing code, querying graphs, managing memories, searching knowledge, and more.
+This document provides a complete reference for all MCP (Model Context Protocol) tools exposed by
+Graphit Code. A local installation reaches the catalog through the managed stdio proxy; the daemon
+publishes the same catalog through Streamable HTTP at `/mcp`, authenticated with a bearer key. AI
+agents use these tools to index code, query graphs, manage memories, search knowledge, and more.
 
 The tools are organized by module. Every tool name follows the pattern `graphit_<module>_<action>` (e.g., `graphit_ast_query`).
 
@@ -32,10 +35,9 @@ The platform provides multiple retrieval tools across three tiers. Use this matr
 |------|---------|-----|-------------|----------|
 | `graphit_memory_search` | LanceDB BM25 on the compiled memory wiki | No | `scope` (project/user) | Ranked keyword match in memories |
 | `graphit_knowledge_search` | LanceDB BM25 | No | `context` (empty=project, named=Hub install) | Keyword search in project or mounted docs |
-| `graphit_wiki_search` | BM25 + semantic on `index.lance/` | Semantic mode | `wikis[]` (project, memory), `hub_refs[]` | Multi-source search, semantic search |
+| `graphit_wiki_search` | BM25 + vector search with hybrid RRF | Embeddings only | `wikis[]` (project, memory), `hub_refs[]` | Multi-source lexical, semantic, or hybrid search |
 | `graphit_wiki_browse` | LanceDB `index.lance/` catalog | No | `wiki` (project/memory), `context` | Listing all documents with filters |
-| `graphit_knowledge_query` | AI + BM25 multi-turn | Yes | `context` | Deep AI-synthesized answer from project docs |
-| `graphit_memory_query` | AI + compiled wiki | Yes | `scope`, `context` | AI-synthesized answer from memories |
+| `graphit_ast_search` | BM25 + vector search with hybrid RRF | Embeddings only | `context` | Candidate code entities before graph/source reads |
 
 **Key parameter differences:**
 - **`scope`** (Memory tools): `"project"` (default) = project-specific memories, `"user"` = personal cross-project memories
@@ -58,7 +60,7 @@ The platform provides multiple retrieval tools across three tiers. Use this matr
 - [Dream Tools](#dream-tools)
 - [Daemon Tools](#daemon-tools)
 - [Cluster Tools](#cluster-tools)
-- [Improvements Tools](#improvements-tools)
+- [Task Tools](#task-tools)
 
 ---
 
@@ -73,6 +75,27 @@ Tools for project initialization, syncing, updating, removing, and configuration
 _No parameters._
 
 The tool does not resolve a project or read a lockfile. Each call uses the canonical config schema to resolve module enablement from environment, global configuration, and framework defaults, then applies global rule overrides. Mandatory memory, memory bootstrap instructions, installed Hub rules, and project configuration are excluded.
+
+---
+
+### `graphit_module_skill`
+
+**Description:** Return the complete, authoritative instruction source for one core Graphit module.
+This gives remote agents the same module guidance as an IDE-managed local skill without requiring
+access to the agent's or server's filesystem.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `module` | string | ✅ | `task`, `memory`, `ast`, `hub`, or `knowledge` |
+| `project_dir` | string | | Resolve a real project's skill override and configuration; omit on an artifact-only remote server |
+
+The JSON result contains `module`, the managed skill `name`, its resolved `enabled` state, and the
+complete `content`. Resolution order is project override, global override, installed Hub override,
+then the framework default; the default-content placeholder is expanded when present.
+
+Call `graphit_mandates` first. When the current action matches a returned trigger, read that module
+with `graphit_module_skill` before using the module's tools. See the copy-ready
+[remote agent skill](../examples/skills/graphit-remote/SKILL.md).
 
 ---
 
@@ -103,9 +126,10 @@ This tool performs a full sync cycle:
 1. AST indexing (if the `ast` module is enabled)
 2. Knowledge indexing (if the `knowledge` module is enabled)
 3. Memory cycle (project and user)
-4. Hub git store sync
-5. IDE rule installation
-6. IDE adapter sync
+4. Hub registry and managed-artifact reconciliation
+5. managed module-skill refresh
+6. native IDE MCP and lifecycle-hook reconciliation
+7. Git hook reconciliation when enabled
 
 ---
 
@@ -223,19 +247,6 @@ Tools for building, querying, and managing the AST code graph database.
 | `ai_optimized` | boolean | | Optimize the Cypher query execution for AI context |
 
 > **Tip:** Always set `ai_optimized: true` for AI agent usage. This returns results in a compact, token-efficient format (TOON) rather than raw JSON.
-
----
-
-### `graphit_ast_query_ai`
-
-**Description:** Convert a natural language question about the codebase into a Cypher query using AI, execute it, and return results.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `query` | string | ✅ | Natural language question about the codebase to convert to Cypher |
-| `context` | string | | Named imported context to query |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -373,18 +384,6 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 
 ---
 
-### `graphit_knowledge_query`
-
-**Description:** Search the project knowledge wiki using AI-powered retrieval.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `query` | string | ✅ | Natural language question to search the project knowledge wiki |
-| `context` | string | | Named imported context to search instead of the default project |
-
----
-
 ### `graphit_knowledge_search`
 
 **Description:** Search the project knowledge wiki using BM25 keyword ranking.
@@ -474,6 +473,7 @@ Tools for managing the project and user persistent memory store.
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `link_project` | boolean | | Link user memory to project identity |
 | `important` | boolean | | Mark as important |
+| `mandatory` | boolean | | Load unconditionally at session bootstrap |
 | `tags` | string | | Comma-separated tags |
 
 ---
@@ -518,27 +518,33 @@ Tools for managing the project and user persistent memory store.
 
 ### `graphit_memory_search`
 
-**Description:** Search the compiled LanceDB memory wiki.
+**Description:** Search the compiled LanceDB memory wiki. Results are titles, not memory content;
+read the chosen result with `graphit_wiki_source` and `wiki: "memory"`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `query` | string | ✅ | Text query to search |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `exclude_mandatory` | boolean | | Exclude records already loaded during mandatory bootstrap |
+| `preview` | boolean | | Include a short excerpt only when titles cannot disambiguate results |
+| `top_k` | integer | | Total result cap; `0` means no limit |
+| `page_size` | integer | | Results per page, up to 100 |
+| `cursor` | string | | Opaque `next_cursor` returned by the preceding identical search |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
-### `graphit_memory_query`
+### `graphit_memory_mandatory`
 
-**Description:** Search memories with AI Consultation and return a synthesized response.
+**Description:** Read every mandatory memory in one scope directly from the authoritative table.
+This is the first phase of session recall and does not take a search query.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
-| `query` | string | ✅ | Natural language query |
 | `scope` | string | | Scope: `project` (default) or `user` |
-| `context` | string | | Named imported context |
+| `ai_optimized` | boolean | | Return compact TOON output by default; set `false` for verbose JSON |
 
 ---
 
@@ -574,6 +580,31 @@ Tools for managing the project and user persistent memory store.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `id` | string | ✅ | Memory ID to demote |
+| `scope` | string | | Scope: `project` (default) or `user` |
+
+---
+
+### `graphit_memory_mark_mandatory`
+
+**Description:** Mark a memory for unconditional session-start recall. Mandatory and important are
+independent states.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `id` | string | ✅ | Memory ID |
+| `scope` | string | | Scope: `project` (default) or `user` |
+
+---
+
+### `graphit_memory_unmark_mandatory`
+
+**Description:** Remove unconditional recall while preserving the memory and its importance state.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `id` | string | ✅ | Memory ID |
 | `scope` | string | | Scope: `project` (default) or `user` |
 
 ---
@@ -684,12 +715,13 @@ Tools for interacting with the Graphit Hub artifact registry.
 
 ### `graphit_hub_install`
 
-**Description:** Install an artifact from the Graphit Hub into the current project.
+**Description:** Install an artifact from the Graphit Hub into a project, or into the global
+version-keyed store when `project_dir` is omitted.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `id` | string | ✅ | Artifact ID to install. Supports `@version` suffix for version pinning |
+| `project_dir` | string | | Project directory; omit to install globally on a projectless server |
+| `id` | string | ✅ | Artifact ID to install. Use an exact `id@version` for reproducible remote work |
 | `type` | string | | Artifact type |
 | `ide` | string | | Target IDE (claude, cursor, gemini, etc.) |
 | `alias` | string | | Alias to assign to installed artifact |
@@ -699,12 +731,13 @@ Tools for interacting with the Graphit Hub artifact registry.
 
 ### `graphit_hub_uninstall`
 
-**Description:** Remove an installed artifact from the current project.
+**Description:** Remove an artifact installed in a project, or drop its global installation when
+`project_dir` is omitted.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `id` | string | ✅ | Artifact ID to uninstall |
+| `project_dir` | string | | Project directory; omit to remove a global installation |
+| `id` | string | ✅ | Artifact ID to uninstall, optionally qualified with `@version` |
 | `type` | string | | Artifact type |
 | `ide` | string | | Target IDE |
 
@@ -778,13 +811,45 @@ Tools for interacting with the Graphit Hub artifact registry.
 
 ---
 
+### `graphit_hub_content`
+
+**Description:** Read the files of an installed `rule`, `skill`, `command`, or `agent` artifact.
+The result is keyed by artifact-relative path and names the canonical entry point. AST and Knowledge
+artifacts remain mounted and are read with `graphit_ast_source` or `graphit_wiki_source`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | ✅ | Artifact ID, preferably qualified as `id@version`; exact qualification is required for reproducible remote work |
+| `project_dir` | string | | Project whose lockfile selects the version; omit for a global installation |
+| `type` | string | | Disambiguates an ID used by more than one physical artifact type |
+| `path` | string | | Return one artifact-relative file instead of the complete file map |
+
+---
+
+### `graphit_hub_type_path`
+
+**Description:** Resolve the native IDE path where a physical skill, command, agent, or MCP
+artifact should be created. Hook-delivered rules intentionally have no physical IDE path.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `type` | string | ✅ | `skill`, `rule`, `command`, `agent`, or `mcp` |
+| `name` | string | ✅ | Artifact name |
+| `ide` | string | | Target adapter; defaults through project/global resolution |
+
+---
+
 ## Wiki Tools
 
-Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
+Tools for multi-source wiki retrieval, catalog browsing, provenance, history, embeddings, and
+source reads.
 
 ### `graphit_wiki_search`
 
-**Description:** Search across multiple wiki sources using AI-powered retrieval.
+**Description:** Search across multiple wiki sources using BM25 full-text search, semantic vectors,
+or hybrid reciprocal rank fusion. Results are candidate page titles and scores; read the selected
+page with `graphit_wiki_source`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -792,13 +857,17 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 | `wikis` | array[string] | | Wiki sources to search (`project`, `memory`, or project IDs from ecosystem) |
 | `hub_refs` | array[string] | | Hub knowledge artifact references to include (format: `artifact-id@version`) |
 | `session_id` | string | | Session ID to continue an existing conversation |
-| `top_k` | integer | | BM25 results per wiki source (0 = no limit) |
-| `project_dir` | string | ✅ | Project directory |
+| `mode` | string | | `hybrid` (default), `fts`, or `semantic` |
+| `top_k` | integer | | Maximum merged results across sources (`0` = no limit) |
+| `page_size` | integer | | Results per page, up to 100 |
+| `cursor` | string | | Opaque `next_cursor` returned by the preceding identical search |
+| `preview` | boolean | | Include short excerpts only when titles cannot disambiguate candidates |
+| `project_dir` | string | | Required for project-backed sources; omit only for user memory or qualified Hub references |
 | `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
 
 > **Tip:** Always set `ai_optimized: true` for AI agent usage. This returns results in a compact, token-efficient format (TOON) rather than raw JSON.
 
-**Returns:** AI-synthesized answer with a session ID for follow-up chat.
+**Returns:** Ranked candidate titles, source metadata, scores, and an optional `next_cursor`.
 
 ---
 
@@ -898,29 +967,6 @@ own reason and deliberately **without** that list, so the reason is not buried.
 
 ---
 
-### `graphit_wiki_chat`
-
-**Description:** Continue a wiki chat session started by `graphit_wiki_search`.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `session_id` | string | ✅ | Chat session ID to continue |
-| `message` | string | ✅ | User message to send |
-
----
-
-### `graphit_wiki_sessions`
-
-**Description:** List or delete wiki chat sessions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `action` | string | ✅ | Action: `list` or `delete` |
-| `session_id` | string | | Session ID for delete action |
-| `project_dir` | string | ✅ | Project directory for listing |
-
----
-
 ## Dream Tools
 
 Tools for managing the autonomous dream module — skill generation and knowledge mining during idle periods.
@@ -972,7 +1018,7 @@ Tools for managing the global background daemon process.
 - `running` — whether the daemon is alive
 - `started_at` / `uptime_seconds` — uptime information
 - `pid_file_path` — path to the PID file
-- `scheduler_status` — OS scheduler status (systemd, launchd, or schtasks)
+- `scheduler_status` — OS scheduler status (user crontab, launchd, or Task Scheduler)
 - `recent_logs` — last 10 lines from the daemon log
 
 ---
@@ -1073,15 +1119,15 @@ Most tools accept the following common parameters:
 
 | Parameter | Description |
 |-----------|-------------|
-| `project_dir` | **Required on nearly every tool.** Absolute path to the project directory. The MCP server uses this to resolve the project lockfile, configuration, and local data stores. |
+| `project_dir` | Real project directory for project-bound tools. Artifact-only remote clients omit it and use qualified Hub contexts; never invent a server path. |
 | `scope` | Used by Memory tools. Either `project` (default) or `user`. Controls which memory store is targeted. |
-| `context` | Used by AST, Knowledge, and Memory tools. Names an imported context (external project) to operate on instead of the default project. |
-| `ide` | Target IDE adapter (e.g., `claude`, `cursor`, `gemini`, `windsurf`). Affects rule installation format. |
-| `ai_optimized` | Available on all tools that return structured JSON data. Set to `true` to receive output in compact TOON (Token-Optimized Object Notation) format instead of verbose JSON. Reduces token consumption by ~60-80%. |
+| `context` | Used by the tools that declare it to select an imported or Hub context instead of the local project. Use `id@version` for remote Hub content. |
+| `ide` | Target IDE adapter, such as `claude`, `codex`, `cursor`, `gemini`, `kiro`, `opencode`, or `antigravity`. Affects native materialization. |
+| `ai_optimized` | Offered by structured tools that support TOON. Omitted/`true` selects compact TOON; `false` selects verbose JSON. |
 
 ## Error Handling
 
 All MCP tools follow a consistent error pattern:
 - On success, tools return a `CallToolResult` with `TextContent` or JSON-serialized content.
-- On error, tools return a Go error that is propagated as an MCP error response.
+- Domain errors are surfaced by the MCP SDK as tool errors (`isError: true`) with readable content.
 - Every tool handler is wrapped in `safeTool()`, which adds panic recovery and automatic daemon autostart.

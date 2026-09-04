@@ -98,15 +98,17 @@ and keeps the AWS SDK provider chain active. The secret is not echoed, but it is
 plain text in the owner-only global config file. Prefer profiles or workload roles when
 possible. See [S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
 
-Its final step downloads the embedding model (~132 MB) into
-`~/.graphit/models/coderankembed/`, showing a progress bar on a terminal and reporting
-in tenths when the output is redirected. The model is not built into the binary.
+When the selected embedding provider is `local`, setup's final step downloads the embedding model
+(~132 MB) into `~/.graphit/models/coderankembed/`, showing a progress bar on a terminal and
+reporting in tenths when output is redirected. The model is not built into the binary. Remote
+embedding providers skip this download.
 
-**The command fails if that download fails** — a non-zero exit, because an
-installation without the model cannot answer a semantic query. It is the last step, so
+**The command fails if that download fails** — a non-zero exit, because a
+local installation without the model cannot answer a semantic query. It is the last step, so
 every setting collected before it is already saved and re-running `setup` after fixing
 the network loses nothing.
-See [AI Engine](../specs/ai_engine.md#-model-manager-downloaded-once-shared-by-everything).
+See [AI Models, Providers, and Agent CLIs](ai_models.md) for every provider, model default,
+dimension, credential, CLI protocol, and data boundary.
 
 ### `init`
 Initializes a new project workspace.
@@ -185,10 +187,14 @@ printf '%s' "$S3_SECRET_ACCESS_KEY" | graphit config --global --secret hub.secre
 # Set cluster mapping for multi-domain monorepos (persisted to graphit.lock.json)
 graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
 
-# Set default cluster for unmatched paths
-graphit config ast.cluster default-cluster
 ```
-The `ast.cluster_map` accepts comma-separated `path=cluster` pairs. Paths are directory prefixes (trailing slash optional). When using `graphit ast index` or `graphit ast watch` with `--cluster-path`, the mapping is automatically persisted.
+The `ast.cluster_map` accepts comma-separated `path=cluster` pairs. Paths are directory prefixes
+(trailing slash optional). `--cluster-path` persists that mapping. Use `--cluster <name>` on an
+individual `ast index` or `ast watch` invocation for a fallback cluster. Although current commands
+may preserve an `ast.cluster` field in the lockfile, no configuration resolver consumes it.
+
+For every supported key, environment spelling, scope, default, and module switch, see the
+[Configuration Reference](configuration.md).
 
 `hub.secret_access_key` is shown as `[REDACTED]` by `--get` and `--list`; redaction does
 not encrypt the value on disk. Project values override global values, while matching
@@ -240,6 +246,74 @@ graphit mcp [flags]
 ---
 
 ## Subsystem Commands
+
+### `hub`
+
+Discovers and distributes versioned code graphs, documentation, rules, skills, agents, commands,
+MCP definitions, powers, and language packs.
+
+```bash
+graphit hub <subcommand> [flags]
+```
+
+The CLI `install` and `uninstall` commands operate on the global version-keyed store, so they also
+work on a server with no checkout. MCP clients may additionally pass a real `project_dir` to create
+a project-scoped installation.
+
+**Subcommands:**
+
+- `list [--type <type>]`: List registry artifacts, optionally by type.
+- `search <term> [--type <type>]`: Search IDs, names, and descriptions.
+- `show <id> [--type <type>]`: Show one registry entry and its published versions.
+- `install <id>[@version] [--type <type>] [--alias <name>]`: Install globally. Pin an exact version
+  for reproducible agent work.
+- `uninstall <id> [--type <type>]`: Drop a global installation.
+- `update [id] [--type <type>]`: Update every installed artifact or one selected artifact.
+- `submit <id> <local-path>`: Publish local source. Flags are `--version` (default `1.0.0`),
+  `--type` (default `rule`), `--name`, `--description`, and comma-separated `--tags`.
+- `link <name> --path <project> --type <type>`: Record or materialize a local development link in
+  the current initialized project. AST/Knowledge point to the sibling's compiled global store;
+  adapter-native artifacts use the adapter's own destination.
+- `unlink <name> --type <type>`: Remove a local link from the current project.
+- `projects`: List registered projects.
+- `type-path <type> <name>`: Print the adapter-native destination for creating a physical skill,
+  command, agent, or MCP artifact. Rules have no physical destination because hooks load them.
+- `rule`: Inspect or override the Hub routing mandate.
+
+The inherited `--ide` flag selects the adapter for project materialization. Artifact types are
+`knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power`, and `language`.
+
+### `live`
+
+Runs an agent in a disposable workspace assembled from selected Hub artifacts plus user memory.
+Every `-a/--artifact` accepts `[<type>:]<id>[@version]` and is repeatable.
+
+```bash
+graphit live "where is retry decided?" \
+  --artifact knowledge:acme-docs@3.0.1 \
+  --artifact ast:acme-api@2.1.0
+```
+
+- With a question, the answer streams and the command exits; without one, the session remains
+  interactive until `/exit` or a second `Ctrl+C`.
+- `--ide <name>` chooses adapter conventions in the throwaway project.
+- `--json` emits one structured event per line.
+- `graphit live sessions` lists retained sessions.
+- `graphit live remove <session-id>` deletes one session and its throwaway workspace.
+
+Leaving an interactive run does not delete it. `modules.agent=false` disables Live Search because
+the server must launch a coding-agent CLI; artifact retrieval itself remains available.
+
+### `completion`
+
+Generates shell completion scripts for `bash`, `fish`, `powershell`, or `zsh`:
+
+```bash
+graphit completion bash
+graphit completion zsh
+```
+
+Each shell subcommand's `--help` shows the installation command for that shell.
 
 ### `ast`
 Directly indexes, queries, and manages the abstract syntax tree.
@@ -432,6 +506,23 @@ graphit daemon <subcommand> [flags]
 - `status`: Show daemon status and log tail.
 - `restart`: Restart daemon.
 - `scheduler <install|remove|status>`: Manage OS system launchers (cron, launchd, task scheduler).
+
+The recursive filesystem watcher is configured rather than controlled by a daemon flag:
+
+```bash
+graphit config modules.sync false
+graphit daemon restart
+```
+
+That setting disables watching for the current project. Use the global configuration command below
+for every registered project, or `GRAPHIT_MODULES_SYNC=false` in the daemon environment:
+
+```bash
+graphit config --global modules.sync false
+```
+
+Watching defaults to enabled. Disabling it stops incremental AST/Knowledge reactions but leaves
+manual `graphit sync` and direct index commands available.
 
 ### `dream`
 Controls autonomous skill generation and knowledge mining.

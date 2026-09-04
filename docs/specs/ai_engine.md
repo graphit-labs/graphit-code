@@ -32,7 +32,7 @@ Embedding and reranking are **local by default** — `ai.embedding.provider` and
 configuration behaves exactly as before: vectors are computed on this machine by an
 ONNX session, and the only network access is the one-time download of the model
 weights, which happens only for whichever of the two is actually set to `local` (see
-[the download-is-required section](#the-download-is-required-not-best-effort) below —
+[the download-is-required section](#the-download-is-required-not-best-effort--for-the-local-provider) below —
 it now applies per backend, not unconditionally). Setting either to a remote provider
 sends text to that provider's API instead and downloads nothing.
 
@@ -56,15 +56,9 @@ and its tokenizer, downloading them when they are not already on the machine.
 
 ### The model is not in the binary
 
-It used to be. The build downloaded it, gzipped it, and `go:embed`-ed it into the
-launcher, which extracted it on first run and then replaced it with a symlink into
-the shared cache to avoid keeping a second copy per version. That put **103 MB of
-compressed weights into every released binary** — more than everything else the
-launcher carries — to ship a file that changes on a completely different schedule
-from the code, and it made every CI build and every release pull it again.
-
-Now `graphit setup` downloads it, once, straight into the cache. See
-Graphit Task `tsk-9e2cda65510f` records why the model arrives at setup rather than inside the binary.
+`graphit setup` downloads the local model once into the shared cache. Release binaries
+therefore remain independent of the model asset, and private or air-gapped builds can
+place a compatible model beside the Core binary.
 
 ### Resolution order
 
@@ -290,16 +284,15 @@ when it is turned on; it does not turn reranking on by itself.
 - **No production call site yet.** `search.rerank`, `ai.CrossEncoderReranker`, and
   `lancestore.RerankConfig.Reranker` all exist and work end to end when wired
   together, but nothing under `cmd/`, `internal/mcpstdio`, or `internal/uiserver`
-  currently constructs a reranker and passes it into a search call — this is a
-  pre-existing gap, independent of provider selection, not something this work
-  changed.
+  currently constructs a reranker and passes it into a search call. Current public
+  retrieval therefore stops after hybrid RRF even when the switch is enabled.
 
 ---
 
 ## 💬 AI Completions API
 
 The completion dispatcher (`internal/ai/ai.go`) routes text synthesis prompts. This
-is a **separate stack from embedding**, and the one place where work does leave the
+is a **separate stack from embedding**, and a place where work can leave the
 machine: `NewClientFromConfig` resolves a locally installed **agent CLI** — the
 `ai.cli` key, defaulting through `config.DefaultCLI()` and ultimately to
 `config.FallbackCLI` (`opencode`), with `opencode`, `claude`, `gemini`, `codex` and
@@ -307,6 +300,15 @@ machine: `NewClientFromConfig` resolves a locally installed **agent CLI** — th
 is no HTTP API client and no API key handling here either; whatever the chosen CLI
 sends upstream is that CLI's business.
 
-- **Client Configuration**: Leverages client settings configured globally in `~/.graphit/config.json`.
-- **System Prompts**: Guides AI behaviors for key background tasks, including the wiki discovery synthesis loop, memory consolidation analyses, and autonomous skill generation.
-- **Decoupling**: All chat completions are stateless, preserving the user's private data locally.
+- **Model ownership**: Graphit has no chat-provider HTTP client or `ai.model` key. The
+  selected CLI owns provider, authentication, model, and rate-limit configuration.
+- **Client configuration**: `ai.cli` and `ai.agent_args*` are read from the global
+  configuration. Arguments are attached only to streamed agentic runs with tool use.
+- **Continuity**: Claude, Gemini, AGY, OpenCode, and Copilot have known resume flags;
+  Graphit passes only real CLI-issued session IDs. Other runs are text-only/stateless.
+- **Consumers**: natural-language Cypher, AI wiki answers, Live Search, memory
+  consolidation, and Dream use the completion client under their own module gates.
+
+The complete user-facing CLI matrix, fallback order, provider/model boundary, and
+data-transfer behavior are documented in
+[AI Models, Providers, and Agent CLIs](../guides/ai_models.md).

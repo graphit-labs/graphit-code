@@ -44,7 +44,7 @@ graph TD
 ### Server Startup
 
 1. `NewServer()` creates an `mcp.Server` instance with the branded server name (`graphit-code-stdio`) and the current `version.Version`.
-2. Tool groups are registered in order: Lifecycle → AST → Knowledge → Memory → Hub → Wiki → Dream → Daemon → Cluster → Improvements.
+2. Tool groups are registered in order: Lifecycle → AST → Knowledge → Memory → Task → Hub → Wiki → Dream → Daemon → Cluster.
 3. `Serve(ctx)` mutes CLI output via `output.Mute()`, redirects Go's `log` to stderr, then constructs a decoupled `IOTransport` using `io.NopCloser(os.Stdin)` and a `nopWriteCloser{os.Stdout}` to prevent interference from `os.Stdout` reassignment.
 
 ### Transport Decoupling
@@ -79,7 +79,9 @@ type syncInput struct {
 }
 ```
 
-> All tools returning structured JSON data include an `AiOptimized bool` field. When set to `true`, the handler returns `toonResult(v)` instead of `jsonResult(v)`, producing compact TOON (Token-Optimized Object Notation) output that reduces token consumption by ~60-80%.
+> Structured tools that declare `ai_optimized` use a nullable boolean: omitted or `true` returns
+> compact TOON, while `false` requests verbose JSON. Some tools intentionally return fixed text or
+> JSON and do not expose that option.
 
 ---
 
@@ -144,6 +146,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | Tool | Description |
 |---|---|
 | `graphit_mandates` | Resolve dynamic mandates from global config/rule overrides and framework defaults; takes no parameters and reads no lockfile. |
+| `graphit_module_skill` | Return the complete resolved Task, Memory, AST, Hub, or Knowledge skill source and its enabled state; `project_dir` is optional. |
 | `graphit_init` | Initialize a new project: create lockfile, generate ULID, set up gitignore, register in global lock. |
 | `graphit_sync` | Full sync: reindex AST, rebuild knowledge wiki, run memory cycle, sync hub, install IDE rules. |
 | `graphit_update` | Update all installed hub artifacts to latest versions and refresh IDE rules. |
@@ -160,7 +163,6 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 |---|---|
 | `graphit_ast_index` | Index project files into the AST code graph database. Supports workers, reset, reindex, cluster labels, and no-source mode. |
 | `graphit_ast_query` | Execute a Cypher query against the AST graph. Supports `ai_optimized` output formatting and named contexts. |
-| `graphit_ast_query_ai` | Convert a natural language question to Cypher via AI, execute, and return results. Supports `ai_optimized`. |
 | `graphit_ast_schema` | Return graph schema: node labels, properties, and relationship types. |
 | `graphit_ast_install` | Import another local repository as a named AST context. |
 | `graphit_ast_remove` | Remove an imported context or clear the main project graph. |
@@ -175,10 +177,9 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | Tool | Description |
 |---|---|
 | `graphit_knowledge_index` | Index docs/ into the knowledge graph and regenerate the wiki. |
-| `graphit_knowledge_query` | AI-powered retrieval search of the project knowledge wiki. |
-| `graphit_knowledge_search` | BM25 keyword search across the knowledge wiki. |
+| `graphit_knowledge_search` | BM25 keyword search across the knowledge wiki; returns ranked page titles for selective reading. |
 | `graphit_knowledge_schema` | Show the knowledge graph schema and wiki directory info. |
-| `graphit_knowledge_lint` | Audit the wiki for structural issues. Supports deep AI analysis and auto-fix. |
+| `graphit_knowledge_lint` | Audit the wiki for structural and staleness issues. |
 | `graphit_knowledge_remove` | Remove an imported context or clear local knowledge. |
 | `graphit_knowledge_sync` | Rebuild the local project wiki from docs. |
 | `graphit_knowledge_list` | List all articles in the local knowledge wiki. |
@@ -210,21 +211,26 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | `graphit_hub_list` | List available artifacts in the Hub registry, optionally filtered by type. |
 | `graphit_hub_search` | Search the Hub by name, ID, or description. |
 | `graphit_hub_show` | Show detailed information about a specific artifact. |
-| `graphit_hub_install` | Install an artifact into the project. Supports version pinning (`@version`) and IDE targeting. |
-| `graphit_hub_uninstall` | Remove an installed artifact. |
+| `graphit_hub_install` | Install an artifact into a project, or globally when `project_dir` is omitted. Supports version pinning (`@version`) and project IDE targeting. |
+| `graphit_hub_uninstall` | Remove a project installation, or a global installation when `project_dir` is omitted. |
 | `graphit_hub_update` | Update one or all installed artifacts. |
 | `graphit_hub_submit` | Publish a local artifact to the Hub. Defaults: version `1.0.0`, type `rule`. |
 | `graphit_hub_link` | Link a local project's artifacts via symlinks. |
 | `graphit_hub_unlink` | Remove a linked artifact. |
+| `graphit_hub_content` | Read a Hub artifact's source content with bounded slicing. |
 | `graphit_hub_projects` | List registered projects in the global lock. |
+| `graphit_hub_type_path` | Resolve the conventional project path for an artifact type. |
 
 ### 6. Wiki Tools (`tools_wiki.go`)
 
 | Tool | Description |
 |---|---|
-| `graphit_wiki_search` | Search across multiple wiki sources (project, memory, hub knowledge) using AI-powered retrieval. Returns a session ID for follow-up. |
-| `graphit_wiki_chat` | Continue a wiki chat session started by `wiki_search`. |
-| `graphit_wiki_sessions` | List or delete wiki chat sessions. |
+| `graphit_wiki_search` | Search project, memory, ecosystem-project, and Hub knowledge sources with BM25, semantic vectors, or hybrid RRF; returns ranked page titles for selective reading. |
+| `graphit_wiki_browse` | Browse wiki documents with optional document-type filtering. |
+| `graphit_wiki_log` | Read the ordered synchronization history for a wiki. |
+| `graphit_wiki_xrefs` | Traverse inbound and outbound wiki references to a bounded depth. |
+| `graphit_wiki_embed` | Generate or update vector embeddings for project or memory wiki chunks. |
+| `graphit_wiki_source` | Read one selected wiki page with head, tail, line-range, or pattern slices. |
 
 ### 7. Dream Tools (`tools_dream.go`)
 
@@ -316,8 +322,7 @@ Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from han
 | `internal/wiki` | Wiki search, BM25, lint operations. |
 | `internal/toon` | Generic TOON (Token-Optimized Object Notation) formatter using reflection for `ai_optimized` output. |
 | `internal/wikisvc` | Multi-wiki search service. |
-| `internal/chat` | Chat session management for wiki sessions. |
-| `internal/ai` | AI client for query generation and embeddings. |
+| `internal/ai` | Embedding and agent-dependent AI services used by the surfaces that enable them. |
 
 ### External
 

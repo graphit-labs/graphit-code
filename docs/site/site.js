@@ -25,18 +25,31 @@ navigation?.querySelectorAll('a').forEach((link) => {
 const installConsole = document.querySelector('.install-console')
 const tabs = [...document.querySelectorAll('.install-tab')]
 const panels = installConsole ? [...installConsole.querySelectorAll('.command-panel')] : []
-tabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
+const activateTab = (tab) => {
     tabs.forEach((item) => {
       const active = item === tab
       item.classList.toggle('is-active', active)
       item.setAttribute('aria-selected', String(active))
+      item.tabIndex = active ? 0 : -1
     })
     panels.forEach((panel) => {
       const active = panel.dataset.panel === tab.dataset.tab
       panel.classList.toggle('is-active', active)
       panel.hidden = !active
     })
+}
+tabs.forEach((tab, index) => {
+  tab.addEventListener('click', () => activateTab(tab))
+  tab.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    tabs[nextIndex].focus()
+    activateTab(tabs[nextIndex])
   })
 })
 

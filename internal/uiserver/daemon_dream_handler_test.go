@@ -62,6 +62,27 @@ func TestHandleDaemonStatus_ResponseFields(t *testing.T) {
 	t.Logf("scheduler_status: %q, pid_file_path: %q", res.SchedulerStatus, res.PIDFilePath)
 }
 
+func TestAdvertisedMCPHost(t *testing.T) {
+	tests := []struct {
+		name        string
+		bindHost    string
+		requestHost string
+		want        string
+	}{
+		{name: "explicit bind address", bindHost: "127.0.0.1", requestHost: "graphit.example:8080", want: "127.0.0.1"},
+		{name: "wildcard IPv4", bindHost: "0.0.0.0", requestHost: "graphit.example:8080", want: "graphit.example"},
+		{name: "wildcard IPv6", bindHost: "::", requestHost: "[2001:db8::4]:8080", want: "2001:db8::4"},
+		{name: "request without port", bindHost: "0.0.0.0", requestHost: "graphit.internal", want: "graphit.internal"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := advertisedMCPHost(tt.bindHost, tt.requestHost); got != tt.want {
+				t.Fatalf("advertisedMCPHost(%q, %q) = %q; want %q", tt.bindHost, tt.requestHost, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandleDaemonStop_NotRunning(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()

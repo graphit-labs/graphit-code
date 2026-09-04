@@ -40,6 +40,18 @@ type syncInput struct {
 
 type mandatesInput struct{}
 
+type moduleSkillInput struct {
+	Module     string `json:"module" jsonschema:"Core module: task, memory, ast, hub, or knowledge (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project directory whose skill override and configuration should be resolved. Omit on an artifact-only remote server."`
+}
+
+type moduleSkillResult struct {
+	Module  string `json:"module"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Content string `json:"content"`
+}
+
 type updateInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory to update (required)"`
 	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE"`
@@ -98,6 +110,48 @@ func registerLifecycleTools(server *mcp.Server) {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: sessioncontext.Mandates()}},
 		}, nil, nil
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("module", "skill"),
+		Description: "Return the authoritative source of one core Graphit module skill. Call graphit_mandates first, then read the skill named by the matching mandate trigger. The source is resolved from the optional project override, global override, installed Hub override, or framework default without requiring a local agent filesystem.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true,
+		},
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input moduleSkillInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		module := strings.ToLower(strings.TrimSpace(input.Module))
+		var projectCfg config.ConfigMap
+		if projectDir != "" {
+			projectCfg = config.LoadProjectConfig(projectDir)
+		}
+
+		var defaultContent string
+		switch module {
+		case "task":
+			defaultContent = graphtask.RuleContent()
+		case "memory":
+			defaultContent = memory.RuleContent(memory.AllContextDirs())
+		case "ast":
+			defaultContent = ast.ASTRuleContent()
+		case "hub":
+			defaultContent = hub.HubRuleContent()
+		case "knowledge":
+			docsDir := config.ResolveConfig("knowledge.docs_dir", nil, projectCfg)
+			defaultContent = knowledge.KnowledgeRuleContent(nil, docsDir)
+		default:
+			return errResult(fmt.Errorf("module %q is not a core skill (want task, memory, ast, hub, or knowledge)", input.Module))
+		}
+
+		return jsonResult(moduleSkillResult{
+			Module:  module,
+			Name:    brand.SkillDirName(module),
+			Enabled: !config.IsModuleDisabled(module, nil, projectCfg),
+			Content: brand.ResolveModuleSkillIn(projectDir, module, defaultContent),
+		})
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

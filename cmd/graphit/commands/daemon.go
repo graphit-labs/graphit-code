@@ -43,23 +43,32 @@ func newDaemonCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Global background process — keeps embedding model warm and runs autonomous tasks",
+		Short: "Global background process — maintains indexes and shared services",
 		Long: brand.DisplayName + ` Daemon — a single global process that discovers all projects
-and keeps expensive resources (ONNX embedding model) loaded in memory, shared
+and keeps expensive resources (such as the configured embedding backend) shared
 across all projects.
 
-The daemon is auto-started by any CLI command and runs until explicitly stopped
-or until a binary update is detected.
+The daemon is auto-started by ordinary CLI commands unless modules.daemon=false,
+and runs until explicitly stopped or until a binary/grammar update is detected.
 
 The daemon:
   • Discovers all registered projects from the global lock
   • Parks projects that have gone quiet (daemon.activity_window, default 30m) —
     their fs watch, embedding loop and dream runner all stop — and resumes
     watching the moment a parked project changes again
-  • Keeps the embedding model (CodeRankEmbed-137M) loaded — shared across projects
+  • Shares the configured local or remote embedding backend across projects
   • Periodically scans for new entities and computes embeddings in background
   • Runs the autonomous dream module during idle periods (per project)
   • Automatically recovers crashed modules with exponential backoff
+
+Filesystem watch (enabled by default):
+  ` + brand.BinName() + ` config modules.sync false             Disable for the current project
+  ` + brand.BinName() + ` config --global modules.sync false    Disable for every project
+  GRAPHIT_MODULES_SYNC=false ` + brand.BinName() + ` daemon      Disable through the environment
+
+Restart the daemon after changing project or global configuration. Disabling
+modules.sync removes the per-project watcher and incremental AST/Knowledge
+updates; explicit ` + brand.BinName() + ` sync and direct index commands remain available.
 
 Lifecycle:
   ` + brand.BinName() + ` daemon                          Start in foreground (Ctrl+C to stop)
@@ -166,56 +175,18 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	if !cfg.DisableEmbedding {
 		sharedEmbedClient = ai.NewLazyEmbeddingClient()
 
-		go func() {
-			if mgr, mgErr := ai.NewModelManager(); mgErr == nil {
-				_, _, _ = mgr.EnsureModel(context.Background())
-			}
-		}()
+		embeddingProvider := strings.ToLower(strings.TrimSpace(config.ResolveConfig("ai.embedding.provider", nil, nil)))
+		if embeddingProvider == "" || embeddingProvider == "local" {
+			go func() {
+				if mgr, mgErr := ai.NewModelManager(); mgErr == nil {
+					_, _, _ = mgr.EnsureModel(context.Background())
+				}
+			}()
+		}
 	}
 
 	builder := func(projectDir string) ([]daemon.WatchModule, []func() error, error) {
-		var modules []daemon.WatchModule
-		var closerFns []func() error
-
-		lp := filepath.Join(projectDir, brand.LockFileName())
-		lf, _ := hub.LoadLockfile(lp)
-		var projectCfg config.ConfigMap
-		if lf != nil {
-			projectCfg = lf.Config
-		}
-
-		disableSync := config.IsModuleDisabled("sync", nil, projectCfg)
-		disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
-		disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
-		disableMemory := config.IsModuleDisabled("memory", nil, projectCfg)
-
-		cacheDir := store.ASTProjectDir(projectDir)
-
-		if !disableSync {
-			modules = append(modules, daemon.NewSyncModule(projectDir, cacheDir))
-		}
-		if !disableEmbedding {
-			modules = append(modules, daemon.NewEmbeddingModule(projectDir, 2*time.Minute, cacheDir))
-			// Wiki chunks need embedding too, and nothing was doing it: the module
-			// existed but was never registered here, so semantic and hybrid wiki
-			// search had no vectors to search in any project.
-			modules = append(modules, daemon.NewWikiEmbeddingModule(projectDir, daemon.WikiEmbedTargets(projectDir, nil), 2*time.Minute))
-		}
-		if !disableDream {
-			var lockfileIDEs []string
-			if lf != nil {
-				lockfileIDEs = lf.IDEs
-			}
-			ide := config.ResolveProjectIDE("", nil, projectCfg, lockfileIDEs)
-			modules = append(modules, daemon.NewDreamModule(projectDir, ide))
-		}
-		if !disableMemory && lf != nil && lf.Project.ID != "" {
-			modules = append(modules, daemon.NewMemoryMaintenanceModule(
-				memory.TableURIFor("project", lf.Project.ID), 15*time.Minute,
-			))
-		}
-
-		return modules, closerFns, nil
+		return buildDaemonProjectModules(projectDir, cfg, sharedEmbedClient)
 	}
 
 	signal.Reset(syscall.SIGTERM, syscall.SIGINT)
@@ -384,6 +355,45 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	})
 }
 
+func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbedClient ai.EmbeddingClient) ([]daemon.WatchModule, []func() error, error) {
+	lp := filepath.Join(projectDir, brand.LockFileName())
+	lf, _ := hub.LoadLockfile(lp)
+	var projectCfg config.ConfigMap
+	if lf != nil {
+		projectCfg = lf.Config
+	}
+
+	disableSync := config.IsModuleDisabled("sync", nil, projectCfg)
+	disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
+	disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
+	disableMemory := config.IsModuleDisabled("memory", nil, projectCfg)
+	cacheDir := store.ASTProjectDir(projectDir)
+
+	var modules []daemon.WatchModule
+	if !disableSync {
+		modules = append(modules, daemon.NewSyncModule(projectDir, cacheDir))
+	}
+	if !disableEmbedding {
+		modules = append(modules, daemon.NewEmbeddingModule(projectDir, 2*time.Minute, cacheDir))
+		modules = append(modules, daemon.NewWikiEmbeddingModule(projectDir, daemon.WikiEmbedTargets(projectDir, nil), 2*time.Minute))
+	}
+	if !disableDream {
+		var lockfileIDEs []string
+		if lf != nil {
+			lockfileIDEs = lf.IDEs
+		}
+		ide := config.ResolveProjectIDE("", nil, projectCfg, lockfileIDEs)
+		modules = append(modules, daemon.NewDreamModule(projectDir, ide))
+	}
+	if !disableMemory && lf != nil && lf.Project.ID != "" {
+		modules = append(modules, daemon.NewMemoryMaintenanceModule(
+			memory.TableURIFor("project", lf.Project.ID), 15*time.Minute,
+		))
+	}
+
+	return modules, nil, nil
+}
+
 func newDaemonStopCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
@@ -536,7 +546,7 @@ The scheduler uses user-scoped, privilege-free mechanisms:
   • Windows: Task Scheduler entry (runs every 1 minute)
 
 The scheduler is completely optional — the daemon is also auto-started
-by any CLI command. The scheduler ensures the daemon stays running even
+by ordinary CLI commands. The scheduler ensures the daemon stays running even
 when no CLI commands are being executed (e.g. during long coding sessions).`,
 	}
 

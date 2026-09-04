@@ -27,7 +27,7 @@ type ExternalQueryFile struct {
 	Extensions []string           `yaml:"extensions,omitempty"`
 	Parser     string             `yaml:"parser,omitempty"`     // "tree-sitter" (default) or "antlr4"
 	Grammar    string             `yaml:"grammar,omitempty"`    // Binary name for ANTLR (e.g. "antlr-plsql")
-	StartRule  string             `yaml:"start_rule,omitempty"` // ANTLR start rule (required when parser=antlr4)
+	StartRule  string             `yaml:"start_rule,omitempty"` // ANTLR start-rule metadata; the registered driver selects the method
 	Queries    []ExternalQueryDef `yaml:"queries"`
 
 	// Merge says what this file does to the same language declared at a lower

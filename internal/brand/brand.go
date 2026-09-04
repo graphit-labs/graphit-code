@@ -177,11 +177,16 @@ func defaultSkillPlaceholder() string {
 }
 
 func ResolveModuleSkill(module, defaultContent string) string {
+	wd, _ := os.Getwd()
+	return ResolveModuleSkillIn(wd, module, defaultContent)
+}
+
+func ResolveModuleSkillIn(projectDir, module, defaultContent string) string {
 	placeholder := defaultSkillPlaceholder()
 	fileName := module + "_skill.md"
 
-	if wd, err := os.Getwd(); err == nil {
-		projectPath := filepath.Join(wd, DotDir(), "rules", fileName)
+	if projectDir != "" {
+		projectPath := filepath.Join(projectDir, DotDir(), "rules", fileName)
 		if data, err := os.ReadFile(projectPath); err == nil {
 			return strings.ReplaceAll(string(data), placeholder, defaultContent)
 		}

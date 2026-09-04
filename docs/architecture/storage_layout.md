@@ -83,6 +83,27 @@ Things worth knowing before you set it:
 
 ```
 ~/.graphit/
+├── config.json                         global configuration (mode `0600`)
+├── global.lock.json                    registered projects and installed artifact metadata
+├── memory.lock.json                    external memory context mappings
+├── hub.registry.json                   local Hub registry metadata cache
+├── daemon/
+│   ├── daemon.pid                      process metadata plus the single-daemon file lock
+│   ├── daemon.log                      daemon output
+│   ├── mcp.port                        actual streamable HTTP MCP port
+│   ├── mcp.key                         per-start bearer key (mode `0600`)
+│   ├── embed.sock                      local embedding socket where supported
+│   └── launcher.stamp                  launcher/runtime replacement marker
+├── logs/graphit.log                    process-wide structured log
+├── sync.log                            detached lifecycle-sync launch errors
+├── rules/                              user-global mandate and managed-skill overrides
+├── hub/rules/                          installed Hub mandate and managed-skill overrides
+├── grammars/{treesitter,antlr}/        globally installed native parser binaries
+├── runtime/<version>/                  extracted version-scoped core runtime
+├── frameworks/                         globally installed framework content
+├── artifacts/modules/                  installed file-artifact cache
+├── sessions/<project-hash>/            saved AI chat metadata and JSONL messages
+├── sessions/<session-id>/              ephemeral Live Search workspaces and events
 ├── ast/
 │   ├── project/<project-id>/            a project's own code graph — icebug filesystem, :memory: catalog
 │   │   ├── graph.icebug/                    the graph — Parquet CSR bundle (nodes_*.parquet, indices_*.parquet, indptr_*.parquet)

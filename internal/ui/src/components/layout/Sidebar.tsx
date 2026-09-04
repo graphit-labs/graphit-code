@@ -166,7 +166,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               Graphit
             </span>
             <span className="font-mono text-[8px] text-[#b9fb63]/70 uppercase tracking-[0.18em] font-semibold leading-none mt-1">
-              Code intelligence
+              AI engineering system
             </span>
           </div>
           <span className="ml-auto self-start mt-0.5 font-mono text-[8px] uppercase tracking-wider text-white/25">OS</span>

@@ -84,7 +84,8 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 
 	if port, err := mcpproxy.ReadPort(daemonctl.PortFilePath()); err == nil {
 		res.MCPPort = port
-		res.MCPEndpoint = fmt.Sprintf("http://%s/mcp", net.JoinHostPort(config.ResolveMCPHost(nil, nil), strconv.Itoa(port)))
+		mcpHost := advertisedMCPHost(config.ResolveMCPHost(nil, nil), r.Host)
+		res.MCPEndpoint = fmt.Sprintf("http://%s/mcp", net.JoinHostPort(mcpHost, strconv.Itoa(port)))
 	}
 	res.MCPKeyFile = daemonctl.KeyFilePath()
 	if key, err := mcpproxy.ReadKey(daemonctl.KeyFilePath()); err == nil {
@@ -92,6 +93,21 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, res)
+}
+
+func advertisedMCPHost(bindHost, requestHost string) string {
+	switch strings.Trim(strings.TrimSpace(bindHost), "[]") {
+	case "", "0.0.0.0", "::":
+		if host, _, err := net.SplitHostPort(requestHost); err == nil {
+			return strings.Trim(host, "[]")
+		}
+		if host := strings.Trim(strings.TrimSpace(requestHost), "[]"); host != "" {
+			return host
+		}
+		return "127.0.0.1"
+	default:
+		return strings.Trim(bindHost, "[]")
+	}
 }
 
 func (h *DaemonDreamHandler) handleDaemonStop(w http.ResponseWriter, r *http.Request) {

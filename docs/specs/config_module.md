@@ -120,6 +120,20 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 
 | Key | Description | Default |
 |---|---|---|
+| `ide` | Default native IDE/agent adapter | `opencode` fallback |
+| `cli` | Default coding-agent CLI used for synthesis and live work | mapped from `ide`, then `opencode` |
+| `ai.cli` | Global compatibility override for the completion CLI | (empty) |
+| `ai.agent_args` / `ai.agent_args.<binary>` | Global generic or executable-specific CLI arguments | (empty) |
+| `ai.embedding.provider` | Vector provider: `local`, `openai`, `openai-compatible`, `cohere`, `voyage`, or `google` | `local` |
+| `ai.embedding.model` | Provider model override | provider default |
+| `ai.embedding.base_url` | Provider endpoint override; required for `openai-compatible` | provider default |
+| `ai.embedding.api_key` | Graphit-managed provider credential | provider-native environment |
+| `ai.embedding.dimensions` | Positive vector width for custom or truncated embedding models | known model width; local is `768` |
+| `search.rerank` | Enables the optional second stage for callers that attach a configured reranker | `false` |
+| `ai.rerank.provider` | Rerank provider: `local`, `cohere`, `voyage`, or `jina` | `local` |
+| `ai.rerank.model` | Remote rerank model override | provider default |
+| `ai.rerank.base_url` | Remote rerank endpoint override | provider default |
+| `ai.rerank.api_key` | Graphit-managed rerank credential | provider-native environment |
 | `hub.bucket` | S3 bucket that stores the Hub registry and published artifacts | (compiled default) |
 | `hub.region` | AWS/S3 region | (compiled default) |
 | `hub.endpoint` | Optional S3-compatible endpoint, such as MinIO | AWS default endpoint |
@@ -129,9 +143,12 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `hub.icebug.reverse_edges` | Whether AST artifacts publish a separate reverse CSR for every relationship type. Only explicit `false` disables it. | `true` |
 | `ui.host` | Address on which the unified UI server listens | `127.0.0.1` |
 | `ui.allowed_origins` | Comma-separated exact CORS origins; configured values replace the localhost default allowlist | localhost loopback origins |
+| `mcp.host` | Interface used by the daemon's authenticated HTTP MCP listener | `127.0.0.1` |
+| `mcp.port` | MCP port; `0` requests an OS-assigned port | `0` |
 | `knowledge.docs_dir` | Relative path to the project documentation directory. Set to `.` to index the whole project. | `docs` |
 | `knowledge.include_readme` | Whether the project root's README is indexed into the wiki on top of `knowledge.docs_dir` | `true` |
 | `knowledge.extensions` | Comma-separated list of file extensions to index (e.g., `md,yaml,json,proto`). The `.` prefix is optional. | `md,markdown,mdx,txt,adoc,rst,puml,plantuml,yaml,yml,json,proto,graphql,gql,wsdl,xml` |
+| `wiki.version_retention` | Minimum retention window for old wiki table versions | `15m` |
 | `ast.index_source` | Whether to store file source in the AST graph | `true` |
 | `ast.index_docs` | Whether the AST pipeline indexes `knowledge.docs_dir`. Off, because the docs tree belongs to the knowledge wiki. | `false` |
 | `ast.queries_dir` | Relative path to the directory holding the project's own grammar query files. The default is tracked by git, so this is only needed to keep grammars elsewhere. | `.graphit/ast/queries` |
@@ -139,13 +156,18 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ast.grammars_blacklist` | Comma-separated grammars the AST index must **not** use. Their files are not discovered, not parsed, and their queries do not resolve. | (empty — nothing disabled) |
 | `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
 | `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
-| `ast.cluster` | Default cluster name for files not matching any `ast.cluster_map` prefix. | (empty — no default cluster) |
 | `task.prefix` | Namespace for authoritative Task LanceDB tables, nested under `hub.prefix` when S3 is configured. | `tasks` |
 | `dream.reports_dir` | Relative path to the dream reports vault. Move it under `docs/` to commit reports as a matter of course. | `.graphit/runtime/dream` |
 | `dream.idle_timeout` | Inactivity in **seconds** before a dream cycle starts | `7200` (2 hours) |
 | `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
 | `daemon.activity_window` | Go duration string; how recently a project must have changed to stay supervised. `0` disables parking. | `30m` |
+| `memory.version_retention` | Minimum retention window for authoritative memory table versions | `720h` (30 days) |
+| `unit.id` | Installation identity used to address user-scope memory | generated ULID |
 | `modules.<name>` | Enable/disable a module (`true`/`false`) | Enabled for core, disabled for opt-in |
+
+The maintained [Configuration Reference](../guides/configuration.md) is the user-facing inventory
+for these keys, provider defaults, feature boundaries, deployment profiles, and runtime-only
+environment controls. This specification defines resolution and implementation behavior.
 
 ### Hub S3 credentials
 
@@ -400,11 +422,10 @@ from the path it was given, so it sees no project lockfile and applies no
 exclusion. That is deliberate: an explicit path is an explicit request, and
 `graphit ast index --path docs` indexes the docs tree.
 
-### Cluster Tagging for Monorepos: `ast.cluster_map` and `ast.cluster`
+### Cluster Tagging for Monorepos: `ast.cluster_map` and command flags
 
 ```go
 func ResolveClusterPathMap(inlineCfg, projectCfg ConfigMap) map[string]string
-func ResolveClusterDefault(inlineCfg, projectCfg ConfigMap) string
 ```
 
 The AST module supports **logical cluster tagging** to enable filtered queries across different domains within a monorepo (e.g., Oracle SQL, XML export, Java backend, frontend TypeScript). Each indexed node receives a `cluster` property.
@@ -414,15 +435,20 @@ The AST module supports **logical cluster tagging** to enable filtered queries a
 # Set cluster map (comma-separated path=cluster pairs, paths are directory prefixes)
 graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
 
-# Set default cluster for unmatched paths
-graphit config ast.cluster default-cluster
+# Apply a default cluster to this explicit index operation
+graphit ast index --cluster default-cluster
 ```
 
 **How it works:**
 - Paths are directory prefixes (trailing slash optional). `schema/` matches `schema/table.sql`.
 - Most specific (longest) prefix wins when multiple match.
-- Files not matching any prefix use `ast.cluster` default (if set).
-- When using `graphit ast index --cluster-path` or `graphit ast watch --cluster-path`, the mapping is automatically persisted to `graphit.lock.json`.
+- Files not matching any prefix use the `--cluster` value for that command, when supplied.
+- `graphit ast index --cluster-path` persists `ast.cluster_map` to `graphit.lock.json`.
+
+The command also persists an `ast.cluster` field for historical compatibility, but no configuration
+resolver currently consumes that field during automatic indexing. It is not an active default
+configuration key. Use `ast.cluster_map` for persistent automated routing and `--cluster` for an
+explicit default on one `index` or `watch` invocation.
 
 **Querying:**
 ```cypher
@@ -608,12 +634,30 @@ about a lockfile still belongs to the hub package.
 
 ### Module System
 
-Modules are either **always-on** or **opt-in**:
+`IsModuleDisabled(module, inline, project)` resolves `modules.<name>`. Explicit `false` disables;
+explicit `true` enables. `dream` and `daemon_ui` are the only opt-in modules and are disabled when
+absent. Every other named module is enabled when absent.
 
-- **Always-on** (`AllModuleNames`): `knowledge`, `ast`, `hub`, `memory`, `improvements`
-- **Opt-in** (`OptInModules`): `dream`
+The currently consumed module names are:
 
-`IsModuleDisabled(module, inline, project)` resolves the `modules.<name>` config key. If the value is `"false"`, the module is disabled. If `"true"`, it is enabled. For opt-in modules, the default is disabled (returns `true`).
+| Module | Boundary |
+|---|---|
+| `task` | Task mandate, lifecycle reconciliation, and fail-closed Task service operations |
+| `memory` | Memory mandate/bootstrap, synchronization, and maintenance |
+| `ast` | AST mandate plus lifecycle/daemon indexing |
+| `knowledge` | Knowledge mandate plus lifecycle/daemon indexing |
+| `hub` | Hub mandate and artifact-preparation routing |
+| `daemon` | automatic daemon startup |
+| `sync` | daemon filesystem synchronization; `false` prevents construction of the per-project recursive watcher while explicit sync/index operations remain available |
+| `embedding` | daemon and heavy-checkpoint embedding work |
+| `hooks` | Git hook reconciliation |
+| `agent` | CLI-agent-dependent UI/API features and Live Search |
+| `dream` | autonomous idle improvement cycles (opt-in) |
+| `daemon_ui` | UI hosted as a daemon global module (opt-in) |
+
+These are orchestration gates, not a generic authorization system. Direct command behavior remains
+module-specific; Task is the exception that checks its gate inside the service and refuses every
+operation when disabled.
 
 ---
 

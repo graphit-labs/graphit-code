@@ -1,6 +1,8 @@
 # User Manual
 
-Graphit is a context system for coding agents. It keeps four signals distinct—AST, knowledge, memory, and Hub artifacts—then makes them available through CLI commands, MCP tools, and the Graphite Observatory.
+Graphit is the context and control plane around coding agents. It keeps structural code, maintained
+knowledge, persistent memory, deterministic work state, and reusable ecosystem artifacts distinct,
+then exposes them through CLI commands, MCP tools, native agent hooks, and the Graphit Observatory.
 
 ## Mental model
 
@@ -9,10 +11,30 @@ Graphit is a context system for coding agents. It keeps four signals distinct—
 | AST | Indexed project source | “What calls this?”, “What imports that?”, “What would this change affect?” |
 | Knowledge | Maintained project documentation | “How is this feature intended to work?”, “What decision explains it?” |
 | Memory | Structured project or user records | “What did we learn or correct before?” |
+| Task | Authoritative project work tables | “Who owns this?”, “What blocks it?”, “What evidence makes it complete?” |
 | Hub | Published reusable artifacts | “Does the ecosystem already provide this rule, skill, language, AST, or documentation?” |
 | Live Search | A temporary agent workspace assembled for a question | “What answer needs evidence from several selected artifacts?” |
 
-Use the narrowest source that can answer the question. A text search finds candidates; a graph traversal settles structural relationships; a source or wiki read supplies the actual content.
+Use the narrowest source that can answer the question. Full-text or semantic search finds
+candidates; a graph traversal settles structural relationships; a source or wiki read supplies the
+actual content; Task controls project mutation and completion.
+
+## Teams, agents, and software ecosystems
+
+Graphit separates identity and sharing so one workflow can scale without merging unrelated state:
+
+| Boundary | Graphit behavior |
+|---|---|
+| Several agents in one project | One Task queue, atomic ownership, fenced mutations, explicit dependencies, and resumable checkpoints. |
+| One person across projects | User memory follows `unit.id`; project memory remains isolated by repository identity. |
+| Several repositories on one machine | The ecosystem registry resolves each sibling's own AST and wiki instead of copying its checkout. |
+| Several machines or teammates | Optional S3-compatible storage hosts versioned Hub artifacts and authoritative shared Memory/Task tables. |
+| Several coding assistants | Each adapter writes its native project-local MCP and lifecycle-hook format; the MCP server remains the shared capability surface. |
+| Several external systems | Hub contexts are addressed by artifact ID and version, then queried in place through the same AST or Wiki contracts. |
+
+This is deterministic coordination around nondeterministic models. Graphit never promises that two
+models will produce the same patch; it guarantees that claims, revisions, dependencies, evidence,
+and completion transitions follow the same rules.
 
 ## Project lifecycle
 
@@ -40,9 +62,17 @@ Sync coordinates the active project indexes and shared registry state. Use it fo
 graphit daemon
 ```
 
-The daemon watches registered projects and schedules incremental AST and wiki work. It also supports background services such as shared local embeddings and Dream sessions.
+The daemon watches registered projects and schedules incremental AST and wiki work. It also owns
+shared local or remote embeddings, memory maintenance, the authenticated MCP HTTP endpoint, and
+optional Dream and Observatory services. It starts automatically before ordinary CLI/MCP work
+unless `modules.daemon=false`; an OS scheduler can keep it alive independently. See
+[Daemon Operations and Monitoring](daemon_operations.md) for every start path, watched signal,
+module loop, runtime file, and recovery behavior.
 
 ## AST workflow
+
+To add a language, override extraction, select a dialect, or understand every grammar
+YAML field, use [AST Grammars and Parser Extensibility](ast_extensibility.md).
 
 AST exploration has three stages:
 
@@ -58,6 +88,16 @@ RETURN caller.name, caller.path
 ```
 
 Use source retrieval after the graph identifies the relevant file or entity. Do not infer callers, imports, inheritance, or impact from text matches alone.
+
+AST search supports three retrieval modes:
+
+- `fts` for precise identifiers and terms;
+- `semantic` for meaning rather than spelling;
+- `hybrid` (default) for BM25 and vector candidates fused with reciprocal rank fusion.
+
+The graph is stored as Icebug files and attached to an in-memory LadybugDB catalog when queried.
+That on-the-fly catalog makes local and published contexts portable without a separate graph-server
+deployment.
 
 The AST Explorer presents the same process visually: schema and type controls on the rail, Cypher and AI-assisted query modes above, and the graph canvas in the main workspace. Relationship names are friendly names resolved from the active store's `graph.icebug/icebug.json` manifest; physical edge-table names are storage details.
 
@@ -75,6 +115,9 @@ Graphit compiles `docs/` and the root `README.md` into a source-backed wiki.
 
 The Knowledge Explorer exposes the same page index, keyword and AI-assisted search modes, confidence, provenance, outbound links, and update history.
 
+Direct keyword and semantic retrieval do not require a coding-agent CLI. AI synthesis does and is
+controlled by `modules.agent`. Search returns candidate titles; `wiki_source` is the evidence read.
+
 ![Graphit Knowledge Explorer showing the project architecture](../site/assets/observatory-knowledge-explorer.jpg)
 
 ## Memory workflow
@@ -91,9 +134,13 @@ Good memories state:
 - how the team should act on it;
 - what it changes or constrains.
 
-When a correction supersedes an existing memory, update it in place instead of leaving contradictory records. Search results are titles; read the selected memory before acting on it.
+Mandatory memories are loaded without a query at session start. Contextual search excludes those
+already-loaded records and returns candidate titles; read the selected memory before acting on it.
+Importance and mandatory recall are independent flags. When a correction supersedes an existing
+memory, update it in place so the revision chain remains searchable instead of leaving contradictory
+records.
 
-![Graphit Memory Explorer showing the Graphite Observatory decision](../site/assets/observatory-memory-explorer.jpg)
+![Graphit Memory Explorer showing a persistent project decision](../site/assets/observatory-memory-explorer.jpg)
 
 ## Hub and ecosystem workflow
 
@@ -119,21 +166,50 @@ Live Search assembles selected artifacts into an ephemeral workspace and runs a 
 
 Use it when the answer genuinely spans several sources. Do not use it in place of a direct AST traversal, a single wiki read, or a known CLI action.
 
-The temporary workspace owns no project data store after the session ends. Selected artifacts and the prompt define its scope.
+The temporary workspace is not registered as a normal project. Selected artifacts and the prompt
+define its scope; deleting the session removes its ephemeral project data. Live Search requires an
+installed coding-agent CLI and is unavailable when `modules.agent=false`.
 
 ## Dream and Task
 
 Dream runs during configured idle periods to analyze conversation history and improve project knowledge or reusable agent artifacts. It is a knowledge-improvement process, not a task scheduler.
 
-Task is separate. Open, unclaimed LanceDB tasks are backlog; agents claim, checkpoint, comment,
-verify checks, hand off, and complete them through Graphit Task rather than host-native TODO tools.
-When direction changes, agents cancel tasks whose history remains useful or explicitly remove
-certainly erroneous, unreferenced tasks; superseded open/flagged garbage is forbidden. Dream does
-not consume or execute tasks.
+Task is separate. Open, unclaimed LanceDB tasks are backlog. Dependencies decide readiness; an
+atomic claim returns a fencing token that every owner mutation must present. Agents checkpoint the
+exact next step, attach typed decisions/problems/lessons, and record pass/fail evidence against
+structured acceptance and test checks. Releases and expired leases preserve enough state for safe
+takeover.
+
+Completion fails closed when any active check is pending or failed, a flag remains, or a nested
+subtask is incomplete. Scope changes require the current task revision and preserve immutable
+before/after history; obsolete checks are superseded rather than rewritten. When direction changes,
+agents cancel work whose history remains useful or explicitly remove certainly erroneous,
+unreferenced work. Dream never consumes the Task backlog.
+
+## Retrieval and reranking
+
+Graphit's retrieval surfaces are deliberately different:
+
+| Need | Use |
+|---|---|
+| Exact term or identifier | BM25/FTS search |
+| Similar concept with different wording | semantic vector search |
+| Strong general recall | hybrid BM25 + vector search with RRF |
+| Proven code relationship | AST Cypher query |
+| Exact content | AST source or Wiki source slicing |
+| Several selected contexts plus synthesis | Live Search or an AI wiki query |
+
+Graphit also implements a bounded optional second-stage reranker with local, Cohere, Voyage AI, and
+Jina backends. It widens retrieval before reordering and uses deterministic tie-breaking. Current
+public CLI, MCP, and UI searches do not yet attach that stage, so `search.rerank` is
+integration-ready rather than active on those entry points. See
+[Retrieval Architecture](retrieval_architecture.md) and the [AI Engine](../specs/ai_engine.md).
+For model selection, CLI fallback and invocation protocols, credentials, dimensions, and local or
+remote data boundaries, use [AI Models, Providers, and Agent CLIs](ai_models.md).
 
 ## Observatory navigation
 
-The Graphite Observatory groups routes by intent:
+The Graphit Observatory groups routes by intent:
 
 - **Live Search** — multi-source agent runs;
 - **Hub** — registry, project artifacts, and upload;
@@ -154,7 +230,7 @@ See [Storage Layout](../architecture/storage_layout.md) for the exact structure 
 
 ## Network and security
 
-The UI is designed for local operation and has no built-in authentication. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients.
+The UI is designed for local operation and has no built-in authentication. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients. The daemon's MCP HTTP endpoint is a separate listener and requires the generated bearer key. Open **System → Daemon** to see the endpoint and copy the full key from the masked **MCP bearer key** control.
 
 Before remote access:
 
@@ -174,3 +250,8 @@ When something looks wrong:
 5. check the relevant module guide or specification before deleting or rebuilding data.
 
 Continue with [Troubleshooting](troubleshooting.md), the [CLI Reference](cli_reference.md), or the [MCP Tools Reference](mcp_tools_reference.md).
+
+For every default, module switch, provider, and environment override, use the
+[Configuration Reference](configuration.md).
+For repository files, generated state, agent adapter layouts, and filesystem change detection, see
+[Filesystem, State, and Watchers](filesystem_contract.md).

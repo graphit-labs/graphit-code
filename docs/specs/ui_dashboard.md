@@ -1,6 +1,6 @@
 # UI Dashboard Specification
 
-The Graphite Observatory is the embedded web interface for Graphit Code. It presents the same project, context, registry, daemon, knowledge, memory, and AST state exposed by the CLI and MCP tools.
+The Graphit Observatory is the embedded web interface for Graphit Code. It presents the same project, context, registry, daemon, knowledge, memory, and AST state exposed by the CLI and MCP tools.
 
 ## Scope
 
@@ -35,7 +35,7 @@ The SPA lives in `internal/ui/`.
 
 ## Visual system
 
-Graphite Observatory uses:
+Graphit Observatory uses:
 
 - a theme-independent graphite navigation rail;
 - paper-like neutral workspace surfaces in light mode;
@@ -152,7 +152,7 @@ The server has no authentication. CORS limits browser origins but does not autho
 - Light and dark modes preserve the same semantic hierarchy.
 - The active project is visible on project-scoped surfaces.
 - AST relationship names match the active manifest's friendly names.
-- Screenshot and public documentation examples use the current Graphite Observatory UI.
+- Screenshot and public documentation examples use the current Graphit Observatory UI.
 - The production bundle builds with `npm run build`.
 - The embedded server serves the SPA and same-origin API calls.
 - The default network configuration remains local; documentation does not present CORS as authentication.

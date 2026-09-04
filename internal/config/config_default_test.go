@@ -35,6 +35,19 @@ func TestIsModuleDisabled(t *testing.T) {
 	}
 }
 
+func TestDaemonSyncModuleSwitch(t *testing.T) {
+	if IsModuleDisabled("sync", nil, nil) {
+		t.Fatal("daemon filesystem sync should be enabled by default")
+	}
+
+	for value, wantDisabled := range map[string]bool{"false": true, "true": false} {
+		cfg := ConfigMap{"modules": map[string]any{"sync": value}}
+		if got := IsModuleDisabled("sync", nil, cfg); got != wantDisabled {
+			t.Errorf("modules.sync=%s: disabled=%v, want %v", value, got, wantDisabled)
+		}
+	}
+}
+
 func TestConfigCRUD(t *testing.T) {
 	cfg := make(ConfigMap)
 

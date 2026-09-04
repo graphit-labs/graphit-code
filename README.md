@@ -4,7 +4,7 @@
 
 <h1 align="center">Graphit Code</h1>
 
-<p align="center"><strong>Code intelligence, durable memory, connected knowledge, and deterministic shared work for coding agents.</strong></p>
+<p align="center"><strong>The context and control plane for AI software engineering.</strong></p>
 
 <p align="center">
   <a href="https://github.com/graphit-labs/graphit-code/releases/latest"><img src="https://img.shields.io/github/v/release/graphit-labs/graphit-code?style=flat-square&color=b9fb63&labelColor=101311" alt="Latest release"></a>
@@ -17,35 +17,53 @@
   <a href="https://graphit-labs.github.io/graphit-code">Website</a> ·
   <a href="#install">Install</a> ·
   <a href="#first-run">First run</a> ·
+  <a href="docs/guides/configuration.md">Configure</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 ![Graphit AST Explorer analyzing the graphit-code repository](docs/site/assets/observatory-ast-explorer.jpg)
 
-## Why Graphit
+## AI agents need more than a prompt
 
-Coding agents usually enter a repository with three blind spots:
+Models are probabilistic. Engineering work cannot be.
+
+Coding agents usually enter a repository with four blind spots:
 
 - source text does not tell them the exact structural relationships in the code;
 - a new session does not remember yesterday's correction or architectural decision;
 - concurrent agents can duplicate work, overwrite ownership, or stop without a resumable checkpoint;
 - documentation, sibling projects, and reusable agent tooling live in disconnected places.
 
-Graphit closes those gaps with one local-first harness:
+Graphit closes those gaps with one local-first system that works across agents, IDEs, repositories,
+machines, and model providers:
 
 | Signal | What Graphit provides | What the agent can do |
 |---|---|---|
-| **AST** | Language-aware entities and graph relationships | Query callers, imports, inheritance, dependencies, source, and complexity |
-| **Knowledge** | A compiled wiki built from maintained project documentation | Search pages, follow cross-references, and verify provenance |
-| **Memory** | Durable project and user scopes | Reuse corrections, conventions, decisions, and discoveries |
-| **Task** | A shared LanceDB scheduler with claims, subtasks, dependencies, checks, comments, and audit history | Resume safely, avoid duplicate ownership, and prevent partial completion |
-| **Hub** | A registry for shareable agent artifacts and contexts | Install rules, skills, agents, MCP servers, languages, ASTs, and knowledge |
-| **Observatory** | One visual workspace | Explore code, docs, memory, daemon state, Dream, and ecosystem projects |
+| **AST** | Language-aware entities, source, and exact graph relationships | Find candidates with FTS + vectors, then prove callers, imports, inheritance, dependencies, and impact with Cypher |
+| **Knowledge** | A compiled wiki built from maintained project documentation | Search pages, read only the relevant source, follow cross-references, and verify provenance |
+| **Memory** | Durable project and user scopes with revision history | Carry corrections, conventions, decisions, and learned procedures across sessions and repositories |
+| **Task** | A shared LanceDB scheduler with fenced claims, dependencies, checks, comments, and immutable audit history | Coordinate parallel agents, make takeover safe, and make incomplete work impossible to close |
+| **Hub** | A versioned registry for reusable agent capabilities and contexts | Share rules, skills, agents, commands, MCP servers, languages, ASTs, and knowledge across systems |
+| **Observatory** | One operational workspace over the same stores agents use | Explore code, docs, memory, live runs, daemon state, Dream, and ecosystem projects without a second data model |
 
-Graphit does not replace your coding agent. It gives the agent a dependable way to inspect the system it is changing.
+Graphit does not make a language model deterministic. It puts deterministic discovery, ownership,
+validation, persistence, and completion gates around whichever coding agent you choose.
 
-## The Graphite Observatory
+## Built for teams, agents, and software ecosystems
+
+- **One project, many agents.** Atomic claims and fencing tokens prevent stale writers; checkpoints,
+  typed decisions, and `next_step` let another agent resume without reconstructing the work.
+- **One engineer, many systems.** Project memory stays repository-specific while user memory follows
+  personal conventions across projects. Registered sibling projects retain independent stores.
+- **One team, many machines.** Optional S3-compatible storage makes Hub artifacts plus Memory and Task
+  tables directly shareable without copying them into every checkout.
+- **One framework, many assistants.** Native adapters support Codex, Claude Code, Cursor, Gemini CLI,
+  Kiro, OpenCode, and Antigravity; any MCP client can use the server endpoint.
+- **One query, several retrieval modes.** BM25 full-text search, semantic vectors, hybrid reciprocal
+  rank fusion, exact graph traversal, and source slicing serve different evidence needs.
+
+## The Graphit Observatory
 
 The web UI is an operational view over the same project context exposed to agents.
 
@@ -73,7 +91,7 @@ irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1
 
 The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. On the next invocation, the launcher extracts a changed Core, the daemon replaces itself, and the stdio MCP proxy asks connected clients to refresh their tool catalog through the protocol's list-change notification. Pin a release with `--version <tag>`. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
 
-### Run it as a server, for any AI agent
+### Run it as a server for any MCP agent
 
 The root `Dockerfile` builds a server: the daemon as PID 1, publishing an **MCP endpoint** and the UI.
 
@@ -89,9 +107,16 @@ docker run -d --name graphit \
   graphit-code
 ```
 
-Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`; the UI's daemon page shows the key with a copy button. The server holds no source checkouts and needs none — it answers about Hub artifacts, addressed by name and version.
+Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
 
-Neither port is authenticated, so publish both to the host loopback as above and read [Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
+Remote agents can load the server's current routing contract with `graphit_mandates` and fetch the
+complete source of any core module skill with `graphit_module_skill`. Start from the copy-ready
+[remote agent skill](docs/examples/skills/graphit-remote/SKILL.md).
+
+The MCP endpoint authenticates with the generated bearer key. The UI has no built-in authentication,
+and CORS is not authorization, so keep both ports on a trusted network or put an authenticated proxy
+in front. Read [Running Graphit Code as a server in a container](docs/guides/container.md) before
+exposing them.
 
 ## First run
 
@@ -105,20 +130,31 @@ graphit sync
 graphit ui
 ```
 
-`graphit setup` prepares the machine-wide runtime and local embedding model. `graphit init` installs the project-facing instructions and MCP configuration for the selected IDE. `graphit sync` builds the current AST, knowledge, and memory indexes. The daemon keeps them current afterwards.
+`graphit setup` prepares machine-wide providers and the local model when selected. `graphit init`
+creates the project identity, installs the selected IDE's native MCP/hooks, and performs the first
+synchronization. `graphit sync` is the explicit all-system checkpoint; the daemon keeps incremental
+indexes current afterwards.
 
 Use the exact IDE identifier supported by your environment; `graphit init --help` lists the available values.
 
 ## What agents gain
 
-### Structural code queries
+### Find broadly, then prove structurally
 
-Graphit indexes declarations and relationships from Tree-sitter and ANTLR grammars into an Icebug/LadybugDB graph. Agent-facing tools can search for names and then execute exact Cypher traversals for structural answers.
+Graphit indexes declarations and relationships from Tree-sitter and ANTLR grammars into an
+Icebug/LadybugDB graph. A separate Lance sidecar combines BM25 full-text and semantic vector results
+with reciprocal rank fusion. Agents use ranked search to find the likely entity, exact Cypher to
+establish relationships, and a source call to read only the relevant lines.
 
 ```cypher
 MATCH (caller)-[:CALLS]->(target:Function {name: 'RunSync'})
 RETURN caller.name, caller.path
 ```
+
+The graph opens on the fly from Icebug files into an in-memory catalog, so published contexts remain
+portable without running a separate graph server. Optional second-stage rerank providers are
+implemented for local, Cohere, Voyage AI, and Jina; current public search entry points use hybrid RRF
+while production rerank wiring remains pending. See the [AI Engine specification](docs/specs/ai_engine.md).
 
 ### Source-backed knowledge
 
@@ -128,13 +164,39 @@ The knowledge module compiles `docs/` and the root README into a searchable wiki
 
 Project memory captures repository-specific decisions and corrections. User memory captures portable personal conventions. Both are stored outside the checkout and exposed through the same search-and-read workflow.
 
-### Shared work that survives the agent
+### Deterministic control that survives the agent
 
 Graphit Task replaces host-native TODO lists and repository Markdown task logs with one project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, revise scope through expected-revision fencing, supersede obsolete checks without erasing history, verify active acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. With S3 configured, every project agent reads and writes the same LanceDB tables directly.
 
-### Reusable ecosystem context
+### Reusable context across systems
 
 Registered sibling projects keep their own AST, wiki, and memory. Hub artifacts package reusable capabilities when a project or team intentionally publishes them. Optional S3-compatible storage supports shared catalogs and published contexts; everyday local operation does not require a hosted database.
+
+### Ephemeral synthesis across several sources
+
+Live Search prepares a throwaway project from selected Hub artifacts, installs the requested agent
+environment, streams a bounded agent session, and removes the project data when the session is
+deleted. It is the on-the-fly path for questions that genuinely span several codebases or knowledge
+bundles; direct AST, Wiki, Memory, and Task tools remain the cheaper path for focused questions.
+
+## Configure the operating model
+
+| Goal | Setting |
+|---|---|
+| Keep everything local | leave `hub.bucket` empty (the default) |
+| Share Hub, Memory, and Task state | configure `hub.bucket` and its S3-compatible boundary |
+| Run without an installed coding-agent CLI | `modules.agent=false` |
+| Keep autonomous Dream work off/on | `modules.dream=false` (default) or `true` |
+| Serve the Observatory from the daemon | `modules.daemon_ui=true` |
+| Disable the daemon filesystem watcher | `modules.sync=false` (manual `graphit sync` still works) |
+| Disable background embedding work | `modules.embedding=false` |
+| Select a remote embedding backend | `ai.embedding.provider=openai|cohere|voyage|google|openai-compatible` |
+| Restrict indexed languages | `ast.grammars_whitelist` / `ast.grammars_blacklist` |
+| Move or narrow the documentation tree | `knowledge.docs_dir`, `knowledge.extensions`, `knowledge.include_readme` |
+
+Every normal key can be set per command, environment, project, global installation, or private-build
+default. The [complete configuration reference](docs/guides/configuration.md) documents every key,
+default, switch, provider, network boundary, and runtime resource control.
 
 ## Security boundary
 
@@ -151,6 +213,12 @@ Start with the document that matches your intent:
 
 - [Getting started](docs/guides/getting_started.md) — install and initialize a project.
 - [User manual](docs/guides/user_manual.md) — daily workflows and operational concepts.
+- [Configuration reference](docs/guides/configuration.md) — every setting, default, feature switch, provider, and environment override.
+- [AI models, providers, and agent CLIs](docs/guides/ai_models.md) — completion delegation, every CLI protocol, embedding models, credentials, dimensions, rerank, and local/remote boundaries.
+- [Daemon operations and monitoring](docs/guides/daemon_operations.md) — start paths, schedulers, watched signals, module loops, MCP service, logs, parking, and recovery.
+- [Capability and surface matrix](docs/guides/capability_matrix.md) — every module, CLI/MCP/UI exposure, gate, and current limitation.
+- [Filesystem, state, and watchers](docs/guides/filesystem_contract.md) — special files, generated state, adapter layouts, and change detection.
+- [AST grammars and parser extensibility](docs/guides/ast_extensibility.md) — every YAML field, selector, parser extension path, precedence rule, and validation workflow.
 - [CLI reference](docs/guides/cli_reference.md) — commands and flags.
 - [MCP tools reference](docs/guides/mcp_tools_reference.md) — agent-facing tool contracts.
 - [Architecture overview](docs/architecture/architecture_overview.md) — system boundaries and data flow.
@@ -163,7 +231,7 @@ Task history lives in the authoritative LanceDB tables; changelogs and accepted 
 
 ## Build from source
 
-Source builds require Go 1.23+, Node.js 22+, Make, a C/C++ toolchain, and Rust for the native LanceDB build.
+Source builds require Go 1.26.6+, Node.js 22+, Make, a C/C++ toolchain, and Rust for the native LanceDB build.
 
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git

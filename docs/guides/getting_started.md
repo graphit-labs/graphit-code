@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide takes a project directory from no Graphit installation to a working agent integration, current local indexes, and the Graphite Observatory UI. Git is optional.
+This guide takes a project directory from no Graphit installation to a working agent integration, current local indexes, and the Graphit Observatory UI. Git is optional.
 
 ## What you will have
 
@@ -39,6 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/inst
 ```powershell
 irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 ```
+
+The Windows installer defaults to `%LOCALAPPDATA%\Programs\graphit`. To choose another destination,
+download the script and pass `-Dir`, or set `GRAPHIT_INSTALL_DIR` before invoking it. The parameter
+wins over the environment variable. The current PowerShell installer selects the latest release;
+for a pinned Windows install, download and verify the named release archive directly.
 
 The release installers detect the operating system and architecture, download the latest archive, verify its SHA-256 checksum, and install in a user-owned location. Add the reported directory to `PATH` if the installer cannot do so automatically.
 
@@ -110,6 +115,10 @@ The daemon watches registered projects and schedules incremental maintenance:
 graphit daemon
 ```
 
+Ordinary CLI and MCP startup ensures it automatically unless `modules.daemon=false`. Use
+[Daemon Operations and Monitoring](daemon_operations.md) for scheduler installation, every watched
+signal and maintenance loop, project parking, logs, and recovery.
+
 Use an explicit sync after bulk external changes such as a checkout, pull, rebase, or restore, or whenever you need a verified all-system checkpoint.
 
 Useful next commands:
@@ -122,12 +131,14 @@ graphit ui
 ```
 
 Confirm exact syntax for your installed version with `graphit --help` and the [CLI Command Reference](cli_reference.md).
+Choose completion CLIs, embedding models, dimensions, and remote provider boundaries with
+[AI Models, Providers, and Agent CLIs](ai_models.md).
 
 ## Build from source
 
 Source builds require:
 
-- Go 1.23 or newer;
+- Go 1.26.6 or newer;
 - Node.js 22 or newer;
 - Make;
 - a C/C++ toolchain for native bindings;
@@ -163,6 +174,9 @@ Run `graphit sync` from the repository root. If the problem persists, inspect da
 ## Next steps
 
 - [User Manual](user_manual.md) for daily workflows.
+- [Capability and Surface Matrix](capability_matrix.md) for what is available in CLI, MCP, and UI.
+- [Configuration Reference](configuration.md) for every key, default, module switch, and environment override.
+- [Filesystem, State, and Watchers](filesystem_contract.md) for files, paths, generated state, and change detection.
 - [CLI Command Reference](cli_reference.md) for command syntax.
 - [MCP Tools Reference](mcp_tools_reference.md) for agent-facing contracts.
 - [Agent Hook Activation](agent_hook_activation.md) for trust, reload, and verification steps per adapter.

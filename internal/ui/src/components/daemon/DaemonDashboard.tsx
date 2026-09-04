@@ -116,7 +116,6 @@ export default function DaemonDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {}
         <div className="glass-panel p-5 rounded-2xl flex items-start gap-4">
           <div className={`p-3 rounded-xl ${isRunning ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
             <Activity className="w-5 h-5 animate-pulse" />
@@ -130,7 +129,6 @@ export default function DaemonDashboard() {
           </div>
         </div>
 
-        {}
         <div className="glass-panel p-5 rounded-2xl flex items-start gap-4">
           <div className="p-3 rounded-xl bg-primary/10 text-primary">
             <Cpu className="w-5 h-5" />
@@ -144,7 +142,6 @@ export default function DaemonDashboard() {
           </div>
         </div>
 
-        {}
         <div className="glass-panel p-5 rounded-2xl flex items-start gap-4">
           <div className="p-3 rounded-xl bg-info/10 text-info">
             <Calendar className="w-5 h-5" />
@@ -160,7 +157,6 @@ export default function DaemonDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6">
-        {}
         <div className="lg:col-span-3 space-y-4">
           <div className="glass-panel rounded-2xl overflow-hidden flex flex-col h-[500px]">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border/40 bg-card/40">
@@ -187,7 +183,6 @@ export default function DaemonDashboard() {
           </div>
         </div>
 
-        {}
         <div className="lg:col-span-1 space-y-6">
           <div className="glass-panel p-5 rounded-2xl space-y-4">
             <h3 className="font-heading font-semibold text-sm">Control Panel</h3>
@@ -207,7 +202,7 @@ export default function DaemonDashboard() {
               <div className="p-4 rounded-xl bg-accent/40 border border-border/50 text-xs text-muted-foreground leading-relaxed text-center">
                 Daemon is stopped. Start it from your terminal using:
                 <div className="bg-black/30 p-2 rounded-lg font-mono text-[10px] text-foreground mt-2 select-all">
-                  graphit daemon start
+                  graphit daemon
                 </div>
               </div>
             )}
@@ -241,7 +236,7 @@ export default function DaemonDashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center gap-2 py-1">
-                    <span className="text-muted-foreground shrink-0">MCP Auth</span>
+                    <span className="text-muted-foreground shrink-0">MCP bearer key</span>
                     {status.mcp_key ? (
                       <button
                         onClick={copyMcpKey}
@@ -260,9 +255,6 @@ export default function DaemonDashboard() {
             </div>
           </div>
 
-          {
-
-}
           {status?.mcp_endpoint && (
             <div className="glass-panel p-5 rounded-2xl space-y-3">
               <div className="flex items-center gap-2">
@@ -285,7 +277,7 @@ export default function DaemonDashboard() {
 }`}</pre>
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Copy the key from <span className="text-foreground font-medium">MCP Auth</span> above.
+                Copy the full key with the <span className="text-foreground font-medium">MCP bearer key</span> button above.
                 It is regenerated every time the daemon restarts, which also revokes every key handed
                 out before.
               </p>

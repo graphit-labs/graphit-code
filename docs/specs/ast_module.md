@@ -31,7 +31,7 @@ same way and shared between the projects that claim them. See
 
 ## 🌐 Supported Languages
 
-Graphit Code indexes **44 programming languages: 39 through Tree-sitter and 5 through ANTLR v4 parsers**. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires installing its grammar shared library via Hub; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code exposes **44 top-level language entries** and ships **45 index profiles: 40 through Tree-sitter and 5 through ANTLR v4**. The extra profile is the exclusive Tree-sitter `plpgsql` grammar used by embedded PostgreSQL parsing. Each profile is defined by an external YAML file—queries, export detection, self-keywords, context types, complexity, semantic labels, and comment handling are configurable without recompilation. An arbitrary new Tree-sitter language needs a compatible shared library plus YAML; a new ANTLR driver still requires contributor integration. See the user-facing [AST Grammars and Parser Extensibility](../guides/ast_extensibility.md) guide for the complete field-by-field contract.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -91,7 +91,7 @@ Graphit Code indexes **44 programming languages: 39 through Tree-sitter and 5 th
 > `tree-sitter-markdown` remains compiled in and registered in `nativeGrammars`, so
 > it stays available to the rest of the framework and a project that *does* want
 > markdown structure opts in by writing its own `markdown.yaml` into
-> `ast.queries_dir` — see [External Query Customization](#-external-query-customization).
+> `ast.queries_dir` — see [YAML Query Schema](#yaml-query-schema).
 > `ast.index_docs=true` is not that switch: it puts the *directory* back, and what
 > returns is the structured files kept under it.
 >
@@ -286,8 +286,8 @@ and that message lists the planned forms rather than a rule, because no single r
 
 The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4. The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
 
-- **Tree-sitter**: Incremental, fast, and the default parser. Grammars are dynamically loaded as platform-native shared libraries (`.so`/`.dylib`/`.dll`) via CGO `dlopen`/`dlsym`. The `DynGrammarLoader` resolves grammar binaries using a cascading search path: **project → user global → runtime**. No static compilation required — new grammars can be installed via `graphit hub install`.
-- **ANTLR v4**: Full grammar parsing for complex languages. Uses per-grammar **sidecar binaries** with IPC (stdin/stdout, length-prefixed protocol buffers). Each sidecar includes exactly one grammar, selected by Go build tags. Sidecar processes are pooled and reused across parse calls for maximum performance.
+- **Tree-sitter**: Incremental, fast, and the default parser. Grammars are dynamically loaded as platform-native shared libraries (`.so`/`.dylib`/`.dll`) via CGO `dlopen`/`dlsym`, first from the project and then the global grammar directory. When no external library is found, shipped languages fall back to the grammar compiled into Graphit. New compatible grammars can be installed through a Hub language artifact.
+- **ANTLR v4**: Full grammar parsing for complex languages. The five registered drivers can run in-process or through per-grammar sidecar binaries with length-prefixed stdin/stdout IPC and JSON tree payloads. Each distributed sidecar includes exactly one grammar, selected by Go build tags. Sidecar processes are pooled and reused across parse calls.
 
 Both parsers are loaded **lazily** on first use — no eager loading at startup. This means startup time is constant regardless of the number of supported languages or installed grammars.
 
@@ -295,20 +295,20 @@ Both parsers are loaded **lazily** on first use — no eager loading at startup.
 
 Tree-sitter grammars are loaded dynamically at runtime:
 - **`DynGrammarLoader`** (`internal/ast/treesitter_dynload.go`) resolves and loads shared libraries via CGO `dlopen`/`dlsym`.
-- **Search path hierarchy**: project (`.graphit/grammars/treesitter/`) → user global (`~/.graphit/grammars/treesitter/`) → runtime (`~/.graphit/runtime/<version>/grammars/treesitter/`).
-- **16 default grammars** (Go, Python, JS, TS, TSX, Java, Kotlin, Rust, C#, C++, C, Ruby, PHP, Swift, Dart, SQL) are embedded in the launcher and extracted to the runtime directory on first run.
+- **Search path hierarchy**: project (`.graphit/grammars/treesitter/`) → user global (`~/.graphit/grammars/treesitter/`) → compiled native fallback for shipped languages.
+- **Shipped grammars** are compiled into Graphit. The launcher extracts versioned query YAML and executables, not a third grammar-library lookup tier.
 - **Additional grammars** are installed via `graphit hub install <language>`, which extracts the platform-specific binary from a `.grammar` fat archive.
 - **Cache**: Loaded `sitter.Language` handles are cached in a `sync.Map` — zero allocations after first load.
 - **Thread safety**: `sitter.Language` instances are read-only and shared across all worker goroutines.
 
 ### ANTLR v4 Sidecar Architecture
 
-ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are compiled as standalone **sidecar binaries** — one per grammar. The adapter (`internal/ast/antlr_adapter.go`) communicates with sidecars via stdin/stdout IPC using length-prefixed protocol buffers:
+ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) can be compiled as standalone **sidecar binaries**—one per grammar. The adapter (`internal/ast/antlr_adapter.go`) communicates with sidecars through length-prefixed stdin/stdout frames carrying a JSON tree payload:
 - **`SidecarDriver`** (`internal/ast/antlr_sidecar.go`) manages a pool of reusable sidecar processes.
-- **Search path hierarchy**: project (`.graphit/grammars/antlr/`) → user global (`~/.graphit/grammars/antlr/`) → runtime (`~/.graphit/runtime/<version>/grammars/antlr/`).
-- **Installation**: ANTLR grammars are NOT default — they are installed via `graphit hub install <language>`, which extracts the sidecar binary for the current platform.
+- **Search path hierarchy**: project (`.graphit/grammars/antlr/`) → user global (`~/.graphit/grammars/antlr/`) → registered in-process driver.
+- **Installation**: a Hub language artifact can install a sidecar for one of the five registered grammar names. Installing a differently named executable does not register a new driver by itself.
 - **Build tags**: Each grammar is isolated behind a Go build tag (`grammar_plsql`, `grammar_postgresql`, etc.), compiled via `make grammars-antlr`.
-- **Performance**: Pooled sidecar IPC is ~6x faster than in-process parsing with 89% fewer allocations on the client side.
+- **Lifecycle**: sidecars are started lazily, pooled to the CPU budget, and restarted once after a process or protocol failure.
 
 ### Grammar Resolution Chain
 
@@ -326,9 +326,12 @@ The AST module resolves grammar binaries and language configurations using a cas
 
 | Priority | Path | Managed By |
 |----------|------|------------|
-| 1 | `.graphit/grammars/treesitter/` or `.graphit/grammars/antlr/` | Project (Hub install) |
+| 1 | `.graphit/grammars/treesitter/` or `.graphit/grammars/antlr/` | Project/local installation |
 | 2 | `~/.graphit/grammars/treesitter/` or `~/.graphit/grammars/antlr/` | User |
-| 3 | `~/.graphit/runtime/<version>/grammars/treesitter/` or `grammars/antlr/` | Framework (Launcher defaults) |
+
+If no external Tree-sitter library is found, a shipped language can resolve through
+the compiled native registry. The ANTLR backend similarly retains its registered
+in-process drivers. There is no versioned-runtime grammar-binary search directory.
 
 The project grammar-binary tier remains fully supported, but `graphit init` ignores
 `**/.graphit/grammars/` because these libraries are specific to an operating system and
@@ -650,7 +653,7 @@ embedded:
 | `anon_func_types` | `string[]` | Array of Tree-sitter node types that represent anonymous functions. Used to resolve `variable_declarator` assignments to function entities (e.g., `const fn = () => {}` becomes a Function node). Example: `["arrow_function", "function_expression"]` for JavaScript |
 | `declaration_types` | `string[]` | Array of Tree-sitter node types that can have docstrings attached. The engine looks for comment nodes immediately before these declaration types and extracts the text as the entity's `docstring` property |
 | `comment_types` | `string[]` | Array of Tree-sitter node types recognized as comments. Used by the docstring extraction engine. Common values: `["comment", "block_comment", "line_comment"]` |
-| `embed_labels` | `string[]` | Which of **this language's** graph labels get a vector, and so are reachable by semantic search. Every entity is in the keyword index regardless — `entity_fts` indexes them all by name — so this list is only about meaning. **Order is meaningful**: one `(path, uid)` can carry two labels (a TypeScript `class Foo` beside `interface Foo`, a Table beside a same-named View) and the embedding cache is keyed without the label, so the two collide on one entry; the label listed **earlier** wins. A label naming content rather than an identifier belongs here as readily as a declaration — `Comment`'s name *is* the comment's prose, which is what semantic search is for. **Omitted means this language embeds nothing**, which is a real answer for a grammar with no prose and no bodies and rarely the intended one; `TestEveryShippedGrammarDeclaresEmbedLabels` fails when a shipped grammar is silent about it, and `TestEmbedLabelsAreLabelsTheGrammarProduces` fails when it names a label none of its queries can emit. See [Semantic Vector Search](#3-semantic-vector-search) |
+| `embed_labels` | `string[]` | Which of **this language's** graph labels get a vector, and so are reachable by semantic search. Every entity is in the keyword index regardless — `entity_fts` indexes them all by name — so this list is only about meaning. **Order is meaningful**: one `(path, uid)` can carry two labels (a TypeScript `class Foo` beside `interface Foo`, a Table beside a same-named View) and the embedding cache is keyed without the label, so the two collide on one entry; the label listed **earlier** wins. A label naming content rather than an identifier belongs here as readily as a declaration — `Comment`'s name *is* the comment's prose, which is what semantic search is for. **Omitted means this language embeds nothing**, which is a real answer for a grammar with no prose and no bodies and rarely the intended one; `TestEveryShippedGrammarDeclaresEmbedLabels` fails when a shipped grammar is silent about it, and `TestEmbedLabelsAreLabelsTheGrammarProduces` fails when it names a label none of its queries can emit. See [Semantic and hybrid](#semantic-and-hybrid) |
 | `text_normalizers` | `map[string]object` | Named ways this language turns escaped text back into what it represents, for an `embedded` block to name via `normalize`. Each: `replace` (literal → replacement) and `numeric_char_refs`. The engine knows no escaping scheme of its own; a replacement containing a line break is dropped at load time, because changing the newline count would shift every line the sub-parse reports. See [Embedded Language Parsing](embedded_language_parsing.md) |
 | `embedded` | Object array | Regions of a file written in another language — the body of a single-file component's `<script>` and `<style>`, which the outer grammar hands over as one opaque text node. A block is selected by a **tree-sitter query**, the same language as `queries[].pattern`. Each entry: `pattern` (the query), `text_capture` (the capture whose node's text IS the body), `lang_capture` (the capture holding the value that selects the language), `default` (the language when `lang_capture` is absent), `languages` (captured value → language name; an allowlist — a value not listed is skipped in silence, and an explicit `{}` means "claim these bodies and map none"), and `normalize` (the name of one of this language's `text_normalizers`, run on the body before the sub-parse), and `host_labels` (the labels that count as the UNIT this block belongs to — see below), and `wrap_prefix` / `wrap_suffix` (the text a FRAGMENT needs around it to be parseable at all — see below). Blocks are tried in order and the first to match a body node claims it, which is how an optional attribute is expressed as two patterns. A block missing `pattern` or `text_capture`, or having neither `default` nor `languages`, is dropped at load time with a warning — this config fails open, so a half-written block would select nothing in silence. Declared by `vue.yaml`, `svelte.yaml` and `html.yaml`. See [Embedded Language Parsing](embedded_language_parsing.md) |
 
@@ -869,7 +872,7 @@ Query files are resolved using a cascading priority system. For each language, t
 ```
 
 **Key behaviors:**
-- The launcher automatically extracts all 44 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 45 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
 - The **project query directory is tracked by git** — the `.gitignore` block written by `graphit init` ignores `.graphit/runtime/` and `.graphit/grammars/`, not `.graphit/ast/queries/`, so a query override committed where it defaults reaches every other checkout. Project parser binaries under `.graphit/grammars/` remain local. See [storage_layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
@@ -1029,7 +1032,7 @@ project introduces a new language, with or without the flag.
 
 If a single level somehow declares the same language twice, the first file wins as
 the merge base, "first" being the directory's read order — alphabetical by filename.
-The 46 shipped grammars are one language per file, so this is a defined outcome
+The 45 shipped query profiles are one language per file, so this is a defined outcome
 rather than a situation that arises.
 
 ```yaml
@@ -1162,7 +1165,7 @@ Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extra
 ```
 
 1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules plus three built-in exclusions — the `.graphit/` state directory, the project's own `graphit.lock.json`, and the knowledge module's documentation tree (`knowledge.docs_dir`, default `docs/`). The first two are the framework's own output; a `.json` file with a parser in front of it, describing the indexer to itself. The docs tree belongs to the wiki; set `ast.index_docs=true` to index it here as well. Because built-in patterns are applied last and gitignore semantics are last-match-wins, a `!docs/` negation in `.astignore` cannot override that — the config key is the override. Detects language via file extension, so a markdown file is out of scope before any pattern is consulted: no shipped query file claims `.md`. See [ignore_files](../guides/ignore_files.md).
-2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--grammar`](#--grammar-cli-flag) for per-extension override. Files are distributed to concurrent Go worker goroutines via a shared channel; each worker allocates its own thread-local parser instances, so parsing is lock-free across cores.
+2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--grammar`](#astgrammar-and-the---grammar-cli-flag) for per-extension override. Files are distributed to concurrent Go worker goroutines via a shared channel; each worker allocates its own thread-local parser instances, so parsing is lock-free across cores.
 3. **Entity Extraction**: YAML-defined queries (S-expressions for Tree-sitter, XPath for ANTLR) extract structured entities (functions, classes, imports, calls, fields, DML statements, etc.) from the syntax tree.
 4. **Shard Cache (`internal/ast/shard_cache.go`)**: Extracted entities and relationships for each file are written as JSON shards on disk — one nodes shard and one edges shard per file, grouped under a manifest. Repeated strings (paths, labels, languages, and edge-endpoint uids that point at a widely-referenced declaration — a popular callee, a common base class, a heavily-read field) are interned at shard adoption, corpus-wide for values that repeat across files and per-file for values that only repeat within one, so the cache does not pay one allocation per occurrence of the same string.
 5. **Direct Parquet Export**: The shard cache is streamed into `graph.icebug/` — a CSR-format Parquet bundle (`nodes_*.parquet`, `indices_*.parquet`, `indptr_*.parquet`) — without ever populating an intermediate database. There is no separate "graph write" step into a running database: the bundle IS the graph, and a query opens it fresh (see [Database Architecture](#-database-architecture-ladybugdb-icebug-filesystem-on-the-fly-memory-catalog) above). Node-table generation for a given label must stay in a fixed order (it decides which table an unresolved reference's stub row lands in), but once a label's rows are collected, writing its Parquet — and every relationship-type Parquet — runs concurrently across CPU cores; none of that writing touches another label's or relationship's data. Each entity gets a unique `uid` and a `CONTAINS` edge from its parent file.
@@ -1239,17 +1242,17 @@ graphit ast index schema/ xml/ src/ \
 # Set cluster map (comma-separated path=cluster pairs)
 graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
 
-# Set default cluster for unmatched paths
-graphit config ast.cluster default-cluster
 ```
 
-When using `--cluster-path` or `--cluster` flags, the mapping is **automatically persisted** to the project config for subsequent runs (including daemon watches).
+`--cluster-path` persists the path mapping for subsequent runs. `--cluster` supplies the fallback
+for that invocation. Current commands may preserve an `ast.cluster` field in the project lockfile,
+but no resolver consumes it, so do not rely on it as a persistent default.
 
 ### How It Works
 
 1. **Path Resolution**: Each file's relative path from the project root is matched against the cluster path map prefixes.
 2. **Most Specific Match Wins**: Longer prefixes take precedence (e.g., `src/backend/` beats `src/`).
-3. **Fallback**: Files not matching any prefix use the default cluster (from `--cluster` or `ast.cluster` config).
+3. **Fallback**: Files not matching any prefix use the invocation's `--cluster` value, when present.
 4. **Inheritance**: All entities within a file (Functions, Classes, Tables, etc.) inherit the file's cluster. Stubs (unresolved call targets) also receive the cluster.
 
 ### Querying by Cluster
@@ -1283,7 +1286,7 @@ graphit ast watch --cluster-path backend/=python --cluster-path frontend/=javasc
 - **Resolution Function**: `resolveClusterForPath(filePath, rootPath, clusterPathMap, defaultCluster)`
 - **Cache Storage**: Cluster is stored in `parseCacheEntry.Cluster` and propagated to `FileRow[6]`
 - **Graph Write**: All node types (`File`, `Directory`, entities, stubs, modules, annotations) include `cluster` column
-- **Config Keys**: `ast.cluster_map` (comma-separated path=cluster), `ast.cluster` (default fallback)
+- **Config Key**: `ast.cluster_map` (comma-separated `path=cluster` pairs)
 
 ---
 

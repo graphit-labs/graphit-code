@@ -80,7 +80,7 @@ func showMCPEndpoint() error {
 	p.Header("MCP Server")
 	p.KeyValue("Endpoint", fmt.Sprintf("http://127.0.0.1:%d/mcp", port))
 	p.KeyValue("Transport", "Streamable HTTP")
-	p.KeyValue("Auth", "Bearer token (see ~/."+brand.DotDir()+"/daemon/mcp.key)")
+	p.KeyValue("Auth", "Bearer token (see ~/"+brand.DotDir()+"/daemon/mcp.key)")
 	p.Step("For IDE integration: %s mcp --stdio", brand.BinName())
 
 	return nil

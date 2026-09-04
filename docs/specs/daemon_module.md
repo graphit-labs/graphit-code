@@ -20,7 +20,9 @@ related:
 # Daemon Module Specification
 
 The Daemon module runs a persistent, background supervisor process.
-It discovers managed projects, keeps resources loaded (like the ONNX model client), runs background task loops, and performs maintenance routines.
+It discovers managed projects, shares the configured embedding backend, runs background loops,
+serves authenticated MCP, and performs maintenance routines. See
+[Daemon Operations and Monitoring](../guides/daemon_operations.md) for the user-facing runbook.
 
 ---
 
@@ -140,8 +142,14 @@ coordinates the daemon against a concurrent CLI sync.
 
 ### 3. Global Modules
 Modules that run once per daemon (not per-project):
-- **`EmbedServer`**: Shared ONNX embedding model server for vector search.
+- **`EmbedServer`**: Lazy Unix-socket proxy for the configured local or remote embedding provider.
 - **User `MemoryMaintenanceModule`**: exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
+- **Optional UI module**: hosts the Observatory when `modules.daemon_ui=true`.
+
+The daemon also owns a separate authenticated streamable HTTP MCP listener at `/mcp`.
+`mcp.host` defaults to loopback and `mcp.port` defaults to an OS-assigned port; discovery
+metadata is written to `~/.graphit/daemon/mcp.port` and the mode-`0600` bearer secret to
+`~/.graphit/daemon/mcp.key`.
 
 ### 4. Filesystem Change Detection
 
@@ -215,7 +223,7 @@ Registers a cron entry in the user's crontab:
 ### 2. macOS (LaunchAgent)
 Generates a LaunchAgent plist configuration file under `~/Library/LaunchAgents/com.graphit.daemon.plist`:
 - Configured with `RunAtLoad = true` to start the daemon on user login.
-- Sets up standard output redirect logs to `~/.graphit/daemon/daemon.log`.
+- Redirects standard output and error to `/dev/null`.
 
 ### 3. Windows (Task Scheduler)
 Uses `schtasks` commands to create a user-scoped XML task trigger.
@@ -225,17 +233,20 @@ It schedules execution to repeat every 1 minute under user execution rights.
 
 ## 🔄 Binary Upgrade & Replacement Spawn
 
-When a user upgrades their CLI tool via `self-update`, the running daemon must be replaced without interrupting database read calls.
+When the launcher/Core or native parser libraries change, the running daemon replaces itself.
 
-1. **Stamp Checking**:
-   The daemon regularly parses `~/.graphit/daemon/launcher.stamp` (the SHA256 checksum of the core executable binary).
+1. **Change checking**:
+   Every 30 seconds the daemon compares `~/.graphit/daemon/launcher.stamp` and fingerprints
+   the global and supervised-project native grammar directories.
 2. **Replacement Action**:
    If the stamp value differs, the daemon knows that a new binary version has been installed:
-   - It removes the current `daemon.pid` file.
-   - It spawns a new replacing daemon process.
-   - It invokes a graceful shutdown sequence for the old daemon, stopping child project supervisors.
-3. **Port handoff**:
-   The old daemon frees occupied ports (e.g. standard SSE embedding server connections) to allow the replacing instance to bind cleanly.
+   - It gracefully stops project and global modules.
+   - It closes the authenticated MCP listener and removes its discovery files.
+   - The command then spawns a detached replacement that preserves process flags.
+3. **Endpoint handoff**:
+   The old daemon frees the MCP listener and Unix embedding socket before the replacement
+   publishes fresh discovery state. YAML query-definition changes reload independently and do
+   not require process replacement; native grammar libraries do.
 
 ---
 

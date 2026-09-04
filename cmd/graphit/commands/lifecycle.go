@@ -304,7 +304,7 @@ Examples:
   ` + brand.BinName() + ` config --global --unset ide         # unset global
   ` + brand.BinName() + ` config --list                       # list per-project config
   ` + brand.BinName() + ` config --list --global              # list global config
-  ` + brand.BinName() + ` config --secret openai.key < key.txt # set secret value from stdin`,
+  ` + brand.BinName() + ` config --secret ai.embedding.api_key < key.txt # set secret value from stdin`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := output.NewPrinter("")

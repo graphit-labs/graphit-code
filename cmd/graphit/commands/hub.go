@@ -36,7 +36,7 @@ func newHubCmd() *cobra.Command {
 		PersistentPreRunE: requireSetupAndProject,
 	}
 
-	cmd.PersistentFlags().String("ide", "", "Target IDE (antigravity, cursor, claude, kiro, gemini)")
+	cmd.PersistentFlags().String("ide", "", "Target IDE (antigravity, cursor, claude, gemini, kiro, codex, opencode)")
 	_ = cmd.RegisterFlagCompletionFunc("ide", completionIDEs())
 
 	cmd.AddCommand(
@@ -63,8 +63,10 @@ func newHubInstallCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install <artifact-id>[@version]",
-		Short: "Install an artifact from the hub",
-		Args:  cobra.MinimumNArgs(1),
+		Short: "Install an artifact globally from the hub",
+		Long: "Install an artifact into Graphit's global, version-keyed store. " +
+			"The installed artifact can then be addressed as id@version without a project checkout.",
+		Args: cobra.MinimumNArgs(1),
 		Example: `  ` + brand.BinName() + ` hub install my-rule
   ` + brand.BinName() + ` hub install my-agent@1.2.0
   ` + brand.BinName() + ` hub install my-skill --alias my-custom-name`,
@@ -105,7 +107,7 @@ func newHubUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "uninstall <artifact-id>",
 		Aliases: []string{"remove"},
-		Short:   "Uninstall an artifact from the current project",
+		Short:   "Uninstall a globally installed artifact",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ide := resolveIDEFlag(cmd)
@@ -540,11 +542,10 @@ func newHubLinkCmd() *cobra.Command {
 Useful for local development and testing. Rules are read dynamically by lifecycle
 hooks from a directory containing RULE.md; they are never copied into an IDE.
 
-For AST:       .<brand>/ast/<name>       → <path>/.<brand>/ast/project
-For Knowledge: .<brand>/knowledge/<name> → <path>/.<brand>/knowledge/project
-For Rule:      hook context              → <path>/RULE.md
-For IDE types: <ide-dir>/<folder>/<name> → <path>/<ide-dir>/<folder>/<name>
-MCP:           Not supported (requires actual IDE configuration)`,
+AST/Knowledge: record a pointer to the source project's compiled global store
+Rule:          read <path>/RULE.md through dynamic hook context
+IDE types:     link the adapter-native target to the source artifact
+MCP:           synchronize the source definition into the active adapter`,
 		Args: cobra.ExactArgs(1),
 		Example: `  ` + brand.BinName() + ` hub link my-project --path ../my-project --type knowledge
   ` + brand.BinName() + ` hub link my-project --path ../my-project --type ast

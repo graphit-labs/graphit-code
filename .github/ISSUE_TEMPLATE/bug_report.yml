@@ -1,63 +1,85 @@
 name: Bug Report
-description: File a bug report
+description: Report reproducible incorrect behavior in Graphit Code
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this bug report!
+        Thank you for helping improve Graphit. Search existing issues first, then include the smallest reproducible case. Remove credentials, bearer keys, private source, bucket names, and personal paths from all output.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      description: Where did the problem occur?
+      options:
+        - CLI or setup
+        - AST indexing, graph, or retrieval
+        - Knowledge or wiki
+        - Memory
+        - Task coordination
+        - Hub or shared storage
+        - Daemon, hooks, or filesystem watcher
+        - MCP endpoint or client integration
+        - Observatory UI or Live Search
+        - Build, release, or container
+        - Documentation
+    validations:
+      required: true
   - type: dropdown
     id: environment
     attributes:
-      label: Environment
-      description: What operating system are you using?
-      options:
-        - Linux
-        - macOS
-        - Windows
+      label: Operating system
+      options: [Linux, macOS, Windows, Container]
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version
-      description: What version of graphit-code are you using?
+      label: Graphit version
+      description: Paste `graphit version` or the exact commit SHA.
+      placeholder: v1.4.0 or 0123456789abcdef
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent or MCP client
+      description: Include the client and version when hooks, adapters, Live Search, or MCP are involved.
+      placeholder: Codex, Claude Code, Cursor, custom MCP client, or not applicable
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Relevant configuration
+      description: List only relevant keys, modules, environment overrides, storage mode, and special paths. Redact every secret.
+      placeholder: |
+        modules.ast=true
+        ai.embedding.provider=local
+        storage=local
     validations:
       required: true
   - type: textarea
-    id: description
+    id: steps
     attributes:
-      label: Description
-      description: A clear and concise description of what the bug is.
+      label: Minimal reproduction
+      description: Include initial state, exact commands or tool calls, and the smallest files needed to reproduce the behavior.
     validations:
       required: true
   - type: textarea
-    id: steps_to_reproduce
+    id: expected
     attributes:
-      label: Steps to Reproduce
-      description: Steps to reproduce the behavior.
+      label: Expected behavior
     validations:
       required: true
   - type: textarea
-    id: expected_behavior
+    id: actual
     attributes:
-      label: Expected Behavior
-      description: A clear and concise description of what you expected to happen.
+      label: Actual behavior
     validations:
       required: true
   - type: textarea
-    id: actual_behavior
+    id: evidence
     attributes:
-      label: Actual Behavior
-      description: A clear and concise description of what actually happened.
-    validations:
-      required: true
-  - type: textarea
-    id: logs
-    attributes:
-      label: Logs
-      description: Paste any relevant logs here. You may want to wrap these in a `<details>` block if they are long.
+      label: Sanitized evidence
+      description: Paste concise logs, stack traces, screenshots, or task IDs. Never include secrets, MCP bearer keys, private code, or complete configuration dumps.
       render: shell
-    validations:
-      required: false

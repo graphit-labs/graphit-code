@@ -72,12 +72,15 @@ can drown exact lexical matches. This threshold is a relevance gate, not a fusio
 
 ### Tier 3: AI Synthesis
 
-**Tools:** `graphit_knowledge_query`, `graphit_memory_query`
+**Surfaces:** `graphit knowledge query`, `graphit memory query`, Observatory AI search, and
+`graphit live`
 
-Uses an AI model to synthesize answers from wiki pages found via BM25 retrieval. Supports multi-turn conversations for iterative exploration.
+Uses a locally installed coding-agent CLI to synthesize answers from retrieved wiki pages or a
+temporary multi-artifact workspace. These are CLI/UI workflows, not stdio MCP tools. They require
+`modules.agent=true` and an authenticated agent CLI on `PATH`.
 
 - **AI-powered** — LLM reads retrieved pages and synthesizes a coherent answer
-- **Multi-turn** — follow-up queries refine the answer
+- **Synthesized** — the agent reads retrieved evidence and produces one coherent answer
 - **Higher latency** — involves an LLM inference call
 - **Best for** — complex questions that span multiple documents
 
@@ -88,15 +91,16 @@ Uses an AI model to synthesize answers from wiki pages found via BM25 retrieval.
 | Tool | Module | Searches | Backend | AI? | Scope Params |
 |------|--------|----------|---------|-----|-------------|
 | `graphit_knowledge_search` | knowledge | project or Hub knowledge wiki | LanceDB BM25 | No | `context` (empty = project, named = installed Hub artifact) |
-| `graphit_knowledge_query` | knowledge | project knowledge wiki | AI + BM25 multi-turn | Yes | `context` |
 | `graphit_wiki_search` | wiki | multiple wikis simultaneously | BM25/semantic on `index.lance/` | Semantic mode only | `wikis[]` (project, memory), `hub_refs[]` |
 | `graphit_wiki_browse` | wiki | single wiki catalog | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_wiki_xrefs` | wiki | single wiki cross-refs | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_wiki_log` | wiki | single wiki sync history | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_memory_search` | memory | compiled memory wiki | LanceDB BM25 | No | `scope` (project or user) |
 | `graphit_memory_mandatory` | memory | authoritative live memory table | LanceDB filter, no ranking | No | `scope` (project or user) |
-| `graphit_memory_query` | memory | memory wiki | AI + BM25 | Yes | `scope`, `context` |
 | `graphit_task_search` | task | current/prior task specs and comments | LanceDB BM25 | No | project identity |
+| `graphit knowledge query` | CLI | project or imported knowledge wiki | agent CLI + retrieved pages | Yes | `--context` |
+| `graphit memory query` | CLI | project/user/imported memory wiki | agent CLI + retrieved pages | Yes | `--user`, `--context` |
+| `graphit live` | CLI/UI | selected Hub artifacts in an ephemeral workspace | coding-agent session | Yes | artifact IDs and versions |
 
 > [!NOTE]
 > All tools that return structured data support `ai_optimized: true` to return token-efficient, pre-summarized output optimized for LLM consumption.
@@ -194,8 +198,6 @@ Every tool resolves to a local directory or immutable object-store URI based on 
 |------|-------|------------|
 | `knowledge_search` | no context | `~/.graphit/wiki/knowledge/project/<project-id>/` |
 | `knowledge_search` | `context: "X"` | versioned Hub `s3://…/index.lance` |
-| `knowledge_query` | no context | `~/.graphit/wiki/knowledge/project/<project-id>/` |
-| `knowledge_query` | `context: "X"` | versioned Hub `s3://…/index.lance` |
 | `wiki_search` | `wikis: ["project"]` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` |
 | `wiki_search` | `wikis: ["memory"]` | `~/.graphit/wiki/memory/project/<project-id>/index.lance/` |
 | `wiki_browse` | `wiki: "project"` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` |
@@ -206,8 +208,6 @@ Every tool resolves to a local directory or immutable object-store URI based on 
 | `wiki_xrefs` | `wiki: "memory"` | `~/.graphit/wiki/memory/project/<project-id>/index.lance/` |
 | `memory_search` | `scope: "project"` | `~/.graphit/wiki/memory/project/<project-id>/` |
 | `memory_search` | `scope: "user"` | `~/.graphit/wiki/memory/user/<hash>/` |
-| `memory_query` | `scope: "project"` | `~/.graphit/wiki/memory/project/<project-id>/` |
-| `memory_query` | `scope: "user"` | `~/.graphit/wiki/memory/user/<hash>/` |
 
 > [!IMPORTANT]
 > You cannot read these files, and that is deliberate: every wiki lives once in the global brand directory, outside any project. `graphit_wiki_source` is how a page is read — it takes the project as a parameter and slices, so a long page costs only the part you asked for. The other tools return compiled, BM25-ranked, pre-summarized output.
@@ -251,8 +251,8 @@ Use the `context` parameter to target the installed artifact:
 // BM25 keyword search
 graphit_knowledge_search(query: "middleware configuration", context: "nextjs-docs")
 
-// AI-synthesized answer
-graphit_knowledge_query(query: "How do I set up middleware?", context: "nextjs-docs")
+// AI-synthesized answer from the installed context (CLI)
+graphit knowledge query "How do I set up middleware?" --context nextjs-docs
 ```
 
 ### Step 5: Alternative — Search via `wiki_search`
@@ -285,13 +285,13 @@ What do you need?
 │  └─► graphit_memory_search(query: "...", scope: "project")
 │
 ├─ AI-synthesized answer from memories?
-│  └─► graphit_memory_query(query: "...", scope: "project")
+│  └─► graphit memory query "..." [--user | --context <name>]
 │
 ├─ Quick keyword search in project docs?
 │  └─► graphit_knowledge_search(query: "...", ai_optimized: true)
 │
 ├─ AI-synthesized answer from project docs?
-│  └─► graphit_knowledge_query(query: "...")
+│  └─► graphit knowledge query "..." [--context <name>]
 │
 ├─ Search BOTH knowledge + memory at once?
 │  └─► graphit_wiki_search(query: "...", wikis: ["project", "memory"])
@@ -318,9 +318,9 @@ What do you need?
 | Scenario | Tool | Key Parameter |
 |----------|------|--------------|
 | "Did I save a memory about X?" | `memory_search` | `scope` |
-| "Explain how X works from my notes" | `memory_query` | `scope` |
+| "Explain how X works from my notes" | `graphit memory query` | `--user` / `--context` |
 | "Find docs mentioning X" | `knowledge_search` | `context` |
-| "Explain X from the project docs" | `knowledge_query` | `context` |
+| "Explain X from the project docs" | `graphit knowledge query` | `--context` |
 | "Search everything for X" | `wiki_search` | `wikis: ["project", "memory"]` |
 | "Find semantically similar content" | `wiki_search` | `mode: "semantic"` |
 | "What docs exist?" | `wiki_browse` | `wiki` |

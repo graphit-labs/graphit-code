@@ -157,6 +157,5 @@ graphit config --get ui.allowed_origins
 - A successful request from curl despite a browser CORS error is expected: CORS
   is enforced by browsers.
 
-See also [Configuration Module](../specs/config_module.md),
-[Hub S3 Object Layout](../specs/hub-s3-object-layout.md), and the
-[network and credential decision record](../decisions/2026-08-24-s3-credentials-and-ui-server-network.md).
+See also [Configuration Module](../specs/config_module.md) and
+[Hub S3 Object Layout](../specs/hub-s3-object-layout.md).

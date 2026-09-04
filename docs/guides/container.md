@@ -5,9 +5,9 @@ PID 1, publishing an **MCP endpoint** and a **UI** on two ports.
 
 **Any MCP-capable AI agent connects to it.** Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot,
 Kiro, an in-house client — anything that speaks MCP over HTTP with a bearer token. The agent runs
-wherever the developer is and brings its own model; the server supplies the code graphs, the compiled
-documentation wikis and the memory it reasons over. One container serves a whole team, and nobody has
-to index anything locally.
+wherever the developer is and brings its own model; the server supplies installed code graphs,
+compiled documentation wikis, reusable artifacts, and user-scoped memory. One container can serve a
+whole team without rebuilding each published context on every laptop.
 
 The image carries **no source checkouts and no coding-agent CLI**, and needs neither. It answers about
 **artifacts** — knowledge and AST contexts installed into its global store — which are addressed by
@@ -33,23 +33,24 @@ docker run -d --name graphit \
 
 `docker logs graphit` shows the daemon's output. `docker inspect --format '{{.State.Health.Status}}' graphit` reports the healthcheck, which polls the UI's `/health`.
 
-> **Neither port is authenticated.** The UI has no accounts, and it serves the MCP bearer key so the
-> interface can offer a copy button — so anything that can reach the UI port can also take over the
-> MCP endpoint. Publishing both to `127.0.0.1`, as above, is the only configuration that is safe by
-> default. See [Exposing it to other people](#exposing-it-to-other-people).
+> **The MCP endpoint requires its per-start bearer key; the UI has no authentication.** The UI can
+> reveal that key on the daemon page, so access to the UI is effectively administrative access to
+> MCP as well. Publishing both to `127.0.0.1`, as above, is the safe default. See
+> [Exposing it to other people](#exposing-it-to-other-people).
 
 ## Connecting an AI agent
 
 ### 1. Get the endpoint and the key
 
 The bearer key is regenerated on **every daemon start** and written to
-`/opt/graphit/runtime/daemon/mcp.key` with mode `0600`.
+`/opt/graphit/daemon/mcp.key` with mode `0600`.
 
-The UI's **daemon page** (`/system/daemon`) shows the MCP port, the endpoint, and the key behind a
-copy button — masked on screen, full value to the clipboard. Or from a shell:
+Open the UI and choose **System → Daemon** (`/system/daemon`). Its **MCP bearer key** button shows a
+masked preview and copies the full key; the same panel shows the endpoint and port. This is the
+normal way an administrator gives an MCP client its credentials. Or read the key from a shell:
 
 ```bash
-docker exec graphit cat /opt/graphit/runtime/daemon/mcp.key
+docker exec graphit cat /opt/graphit/daemon/mcp.key
 ```
 
 ### 2. Point your client at it
@@ -71,24 +72,44 @@ Clients that only speak stdio can wrap it with any stdio-to-HTTP MCP bridge. A l
 does this for itself — `graphit init` writes a stdio proxy that reaches the daemon over loopback —
 which is the same transport this exposes over the network.
 
-### 3. Ask for artifacts, not paths
+### 3. Bootstrap the agent with the server's own instructions
+
+The first tool call should be `graphit_mandates`. It returns the server's current routing rules after
+global configuration and rule overrides are applied. When the current action matches a module
+trigger, call `graphit_module_skill` for `task`, `memory`, `ast`, `hub`, or `knowledge` and read its
+complete `content` before using that module. Both calls omit `project_dir` on this server.
+
+A copy-ready skill that enforces this bootstrap, qualified artifact references, and the projectless
+boundary is in [`docs/examples/skills/graphit-remote/SKILL.md`](../examples/skills/graphit-remote/SKILL.md).
+Copy that directory into the agent's normal skills location, or adapt its body to the client's
+instruction mechanism.
+
+### 4. Ask for versioned artifacts, not paths
 
 This is the one thing an agent gets wrong against a server. There is no checkout here, so tools take
 a **`context`** instead of a `project_dir`:
 
 ```
 graphit_ast_query      project_dir omitted, context: "acme-api@2.1.0"
-graphit_knowledge_search                context: "acme-docs"
+graphit_knowledge_search                context: "acme-docs@3.0.1"
 graphit_ast_source                      context: "acme-api@2.1.0"
 ```
+
+Use an unqualified ID only to discover an artifact with `graphit_hub_search`, `graphit_hub_list`, or
+`graphit_hub_show`. Once selected, use **`id@version` everywhere**: query contexts, `hub_refs`, global
+installs, source reads, and handoffs. A versioned reference makes the answer reproducible even after
+the registry's latest release changes.
 
 Omitting both is refused with a message that says so, rather than silently answering from an empty
 store. Tools that genuinely need a project — indexing, linting, exporting, anything that writes —
 keep requiring `project_dir` and are not what a server is for.
 
-What works with no project at all: the AST query/schema/source/search tools, knowledge search, the
-wiki browse/source/xrefs/log tools, the whole Hub surface, and the user scope of memory (keyed by the
-machine, so it is a real scope rather than a fallback).
+What works with no project at all: mandates and module-skill retrieval, the AST
+query/schema/source/search tools, knowledge search, the wiki browse/source/xrefs/log tools, the
+projectless Hub surface, and the user scope of memory (keyed by the machine, so it is a real scope
+rather than a fallback). Installed Hub `skill`, `rule`, `command`, and `agent` files are available
+through `graphit_hub_content` with `id: "id@version"`; AST and Knowledge source use their dedicated
+source tools.
 
 ## Publishing artifacts to it
 
@@ -110,8 +131,8 @@ the server, install them:
 ```bash
 # on the server
 docker exec graphit graphit hub search acme
-docker exec graphit graphit hub install acme-api --type ast
-docker exec graphit graphit hub install acme-docs --type knowledge
+docker exec graphit graphit hub install acme-api@2.1.0 --type ast
+docker exec graphit graphit hub install acme-docs@3.0.1 --type knowledge
 docker exec graphit graphit hub list
 ```
 
@@ -193,7 +214,8 @@ surface — which is the whole design. The server holds the knowledge; the agent
 
 **Still working:** hybrid search over local ONNX embeddings (`GET /api/search`), wiki keyword search,
 every Cypher/graph/complexity/dead-code route, the knowledge and memory explorers, the Hub, the
-ecosystem view, and **the entire MCP tool surface**.
+ecosystem view, and the projectless MCP read/discovery surface described above. Project-bound MCP
+mutations still require a mounted, initialized checkout.
 
 `modules.dream=false` for the same reason: Dream is an overnight agent run.
 
@@ -312,10 +334,10 @@ docker build --build-arg BASE_IMAGE=node:22-bookworm-slim .
 A server that only answers its own loopback is not a server, so this is the section to read before
 anyone else's agent connects.
 
-**Neither port is authenticated, and the UI hands out the MCP bearer key.** Anything that can reach
-port 8080 can read every artifact in the global store, act on it, *and* copy the credential for the
-MCP endpoint. Both servers bind `0.0.0.0` *inside* the container because a container answering only its
-own loopback would be unusable — that is not a judgment that the ports are safe to publish.
+**MCP is bearer-authenticated, but the UI is not and can reveal the bearer key.** Anything that can
+reach port 8080 can read every artifact in the global store, act on it, and copy the credential for
+the MCP endpoint. Both servers bind `0.0.0.0` *inside* the container because a container answering
+only its own loopback would be unusable — that is not a judgment that the ports are safe to publish.
 
 For anything beyond the local machine:
 
@@ -389,18 +411,18 @@ resolved is older than those flags. Pin a newer tag with `--build-arg GRAPHIT_VE
 
 **An agent's query comes back empty, or says it needs an artifact reference.** There is no checkout on
 the server, so `project_dir` resolves to nothing. Name the artifact in `context` — see
-[Ask for artifacts, not paths](#3-ask-for-artifacts-not-paths).
+[Ask for versioned artifacts, not paths](#4-ask-for-versioned-artifacts-not-paths).
 
 **`graphit hub list` shows nothing to install.** The Hub is in local-only mode. Set
 `GRAPHIT_HUB_BUCKET` and its credentials.
 
 **An MCP client gets 401.** The bearer key is regenerated on every daemon start, so a key copied
 before a restart is stale. Copy it again from the UI's daemon page or from
-`/opt/graphit/runtime/daemon/mcp.key`.
+`/opt/graphit/daemon/mcp.key`.
 
 **An MCP client cannot connect at all.** Check that 8081 is published and that
 `GRAPHIT_MCP_HOST=0.0.0.0` is still set — with the compiled default of `127.0.0.1` the listener is
-inside the container only. `docker exec graphit cat /opt/graphit/runtime/daemon/mcp.port` shows the
+inside the container only. `docker exec graphit cat /opt/graphit/daemon/mcp.port` shows the
 port actually in use.
 
 **The AI search or live search controls are missing from the UI.** By design — see
@@ -420,6 +442,7 @@ embedding provider.
 
 ## See also
 
+- [Remote agent skill](../examples/skills/graphit-remote/SKILL.md) — copy-ready mandates-first and `id@version` behavior
 - [MCP tools reference](mcp_tools_reference.md) — the tool contracts an agent gets, and which take a `context`
 - [S3 and UI network security](s3-and-ui-network.md) — the bind address and origin policy in full
 - [CLI reference](cli_reference.md) — `graphit setup`, `graphit daemon`, `graphit hub`

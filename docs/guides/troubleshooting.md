@@ -17,6 +17,8 @@ related:
   - "docs/guides/cli_reference.md"
   - "docs/guides/user_manual.md"
   - "docs/guides/agent_hook_activation.md"
+  - "docs/guides/daemon_operations.md"
+  - "docs/guides/ai_models.md"
 ---
 
 # Troubleshooting
@@ -310,20 +312,16 @@ graphit daemon status
 # Check the "scheduler_status" field
 ```
 
-**Solutions by OS:**
-- **Linux (systemd):** The daemon registers a systemd user unit.
-  ```bash
-  systemctl --user status graphit-daemon
-  systemctl --user enable graphit-daemon
-  ```
-- **macOS (launchd):** The daemon registers a Launch Agent.
-  ```bash
-  launchctl list | grep graphit
-  ```
-- **Windows (schtasks):** The daemon registers a scheduled task.
-  ```bash
-  schtasks /query /tn "GraphitDaemon"
-  ```
+Install or inspect Graphit's user-scoped watchdog:
+
+```bash
+graphit daemon scheduler install
+graphit daemon scheduler status
+```
+
+Linux uses the user crontab, macOS uses a LaunchAgent, and Windows uses Task Scheduler.
+See [Daemon Operations and Monitoring](daemon_operations.md#optional-os-watchdog) for exact files,
+intervals, and removal.
 
 ---
 
@@ -526,7 +524,7 @@ graphit setup            # finds them, reports "already present", succeeds
 `EnsureModel` also checks a `models/` directory next to the core binary before it looks
 at the cache, but the cache is the simpler of the two and survives upgrades — the
 launcher wipes the per-version runtime directory on every version bump. Full detail in
-[Air-Gapped Deployments](private_brand_customization.md#-air-gapped-deployments).
+[Air-Gapped Deployments](private_brand_customization.md#air-gapped-deployments).
 
 The files must clear the minimum sizes (`modelONNXMinSize`, `tokenizerJSONMinSize`) or
 they are treated as a failed download and fetched again — which on this machine means
@@ -578,35 +576,18 @@ empty embedding response from daemon
    ```bash
    graphit daemon status
    ```
-2. Check the embed port file:
+2. Check that the Unix socket exists:
    ```bash
-   cat ~/.graphit/daemon/embed.port
+   ls -l ~/.graphit/daemon/embed.sock
    ```
-3. Verify the embedding server is responding:
-   ```bash
-   curl http://127.0.0.1:$(cat ~/.graphit/daemon/embed.port)/health
-   ```
-4. Restart the daemon:
+3. Restart the daemon:
    ```bash
    graphit daemon stop
    graphit sync
    ```
 
-### Invalid port in embed.port file
-
-**Symptoms:**
-```
-invalid port in <path>: ...
-```
-
-**Cause:** The port file is corrupted or contains non-numeric content.
-
-**Solutions:**
-```bash
-rm ~/.graphit/daemon/embed.port
-graphit daemon stop
-graphit sync
-```
+The embedding proxy is newline-delimited JSON over a Unix socket. It has no HTTP port file or
+health URL. `mcp.port` belongs to the separate authenticated MCP HTTP listener.
 
 ---
 
@@ -917,12 +898,14 @@ internal error (panic): ...
 
 ### Daemon autostart from MCP
 
-Every MCP tool call automatically tries to ensure the daemon is running. If it fails:
+The stdio MCP process ensures the daemon when it starts and retries before tool handling. If it fails:
 ```
 [MCP] Failed to ensure daemon is running: ...
 ```
 
-This is logged to stderr and does not block the tool call. The tool will continue executing, but features that depend on the daemon (like embedding proxy) may not work.
+This is logged to stderr and does not block the tool call. The tool continues, and embedding can
+fall back to direct provider construction, but background indexing and recurring maintenance remain
+unavailable until the daemon starts.
 
 ---
 

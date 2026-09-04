@@ -1,175 +1,130 @@
 # Contributing to Graphit Code
 
-Thank you for your interest in contributing to **Graphit Code**! This guide will help you get started.
-
-## Table of Contents
-
-- [Prerequisites](#prerequisites)
-- [Getting Started](#getting-started)
-- [Project Structure](#project-structure)
-- [Code Style](#code-style)
-- [Running Tests](#running-tests)
-- [Pull Request Process](#pull-request-process)
-- [Questions & Support](#questions--support)
-
----
+Graphit combines a Go CLI and daemon, Rust-backed LanceDB storage, LadybugDB/Icebug graphs, a
+React Observatory, agent adapters, and a large documentation corpus. Contributions should preserve
+the contracts between those surfaces rather than changing one in isolation.
 
 ## Prerequisites
 
-Before you begin, make sure you have the following installed:
+| Tool | Version or requirement | Purpose |
+|---|---|---|
+| Go | Version declared by `go.mod` (currently 1.26.6) | CLI, daemon, MCP, storage orchestration, and tests |
+| Node.js | 22+ | Observatory development, lint, tests, and build |
+| Rust and Cargo | current stable | Native LanceDB bridge when a cached runtime library is unavailable |
+| GNU Make | current | Reproducible repository workflows |
+| C/C++ toolchain, `pkg-config`, and ICU development libraries | platform current | CGO/native dependencies |
+| `golangci-lint` | repository/CI-compatible current release | Go static analysis |
 
-| Tool | Minimum Version | Purpose |
-|------|----------------|---------|
-| [Go](https://go.dev/dl/) | 1.23+ | Primary language |
-| [Node.js](https://nodejs.org/) | 20+ | Tooling & scripts |
-| [golangci-lint](https://golangci-lint.run/welcome/install/) | latest | Linting |
-| [GNU Make](https://www.gnu.org/software/make/) | any | Build automation |
+Platform setup differs for the native libraries. Follow the CI workflow for your operating system
+when a local package name is unclear.
 
-## Getting Started
-
-1. **Fork** the repository on GitHub: [`graphit-labs/graphit-code`](https://github.com/graphit-labs/graphit-code)
-
-2. **Clone** your fork:
-
-   ```bash
-   git clone https://github.com/<your-username>/graphit-code.git
-   cd graphit-code
-   ```
-
-3. **Set up** the development environment:
-
-   ```bash
-   make setup-lbug
-   ```
-
-4. **Verify** everything works:
-
-   ```bash
-   make test
-   ```
-
-If all tests pass, you're ready to contribute!
-
-## Project Structure
-
-```
-graphit-code/
-├── cmd/            # CLI entry points and command definitions
-├── internal/       # Private application packages (core logic)
-├── docs/           # Documentation and guides
-├── .github/        # GitHub templates and CI workflows
-├── Makefile        # Build, test, and lint automation
-├── go.mod          # Go module definition
-└── go.sum          # Go dependency checksums
-```
-
-- **`cmd/`** — Contains the `graphit` CLI binary entry point and all command implementations.
-- **`internal/`** — Houses the core business logic, organized by domain. Packages here are not importable by external projects.
-- **`docs/`** — Project documentation, architecture decisions, and user-facing guides.
-
-## Code Style
-
-### Formatting
-
-All Go code must be formatted with `gofmt`. Run it before committing:
+## Start a development checkout
 
 ```bash
-gofmt -w .
-```
-
-### Linting
-
-We use [`golangci-lint`](https://golangci-lint.run/) to enforce code quality:
-
-```bash
-golangci-lint run
-```
-
-The CI pipeline will reject PRs that fail linting.
-
-### Commit Messages
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/) for clear, parseable history:
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`
-
-**Examples:**
-
-```
-feat(ast): add support for Python 3.12 match statements
-fix(memory): prevent duplicate entries during consolidation
-docs(contributing): add section on commit message format
-```
-
-## Running Tests
-
-### Unit Tests
-
-```bash
+git clone https://github.com/<your-username>/graphit-code.git
+cd graphit-code
+make setup-lbug
+make lancedb-native
+make build-local
 make test
 ```
 
-### Full CI Suite
-
-Run the complete CI pipeline locally (tests + linting + build):
+Run the Observatory separately when working on the frontend:
 
 ```bash
-make ci
+cd internal/ui
+npm ci
+npm run dev
 ```
 
-> **Tip:** Always run `make ci` before submitting a pull request to catch issues early.
+## Repository map
 
-## Pull Request Process
+| Path | Responsibility |
+|---|---|
+| `cmd/` | CLI entry points and command surfaces |
+| `internal/ast/` | parsing, Icebug graph construction, Lance retrieval, source reads |
+| `internal/knowledge/`, `internal/wiki/` | documentation ingestion and compiled wiki retrieval |
+| `internal/memory/` | persistent project/user memory and revision lifecycle |
+| `internal/task/` | deterministic task ownership, audit, checks, and completion gates |
+| `internal/hub/` | artifact registry, shared storage, and agent adapters |
+| `internal/daemon/` | supervision, filesystem synchronization, and background work |
+| `internal/ui/` | embedded React Observatory |
+| `docs/guides/` | maintained user workflows and references |
+| `docs/specs/`, `docs/architecture/`, `docs/decisions/` | mechanism, architecture, and decisions |
+| `docs/site/` | GitHub Pages product and documentation entry point |
 
-1. **Fork** the repository and create a feature branch from `main`:
+## Make a change
 
-   ```bash
-   git checkout -b feat/my-awesome-feature
-   ```
+Keep a change focused and verify the whole public contract it affects:
 
-2. **Make your changes** — keep commits focused and atomic.
+- Configuration changes need a default, resolution behavior, environment spelling, secret policy,
+  and updates to the [Configuration Reference](docs/guides/configuration.md).
+- Filesystem changes need explicit ownership, ignore behavior, watcher impact, cleanup semantics,
+  and updates to [Filesystem, State, and Watchers](docs/guides/filesystem_contract.md).
+- A capability exposed through more than one surface must remain consistent across CLI, MCP,
+  Observatory, adapters, and documentation.
+- Task completion, memory recall, and artifact identity are deterministic state contracts. Preserve
+  fencing, idempotency, audit history, and explicit failure behavior.
+- Agent-generated synthesis must remain distinguishable from BM25, vector, RRF, graph, source,
+  memory, and Task operations that do not need a coding-agent CLI.
 
-3. **Add or update tests** to cover your changes.
+Use `gofmt` for Go and the repository's frontend formatter/linter for TypeScript and CSS. Keep code
+comments only for invariants, constraints, or risks that are not evident from the code. Put user and
+architecture documentation in the docs tree.
 
-4. **Run the full CI suite** locally:
+## Tests
 
-   ```bash
-   make ci
-   ```
+Run the smallest relevant package while iterating, then the repository targets appropriate to the
+change:
 
-5. **Push** your branch and open a Pull Request against `main`:
+```bash
+go test ./internal/<package>
+make test
+make lint
+make build-local
+```
 
-   ```bash
-   git push origin feat/my-awesome-feature
-   ```
+For Observatory changes:
 
-6. **Fill out the PR template** completely — describe what changed and why.
+```bash
+cd internal/ui
+npm run lint
+npm test
+npm run build
+```
 
-7. **Respond to review feedback** promptly. We aim for a collaborative, constructive review process.
+Tests must be hermetic: temporary isolated state, no network or external service, no real user home
+mutation, and bounded resource use. Test current behavior and non-obvious invariants; do not add
+environment-gated suites, production test switches, historical regression narratives, or duplicated
+coverage.
 
-### PR Checklist
+`make ci` is the broad local gate. Native release builds are platform-specific because the LanceDB
+bridge cannot be cross-compiled.
 
-- [ ] Code compiles without errors
-- [ ] All tests pass (`make test`)
-- [ ] Linting passes (`golangci-lint run`)
-- [ ] Full CI passes (`make ci`)
-- [ ] New functionality includes tests
-- [ ] Documentation updated if applicable
-- [ ] Commit messages follow Conventional Commits
+## Documentation and UI
 
-## Questions & Support
+All versioned project content is English. Public claims must describe implemented behavior and
+state limitations directly. When commands, tools, defaults, paths, screenshots, or security
+boundaries change, update the relevant guide, specification, README, and Pages copy in the same pull
+request.
 
-- **GitHub Issues** — For bugs and feature requests, use the [issue tracker](https://github.com/graphit-labs/graphit-code/issues).
-- **GitHub Discussions** — For questions, ideas, and general discussion, visit [Discussions](https://github.com/graphit-labs/graphit-code/discussions).
+The Pages site must retain the current release token consumed by its publication workflow. Verify
+responsive layout, keyboard operation, reduced-motion behavior, local assets, and every link after a
+site change.
 
----
+## Pull requests
 
-Thank you for helping make Graphit Code better! 🚀
+Open a focused pull request against `main` and complete the template. Include:
+
+1. the observable outcome and intended boundary;
+2. the relevant issue or Graphit Task;
+3. exact validation evidence;
+4. configuration, filesystem, security, adapter, and documentation impact;
+5. screenshots for meaningful visual changes.
+
+Use clear commit subjects. Conventional Commit prefixes such as `feat`, `fix`, `docs`, `refactor`,
+`test`, `build`, `ci`, and `chore` are welcome, but the subject must describe the actual outcome.
+
+For questions and design discussion, use
+[GitHub Discussions](https://github.com/graphit-labs/graphit-code/discussions). Report reproducible
+bugs and scoped proposals through the repository's issue forms.
