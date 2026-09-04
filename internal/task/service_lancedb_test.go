@@ -21,6 +21,49 @@ func testCreate(title, key string) CreateInput {
 	}
 }
 
+func TestCatalogOrdersNewestFirstWithDeterministicTies(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-catalog-order", t.TempDir())
+	createdAt := time.Date(2026, 9, 4, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return createdAt }
+
+	firstInput := testCreate("Same time first", "catalog-same-time-first")
+	firstInput.Priority = 0
+	first, err := svc.Create(ctx, firstInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondInput := testCreate("Same time second", "catalog-same-time-second")
+	secondInput.Priority = 4
+	second, err := svc.Create(ctx, secondInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createdAt = createdAt.Add(time.Hour)
+	newestInput := testCreate("Newest task", "catalog-newest")
+	newestInput.Priority = 4
+	newest, err := svc.Create(ctx, newestInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := svc.Catalog(ctx, CatalogOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 3 || catalog[0].ID != newest.ID {
+		t.Fatalf("catalog order = %#v, want newest task first", catalog)
+	}
+	wantFirst, wantSecond := first.ID, second.ID
+	if wantFirst > wantSecond {
+		wantFirst, wantSecond = wantSecond, wantFirst
+	}
+	if catalog[1].ID != wantFirst || catalog[2].ID != wantSecond {
+		t.Fatalf("equal-time order = [%s %s], want [%s %s]", catalog[1].ID, catalog[2].ID, wantFirst, wantSecond)
+	}
+}
+
 func TestDeterministicLifecycleDependenciesAndFencing(t *testing.T) {
 	ctx := context.Background()
 	svc := OpenAt("project-1", t.TempDir())

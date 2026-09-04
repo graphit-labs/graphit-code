@@ -1111,7 +1111,7 @@ func (s *Service) Catalog(ctx context.Context, opts CatalogOptions) ([]CatalogIt
 			}
 			selected = append(selected, task)
 		}
-		sortTasks(selected)
+		sortCatalogTasks(selected)
 		for _, task := range selected {
 			out = append(out, CatalogItem{
 				ID: task.ID, Title: task.Title, Type: task.Type, Status: task.Status,
@@ -1921,6 +1921,15 @@ func sortTasks(v []Task) {
 		}
 		if v[i].CreatedAt != v[j].CreatedAt {
 			return v[i].CreatedAt < v[j].CreatedAt
+		}
+		return v[i].ID < v[j].ID
+	})
+}
+
+func sortCatalogTasks(v []Task) {
+	sort.Slice(v, func(i, j int) bool {
+		if v[i].CreatedAt != v[j].CreatedAt {
+			return v[i].CreatedAt > v[j].CreatedAt
 		}
 		return v[i].ID < v[j].ID
 	})

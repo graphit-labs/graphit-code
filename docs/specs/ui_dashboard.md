@@ -121,7 +121,8 @@ the view changes.
 
 `GET /api/tasks` accepts `project_dir`, `query`, `status`, `page_size`, and `cursor`. It returns a
 bounded `results` array and `next_cursor`; page size defaults to 20 and is capped by the shared API
-pagination limit. A cursor from another query, status, project, or page size returns `400`.
+pagination limit. Results run from newest creation time to oldest, with task ID as a deterministic
+tie-breaker. A cursor from another query, status, project, or page size returns `400`.
 
 `GET /api/tasks/export` accepts `project_dir` and `id` as query parameters. `project_dir` defaults
 to the server's active project; omitting `id` returns the complete project document, while an exact

@@ -32,9 +32,9 @@ func (f *fakeTaskExporter) Catalog(_ context.Context, opts graphtask.CatalogOpti
 
 func TestTaskHandlerPaginatesCatalogAndBindsCursor(t *testing.T) {
 	fake := &fakeTaskExporter{catalog: []graphtask.CatalogItem{
-		{ID: "tsk-a", Title: "First"},
-		{ID: "tsk-b", Title: "Second"},
-		{ID: "tsk-c", Title: "Third"},
+		{ID: "tsk-newest", Title: "Newest"},
+		{ID: "tsk-middle", Title: "Middle"},
+		{ID: "tsk-oldest", Title: "Oldest"},
 	}}
 	handler := NewTaskHandler("/project")
 	handler.open = func(string) (taskExporter, error) { return fake, nil }
@@ -53,7 +53,7 @@ func TestTaskHandlerPaginatesCatalogAndBindsCursor(t *testing.T) {
 	if err := json.NewDecoder(first.Body).Decode(&firstPage); err != nil {
 		t.Fatal(err)
 	}
-	if len(firstPage.Results) != 2 || firstPage.NextCursor == "" {
+	if len(firstPage.Results) != 2 || firstPage.Results[0].ID != "tsk-newest" || firstPage.Results[1].ID != "tsk-middle" || firstPage.NextCursor == "" {
 		t.Fatalf("first page = %#v", firstPage)
 	}
 	if fake.gotCatalog.Query != "work" || fake.gotCatalog.Status != "open" {
@@ -72,7 +72,7 @@ func TestTaskHandlerPaginatesCatalogAndBindsCursor(t *testing.T) {
 	if err := json.NewDecoder(second.Body).Decode(&secondPage); err != nil {
 		t.Fatal(err)
 	}
-	if len(secondPage.Results) != 1 || secondPage.Results[0].ID != "tsk-c" || secondPage.NextCursor != "" {
+	if len(secondPage.Results) != 1 || secondPage.Results[0].ID != "tsk-oldest" || secondPage.NextCursor != "" {
 		t.Fatalf("second page = %#v", secondPage)
 	}
 

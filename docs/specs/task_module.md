@@ -189,6 +189,8 @@ The Observatory Task Explorer uses `GET /api/tasks` for lightweight paginated di
 endpoint accepts `project_dir`, `query`, `status`, `page_size`, and an opaque query-bound `cursor`;
 responses contain only catalogue summaries and never include audit entities. Catalogue and export
 are read-only LanceDB paths: neither acquires the scheduler mutation lease nor repairs projections.
+Catalogue results are ordered by creation time from newest to oldest, with task ID as the stable
+tie-breaker before pagination.
 Selecting an exact task or explicitly downloading the project uses the complete export contract,
 so the browser does not maintain a second authoritative task projection.
 
