@@ -191,7 +191,11 @@ export default function TaskExplorerPage() {
   const { activeProjectDir, projectName } = useAppStore()
   const [catalog, setCatalog] = useState<TaskCatalogItem[]>([])
   const [nextCursor, setNextCursor] = useState('')
-  const [detail, setDetail] = useState<TaskExportDocument | null>(null)
+  const [detailResult, setDetailResult] = useState<{
+    projectDir: string
+    selectedID: string
+    document: TaskExportDocument
+  } | null>(null)
   const [selectedID, setSelectedID] = useState(taskId ? decodeURIComponent(taskId) : '')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
@@ -202,6 +206,9 @@ export default function TaskExplorerPage() {
   const catalogRequestRef = useRef(0)
   const detailRequestRef = useRef(0)
   const previousProjectRef = useRef(activeProjectDir)
+  const detail = detailResult?.projectDir === activeProjectDir && detailResult.selectedID === selectedID
+    ? detailResult.document
+    : null
 
   const loadCatalog = useCallback(async (cursor = '', append = false) => {
     const request = ++catalogRequestRef.current
@@ -254,20 +261,24 @@ export default function TaskExplorerPage() {
     previousProjectRef.current = activeProjectDir
     selectedIDRef.current = ''
     setSelectedID('')
-    setDetail(null)
+    setDetailResult(null)
     navigate('/task/explorer', { replace: true })
   }, [activeProjectDir, navigate])
 
   useEffect(() => {
     const request = ++detailRequestRef.current
-    if (!selectedID) { setDetail(null); return }
-    setDetail(null)
+    if (!selectedID) return
     taskApi.export(activeProjectDir || undefined, selectedID)
-      .then(document => { if (request === detailRequestRef.current) setDetail(document) })
-      .catch(() => { if (request === detailRequestRef.current) { setDetail(null); showToast('Failed to load task details', 'error') } })
+      .then(document => {
+        if (request === detailRequestRef.current) {
+          setDetailResult({ projectDir: activeProjectDir, selectedID, document })
+        }
+      })
+      .catch(() => { if (request === detailRequestRef.current) showToast('Failed to load task details', 'error') })
   }, [activeProjectDir, selectedID])
 
   const selectTask = (id: string) => {
+    setDetailResult(null)
     setSelectedID(id)
     selectedIDRef.current = id
     navigate(`/task/explorer/${encodeURIComponent(id)}`, { replace: true })
@@ -275,7 +286,7 @@ export default function TaskExplorerPage() {
   const showTaskList = () => {
     setSelectedID('')
     selectedIDRef.current = ''
-    setDetail(null)
+    setDetailResult(null)
     navigate('/task/explorer', { replace: true })
   }
   const exportAll = async () => {

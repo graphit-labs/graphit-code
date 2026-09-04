@@ -222,14 +222,13 @@ func (m *RegistryManager) publishBranchLance(ctx context.Context, entryID, branc
 			return lanceBranchHistory{}, fmt.Errorf("open Hub table %s: %w", name, err)
 		}
 		if !target.Schema().Equal(source.Schema()) {
-			return lanceBranchHistory{}, fmt.Errorf("Hub branch table %s has an incompatible schema; publish a new branch channel after changing embedding compatibility", name)
+			return lanceBranchHistory{}, fmt.Errorf("hub branch table %s has an incompatible schema; publish a new branch channel after changing embedding compatibility", name)
 		}
 		keys, err := lanceTableKeys(name)
 		if err != nil {
 			return lanceBranchHistory{}, err
 		}
-		current, err := target.ReplaceSnapshot(ctx, keys, rows)
-		if err != nil {
+		if _, err := target.ReplaceSnapshot(ctx, keys, rows); err != nil {
 			return lanceBranchHistory{}, fmt.Errorf("publish table %s: %w", name, err)
 		}
 		indexes := lanceTableIndexes(name, rows)
@@ -241,7 +240,7 @@ func (m *RegistryManager) publishBranchLance(ctx context.Context, entryID, branc
 				return lanceBranchHistory{}, fmt.Errorf("update Hub indexes for %s: %w", name, err)
 			}
 		}
-		current, err = target.CurrentVersion(ctx)
+		current, err := target.CurrentVersion(ctx)
 		if err != nil {
 			return lanceBranchHistory{}, err
 		}
@@ -264,7 +263,7 @@ func (m *RegistryManager) publishBranchLance(ctx context.Context, entryID, branc
 
 func validateLanceHistory(history lanceBranchHistory, artType ArtifactType, projectID, branch string) error {
 	if history.ArtifactType != artType || history.ProjectID != projectID || history.Branch != branch {
-		return fmt.Errorf("Lance branch history belongs to %s project %q branch %q, not %s project %q branch %q", history.ArtifactType, history.ProjectID, history.Branch, artType, projectID, branch)
+		return fmt.Errorf("lance branch history belongs to %s project %q branch %q, not %s project %q branch %q", history.ArtifactType, history.ProjectID, history.Branch, artType, projectID, branch)
 	}
 	return nil
 }
