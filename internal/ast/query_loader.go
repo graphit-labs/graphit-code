@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os"
@@ -852,11 +853,12 @@ func queryDirSignature(dir string) string {
 		if !strings.HasSuffix(n, ".yaml") && !strings.HasSuffix(n, ".yml") {
 			continue
 		}
-		info, err := e.Info()
+		data, err := os.ReadFile(filepath.Join(dir, n))
 		if err != nil {
 			continue
 		}
-		names = append(names, fmt.Sprintf("%s:%d:%d", n, info.Size(), info.ModTime().UnixNano()))
+		digest := sha256.Sum256(data)
+		names = append(names, fmt.Sprintf("%s:%x", n, digest))
 	}
 	sort.Strings(names)
 	return strings.Join(names, "|")

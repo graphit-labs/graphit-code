@@ -54,9 +54,8 @@ func TestProjectQueryAddedAtRuntimeIsPickedUp(t *testing.T) {
 		"would keep ignoring %s until restarted", ext)
 }
 
-// Editing a query file in place must count as a change. The directory's own
-// mtime does not move when a file is rewritten, which is why the signature
-// includes each file's size and mtime.
+// Editing a query file in place must count as a change even when its metadata
+// does not change, so the signature includes the file content.
 func TestEditedQueryFileIsReloaded(t *testing.T) {
 	const langName, extA, extB = "editlang", ".editlanga", ".editlangb"
 
