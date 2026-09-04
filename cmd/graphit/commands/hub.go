@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -418,6 +419,15 @@ func newHubSubmitCmd() *cobra.Command {
 				Description: description,
 				Tags:        tagList,
 			}
+			if hub.IsMountable(meta.Type) {
+				projectDir, err := filepath.Abs(localPath)
+				if err != nil {
+					return fmt.Errorf("resolve publishing project: %w", err)
+				}
+				if err := assignPublishingProject(meta, projectDir); err != nil {
+					return err
+				}
+			}
 
 			p := output.NewPrinter("hub")
 			if version == "" {
@@ -449,6 +459,18 @@ func newHubSubmitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags")
 	registerArtifactTypeFlagCompletion(cmd)
 	return cmd
+}
+
+func assignPublishingProject(meta *hub.Entry, projectDir string) error {
+	lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+	if err != nil {
+		return fmt.Errorf("read publishing project lockfile: %w", err)
+	}
+	if lf == nil || lf.Project.ID == "" {
+		return fmt.Errorf("publishing %s requires an initialized project with %s", meta.Type, brand.LockFileName())
+	}
+	meta.ProjectID = lf.Project.ID
+	return nil
 }
 
 func newHubProjectsCmd() *cobra.Command {

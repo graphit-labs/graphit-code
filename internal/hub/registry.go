@@ -440,17 +440,16 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 	if m.store == nil {
 		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
 	}
+	if err := ValidatePublishedVersion(version); err != nil {
+		return fmt.Errorf("invalid published version: %w", err)
+	}
 
 	if err := m.store.SyncRegistry(ctx); err != nil {
 		return err
 	}
 
-	versionHash, err := HashDirectory(localPath)
-	if err != nil {
-		return fmt.Errorf("computing artifact hash: %w", err)
-	}
-
 	publishPath := localPath
+	latestOnly := publicationKeepsLatestOnly(version)
 
 	switch meta.Type {
 	case TypeAST:
@@ -459,19 +458,23 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 			return fmt.Errorf("preparing AST publish: the hub is not configured, so there is no " +
 				"location to point the published graph at")
 		}
-		prepared, err := prepareASTPublish(localPath, storageURI, m.projectConfig, m.Logger)
+		prepared, err := prepareASTPublishVersion(ctx, localPath, storageURI, m.projectConfig, m.Logger, latestOnly)
 		if err != nil {
 			return fmt.Errorf("preparing AST publish: %w", err)
 		}
 		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
 	case TypeKnowledge:
-		prepared, err := prepareKnowledgePublish(ctx, localPath)
+		prepared, err := prepareKnowledgePublishVersion(ctx, localPath, latestOnly)
 		if err != nil {
 			return fmt.Errorf("preparing knowledge publish: %w", err)
 		}
 		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
+	}
+	versionHash, err := HashDirectory(publishPath)
+	if err != nil {
+		return fmt.Errorf("computing artifact hash: %w", err)
 	}
 
 	if err := m.store.PublishArtifact(ctx, meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
@@ -529,6 +532,10 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 	}
 
 	return nil
+}
+
+func publicationKeepsLatestOnly(version string) bool {
+	return strings.HasPrefix(version, "tag/")
 }
 
 func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entryType ArtifactType) error {
@@ -624,6 +631,10 @@ func (m *RegistryManager) EnsureArtifactClone(ctx context.Context, artType Artif
 }
 
 func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger) (string, error) {
+	return prepareASTPublishVersion(context.Background(), srcDir, storageURI, projectCfg, logger, false)
+}
+
+func prepareASTPublishVersion(ctx context.Context, srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger, latestOnly bool) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("ast-pub"))
 	if err != nil {
 		return "", err
@@ -688,6 +699,15 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 			if _, err := os.Stat(altSearch); err == nil {
 				dstSearch := filepath.Join(tmpDir, ast.SearchBundleDir)
 				_ = copyDir(altSearch, dstSearch)
+			}
+		}
+		if latestOnly {
+			searchDir := filepath.Join(tmpDir, ast.SearchBundleDir)
+			if info, err := os.Stat(searchDir); err == nil && info.IsDir() {
+				if _, err := lancestore.CompactLatestSnapshot(ctx, searchDir); err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", fmt.Errorf("compact AST search snapshot: %w", err)
+				}
 			}
 		}
 		return tmpDir, nil
@@ -920,9 +940,8 @@ func copyFileWithBrand(src, dst string) error {
 
 // prepareKnowledgePublish stages what a knowledge artifact carries.
 //
-// It stages the wiki's Lance index directory as-is: the artifact is written by one project, pinned
-// by its version and never compiled by a consumer, so having every consumer re-derive the same
-// frozen index would repeat work for a value already computed.
+// It stages the wiki's Lance index directory as-is: the artifact is written by one project and
+// never compiled by a consumer, so having every consumer re-derive it would repeat work.
 //
 // THE TABLES ARE ALL OF IT. A loop here also copied every `.md` beside them, on the reasoning that
 // the pages were what a reader opens and nothing could reconstruct them without the sources. Both
@@ -933,7 +952,7 @@ func copyFileWithBrand(src, dst string) error {
 //
 // A memory wiki never reaches here, and must not: it is read-and-write and multi-writer, so it
 // carries its source and a consumer extends it.
-func prepareKnowledgePublish(ctx context.Context, srcDir string) (string, error) {
+func prepareKnowledgePublishVersion(ctx context.Context, srcDir string, latestOnly bool) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("kn-pub"))
 	if err != nil {
 		return "", err
@@ -941,6 +960,12 @@ func prepareKnowledgePublish(ctx context.Context, srcDir string) (string, error)
 	if _, err := wiki.StagePublishedIndex(ctx, srcDir, tmpDir); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", err
+	}
+	if latestOnly {
+		if _, err := lancestore.CompactLatestSnapshot(ctx, wiki.WikiIndexPath(tmpDir)); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return "", fmt.Errorf("compact knowledge snapshot: %w", err)
+		}
 	}
 	return tmpDir, nil
 }

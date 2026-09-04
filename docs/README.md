@@ -24,6 +24,7 @@ current guidance without mixing it with historical implementation records.
 | Understand system boundaries | [Architecture Overview](architecture/architecture_overview.md) | [Storage Layout](architecture/storage_layout.md) |
 | Operate shared storage or networked UI | [S3 and UI Network](guides/s3-and-ui-network.md) | [Hub S3 Object Layout](specs/hub-s3-object-layout.md) |
 | Serve a team over MCP from a container | [Run as a Server in a Container](guides/container.md) | [MCP Tools Reference](guides/mcp_tools_reference.md) |
+| Publish current AST and knowledge contexts from CI | [Publishing from GitHub Actions](guides/github-actions-artifacts.md) | [Hub Collaboration](specs/hub_collaboration.md) |
 | Customize a private distribution | [Private Brand Customization](guides/private_brand_customization.md) | [Configuration Specification](specs/config_module.md) |
 | Contribute to the project | [Contributing](../CONTRIBUTING.md) | [Repository README](../README.md) |
 
@@ -45,6 +46,7 @@ Guides explain workflows from a user or operator perspective.
 - [Ignore Files](guides/ignore_files.md) — source and documentation exclusion behavior.
 - [S3 Credentials and UI Network](guides/s3-and-ui-network.md) — optional remote storage, credentials, binding, CORS, and security boundaries.
 - [Run as a Server in a Container](guides/container.md) — the root `Dockerfile`: an MCP endpoint any AI agent can connect to, the daemon as PID 1, and serving Hub artifacts with no checkout on the server.
+- [Publishing from GitHub Actions](guides/github-actions-artifacts.md) — unattended setup, full sync and embeddings, and branch/tag-scoped AST and knowledge publication to a production Hub.
 - [Private Brand Customization](guides/private_brand_customization.md) — branded binaries and private collaboration environments.
 - [Troubleshooting](guides/troubleshooting.md) — common operational failures and diagnostics.
 

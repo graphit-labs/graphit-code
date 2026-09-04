@@ -2,6 +2,7 @@ package hub
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,14 +10,24 @@ import (
 
 type VersionConstraint struct {
 	Raw   string
+	Name  string
 	Major int
 	Minor int
 	Patch int
 }
 
+var sortableSemverRe = regexp.MustCompile(`^v?[0-9]+(?:\.[0-9]+){0,2}(?:[-+].*)?$`)
+
 func ParseVersionConstraint(raw string) (*VersionConstraint, error) {
 	c := &VersionConstraint{Raw: raw, Major: -1, Minor: -1, Patch: -1}
 	if raw == "" || raw == "latest" {
+		return c, nil
+	}
+	if !numericConstraintCandidate(raw) {
+		if err := validateNamedVersion(raw); err != nil {
+			return nil, err
+		}
+		c.Name = raw
 		return c, nil
 	}
 
@@ -52,16 +63,19 @@ func ParseVersionConstraint(raw string) (*VersionConstraint, error) {
 }
 
 func (c *VersionConstraint) IsLatest() bool {
-	return c.Major < 0
+	return c.Name == "" && c.Major < 0
 }
 
 func (c *VersionConstraint) IsExact() bool {
-	return c.Major >= 0 && c.Minor >= 0 && c.Patch >= 0
+	return c.Name != "" || c.Major >= 0 && c.Minor >= 0 && c.Patch >= 0
 }
 
 func (c *VersionConstraint) Matches(version string) bool {
 	if c.IsLatest() {
 		return true
+	}
+	if c.Name != "" {
+		return version == c.Name
 	}
 
 	v := strings.TrimPrefix(version, "v")
@@ -138,8 +152,68 @@ func ResolveVersion(versions []string, constraint *VersionConstraint) (string, e
 
 func SortVersionsDesc(versions []string) {
 	sort.Slice(versions, func(i, j int) bool {
-		return compareSemver(versions[i], versions[j]) > 0
+		return compareVersions(versions[i], versions[j]) > 0
 	})
+}
+
+func compareVersions(a, b string) int {
+	aSemver := sortableSemverRe.MatchString(a)
+	bSemver := sortableSemverRe.MatchString(b)
+	if aSemver && bSemver {
+		return compareSemver(a, b)
+	}
+	if aSemver {
+		return 1
+	}
+	if bSemver {
+		return -1
+	}
+	return strings.Compare(a, b)
+}
+
+func ValidatePublishedVersion(version string) error {
+	if version == "" || strings.EqualFold(version, "latest") {
+		return fmt.Errorf("version must name a numeric release or named channel, not %q", version)
+	}
+	_, err := ParseVersionConstraint(version)
+	return err
+}
+
+func numericConstraintCandidate(raw string) bool {
+	s := strings.TrimPrefix(raw, "v")
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		return len(s) > 1 && s[1] >= '0' && s[1] <= '9'
+	}
+	for _, r := range s {
+		if r != '.' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func validateNamedVersion(version string) error {
+	if strings.EqualFold(version, "latest") || version == "@" || strings.HasPrefix(version, "-") ||
+		strings.HasPrefix(version, "/") || strings.HasSuffix(version, "/") ||
+		strings.Contains(version, "//") || strings.Contains(version, "..") ||
+		strings.Contains(version, "@{") {
+		return fmt.Errorf("invalid named version %q", version)
+	}
+	for _, r := range version {
+		if r <= ' ' || r == 0x7f || strings.ContainsRune(`~^:?*[\@`, r) {
+			return fmt.Errorf("invalid named version %q", version)
+		}
+	}
+	for _, segment := range strings.Split(version, "/") {
+		lower := strings.ToLower(segment)
+		if strings.HasPrefix(segment, ".") || strings.HasSuffix(segment, ".") || strings.HasSuffix(lower, ".lock") {
+			return fmt.Errorf("invalid named version %q", version)
+		}
+	}
+	return nil
 }
 
 func compareSemver(a, b string) int {

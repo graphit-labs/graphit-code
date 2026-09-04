@@ -1,6 +1,8 @@
 package testsupport
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -134,6 +136,7 @@ func (f *FakeS3) list(w http.ResponseWriter, prefix string) {
 	type contents struct {
 		Key  string `xml:"Key"`
 		Size int64  `xml:"Size"`
+		ETag string `xml:"ETag"`
 	}
 	type result struct {
 		XMLName     xml.Name   `xml:"ListBucketResult"`
@@ -151,7 +154,10 @@ func (f *FakeS3) list(w http.ResponseWriter, prefix string) {
 
 	res := result{}
 	for _, k := range keys {
-		res.Contents = append(res.Contents, contents{Key: k, Size: int64(len(f.objects[k]))})
+		sum := sha256.Sum256(f.objects[k])
+		res.Contents = append(res.Contents, contents{
+			Key: k, Size: int64(len(f.objects[k])), ETag: `"` + hex.EncodeToString(sum[:]) + `"`,
+		})
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	_ = xml.NewEncoder(w).Encode(res)

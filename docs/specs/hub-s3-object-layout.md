@@ -3,7 +3,7 @@ title: "Hub S3 object layout"
 description: "The key convention and document schemas of the Hub's S3 bucket — the contract that replaces the git repository as the Hub's persistence and retrieval backend."
 status: draft
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-09-04
 tags: [hub, s3, integration, spec, registry, artifact, icebug, lancedb]
 ---
 
@@ -77,20 +77,35 @@ Where:
 - `<folder>` comes from `hub.TypeFolderMap`: `agents`, `rules`, `workflows`, `skills`,
   `knowledge`, `ast`, `mcp-servers`, `commands`, `powers`, `languages`.
 - `<project>` is the publishing project's remote id, or `_global`.
-- `ast` and `knowledge` omit the `<id>` segment, because a project publishes exactly one of
-  each — the same rule `hub.ArtifactBranchName` already applies to branch names today.
+- `ast` and `knowledge` omit the `<id>` segment because their compiled context is scoped by
+  publishing project and version.
 - `<task.prefix>` is the normalized `task.prefix` configuration value and defaults to `tasks`.
+
+Numeric versions keep their literal key segment. Named versions may use Git-style branch paths such
+as `branch/feature/api`; the logical name remains unchanged in the registry, while the storage layer
+encodes it as one opaque, collision-free segment. A named version therefore cannot create nested or
+overlapping S3 prefixes.
 
 ### An artifact version is a prefix, not a file
 
 `artifacts/<folder>/<project>/[<id>/]<version>/` is the unit of publication and of
 retraction. It is written by `s3store.UploadDir` and removed by `s3store.DeletePrefix`.
-There is no object that represents the version as a whole, and nothing outside the prefix
-needs to be touched to publish or retract it.
+An upload is an exact mirror: after every local object has uploaded successfully, remote objects
+missing from the local directory are deleted from that version prefix. No unrelated version or
+artifact prefix is touched.
 
-**The registry entry is the commit.** The prefix is uploaded first, and only then does the
-entry file under `registry/` name the new version. A publication interrupted midway leaves an
-orphan prefix that no entry points at — wasted bytes, never a half-visible version.
+**The registry entry is the commit for a new version.** The prefix is uploaded first, and only then
+does the entry file under `registry/` name it. A publication interrupted midway leaves an orphan
+prefix that no entry points at — wasted bytes, never a half-visible version. Replacing an already
+published version is supported and updates the entry's content hash, but readers already using that
+known prefix do not gain a new atomic indirection; production publishers should use a new version
+when live readers require snapshot isolation.
+
+For a named version beginning with `tag/`, the staged `search.lance` and `index.lance` stores are
+release snapshots. Every table is compacted and pruned until only its current Lance version remains;
+publication aborts if that invariant cannot be verified. This removes edit/time-travel history and,
+combined with exact mirroring, prevents stale manifests or data files from accumulating when the
+same tag is republished. Other version prefixes are not part of that cleanup.
 
 ## What the query engines mount directly
 
@@ -189,7 +204,7 @@ build them in.
         },
         "latest": {
           "type": "string",
-          "description": "Semantic version resolved when an install omits @version."
+          "description": "Numeric or named version resolved when an install omits @version."
         },
         "versions": {
           "type": "array",
@@ -318,6 +333,11 @@ written exactly once — there is no update path, so concurrent publishers never
 
 - **No locking.** Two publishers writing different artifacts touch disjoint prefixes. Two
   publishers writing the *same* artifact version is a collision the registry entry resolves
-  last-writer-wins, exactly as the branch-per-artifact layout did.
-- **No backward compatibility with the git layout.** Nothing reads a branch, a ref, or a
-  worktree. The project is in development and the old format is not migrated.
+  last-writer-wins, exactly as the branch-per-artifact layout did. A CI publisher that can update
+  multiple refs must serialize registry writes.
+- **No automatic artifact-version retention.** Lance maintenance applies only to local database
+  history and skips remote mounts. Published versions remain registry-addressable until explicitly
+  retracted, so an independent bucket lifecycle must not delete referenced prefixes.
+- **No backward compatibility with the git layout.** Nothing reads a Git branch, Git ref, or
+  worktree; a named Hub version is registry data, not a repository reference. The project is in
+  development and the old format is not migrated.

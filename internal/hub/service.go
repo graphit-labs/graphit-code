@@ -1100,8 +1100,8 @@ func ideArtifactPath(projectDir, ide, artifactType, artifactName string) (string
 	return ideAdapter.ArtifactTypePath(projectDir, ide, artifactType, artifactName)
 }
 
-// ResolveKnowledgeMount resolves a versioned knowledge artifact to the immutable Lance index it
-// publishes. It never downloads, imports, or registers a transient local copy.
+// ResolveKnowledgeMount resolves a versioned knowledge artifact to its read-only published Lance
+// index. It never downloads, imports, or registers a transient local copy.
 func (s *HubService) ResolveKnowledgeMount(ctx context.Context, artifactID string) (MountedWiki, error) {
 
 	reqVersion := ""

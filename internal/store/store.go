@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -193,6 +194,28 @@ func SanitizeSegment(s string) string {
 	return DefuseReservedName(out)
 }
 
+// VersionPathSegment preserves a logical version as one collision-free filesystem or object-key
+// segment. Named Hub versions may contain slashes, which must not create overlapping prefixes.
+func VersionPathSegment(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "unversioned"
+	}
+	safe := s != "." && s != ".." && !strings.HasSuffix(s, ".")
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '.' || r == '-' || r == '_' || r == '+' {
+			continue
+		}
+		safe = false
+		break
+	}
+	if !safe {
+		return "~" + base64.RawURLEncoding.EncodeToString([]byte(s))
+	}
+	return DefuseReservedName(s)
+}
+
 func globalOr(projectDir string, parts ...string) string {
 	if d := Root(); d != "" {
 		return filepath.Join(append([]string{d}, parts...)...)
@@ -251,12 +274,10 @@ func ASTHubRoot() string { return globalOr("", "ast", hubNamespace) }
 
 // ASTHubDir is the shared directory holding one version of a Hub AST context.
 //
-// A published AST artifact is immutable at a given version — the graph was built
-// upstream and nothing in a consuming project can change it — so one store per
-// version serves every project pinned to it, and two projects on different versions
-// still get their own.
+// A Hub AST store is read-only to consumers. One local mount cache per published version serves
+// every project pinned to it; publishers may replace the remote payload and consumers then remount.
 func ASTHubDir(contextID, version string) string {
-	return filepath.Join(ASTHubRoot(), SanitizeName(contextID), SanitizeSegment(version))
+	return filepath.Join(ASTHubRoot(), SanitizeName(contextID), VersionPathSegment(version))
 }
 
 // ASTHubIcebugDir is the cached icebug bundle for a Hub context (when materialized locally).
@@ -299,7 +320,7 @@ func KnowledgeHubRoot() string { return globalOr("", "wiki", "knowledge", hubNam
 // different versions shared one directory and the last install silently won, while both
 // lockfiles recorded versions that nothing enforced.
 func KnowledgeHubDir(contextID, version string) string {
-	return filepath.Join(KnowledgeHubRoot(), SanitizeName(contextID), SanitizeSegment(version))
+	return filepath.Join(KnowledgeHubRoot(), SanitizeName(contextID), VersionPathSegment(version))
 }
 
 // MemoryWikiRoot is the parent of every memory scope's compiled wiki.

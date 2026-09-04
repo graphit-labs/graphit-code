@@ -18,6 +18,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 const (
@@ -134,9 +135,8 @@ func (s *S3Store) SyncRegistry(ctx context.Context) error {
 // reused without rereading every document.
 //
 // It replaces the git HEAD commit. One listing over a prefix of small JSON files is cheap,
-// and hashing key+size detects an added, removed, or rewritten document. It does NOT detect
-// a same-size rewrite of one document — accepted: entry files are written by this code with
-// a version in the name, so a same-size in-place change is not a case that occurs.
+// and hashing key, size, and ETag detects added, removed, and rewritten documents, including a
+// same-size registry update when a named branch version is republished.
 func (s *S3Store) RegistryRevision(ctx context.Context) string {
 	if !s.Configured() {
 		return ""
@@ -147,7 +147,7 @@ func (s *S3Store) RegistryRevision(ctx context.Context) string {
 	}
 	lines := make([]string, 0, len(objs))
 	for _, o := range objs {
-		lines = append(lines, fmt.Sprintf("%s:%d", o.Key, o.Size))
+		lines = append(lines, fmt.Sprintf("%s:%d:%s", o.Key, o.Size, o.ETag))
 	}
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
@@ -228,9 +228,8 @@ func (s *S3Store) ListDir(ctx context.Context, relPath string) ([]string, error)
 
 // ArtifactPrefix is the key prefix of one published artifact version.
 //
-// The segments are the ones the orphan-branch layout used, minus the branch namespace: type
-// folder, project, id, version. ast and knowledge omit the id because a project publishes
-// exactly one of each.
+// The segments are type folder, project, id, and encoded version. AST and knowledge omit the id
+// because their compiled context is scoped by publishing project and version.
 func ArtifactPrefix(artType ArtifactType, id, version, projectID string) string {
 	folder := TypeFolderMap[artType]
 	if folder == "" {
@@ -240,6 +239,7 @@ func ArtifactPrefix(artType ArtifactType, id, version, projectID string) string 
 	if project == "" {
 		project = globalProjectKey
 	}
+	version = store.VersionPathSegment(version)
 	if mountableTypes[artType] {
 		return s3store.JoinKey(artifactPrefix, folder, project, version)
 	}
@@ -301,9 +301,6 @@ func ArtifactCacheDirIn(cacheBase string, artType ArtifactType, id, version, pro
 
 // EnsureArtifactLocal downloads a file-based artifact and returns its directory.
 //
-// A published version is immutable, so an existing non-empty cache directory is reused
-// without touching the network.
-//
 // It refuses a mountable type rather than downloading it: ast and knowledge are read in
 // place, and materialising them here would silently reintroduce the download this migration
 // removed.
@@ -318,9 +315,6 @@ func (s *S3Store) EnsureArtifactLocal(ctx context.Context, artType ArtifactType,
 // DownloadArtifact materialises an artifact prefix locally, including a mountable one.
 func (s *S3Store) DownloadArtifact(ctx context.Context, artType ArtifactType, id, version, projectID string) (string, error) {
 	dest := s.ArtifactCacheDir(artType, id, version, projectID)
-	if entries, err := os.ReadDir(dest); err == nil && len(entries) > 0 {
-		return dest, nil
-	}
 	if !s.Configured() {
 		return "", s3store.ErrNotConfigured
 	}

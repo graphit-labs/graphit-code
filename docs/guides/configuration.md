@@ -81,8 +81,15 @@ read from the global configuration used by the completion client. Set them with 
 |---|---|---|
 | Local workstation | no Hub bucket; local embedding; default modules | Sources, graphs, wikis, memory, and tasks stay on the machine. |
 | Shared team state | `hub.bucket`, region/endpoint/credentials as needed | Hub artifacts plus authoritative Memory and Task tables can be shared by agents and machines. |
+| CI artifact publisher | Hub and remote provider settings; agent, Dream, daemon, watcher, and hooks disabled | An ephemeral runner explicitly builds and publishes current AST and knowledge contexts without an agent CLI or background process. |
 | Headless server | `modules.agent=false`, `modules.daemon_ui=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and the unauthenticated Observatory UI. |
 | Private distribution | build-time `COMPILE_CONFIG` and brand variables | Defaults and identity ship with an internally distributed launcher. |
+
+See [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for a complete
+environment-only production publisher. Its setup flags suppress prompts while secrets continue to
+resolve directly from the runner environment instead of being persisted in the ephemeral global
+configuration. That profile requires an S3-backed Hub and a remote embedding provider with an
+explicit model and API key; `ai.embedding.provider=local` is not supported there.
 
 ## General and agent selection
 

@@ -151,7 +151,7 @@ func openWikiForReadContext(ctx context.Context, projectDir, wikiScope, contextN
 // local directory that does not exist.
 //
 // Memory is never mounted: it is read-and-write and multi-writer, so it carries its source and is
-// compiled locally. Only knowledge is frozen by a version.
+// compiled locally. Knowledge is mounted read-only at a selected version.
 func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName string) (*wiki.WikiDB, bool, error) {
 	switch wikiScope {
 	case "", "project", "knowledge":

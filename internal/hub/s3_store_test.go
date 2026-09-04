@@ -84,6 +84,23 @@ func TestRegistryDocumentRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRegistryRevisionChangesAfterSameSizeRewrite(t *testing.T) {
+	store, _ := newTestS3Store(t)
+	ctx := context.Background()
+	rel := "projects/ab/abcdef/ast_branch-main.json"
+	if err := store.WriteFile(ctx, rel, []byte(`{"v":1,"entry":"a"}`)); err != nil {
+		t.Fatal(err)
+	}
+	before := store.RegistryRevision(ctx)
+	if err := store.WriteFile(ctx, rel, []byte(`{"v":1,"entry":"b"}`)); err != nil {
+		t.Fatal(err)
+	}
+	after := store.RegistryRevision(ctx)
+	if before == "" || after == "" || before == after {
+		t.Fatalf("registry revision did not detect same-size rewrite: before=%q after=%q", before, after)
+	}
+}
+
 // The registry's own layout is two levels of hash fan-out, so listing must reach entries
 // below the immediate children.
 func TestListDirWalksBelowTheImmediateChildren(t *testing.T) {
@@ -128,6 +145,15 @@ func TestArtifactPrefixLayout(t *testing.T) {
 		if got := ArtifactPrefix(c.artType, c.id, c.version, c.proj); got != c.want {
 			t.Errorf("ArtifactPrefix(%s, %s, %s, %q) = %q, want %q", c.artType, c.id, c.version, c.proj, got, c.want)
 		}
+	}
+}
+
+func TestArtifactPrefixEncodesNamedVersionAsOneSegment(t *testing.T) {
+	t.Parallel()
+	got := ArtifactPrefix(TypeAST, "payments", "branch/feature/hub-sync", "project-1")
+	want := "artifacts/ast/project-1/~YnJhbmNoL2ZlYXR1cmUvaHViLXN5bmM"
+	if got != want {
+		t.Fatalf("ArtifactPrefix() = %q, want %q", got, want)
 	}
 }
 
@@ -262,8 +288,7 @@ func TestEnsureArtifactLocalOnAnUnpublishedVersionIsNotFound(t *testing.T) {
 	}
 }
 
-// An interrupted download must not leave a directory the reuse check then trusts forever.
-func TestEnsureArtifactLocalReusesACompleteCache(t *testing.T) {
+func TestEnsureArtifactLocalRefreshesAMutablePublishedVersion(t *testing.T) {
 	store, fake := newTestS3Store(t)
 	ctx := context.Background()
 	store.cacheBase = t.TempDir()
@@ -278,6 +303,10 @@ func TestEnsureArtifactLocalReusesACompleteCache(t *testing.T) {
 	if _, err := store.EnsureArtifactLocal(ctx, TypeSkill, "s", "1.0.0", ""); err != nil {
 		t.Fatal(err)
 	}
+	cacheDir := store.ArtifactCacheDir(TypeSkill, "s", "1.0.0", "")
+	if err := os.WriteFile(filepath.Join(cacheDir, "obsolete.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	fake.Put("artifacts/skills/_global/s/1.0.0/SKILL.md", []byte("second"))
 
@@ -286,8 +315,11 @@ func TestEnsureArtifactLocalReusesACompleteCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(dir, "SKILL.md"))
-	if string(got) != "first" {
-		t.Fatalf("cache was refetched: %q", got)
+	if string(got) != "second" {
+		t.Fatalf("cache content = %q, want refreshed content", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "obsolete.md")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete cached file survived refresh: %v", err)
 	}
 }
 

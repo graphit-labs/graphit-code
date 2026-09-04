@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -215,6 +216,50 @@ func TestUploadDirAndDownloadPrefixRoundTrip(t *testing.T) {
 		if string(got) != want {
 			t.Fatalf("%s = %q, want %q", rel, got, want)
 		}
+	}
+}
+
+func TestUploadDirRemovesObjectsMissingFromTheLocalDirectory(t *testing.T) {
+	store, fake := newTestStore(t, "")
+	ctx := context.Background()
+	prefix := "artifacts/knowledge/demo/branch-main"
+
+	if err := store.Put(ctx, prefix+"/index.lance/data/obsolete.lance", []byte("old")); err != nil {
+		t.Fatalf("seed stale object: %v", err)
+	}
+	if err := store.Put(ctx, prefix+"/index.lance/_versions/1.manifest", []byte("old-manifest")); err != nil {
+		t.Fatalf("seed replaced object: %v", err)
+	}
+
+	src := t.TempDir()
+	manifest := filepath.Join(src, "index.lance", "_versions", "1.manifest")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte("new-manifest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(src, "index.lance", "data", "current.lance")
+	if err := os.MkdirAll(filepath.Dir(data), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(data, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.UploadDir(ctx, src, prefix); err != nil {
+		t.Fatalf("UploadDir: %v", err)
+	}
+
+	want := []string{
+		prefix + "/index.lance/_versions/1.manifest",
+		prefix + "/index.lance/data/current.lance",
+	}
+	if got := fake.Keys(); !slices.Equal(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+	if got, ok := fake.Object(prefix + "/index.lance/_versions/1.manifest"); !ok || string(got) != "new-manifest" {
+		t.Fatalf("manifest = %q, present=%v", got, ok)
 	}
 }
 

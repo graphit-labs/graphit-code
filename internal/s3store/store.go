@@ -37,6 +37,7 @@ type Store struct {
 type Object struct {
 	Key  string
 	Size int64
+	ETag string
 }
 
 // New builds a store from the resolved Hub configuration.
@@ -172,7 +173,11 @@ func (s *Store) List(ctx context.Context, relPrefix string) ([]Object, error) {
 			if obj.Size != nil {
 				size = *obj.Size
 			}
-			out = append(out, Object{Key: rel, Size: size})
+			etag := ""
+			if obj.ETag != nil {
+				etag = *obj.ETag
+			}
+			out = append(out, Object{Key: rel, Size: size, ETag: etag})
 		}
 		if page.IsTruncated == nil || !*page.IsTruncated {
 			return out, nil
@@ -188,6 +193,10 @@ func (s *Store) DeletePrefix(ctx context.Context, relPrefix string) error {
 	if err != nil {
 		return err
 	}
+	return s.deleteObjects(ctx, relPrefix, objs)
+}
+
+func (s *Store) deleteObjects(ctx context.Context, operation string, objs []Object) error {
 	if len(objs) == 0 {
 		return nil
 	}
@@ -204,7 +213,7 @@ func (s *Store) DeletePrefix(ctx context.Context, relPrefix string) error {
 			Bucket: &s.bucket,
 			Delete: &types.Delete{Objects: ids},
 		}); err != nil {
-			return fmt.Errorf("delete prefix %s: %w", relPrefix, err)
+			return fmt.Errorf("delete objects for %s: %w", operation, err)
 		}
 	}
 	return nil
@@ -213,7 +222,8 @@ func (s *Store) DeletePrefix(ctx context.Context, relPrefix string) error {
 // UploadDir mirrors a local directory into relPrefix, preserving relative paths with forward
 // slashes so the keys read the same on every platform.
 func (s *Store) UploadDir(ctx context.Context, localDir, relPrefix string) error {
-	return filepath.WalkDir(localDir, func(path string, d fs.DirEntry, err error) error {
+	wanted := make(map[string]struct{})
+	if err := filepath.WalkDir(localDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -225,8 +235,27 @@ func (s *Store) UploadDir(ctx context.Context, localDir, relPrefix string) error
 		if readErr != nil {
 			return readErr
 		}
-		return s.Put(ctx, JoinKey(relPrefix, filepath.ToSlash(rel)), data)
-	})
+		key := JoinKey(relPrefix, filepath.ToSlash(rel))
+		if err := s.Put(ctx, key, data); err != nil {
+			return err
+		}
+		wanted[key] = struct{}{}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	remote, err := s.List(ctx, relPrefix)
+	if err != nil {
+		return err
+	}
+	stale := make([]Object, 0)
+	for _, obj := range remote {
+		if _, ok := wanted[obj.Key]; !ok {
+			stale = append(stale, obj)
+		}
+	}
+	return s.deleteObjects(ctx, "mirror "+relPrefix, stale)
 }
 
 // DownloadPrefix materialises a remote prefix locally. Nothing in the query path uses it —

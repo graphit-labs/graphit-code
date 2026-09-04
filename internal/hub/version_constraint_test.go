@@ -12,6 +12,7 @@ func TestParseVersionConstraint(t *testing.T) {
 		wantMajor int
 		wantMinor int
 		wantPatch int
+		wantName  string
 		wantErr   bool
 	}{
 		{name: "empty", raw: "", wantMajor: -1, wantMinor: -1, wantPatch: -1},
@@ -20,9 +21,18 @@ func TestParseVersionConstraint(t *testing.T) {
 		{name: "major.minor", raw: "1.2", wantMajor: 1, wantMinor: 2, wantPatch: -1},
 		{name: "full", raw: "1.2.3", wantMajor: 1, wantMinor: 2, wantPatch: 3},
 		{name: "v prefix", raw: "v1.2.3", wantMajor: 1, wantMinor: 2, wantPatch: 3},
+		{name: "branch", raw: "main", wantMajor: -1, wantMinor: -1, wantPatch: -1, wantName: "main"},
+		{name: "branch path", raw: "feature/hub-sync", wantMajor: -1, wantMinor: -1, wantPatch: -1, wantName: "feature/hub-sync"},
+		{name: "numeric-leading branch", raw: "123-fix", wantMajor: -1, wantMinor: -1, wantPatch: -1, wantName: "123-fix"},
+		{name: "git punctuation", raw: "feature/hub#sync", wantMajor: -1, wantMinor: -1, wantPatch: -1, wantName: "feature/hub#sync"},
+		{name: "unicode", raw: "feature/sync-✓", wantMajor: -1, wantMinor: -1, wantPatch: -1, wantName: "feature/sync-✓"},
 		{name: "too many parts", raw: "1.2.3.4", wantErr: true},
 		{name: "empty segment", raw: "1..3", wantErr: true},
-		{name: "non-numeric", raw: "abc", wantErr: true},
+		{name: "path traversal", raw: "feature/../main", wantErr: true},
+		{name: "duplicate separator", raw: "feature//main", wantErr: true},
+		{name: "reflog syntax", raw: "main@{1}", wantErr: true},
+		{name: "qualified separator", raw: "feature@one", wantErr: true},
+		{name: "space", raw: "feature name", wantErr: true},
 		{name: "negative", raw: "-1", wantErr: true},
 		{name: "zero", raw: "0", wantMajor: 0, wantMinor: -1, wantPatch: -1},
 		{name: "zero.zero.zero", raw: "0.0.0", wantMajor: 0, wantMinor: 0, wantPatch: 0},
@@ -50,6 +60,9 @@ func TestParseVersionConstraint(t *testing.T) {
 			if c.Patch != tt.wantPatch {
 				t.Errorf("Patch = %d, want %d", c.Patch, tt.wantPatch)
 			}
+			if c.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", c.Name, tt.wantName)
+			}
 		})
 	}
 }
@@ -65,6 +78,7 @@ func TestVersionConstraintIsLatest(t *testing.T) {
 		{name: "latest is latest", raw: "latest", want: true},
 		{name: "major is not latest", raw: "1", want: false},
 		{name: "full is not latest", raw: "1.2.3", want: false},
+		{name: "branch is not latest", raw: "feature/hub-sync", want: false},
 	}
 
 	for _, tt := range tests {
@@ -93,6 +107,7 @@ func TestVersionConstraintIsExact(t *testing.T) {
 		{name: "major.minor is not exact", raw: "1.2", want: false},
 		{name: "full is exact", raw: "1.2.3", want: true},
 		{name: "zero full is exact", raw: "0.0.0", want: true},
+		{name: "branch is exact", raw: "feature/hub-sync", want: true},
 	}
 
 	for _, tt := range tests {
@@ -133,6 +148,8 @@ func TestVersionConstraintMatches(t *testing.T) {
 		{name: "empty version parts", constraint: "1", version: "", want: false},
 		{name: "pre-release match", constraint: "1.2.3", version: "1.2.3-beta", want: true},
 		{name: "plus build match", constraint: "1.2.3", version: "1.2.3+build", want: true},
+		{name: "named branch match", constraint: "feature/hub-sync", version: "feature/hub-sync", want: true},
+		{name: "named branch mismatch", constraint: "feature/hub-sync", version: "feature/other", want: false},
 	}
 
 	for _, tt := range tests {
@@ -188,6 +205,12 @@ func TestResolveVersion(t *testing.T) {
 			constraint: "3.0.0",
 			wantErr:    true,
 		},
+		{
+			name:       "named branch",
+			versions:   []string{"main", "feature/hub-sync"},
+			constraint: "feature/hub-sync",
+			want:       "feature/hub-sync",
+		},
 	}
 
 	for _, tt := range tests {
@@ -216,13 +239,56 @@ func TestResolveVersion(t *testing.T) {
 
 func TestSortVersionsDesc(t *testing.T) {
 	t.Parallel()
-	versions := []string{"1.0.0", "3.0.0", "2.0.0", "2.1.0", "1.5.0"}
+	versions := []string{"main", "1.0.0", "feature/z", "3.0.0", "2.0.0", "2.1.0", "1.5.0"}
 	SortVersionsDesc(versions)
-	expected := []string{"3.0.0", "2.1.0", "2.0.0", "1.5.0", "1.0.0"}
+	expected := []string{"3.0.0", "2.1.0", "2.0.0", "1.5.0", "1.0.0", "main", "feature/z"}
 	for i, v := range versions {
 		if v != expected[i] {
 			t.Errorf("index %d: got %q, want %q", i, v, expected[i])
 		}
+	}
+}
+
+func TestValidatePublishedVersion(t *testing.T) {
+	t.Parallel()
+	for _, version := range []string{"1.0.0", "main", "branch/feature/hub-sync", "tag/v2.0.0"} {
+		if err := ValidatePublishedVersion(version); err != nil {
+			t.Errorf("ValidatePublishedVersion(%q): %v", version, err)
+		}
+	}
+	for _, version := range []string{"", "latest", "../main", "/main", "main/", "feature//main", "main.lock"} {
+		if err := ValidatePublishedVersion(version); err == nil {
+			t.Errorf("ValidatePublishedVersion(%q) succeeded", version)
+		}
+	}
+}
+
+func TestPublicationKeepsLatestOnlyForTagChannels(t *testing.T) {
+	for _, version := range []string{"tag/v2.0.0", "tag/release/candidate"} {
+		if !publicationKeepsLatestOnly(version) {
+			t.Errorf("%q should publish a latest-only snapshot", version)
+		}
+	}
+	for _, version := range []string{"branch/main", "branch/feature/api", "2.0.0"} {
+		if publicationKeepsLatestOnly(version) {
+			t.Errorf("%q should retain normal publication behavior", version)
+		}
+	}
+}
+
+func TestResolveEntryVersionAcceptsNamedBranch(t *testing.T) {
+	t.Parallel()
+	entry := &Entry{
+		ID:       "payments-ast",
+		Latest:   "branch/main",
+		Versions: []string{"branch/main", "branch/feature/hub-sync", "tag/v2.0.0"},
+	}
+	got, err := resolveEntryVersion(entry, "branch/feature/hub-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "branch/feature/hub-sync" {
+		t.Fatalf("resolveEntryVersion() = %q", got)
 	}
 }
 

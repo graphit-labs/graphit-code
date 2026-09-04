@@ -13,10 +13,9 @@ import (
 //
 // This lives here rather than in the package that first needed it because both stores in
 // this project have the same shape of problem and neither may import the other. A Hub
-// artifact — an AST context or a published documentation wiki — is written once, pinned by
-// its version, and never changed by a consumer. Shipping the inputs and having every
-// consumer re-derive the same immutable result is work done N times for a value that was
-// already computed once.
+// artifact — an AST context or a published documentation wiki — is built by a publisher and
+// never changed by a consumer. Shipping the inputs and having every consumer re-derive the same
+// result is work done N times for a value that was already computed once.
 //
 // Two things deliberately do NOT travel:
 //

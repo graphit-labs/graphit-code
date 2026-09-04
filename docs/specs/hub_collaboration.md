@@ -37,7 +37,7 @@ stored below `artifacts/`. Operations use object-store semantics:
   artifacts against `graphit.lock.json`.
 - `Submit` publishes a versioned payload first and writes its registry pointer
   last, so a visible entry does not name incomplete data.
-- `Install` downloads file-based artifacts or mounts the immutable remote stores
+- `Install` downloads file-based artifacts or mounts the read-only remote stores
   used by AST and knowledge artifacts.
 - `Update` resolves newer registry versions and reapplies installation.
 - `Uninstall` removes the current project's claim and deletes shared local data
@@ -57,10 +57,10 @@ before its payload exists.
 | `ast` | global Hub AST store, once per version | project lockfile |
 | `language` | global grammar query directory | project lockfile |
 
-AST and knowledge artifacts publish immutable remote graph/search data. The
-consumer creates only the local catalog needed to mount that data; it does not
-copy one full store per project. File-based artifacts are written into the target
-IDE/project and remain version-locked.
+AST and knowledge artifacts publish remote graph/search data that is read-only to consumers. A
+publisher may add a version or replace the payload and content hash of an existing version. The
+consumer creates only the local catalog needed to mount that data; it does not copy one full store
+per project. File-based artifacts are written into the target IDE/project and remain version-locked.
 
 Local project graphs use the **same canonical icebug format** as Hub artifacts,
 but with `storage='<abs>/graph.icebug'` (filesystem) and a `:memory:` catalog
@@ -160,8 +160,35 @@ over Hub rules, which win over compiled defaults.
 ## Collaboration channels
 
 There is one knowledge distribution channel: `hub submit` publishes a named, versioned artifact and
-`hub install` records the selected version. Knowledge readers derive its immutable `s3://` LanceDB
+`hub install` records the selected version. Knowledge readers derive its read-only `s3://` LanceDB
 URI and query it in place; there is no unversioned project-identity export/install channel.
+
+## Publication mutation and cleanup
+
+The registry is mutable. A version may be a numeric release or an exact named channel such as
+`branch/main`, `branch/feature/api`, or `tag/v2.0.0`. Publishing a new version appends it to the
+artifact and advances resolution for unqualified installs. Republishing an existing numeric or
+named version is also valid: its payload prefix is mirrored, stale objects within that exact prefix
+are deleted after successful upload, and the version's content hash changes. Concurrent writes to
+the same entry or version remain last-writer-wins and should be serialized by the publisher.
+
+A `tag/...` publication is a compact release snapshot. The publisher operates on its temporary
+staging copy, compacts every LanceDB table, prunes every superseded MVCC version, and verifies that
+one current table version remains before upload. The source database is unchanged. Exact S3
+mirroring then removes stale files from an earlier publication of that same tag without touching
+any other branch or tag prefix.
+
+A new numeric version is the safe production cutover because its registry pointer is written only
+after the new prefix exists. A same-version replacement is useful for mutable branch/tag channels,
+but a reader that already mounted the known prefix must close and reopen it after publication and
+may not treat the replacement as an atomic snapshot switch.
+
+Lance maintenance does not garbage-collect Hub artifacts. It compacts local indexes, prunes only
+superseded local Lance versions after retention, and skips remote mounts. Published Hub versions are
+retained until explicitly retracted; deleting their S3 prefixes independently would leave registry
+pointers that correctly fail integrity checks. See
+[Publishing Graphit artifacts from GitHub Actions](../guides/github-actions-artifacts.md) for the
+unattended named-channel workflow.
 
 Memory is mutable and multi-writer, so it is not a versioned Hub artifact. Its authoritative LanceDB
 table uses the bucket's `memory/<scope>/<id>/` namespace and the direct-write semantics in

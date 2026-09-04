@@ -51,6 +51,16 @@ func TestSanitizeSegment(t *testing.T) {
 	}
 }
 
+func TestVersionPathSegmentPreservesNamedVersionsWithoutPrefixOverlap(t *testing.T) {
+	t.Parallel()
+	if got := VersionPathSegment("branch/feature/hub-sync"); got != "~YnJhbmNoL2ZlYXR1cmUvaHViLXN5bmM" {
+		t.Fatalf("VersionPathSegment() = %q", got)
+	}
+	if VersionPathSegment("branch/feature") == VersionPathSegment("branch-feature") {
+		t.Fatal("distinct named versions collided")
+	}
+}
+
 func TestDefuseReservedName(t *testing.T) {
 	t.Parallel()
 	for _, reserved := range []string{"nul", "NUL", "con", "com1", "LPT9", "aux.tar"} {

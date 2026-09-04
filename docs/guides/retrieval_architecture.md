@@ -192,7 +192,8 @@ graphit_wiki_xrefs(wiki: "project", ai_optimized: true)
 
 ## 4. Store resolution
 
-Every tool resolves to a local directory or immutable object-store URI based on its scope:
+Every tool resolves to a local directory or a version-addressed, consumer-read-only object-store URI
+based on its scope:
 
 | Tool | Scope | Resolves To |
 |------|-------|------------|

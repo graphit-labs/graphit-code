@@ -13,7 +13,7 @@ type WikiSource struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Dir   string `json:"dir"`
-	// StoreConfig is set for an immutable Hub artifact mounted directly from object storage.
+	// StoreConfig is set for a read-only Hub artifact mounted directly from object storage.
 	// It is runtime connection state, not chat-session metadata.
 	StoreConfig *lancestore.Config `json:"-"`
 }
@@ -400,7 +400,7 @@ func WikiOverview(ctx context.Context, wikiDir string) string {
 }
 
 // WikiOverviewFrom renders the catalogue from an already-open index. It is the mounted-wiki
-// counterpart of WikiOverview: callers that opened an immutable S3 index must keep using that
+// counterpart of WikiOverview: callers that opened a mounted S3 index must keep using that
 // same handle instead of turning its URI back into a local directory.
 func WikiOverviewFrom(ctx context.Context, db *WikiDB) string {
 	if db == nil {

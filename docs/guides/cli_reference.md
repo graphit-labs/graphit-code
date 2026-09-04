@@ -267,11 +267,17 @@ a project-scoped installation.
 - `search <term> [--type <type>]`: Search IDs, names, and descriptions.
 - `show <id> [--type <type>]`: Show one registry entry and its published versions.
 - `install <id>[@version] [--type <type>] [--alias <name>]`: Install globally. Pin an exact version
-  for reproducible agent work.
+  for reproducible agent work. Versions may be numeric constraints (`2`, `2.1`, `2.1.3`) or exact
+  named channels such as `branch/main` and `branch/feature/api`.
 - `uninstall <id> [--type <type>]`: Drop a global installation.
 - `update [id] [--type <type>]`: Update every installed artifact or one selected artifact.
 - `submit <id> <local-path>`: Publish local source. Flags are `--version` (default `1.0.0`),
-  `--type` (default `rule`), `--name`, `--description`, and comma-separated `--tags`.
+  `--type` (default `rule`), `--name`, `--description`, and comma-separated `--tags`. Publishing AST
+  or knowledge requires an initialized checkout; the command reads `project.id` from
+  `graphit.lock.json` so the remote LanceDB prefix is scoped to that project. Republishing the same
+  numeric or named version is supported and replaces its content with last-writer-wins semantics. A
+  version beginning with `tag/` is a compact release snapshot: each staged LanceDB table retains
+  only its current version, and publication fails if superseded MVCC history cannot be removed.
 - `link <name> --path <project> --type <type>`: Record or materialize a local development link in
   the current initialized project. AST/Knowledge point to the sibling's compiled global store;
   adapter-native artifacts use the adapter's own destination.
@@ -492,6 +498,8 @@ graphit wiki <subcommand> [flags]
   - `--continue`: Resume last session.
 - `sessions`: List or delete wiki sessions.
   - `--delete <id>`: Delete session ID.
+- `embed`: Generate or update vector embeddings for wiki chunks.
+  - `--wiki <project|memory>`: Wiki scope; defaults to `project`.
 
 ### `daemon`
 Controls background service lifecycle.

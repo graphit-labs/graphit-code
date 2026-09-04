@@ -35,9 +35,8 @@ var ErrNotBuilt = errors.New("lancestore: built without the lancedb tag — run 
 
 // ErrReadOnly is returned when a write is attempted against a remote store.
 //
-// A published version is immutable from the consumer's side: it is produced once by extraction
-// from a populated local index. Writing to it from a consumer would fork the artifact the
-// registry names, which is the one thing this layout must not allow.
+// Published artifacts are writable only by their publication path. Allowing a consumer to write
+// through a mounted context would mutate shared registry state without publication fencing.
 var ErrReadOnly = errors.New("lancestore: this store is a published version and is read-only")
 
 // ErrNoSuchTable is returned when a table does not exist.
@@ -308,6 +307,13 @@ type CompactionResult struct {
 
 // PruneResult is what pruning reclaimed.
 type PruneResult struct {
+	BytesRemoved int64
+	OldVersions  int64
+}
+
+// SnapshotResult reports what was removed while reducing a local store to its current state.
+type SnapshotResult struct {
+	Tables       int
 	BytesRemoved int64
 	OldVersions  int64
 }

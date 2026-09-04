@@ -107,8 +107,8 @@ graphit_ast_source                      context: "acme-api@2.1.0"
 
 Use an unqualified ID only to discover an artifact with `graphit_hub_search`, `graphit_hub_list`, or
 `graphit_hub_show`. Once selected, use **`id@version` everywhere**: query contexts, `hub_refs`, global
-installs, source reads, and handoffs. A versioned reference makes the answer reproducible even after
-the registry's latest release changes.
+installs, source reads, and handoffs. A versioned reference is isolated from later versions; for a
+reproducible snapshot, publishers must also publish new versions instead of replacing the same one.
 
 Omitting both is refused with a message that says so, rather than silently answering from an empty
 store. Tools that genuinely need a project — indexing, linting, exporting, anything that writes —
@@ -148,6 +148,12 @@ docker exec graphit graphit hub list
 
 Installed contexts live on the `/opt/graphit` volume, which is what makes the server's content
 survive a restart.
+
+For a checkout-free, unattended publisher that installs the latest Graphit release, runs full sync
+and embeddings, and publishes branch/tag channels, see
+[Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md).
+That publisher requires S3 and remote provider embeddings; it does not support a local embedding
+model.
 
 ### Or index a checkout on the server
 
