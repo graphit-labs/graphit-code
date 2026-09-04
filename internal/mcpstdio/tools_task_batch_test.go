@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -11,6 +12,91 @@ import (
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestTaskStructuredToolSchemasExposeAIOptimized(t *testing.T) {
+	session := testMCPClient(t)
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted := map[string]bool{
+		brand.MCPToolName("task", "batch"):                false,
+		brand.MCPToolName("task", "create"):               false,
+		brand.MCPToolName("task", "get"):                  false,
+		brand.MCPToolName("task", "list"):                 false,
+		brand.MCPToolName("task", "search"):               false,
+		brand.MCPToolName("task", "claim"):                false,
+		brand.MCPToolName("task", "progress"):             false,
+		brand.MCPToolName("task", "heartbeat"):            false,
+		brand.MCPToolName("task", "release"):              false,
+		brand.MCPToolName("task", "complete"):             false,
+		brand.MCPToolName("task", "cancel"):               false,
+		brand.MCPToolName("task", "remove"):               false,
+		brand.MCPToolName("task", "flag"):                 false,
+		brand.MCPToolName("task", "unflag"):               false,
+		brand.MCPToolName("task", "check"):                false,
+		brand.MCPToolName("task", "revise"):               false,
+		brand.MCPToolName("task", "check", "supersede"):   false,
+		brand.MCPToolName("task", "comment", "add"):       false,
+		brand.MCPToolName("task", "dependency", "add"):    false,
+		brand.MCPToolName("task", "dependency", "remove"): false,
+	}
+	for _, tool := range listed.Tools {
+		if _, ok := wanted[tool.Name]; !ok {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var schema struct {
+			Properties map[string]any `json:"properties"`
+		}
+		if err := json.Unmarshal(encoded, &schema); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := schema.Properties["ai_optimized"]; !ok {
+			t.Errorf("tool %s does not expose ai_optimized", tool.Name)
+		}
+		wanted[tool.Name] = true
+	}
+	for name, found := range wanted {
+		if !found {
+			t.Errorf("tool %s was not listed", name)
+		}
+	}
+}
+
+func TestTaskResultHonorsExplicitAIOptimized(t *testing.T) {
+	type taskSummary struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	for _, test := range []struct {
+		name      string
+		optimized bool
+		want      string
+	}{
+		{name: "compact", optimized: true, want: "|title:Explicit optimized output"},
+		{name: "verbose", optimized: false, want: `"title": "Explicit optimized output"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, _, err := taskResult(taskSummary{ID: "tsk-1", Title: "Explicit optimized output"}, &test.optimized)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output string
+			for _, content := range result.Content {
+				if text, ok := content.(*mcp.TextContent); ok {
+					output += text.Text
+				}
+			}
+			if !strings.Contains(output, test.want) {
+				t.Fatalf("task result missing %q: %q", test.want, output)
+			}
+		})
+	}
+}
 
 func TestTaskBatchToolSchema(t *testing.T) {
 	session := testMCPClient(t)

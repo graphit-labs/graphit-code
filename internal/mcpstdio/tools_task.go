@@ -28,6 +28,7 @@ type taskCreateInput struct {
 	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Task IDs that must complete first"`
 	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Stable caller key; defaults to the canonical title"`
 	AgentID            string   `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	AiOptimized        *bool    `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskGetInput struct {
@@ -60,87 +61,97 @@ type taskSearchInput struct {
 }
 
 type taskClaimInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Ready task ID (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Lease duration such as 2h; default 1h"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Ready task ID (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Lease       string `json:"lease,omitempty" jsonschema:"Lease duration such as 2h; default 1h"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskProgressInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary    string `json:"summary" jsonschema:"Markdown checkpoint of completed facts, changed constraints, and concrete evidence (required)"`
-	NextStep   string `json:"next_step,omitempty" jsonschema:"Markdown exact next action with target and completion condition for this or a takeover agent"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Summary     string `json:"summary" jsonschema:"Markdown checkpoint of completed facts, changed constraints, and concrete evidence (required)"`
+	NextStep    string `json:"next_step,omitempty" jsonschema:"Markdown exact next action with target and completion condition for this or a takeover agent"`
+	Lease       string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskHeartbeatInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Lease       string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskReleaseInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary    string `json:"summary,omitempty" jsonschema:"Markdown summary of completed work, current state, and blocking evidence"`
-	NextStep   string `json:"next_step,omitempty" jsonschema:"Markdown exact continuation action with target and completion condition for the next agent"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Summary     string `json:"summary,omitempty" jsonschema:"Markdown summary of completed work, current state, and blocking evidence"`
+	NextStep    string `json:"next_step,omitempty" jsonschema:"Markdown exact continuation action with target and completion condition for the next agent"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCompleteInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary    string `json:"summary,omitempty" jsonschema:"Markdown final result mapped to acceptance evidence, with any residual limitations"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Summary     string `json:"summary,omitempty" jsonschema:"Markdown final result mapped to acceptance evidence, with any residual limitations"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCancelInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Task ID to cancel (required)"`
-	ClaimToken string `json:"claim_token,omitempty" jsonschema:"Required fencing token when the task is in progress"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason     string `json:"reason" jsonschema:"Markdown explanation of why the task is no longer needed and what replaces it, if anything (required)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Task ID to cancel (required)"`
+	ClaimToken  string `json:"claim_token,omitempty" jsonschema:"Required fencing token when the task is in progress"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Reason      string `json:"reason" jsonschema:"Markdown explanation of why the task is no longer needed and what replaces it, if anything (required)"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskRemoveInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Task ID to remove (required)"`
-	ConfirmID  string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason     string `json:"reason" jsonschema:"Markdown explanation proving hard deletion is correct and no unique work history is needed (required)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Task ID to remove (required)"`
+	ConfirmID   string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Reason      string `json:"reason" jsonschema:"Markdown explanation proving hard deletion is correct and no unique work history is needed (required)"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskFlagInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason     string `json:"reason" jsonschema:"Markdown unresolved condition, completion impact, and objective clearing condition (required)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Reason      string `json:"reason" jsonschema:"Markdown unresolved condition, completion impact, and objective clearing condition (required)"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskUnflagInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCheckInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	CheckID    string `json:"check_id" jsonschema:"Acceptance or test check ID (required)"`
-	Passed     bool   `json:"passed" jsonschema:"Whether this check passed"`
-	Evidence   string `json:"evidence" jsonschema:"Markdown evidence naming the command, observation, or artifact, relevant conditions, and actual result (required)"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	CheckID     string `json:"check_id" jsonschema:"Acceptance or test check ID (required)"`
+	Passed      bool   `json:"passed" jsonschema:"Whether this check passed"`
+	Evidence    string `json:"evidence" jsonschema:"Markdown evidence naming the command, observation, or artifact, relevant conditions, and actual result (required)"`
+	Lease       string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskReviseInput struct {
@@ -159,6 +170,7 @@ type taskReviseInput struct {
 	AddAcceptanceCriteria []string  `json:"add_acceptance_criteria,omitempty" jsonschema:"New singular imperative Markdown statements of what the system must do or must not allow"`
 	AddTests              []string  `json:"add_tests,omitempty" jsonschema:"New Given-When-Then behavior checks or explicit method-target-expected-result validations to append"`
 	Lease                 string    `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized           *bool     `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCheckSupersedeInput struct {
@@ -172,6 +184,7 @@ type taskCheckSupersedeInput struct {
 	ReplacementText  string `json:"replacement_text,omitempty" jsonschema:"Optional replacement check using the same quality form as acceptance or test checks"`
 	ReplacementKind  string `json:"replacement_kind,omitempty" jsonschema:"Optional replacement kind: acceptance or test; defaults to the superseded kind"`
 	Lease            string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized      *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCommentInput struct {
@@ -183,13 +196,15 @@ type taskCommentInput struct {
 	Body           string `json:"body" jsonschema:"Durable self-contained Markdown comment with relevant context, rationale, impact, and references (required)"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"Stable caller key; defaults to canonical kind and body"`
 	Lease          string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskDependencyInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Task that will depend on another task"`
-	DependsOn  string `json:"depends_on" jsonschema:"Blocking task ID"`
-	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Task that will depend on another task"`
+	DependsOn   string `json:"depends_on" jsonschema:"Blocking task ID"`
+	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskBatchInput struct {
@@ -306,7 +321,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(created, nil)
+		return taskResult(created, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "get"), Description: "Read one authoritative task snapshot and its ordered audit history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskGetInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -369,7 +384,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "progress"), Description: "Record a durable checkpoint and exact next step, fenced by the active claim."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskProgressInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
@@ -384,7 +399,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "heartbeat"), Description: "Renew the active task lease without changing its progress summary."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskHeartbeatInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
@@ -399,7 +414,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "release"), Description: "Checkpoint and release a claim so another agent can continue immediately."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReleaseInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -410,7 +425,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "complete"), Description: "Complete a claimed task after acceptance checks pass, releasing its dependents."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCompleteInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -421,7 +436,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "cancel"), Description: "Cancel a task with an audited reason. In-progress cancellation requires the current claim token."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCancelInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -432,7 +447,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "remove"), Description: "Hard-remove an unreferenced task only when exact-ID confirmation and a reason establish that deletion is correct."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskRemoveInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -443,7 +458,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "flag"), Description: "Flag a claimed task with a required reason. Work may continue or transfer, but completion is fenced until unflagged."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskFlagInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -454,7 +469,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "unflag"), Description: "Remove a claimed task's flag after its reason has been resolved, allowing completion."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskUnflagInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -465,7 +480,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check"), Description: "Record pass/fail and concrete evidence for one acceptance or test check. Completion requires every check to pass."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
@@ -480,7 +495,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "revise"), Description: "Revise a claimed task specification with claim and expected-revision fencing, a required reason, and immutable before/after history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReviseInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
@@ -495,7 +510,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check", "supersede"), Description: "Supersede an obsolete acceptance or test check without deleting history, optionally adding a replacement check."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckSupersedeInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
@@ -510,7 +525,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "comment", "add"), Description: "Append an idempotent, typed task comment for decisions, problems, lessons, knowledge, or other relevant work context."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCommentInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
@@ -525,7 +540,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "dependency", "add"), Description: "Add an explicit blocking dependency to an open task; cycles are rejected."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskDependencyInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -536,7 +551,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "dependency", "remove"), Description: "Remove an explicit blocking dependency from an open task."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskDependencyInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -547,6 +562,6 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, nil)
+		return taskResult(value, in.AiOptimized)
 	}))
 }

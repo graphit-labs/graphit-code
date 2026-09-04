@@ -8,7 +8,7 @@ import (
 func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 	t.Parallel()
 	content := mandatePreamble()
-	for _, want := range []string{"current action", "once in the session", "prefer Graphit MCP", "every agent and subagent", "default native tools", "interruptions", "compaction", "smallest independently reportable unit", "update the active Graphit task immediately", "After the final task-management update", "dispatch a full Graphit sync asynchronously", "must not wait for it", "Do not sync after every edit"} {
+	for _, want := range []string{"current action", "once in the session", "prefer Graphit MCP", "every agent and subagent", "default native tools", "exposes `ai_optimized`", "explicitly pass `true`", "interruptions", "compaction", "smallest independently reportable unit", "update the active Graphit task immediately", "After the final task-management update", "dispatch a full Graphit sync asynchronously", "must not wait for it", "Do not sync after every edit"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("preamble missing %q:\n%s", want, content)
 		}

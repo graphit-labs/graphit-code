@@ -79,6 +79,7 @@ func mandatePreamble() string {
 		"Graphit is the project knowledge and code-navigation layer.",
 		"For each action, match only the current action against the module triggers below. If one matches, read that skill once in the session immediately before acting; do not preload unrelated skills or reread one already loaded.",
 		"Within a matched domain, prefer Graphit MCP over native search, file walking, web/model knowledge, or IDE memory. This applies to every agent and subagent. If the required Graphit tool is unavailable in the current agent, continue with that agent's default native tools. Do not substitute the Graphit CLI for MCP.",
+		"When a Graphit tool exposes `ai_optimized`, explicitly pass `true`; do not rely on its default.",
 		"Adapter hooks load mandatory memory and reassert this routing at supported lifecycle boundaries. They cannot classify semantic intent, so these triggers still apply after interruptions, corrections, compaction, handoff, and resumed work.",
 		"Whenever the smallest independently reportable unit finishes, update the active Graphit task immediately with what landed and what comes next; do not wait for the overall task to end or write Markdown task state.",
 		"The daemon indexes writes asynchronously. After the final task-management update, every agent or subagent completion must dispatch a full Graphit sync asynchronously through its adapter stop hook and must not wait for it. Do not sync after every edit.",
