@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/graphit-labs/graphit-code/releases/latest"><img src="https://img.shields.io/github/v/release/graphit-labs/graphit-code?style=flat-square&color=b9fb63&labelColor=101311" alt="Latest release"></a>
   <a href="https://github.com/graphit-labs/graphit-code/actions"><img src="https://img.shields.io/github/actions/workflow/status/graphit-labs/graphit-code/release.yml?style=flat-square&labelColor=101311" alt="Build status"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/graphit-labs/graphit-code?style=flat-square&labelColor=101311" alt="Apache-2.0 license"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/graphit-labs/graphit-code?style=flat-square&labelColor=101311" alt="MIT license"></a>
   <a href="https://github.com/sponsors/lainosantos"><img src="https://img.shields.io/badge/Sponsor-Graphit-db61a2?style=flat-square&logo=github-sponsors&labelColor=101311" alt="Sponsor Graphit"></a>
 </p>
 
@@ -107,16 +107,20 @@ docker run -d --name graphit \
   graphit-code
 ```
 
-Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
+Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full active key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
 
 Remote agents can load the server's current routing contract with `graphit_mandates` and fetch the
 complete source of any core module skill with `graphit_module_skill`. Start from the copy-ready
 [remote agent skill](docs/examples/skills/graphit-remote/SKILL.md).
 
-The MCP endpoint authenticates with the generated bearer key. The UI has no built-in authentication,
-and CORS is not authorization, so keep both ports on a trusted network or put an authenticated proxy
-in front. Read [Running Graphit Code as a server in a container](docs/guides/container.md) before
-exposing them.
+The MCP endpoint uses a fresh random bearer key on every daemon start by default. For a stable
+server credential, set the secret `mcp.api_key` globally or supply `GRAPHIT_MCP_API_KEY`; the exact
+value remains active across restarts until you change it and restart the daemon. Configuration
+output redacts it, while the active key remains available from **System → Daemon** and the
+mode-`0600` runtime key file. The UI has no built-in authentication, and CORS is not authorization,
+so keep both ports on a trusted
+network or put an authenticated proxy in front. Read
+[Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
 
 ## First run
 
@@ -190,7 +194,7 @@ bundles; direct AST, Wiki, Memory, and Task tools remain the cheaper path for fo
 | Serve the Observatory from the daemon | `modules.daemon_ui=true` |
 | Disable the daemon filesystem watcher | `modules.sync=false` (manual `graphit sync` still works) |
 | Disable background embedding work | `modules.embedding=false` |
-| Select a remote embedding backend | `ai.embedding.provider=openai|cohere|voyage|google|openai-compatible` |
+| Select a remote embedding backend | `ai.embedding.provider=<provider>`: `openai`, `cohere`, `voyage`, `google`, or `openai-compatible` |
 | Restrict indexed languages | `ast.grammars_whitelist` / `ast.grammars_blacklist` |
 | Move or narrow the documentation tree | `knowledge.docs_dir`, `knowledge.extensions`, `knowledge.include_readme` |
 
@@ -248,6 +252,6 @@ Graphit Code is under active development. Interfaces, storage formats, and suppo
 
 ## License
 
-Licensed under the [Apache License 2.0](https://github.com/graphit-labs/graphit-code/blob/main/LICENSE).
+Licensed under the [MIT License](https://github.com/graphit-labs/graphit-code/blob/main/LICENSE).
 
 If Graphit improves your agent workflow, consider [sponsoring its development](https://github.com/sponsors/lainosantos).

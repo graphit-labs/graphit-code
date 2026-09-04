@@ -149,7 +149,8 @@ Modules that run once per daemon (not per-project):
 The daemon also owns a separate authenticated streamable HTTP MCP listener at `/mcp`.
 `mcp.host` defaults to loopback and `mcp.port` defaults to an OS-assigned port; discovery
 metadata is written to `~/.graphit/daemon/mcp.port` and the mode-`0600` bearer secret to
-`~/.graphit/daemon/mcp.key`.
+`~/.graphit/daemon/mcp.key`. A non-empty `mcp.api_key` (or `GRAPHIT_MCP_API_KEY`) is used exactly
+and stays stable across starts; otherwise each start creates a fresh random key.
 
 ### 4. Filesystem Change Detection
 

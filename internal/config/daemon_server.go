@@ -6,6 +6,8 @@ import (
 )
 
 const (
+	MCPAPIKeyConfigKey = "mcp.api_key"
+
 	// DefaultMCPHost keeps the MCP listener on the loopback interface. The daemon's MCP endpoint
 	// is authenticated by a bearer key, but a key is not a reason to publish a port: the stdio
 	// proxy that every IDE uses reaches it over loopback, so nothing needs it exposed. A container
@@ -20,6 +22,12 @@ const (
 	// declared in the image and mapped on the host. Setting `mcp.port` pins it.
 	DefaultMCPPort = 0
 )
+
+// ResolveMCPAPIKey returns the configured daemon MCP bearer key. An empty value tells the
+// daemon to generate an ephemeral key for this start.
+func ResolveMCPAPIKey(inlineCfg, projectCfg ConfigMap) string {
+	return ResolveConfig(MCPAPIKeyConfigKey, inlineCfg, projectCfg)
+}
 
 // ResolveMCPHost returns the interface the daemon's MCP server binds to.
 func ResolveMCPHost(inlineCfg, projectCfg ConfigMap) string {

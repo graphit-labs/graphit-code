@@ -1,12 +1,15 @@
 package commands
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 )
 
@@ -17,6 +20,9 @@ func TestDaemonHelpDocumentsWatchConfiguration(t *testing.T) {
 		"GRAPHIT_MODULES_SYNC=false",
 		"removes the per-project watcher",
 		"explicit graphit sync",
+		"mcp.api_key",
+		"GRAPHIT_MCP_API_KEY",
+		"stable across starts",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("daemon help does not contain %q", expected)
@@ -65,6 +71,72 @@ func TestBuildDaemonProjectModulesHonorsSyncSwitch(t *testing.T) {
 				t.Fatalf("sync module present=%v, want %v", gotSync, tt.wantSync)
 			}
 		})
+	}
+}
+
+func TestResolveDaemonMCPAPIKey(t *testing.T) {
+	t.Run("configured key", func(t *testing.T) {
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+		if err := config.SetGlobalConfigValue(config.MCPAPIKeyConfigKey, "stable-daemon-key"); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := resolveDaemonMCPAPIKey(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "stable-daemon-key" {
+			t.Fatalf("resolveDaemonMCPAPIKey = %q, want configured value", got)
+		}
+	})
+
+	t.Run("generated fallback", func(t *testing.T) {
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+
+		first, err := resolveDaemonMCPAPIKey(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := resolveDaemonMCPAPIKey(nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == second {
+			t.Fatal("generated fallback reused a bearer key")
+		}
+		for _, key := range []string{first, second} {
+			decoded, decodeErr := hex.DecodeString(key)
+			if decodeErr != nil || len(decoded) != 32 {
+				t.Fatalf("generated key %q is not 32 random bytes encoded as hex", key)
+			}
+		}
+	})
+}
+
+func TestWriteDaemonMCPKeyEnforcesPrivateMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.key")
+	if err := os.WriteFile(path, []byte("old-key"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeDaemonMCPKey(path, "active-key"); err != nil {
+		t.Fatal(err)
+	}
+	if !daemonMCPKeyFileMatches(path, "active-key") {
+		t.Fatal("written key or file mode does not match the active daemon key")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mcp.key mode = %o, want 600", got)
 	}
 }
 

@@ -17,6 +17,7 @@ var SecretConfigKeys = []string{
 	"hub.secret_access_key",
 	"ai.embedding.api_key",
 	"ai.rerank.api_key",
+	MCPAPIKeyConfigKey,
 }
 
 // IsSecretConfigKey reports whether a key's value must be redacted when configuration is

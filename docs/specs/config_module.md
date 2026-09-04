@@ -145,6 +145,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ui.allowed_origins` | Comma-separated exact CORS origins; configured values replace the localhost default allowlist | localhost loopback origins |
 | `mcp.host` | Interface used by the daemon's authenticated HTTP MCP listener | `127.0.0.1` |
 | `mcp.port` | MCP port; `0` requests an OS-assigned port | `0` |
+| `mcp.api_key` | Secret bearer key used by the daemon's authenticated HTTP MCP listener | fresh random key per daemon start |
 | `knowledge.docs_dir` | Relative path to the project documentation directory. Set to `.` to index the whole project. | `docs` |
 | `knowledge.include_readme` | Whether the project root's README is indexed into the wiki on top of `knowledge.docs_dir` | `true` |
 | `knowledge.extensions` | Comma-separated list of file extensions to index (e.g., `md,yaml,json,proto`). The `.` prefix is optional. | `md,markdown,mdx,txt,adoc,rst,puml,plantuml,yaml,yml,json,proto,graphql,gql,wsdl,xml` |
@@ -236,21 +237,25 @@ background process silently holding port 8080 is not what anyone asks the daemon
 the case it exists for: there one process must both own the MCP server and serve the UI, and it is
 PID 1.
 
-### The daemon's MCP listener: `mcp.host` and `mcp.port`
+### The daemon's MCP listener: `mcp.host`, `mcp.port`, and `mcp.api_key`
 
 | Key | Default | Meaning |
 |---|---|---|
 | `mcp.host` | `127.0.0.1` | The interface the daemon's MCP server binds |
 | `mcp.port` | `0` | The port, or `0` for a kernel-assigned one |
+| `mcp.api_key` | empty | Exact bearer key to use; empty selects a fresh cryptographically random key for this start |
 
-Both defaults reproduce exactly what the daemon did before these keys existed. The endpoint is
+The host and port defaults reproduce exactly what the daemon did before these keys existed. The endpoint is
 authenticated by a bearer key, but a key is not a reason to publish a port: the stdio proxy every IDE
 uses reaches it over loopback.
 
 A container needs the opposite of an ephemeral port — one known before the process starts, so it can
 be declared in the image and mapped on the host. The chosen port is published to
-`<DaemonDir>/mcp.port` either way, and the bearer key to `<DaemonDir>/mcp.key` (mode `0600`),
-regenerated on every daemon start.
+`<DaemonDir>/mcp.port` either way, and the active bearer key to `<DaemonDir>/mcp.key` (mode `0600`).
+If `mcp.api_key` resolves to a non-empty value, the daemon uses that value exactly across starts.
+Otherwise it generates 32 random bytes and hex-encodes them for each start. A configuration change
+is applied only after daemon restart. The singleton daemon resolves these settings from environment,
+global configuration, and compiled defaults rather than from one project's lockfile.
 
 An unparseable or out-of-range `mcp.port` falls back to `0` rather than failing the daemon. That is
 deliberate: in a container the daemon is PID 1, so refusing to start over a typo in one key would
@@ -258,13 +263,14 @@ take the indexers and both servers down with it instead of producing a diagnosti
 
 ### Secret keys: environment-supplied and redacted
 
-Three keys hold a credential, and they are declared in one place — `config.SecretConfigKeys`:
+Four keys hold a credential, and they are declared in one place — `config.SecretConfigKeys`:
 
 | Key | Environment variable |
 |---|---|
 | `hub.secret_access_key` | `GRAPHIT_HUB_SECRET_ACCESS_KEY` |
 | `ai.embedding.api_key` | `GRAPHIT_AI_EMBEDDING_API_KEY` |
 | `ai.rerank.api_key` | `GRAPHIT_AI_RERANK_API_KEY` |
+| `mcp.api_key` | `GRAPHIT_MCP_API_KEY` |
 
 Two properties follow from that list rather than from anything remembered per call site:
 

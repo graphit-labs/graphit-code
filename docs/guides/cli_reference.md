@@ -239,7 +239,8 @@ graphit mcp [flags]
 
 **Architecture:**
 - The daemon listens on `127.0.0.1:<dynamic-port>/mcp` (Streamable HTTP transport)
-- Authentication: Bearer token stored in `~/.graphit/daemon/mcp.key`
+- Authentication: active Bearer token stored in `~/.graphit/daemon/mcp.key`; random per start by
+  default, or stable when the secret `mcp.api_key` / `GRAPHIT_MCP_API_KEY` is configured
 - Port: Written to `~/.graphit/daemon/mcp.port`
 - The stdio proxy auto-recovers if the daemon restarts, preserves its host-agent identity, replays the MCP handshake, and sends `notifications/tools/list_changed` so clients that implement catalog invalidation refresh their tools. Fresh sessions always receive the new catalog.
 

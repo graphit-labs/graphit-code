@@ -187,7 +187,7 @@ docker run -d --name graphit \
           <h2>Two values, and it is wired.</h2>
         </div>
         <div class="trust-copy">
-          <p>Open <strong>System → Daemon</strong> in the Observatory to see the endpoint and copy the full value from the masked <strong>MCP bearer key</strong> control. The key is regenerated on every daemon restart, which revokes every key handed out before it.</p>
+          <p>Open <strong>System → Daemon</strong> in the Observatory to see the endpoint and copy the full active value from the masked <strong>MCP bearer key</strong> control. By default every daemon start generates a new key. Set the secret <code>mcp.api_key</code> configuration or <code>GRAPHIT_MCP_API_KEY</code> to keep an operator-chosen key stable across restarts; changes take effect after restart.</p>
           <ul>
             <li><strong>URL</strong><span>http://your-server:8081/mcp</span></li>
             <li><strong>Header</strong><span>Authorization: Bearer &lt;key&gt;</span></li>
@@ -282,7 +282,7 @@ graphit setup</code></pre>
   <footer>
     <div class="brand footer-brand"><img src="assets/logo.svg" alt="" width="32" height="32"><span><strong>Graphit</strong><small>AI ENGINEERING</small></span></div>
     <p>Open source context and deterministic control for AI software engineering.</p>
-    <p>© <span id="year">2026</span> Graphit Labs · Apache-2.0</p>
+    <p>© <span id="year">2026</span> Graphit Labs · MIT</p>
   </footer>
 </body>
 </html>

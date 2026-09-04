@@ -67,9 +67,10 @@ Use `--secret` to read a value from standard input without putting it in shell h
 printf '%s' "$PROVIDER_KEY" | graphit config --global --secret ai.embedding.api_key
 ```
 
-Graphit redacts `hub.secret_access_key`, `ai.embedding.api_key`, and `ai.rerank.api_key` in CLI
-configuration output. The global file is owner-readable only but stores configured secrets as
-plain text; environment variables or the cloud provider's credential chain are preferable.
+Graphit redacts `hub.secret_access_key`, `ai.embedding.api_key`, `ai.rerank.api_key`, and
+`mcp.api_key` in CLI configuration output. The global file is owner-readable only but stores
+configured secrets as plain text; environment variables or a deployment secret store are
+preferable.
 
 Two compatibility keys do not use the normal layered resolver: `ai.cli` and `ai.agent_args` are
 read from the global configuration used by the completion client. Set them with `--global`.
@@ -182,10 +183,29 @@ checkout.
 | `ui.allowed_origins` | same-origin and loopback origins | Comma-separated exact CORS allowlist. A configured list replaces the loopback defaults; `*` allows any browser origin. |
 | `mcp.host` | `127.0.0.1` | Interface for the daemon's streamable HTTP MCP listener. |
 | `mcp.port` | `0` | Fixed port, or `0` for an OS-assigned port written to the daemon runtime directory. Invalid values fall back to `0`. |
+| `mcp.api_key` | empty | Secret bearer key for the daemon MCP listener. Empty means generate a fresh random key on each start; a non-empty value is used exactly and remains stable until changed. |
 
-The MCP listener requires its generated bearer key; the UI listener does not authenticate users.
-CORS is not authorization. Keep both on loopback unless a firewall, private network, or
-authenticated reverse proxy defines the remote trust boundary.
+Because the daemon is machine-global, set its listener keys in global configuration or the
+environment. Configure a stable secret without placing it in shell history, then restart:
+
+```bash
+openssl rand -hex 32 | graphit config --global --secret mcp.api_key
+graphit daemon restart
+```
+
+The same key is `GRAPHIT_MCP_API_KEY` in containers and service managers. `graphit config --get`
+and `--list` redact it; copy the active value from **System → Daemon** or read
+`~/.graphit/daemon/mcp.key`, which is written with mode `0600`. Unset the key and restart to return
+to per-start random rotation:
+
+```bash
+graphit config --global --unset mcp.api_key
+graphit daemon restart
+```
+
+The UI listener does not authenticate users. CORS is not authorization. Keep both listeners on
+loopback unless a firewall, private network, or authenticated reverse proxy defines the remote
+trust boundary.
 
 ## Knowledge indexing
 

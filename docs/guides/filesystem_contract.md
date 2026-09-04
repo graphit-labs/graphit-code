@@ -76,7 +76,7 @@ Important global paths include:
 | `daemon/daemon.pid` | Single-daemon lock and process metadata |
 | `daemon/daemon.log` | Daemon log |
 | `daemon/mcp.port` | Actual MCP port, including an OS-selected port |
-| `daemon/mcp.key` | Per-start MCP bearer key; mode `0600` |
+| `daemon/mcp.key` | Active MCP bearer key; generated per start unless `mcp.api_key` is configured; mode `0600` |
 | `daemon/embed.sock` | Local embedding service socket on supported platforms |
 | `logs/graphit.log` | Process-wide structured log, truncated after 5 MiB |
 | `sync.log` | Errors that prevented a detached lifecycle-triggered full sync from starting |

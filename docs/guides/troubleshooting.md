@@ -589,6 +589,21 @@ empty embedding response from daemon
 The embedding proxy is newline-delimited JSON over a Unix socket. It has no HTTP port file or
 health URL. `mcp.port` belongs to the separate authenticated MCP HTTP listener.
 
+### MCP client gets HTTP 401
+
+**Cause:** The client is not sending the daemon's active bearer key. With no `mcp.api_key`, every
+daemon start generates a new key. With a configured key, a changed value is not active until the
+daemon restarts.
+
+**Solutions:**
+
+1. Open **System → Daemon** and copy the full active value from **MCP bearer key**, or read
+   `~/.graphit/daemon/mcp.key` on the host.
+2. Send it as `Authorization: Bearer <key>` to the `/mcp` endpoint.
+3. For a stable credential, pipe a secret into
+   `graphit config --global --secret mcp.api_key`, restart the daemon, and update the client.
+   `graphit config --get` and `--list` intentionally redact it.
+
 ---
 
 ## Memory Issues

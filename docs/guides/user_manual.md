@@ -230,7 +230,7 @@ See [Storage Layout](../architecture/storage_layout.md) for the exact structure 
 
 ## Network and security
 
-The UI is designed for local operation and has no built-in authentication. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients. The daemon's MCP HTTP endpoint is a separate listener and requires the generated bearer key. Open **System → Daemon** to see the endpoint and copy the full key from the masked **MCP bearer key** control.
+The UI is designed for local operation and has no built-in authentication. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients. The daemon's MCP HTTP endpoint is a separate listener and requires its active bearer key. Open **System → Daemon** to see the endpoint and copy the full key from the masked **MCP bearer key** control. The default key is regenerated on every daemon start; set the secret global `mcp.api_key` or service environment variable `GRAPHIT_MCP_API_KEY` for a stable value, then restart the daemon.
 
 Before remote access:
 

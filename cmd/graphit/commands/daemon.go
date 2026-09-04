@@ -66,9 +66,14 @@ Filesystem watch (enabled by default):
   ` + brand.BinName() + ` config --global modules.sync false    Disable for every project
   GRAPHIT_MODULES_SYNC=false ` + brand.BinName() + ` daemon      Disable through the environment
 
+MCP bearer key:
+  ` + brand.BinName() + ` config --global --secret mcp.api_key < key.txt
+  GRAPHIT_MCP_API_KEY=<key> ` + brand.BinName() + ` daemon
+
 Restart the daemon after changing project or global configuration. Disabling
 modules.sync removes the per-project watcher and incremental AST/Knowledge
-updates; explicit ` + brand.BinName() + ` sync and direct index commands remain available.
+updates; explicit ` + brand.BinName() + ` sync and direct index commands remain available. A
+configured MCP key stays stable across starts; without one, each start generates a new key.
 
 Lifecycle:
   ` + brand.BinName() + ` daemon                          Start in foreground (Ctrl+C to stop)
@@ -206,7 +211,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			}
 		}()
 
-		apiKey, genErr := mcpproxy.GenerateAPIKey()
+		apiKey, genErr := resolveDaemonMCPAPIKey(nil, nil)
 		if genErr != nil {
 			return
 		}
@@ -245,7 +250,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			_ = listener.Close()
 			return
 		}
-		if err := os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600); err != nil {
+		if err := writeDaemonMCPKey(mcpKeyFile, apiKey); err != nil {
 			_ = listener.Close()
 			_ = os.Remove(mcpPortFile)
 			return
@@ -279,8 +284,8 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 					if data, err := os.ReadFile(mcpPortFile); err != nil || strings.TrimSpace(string(data)) != portStr {
 						_ = os.WriteFile(mcpPortFile, []byte(portStr), 0o644)
 					}
-					if data, err := os.ReadFile(mcpKeyFile); err != nil || strings.TrimSpace(string(data)) != apiKey {
-						_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
+					if !daemonMCPKeyFileMatches(mcpKeyFile, apiKey) {
+						_ = writeDaemonMCPKey(mcpKeyFile, apiKey)
 					}
 				}
 			}
@@ -353,6 +358,32 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		close(pidClaimed)
 		<-mcpReady
 	})
+}
+
+func resolveDaemonMCPAPIKey(inlineCfg, projectCfg config.ConfigMap) (string, error) {
+	if apiKey := config.ResolveMCPAPIKey(inlineCfg, projectCfg); apiKey != "" {
+		return apiKey, nil
+	}
+	return mcpproxy.GenerateAPIKey()
+}
+
+func writeDaemonMCPKey(path, apiKey string) error {
+	if err := os.WriteFile(path, []byte(apiKey), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func daemonMCPKeyFileMatches(path, apiKey string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != apiKey {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().Perm() == 0o600
 }
 
 func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbedClient ai.EmbeddingClient) ([]daemon.WatchModule, []func() error, error) {

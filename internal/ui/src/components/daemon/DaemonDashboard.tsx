@@ -278,8 +278,9 @@ export default function DaemonDashboard() {
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 Copy the full key with the <span className="text-foreground font-medium">MCP bearer key</span> button above.
-                It is regenerated every time the daemon restarts, which also revokes every key handed
-                out before.
+                By default it is regenerated on every daemon restart. Set the secret{' '}
+                <span className="text-foreground font-medium">mcp.api_key</span> configuration to keep
+                the same key across restarts; changing it takes effect after a restart.
               </p>
               <p className="text-[11px] text-warning/90 leading-relaxed">
                 Reaching this from another machine means publishing the port. The endpoint checks the

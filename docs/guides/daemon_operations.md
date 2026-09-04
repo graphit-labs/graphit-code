@@ -207,12 +207,26 @@ The daemon always attempts to expose streamable HTTP MCP at `/mcp`:
 - `mcp.host` defaults to `127.0.0.1`;
 - `mcp.port` defaults to `0`, so the OS chooses a free port;
 - the selected port is written to `~/.graphit/daemon/mcp.port`;
-- a generated bearer secret is written to `~/.graphit/daemon/mcp.key` with mode `0600`;
+- `mcp.api_key` or `GRAPHIT_MCP_API_KEY` supplies an exact stable bearer secret when non-empty;
+- without a configured secret, each daemon start generates a fresh random key;
+- the active secret is written to `~/.graphit/daemon/mcp.key` with mode `0600`;
 - every request must send `Authorization: Bearer <key>`.
 
 In the Observatory, open **System → Daemon**. The page shows the current port and usable endpoint;
 its **MCP bearer key** button masks the value on screen and copies the complete key for the client
-configuration. A daemon restart generates a new key, so clients must copy it again afterward.
+configuration. Generated keys rotate on restart; configured keys stay unchanged until the operator
+changes the setting. All configuration changes require a daemon restart.
+
+Set a stable key without exposing it in command history:
+
+```bash
+openssl rand -hex 32 | graphit config --global --secret mcp.api_key
+graphit daemon restart
+```
+
+The environment equivalent is `GRAPHIT_MCP_API_KEY`. Both `graphit config --get` and
+`graphit config --list` redact this key. To return to automatic per-start rotation, run
+`graphit config --global --unset mcp.api_key` and restart.
 
 The port file is discovery metadata, not a secret. The daemon rewrites both files if another
 process deletes or changes them. On shutdown it removes them only when they still describe that
@@ -269,7 +283,7 @@ replacement. New or removed parser binaries do.
 | `~/.graphit/daemon/daemon.log` | Default global daemon log | Opened `0600`; spawned stderr appender may create `0644` |
 | `~/.graphit/daemon/embed.sock` | Local embedding proxy | Unix socket; removed on close |
 | `~/.graphit/daemon/mcp.port` | Selected MCP TCP port | Discovery metadata |
-| `~/.graphit/daemon/mcp.key` | MCP bearer secret | `0600` |
+| `~/.graphit/daemon/mcp.key` | Active generated or configured MCP bearer secret | `0600` |
 | `~/.graphit/daemon/launcher.stamp` | Installed launcher/Core identity | Replacement input |
 | `.graphit/runtime/daemon/daemon.log` | Per-project supervisor/module log | Generated, `0644` |
 | `.graphit/runtime/daemon/rebuild.log` | AST/wiki embedding and rebuild details | Generated |
@@ -294,8 +308,9 @@ graphit daemon scheduler status
   extension/parser support, and project logs.
 - Semantic results lag: check `modules.embedding`, provider credentials/model availability, and run
   an explicit embedding command for a synchronous checkpoint.
-- MCP clients cannot connect: read `mcp.port` and `mcp.key`, use `/mcp`, and send the Bearer header;
-  do not look for the unrelated embedding socket over HTTP.
+- MCP clients cannot connect: read `mcp.port` and the active `mcp.key`, use `/mcp`, and send the
+  Bearer header. After changing `mcp.api_key` or `GRAPHIT_MCP_API_KEY`, restart the daemon; do not
+  look for the unrelated embedding socket over HTTP.
 - A module reaches ten failures: fix the recorded error and restart the daemon to construct a fresh
   supervisor.
 

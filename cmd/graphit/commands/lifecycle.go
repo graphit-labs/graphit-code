@@ -376,7 +376,7 @@ Examples:
 
 func runConfigSet(p *output.Printer, key, value string, global bool, isSecret bool) error {
 	displayValue := value
-	if isSecret {
+	if isSecret || config.IsSecretConfigKey(key) {
 		displayValue = "***"
 	}
 

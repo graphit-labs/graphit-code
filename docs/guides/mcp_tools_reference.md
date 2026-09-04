@@ -23,6 +23,12 @@ Graphit Code. A local installation reaches the catalog through the managed stdio
 publishes the same catalog through Streamable HTTP at `/mcp`, authenticated with a bearer key. AI
 agents use these tools to index code, query graphs, manage memories, search knowledge, and more.
 
+Remote clients send `Authorization: Bearer <key>`. The active key is available from
+**System → Daemon** and the daemon's mode-`0600` `mcp.key` file. By default it is random and rotates
+on every daemon start; set the secret `mcp.api_key` globally or `GRAPHIT_MCP_API_KEY` in the service
+environment to keep an exact operator-chosen value across restarts. Changing the setting requires a
+daemon restart. Configuration listing and lookup commands redact the value.
+
 The tools are organized by module. Every tool name follows the pattern `graphit_<module>_<action>` (e.g., `graphit_ast_query`).
 
 ---

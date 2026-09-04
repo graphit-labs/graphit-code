@@ -89,6 +89,36 @@ func TestMCPHostAndPortFromConfiguration(t *testing.T) {
 	}
 }
 
+func TestMCPAPIKeyResolution(t *testing.T) {
+	t.Run("unset", func(t *testing.T) {
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+		if got := ResolveMCPAPIKey(nil, nil); got != "" {
+			t.Fatalf("ResolveMCPAPIKey = %q, want an empty value for generated fallback", got)
+		}
+	})
+
+	t.Run("global config", func(t *testing.T) {
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+		if err := SetGlobalConfigValue(MCPAPIKeyConfigKey, "stable-global-key"); err != nil {
+			t.Fatalf("SetGlobalConfigValue: %v", err)
+		}
+		if got := ResolveMCPAPIKey(nil, nil); got != "stable-global-key" {
+			t.Fatalf("ResolveMCPAPIKey = %q, want configured value", got)
+		}
+	})
+
+	t.Run("environment outranks global", func(t *testing.T) {
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+		if err := SetGlobalConfigValue(MCPAPIKeyConfigKey, "global-key"); err != nil {
+			t.Fatalf("SetGlobalConfigValue: %v", err)
+		}
+		t.Setenv(ConfigEnvVar(MCPAPIKeyConfigKey), "environment-key")
+		if got := ResolveMCPAPIKey(nil, nil); got != "environment-key" {
+			t.Fatalf("ResolveMCPAPIKey = %q, want environment value", got)
+		}
+	})
+}
+
 // An unparseable or out-of-range port must not take the daemon down with it — in a container the
 // daemon is PID 1, so refusing to start over a typo would be an outage rather than a diagnostic.
 func TestMCPPortFallsBackRatherThanFailing(t *testing.T) {

@@ -33,7 +33,7 @@ docker run -d --name graphit \
 
 `docker logs graphit` shows the daemon's output. `docker inspect --format '{{.State.Health.Status}}' graphit` reports the healthcheck, which polls the UI's `/health`.
 
-> **The MCP endpoint requires its per-start bearer key; the UI has no authentication.** The UI can
+> **The MCP endpoint requires its active bearer key; the UI has no authentication.** The UI can
 > reveal that key on the daemon page, so access to the UI is effectively administrative access to
 > MCP as well. Publishing both to `127.0.0.1`, as above, is the safe default. See
 > [Exposing it to other people](#exposing-it-to-other-people).
@@ -42,8 +42,18 @@ docker run -d --name graphit \
 
 ### 1. Get the endpoint and the key
 
-The bearer key is regenerated on **every daemon start** and written to
+Without configuration, the daemon generates a new bearer key on **every start**. For a stable
+server credential, provide `GRAPHIT_MCP_API_KEY` through an env file or secret store. The configured
+value is used exactly until changed. Either way, the active key is written to
 `/opt/graphit/daemon/mcp.key` with mode `0600`.
+
+For example, create a local env file that is not committed:
+
+```bash
+umask 077
+printf 'GRAPHIT_MCP_API_KEY=%s\n' "$(openssl rand -hex 32)" > graphit.secrets.env
+docker run --env-file graphit.secrets.env … graphit-code
+```
 
 Open the UI and choose **System → Daemon** (`/system/daemon`). Its **MCP bearer key** button shows a
 masked preview and copies the full key; the same panel shows the endpoint and port. This is the
@@ -159,9 +169,9 @@ somewhere else on a later run registers it twice and orphans the first entry.
 
 ## Why the daemon is PID 1
 
-The daemon owns the MCP server: it generates the bearer key, binds the listener, and publishes the
-port and key files. It also runs the indexers, and here it serves the UI as one of its supervised
-global modules.
+The daemon owns the MCP server: it selects the configured or generated bearer key, binds the
+listener, and publishes the port and active-key files. It also runs the indexers, and here it serves
+the UI as one of its supervised global modules.
 
 Running the UI as PID 1 instead would leave the MCP endpoint — the thing agents connect to — with no
 owner, which is backwards for a server whose main job is being connected to.
@@ -266,6 +276,7 @@ separate list of supported variables.
 | `GRAPHIT_UI_HOST` | `ui.host` | `0.0.0.0` | A container answering only its own loopback is unreachable |
 | `GRAPHIT_MCP_HOST` | `mcp.host` | `0.0.0.0` | Same, for the MCP endpoint |
 | `GRAPHIT_MCP_PORT` | `mcp.port` | `8081` | A published port must be known in advance |
+| `GRAPHIT_MCP_API_KEY` | `mcp.api_key` | empty | Empty keeps per-start random rotation; set through runtime secrets for a stable key |
 | `GRAPHIT_GLOBAL_DIR` | — | `/opt/graphit` | Read from the environment only; not a config key |
 
 ### Hub / S3
@@ -292,11 +303,12 @@ channel that leaves no copy in an image layer or a file on disk.
 | `GRAPHIT_HUB_SECRET_ACCESS_KEY` | `hub.secret_access_key` |
 | `GRAPHIT_AI_EMBEDDING_API_KEY` | `ai.embedding.api_key` |
 | `GRAPHIT_AI_RERANK_API_KEY` | `ai.rerank.api_key` |
+| `GRAPHIT_MCP_API_KEY` | `mcp.api_key` |
 
 Pass them with `--env-file` or your orchestrator's secret store. **Never with `--build-arg`**: a build
 argument is recorded in the image and readable with `docker history`.
 
-`graphit config get` and `graphit config --list` redact all three.
+`graphit config get` and `graphit config --list` redact all four.
 
 ### Embedding provider, and image size
 
@@ -354,8 +366,10 @@ For anything beyond the local machine:
 
    Left empty, the secure default stands: same-origin requests and localhost loopback origins.
    Configured origins **replace** that allowlist rather than adding to it.
-4. **Rotate by restarting.** The bearer key is regenerated on every daemon start, so `docker restart`
-   invalidates every distributed key. That is also why a key copied before a restart stops working.
+4. **Choose and document a rotation mode.** With no `GRAPHIT_MCP_API_KEY`, `docker restart` generates
+   a new key and invalidates every distributed credential. With a configured key, restart preserves
+   it; rotate by changing the secret and then restarting. The old key stops working when the new
+   daemon is ready.
 
 ## docker compose
 
@@ -416,9 +430,10 @@ the server, so `project_dir` resolves to nothing. Name the artifact in `context`
 **`graphit hub list` shows nothing to install.** The Hub is in local-only mode. Set
 `GRAPHIT_HUB_BUCKET` and its credentials.
 
-**An MCP client gets 401.** The bearer key is regenerated on every daemon start, so a key copied
-before a restart is stale. Copy it again from the UI's daemon page or from
-`/opt/graphit/daemon/mcp.key`.
+**An MCP client gets 401.** Compare the client's credential with the active key shown on the UI's
+daemon page or in `/opt/graphit/daemon/mcp.key`. An unconfigured key becomes stale after every
+restart. A configured `GRAPHIT_MCP_API_KEY` changes only when the deployment secret changes, but the
+new value is not active until the daemon restarts.
 
 **An MCP client cannot connect at all.** Check that 8081 is published and that
 `GRAPHIT_MCP_HOST=0.0.0.0` is still set — with the compiled default of `127.0.0.1` the listener is
@@ -446,5 +461,5 @@ embedding provider.
 - [MCP tools reference](mcp_tools_reference.md) — the tool contracts an agent gets, and which take a `context`
 - [S3 and UI network security](s3-and-ui-network.md) — the bind address and origin policy in full
 - [CLI reference](cli_reference.md) — `graphit setup`, `graphit daemon`, `graphit hub`
-- [Configuration](../specs/config_module.md) — `modules.agent`, `modules.daemon_ui`, `mcp.host`, `mcp.port`
+- [Configuration](../specs/config_module.md) — `modules.agent`, `modules.daemon_ui`, `mcp.host`, `mcp.port`, `mcp.api_key`
 - [Getting started](getting_started.md) — a local install, for the machine the agent runs on

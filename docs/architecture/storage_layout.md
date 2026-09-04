@@ -91,7 +91,7 @@ Things worth knowing before you set it:
 │   ├── daemon.pid                      process metadata plus the single-daemon file lock
 │   ├── daemon.log                      daemon output
 │   ├── mcp.port                        actual streamable HTTP MCP port
-│   ├── mcp.key                         per-start bearer key (mode `0600`)
+│   ├── mcp.key                         active generated or configured bearer key (mode `0600`)
 │   ├── embed.sock                      local embedding socket where supported
 │   └── launcher.stamp                  launcher/runtime replacement marker
 ├── logs/graphit.log                    process-wide structured log

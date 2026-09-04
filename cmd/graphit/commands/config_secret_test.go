@@ -35,8 +35,12 @@ func TestConfigOutputRedactsEverySecretKey(t *testing.T) {
 			defer cleanup()
 
 			const value = "never-print-this"
-			if _, err := executeCommand("config", "--global", key, value); err != nil {
+			setOutput, err := executeCommand("config", "--global", key, value)
+			if err != nil {
 				t.Fatalf("set %s: %v", key, err)
+			}
+			if strings.Contains(setOutput, value) {
+				t.Fatalf("%s leaked into set output: %q", key, setOutput)
 			}
 
 			listed, err := executeCommand("config", "--list", "--global")
