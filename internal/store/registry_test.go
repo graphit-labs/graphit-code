@@ -12,12 +12,13 @@ import (
 
 func TestRegistryRoundTrip(t *testing.T) {
 	projectDir := t.TempDir()
+	sourcePath := filepath.Join(filepath.Dir(projectDir), "src", "other")
 
 	if got := ListContexts(projectDir, KindAST); len(got) != 0 {
 		t.Fatalf("a project with no registry reported %d contexts", len(got))
 	}
 
-	if err := AddContext(projectDir, KindAST, ContextRecord{Name: "Other Repo", SourcePath: "/src/other"}); err != nil {
+	if err := AddContext(projectDir, KindAST, ContextRecord{Name: "Other Repo", SourcePath: sourcePath}); err != nil {
 		t.Fatalf("AddContext: %v", err)
 	}
 	if err := AddContext(projectDir, KindKnowledge, ContextRecord{Name: "some-docs"}); err != nil {
@@ -29,7 +30,7 @@ func TestRegistryRoundTrip(t *testing.T) {
 		if !ok {
 			t.Fatalf("LookupContext(%q) missed", name)
 		}
-		if rec.SourcePath != "/src/other" {
+		if rec.SourcePath != sourcePath {
 			t.Errorf("LookupContext(%q).SourcePath = %q", name, rec.SourcePath)
 		}
 	}

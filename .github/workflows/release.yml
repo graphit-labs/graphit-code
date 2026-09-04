@@ -34,7 +34,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config protobuf-compiler
 
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
@@ -42,16 +42,22 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LanceDB native build
+      - name: Cache LanceDB build intermediates
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             /tmp/lancedb-native-cache
-          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
+          key: lancedb-build-v2-linux-amd64-${{ hashFiles('Makefile') }}
           restore-keys: |
-            lancedb-linux-amd64-
+            lancedb-build-v2-linux-amd64-
+
+      - name: Cache LanceDB native library
+        uses: actions/cache@v4
+        with:
+          path: .native
+          key: lancedb-native-v2-linux-amd64-${{ hashFiles('Makefile') }}
 
       - name: Cache ONNX Runtime and embedding model
         uses: actions/cache@v4
@@ -92,6 +98,14 @@ jobs:
       - name: UI Lint
         run: make ui-lint
 
+      - name: Upload LanceDB native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-lancedb-native-linux-amd64
+          path: .native
+          include-hidden-files: true
+          retention-days: 1
+
   build-linux:
     name: Build (linux-amd64)
     needs: [ci]
@@ -100,6 +114,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download LanceDB native library
+        uses: actions/download-artifact@v4
+        with:
+          name: release-lancedb-native-linux-amd64
+          path: .native
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -136,20 +156,6 @@ jobs:
         with:
           path: /tmp/lbug-cache
           key: liblbug-linux-amd64-v0.17.0
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache LanceDB native build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            /tmp/lancedb-native-cache
-          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
-          restore-keys: |
-            lancedb-linux-amd64-
 
       - name: Build (Linux)
         run: |
@@ -198,7 +204,7 @@ jobs:
 
       - name: Install system dependencies (Homebrew)
         run: |
-          brew install icu4c pkg-config
+          brew install icu4c pkg-config protobuf
 
       - name: Cache ONNX Runtime (macOS)
         uses: actions/cache@v4
@@ -217,16 +223,22 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LanceDB native build
+      - name: Cache LanceDB build intermediates
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             /tmp/lancedb-native-cache
-          key: lancedb-darwin-arm64-${{ hashFiles('Makefile') }}
+          key: lancedb-build-v2-darwin-arm64-${{ hashFiles('Makefile') }}
           restore-keys: |
-            lancedb-darwin-arm64-
+            lancedb-build-v2-darwin-arm64-
+
+      - name: Cache LanceDB native library
+        uses: actions/cache@v4
+        with:
+          path: .native
+          key: lancedb-native-v2-darwin-arm64-${{ hashFiles('Makefile') }}
 
       - name: Build (macOS)
         run: |
@@ -271,6 +283,7 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-icu
+            mingw-w64-x86_64-protobuf
             mingw-w64-x86_64-sqlite3
             make
             unzip
@@ -306,16 +319,22 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LanceDB native build
+      - name: Cache LanceDB build intermediates
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             C:/cache/lancedb
-          key: lancedb-windows-amd64-${{ hashFiles('Makefile') }}
+          key: lancedb-build-v2-windows-amd64-${{ hashFiles('Makefile') }}
           restore-keys: |
-            lancedb-windows-amd64-
+            lancedb-build-v2-windows-amd64-
+
+      - name: Cache LanceDB native library
+        uses: actions/cache@v4
+        with:
+          path: .native
+          key: lancedb-native-v2-windows-amd64-${{ hashFiles('Makefile') }}
 
       - name: Build (Windows native)
         run: |
@@ -370,7 +389,7 @@ jobs:
       - name: Generate combined checksums file
         run: |
           cd release-assets
-          cat *.sha256 > checksums.sha256
+          cat ./*.sha256 > checksums.sha256
           echo "=== checksums.sha256 ==="
           cat checksums.sha256
 
@@ -384,9 +403,11 @@ jobs:
           else
             CHANGES=$(git log --pretty=format:"- %s (%h)" 2>/dev/null | head -20 || echo "")
           fi
-          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "changes<<EOF"
+            echo "$CHANGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
