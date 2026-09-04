@@ -181,6 +181,10 @@ filesystem store. Compatibility is semantic (artifact format plus embedding prov
 dimensions); the Graphit producer version is retained only for audit. Project writes remain local
 until the next explicit publication.
 
+Outside Git, sync remains local and does not attempt branch hydration. A non-Git publisher may use a
+new `branch/...` name as a mutable exact snapshot, but it has no commit manifest or ancestor reuse.
+It cannot replace a channel that already contains Git-backed Lance history.
+
 A `tag/...` publication is a compact release snapshot. The publisher operates on its temporary
 staging copy, compacts every LanceDB table, prunes every superseded MVCC version, and verifies that
 one current table version remains before upload. The source database is unchanged. Exact S3

@@ -1,8 +1,11 @@
 ---
 title: Storage Layout
 type: architecture
-updated: 2026-08-14
+updated: 2026-09-04
 tags: [architecture, storage, ast, knowledge, memory, hub]
+related:
+  - "docs/guides/github-actions-artifacts.md"
+  - "docs/specs/hub-s3-object-layout.md"
 ---
 
 # Storage Layout
@@ -148,6 +151,30 @@ and log Markdown are rendered from the tables on demand. A remote knowledge arti
 Lance directory under a versioned object prefix and is opened there rather than copied here. See
 [Wiki Module](../specs/wiki_module.md#the-store-indexlance).
 
+### Git-aware local Lance overlays
+
+A project's configured LanceDB URI remains a filesystem path. When `graphit sync` finds an empty
+local store, a configured S3 Hub, and a compatible snapshot for the current Git branch, it can
+shallow-clone the exact commit or nearest published ancestor into that path. The local manifest
+references inherited fragments in the branch's S3 dataset, while new parsing and embedding writes
+create fragments only in the local filesystem. This is native Lance shallow-clone behavior rather
+than an application-level union of two databases.
+
+Without Git, sync uses the same local stores and simply skips branch hydration. Configuring S3 after
+those stores have been populated also leaves them untouched: initialized local tables take
+precedence, and the first publication seeds an empty remote channel from the local snapshot. There
+is no automatic two-way merge when local and remote were both changed independently. A non-Git
+`branch/...` publication is therefore a mutable exact snapshot without commit ancestry; it cannot
+replace an existing Git-backed branch lineage.
+
+LadybugDB/Icebug does not use this overlay. Its graph is derived from source and rebuilt locally.
+Only `graphit hub submit` publishes the completed local state back to the branch lineage. Native
+commit tags keep source versions reachable, so pruning a live branch dataset or applying an S3
+lifecycle rule to its manifests and data can orphan local clones. A `tag/...` publication instead
+materializes inherited data in temporary staging, compacts every table, and uploads a self-contained
+snapshot with one current version. See
+[Publishing Graphit artifacts from GitHub Actions](../guides/github-actions-artifacts.md).
+
 ### Two engines, and which one owns what
 
 **LadybugDB holds the graph. LanceDB holds everything that answers a text query.** The split
@@ -213,13 +240,14 @@ for why there are two rpaths.
 
 The link library itself resolves like every other native this tree consumes — through what a
 machine-global location already holds, not through per-checkout state. `make lancedb-native` walks
-a cascade: an existing `.native/liblancedb_go.so` wins; otherwise it symlinks (copies on Windows)
-the library the launcher already extracted into `~/.<brand>/runtime/dev/`, the same machine-global
-location `embedding_local.go` reads `libonnxruntime` from; only when neither exists does it build
-from source with cargo. The extracted runtime copy does not record which pinned `LANCEDB_SHA`
-produced it — builds by cargo stamp the SHA beside the project copy (`lancedb_go_build.sha`) so
-provenance can be checked later, and `make fetch-lancedb` remains the explicit rebuild when the
-pin moves.
+a provenance-checked cascade. An existing project copy or a library extracted under any
+`~/.<brand>/runtime/<version>/` directory is reused only when its adjacent
+`lancedb_go_build.sha` matches both the pinned `lancedb-go` commit and the hash of
+`patches/lancedb-go-main.patch`; otherwise the native is rebuilt from the pinned source with cargo.
+Launchers bundle that stamp beside the library so a compatible release runtime remains reusable by
+a source checkout. The repository does not vendor or fork `lancedb-go`. Its patch contains only the
+binding and upstream-compatibility changes required by Graphit, while Git and Hub coordination
+remain in Graphit's own packages.
 
 ### What identifies a store
 

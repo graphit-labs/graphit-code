@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -451,13 +453,25 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 
 	publishPath := localPath
 	latestOnly := publicationKeepsLatestOnly(version)
-	branchLance := IsMountable(meta.Type) && strings.HasPrefix(version, "branch/")
+	branchLanceRequested := IsMountable(meta.Type) && strings.HasPrefix(version, "branch/")
+	branchLance := branchLanceRequested
 	var snapshot gitstate.Snapshot
 	if branchLance {
 		var err error
 		snapshot, err = gitstate.InspectSnapshot(localPath)
-		if err != nil {
+		if errors.Is(err, gitstate.ErrNotRepository) {
+			branchLance = false
+		} else if err != nil {
 			return fmt.Errorf("resolve publishing Git snapshot: %w", err)
+		}
+	}
+	if branchLanceRequested && !branchLance {
+		_, err := m.store.readBranchHistory(ctx, meta.Type, entryID, version, meta.ProjectID)
+		if err == nil {
+			return fmt.Errorf("cannot publish non-Git snapshot over Git-backed Lance branch %q; use a different branch name or publish from its Git repository", version)
+		}
+		if !errors.Is(err, s3store.ErrNotFound) {
+			return fmt.Errorf("checking existing Lance branch history: %w", err)
 		}
 	}
 

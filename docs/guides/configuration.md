@@ -19,6 +19,7 @@ related:
   - "docs/specs/ai_engine.md"
   - "docs/guides/ai_models.md"
   - "docs/guides/daemon_operations.md"
+  - "docs/guides/github-actions-artifacts.md"
 ---
 
 # Configuration Reference
@@ -181,6 +182,15 @@ Hub artifact types are `knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, 
 and `language`. Installed artifacts are version-pinned in `graphit.lock.json`; large AST and
 knowledge stores remain mounted at their global or S3 location instead of being copied into each
 checkout.
+
+The unattended artifact-publisher profile supplies these keys directly as
+`GRAPHIT_HUB_BUCKET`, `GRAPHIT_HUB_REGION`, `GRAPHIT_HUB_ENDPOINT`, `GRAPHIT_HUB_PREFIX`,
+`GRAPHIT_HUB_ACCESS_KEY_ID`, and `GRAPHIT_HUB_SECRET_ACCESS_KEY`. Its embedding identity and
+credential are `GRAPHIT_AI_EMBEDDING_PROVIDER`, `GRAPHIT_AI_EMBEDDING_MODEL`, optional
+`GRAPHIT_AI_EMBEDDING_BASE_URL` and `GRAPHIT_AI_EMBEDDING_DIMENSIONS`, and
+`GRAPHIT_AI_EMBEDDING_API_KEY`. That profile requires a non-local embedding provider. See
+[Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the complete
+validation and noninteractive setup sequence.
 
 ## Network listeners
 

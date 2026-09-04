@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -53,8 +54,8 @@ func TestInspectSnapshotRejectsNonRepository(t *testing.T) {
 		outputs: map[string]string{},
 		errors:  map[string]error{"[rev-parse --show-toplevel]": fmt.Errorf("outside work tree")},
 	}
-	if _, err := inspectSnapshot(g, "/tmp/project"); err == nil {
-		t.Fatal("expected an error")
+	if _, err := inspectSnapshot(g, "/tmp/project"); !errors.Is(err, ErrNotRepository) {
+		t.Fatalf("error = %v, want ErrNotRepository", err)
 	}
 }
 

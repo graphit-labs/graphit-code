@@ -33,6 +33,11 @@ Both commands above write `graphit.lock.json`; add `--global` to write
 | `hub.access_key_id` | `GRAPHIT_HUB_ACCESS_KEY_ID` | Optional explicit access key |
 | `hub.secret_access_key` | `GRAPHIT_HUB_SECRET_ACCESS_KEY` | Optional explicit secret key |
 
+For an ephemeral publisher, keep these values in GitHub environment variables and secrets rather
+than writing them to global configuration. The complete branch/tag workflow, including remote
+embedding credentials and noninteractive setup, is documented in
+[Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md).
+
 `graphit setup` asks for the access key and secret only when a bucket was
 provided. The secret prompt does not echo input. A complete pair is saved in the
 global configuration and is used by all S3-backed consumers, including the Hub,
@@ -79,6 +84,13 @@ blank, or unset both keys:
 graphit config --global --unset hub.access_key_id
 graphit config --global --unset hub.secret_access_key
 ```
+
+Adding S3 settings to an existing project does not relocate its databases. Populated LanceDB stores
+remain on the filesystem and continue incrementally; the first Hub publication seeds an empty remote
+channel from that local state. Git-aware shallow hydration is used only for an empty local store. If
+local and remote state already exist independently, select which side is authoritative instead of
+expecting an automatic merge. See
+[Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md#update-and-cleanup-semantics).
 
 ## UI bind address and browser origins
 

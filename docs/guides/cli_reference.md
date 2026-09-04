@@ -13,6 +13,7 @@ prerequisites:
   - "docs/guides/getting_started.md"
 related:
   - "docs/guides/user_manual.md"
+  - "docs/guides/github-actions-artifacts.md"
 ---
 
 # Command Line Interface Reference
@@ -130,6 +131,12 @@ graphit sync [flags]
 **Flags:**
 - `--no-background`: Prevents spawning background tasks asynchronously. Both phases (sync and heavy indexing/processing) execute synchronously inside the terminal process.
 - `--heavy`: Runs only Phase 2 tasks (generating embeddings and memory consolidation).
+
+Before indexing, sync inspects Git when the current project is a repository. If S3 is configured and
+the local LanceDB stores are empty, it selects the exact compatible commit or nearest published
+ancestor from the current `branch/...` lineage and creates filesystem-local shallow clones. Remote
+fragments remain in S3 and subsequent writes remain local. A detached checkout can select its source
+lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than cloned.
 
 ### `update`
 Checks for updates to registered artifacts (rules, skills, prompts) in the decentralized Hub registry and pulls down fresh copies.
@@ -276,8 +283,14 @@ a project-scoped installation.
   or knowledge requires an initialized checkout; the command reads `project.id` from
   `graphit.lock.json` so the remote LanceDB prefix is scoped to that project. Republishing the same
   numeric or named version is supported and replaces its content with last-writer-wins semantics. A
-  version beginning with `tag/` is a compact release snapshot: each staged LanceDB table retains
-  only its current version, and publication fails if superseded MVCC history cannot be removed.
+  version beginning with `branch/` matches the resolved Git branch and requires a clean worktree
+  when the project is in Git; each such publication records the commit and exact table versions in
+  the branch history. Outside Git, a new `branch/...` channel is an exact mutable snapshot without
+  commit history and cannot replace an existing Git-backed lineage. A version
+  beginning with `tag/` is a compact release snapshot: each staged LanceDB table retains only its
+  current version, and publication fails if superseded MVCC history cannot be removed. See
+  [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the unattended
+  branch/tag workflow and retention constraints.
 - `link <name> --path <project> --type <type>`: Record or materialize a local development link in
   the current initialized project. AST/Knowledge point to the sibling's compiled global store;
   adapter-native artifacts use the adapter's own destination.

@@ -1,10 +1,13 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 )
+
+var ErrNotRepository = errors.New("not a Git repository")
 
 // Snapshot identifies the checked-out Git state that owns a generated artifact.
 type Snapshot struct {
@@ -28,7 +31,7 @@ func InspectSnapshot(repoDir string) (Snapshot, error) {
 func inspectSnapshot(backend Git, repoDir string) (Snapshot, error) {
 	root, err := backend.RunOutput(repoDir, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("not a Git repository: %w", err)
+		return Snapshot{}, fmt.Errorf("%w: %w", ErrNotRepository, err)
 	}
 	commit, err := backend.RunOutput(repoDir, "rev-parse", "HEAD")
 	if err != nil {

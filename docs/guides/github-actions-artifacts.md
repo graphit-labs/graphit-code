@@ -13,21 +13,35 @@ keywords:
 related:
   - "docs/guides/container.md"
   - "docs/guides/configuration.md"
+  - "docs/guides/cli_reference.md"
+  - "docs/guides/user_manual.md"
+  - "docs/architecture/storage_layout.md"
   - "docs/specs/hub_collaboration.md"
   - "docs/specs/hub-s3-object-layout.md"
 ---
 
 # GitHub Actions Artifacts
 
-This workflow rebuilds a repository's AST and documentation indexes after every branch or tag push,
-waits for heavy processing and embeddings, and publishes both compiled contexts to a production
-S3-backed Hub. It installs the latest Graphit release on every run and needs no terminal input.
-S3 and a remote embedding provider are mandatory for this workflow; local embeddings are rejected
-before setup starts.
+This workflow rebuilds a repository's AST and documentation indexes after pushes to `main` or
+`master`, and after every tag push. It waits for heavy processing and embeddings, then publishes both
+compiled contexts to a production S3-backed Hub. It installs the latest Graphit release on every run
+and needs no terminal input. S3 and a remote embedding provider are mandatory for this workflow;
+local embeddings are rejected before setup starts.
 
 The repository must already contain a committed `graphit.lock.json` with a non-empty `project.id`.
 That identity scopes the published S3 prefixes. CI must not run `graphit init`, because generating a
 new identity on an ephemeral runner would create a different publishing project on every run.
+
+The two published channel types have different storage contracts:
+
+| Push | Published version | LanceDB behavior |
+|---|---|---|
+| Branch `main` | `branch/main` | Advances a mutable branch lineage and records the clean Git commit with exact table versions and native tags. |
+| Branch `feature/api` | `branch/feature/api` | Preserves the complete slash-separated branch name in an isolated mutable lineage. |
+| Tag `v2.0.0` | `tag/v2.0.0` | Publishes a self-contained snapshot whose tables contain only the current data version. |
+
+The AST graph is not layered: LadybugDB/Icebug is derived from source and rebuilt on the runner.
+Only the LanceDB search and knowledge tables use a remote base with a local overlay.
 
 ## Production environment
 
@@ -54,6 +68,7 @@ Add these environment variables:
 | `GRAPHIT_HUB_PREFIX` | no | `graphit` |
 | `GRAPHIT_AST_ARTIFACT_BASENAME` | yes | `payments-ast` |
 | `GRAPHIT_KNOWLEDGE_ARTIFACT_BASENAME` | yes | `payments-docs` |
+| `GRAPHIT_TAG_BASE_BRANCH` | no | Branch lineage used by detached tag builds; defaults to the repository default branch |
 | `GRAPHIT_AI_EMBEDDING_PROVIDER` | yes | `openai`, `openai-compatible`, `cohere`, `voyage`, or `google`; never `local` |
 | `GRAPHIT_AI_EMBEDDING_MODEL` | yes | `text-embedding-3-large` |
 | `GRAPHIT_AI_EMBEDDING_BASE_URL` | `openai-compatible` only | `https://llm.example.com/v1` |
@@ -77,7 +92,8 @@ name: Publish Graphit contexts
 on:
   push:
     branches:
-      - "**"
+      - main
+      - master
     tags:
       - "**"
 
@@ -114,7 +130,7 @@ jobs:
       GRAPHIT_AI_RERANK_API_KEY: ${{ secrets.GRAPHIT_AI_RERANK_API_KEY }}
       GRAPHIT_AST_ARTIFACT_BASENAME: ${{ vars.GRAPHIT_AST_ARTIFACT_BASENAME }}
       GRAPHIT_KNOWLEDGE_ARTIFACT_BASENAME: ${{ vars.GRAPHIT_KNOWLEDGE_ARTIFACT_BASENAME }}
-      GRAPHIT_GIT_BASE_BRANCH: ${{ github.ref_type == 'branch' && github.ref_name || github.event.repository.default_branch }}
+      GRAPHIT_GIT_BASE_BRANCH: ${{ github.ref_type == 'branch' && github.ref_name || vars.GRAPHIT_TAG_BASE_BRANCH || github.event.repository.default_branch }}
       GRAPHIT_IDE: codex
       GRAPHIT_CLI: codex
       GRAPHIT_MODULES_AGENT: "false"
@@ -234,6 +250,15 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 ```
 
+The default branch filter intentionally publishes only `main` and `master`. Add an exact branch or
+pattern under `push.branches` when another branch channel, such as `feature/api`, should publish
+automatically. Tag pushes remain enabled independently.
+
+The empty credential flags are deliberate. Supplying every reachable setup flag prevents prompts;
+empty secret flags prevent credentials from being persisted in the ephemeral global configuration.
+The same process still resolves `GRAPHIT_HUB_ACCESS_KEY_ID`, `GRAPHIT_HUB_SECRET_ACCESS_KEY`, and
+the provider API keys directly from its environment during verification, sync, and publication.
+
 `graphit sync --no-background` runs both the normal phase and the heavy phase synchronously. The two
 explicit embedding commands are intentional completion barriers: they are incremental after sync,
 but make the job fail if either AST or project-wiki embeddings are unavailable or incomplete. A
@@ -243,6 +268,13 @@ Hub contains a compatible snapshot for the exact commit or its nearest published
 shallow-clones each Lance table into that fresh filesystem directory. Inherited fragments remain on
 S3, while parsing changes and new embeddings are written locally. Ladybug/Icebug is rebuilt normally
 because its graph is derived from source.
+
+Git is an optimization and provenance boundary, not a requirement for ordinary sync. Outside a Git
+repository, Graphit skips branch discovery and remote shallow-clone hydration, then builds and
+updates the same filesystem-local LanceDB and LadybugDB stores normally. A non-Git project may also
+publish a new `branch/...` name as a mutable exact snapshot, but that channel has no commit history
+or ancestor reuse. It cannot overwrite a branch that already has Git-backed Lance history; publish
+from the repository that owns that history or choose a different branch name.
 
 The Hub accepts named versions, including Git branch paths with `/`. Prefixing the name with
 `branch/` or `tag/` distinguishes a branch and tag with the same display name. The logical version
@@ -257,6 +289,8 @@ does not mutate the runner's working database and does not require another workf
 `GRAPHIT_GIT_BASE_BRANCH` gives a detached tag checkout a branch lineage to reuse. Full checkout
 history is required so Graphit can walk from the tagged commit to the nearest published ancestor.
 For branch pushes the variable resolves to the branch name itself, including names containing `/`.
+For tags it uses `GRAPHIT_TAG_BASE_BRANCH` when configured and otherwise uses the repository default
+branch. Set that variable when release tags normally originate from another branch.
 
 The validation step intentionally requires S3 credentials and a remote embedding provider, model,
 and API key. Do not change the provider to `local` in this publishing job: a hosted runner must build
@@ -267,16 +301,30 @@ of runner-local model state.
 
 A Hub artifact is mutable registry state. For `branch/...`, every clean Git commit is recorded in a
 small manifest and protected by a native Lance tag on every table. Publication advances the branch
-by applying one exact table snapshot; unchanged rows and fragments remain reusable. The Graphit
-release version is audit metadata only. Cache compatibility depends on the artifact format plus the
-embedding provider, model, and dimensions, so a CI job that always installs `latest` does not
-invalidate compatible embeddings.
+by applying one exact table snapshot. The Graphit release version is audit metadata only. Cache
+compatibility depends on the artifact format plus the embedding provider, model, and dimensions, so
+a CI job that always installs `latest` does not invalidate compatible embeddings. The local shallow
+clone reuses inherited embeddings without recomputing them; remote branch publication may create new
+Lance fragments while preserving the tagged versions needed by commit history.
 
 The local project still points only at its filesystem LanceDB. Sync reads inherited fragments from
 S3 through the shallow clone, but it never turns the project store into an S3 store and never writes
 the Hub during parsing. Only `hub submit` updates the authoritative remote branch. Publishing is
 rejected for a dirty worktree or for a branch name that differs from `--version branch/...`, because
 otherwise the remote snapshot could not be attributed to one Git commit.
+
+Enabling S3 after local indexing does not replace or merge an initialized local store. The local
+tables remain authoritative and sync continues incrementally from them. The first `hub submit` to an
+empty branch prefix seeds S3 from that completed local snapshot. If both sides were populated
+independently, Graphit does not attempt a row-level two-way merge: publishing advances the remote
+branch to the local snapshot, while starting with an empty local store allows compatible remote
+history to become the shallow-clone base. Choose one authority before publishing.
+
+Changing only the S3 configuration does not invalidate embeddings. Changing the embedding provider,
+model, or dimensions is a separate semantic migration. A fresh CI workspace is safe: the
+compatibility fingerprint rejects old remote vectors and the job computes new ones. Do not reuse and
+publish an already-populated local store under a different embedding identity. Build it in a fresh
+`GRAPHIT_GLOBAL_DIR` first so every vector is regenerated before the new snapshot is published.
 
 Consumers must run `graphit hub update` and close/reopen a mounted context after publication;
 advancing a known branch prefix is not an atomic cutover for a reader that already has it open. When
@@ -295,6 +343,15 @@ time-travel history. Republishing the same tag mirrors that compact snapshot ove
 so stale manifests and data files from its previous publication are deleted. Other branch and tag
 prefixes are independent and are not touched; remove an obsolete tag artifact separately only when
 your retention policy no longer needs it.
+
+## Native build boundary
+
+The workflow installs the latest released Graphit binary and does not clone LanceDB source. Graphit's
+source build remains pinned to one exact `lancedb-go` main commit. The repository carries only
+`patches/lancedb-go-main.patch`, which adds the missing shallow-clone bridge and compatibility
+changes; Git ancestry, fingerprints, Hub manifests, publication, and hydration stay in Graphit's
+own packages. The native build stamp includes both the upstream commit and patch hash, so an older
+cached or machine-global library is not reused for this feature.
 
 Install the branch or tag by its direct named version, then run `graphit hub update` after a new push
 to refresh the same channel:

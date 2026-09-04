@@ -4,6 +4,8 @@ package hub
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -13,6 +15,60 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/testsupport"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
+
+func TestPublishEntryAllowsNewNonGitBranchSnapshotButProtectsGitHistory(t *testing.T) {
+	ctx := context.Background()
+	_, endpoint := testsupport.StartFakeS3(t, "graphit-hub")
+	cfg := config.S3Config{
+		Bucket:          "graphit-hub",
+		Region:          "us-east-1",
+		Endpoint:        endpoint,
+		AccessKeyID:     "test-key",
+		SecretAccessKey: "test-secret",
+	}
+	objects, err := s3store.New(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := &S3Store{objects: objects, cfg: cfg, cacheBase: t.TempDir()}
+	manager := &RegistryManager{
+		store:    remote,
+		baseCtx:  ctx,
+		entries:  make(map[ArtifactType]map[string]*Entry),
+		projects: make(map[string]*Project),
+	}
+	meta := &Entry{Type: TypeKnowledge, ProjectID: "project"}
+	branchVersion := "branch/manual"
+
+	root := t.TempDir()
+	local, err := wiki.OpenWikiDB(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := local.Sync(ctx, []wiki.WikiChunk{{
+		Slug: "state", Title: "Local state", Body: "Local state", ContentHash: "one", WordCount: 2,
+	}}, nil, &wiki.SyncLogEntry{Timestamp: "2026-09-04T00:00:00Z", TotalDocs: 1, ArticlesWritten: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.PublishEntry(ctx, "knowledge", root, meta, branchVersion); err != nil {
+		t.Fatalf("publish non-Git branch snapshot: %v", err)
+	}
+	if _, err := remote.readBranchHistory(ctx, TypeKnowledge, "knowledge", branchVersion, "project"); !errors.Is(err, s3store.ErrNotFound) {
+		t.Fatalf("non-Git publication history error = %v, want not found", err)
+	}
+
+	history := lanceBranchHistory{Version: branchHistoryVersion, ProjectID: "project", ArtifactType: TypeKnowledge, Branch: "manual"}
+	if err := remote.writeBranchHistory(ctx, TypeKnowledge, "knowledge", branchVersion, "project", history); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.PublishEntry(ctx, "knowledge", root, meta, branchVersion); err == nil || !strings.Contains(err.Error(), "cannot publish non-Git snapshot over Git-backed Lance branch") {
+		t.Fatalf("protected branch error = %v", err)
+	}
+}
 
 func TestPublishBranchLanceRecordsCommitTagsInOneBranchLineage(t *testing.T) {
 	ctx := context.Background()

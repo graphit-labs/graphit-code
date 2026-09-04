@@ -1,11 +1,30 @@
 package hub
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
+
+func TestHydrateProjectLanceSkipsNonGitProject(t *testing.T) {
+	if err := HydrateProjectLance(context.Background(), t.TempDir(), nil); err != nil {
+		t.Fatalf("hydrate non-Git project: %v", err)
+	}
+}
+
+func TestInitializedLanceStoreProtectsExistingLocalTables(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "search.lance")
+	if err := os.MkdirAll(filepath.Join(storePath, "entities.lance"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !initializedLanceStore(storePath) {
+		t.Fatal("existing local Lance table was not recognized")
+	}
+}
 
 func TestSelectLanceBaseUsesNearestCompatibleAncestor(t *testing.T) {
 	history := lanceBranchHistory{Commits: []lanceCommit{

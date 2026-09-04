@@ -100,6 +100,11 @@ Lance tags and versions for each table. Republishing mirrors non-Lance files but
 datasets or their history manifest. A fresh sync shallow-clones a protected table tag, so removing a
 referenced branch manifest or data fragment can orphan that local clone.
 
+A `branch/...` name first published outside Git uses ordinary exact mirroring and has no
+`graphit-history.json`. This supports mutable named channels for non-Git projects without pretending
+that commit ancestry exists. Such a publication is rejected if that prefix already contains a
+Git-backed history manifest.
+
 **The registry entry is the commit for a new version.** The prefix is uploaded first, and only then
 does the entry file under `registry/` name it. A publication interrupted midway leaves an orphan
 prefix that no entry points at — wasted bytes, never a half-visible version. Replacing an already

@@ -6,6 +6,7 @@
 MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
 BIN_DIR  := .build
+GO_TMP_DIR ?= $(CURDIR)/$(BIN_DIR)/go-tmp
 
 UI_DIR         := internal/ui
 UI_NPM_CONFIG  := $(UI_DIR)/.npmrc
@@ -96,7 +97,8 @@ LANCEDB_REPO  := https://github.com/lancedb/lancedb-go.git
 LANCEDB_PATCH := $(CURDIR)/patches/lancedb-go-main.patch
 LANCEDB_BUILD_ID := $(LANCEDB_SHA) $(shell git hash-object "$(LANCEDB_PATCH)" 2>/dev/null)
 LANCEDB_CACHE ?= /tmp/lancedb-native-cache
-LANCEDB_RUNTIME_SOURCE ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),$($(BRAND_ENV)_GLOBAL_DIR),$(HOME)/.$(BRAND))/runtime/dev
+LANCEDB_RUNTIME_ROOT ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),$($(BRAND_ENV)_GLOBAL_DIR),$(HOME)/.$(BRAND))/runtime
+LANCEDB_RUNTIME_SOURCE ?= $(LANCEDB_RUNTIME_ROOT)/dev
 
 LANCEDB_RUST     := 1.98.0
 LANCEDB_ETHNUM   := 1.5.3
@@ -446,9 +448,11 @@ fetch-lancedb:
 lancedb-native:
 	@current="$$(cat "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha" 2>/dev/null || true)"; \
 	if [ -s "$(LANCEDB_LIB)" ] && [ "$$current" = '$(LANCEDB_BUILD_ID)' ]; then exit 0; fi; \
-	runtime_lib="$(LANCEDB_RUNTIME_SOURCE)/$(LANCEDB_LIB_NAME)"; \
-	runtime_build_id="$$(cat "$(LANCEDB_RUNTIME_SOURCE)/lancedb_go_build.sha" 2>/dev/null || true)"; \
-	if [ -s "$$runtime_lib" ] && [ "$$runtime_build_id" = '$(LANCEDB_BUILD_ID)' ]; then \
+	for runtime_dir in "$(LANCEDB_RUNTIME_SOURCE)" "$(LANCEDB_RUNTIME_ROOT)"/*; do \
+		[ -d "$$runtime_dir" ] || continue; \
+		runtime_lib="$$runtime_dir/$(LANCEDB_LIB_NAME)"; \
+		runtime_build_id="$$(cat "$$runtime_dir/lancedb_go_build.sha" 2>/dev/null || true)"; \
+		[ -s "$$runtime_lib" ] && [ "$$runtime_build_id" = '$(LANCEDB_BUILD_ID)' ] || continue; \
 		mkdir -p "$(LANCEDB_LIB_DIR)"; \
 		case "$(LANCEDB_GOOS)" in \
 			windows) cp -L "$$runtime_lib" "$(LANCEDB_LIB)" ;; \
@@ -457,7 +461,7 @@ lancedb-native:
 		printf '%s\n' '$(LANCEDB_BUILD_ID)' > "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha"; \
 		echo "  ✓ LanceDB native linked to $$runtime_lib (no cargo needed)"; \
 		exit 0; \
-	fi; \
+	done; \
 	echo "  → Compatible LanceDB native missing; building from the pinned source and patch…"; \
 	$(MAKE) --no-print-directory fetch-lancedb
 
@@ -495,8 +499,8 @@ fetch-ort-windows:
 build: build-linux
 
 build-local: setup-lbug lancedb-native
-	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=1 go build -tags "$(LOCAL_TAGS)" -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-local $(CMD)
+	@mkdir -p $(BIN_DIR) $(GO_TMP_DIR)
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=1 go build -tags "$(LOCAL_TAGS)" -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-local $(CMD)
 	@echo "  ✓ $(BIN_DIR)/$(BRAND)-local"
 
 install: build
@@ -554,40 +558,41 @@ install-windows: build-windows-native
 
 
 build-linux: ui setup-lbug fetch-ort-linux lancedb-native
-	@mkdir -p cmd/launcher/runtime
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
+	@mkdir -p cmd/launcher/runtime $(BIN_DIR) $(GO_TMP_DIR)
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "liblbug.so" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.so liblbug.so.0
 	cp -L $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so cmd/launcher/runtime/
 	@# The search engine. It travels beside the binary, which is what the $ORIGIN rpath in
 	@# internal/lancestore/cgo_lancedb.go resolves against — see that file for why there are two.
 	cp -L $(LANCEDB_LIB) cmd/launcher/runtime/
+	cp $(LANCEDB_LIB_DIR)/lancedb_go_build.sha cmd/launcher/runtime/
 	$(call fetch_lbug_ext,linux_amd64)
 	$(call bundle_ast)
-	@mkdir -p $(BIN_DIR)
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
 build-darwin: ui setup-lbug fetch-ort-darwin lancedb-native
-	@mkdir -p cmd/launcher/runtime
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
+	@mkdir -p cmd/launcher/runtime $(BIN_DIR) $(GO_TMP_DIR)
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "liblbug.dylib" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.dylib liblbug.0.dylib
 	cp -L $(ORT_CACHE)/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib cmd/launcher/runtime/
 	cp -L $(LANCEDB_LIB) cmd/launcher/runtime/
+	cp $(LANCEDB_LIB_DIR)/lancedb_go_build.sha cmd/launcher/runtime/
 	$(call fetch_lbug_ext,osx_arm64)
 	$(call bundle_ast)
-	@mkdir -p $(BIN_DIR)
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
 build-windows-native: ui setup-lbug fetch-ort-windows lancedb-native
-	@mkdir -p cmd/launcher/runtime
-	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
+	@mkdir -p cmd/launcher/runtime $(BIN_DIR) $(GO_TMP_DIR)
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
 	cp -L $(LANCEDB_LIB) cmd/launcher/runtime/
+	cp $(LANCEDB_LIB_DIR)/lancedb_go_build.sha cmd/launcher/runtime/
 	GOPATH_UNIX=$$(cygpath -u "$$(go env GOPATH)") && find $$GOPATH_UNIX/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
 	cp /mingw64/bin/libgcc_s_seh-1.dll cmd/launcher/runtime/ 2>/dev/null || true
 	cp /mingw64/bin/libstdc++-6.dll cmd/launcher/runtime/ 2>/dev/null || true
@@ -595,8 +600,7 @@ build-windows-native: ui setup-lbug fetch-ort-windows lancedb-native
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call fetch_lbug_ext,win_amd64)
 	$(call bundle_ast)
-	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
 build-all:

@@ -160,6 +160,17 @@ The Hub distributes reusable artifacts:
 
 Optional S3-compatible storage holds published catalog and artifact data. Installing or publishing is an explicit action. Read the relevant artifact metadata and understand its scope before applying it to a project.
 
+AST and knowledge artifacts may use mutable `branch/<git-branch>` channels, including branch names
+with `/`, or compact `tag/<git-tag>` snapshots. On an empty local store, `graphit sync` can reuse the
+exact compatible Git commit or nearest published ancestor as a shallow LanceDB base: inherited data
+is read from S3 while new project changes stay in the local filesystem. LadybugDB/Icebug is rebuilt
+from source. The Hub changes only when `graphit hub submit` explicitly publishes a clean commit.
+Projects outside Git continue to sync entirely locally and may publish a new `branch/...` name as a
+mutable snapshot without commit history. Adding S3 later does not replace an initialized local
+store; the first publication seeds an empty remote channel from that local state.
+See [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the complete
+unattended S3 and remote-embedding workflow.
+
 ## Live Search
 
 Live Search assembles selected artifacts into an ephemeral workspace and runs a supported coding agent against a concrete question.
