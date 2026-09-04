@@ -666,10 +666,10 @@ test-race: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	rm -rf "$$TEST_HOME_ROOT"; \
 	exit $$status
 
-lint: lancedb-native
+lint: setup-lbug lancedb-native
 	golangci-lint run ./...
 
-vulncheck: lancedb-native
+vulncheck: setup-lbug lancedb-native
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) -tags "$(LOCAL_TAGS)" ./...
 
 actionlint:
@@ -681,7 +681,7 @@ ui-lint:
 fmt:
 	gofmt -w .
 
-vet: lancedb-native
+vet: setup-lbug lancedb-native
 	go vet -tags "$(LOCAL_TAGS)" -unreachable=false $$(go list -tags "$(LOCAL_TAGS)" ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
 ci-fast: lancedb-native
