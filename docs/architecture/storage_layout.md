@@ -244,7 +244,7 @@ a provenance-checked cascade. An existing project copy or a library extracted un
 `~/.<brand>/runtime/<version>/` directory is reused only when its adjacent
 `lancedb_go_build.sha` matches both the pinned `lancedb-go` commit and the hash of
 `patches/lancedb-go-main.patch`; otherwise the exact platform bundle is downloaded from
-[`graphit-labs/graphit-code-lib`](https://github.com/graphit-labs/graphit-code-lib) and verified by
+[`graphit-labs/graphit-code-libs`](https://github.com/graphit-labs/graphit-code-libs) and verified by
 its pinned archive digest, internal `SHA256SUMS`, recipe, and platform manifest fields. Launchers
 bundle the provenance stamp beside the library so a compatible release runtime remains reusable by
 a source checkout. The repository does not vendor or fork `lancedb-go`; `make fetch-lancedb` is the
