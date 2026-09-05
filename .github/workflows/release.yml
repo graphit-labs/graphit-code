@@ -88,13 +88,13 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: UI Build
+        run: make ui
+
       - name: Test
         run: make test-full
         env:
           GRAPHIT_HEAVY_TEST_ISOLATED: "1"
-
-      - name: UI Build
-        run: make ui
 
       - name: UI Lint
         run: make ui-lint
