@@ -1,6 +1,7 @@
 .PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev setup-lbug fetch-lancedb lancedb-native build-local lancedb-cgo-env \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows lint \
-	   ui-lint ci ci-fast check test test-short test-race build-windows-native \
+	   ui-lint ci ci-fast check test test-full test-race require-heavy-test-isolation \
+	   _ci-isolated _ci-fast-isolated _check-isolated _test-full-isolated _test-race-isolated build-windows-native \
        grammars grammars-treesitter grammars-antlr grammars-clean
 
 MODULE   := github.com/graphit-labs/graphit-code
@@ -71,6 +72,45 @@ GO_TEST_P           ?= 1
 GO_TEST_PARALLEL    ?= 2
 GO_TEST_GOMAXPROCS  ?= 2
 GO_TEST_TIMEOUT     ?= 15m
+GO_TEST_UNIT_TIMEOUT ?= 2m
+
+GO_TEST_UNIT_PKGS := \
+	./internal/brand/... \
+	./internal/config/... \
+	./internal/ignorer/... \
+	./internal/lockfile/... \
+	./internal/netutil/... \
+	./internal/output/... \
+	./internal/pagination/... \
+	./internal/sessionhook/... \
+	./internal/slogutil/... \
+	./internal/sysutil/... \
+	./internal/textslice/... \
+	./internal/toon/... \
+	./internal/version/...
+
+GO_TEST_NATIVE_MAX_WORKERS ?= 2
+GO_TEST_NATIVE_DB_THREADS ?= 2
+GO_TEST_NATIVE_DB_BUFFER_MB ?= 256
+GO_TEST_NATIVE_EMBED_THREADS ?= 1
+GO_TEST_NATIVE_ANTLR_HEAP_MB ?= 512
+GO_TEST_NATIVE_P ?= 1
+GO_TEST_NATIVE_PARALLEL ?= 1
+GO_TEST_NATIVE_GOMAXPROCS ?= 2
+
+GO_TEST_CGROUP_CPU_QUOTA ?= 200%
+GO_TEST_CGROUP_MEMORY_HIGH ?= 8G
+GO_TEST_CGROUP_MEMORY_MAX ?= 9G
+GO_TEST_CGROUP_TASKS_MAX ?= 256
+GO_TEST_CGROUP_RUNTIME_MAX ?= 30m
+GO_TEST_CGROUP_KILL_AFTER ?= 20s
+
+GO_TEST_NATIVE_ENV = \
+	GRAPHIT_MAX_WORKERS="$(GO_TEST_NATIVE_MAX_WORKERS)" \
+	GRAPHIT_DB_THREADS="$(GO_TEST_NATIVE_DB_THREADS)" \
+	GRAPHIT_DB_BUFFER_MB="$(GO_TEST_NATIVE_DB_BUFFER_MB)" \
+	GRAPHIT_EMBED_THREADS="$(GO_TEST_NATIVE_EMBED_THREADS)" \
+	GRAPHIT_ANTLR_HEAP_MB="$(GO_TEST_NATIVE_ANTLR_HEAP_MB)"
 
 ORT_VERSION  := 1.26.0
 ORT_CACHE    := /tmp/onnxruntime-cache
@@ -617,7 +657,50 @@ build-all:
 
 
 
-test: setup-lbug lancedb-native $(ORT_HOST_FETCH)
+test:
+	@TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-unit-test-homes"; \
+	rm -rf "$$TEST_HOME_ROOT"; \
+	trap 'rm -rf "$$TEST_HOME_ROOT"' EXIT; \
+	echo "  → Running the lightweight cached unit tier…"; \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	go test -p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) \
+		-timeout $(GO_TEST_UNIT_TIMEOUT) $(GO_TEST_UNIT_PKGS)
+
+require-heavy-test-isolation:
+	@if [ "$${GRAPHIT_HEAVY_TEST_ISOLATED:-}" = "1" ]; then exit 0; fi; \
+	echo "✗ Refusing native/full validation on an unisolated local machine."; \
+	echo "  Run it in CI or inside hard CPU, memory, process-count, concurrency and wall-time limits."; \
+	echo "  Set GRAPHIT_HEAVY_TEST_ISOLATED=1 only after that isolation and explicit authorization exist."; \
+	exit 2
+
+test-full:
+	@if [ "$${GRAPHIT_HEAVY_TEST_ISOLATED:-}" = "1" ]; then \
+		$(MAKE) -j1 --no-print-directory _test-full-isolated GRAPHIT_HEAVY_TEST_GATE_PASSED=1; \
+		exit $$?; \
+	fi; \
+	for command in systemd-run timeout ionice nice; do \
+		if ! command -v "$$command" >/dev/null 2>&1; then \
+			echo "✗ Cannot safely run the full suite: $$command is unavailable."; \
+			echo "  Use an isolated CI runner or install the required local isolation tools."; \
+			exit 2; \
+		fi; \
+	done; \
+	echo "  → Entering a transient cgroup: $(GO_TEST_CGROUP_CPU_QUOTA) CPU, $(GO_TEST_CGROUP_MEMORY_MAX) memory, no swap, $(GO_TEST_CGROUP_TASKS_MAX) tasks, $(GO_TEST_CGROUP_RUNTIME_MAX) maximum…"; \
+	systemd-run --user --scope --collect --quiet \
+		--property=CPUQuota=$(GO_TEST_CGROUP_CPU_QUOTA) \
+		--property=MemoryHigh=$(GO_TEST_CGROUP_MEMORY_HIGH) \
+		--property=MemoryMax=$(GO_TEST_CGROUP_MEMORY_MAX) \
+		--property=MemorySwapMax=0 \
+		--property=OOMPolicy=stop \
+		--property=TasksMax=$(GO_TEST_CGROUP_TASKS_MAX) \
+		timeout --signal=TERM --kill-after=$(GO_TEST_CGROUP_KILL_AFTER) $(GO_TEST_CGROUP_RUNTIME_MAX) \
+		ionice -c 3 nice -n 10 \
+		$(MAKE) -j1 --no-print-directory _test-full-isolated \
+			GRAPHIT_HEAVY_TEST_ISOLATED=1 GRAPHIT_HEAVY_TEST_GATE_PASSED=1
+
+_test-full-isolated:
+	@test "$(GRAPHIT_HEAVY_TEST_GATE_PASSED)" = "1"
+	@$(MAKE) --no-print-directory setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	@LBUG_LIB="$(LBUG_MOD)/lib"; \
 	TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
@@ -625,56 +708,40 @@ test: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	fi; \
 	rm -rf "$$TEST_HOME_ROOT"; \
 	status=0; \
-	echo "  → Running the bounded test suite…"; \
+	echo "  → Running the full native suite inside the established isolation boundary…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	$(GO_TEST_NATIVE_ENV) $(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_NATIVE_GOMAXPROCS)" \
 	go test -count=1 -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic \
-		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
+		-p $(GO_TEST_NATIVE_P) -parallel $(GO_TEST_NATIVE_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
 		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
 	echo "  → Running generated parser tests…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	$(GO_TEST_NATIVE_ENV) $(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_NATIVE_GOMAXPROCS)" \
 	go test -count=1 -tags "$(LOCAL_TAGS)" \
-		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
+		-p $(GO_TEST_NATIVE_P) -parallel $(GO_TEST_NATIVE_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
 		$$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./internal/ast/antlr/... | sed '/^$$/d') || status=1; \
 	rm -rf "$$TEST_HOME_ROOT"; \
 	exit $$status
 
-test-short: setup-lbug lancedb-native $(ORT_HOST_FETCH)
-	@LBUG_LIB="$(LBUG_MOD)/lib"; \
-	TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
-	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
-		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
-	fi; \
-	rm -rf "$$TEST_HOME_ROOT"; \
-	status=0; \
-	echo "  → Running the bounded short test suite…"; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
-	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
-	go test -short -count=1 -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic \
-		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
-		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
-	echo "  → Running generated parser tests (-short)…"; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
-	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
-	go test -short -count=1 -tags "$(LOCAL_TAGS)" \
-		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
-		$$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./internal/ast/antlr/... | sed '/^$$/d') || status=1; \
-	rm -rf "$$TEST_HOME_ROOT"; \
-	exit $$status
+test-race: require-heavy-test-isolation
+	@$(MAKE) --no-print-directory _test-race-isolated GRAPHIT_HEAVY_TEST_GATE_PASSED=1
 
-test-race: setup-lbug lancedb-native $(ORT_HOST_FETCH)
+_test-race-isolated:
+	@test "$(GRAPHIT_HEAVY_TEST_GATE_PASSED)" = "1"
+	@$(MAKE) --no-print-directory setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	@LBUG_LIB="$(LBUG_MOD)/lib"; \
 	TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
 	rm -rf "$$TEST_HOME_ROOT"; \
+	echo "  → Running focused native race tests; guardrails below are not hard isolation…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
-	go test -race -count=1 -tags "$(LOCAL_TAGS)" -p 1 -parallel $(GO_TEST_PARALLEL) \
+	$(GO_TEST_NATIVE_ENV) $(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_NATIVE_GOMAXPROCS)" \
+	go test -race -count=1 -tags "$(LOCAL_TAGS)" -p $(GO_TEST_NATIVE_P) -parallel $(GO_TEST_NATIVE_PARALLEL) \
 		-timeout $(GO_TEST_TIMEOUT) \
 		./internal/fswatch/... ./internal/livesearch/... ./internal/mcpproxy/... \
 		./internal/projectlock/... ./internal/sessionhook/... ./internal/sysutil/... ./internal/task/...; \
@@ -700,15 +767,25 @@ fmt:
 vet: setup-lbug lancedb-native
 	go vet -tags "$(LOCAL_TAGS)" -unreachable=false $$(go list -tags "$(LOCAL_TAGS)" ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
-ci-fast: lancedb-native
-	@echo "  → Running bounded static checks, then the short suite…"
+ci-fast: require-heavy-test-isolation
+	@$(MAKE) --no-print-directory _ci-fast-isolated GRAPHIT_HEAVY_TEST_GATE_PASSED=1
+
+_ci-fast-isolated:
+	@test "$(GRAPHIT_HEAVY_TEST_GATE_PASSED)" = "1"
+	@$(MAKE) --no-print-directory lancedb-native
+	@echo "  → Running bounded static checks, then the lightweight unit tier…"
 	@$(MAKE) actionlint
 	@$(MAKE) vet
 	@$(MAKE) lint
 	@$(MAKE) ui-lint
-	@$(MAKE) test-short
+	@$(MAKE) test
 
-ci: lancedb-native
+ci: require-heavy-test-isolation
+	@$(MAKE) --no-print-directory _ci-isolated GRAPHIT_HEAVY_TEST_GATE_PASSED=1
+
+_ci-isolated:
+	@test "$(GRAPHIT_HEAVY_TEST_GATE_PASSED)" = "1"
+	@$(MAKE) --no-print-directory lancedb-native
 	@echo "  → Building UI, then static checks, the bounded full suite, and focused race checks…"
 	@$(MAKE) ui
 	@$(MAKE) actionlint
@@ -716,16 +793,26 @@ ci: lancedb-native
 	@$(MAKE) lint
 	@$(MAKE) vulncheck
 	@$(MAKE) ui-lint
-	@$(MAKE) test
+	@$(MAKE) test-full
 	@$(MAKE) test-race
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""
 
 
-check: actionlint vet lint vulncheck test test-race
+check: require-heavy-test-isolation
+	@$(MAKE) --no-print-directory _check-isolated GRAPHIT_HEAVY_TEST_GATE_PASSED=1
+
+_check-isolated:
+	@test "$(GRAPHIT_HEAVY_TEST_GATE_PASSED)" = "1"
+	@$(MAKE) actionlint
+	@$(MAKE) vet
+	@$(MAKE) lint
+	@$(MAKE) vulncheck
+	@$(MAKE) test-full
+	@$(MAKE) test-race
 	@echo ""
-	@echo "  ✅ Go checks passed (vet + lint + vulncheck + test)."
+	@echo "  ✅ Go checks passed (vet + lint + vulncheck + test-full + test-race)."
 	@echo ""
 
 clean:

@@ -1477,10 +1477,19 @@ it to fail, and both were true for years:
    `go test` binary — which the toolchain puts in a temporary directory — never found it, and
    nothing set the loader path. It now also looks in the extracted payload
    (`brand.RuntimeDir(version.Version)`), which is what makes a locally built core work, and
-   `make test` puts the Makefile's ORT cache on the loader path, which is what makes the tests run.
+   `make test-full` puts the Makefile's ORT cache on the loader path, which is what makes the tests run.
 2. **The model was not there.** The cache is derived from `HOME`, and every test binary gets its own
-   throwaway `HOME`. `make test` sets `<BRAND>_MODEL_CACHE` to one shared directory so the ~132 MB
+   throwaway `HOME`. `make test-full` sets `<BRAND>_MODEL_CACHE` to one shared directory so the ~132 MB
    model is fetched once instead of once per package.
+
+`make test` is the cached local unit tier and deliberately excludes AST, native databases, models,
+generated parsers, coverage and race instrumentation. On Linux, `make test-full` creates a transient
+user cgroup before native preparation starts. The cgroup caps CPU, memory, swap and task count; a
+separate deadline bounds wall time, and the target returns the suite's actual status. If the local
+isolation tools or user systemd manager are unavailable, the target fails before running the suite.
+CI and release runners set `GRAPHIT_HEAVY_TEST_ISOLATED=1` to assert their existing isolation and run
+the same internal full tier. `make test-race`, `make ci` and `make check` still require that assertion.
+The flag is an assertion, not a sandbox, and must only be set inside an authorized hard boundary.
 
 **What the silence was costing.** These gates were reporting success without running:
 

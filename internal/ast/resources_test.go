@@ -41,6 +41,7 @@ func TestBoundedDBBufferPool(t *testing.T) {
 // TestAntlrHeapBudget checks the ANTLR cache budget scales with the machine and
 // stays inside its bounds.
 func TestAntlrHeapBudget(t *testing.T) {
+	t.Setenv("GRAPHIT_ANTLR_HEAP_MB", "")
 	got := AntlrHeapBudget()
 	t.Logf("AntlrHeapBudget = %d MiB", got>>20)
 	if got < antlrHeapFloor || got > antlrHeapCeil {
@@ -68,6 +69,7 @@ func TestBoundedDBBufferPoolEnvOverride(t *testing.T) {
 }
 
 func TestBoundedDBThreads(t *testing.T) {
+	t.Setenv("GRAPHIT_DB_THREADS", "")
 	budget := uint64(sysutil.CPUBudget())
 
 	if got := boundedDBThreads(1024); got != budget {

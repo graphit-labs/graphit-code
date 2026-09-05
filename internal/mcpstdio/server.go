@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/toon"
 	"github.com/graphit-labs/graphit-code/internal/version"
@@ -49,9 +47,6 @@ func safeTool[T any](
 				session = nil
 			}
 		}()
-		if _, dErr := daemon.EnsureRunning(); dErr != nil {
-			slog.Warn("failed to ensure daemon is running", "error", dErr)
-		}
 		return handler(ctx, req, input)
 	}
 }

@@ -25,7 +25,7 @@ Search grounds the query; it is not evidence by itself. Query results establish 
 
 Retry a database-open error once; it is commonly a transient lock. If the graph is absent, use `graphit_daemon_status` and then `graphit_ast_index`. Use `graphit_ast_embed` only when semantic embeddings are missing. Use native discovery when the required Graphit tool is unavailable to this agent or for unsupported/unindexed current-project text, and record the limitation. Native tools cannot read an imported context.
 
-The daemon normally indexes edits. Call `graphit_sync` when a decision requires proven freshness or before reporting a code-changing task complete. Do not sync after every edit.
+The daemon normally indexes edits. Call `graphit_sync` only when a decision requires proven freshness. The adapter stop hook dispatches completion sync asynchronously; do not duplicate it, wait for it, or sync after every edit.
 
 ## Administrative tools
 

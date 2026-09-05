@@ -6,6 +6,7 @@ import (
 )
 
 func TestCPUBudgetLeavesHeadroom(t *testing.T) {
+	t.Setenv("GRAPHIT_MAX_WORKERS", "")
 	n := runtime.NumCPU()
 	b := CPUBudget()
 	if b < 1 {

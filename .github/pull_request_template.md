@@ -24,7 +24,8 @@ List the commands, focused tests, full-suite checks, builds, screenshots, or man
 
 ## Validation
 
-- [ ] `make test`
+- [ ] `make test` (lightweight local unit tier)
+- [ ] `make test-full` (automatic local cgroup on Linux, or an isolated CI runner)
 - [ ] `make lint`
 - [ ] `make build-local`
 - [ ] UI lint, tests, and build when frontend code changed

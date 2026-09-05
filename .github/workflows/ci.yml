@@ -153,7 +153,9 @@ jobs:
             test-deps-${{ runner.os }}-
 
       - name: Run tests
-        run: make test
+        run: make test-full
+        env:
+          GRAPHIT_HEAVY_TEST_ISOLATED: "1"
 
       - name: Convert coverage to Cobertura XML
         run: go run github.com/boumenot/gocover-cobertura@v1.5.0 < coverage.out > coverage.xml

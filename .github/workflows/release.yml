@@ -89,7 +89,9 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Test
-        run: make test
+        run: make test-full
+        env:
+          GRAPHIT_HEAVY_TEST_ISOLATED: "1"
 
       - name: UI Build
         run: make ui
