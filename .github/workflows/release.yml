@@ -40,13 +40,13 @@ jobs:
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
       - name: Cache verified native bundle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/graphit/native
           key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
 
       - name: Cache embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/graphit-model-cache
           key: embedding-model-${{ runner.os }}-${{ hashFiles('Makefile') }}
@@ -129,7 +129,7 @@ jobs:
             unzip
 
       - name: Cache verified native bundle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/graphit/native
           key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
@@ -183,7 +183,7 @@ jobs:
           brew install icu4c pkg-config protobuf
 
       - name: Cache verified native bundle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/graphit/native
           key: graphit-native-darwin-arm64-${{ hashFiles('native-deps.env') }}
@@ -252,7 +252,7 @@ jobs:
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Cache verified native bundle
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/graphit/native
           key: graphit-native-windows-amd64-${{ hashFiles('native-deps.env') }}
