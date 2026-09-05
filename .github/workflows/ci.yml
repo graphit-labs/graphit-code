@@ -159,6 +159,8 @@ jobs:
 
       - name: Convert coverage to Cobertura XML
         run: go run github.com/boumenot/gocover-cobertura@v1.5.0 < coverage.out > coverage.xml
+        env:
+          GOFLAGS: "-tags=lancedb"
 
       - name: Upload coverage report
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
