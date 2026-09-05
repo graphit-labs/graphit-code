@@ -10,13 +10,14 @@ the contracts between those surfaces rather than changing one in isolation.
 |---|---|---|
 | Go | Version declared by `go.mod` (currently 1.26.6) | CLI, daemon, MCP, storage orchestration, and tests |
 | Node.js | 22+ | Observatory development, lint, tests, and build |
-| Rust and Cargo | current stable | Native LanceDB bridge when a cached runtime library is unavailable |
+| Rust and Cargo | current stable, maintainers only | Explicit `make fetch-lancedb` source rebuilds |
 | GNU Make | current | Reproducible repository workflows |
 | C/C++ toolchain, `pkg-config`, and ICU development libraries | platform current | CGO/native dependencies |
 | `golangci-lint` | repository/CI-compatible current release | Go static analysis |
 
-Platform setup differs for the native libraries. Follow the CI workflow for your operating system
-when a local package name is unclear.
+The normal build downloads the platform's pinned native bundle and verifies it before use. Platform
+setup differs for the remaining build tools; follow the CI workflow when a local package name is
+unclear.
 
 ## Start a development checkout
 

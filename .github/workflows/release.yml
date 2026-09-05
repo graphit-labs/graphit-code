@@ -39,35 +39,19 @@ jobs:
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache LanceDB build intermediates
+      - name: Cache verified native bundle
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            /tmp/lancedb-native-cache
-          key: lancedb-build-v3-linux-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
+
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: /tmp/graphit-model-cache
+          key: embedding-model-${{ runner.os }}-${{ hashFiles('Makefile') }}
           restore-keys: |
-            lancedb-build-v3-linux-amd64-
-
-      - name: Cache LanceDB native library
-        uses: actions/cache@v4
-        with:
-          path: .native
-          key: lancedb-native-v3-linux-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
-
-      - name: Cache ONNX Runtime and embedding model
-        uses: actions/cache@v4
-        with:
-          path: |
-            /tmp/onnxruntime-cache
-            /tmp/graphit-model-cache
-          key: test-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
-          restore-keys: |
-            test-deps-${{ runner.os }}-
+            embedding-model-${{ runner.os }}-
 
       - name: Validate workflow files
         run: make actionlint
@@ -144,27 +128,18 @@ jobs:
             curl \
             unzip
 
-      - name: Cache ONNX Runtime
+      - name: Cache verified native bundle
         uses: actions/cache@v4
         with:
-          path: /tmp/onnxruntime-cache
-          key: onnxruntime-linux-x64-${{ env.ORT_VERSION }}
-        env:
-          ORT_VERSION: "1.26.0"
-
-      - name: Cache LadybugDB native library
-        uses: actions/cache@v4
-        with:
-          path: /tmp/lbug-cache
-          key: liblbug-linux-amd64-v0.17.0
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
 
       - name: Build (Linux)
         run: |
           make build-linux \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
-            LBUG_PLATFORMS="linux-amd64"
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
 
       - name: Package and generate SHA-256 checksum
         run: |
@@ -207,47 +182,18 @@ jobs:
         run: |
           brew install icu4c pkg-config protobuf
 
-      - name: Cache ONNX Runtime (macOS)
+      - name: Cache verified native bundle
         uses: actions/cache@v4
         with:
-          path: /tmp/onnxruntime-cache
-          key: onnxruntime-osx-arm64-${{ env.ORT_VERSION }}
-        env:
-          ORT_VERSION: "1.26.0"
-
-      - name: Cache LadybugDB native library (macOS)
-        uses: actions/cache@v4
-        with:
-          path: /tmp/lbug-cache
-          key: liblbug-darwin-v0.17.0
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache LanceDB build intermediates
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            /tmp/lancedb-native-cache
-          key: lancedb-build-v3-darwin-arm64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
-          restore-keys: |
-            lancedb-build-v3-darwin-arm64-
-
-      - name: Cache LanceDB native library
-        uses: actions/cache@v4
-        with:
-          path: .native
-          key: lancedb-native-v3-darwin-arm64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
+          path: ~/.cache/graphit/native
+          key: graphit-native-darwin-arm64-${{ hashFiles('native-deps.env') }}
 
       - name: Build (macOS)
         run: |
           make build-darwin \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
-            LBUG_PLATFORMS="darwin"
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
 
       - name: Package and generate SHA-256 checksum
         run: |
@@ -305,37 +251,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
-      - name: Cache ONNX Runtime (Windows)
+      - name: Cache verified native bundle
         uses: actions/cache@v4
         with:
-          path: C:\cache\ort
-          key: onnxruntime-win-x64-1.26.0
-
-      - name: Cache LadybugDB native library (Windows)
-        uses: actions/cache@v4
-        with:
-          path: C:\cache\lbug
-          key: liblbug-windows-v0.17.0
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache LanceDB build intermediates
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            C:/cache/lancedb
-          key: lancedb-build-v3-windows-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
-          restore-keys: |
-            lancedb-build-v3-windows-amd64-
-
-      - name: Cache LanceDB native library
-        uses: actions/cache@v4
-        with:
-          path: .native
-          key: lancedb-native-v3-windows-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
+          path: ~/.cache/graphit/native
+          key: graphit-native-windows-amd64-${{ hashFiles('native-deps.env') }}
 
       - name: Build (Windows native)
         run: |
@@ -344,10 +264,8 @@ jobs:
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
             GITHUB_REPO="graphit-labs/graphit-code" \
-            LBUG_PLATFORMS="windows" \
             ORT_CACHE="/c/cache/ort" \
             MODEL_CACHE="/c/cache/model" \
-            LBUG_CACHE="/c/cache/lbug" \
             LANCEDB_CACHE="/c/cache/lancedb"
 
       - name: Package and generate SHA-256 checksum

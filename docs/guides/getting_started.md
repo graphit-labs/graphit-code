@@ -141,8 +141,10 @@ Source builds require:
 - Go 1.26.6 or newer;
 - Node.js 22 or newer;
 - Make;
-- a C/C++ toolchain for native bindings;
-- Rust for the host-native LanceDB build.
+- a C/C++ toolchain for native bindings.
+
+The normal build downloads and verifies an immutable native dependency bundle. Rust is required
+only to rebuild the pinned LanceDB bridge explicitly with `make fetch-lancedb`.
 
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git

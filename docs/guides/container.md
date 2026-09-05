@@ -412,10 +412,10 @@ where `docker compose config` prints them.
 
 ## Why the image does not build from source
 
-Building the framework needs a Node toolchain for the UI, a Go toolchain with cgo, ONNX Runtime,
-`liblbug`, and a Rust toolchain that compiles the LanceDB native from source — which cannot be
-cross-compiled, which is why the release pipeline runs one job per platform. That is tens of minutes
-per image to reproduce an artifact the release already contains.
+Building the framework needs a Node toolchain for the UI, a Go toolchain with cgo, and the verified
+native dependency bundle for the target platform. The release pipeline runs one job per platform,
+then packages the resulting runtime into the launcher. Installing all build toolchains and compiling
+the source in every image would reproduce an artifact the release already contains.
 
 The published Linux artifact is the launcher, carrying `graphit-core`, `graphit-mcp`, `liblbug`,
 `libonnxruntime`, `liblancedb_go`, the LadybugDB httpfs extension and the AST query definitions as an

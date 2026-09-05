@@ -29,32 +29,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libprotobuf-dev protobuf-compiler
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache LanceDB build intermediates
+      - name: Cache verified native bundle
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            /tmp/lancedb-native-cache
-          key: lancedb-build-v3-linux-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
-          restore-keys: |
-            lancedb-build-v3-linux-amd64-
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
 
-      - name: Cache LanceDB native library
-        uses: actions/cache@v4
-        with:
-          path: .native
-          key: lancedb-native-v3-linux-amd64-${{ hashFiles('Makefile', 'patches/lancedb-go-main.patch') }}
-
-      - name: Build LanceDB native library
+      - name: Install verified native dependencies
         run: make lancedb-native
 
       - name: Upload LanceDB native library
@@ -85,6 +66,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Restore verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
 
       - name: Install CGO dependencies
         run: |
@@ -126,6 +113,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Restore verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
+
       - name: Install CGO dependencies
         run: |
           sudo apt-get update -qq
@@ -142,15 +135,13 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Cache ONNX Runtime and embedding model
+      - name: Cache embedding model
         uses: actions/cache@v4
         with:
-          path: |
-            /tmp/onnxruntime-cache
-            /tmp/graphit-model-cache
-          key: test-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          path: /tmp/graphit-model-cache
+          key: embedding-model-${{ runner.os }}-${{ hashFiles('Makefile') }}
           restore-keys: |
-            test-deps-${{ runner.os }}-
+            embedding-model-${{ runner.os }}-
 
       - name: Run tests
         run: make test-full
@@ -216,6 +207,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Restore verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
+
       - name: Install CGO dependencies
         run: |
           sudo apt-get update -qq
@@ -255,20 +252,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
+      - name: Restore verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
+
       - name: Install CGO and build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
-
-      - name: Cache ONNX Runtime and liblbug
-        uses: actions/cache@v4
-        with:
-          path: |
-            /tmp/onnxruntime-cache
-            /tmp/lbug-cache
-          key: build-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
-          restore-keys: |
-            build-deps-${{ runner.os }}-
 
       - name: Build
         run: make build-linux

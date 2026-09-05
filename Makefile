@@ -1,4 +1,4 @@
-.PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev setup-lbug fetch-lancedb lancedb-native build-local lancedb-cgo-env \
+.PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev native-deps setup-lbug fetch-lancedb lancedb-native build-local lancedb-cgo-env \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows lint \
 	   ui-lint ci ci-fast check test test-full test-race require-heavy-test-isolation \
 	   _ci-isolated _ci-fast-isolated _check-isolated _test-full-isolated _test-race-isolated build-windows-native \
@@ -8,6 +8,8 @@ MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
 BIN_DIR  := .build
 GO_TMP_DIR ?= $(CURDIR)/$(BIN_DIR)/go-tmp
+
+include native-deps.env
 
 UI_DIR         := internal/ui
 UI_NPM_CONFIG  := $(UI_DIR)/.npmrc
@@ -53,6 +55,7 @@ LOCAL_TAGS := $(BUILD_TAGS)
 LANCEDB_LIB_DIR := .native
 
 LANCEDB_GOOS := $(shell go env GOOS)
+LANCEDB_GOARCH := $(shell go env GOARCH)
 ifeq ($(LANCEDB_GOOS),darwin)
 LANCEDB_LIB_NAME := liblancedb_go.dylib
 else ifeq ($(LANCEDB_GOOS),windows)
@@ -112,7 +115,6 @@ GO_TEST_NATIVE_ENV = \
 	GRAPHIT_EMBED_THREADS="$(GO_TEST_NATIVE_EMBED_THREADS)" \
 	GRAPHIT_ANTLR_HEAP_MB="$(GO_TEST_NATIVE_ANTLR_HEAP_MB)"
 
-ORT_VERSION  := 1.26.0
 ORT_CACHE    := /tmp/onnxruntime-cache
 
 MODEL_CACHE ?= /tmp/$(BRAND)-model-cache
@@ -144,15 +146,9 @@ LANCEDB_RUST     := 1.98.0
 LANCEDB_ETHNUM   := 1.5.3
 
 
-LBUG_VERSION := v0.17.0
-
-LBUG_EXT_VERSION := 0.18.1
-LBUG_EXT_HOST    := https://extension.ladybugdb.com
+LBUG_VERSION := $(LBUG_GO_VERSION)
 LBUG_EXT_CACHE   := /tmp/lbug-extension-cache
-LBUG_MOD     := $(shell go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)
-LBUG_CACHE   := /tmp/lbug-cache
-
-LBUG_PLATFORMS ?= $(shell uname -s | sed 's/Darwin/darwin/;s/Linux/linux-amd64/;s/MINGW.*/windows/')
+LBUG_MOD     = $(GOMODCACHE)/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)
 
 
 
@@ -278,11 +274,7 @@ endef
 
 define fetch_lbug_ext
 	@mkdir -p $(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1) cmd/launcher/runtime/lbug
-	@if [ ! -s "$(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1)/httpfs.lbug_extension" ]; then \
-		echo "  → Downloading httpfs extension v$(LBUG_EXT_VERSION) for $(1)…"; \
-		curl -fsSL "$(LBUG_EXT_HOST)/v$(LBUG_EXT_VERSION)/$(1)/httpfs/libhttpfs.lbug_extension" \
-			-o "$(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1)/httpfs.lbug_extension"; \
-	fi
+	@test -s "$(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1)/httpfs.lbug_extension"
 	cp -L "$(LBUG_EXT_CACHE)/$(LBUG_EXT_VERSION)/$(1)/httpfs.lbug_extension" cmd/launcher/runtime/lbug/httpfs.lbug_extension
 endef
 
@@ -380,39 +372,28 @@ ui-dev:
 
 
 
-setup-lbug:
+ifeq ($(LANCEDB_GOOS)-$(LANCEDB_GOARCH),darwin-arm64)
+NATIVE_BUNDLE_PLATFORM := darwin-arm64
+else ifeq ($(LANCEDB_GOOS)-$(LANCEDB_GOARCH),windows-amd64)
+NATIVE_BUNDLE_PLATFORM := windows-amd64
+else ifeq ($(LANCEDB_GOOS)-$(LANCEDB_GOARCH),linux-amd64)
+NATIVE_BUNDLE_PLATFORM := linux-amd64
+else
+NATIVE_BUNDLE_PLATFORM := unsupported-$(LANCEDB_GOOS)-$(LANCEDB_GOARCH)
+endif
+
+native-deps:
 	@go mod download github.com/LadybugDB/go-ladybug
 	@chmod -R u+w "$(LBUG_MOD)" 2>/dev/null || true
-	@mkdir -p $(LBUG_CACHE)
-	@# go-ladybug v0.17.0 (cgo_bundled.go) expects a flat lib/ dir holding both
-	@# the header (lbug.h) and the shared library: -I${SRCDIR}/lib / -L${SRCDIR}/lib.
-	@# The release archives already bundle the header, so we extract them wholesale.
-	@for plat in $(LBUG_PLATFORMS); do \
-		case $$plat in \
-		linux-amd64) \
-			if [ ! -f "$(LBUG_MOD)/lib/liblbug.so" ] || [ ! -f "$(LBUG_MOD)/lib/lbug.h" ]; then \
-				echo "  → Downloading liblbug for linux-x86_64…"; \
-				mkdir -p "$(LBUG_MOD)/lib"; \
-				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-linux-x86_64.tar.gz" -o "$(LBUG_CACHE)/liblbug-linux-x86_64.tar.gz"; \
-				tar xzf "$(LBUG_CACHE)/liblbug-linux-x86_64.tar.gz" -C "$(LBUG_MOD)/lib"; \
-			fi ;; \
-		darwin) \
-			if [ ! -f "$(LBUG_MOD)/lib/liblbug.dylib" ] || [ ! -f "$(LBUG_MOD)/lib/lbug.h" ]; then \
-				echo "  → Downloading liblbug for darwin-arm64…"; \
-				mkdir -p "$(LBUG_MOD)/lib"; \
-				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-osx-arm64.tar.gz" -o "$(LBUG_CACHE)/liblbug-osx-arm64.tar.gz"; \
-				tar xzf "$(LBUG_CACHE)/liblbug-osx-arm64.tar.gz" -C "$(LBUG_MOD)/lib"; \
-			fi ;; \
-		windows) \
-			if [ ! -f "$(LBUG_MOD)/lib/lbug_shared.dll" ] || [ ! -f "$(LBUG_MOD)/lib/lbug.h" ]; then \
-				echo "  → Downloading liblbug for windows-x86_64…"; \
-				mkdir -p "$(LBUG_MOD)/lib"; \
-				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-windows-x86_64.zip" -o "$(LBUG_CACHE)/liblbug-windows-x86_64.zip"; \
-				unzip -qo "$(LBUG_CACHE)/liblbug-windows-x86_64.zip" -d "$(LBUG_MOD)/lib"; \
-			fi ;; \
-		*) echo "  ⚠ Unknown platform: $$plat" ;; \
-		esac; \
-	done
+	@NATIVE_BUNDLE_CACHE="$(NATIVE_BUNDLE_CACHE)" bash scripts/install-native-deps.sh \
+		"$(NATIVE_BUNDLE_PLATFORM)" "$(CURDIR)" "$(LBUG_MOD)" "$(ORT_CACHE)" \
+		"$(LBUG_EXT_CACHE)" "$(LANCEDB_LIB_DIR)"
+
+setup-lbug:
+	@if [ ! -s "$(LBUG_MOD)/lib/lbug.h" ] || \
+		[ "$$(cat "$(LBUG_MOD)/lib/lbug_native_version" 2>/dev/null || true)" != "$(LBUG_NATIVE_VERSION)" ]; then \
+		$(MAKE) --no-print-directory native-deps; \
+	fi
 
 define curl_fetch
 	if ! curl -fSL --retry 5 --retry-delay 5 --retry-all-errors \
@@ -502,35 +483,26 @@ lancedb-native:
 		echo "  ✓ LanceDB native linked to $$runtime_lib (no cargo needed)"; \
 		exit 0; \
 	done; \
-	echo "  → Compatible LanceDB native missing; building from the pinned source and patch…"; \
-	$(MAKE) --no-print-directory fetch-lancedb
+	echo "  → Compatible LanceDB native missing; downloading the verified bundle…"; \
+	$(MAKE) --no-print-directory native-deps
 
 lancedb-cgo-env:
 	@echo "export CGO_CFLAGS=\"-I$(LANCEDB_CACHE)/src/include\""
 	@echo "export CGO_LDFLAGS=\"-L$(LANCEDB_CACHE)/src/rust/target/release -llancedb_go\""
 
 fetch-ort-linux:
-	@mkdir -p $(ORT_CACHE)
 	@if [ ! -f $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so ]; then \
-		echo "→ Downloading ONNX Runtime $(ORT_VERSION) for linux-x64…"; \
-		curl -sSL "https://github.com/microsoft/onnxruntime/releases/download/v$(ORT_VERSION)/onnxruntime-linux-x64-$(ORT_VERSION).tgz" -o $(ORT_CACHE)/ort.tgz; \
-		cd $(ORT_CACHE) && tar xzf ort.tgz; \
+		$(MAKE) --no-print-directory native-deps; \
 	fi
 
 fetch-ort-darwin:
-	@mkdir -p $(ORT_CACHE)
 	@if [ ! -f $(ORT_CACHE)/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib ]; then \
-		echo "→ Downloading ONNX Runtime $(ORT_VERSION) for darwin-arm64…"; \
-		curl -sSL "https://github.com/microsoft/onnxruntime/releases/download/v$(ORT_VERSION)/onnxruntime-osx-arm64-$(ORT_VERSION).tgz" -o $(ORT_CACHE)/ort-darwin-arm64.tgz; \
-		cd $(ORT_CACHE) && tar xzf ort-darwin-arm64.tgz; \
+		$(MAKE) --no-print-directory native-deps; \
 	fi
 
 fetch-ort-windows:
-	@mkdir -p $(ORT_CACHE)
 	@if [ ! -f $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll ]; then \
-		echo "→ Downloading ONNX Runtime $(ORT_VERSION) for windows-x64…"; \
-		curl -sSL "https://github.com/microsoft/onnxruntime/releases/download/v$(ORT_VERSION)/onnxruntime-win-x64-$(ORT_VERSION).zip" -o $(ORT_CACHE)/ort-win-x64.zip; \
-		cd $(ORT_CACHE) && unzip -qo ort-win-x64.zip; \
+		$(MAKE) --no-print-directory native-deps; \
 	fi
 
 
@@ -646,9 +618,8 @@ build-windows-native: ui setup-lbug fetch-ort-windows lancedb-native
 build-all:
 	@echo "  ✗ build-all no longer exists as one machine's job."
 	@echo ""
-	@echo "    The LanceDB native is built from Rust source for the host and cannot be"
-	@echo "    cross-compiled, so a binary for another platform cannot be produced here — and one"
-	@echo "    built without it has no search at all, which is worse than not building it."
+	@echo "    Native dependencies are published as verified, platform-specific bundles, so a"
+	@echo "    binary for another platform must be produced on that platform's release runner."
 	@echo ""
 	@echo "    Release runs three jobs, one per runner: .github/workflows/release.yml"
 	@echo "    For this machine:  make build-local"

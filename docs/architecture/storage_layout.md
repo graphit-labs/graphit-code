@@ -231,9 +231,9 @@ used to be `fts5`, which was one compiler flag on a vendored C file — `#cgo CF
 -DSQLITE_ENABLE_FTS5` — so a build without it linked and then failed at run time with `no such
 module: fts5`, and two `!fts5` guard files existed to turn that into one actionable line.
 
-It is now `lancedb`, and it is heavier: the native is built from Rust source for the host and
-**cannot be cross-compiled**, which is why the release runs one job per platform rather than
-cross-compiling from one. There is no guard file this time, deliberately — a build without the tag
+It is now `lancedb`, and it is heavier: the patched native is compiled on a matching Linux,
+macOS, or Windows GitHub runner and published with the other native dependencies as an immutable,
+checksum-verified bundle. There is no guard file this time, deliberately — a build without the tag
 links stubs whose error already names the tag and the fix, which is precisely what `no such
 module: fts5` did not do. See [the LanceDB link contract](../../internal/lancestore/cgo_lancedb.go)
 for why there are two rpaths.
@@ -243,11 +243,12 @@ machine-global location already holds, not through per-checkout state. `make lan
 a provenance-checked cascade. An existing project copy or a library extracted under any
 `~/.<brand>/runtime/<version>/` directory is reused only when its adjacent
 `lancedb_go_build.sha` matches both the pinned `lancedb-go` commit and the hash of
-`patches/lancedb-go-main.patch`; otherwise the native is rebuilt from the pinned source with cargo.
-Launchers bundle that stamp beside the library so a compatible release runtime remains reusable by
-a source checkout. The repository does not vendor or fork `lancedb-go`. Its patch contains only the
-binding and upstream-compatibility changes required by Graphit, while Git and Hub coordination
-remain in Graphit's own packages.
+`patches/lancedb-go-main.patch`; otherwise the exact platform bundle is downloaded from
+[`graphit-labs/graphit-code-lib`](https://github.com/graphit-labs/graphit-code-lib) and verified by
+its pinned archive digest, internal `SHA256SUMS`, recipe, and platform manifest fields. Launchers
+bundle the provenance stamp beside the library so a compatible release runtime remains reusable by
+a source checkout. The repository does not vendor or fork `lancedb-go`; `make fetch-lancedb` is the
+explicit maintainer path for rebuilding its pinned source and applying Graphit's binding patch.
 
 ### What identifies a store
 
