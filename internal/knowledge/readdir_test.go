@@ -24,9 +24,9 @@ func seedContext(t *testing.T, projectDir, name string) string {
 func newProjectDir(t *testing.T, ephemeral bool) string {
 	t.Helper()
 	dir := t.TempDir()
-	body := `{"project":{"id":"01PROJECT"}}`
+	body := `{"project":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}}`
 	if ephemeral {
-		body = `{"project":{"id":"01SESSION","ephemeral":true}}`
+		body = `{"project":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","ephemeral":true}}`
 	}
 	if err := os.WriteFile(filepath.Join(dir, brand.LockFileName()), []byte(body), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)

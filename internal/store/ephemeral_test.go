@@ -8,6 +8,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
+const ephemeralProjectID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
 func writeLock(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -24,9 +26,9 @@ func TestAnEphemeralProjectIsOnlyTheOneThatSaysSo(t *testing.T) {
 		body string
 		want bool
 	}{
-		{"marked", `{"project":{"id":"01ABC","ephemeral":true}}`, true},
-		{"marked false", `{"project":{"id":"01ABC","ephemeral":false}}`, false},
-		{"a normal project, which says nothing", `{"project":{"id":"01ABC"}}`, false},
+		{"marked", `{"project":{"id":"` + ephemeralProjectID + `","ephemeral":true}}`, true},
+		{"marked false", `{"project":{"id":"` + ephemeralProjectID + `","ephemeral":false}}`, false},
+		{"a normal project, which says nothing", `{"project":{"id":"` + ephemeralProjectID + `"}}`, false},
 		{"empty project block", `{"project":{}}`, false},
 		{"an empty but valid lockfile", `{}`, false},
 	}
@@ -58,12 +60,12 @@ func TestAnUnreadableProjectIsNotEphemeral(t *testing.T) {
 
 func TestAnEphemeralProjectStillResolvesItsStorePaths(t *testing.T) {
 	dir := t.TempDir()
-	writeLock(t, dir, `{"project":{"id":"01SESSION","ephemeral":true}}`)
+	writeLock(t, dir, `{"project":{"id":"`+ephemeralProjectID+`","ephemeral":true}}`)
 
-	if ProjectStoreID(dir) != "01SESSION" {
+	if ProjectStoreID(dir) != ephemeralProjectID {
 		t.Errorf("ProjectStoreID = %q, want the lockfile id", ProjectStoreID(dir))
 	}
-	if ASTProjectDirByID("01SESSION") == "" || KnowledgeProjectDirByID("01SESSION") == "" {
+	if ASTProjectDirByID(ephemeralProjectID) == "" || KnowledgeProjectDirByID(ephemeralProjectID) == "" {
 		t.Error("the by-id helpers must still resolve, or nothing can reclaim residue")
 	}
 }

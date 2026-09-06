@@ -361,12 +361,6 @@ func (s *HubService) Install(
 			continue
 		}
 
-		depEntry, err := s.registry.ResolveEntry(ctx, "", dep.ID, dep.Type)
-		if err != nil {
-			s.log().Warn("resolve dependency", "dependency", dep.ID, "parent", realID, "error", err)
-			continue
-		}
-
 		depIDVersioned := dep.ID
 		if dep.Version != "" {
 			depIDVersioned = dep.ID + "@" + dep.Version
@@ -747,7 +741,7 @@ func (s *HubService) UpdateOne(ctx context.Context, entryID string, entryType Ar
 		remoteID = resolvedID
 	}
 
-	entry, err := s.registry.ResolveEntry(ctx, meta.PublisherID, remoteID, entryType)
+	entry, err := s.registry.ResolveEntry(ctx, meta.ProjectID, remoteID, entryType)
 	if err != nil {
 		return err
 	}

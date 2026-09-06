@@ -858,40 +858,30 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 		}
 	}
 
-	if st, err := hub.NewS3Store(ctx, nil, projectCfg); err == nil {
-		var task *output.Task
-		if p != nil {
-			task = p.StartTask("Syncing background events...")
-		}
-		if task != nil {
-			task.Done("Events synced")
-		}
-
-		var reconTask *output.Task
-		if p != nil {
-			reconTask = p.StartTask("Reconciling hub artifacts...")
-		}
-		reg, regErr := hub.NewRegistryManager(ctx)
-		if regErr == nil {
-			if err := hub.ReconcileManagedArtifactsFromDir(reg, wd); err != nil {
-				syncLogError("hub-reconcile", "reconcile: %v", err)
-				if reconTask != nil {
-					reconTask.Fail("Reconcile: %v", err)
-				}
-			} else if reconTask != nil {
-				reconTask.Done("Hub artifacts reconciled")
-			}
-		} else {
-			syncLogError("hub-reconcile", "registry init: %v", regErr)
+	var reconTask *output.Task
+	if p != nil {
+		reconTask = p.StartTask("Reconciling hub artifacts...")
+	}
+	reg, regErr := hub.NewRegistryManager(ctx)
+	if regErr == nil {
+		if err := hub.ReconcileManagedArtifactsFromDir(reg, wd); err != nil {
+			syncLogError("hub-reconcile", "reconcile: %v", err)
 			if reconTask != nil {
-				reconTask.Fail("Registry: %v", regErr)
+				reconTask.Fail("Reconcile: %v", err)
 			}
+		} else if reconTask != nil {
+			reconTask.Done("Hub artifacts reconciled")
 		}
+	} else {
+		syncLogError("hub-reconcile", "registry init: %v", regErr)
+		if reconTask != nil {
+			reconTask.Fail("Registry: %v", regErr)
+		}
+	}
 
-		lockPath := filepath.Join(wd, brand.LockFileName())
-		if err := hub.EnsureGlobalLanguageArtifacts(lockPath); err != nil {
-			syncLogError("hub-lang-global", "ensure global language: %v", err)
-		}
+	lockPath := filepath.Join(wd, brand.LockFileName())
+	if err := hub.EnsureGlobalLanguageArtifacts(lockPath); err != nil {
+		syncLogError("hub-lang-global", "ensure global language: %v", err)
 	}
 
 	if !config.IsModuleDisabled("memory", nil, projectCfg) {

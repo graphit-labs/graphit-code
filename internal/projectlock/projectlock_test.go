@@ -127,17 +127,21 @@ func TestLocalAndHubArtifactsAreToldApart(t *testing.T) {
 		name    string
 		meta    ArtifactMeta
 		isLocal bool
+		isHub   bool
 	}{
-		{"a local import", ArtifactMeta{Origin: OriginLocal, Version: VersionLocal}, true},
-		{"a link to a sibling", ArtifactMeta{Origin: OriginLink, Version: VersionLocal}, true},
-		{"version local with no origin", ArtifactMeta{Version: VersionLocal}, true},
-		{"a hub install", ArtifactMeta{Origin: OriginHub, Version: "1.2.0"}, false},
-		{"a published artifact", ArtifactMeta{Origin: OriginPublish, Version: "1.0.0"}, false},
+		{"a local import", ArtifactMeta{Origin: OriginLocal, Version: VersionLocal}, true, false},
+		{"a link to a sibling", ArtifactMeta{Origin: OriginLink, Version: VersionLocal}, true, false},
+		{"version local with no origin", ArtifactMeta{Version: VersionLocal}, true, false},
+		{"a hub install", ArtifactMeta{Origin: OriginHub, Version: "1.2.0"}, false, true},
+		{"a published artifact", ArtifactMeta{Origin: OriginPublish, Version: "1.0.0"}, false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := c.meta.IsLocal(); got != c.isLocal {
 				t.Errorf("IsLocal = %v, want %v", got, c.isLocal)
+			}
+			if got := c.meta.IsHubInstalled(); got != c.isHub {
+				t.Errorf("IsHubInstalled = %v, want %v", got, c.isHub)
 			}
 		})
 	}

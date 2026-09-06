@@ -123,7 +123,7 @@ func TestAProjectCannotReachAGlobalInstallItNeverClaimed(t *testing.T) {
 }`)
 
 	projectDir := t.TempDir()
-	writeLockfile(t, projectDir, "01PROJECT")
+	writeLockfile(t, projectDir, storeTestProjectID)
 
 	if _, ok := LookupContext(projectDir, KindAST, "demo-ast"); ok {
 		t.Error("a project resolved a globally installed artifact it never claimed")

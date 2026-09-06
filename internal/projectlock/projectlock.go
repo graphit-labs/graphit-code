@@ -72,7 +72,7 @@ func (m *ArtifactMeta) IsHubInstalled() bool {
 		return true
 	}
 	switch m.Origin {
-	case OriginHub, OriginManaged, OriginLink:
+	case OriginHub, OriginManaged:
 		return true
 	}
 	return false

@@ -13,7 +13,7 @@ import (
 func ephemeralWorkspace(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	body := `{"project":{"id":"01SESSION","name":"live-search-01session","ephemeral":true}}`
+	body := `{"project":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"live-search-01arz3ndektsv4rrffq69g5fav","ephemeral":true}}`
 	if err := os.WriteFile(filepath.Join(dir, brand.LockFileName()), []byte(body), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -23,7 +23,7 @@ func ephemeralWorkspace(t *testing.T) string {
 func realProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	body := `{"project":{"id":"01REALPROJECT"}}`
+	body := `{"project":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}}`
 	if err := os.WriteFile(filepath.Join(dir, brand.LockFileName()), []byte(body), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
