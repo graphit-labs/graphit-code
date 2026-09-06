@@ -237,7 +237,7 @@ Task history lives in the authoritative LanceDB tables; changelogs and accepted 
 
 ## Build from source
 
-Source builds require Go 1.26.6+, Node.js 22+, Make, and a C/C++ toolchain. The normal build downloads an immutable, checksum-verified native dependency bundle from [`graphit-labs/graphit-code-libs`](https://github.com/graphit-labs/graphit-code-libs); Rust is needed only for the explicit maintainer command `make fetch-lancedb`.
+Source builds require Go 1.26.6+, Node.js 22+, Make, and a C/C++ toolchain. The normal build downloads an immutable, checksum-verified native dependency bundle from [`graphit-labs/graphit-code-libs`](https://github.com/graphit-labs/graphit-code-libs). That companion repository owns the LanceDB patch and its explicit Rust source-build target.
 
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git

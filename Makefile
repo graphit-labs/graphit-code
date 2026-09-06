@@ -1,4 +1,4 @@
-.PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev native-deps setup-lbug fetch-lancedb lancedb-native build-local lancedb-cgo-env \
+.PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev native-deps setup-lbug lancedb-native build-local \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows lint \
 	   ui-lint ci ci-fast check test test-full test-race require-heavy-test-isolation \
 	   _ci-isolated _ci-fast-isolated _check-isolated _test-full-isolated _test-race-isolated build-windows-native \
@@ -134,16 +134,9 @@ endif
 STRIP_LDFLAGS ?= -s -w
 
 
-LANCEDB_SHA   := fa14ce29c7724354f2cea630a1d3488b56bbd64b
-LANCEDB_REPO  := https://github.com/lancedb/lancedb-go.git
-LANCEDB_PATCH := $(CURDIR)/patches/lancedb-go-main.patch
-LANCEDB_BUILD_ID := $(LANCEDB_SHA) $(shell git hash-object "$(LANCEDB_PATCH)" 2>/dev/null)
-LANCEDB_CACHE ?= /tmp/lancedb-native-cache
+LANCEDB_BUILD_ID := $(LANCEDB_GO_REF) $(LANCEDB_PATCH_GIT_BLOB)
 LANCEDB_RUNTIME_ROOT ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),$($(BRAND_ENV)_GLOBAL_DIR),$(HOME)/.$(BRAND))/runtime
 LANCEDB_RUNTIME_SOURCE ?= $(LANCEDB_RUNTIME_ROOT)/dev
-
-LANCEDB_RUST     := 1.98.0
-LANCEDB_ETHNUM   := 1.5.3
 
 
 LBUG_VERSION := $(LBUG_GO_VERSION)
@@ -407,65 +400,6 @@ define curl_fetch
 	mv "$(2).tmp" "$(2)"
 endef
 
-fetch-lancedb:
-	@command -v cargo >/dev/null 2>&1 || { \
-		echo "✗ cargo not found — the LanceDB native is built from source."; \
-		echo "  Install Rust $(LANCEDB_RUST) or newer: https://rustup.rs"; \
-		echo "  Then re-run. Nothing else in the build needs Rust."; \
-		exit 1; \
-	}
-	@mkdir -p $(LANCEDB_CACHE) $(LANCEDB_LIB_DIR)
-	@if [ ! -d "$(LANCEDB_CACHE)/src/.git" ]; then \
-		echo "→ Cloning lancedb-go…"; \
-		git clone -q $(LANCEDB_REPO) "$(LANCEDB_CACHE)/src"; \
-	fi
-	@cd "$(LANCEDB_CACHE)/src" && \
-		if [ "$$(git rev-parse HEAD)" != "$(LANCEDB_SHA)" ]; then \
-			echo "→ Checking out $(LANCEDB_SHA)…"; \
-			git fetch -q origin $(LANCEDB_SHA) 2>/dev/null || git fetch -q origin; \
-			git checkout -q $(LANCEDB_SHA); \
-			git checkout -q -- rust/Cargo.toml rust/Cargo.lock; \
-		fi
-	@cd "$(LANCEDB_CACHE)/src" && \
-		git checkout -q -- include/lancedb.h rust/Cargo.lock rust/Cargo.toml \
-			rust/src/connection.rs rust/src/data.rs rust/src/index.rs \
-			rust/src/schema_evolve.rs rust/src/table.rs && \
-		git apply --unidiff-zero --check "$(LANCEDB_PATCH)" && \
-		echo "→ Applying Graphit LanceDB binding patch…" && \
-		git apply --unidiff-zero "$(LANCEDB_PATCH)"
-	@cd "$(LANCEDB_CACHE)/src" && \
-		grep -q 'crate-type = \["staticlib", "cdylib"\]' rust/Cargo.toml || { \
-			echo "→ Re-enabling cdylib…"; \
-			sed -i.bak 's/crate-type = \["staticlib"\]/crate-type = ["staticlib", "cdylib"]/' rust/Cargo.toml && \
-			rm -f rust/Cargo.toml.bak; \
-		}
-	@cd "$(LANCEDB_CACHE)/src" && \
-		grep -q 'features = \["aws"\]' rust/Cargo.toml || { \
-			echo "→ Enabling the lancedb aws feature (s3:// support)…"; \
-			sed -i.bak 's/tag = "v0.24.0", default-features = false }/tag = "v0.24.0", default-features = false, features = ["aws"] }/' rust/Cargo.toml && \
-			rm -f rust/Cargo.toml.bak; \
-		}
-	@cd "$(LANCEDB_CACHE)/src/rust" && \
-		grep -q 'version = "$(LANCEDB_ETHNUM)"' Cargo.lock || { \
-			echo "→ Bumping ethnum to $(LANCEDB_ETHNUM)…"; \
-			cargo update -p ethnum --precise $(LANCEDB_ETHNUM) >/dev/null; \
-		}
-	@cd "$(LANCEDB_CACHE)/src/rust" && \
-		echo "→ Building the LanceDB native (this takes minutes on a cold cache)…" && \
-		cargo build --release
-	@set -e; \
-	src="$(LANCEDB_CACHE)/src/rust/target/release"; \
-	case "$$(go env GOOS)" in \
-		darwin)  lib=liblancedb_go.dylib ;; \
-		windows) lib=lancedb_go.dll ;; \
-		*)       lib=liblancedb_go.so ;; \
-	esac; \
-	[ -s "$$src/$$lib" ] || { echo "✗ expected $$lib in $$src"; ls -la "$$src" | head; exit 1; }; \
-	cp -L "$$src/$$lib" "$(LANCEDB_LIB).tmp"; \
-	mv -f "$(LANCEDB_LIB).tmp" "$(LANCEDB_LIB)"; \
-	echo "  ✓ $$lib ($$(du -h $(LANCEDB_LIB_DIR)/$$lib | cut -f1)) → $(LANCEDB_LIB_DIR)/"; \
-	printf '%s\n' '$(LANCEDB_BUILD_ID)' > "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha"
-
 lancedb-native:
 	@current="$$(cat "$(LANCEDB_LIB_DIR)/lancedb_go_build.sha" 2>/dev/null || true)"; \
 	if [ -s "$(LANCEDB_LIB)" ] && [ "$$current" = '$(LANCEDB_BUILD_ID)' ]; then exit 0; fi; \
@@ -485,10 +419,6 @@ lancedb-native:
 	done; \
 	echo "  → Compatible LanceDB native missing; downloading the verified bundle…"; \
 	$(MAKE) --no-print-directory native-deps
-
-lancedb-cgo-env:
-	@echo "export CGO_CFLAGS=\"-I$(LANCEDB_CACHE)/src/include\""
-	@echo "export CGO_LDFLAGS=\"-L$(LANCEDB_CACHE)/src/rust/target/release -llancedb_go\""
 
 fetch-ort-linux:
 	@if [ ! -f $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so ]; then \

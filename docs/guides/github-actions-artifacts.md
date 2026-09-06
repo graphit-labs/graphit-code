@@ -346,12 +346,12 @@ your retention policy no longer needs it.
 
 ## Native build boundary
 
-The workflow installs the latest released Graphit binary and does not clone LanceDB source. Graphit's
-source build remains pinned to one exact `lancedb-go` main commit. The repository carries only
-`patches/lancedb-go-main.patch`, which adds the missing shallow-clone bridge and compatibility
-changes; Git ancestry, fingerprints, Hub manifests, publication, and hydration stay in Graphit's
-own packages. The native build stamp includes both the upstream commit and patch hash, so an older
-cached or machine-global library is not reused for this feature.
+The workflow installs the latest released Graphit binary and does not clone LanceDB source. The
+companion `graphit-code-libs` repository keeps the source build pinned to one exact `lancedb-go`
+main commit and owns the minimal binding patch, which adds the missing shallow-clone bridge and
+compatibility changes. Git ancestry, fingerprints, Hub manifests, publication, and hydration stay
+in Graphit's own packages. The native build stamp includes both the upstream commit and patch hash,
+so an older cached or machine-global library is not reused for this feature.
 
 Install the branch or tag by its direct named version, then run `graphit hub update` after a new push
 to refresh the same channel:

@@ -144,7 +144,7 @@ Source builds require:
 - a C/C++ toolchain for native bindings.
 
 The normal build downloads and verifies an immutable native dependency bundle. Rust is required
-only to rebuild the pinned LanceDB bridge explicitly with `make fetch-lancedb`.
+only in the companion `graphit-code-libs` repository when rebuilding the pinned LanceDB bridge.
 
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git

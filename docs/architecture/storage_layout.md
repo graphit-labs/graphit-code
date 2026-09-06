@@ -242,13 +242,13 @@ The link library itself resolves like every other native this tree consumes — 
 machine-global location already holds, not through per-checkout state. `make lancedb-native` walks
 a provenance-checked cascade. An existing project copy or a library extracted under any
 `~/.<brand>/runtime/<version>/` directory is reused only when its adjacent
-`lancedb_go_build.sha` matches both the pinned `lancedb-go` commit and the hash of
-`patches/lancedb-go-main.patch`; otherwise the exact platform bundle is downloaded from
+`lancedb_go_build.sha` matches both the pinned `lancedb-go` commit and patch identity from
+`native-deps.env`; otherwise the exact platform bundle is downloaded from
 [`graphit-labs/graphit-code-libs`](https://github.com/graphit-labs/graphit-code-libs) and verified by
 its pinned archive digest, internal `SHA256SUMS`, recipe, and platform manifest fields. Launchers
 bundle the provenance stamp beside the library so a compatible release runtime remains reusable by
-a source checkout. The repository does not vendor or fork `lancedb-go`; `make fetch-lancedb` is the
-explicit maintainer path for rebuilding its pinned source and applying Graphit's binding patch.
+a source checkout. The product repository does not vendor or fork `lancedb-go`; the companion
+repository owns the explicit maintainer source-build path and Graphit's binding patch.
 
 ### What identifies a store
 
