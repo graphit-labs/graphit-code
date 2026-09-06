@@ -26,7 +26,7 @@ Graphit separates identity and sharing so one workflow can scale without merging
 | Boundary | Graphit behavior |
 |---|---|
 | Several agents in one project | One Task queue, atomic ownership, fenced mutations, explicit dependencies, and resumable checkpoints. |
-| One person across projects | User memory follows `unit.id`; project memory remains isolated by repository identity. |
+| One person across projects | Authenticated user memory follows the Hub user; anonymous memory is machine-local. Project memory remains isolated by project ULID. |
 | Several repositories on one machine | The ecosystem registry resolves each sibling's own AST and wiki instead of copying its checkout. |
 | Several machines or teammates | Optional S3-compatible storage hosts versioned Hub artifacts and authoritative shared Memory/Task tables. |
 | Several coding assistants | Each adapter writes its native project-local MCP and lifecycle-hook format; the MCP server remains the shared capability surface. |

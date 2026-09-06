@@ -15,8 +15,8 @@ import (
 // WikiDirFor is the compiled wiki of one scope, for a named project.
 //
 // The project matters only for the "project" scope, whose id comes from that
-// project's lockfile. "user" is keyed by the git identity and an imported context by
-// its own name, so both answer the same for every project on the machine.
+// project's lockfile. "user" is keyed by the current authenticated subject or the local-only
+// anonymous identity, and an imported context by its own name.
 func WikiDirFor(projectDir, scope string) string {
 	scopeID := resolveScopeIDIn(projectDir, scope)
 	if scopeID == "" {
@@ -37,18 +37,11 @@ func resolveScopeIDIn(projectDir, scope string) string {
 	case "project":
 		return store.ProjectID(projectDir)
 	case "user":
-		if config.HubS3Config().Configured() {
-			subject, err := hubaccess.TrustedSubject(context.Background())
-			if err != nil {
-				return ""
-			}
-			return subject.UserID
-		}
-		hash, err := UserScopeID()
+		userID, err := UserScopeIDForContext(context.Background())
 		if err != nil {
 			return ""
 		}
-		return hash
+		return userID
 	default:
 		return scope
 	}
@@ -59,7 +52,8 @@ func resolveScopeID(scope string) string {
 	return resolveScopeIDIn(wd, scope)
 }
 
-// MemoryTableURI maps a validated logical scope to its authoritative v2 S3 prefix.
+// MemoryTableURI maps a validated logical scope to its authoritative store. Anonymous user memory
+// is always local, even when Hub S3 is configured.
 func MemoryTableURI(scopePath, localDir string) string {
 	if cfg := config.HubS3Config(); cfg.Configured() {
 		parts := strings.Split(strings.Trim(scopePath, "/"), "/")
@@ -76,6 +70,9 @@ func MemoryTableURI(scopePath, localDir string) string {
 		case "user":
 			if hubaccess.ValidateSubjectID("user", parts[2]) != nil {
 				return ""
+			}
+			if hubaccess.IsAnonymousUserID(parts[2]) {
+				return localDir
 			}
 			prefix = hubaccess.UserMemoryPrefix(parts[2])
 		default:

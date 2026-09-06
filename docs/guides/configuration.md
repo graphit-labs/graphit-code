@@ -101,7 +101,7 @@ explicit model and API key; `ai.embedding.provider=local` is not supported there
 | `ai.cli` | unset | Global compatibility override checked before the normal CLI fallback chain. |
 | `ai.agent_args` | unset | Global arguments appended only to streamed agentic runs with tool use enabled, currently Live Search and Dream. |
 | `ai.agent_args.<binary>` | unset | Global agentic-run arguments for one executable, such as `ai.agent_args.claude`; wins over the generic value. Values split on whitespace, without shell quoting. |
-| `unit.id` | generated ULID | Local installation key for user-scope memory. It is not trusted remote Hub identity. |
+| `unit.id` | generated ULID | Local installation identity for attribution and diagnostics. It does not select user memory and is not trusted remote Hub identity. |
 
 Supported IDE adapters are `antigravity`, `claude`, `codex`, `cursor`, `gemini`, `kiro`, and
 `opencode`. The adapter owns the project-local MCP and lifecycle-hook format; Graphit does not
@@ -175,7 +175,7 @@ The local provider downloads `bge-reranker-base` lazily on first use. Remote def
 | `hub.prefix` | empty unless compiled | Slash-normalized namespace inside the bucket. |
 | `hub.access_key_id` | AWS provider chain | Optional explicit identifier; active only with the secret. |
 | `hub.secret_access_key` | AWS provider chain | Optional explicit secret; active only with the identifier. |
-| `hub.subject.user` | unset | Global deployment identity fallback. If neither transport authentication nor this key establishes a trusted user, remote access is denied. |
+| `hub.subject.user` | unset (`anonymous`) | Global deployment identity fallback. `graphit setup` configures it with `--username`; an empty value selects the teamless anonymous subject. |
 | `hub.subject.teams` | empty | Comma- or semicolon-separated trusted team IDs for the global deployment identity. Project configuration cannot override this identity. |
 | `hub.icebug.reverse_edges` | `true` | Set explicit `false` to omit reverse CSR data from published AST artifacts. |
 | `task.prefix` | `tasks` | Namespace for authoritative Task tables inside `v2/projects/<project-ulid>/`. It changes location; it does not migrate existing tables. |

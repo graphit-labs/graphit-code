@@ -151,8 +151,9 @@ func (m *MemoryService) Close() error { return nil }
 
 func (m *MemoryService) WikiDir() string { return m.wikiDir }
 
-// TableURI is where this scope's store table lives: an `s3://` prefix when a bucket is configured,
-// a local directory when there is not. See MemoryTableURI for why both forms exist.
+// TableURI is where this scope's store table lives: normally an `s3://` prefix when a bucket is
+// configured, otherwise a local directory. Anonymous user memory is always local. See
+// MemoryTableURI for why both forms exist.
 func (m *MemoryService) TableURI() string { return m.resolveTableURI() }
 
 func (m *MemoryService) ScopePrefix() string {

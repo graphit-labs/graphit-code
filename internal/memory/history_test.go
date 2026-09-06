@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 )
 
 func newLocalService(t *testing.T) *MemoryService {
@@ -358,12 +359,9 @@ func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {
 	}
 }
 
-// The user scope follows the unit, which is what makes `unit.id` meaningful: two units keep two
-// user scopes, and setting the same id on two machines makes them one.
-//
-// The identity itself is tested in internal/config — it is not a memory concept.
-func TestUserScopeIDFollowsTheUnit(t *testing.T) {
+func TestLocalUserScopeIsAnonymousAndIndependentOfTheUnit(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 
 	t.Setenv("GRAPHIT_UNIT_ID", "unit-a")
 	a, err := UserScopeID()
@@ -377,13 +375,8 @@ func TestUserScopeIDFollowsTheUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if a == b {
-		t.Error("two different units resolved to the same user scope")
-	}
-	for _, got := range []string{a, b} {
-		if len(got) != 16 || strings.ContainsAny(got, "/@. ") {
-			t.Errorf("UserScopeID = %q, want a 16-character path-safe token", got)
-		}
+	if a != hubaccess.AnonymousUserID || b != hubaccess.AnonymousUserID {
+		t.Fatalf("UserScopeID = %q then %q, want %q", a, b, hubaccess.AnonymousUserID)
 	}
 }
 

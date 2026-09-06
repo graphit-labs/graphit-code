@@ -140,7 +140,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `hub.prefix` | Key prefix inside the Hub bucket | (compiled default) |
 | `hub.access_key_id` | Optional explicit S3 access key; active only with `hub.secret_access_key` | AWS credential-provider chain |
 | `hub.secret_access_key` | Optional explicit S3 secret key; active only with `hub.access_key_id` | AWS credential-provider chain |
-| `hub.subject.user` | Trusted deployment user ID used when transport authentication did not bind a subject to the request context; global configuration only | unset (remote access denied) |
+| `hub.subject.user` | Trusted deployment user ID used when transport authentication did not bind a subject to the request context; `graphit setup --username` writes global configuration only | unset (teamless `anonymous` fallback) |
 | `hub.subject.teams` | Comma- or semicolon-separated trusted team IDs for `hub.subject.user`; global configuration only | empty |
 | `hub.icebug.reverse_edges` | Whether AST artifacts publish a separate reverse CSR for every relationship type. Only explicit `false` disables it. | `true` |
 | `ui.host` | Address on which the unified UI server listens | `127.0.0.1` |
@@ -165,7 +165,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
 | `daemon.activity_window` | Go duration string; how recently a project must have changed to stay supervised. `0` disables parking. | `30m` |
 | `memory.version_retention` | Minimum retention window for authoritative memory table versions | `720h` (30 days) |
-| `unit.id` | Local installation key used to address user-scope memory; never trusted remote Hub identity | generated ULID |
+| `unit.id` | Local installation identity used for attribution and diagnostics; never a user-memory scope or trusted Hub identity | generated ULID |
 | `modules.<name>` | Enable/disable a module (`true`/`false`) | Enabled for core, disabled for opt-in |
 
 The maintained [Configuration Reference](../guides/configuration.md) is the user-facing inventory
@@ -174,8 +174,9 @@ environment controls. This specification defines resolution and implementation b
 
 ### Hub S3 credentials
 
-Interactive `graphit setup` asks for an optional access-key/secret-key pair after
-the Hub bucket settings. A complete pair is written to the **global** config so it
+Interactive `graphit setup` first asks for a username; an empty answer selects `anonymous`, while a
+non-empty valid subject ID is written to the **global** config. It asks for an optional
+access-key/secret-key pair after the Hub bucket settings. A complete pair is written globally so it
 is available to every project on that machine. The secret prompt does not echo on
 an interactive terminal, and `graphit config list` and `graphit config get
 hub.secret_access_key` redact it.

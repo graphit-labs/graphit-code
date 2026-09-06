@@ -820,9 +820,11 @@ revalidated. Graphit does not fall back to a cached positive decision.
 ### Hub lists no projects
 
 An empty result is valid deny-by-default behavior. Check whether any applicable document exists at
-`v2/global/projects.json`, `v2/users/<user-id>/projects.json`, or the subject's
-`v2/teams/<team-id>/projects.json` keys. A missing or empty file contributes no grant from that
-level, and Graphit never creates an implicit global `*` grant.
+`v2/global/projects.json`, `v2/authenticated/projects.json` for a non-anonymous subject,
+`v2/users/<user-id>/projects.json`, or the subject's `v2/teams/<team-id>/projects.json` keys. A
+missing or empty file contributes no grant from that level, and Graphit never creates an implicit
+global `*` grant. Anonymous reads `v2/anonymous/projects.json` instead of authenticated, user, or
+team documents.
 
 Do not solve this by broadening the client's S3 credentials. Add the intended project selectors to
 the control-plane documents and keep data-plane access limited to the resolved project ULIDs.

@@ -65,8 +65,9 @@ separate. See [Storage Layout](../architecture/storage_layout.md).
 ## Setting up private collaboration ecosystems
 
 Use a private AWS S3 bucket or an S3-compatible endpoint such as an internal MinIO
-deployment. Hub v2 carries a global name directory, deny-by-default global/user/team grant
-documents, and project data rooted below immutable ULIDs. Versioned artifacts, events, published
+deployment. Hub v2 carries a global name directory, deny-by-default
+global/anonymous/authenticated/user/team grant documents, and project data rooted below immutable ULIDs.
+Versioned artifacts, events, published
 knowledge, mounted graph/search stores, project memory, and project Tasks remain inside their
 project prefix; user memory remains inside its user prefix.
 
@@ -79,7 +80,8 @@ payload or project file.
 acme-code setup
 ```
 
-Setup collects the bucket, region, endpoint, and optional access/secret pair. A
+Setup collects the username, bucket, region, endpoint, and optional access/secret pair. Empty
+username selects the reserved anonymous subject; `--username` supplies the same answer in scripts. A
 complete pair is written to the global config. Leaving either credential blank
 removes both explicit values and uses the AWS provider chain, which is preferred
 for workload roles and short-lived credentials.

@@ -1,8 +1,7 @@
 package memory
 
 import (
-	"crypto/sha256"
-	"fmt"
+	"context"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,21 +11,25 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 )
 
-// UserScopeID is the id of the `user` memory scope.
-//
-// It hashes the unit identity rather than using it directly, because `unit.id` may be set to
-// anything a person finds memorable — an email, a name — and that value goes into a directory name
-// and an object key. Hashing normalises it to a token that is safe in both, and keeps the same
-// 16-hex-character shape the git-email hash produced.
+// UserScopeID is the id of the current `user` memory scope.
 func UserScopeID() (string, error) {
-	unit, err := config.UnitID()
+	return UserScopeIDForContext(context.Background())
+}
+
+// UserScopeIDForContext resolves an authenticated Hub subject only when S3 is configured. Without
+// S3, or without authentication, user memory belongs to the machine-local anonymous scope.
+func UserScopeIDForContext(ctx context.Context) (string, error) {
+	if !config.HubS3Config().Configured() {
+		return hubaccess.AnonymousUserID, nil
+	}
+	subject, err := hubaccess.TrustedSubject(ctx)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte(unit))
-	return fmt.Sprintf("%x", sum)[:16], nil
+	return subject.UserID, nil
 }
 
 // unitOrEmpty is the identity for a frontmatter field: a write must not fail because the identity

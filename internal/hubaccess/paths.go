@@ -9,7 +9,10 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-const VersionPrefix = "v2"
+const (
+	VersionPrefix   = "v2"
+	AnonymousUserID = "anonymous"
+)
 
 var (
 	projectNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`)
@@ -46,6 +49,11 @@ func ValidateSubjectID(kind, id string) error {
 		return fmt.Errorf("invalid %s ID %q", kind, id)
 	}
 	return nil
+}
+
+// IsAnonymousUserID reports whether userID is the reserved unauthenticated identity.
+func IsAnonymousUserID(userID string) bool {
+	return strings.TrimSpace(userID) == AnonymousUserID
 }
 
 func ProjectRoot(projectID string) string {
@@ -114,8 +122,16 @@ func GlobalProjectsKey() string {
 	return s3store.JoinKey(VersionPrefix, "global", "projects.json")
 }
 
+func AuthenticatedProjectsKey() string {
+	return s3store.JoinKey(VersionPrefix, "authenticated", "projects.json")
+}
+
+func AnonymousProjectsKey() string {
+	return s3store.JoinKey(VersionPrefix, "anonymous", "projects.json")
+}
+
 func UserProjectsKey(userID string) string {
-	if ValidateSubjectID("user", userID) != nil {
+	if IsAnonymousUserID(userID) || ValidateSubjectID("user", userID) != nil {
 		return ""
 	}
 	return s3store.JoinKey(VersionPrefix, "users", userID, "projects.json")
@@ -136,8 +152,9 @@ func BaselinesKey() string {
 	return s3store.JoinKey(VersionPrefix, "registry", "baselines.json")
 }
 
+// UserMemoryPrefix returns no prefix for the anonymous user: its memory is local-only.
 func UserMemoryPrefix(userID string) string {
-	if ValidateSubjectID("user", userID) != nil {
+	if IsAnonymousUserID(userID) || ValidateSubjectID("user", userID) != nil {
 		return ""
 	}
 	return s3store.JoinKey(VersionPrefix, "users", userID, "memory")

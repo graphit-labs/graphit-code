@@ -107,7 +107,7 @@ The knowledge source is the maintained documentation tree plus the root README. 
 
 ### Memory
 
-Project and user memory are independent scopes backed by authoritative LanceDB tables and compiled memory wikis. Project memory belongs to one registered repository identity. User memory follows the user across projects.
+Project and user memory are independent scopes backed by authoritative LanceDB tables and compiled memory wikis. Project memory belongs to one registered repository identity. Authenticated user memory follows the Hub user across projects; anonymous user memory is always machine-local, including when S3 is configured.
 
 ### Task
 
@@ -126,10 +126,11 @@ each project's metadata, artifact registry, payloads, events, memory, and Tasks 
 ULID. The mutable globally unique name is discovery metadata and rename never moves project data.
 Local operation does not require remote storage.
 
-An authenticated subject resolves the union of global, direct-user, and team grants before
-discovery. Exact ULIDs use direct reads; name-prefix and all-project grants are listed in bounded
-pages. Authorization is checked again for exact content and remote mounts. A local Hub cache may
-accelerate these reads, but it is subject-isolated, disposable, and never grants access.
+An authenticated subject resolves the union of global, authenticated, direct-user, and team grants
+before discovery. Anonymous resolves only global and `v2/anonymous/projects.json`. Exact ULIDs use direct
+reads; name-prefix and all-project grants are listed in bounded pages. Authorization is checked
+again for exact content and remote mounts. A local Hub cache may accelerate these reads, but it is
+subject-isolated, disposable, and never grants access.
 
 ### Live Search
 
@@ -152,7 +153,7 @@ See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 
 ## Trust boundaries
 
-- Source and mutable indexes remain local unless an explicit publish or remote configuration is used. With S3 configured, authoritative Memory and Task LanceDB tables live directly at their remote URIs.
+- Source and mutable indexes remain local unless an explicit publish or remote configuration is used. With S3 configured, authoritative project Memory, authenticated-user Memory, and Task LanceDB tables live directly at their remote URIs; anonymous user memory remains local.
 - S3-compatible storage is an optional shared boundary. Application ACL is not sufficient for a
   client with broad bucket credentials; deployments use an authorizing Hub service or temporary
   credentials scoped to `v2/projects/<ULID>/` prefixes.

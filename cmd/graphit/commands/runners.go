@@ -24,7 +24,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -1353,19 +1352,11 @@ func newMemorySvc(userScope bool, stateful ...bool) (*memory.MemoryService, stri
 
 	if userScope {
 		scope = memory.MemoryScopeUser
-		if config.HubS3Config().Configured() {
-			subject, err := hubaccess.TrustedSubject(context.Background())
-			if err != nil {
-				return nil, "", err
-			}
-			scopeID = subject.UserID
-		} else {
-			hash, err := memory.UserScopeID()
-			if err != nil {
-				return nil, "", err
-			}
-			scopeID = hash
+		userID, err := memory.UserScopeID()
+		if err != nil {
+			return nil, "", err
 		}
+		scopeID = userID
 	} else {
 		scope = memory.MemoryScopeProject
 		if len(stateful) > 0 && stateful[0] {

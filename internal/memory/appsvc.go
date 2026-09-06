@@ -1,12 +1,9 @@
 package memory
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/config"
-	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -36,19 +33,11 @@ func (s *MemoryAppService) NewMemorySvc(userScope bool) (*MemoryService, error) 
 
 	if userScope {
 		scope = MemoryScopeUser
-		if config.HubS3Config().Configured() {
-			subject, err := hubaccess.TrustedSubject(context.Background())
-			if err != nil {
-				return nil, err
-			}
-			scopeID = subject.UserID
-		} else {
-			hash, err := UserScopeID()
-			if err != nil {
-				return nil, fmt.Errorf("cannot determine user identity: %w", err)
-			}
-			scopeID = hash
+		userID, err := UserScopeID()
+		if err != nil {
+			return nil, fmt.Errorf("cannot determine user identity: %w", err)
 		}
+		scopeID = userID
 	} else {
 		scope = MemoryScopeProject
 		projectID, err := store.EnsureProjectID(s.projectDir)

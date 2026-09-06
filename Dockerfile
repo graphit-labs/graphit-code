@@ -74,7 +74,7 @@ EOF
 
 USER ${APP_USER}
 RUN <<'EOF' sh -eu
-if ! graphit setup --help 2>&1 | grep -q -- '--hub-bucket'; then
+if ! graphit setup --help 2>&1 | grep -q -- '--username'; then
   echo "" >&2
   echo "This image needs a Graphit Code release whose 'setup' takes a flag per question." >&2
   echo "The installed binary does not: $(graphit --version 2>/dev/null || echo 'version unknown')" >&2
@@ -84,6 +84,7 @@ if ! graphit setup --help 2>&1 | grep -q -- '--hub-bucket'; then
 fi
 
 graphit setup \
+  --username "" \
   --hub-bucket "" \
   --ide "" \
   --cli "" \

@@ -12,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -25,10 +26,11 @@ func newSetupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Configure " + brand.DisplayName + " (hub bucket, default IDE, default CLI)",
+		Short: "Configure " + brand.DisplayName + " (username, hub bucket, default IDE, default CLI)",
 		Long: `Interactive setup for ` + brand.DisplayName + `.
 
 This command configures the essential settings:
+  • Username used for Hub access (empty means anonymous)
   • Hub S3 bucket (where artifacts, the registry and published stores live)
   • Bucket region, and an optional endpoint for S3-compatible servers such as MinIO
   • Default IDE (used when --ide is not explicitly provided)
@@ -51,7 +53,7 @@ silence is the consequence of having answered, not a mode.
 
   # nothing left to ask: local-only hub, so region, endpoint and credentials
   # are never reached, and both providers are local
-  ` + brand.BinName() + ` setup --hub-bucket "" --ide cursor --cli cursor-agent \
+  ` + brand.BinName() + ` setup --username "" --hub-bucket "" --ide cursor --cli cursor-agent \
       --embedding-provider local --rerank-provider local
 
 An empty value is an answer: it clears that key. Omitting the flag entirely
@@ -73,6 +75,14 @@ rather than leaving a half installation reporting success.`,
 			}
 
 			p.Header("Welcome to %s setup", brand.DisplayName)
+
+			currentUsername, _, err := config.GetGlobalConfigValue("hub.subject.user")
+			if err != nil {
+				return fmt.Errorf("reading hub.subject.user: %w", err)
+			}
+			if _, err := answers.username.hubUsername(p, reader, currentUsername); err != nil {
+				return err
+			}
 
 			bucket, err := answers.hubBucket.value(p, reader, "hub bucket name", "hub.bucket",
 				config.HubBucket(), brand.DefaultHubBucket, "leave blank for local-only mode")
@@ -201,6 +211,7 @@ type setupAnswer struct {
 }
 
 type setupAnswers struct {
+	username    setupAnswer
 	hubBucket   setupAnswer
 	hubRegion   setupAnswer
 	hubEndpoint setupAnswer
@@ -222,6 +233,7 @@ type setupAnswers struct {
 
 func (a *setupAnswers) fields() map[string]*setupAnswer {
 	return map[string]*setupAnswer{
+		"username":              &a.username,
 		"hub-bucket":            &a.hubBucket,
 		"hub-region":            &a.hubRegion,
 		"hub-endpoint":          &a.hubEndpoint,
@@ -242,6 +254,7 @@ func (a *setupAnswers) fields() map[string]*setupAnswer {
 func (a *setupAnswers) register(cmd *cobra.Command) {
 	f := cmd.Flags()
 
+	f.String("username", "", "Hub username (empty selects anonymous)")
 	f.String("hub-bucket", "", "Hub S3 bucket (empty value clears it and selects local-only mode)")
 	f.String("hub-region", "", "Hub bucket region (empty value clears it)")
 	f.String("hub-endpoint", "", "S3 endpoint for MinIO and other S3-compatible servers (empty value clears it)")
@@ -259,6 +272,35 @@ func (a *setupAnswers) register(cmd *cobra.Command) {
 	f.String("rerank-provider", "", "Rerank provider ["+rerankProviderChoices+"]")
 	f.String("rerank-model", "", "Rerank model (empty for the provider default)")
 	f.String("rerank-api-key", "", secretFlagUsage("Rerank provider API key", "ai.rerank.api_key"))
+}
+
+func (answer setupAnswer) hubUsername(p *output.Printer, reader *bufio.Reader, current string) (string, error) {
+	current = strings.TrimSpace(current)
+	if !answer.set {
+		if current != "" {
+			p.Detail("Current username", current)
+		}
+		fmt.Print("  Enter username [leave blank for anonymous]: ")
+		raw, _ := reader.ReadString('\n')
+		answer.given = raw
+	}
+
+	username := strings.TrimSpace(answer.given)
+	if username == "" || hubaccess.IsAnonymousUserID(username) {
+		if err := config.UnsetGlobalConfigValue("hub.subject.user"); err != nil {
+			return "", fmt.Errorf("selecting anonymous user: %w", err)
+		}
+		p.StepOK("Username: %s", hubaccess.AnonymousUserID)
+		return hubaccess.AnonymousUserID, nil
+	}
+	if err := hubaccess.ValidateSubjectID("user", username); err != nil {
+		return "", err
+	}
+	if err := config.SetGlobalConfigValue("hub.subject.user", username); err != nil {
+		return "", fmt.Errorf("saving hub.subject.user: %w", err)
+	}
+	p.StepOK("Username: %s", username)
+	return username, nil
 }
 
 func secretFlagUsage(label, configKey string) string {

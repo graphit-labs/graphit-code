@@ -121,6 +121,93 @@ func TestSetupAnswerValueClearsOnAnExplicitlyEmptyFlag(t *testing.T) {
 	}
 }
 
+func TestSetupUsernameFlagStoresAValidatedHubSubject(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	p := output.NewPrinter("")
+
+	got, err := answered("  alice  ").hubUsername(p, noPrompts(t), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "alice" {
+		t.Fatalf("username = %q, want alice", got)
+	}
+	if value, _, _ := config.GetGlobalConfigValue("hub.subject.user"); value != "alice" {
+		t.Fatalf("hub.subject.user = %q, want alice", value)
+	}
+}
+
+func TestSetupEmptyUsernameSelectsAnonymousAndClearsTheSubject(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	p := output.NewPrinter("")
+	if err := config.SetGlobalConfigValue("hub.subject.user", "alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, answer := range map[string]setupAnswer{
+		"flag":   answered(""),
+		"prompt": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := config.SetGlobalConfigValue("hub.subject.user", "alice"); err != nil {
+				t.Fatal(err)
+			}
+			reader := noPrompts(t)
+			if name == "prompt" {
+				reader = bufio.NewReader(strings.NewReader("\n"))
+			}
+			got, err := answer.hubUsername(p, reader, "alice")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != "anonymous" {
+				t.Fatalf("username = %q, want anonymous", got)
+			}
+			if value, ok, _ := config.GetGlobalConfigValue("hub.subject.user"); ok && value != "" {
+				t.Fatalf("hub.subject.user was not cleared: %q", value)
+			}
+		})
+	}
+}
+
+func TestSetupEmptyUsernameFlagIsNonInteractive(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	if err := config.SetGlobalConfigValue("hub.subject.user", "alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	var answers setupAnswers
+	cmd := &cobra.Command{Use: "setup"}
+	answers.register(cmd)
+	if err := cmd.Flags().Parse([]string{"--username", ""}); err != nil {
+		t.Fatal(err)
+	}
+	answers.bind(cmd)
+
+	got, err := answers.username.hubUsername(output.NewPrinter(""), noPrompts(t), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "anonymous" {
+		t.Fatalf("username = %q, want anonymous", got)
+	}
+}
+
+func TestSetupRejectsAnInvalidUsernameBeforeChangingConfig(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	p := output.NewPrinter("")
+	if err := config.SetGlobalConfigValue("hub.subject.user", "alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := answered("../../mallory").hubUsername(p, noPrompts(t), "alice"); err == nil {
+		t.Fatal("invalid username was accepted")
+	}
+	if value, _, _ := config.GetGlobalConfigValue("hub.subject.user"); value != "alice" {
+		t.Fatalf("invalid username changed hub.subject.user to %q", value)
+	}
+}
+
 // An unsupplied answer must still ask. This is the half of the contract that a container build
 // never exercises, and it is the half that would break every human install if it regressed.
 func TestSetupAnswerValueStillPromptsWhenNoFlagWasSupplied(t *testing.T) {

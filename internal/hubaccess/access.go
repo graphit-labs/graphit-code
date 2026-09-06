@@ -41,7 +41,7 @@ func TrustedSubject(ctx context.Context) (Subject, error) {
 	}
 	userID := strings.TrimSpace(config.ResolveConfig("hub.subject.user", nil, nil))
 	if userID == "" {
-		return Subject{}, ErrUnauthenticated
+		return Subject{UserID: AnonymousUserID}, nil
 	}
 	teamsValue := config.ResolveConfig("hub.subject.teams", nil, nil)
 	teams := strings.FieldsFunc(teamsValue, func(r rune) bool { return r == ',' || r == ';' })
@@ -52,6 +52,9 @@ func normalizeSubject(subject Subject) (Subject, error) {
 	subject.UserID = strings.TrimSpace(subject.UserID)
 	if err := ValidateSubjectID("user", subject.UserID); err != nil {
 		return Subject{}, fmt.Errorf("%w: %v", ErrUnauthenticated, err)
+	}
+	if IsAnonymousUserID(subject.UserID) {
+		return Subject{UserID: AnonymousUserID}, nil
 	}
 	seen := make(map[string]struct{}, len(subject.TeamIDs))
 	teams := make([]string, 0, len(subject.TeamIDs))
@@ -109,8 +112,13 @@ func Resolve(ctx context.Context, reader ObjectReader, subject Subject) (Grants,
 	if err != nil {
 		return Grants{}, err
 	}
-	keys := make([]string, 0, len(subject.TeamIDs)+2)
-	keys = append(keys, GlobalProjectsKey(), UserProjectsKey(subject.UserID))
+	keys := make([]string, 0, len(subject.TeamIDs)+3)
+	keys = append(keys, GlobalProjectsKey())
+	if IsAnonymousUserID(subject.UserID) {
+		keys = append(keys, AnonymousProjectsKey())
+	} else {
+		keys = append(keys, AuthenticatedProjectsKey(), UserProjectsKey(subject.UserID))
+	}
 	for _, teamID := range subject.TeamIDs {
 		keys = append(keys, TeamProjectsKey(teamID))
 	}

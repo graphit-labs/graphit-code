@@ -40,8 +40,10 @@ than writing them to global configuration. The complete branch/tag workflow, inc
 embedding credentials and noninteractive setup, is documented in
 [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md).
 
-`graphit setup` asks for the access key and secret only when a bucket was
-provided. The secret prompt does not echo input. A complete pair is saved in the
+`graphit setup` asks for the Hub username first; an empty answer selects the teamless `anonymous`
+fallback. The same answer can be supplied as `--username`, including `--username ""`. Setup asks
+for the access key and secret only when a bucket was provided. The secret prompt does not echo
+input. A complete pair is saved in the
 global configuration and is used by all S3-backed consumers, including the Hub,
 memory publication, LanceDB/object-store access, and LadybugDB.
 
@@ -102,8 +104,9 @@ immutable project ULID and resolves the mutable globally unique name through a s
 directory. See [Project Identity](../specs/project_identity.md).
 
 A trusted authentication boundary supplies `user_id` and `team_ids`. Graphit then unions the
-applicable global, user, and team project grants. Missing grant files contribute no access and an
-unavailable or invalid authorization backend fails closed. A shared MCP bearer key controls access
+applicable global, authenticated, user, and team project grants. The `anonymous` subject instead
+reads only global and `v2/anonymous/projects.json`. Missing grant files contribute no access and an unavailable or invalid
+authorization backend fails closed. A shared MCP bearer key controls access
 to the endpoint but does not distinguish users; CORS does neither. Multi-user deployments therefore
 need an authenticated proxy/identity adapter and a Hub service or temporary S3 credentials scoped
 to authorized `v2/projects/<ULID>/` prefixes. See

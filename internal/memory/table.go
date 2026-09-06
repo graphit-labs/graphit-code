@@ -183,21 +183,24 @@ func authorizeMemoryURI(ctx context.Context, uri string) error {
 		return fmt.Errorf("remote memory URI is outside the configured Hub")
 	}
 	key := strings.TrimPrefix(parsed.Path, "/")
-	objects, err := s3store.New(ctx, cfg)
-	if err != nil {
-		return err
-	}
 	projectRoot := s3store.JoinKey(cfg.Prefix, hubaccess.VersionPrefix, "projects") + "/"
 	if strings.HasPrefix(key, projectRoot) {
 		projectID := strings.SplitN(strings.TrimPrefix(key, projectRoot), "/", 2)[0]
 		if key != s3store.JoinKey(cfg.Prefix, hubaccess.ProjectMemoryPrefix(projectID)) {
 			return fmt.Errorf("remote memory URI is not a project memory prefix")
 		}
+		objects, err := s3store.New(ctx, cfg)
+		if err != nil {
+			return err
+		}
 		return hubaccess.AuthorizeProject(ctx, objects, projectID)
 	}
 	userRoot := s3store.JoinKey(cfg.Prefix, hubaccess.VersionPrefix, "users") + "/"
 	if strings.HasPrefix(key, userRoot) {
 		userID := strings.SplitN(strings.TrimPrefix(key, userRoot), "/", 2)[0]
+		if hubaccess.IsAnonymousUserID(userID) {
+			return fmt.Errorf("anonymous user memory is local-only")
+		}
 		if key != s3store.JoinKey(cfg.Prefix, hubaccess.UserMemoryPrefix(userID)) {
 			return fmt.Errorf("remote memory URI is not a user memory prefix")
 		}

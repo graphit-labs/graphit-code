@@ -154,7 +154,7 @@ See [Configuration Module](config_module.md) for precedence and the full key lis
 
 On `graphit sync`, the Hub:
 
-1. authenticates the subject, resolves global/user/team grants, and reads only authorized S3
+1. authenticates the subject, resolves global/anonymous-or-authenticated/user/team grants, and reads only authorized S3
    metadata;
 2. verifies payloads and re-installs missing or changed files;
 3. reinjects managed rule blocks into configured IDE targets;
@@ -212,8 +212,9 @@ are retained until explicitly retracted. See
 unattended named-channel workflow.
 
 Memory is mutable and multi-writer, so it is not a versioned Hub artifact. Project memory uses
-`v2/projects/<ULID>/memory/`; user memory uses `v2/users/<user-id>/memory/`. Both follow the
-direct-write semantics in [Memory Module](memory_module.md).
+`v2/projects/<ULID>/memory/`; authenticated user memory uses `v2/users/<user-id>/memory/`. Anonymous
+user memory is always local and Graphit rejects that user's S3 memory prefix, even if objects already
+exist there. All scopes follow the direct-write semantics in [Memory Module](memory_module.md).
 
 Task is also mutable and multi-writer. Its authoritative LanceDB database uses
 `v2/projects/<ULID>/<task.prefix>/`, with scheduler leases and fenced task revisions described in
@@ -221,11 +222,14 @@ Task is also mutable and multi-writer. Its authoritative LanceDB database uses
 
 ## Security, discovery, and cache behavior
 
-- A trusted subject supplies a user ID and team IDs. Request parameters, CORS, `unit.id`, and a
-  shared daemon bearer key are not user identity.
-- Effective project visibility is the union of `v2/global/projects.json`, the user's projects file,
-  and one `v2/teams/<team-id>/projects.json` file per team. Missing files contribute no grant; invalid or unavailable access
-  state fails closed.
+- A trusted subject supplies a user ID and team IDs. Without one, Graphit uses the reserved,
+  teamless `anonymous` subject. Request parameters, CORS, `unit.id`, and a shared daemon bearer key
+  are not user identity.
+- Effective project visibility for a non-anonymous subject is the union of
+  `v2/global/projects.json`, `v2/authenticated/projects.json`, the user's projects file, and one
+  `v2/teams/<team-id>/projects.json` file per team. Anonymous instead reads only global and
+  `v2/anonymous/projects.json`.
+  Missing files contribute no grant; invalid or unavailable access state fails closed.
 - List and search are paginated and ACL-filtered. Exact ULIDs use direct reads and name-prefix
   selectors list only the matching portion of the global name directory.
 - Authorization protects exact lookup, content, install, update, mounts, events, memory, Tasks,

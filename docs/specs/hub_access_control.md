@@ -10,8 +10,8 @@ tags: [hub, acl, authorization, discovery, s3, cache]
 # Hub Access Control
 
 The project ULID is the atomic authorization unit. Hub discovery and every data operation are
-deny-by-default: an authenticated subject receives no project access unless an explicit global,
-user, or team document grants it.
+deny-by-default: a subject receives no project access unless an explicit global,
+anonymous-or-authenticated, user, or team document grants it.
 
 This contract controls Graphit behavior. A client with unrestricted bucket credentials can bypass
 application checks, so a production deployment must also route data through an authorizing Hub
@@ -36,7 +36,13 @@ multi-user selective authorization.
 Transport authentication binds the subject directly to the request context. A single-user or
 workload deployment may instead set the global-only `hub.subject.user` and `hub.subject.teams`
 settings (or their environment equivalents). They are never resolved from project configuration or
-request input. If neither source exists, remote operations fail closed.
+request input. If neither source exists, Graphit uses the reserved `anonymous` subject with no team
+memberships. Anonymous discovery reads only the global and `v2/anonymous/projects.json` grant
+documents, so absent documents grant nothing.
+
+The anonymous identity is least-privileged and cannot carry team memberships. Its user memory is
+always machine-local, even when Hub S3 is configured; Graphit never reads or writes
+`v2/users/anonymous/memory/`.
 
 ## Grant documents
 
@@ -44,13 +50,17 @@ The resolver reads:
 
 ```text
 v2/global/projects.json
+v2/anonymous/projects.json      # anonymous subject only
+v2/authenticated/projects.json  # authenticated subjects only
 v2/users/<user-id>/projects.json
 v2/teams/<team-id>/projects.json
 ```
 
-For a subject in `n` teams, this is one global read, one user read, and `n` parallel team reads:
-`n + 2` object reads independent of the total number of projects. Effective access is the union of
-all valid selectors.
+For an authenticated subject in `n` teams, this is one global read, one authenticated read, one
+user read, and `n` parallel team reads: `n + 3` object reads independent of the total number of
+projects. Effective access is the union of all valid selectors. The anonymous subject never reads
+`v2/authenticated/projects.json` or a user document; it reads only global and
+`v2/anonymous/projects.json`.
 
 A missing or empty `projects.json` contributes no access from that level. It does not cancel grants
 from another level. If every applicable document is missing or empty, the subject has no access.

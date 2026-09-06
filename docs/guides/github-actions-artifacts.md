@@ -81,8 +81,8 @@ Add these environment variables:
 
 The publisher first reads the repository's immutable project ULID from `graphit.lock.json`. Its S3
 principal should be limited to `v2/projects/<that-ulid>/`, plus the exact conditional name-registry
-operation required to register or rename that project. It must not write global, user, or team ACL
-documents and should not list unrelated project prefixes. Branch publication preserves Lance data
+operation required to register or rename that project. It must not write global, anonymous,
+authenticated, user, or team ACL documents and should not list unrelated project prefixes. Branch publication preserves Lance data
 and commit manifests while mirroring the remaining artifact files; tag publication replaces its
 compact snapshot exactly. This self-contained example uses S3 credentials as GitHub environment
 secrets, but an OIDC workload role with the same prefix restriction is preferred.
@@ -207,6 +207,7 @@ jobs:
         run: |
           set -euo pipefail
           graphit setup \
+            --username "${GRAPHIT_HUB_SUBJECT_USER}" \
             --hub-bucket "${GRAPHIT_HUB_BUCKET}" \
             --hub-region "${GRAPHIT_HUB_REGION:-}" \
             --hub-endpoint "${GRAPHIT_HUB_ENDPOINT:-}" \

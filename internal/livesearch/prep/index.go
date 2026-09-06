@@ -49,7 +49,7 @@ func reportGraphs(ws string, progress func(string)) {
 }
 
 func prepareUserMemory(ws string, progress func(string)) {
-	hash, err := memory.UserScopeID()
+	userID, err := memory.UserScopeID()
 	if err != nil {
 		progress("no user memory available: " + err.Error())
 		return
@@ -60,7 +60,7 @@ func prepareUserMemory(ws string, progress func(string)) {
 		return
 	}
 
-	svc := memory.NewMemoryService(memory.MemoryScopeUser, hash, store)
+	svc := memory.NewMemoryService(memory.MemoryScopeUser, userID, store)
 	if err := svc.EnsureInitialised(); err != nil {
 		progress("the user memory could not be opened: " + err.Error())
 		return

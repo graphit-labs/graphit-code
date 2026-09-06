@@ -195,8 +195,8 @@ func WikiEmbedTargets(projectDir string, _ *slog.Logger) []wiki.EmbedTarget {
 	if projectID := projectIDOf(projectDir); projectID != "" {
 		targets = append(targets, wiki.EmbedTarget{Dir: memory.MemoryWikiGlobalDir("project", projectID)})
 	}
-	if userHash, err := memory.UserScopeID(); err == nil && userHash != "" {
-		targets = append(targets, wiki.EmbedTarget{Dir: memory.MemoryWikiGlobalDir("user", userHash)})
+	if userID, err := memory.UserScopeID(); err == nil && userID != "" {
+		targets = append(targets, wiki.EmbedTarget{Dir: memory.MemoryWikiGlobalDir("user", userID)})
 	}
 	return targets
 }

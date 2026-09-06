@@ -10,7 +10,8 @@ Memory has two primary scopes:
 
 - `project`: shared architectural facts, workflows, and team conventions, keyed by the project's
   ULID;
-- `user`: personal preferences and workstation conventions, keyed by the user identity hash.
+- `user`: personal preferences and workstation conventions, keyed by the authenticated Hub user or
+  by the reserved `anonymous` identity.
 
 Named imported memory contexts use the same table schema. Every scope resolves to exactly one
 authoritative table:
@@ -21,7 +22,8 @@ local-only mode:
 
 S3 mode:
   project: s3://<bucket>/<hub.prefix>/v2/projects/<project-ulid>/memory/
-  user:    s3://<bucket>/<hub.prefix>/v2/users/<user-id>/memory/
+  authenticated user: s3://<bucket>/<hub.prefix>/v2/users/<user-id>/memory/
+  anonymous user:     ~/.graphit/memory-table/memory-user-anonymous/
 
 local query projection:
   ~/.graphit/wiki/memory/<scope>/<id>/index.lance/
@@ -33,11 +35,13 @@ Nothing is copied into a project's `.graphit` directory. See
 ## Optional S3 backend
 
 Memory shares the Hub's S3 configuration; there is no memory-specific repository or bucket key.
-When `hub.bucket` is configured, LanceDB opens the scope directly at its `s3://` URI. Otherwise the
-same schema and operations run against the local table directory.
+When `hub.bucket` is configured, LanceDB opens project and authenticated-user scopes directly at
+their `s3://` URIs. Otherwise the same schema and operations run against the local table directory.
 
 Project memory is authorized as part of the enclosing project ULID. User memory is authorized by
-the trusted user subject; `unit.id` is a local scope key and does not authenticate a remote user.
+the trusted user subject. Without authentication, the scope ID is `anonymous` and its authoritative
+table remains local regardless of S3 configuration. `unit.id` neither selects the user-memory scope
+nor authenticates a remote user.
 Every remote operation follows [Hub Access Control](hub_access_control.md), and cached Hub metadata
 cannot authorize a memory read or mutation.
 

@@ -11,7 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -205,18 +204,11 @@ func memoryScopeFor(ctx context.Context, userScope bool, projectDir string) (mem
 	}
 
 	if userScope {
-		if config.HubS3Config().Configured() {
-			subject, err := hubaccess.TrustedSubject(ctx)
-			if err != nil {
-				return "", "", redirected, err
-			}
-			return memory.MemoryScopeUser, subject.UserID, redirected, nil
-		}
-		hash, err := memory.UserScopeID()
+		userID, err := memory.UserScopeIDForContext(ctx)
 		if err != nil {
 			return "", "", redirected, fmt.Errorf("cannot determine user identity: %w", err)
 		}
-		return memory.MemoryScopeUser, hash, redirected, nil
+		return memory.MemoryScopeUser, userID, redirected, nil
 	}
 
 	if projectDir == "" {

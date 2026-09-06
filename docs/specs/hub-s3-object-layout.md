@@ -51,9 +51,15 @@ v2/
     rules/<module>.md
     rules/<module>_skill.md
 
+  anonymous/
+    projects.json
+
+  authenticated/
+    projects.json
+
   users/<user-id>/
     projects.json
-    memory/...
+    memory/...  # authenticated users only; anonymous memory is always local
 
   teams/<team-id>/
     projects.json
@@ -107,8 +113,8 @@ accept only an active name whose project document agrees. No step moves `v2/proj
 
 ## Access documents
 
-`v2/global/projects.json`, `v2/users/<user-id>/projects.json`, and
-`v2/teams/<team-id>/projects.json` share this shape:
+`v2/global/projects.json`, `v2/anonymous/projects.json`, `v2/authenticated/projects.json`,
+`v2/users/<user-id>/projects.json`, and `v2/teams/<team-id>/projects.json` share this shape:
 
 ```json
 {
@@ -121,7 +127,9 @@ accept only an active name whose project document agrees. No step moves `v2/proj
 }
 ```
 
-A missing or empty document contributes no grant from that level. Unknown versions and malformed
+A missing or empty document contributes no grant from that level. Authenticated subjects read the
+authenticated and exact-user documents; the reserved `anonymous` subject reads the anonymous
+document and never uses the `users/` namespace. Unknown versions and malformed
 selectors fail closed. ACL objects are control-plane inputs, never project payloads; their complete
 evaluation contract is in [Hub Access Control](hub_access_control.md).
 
@@ -195,10 +203,12 @@ v2/projects/<ULID>/memory/...
 v2/projects/<ULID>/<task.prefix>/...
 ```
 
-`task.prefix` defaults to `tasks` and remains the configurable final segment. User memory remains
-under `v2/users/<user-id>/memory/...`. These are mutable multi-writer LanceDB
-stores, not versioned artifacts. Their table schemas, revisions, leases, and concurrency rules stay
-owned by the Memory and Task module specifications.
+`task.prefix` defaults to `tasks` and remains the configurable final segment. Authenticated user
+memory remains under `v2/users/<user-id>/memory/...`. The reserved `anonymous` subject may have
+`v2/anonymous/projects.json` grants, but its memory is always local and Graphit never creates
+or opens `v2/users/anonymous/memory/`. Remote memory and Task tables are mutable multi-writer
+LanceDB stores, not versioned artifacts. Their table schemas, revisions, leases, and concurrency
+rules stay owned by the Memory and Task module specifications.
 
 Events are append-only objects below
 `v2/projects/<ULID>/events/<artifact-type>/<event-ulid>_<action>.json`. The project key and any
@@ -217,7 +227,8 @@ mirror and `~/.<brand>/hub.registry.json` authority are removed.
 |---|---|
 | `hub.bucket` unset | Local-only behavior where supported; remote Hub operations report not configured |
 | ACL document absent | No grant from that level |
-| Trusted subject unavailable | Deny remote discovery and access |
+| Authenticated subject unavailable | Use the teamless `anonymous` subject; missing global and anonymous grants deny project access |
+| Anonymous user memory requested with S3 configured | Use the local `memory-user-anonymous` table; never address an S3 memory prefix |
 | ACL invalid or authorization backend unavailable | Fail closed; do not use a cached positive decision |
 | Name already reserved | Registration or rename fails without changing the project ULID |
 | Name record and project metadata disagree | Integrity error; do not resolve the name |

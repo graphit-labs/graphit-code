@@ -82,7 +82,7 @@ func listMemoriesByRelevanceIn(projectDir, scope string, mandatory bool) ([]Impo
 		return nil, nil
 	}
 	ctx := context.Background()
-	if cfg := config.HubS3Config(); cfg.Configured() {
+	if cfg := config.HubS3Config(); strings.HasPrefix(uri, "s3://") {
 		objects, err := s3store.New(ctx, cfg)
 		if err != nil {
 			return nil, err

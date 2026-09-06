@@ -56,7 +56,7 @@ graphit setup --ide cursor
 
 # nothing left to ask: a local-only hub, so region, endpoint and credentials are
 # never reached, and both providers are local
-graphit setup --hub-bucket "" --ide cursor --cli cursor-agent \
+graphit setup --username "" --hub-bucket "" --ide cursor --cli cursor-agent \
   --embedding-provider local --rerank-provider local
 ```
 
@@ -68,6 +68,7 @@ passing neither credential flag leaves a stored pair alone.
 
 | Flag | Sets | Notes |
 |---|---|---|
+| `--username <string>` | `hub.subject.user` | Empty or `anonymous` selects the teamless anonymous fallback |
 | `--hub-bucket <string>` | `hub.bucket` | Empty selects local-only mode, which also skips the region, endpoint and credential questions |
 | `--hub-region <string>` | `hub.region` | |
 | `--hub-endpoint <string>` | `hub.endpoint` | For MinIO and other S3-compatible servers |
@@ -93,7 +94,9 @@ provider, a failed model download both fail the command rather than leaving a ha
 reporting success. See [Run as a Server in a Container](container.md) for a complete scripted
 invocation.
 
-When a Hub bucket is entered, setup optionally asks for an S3 access key and secret. A
+Setup first asks for the Hub username. An empty answer selects `anonymous` and removes a previously
+stored `hub.subject.user`; a non-empty answer is validated and stored globally. When a Hub bucket is
+entered, setup optionally asks for an S3 access key and secret. A
 complete pair is saved globally; leaving either prompt blank removes both explicit keys
 and keeps the AWS SDK provider chain active. The secret is not echoed, but it is stored as
 plain text in the owner-only global config file. Prefer profiles or workload roles when

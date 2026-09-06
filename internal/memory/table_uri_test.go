@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -20,6 +22,79 @@ func TestMemoryTableURIRemoteFormCarriesBucketAndPrefix(t *testing.T) {
 	if got != want {
 		t.Errorf("MemoryTableURI = %q, want %q", got, want)
 	}
+}
+
+func TestAnonymousUserMemoryIsLocalEvenWhenS3IsConfigured(t *testing.T) {
+	t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
+	t.Setenv("GRAPHIT_HUB_PREFIX", "team-a")
+
+	local := filepath.Join(t.TempDir(), "memory-user-anonymous")
+	if got := MemoryTableURI("memory/user/"+hubaccess.AnonymousUserID, local); got != local {
+		t.Fatalf("anonymous MemoryTableURI = %q, want local dir %q", got, local)
+	}
+	if got := TableURIFor("user", hubaccess.AnonymousUserID); got != store.MemoryTableDir("user", hubaccess.AnonymousUserID) {
+		t.Fatalf("anonymous TableURIFor = %q, want local table directory", got)
+	}
+	if got := hubaccess.UserMemoryPrefix(hubaccess.AnonymousUserID); got != "" {
+		t.Fatalf("anonymous S3 memory prefix = %q, want none", got)
+	}
+}
+
+func TestAnonymousUserMemoryRejectsAHandcraftedS3URI(t *testing.T) {
+	t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
+	t.Setenv("GRAPHIT_HUB_PREFIX", "team-a")
+
+	err := authorizeMemoryURI(context.Background(), "s3://acme-hub/team-a/v2/users/anonymous/memory")
+	if err == nil {
+		t.Fatal("anonymous S3 memory URI was authorized")
+	}
+}
+
+func TestUserScopeIDUsesAuthenticationOnlyForS3(t *testing.T) {
+	t.Run("local mode stays anonymous", func(t *testing.T) {
+		t.Setenv("GRAPHIT_HUB_BUCKET", "")
+		t.Setenv("GRAPHIT_HUB_PREFIX", "")
+		t.Setenv("GRAPHIT_HUB_SUBJECT_USER", "alice")
+		got, err := UserScopeID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != hubaccess.AnonymousUserID {
+			t.Fatalf("UserScopeID = %q, want %q", got, hubaccess.AnonymousUserID)
+		}
+	})
+
+	t.Run("unauthenticated S3 mode stays anonymous and local", func(t *testing.T) {
+		t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
+		t.Setenv("GRAPHIT_HUB_PREFIX", "")
+		t.Setenv("GRAPHIT_HUB_SUBJECT_USER", "")
+		got, err := UserScopeID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != hubaccess.AnonymousUserID {
+			t.Fatalf("UserScopeID = %q, want %q", got, hubaccess.AnonymousUserID)
+		}
+		if uri := TableURIFor("user", got); uri != store.MemoryTableDir("user", hubaccess.AnonymousUserID) {
+			t.Fatalf("anonymous table URI = %q, want local table directory", uri)
+		}
+	})
+
+	t.Run("authenticated S3 mode uses the remote user", func(t *testing.T) {
+		t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
+		t.Setenv("GRAPHIT_HUB_PREFIX", "")
+		t.Setenv("GRAPHIT_HUB_SUBJECT_USER", "alice")
+		got, err := UserScopeID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "alice" {
+			t.Fatalf("UserScopeID = %q, want alice", got)
+		}
+		if uri := TableURIFor("user", got); uri != "s3://acme-hub/v2/users/alice/memory" {
+			t.Fatalf("authenticated table URI = %q", uri)
+		}
+	})
 }
 
 // With no bucket the table is local. This is configuration, not a fallback: one store, one schema,

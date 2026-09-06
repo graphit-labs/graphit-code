@@ -219,8 +219,9 @@ based on its scope:
 
 Hub knowledge artifacts provide pre-built documentation for external libraries and frameworks. Here is the complete lifecycle:
 
-The transport first establishes a trusted subject and resolves global, user, and team project
-grants. Every step below operates only within that authorized project set. Discovery caches may
+The transport first establishes a trusted subject and resolves global, authenticated, user, and
+team project grants; anonymous instead resolves global and `v2/anonymous/projects.json`. Every step below operates only
+within that authorized project set. Discovery caches may
 avoid repeated metadata transfer, but they do not authorize details, installation, search, or page
 reads.
 
