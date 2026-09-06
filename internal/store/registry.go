@@ -43,25 +43,17 @@ func (r ContextRecord) IsHub() bool {
 // a sibling project's, reached in place.
 func (r ContextRecord) IsLink() bool { return r.Origin == projectlock.OriginLink }
 
-// ContextNameFor is the name a lockfile entry is known by.
-//
-// A Hub artifact published by a project is named after that project, because that is
-// what keys its store; one published outside any project falls back to the artifact ID,
-// or its store would be built somewhere no lookup could name.
-func ContextNameFor(artifactID, projectID string) string {
-	if projectID != "" {
-		return projectID
-	}
-	return artifactID
-}
-
 func lockPathFor(projectDir string) string {
 	return filepath.Join(projectDir, brand.LockFileName())
 }
 
 func recordFrom(projectDir, artifactID string, meta *projectlock.ArtifactMeta) ContextRecord {
+	name := artifactID
+	if meta.IsHubInstalled() {
+		name = meta.ProjectID
+	}
 	return ContextRecord{
-		Name:       ContextNameFor(artifactID, meta.ProjectID),
+		Name:       name,
 		ArtifactID: artifactID,
 		Version:    meta.Version,
 		Origin:     meta.Origin,
@@ -89,6 +81,9 @@ func ListContexts(projectDir, kind string) map[string]ContextRecord {
 			continue
 		}
 		rec := recordFrom(projectDir, artifactID, meta)
+		if rec.Name == "" {
+			continue
+		}
 		out[rec.Name] = rec
 	}
 	return out
@@ -226,7 +221,7 @@ func RemoveContext(projectDir, kind, name string) error {
 			continue
 		}
 		if artifactID == name || SanitizeName(artifactID) == SanitizeName(name) ||
-			ContextNameFor(artifactID, meta.ProjectID) == name {
+			recordFrom(projectDir, artifactID, meta).Name == name {
 			key = artifactID
 			break
 		}

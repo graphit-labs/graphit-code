@@ -24,6 +24,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -226,6 +227,13 @@ func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 
 func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cluster string, clusterPaths []string, noSource bool, grammar string) error {
 	p := output.NewPrinter("")
+	projectDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if _, err := store.EnsureASTProjectDir(projectDir); err != nil {
+		return fmt.Errorf("creating project identity: %w", err)
+	}
 
 	clusterPathMap := make(map[string]string)
 	for _, cp := range clusterPaths {
@@ -1094,7 +1102,10 @@ func openKnowledgeForRead(ctx context.Context, contextName string) (*wiki.WikiDB
 			if err != nil {
 				return nil, "", fmt.Errorf("opening Hub store: %w", err)
 			}
-			mount, ok := st.MountedWikiFor(wd, contextName)
+			mount, ok, err := st.MountedWikiFor(ctx, wd, contextName)
+			if err != nil {
+				return nil, "", err
+			}
 			if !ok {
 				return nil, "", fmt.Errorf("knowledge context %q is a Hub artifact, but its object store is not configured", contextName)
 			}
@@ -1185,7 +1196,11 @@ func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, rese
 	}
 	task := p.StartTask("Indexing %s into knowledge wiki...", target)
 
-	wikiDir := knowledge.WikiDir()
+	wikiDir, err := store.EnsureKnowledgeProjectDir(root)
+	if err != nil {
+		task.Fail("Project identity failed: %v", err)
+		return fmt.Errorf("creating project identity: %w", err)
+	}
 	cfg := knowledge.IndexConfig{
 		Workers:    workers,
 		Reset:      reset,
@@ -1332,19 +1347,36 @@ func runASTSchema(contextName string) error {
 	return nil
 }
 
-func newMemorySvc(userScope bool) (*memory.MemoryService, string, error) {
+func newMemorySvc(userScope bool, stateful ...bool) (*memory.MemoryService, string, error) {
 	var scope memory.MemoryScope
 	var scopeID string
 
 	if userScope {
 		scope = memory.MemoryScopeUser
-		hash, err := memory.UserScopeID()
-		if err != nil {
-			return nil, "", err
+		if config.HubS3Config().Configured() {
+			subject, err := hubaccess.TrustedSubject(context.Background())
+			if err != nil {
+				return nil, "", err
+			}
+			scopeID = subject.UserID
+		} else {
+			hash, err := memory.UserScopeID()
+			if err != nil {
+				return nil, "", err
+			}
+			scopeID = hash
 		}
-		scopeID = hash
 	} else {
 		scope = memory.MemoryScopeProject
+		if len(stateful) > 0 && stateful[0] {
+			projectDir, err := os.Getwd()
+			if err != nil {
+				return nil, "", err
+			}
+			if _, err := store.EnsureProjectID(projectDir); err != nil {
+				return nil, "", err
+			}
+		}
 		lf, err := hub.LoadLockfile(lockfilePath())
 		if err != nil || lf == nil {
 			return nil, "", fmt.Errorf("project not initialised — run '%s init' first", brand.BinName())
@@ -1359,7 +1391,7 @@ func newMemorySvc(userScope bool) (*memory.MemoryService, string, error) {
 
 	ms, _ := memory.NewMemoryStore()
 
-	svc := memory.NewMemoryService(scope, scopeID, ms)
+	svc := memory.NewMemoryService(scope, scopeID, ms).WithContext(context.Background())
 
 	if err := svc.EnsureInitialised(); err != nil {
 
@@ -1374,7 +1406,20 @@ func newMemorySvcForContext(contextName string) (*memory.MemoryService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("memory store not available: %w", err)
 	}
-	svc := memory.NewMemoryServiceForContext(contextName, ms)
+	scopeID := contextName
+	ctx := context.Background()
+	if config.HubS3Config().Configured() {
+		registry, err := hub.NewRegistryManager(ctx)
+		if err != nil {
+			return nil, err
+		}
+		project, err := registry.ResolveProject(ctx, contextName)
+		if err != nil {
+			return nil, fmt.Errorf("memory context %q is not an authorized Hub project: %w", contextName, err)
+		}
+		scopeID = project.ID
+	}
+	svc := memory.NewMemoryServiceForContext(scopeID, ms).WithContext(ctx)
 	if err := svc.EnsureInitialised(); err != nil {
 		_ = err
 	}
@@ -1384,7 +1429,7 @@ func newMemorySvcForContext(contextName string) (*memory.MemoryService, error) {
 func runMemoryAdd(title, content string, userScope, linkProject, important, mandatory bool, memType string, tags string) error {
 	p := output.NewPrinter("")
 
-	svc, projectID, err := newMemorySvc(userScope)
+	svc, projectID, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1446,7 +1491,7 @@ func runMemoryAdd(title, content string, userScope, linkProject, important, mand
 func runMemoryUpdate(id, content, title string, userScope bool) error {
 	p := output.NewPrinter("")
 
-	svc, _, err := newMemorySvc(userScope)
+	svc, _, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1497,7 +1542,7 @@ func runMemorySearch(term string, userScope bool) error {
 func runMemoryRemove(slug string, userScope bool) error {
 	p := output.NewPrinter("")
 
-	svc, _, err := newMemorySvc(userScope)
+	svc, _, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1548,7 +1593,7 @@ func runMemoryIndex(userScope, reset bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
-	svc, _, err := newMemorySvc(userScope)
+	svc, _, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1693,7 +1738,7 @@ func runMemoryMandatoryList(userScope bool) error {
 func runMemoryPromote(id string, userScope bool) error {
 	p := output.NewPrinter("")
 
-	svc, _, err := newMemorySvc(userScope)
+	svc, _, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1711,7 +1756,7 @@ func runMemoryPromote(id string, userScope bool) error {
 func runMemoryDemote(id string, userScope bool) error {
 	p := output.NewPrinter("")
 
-	svc, _, err := newMemorySvc(userScope)
+	svc, _, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1728,7 +1773,7 @@ func runMemoryDemote(id string, userScope bool) error {
 
 func runMemoryMandatoryChange(id string, userScope, enabled bool) error {
 	p := output.NewPrinter("")
-	svc, _, err := newMemorySvc(userScope)
+	svc, _, err := newMemorySvc(userScope, true)
 	if err != nil {
 		return err
 	}
@@ -1846,7 +1891,7 @@ func runMemoryConsolidate(userScope, dryRun bool) error {
 		return nil
 	}
 
-	svc, _, svcErr := newMemorySvc(userScope)
+	svc, _, svcErr := newMemorySvc(userScope, true)
 	if svcErr != nil {
 		return svcErr
 	}

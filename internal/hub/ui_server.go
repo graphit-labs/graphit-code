@@ -2,7 +2,6 @@ package hub
 
 import (
 	"archive/zip"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -182,7 +181,12 @@ func (s *UIServer) handleRegistry(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	entries := s.svc.registry.ListEntries("")
+	entryPage, err := s.svc.registry.ListEntriesPage(r.Context(), "", 100, r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeJSONUI(w, map[string]any{"error": err.Error()})
+		return
+	}
+	entries := entryPage.Entries
 	proj, _ := lock["project"].(map[string]any)
 	activeProjectID := getMUI(proj, "id", "")
 
@@ -197,6 +201,7 @@ func (s *UIServer) handleRegistry(w http.ResponseWriter, r *http.Request) {
 
 	writeJSONUI(w, map[string]any{
 		"entries": entries, "installed": installed, "project_lock": lock,
+		"next_cursor":         entryPage.NextCursor,
 		"active_project":      filepath.Base(projectDir),
 		"active_project_id":   activeProjectID,
 		"active_project_name": getMUI(proj, "name", ""),
@@ -257,9 +262,10 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 					}
 
 					remoteID := getMUI(inf, "remote_id", artID)
-					regEntry := s.svc.registry.GetEntry(remoteID, ArtifactType(artType))
-					if regEntry == nil {
-						regEntry = s.svc.registry.GetEntry(artID, ArtifactType(artType))
+					publisherID := getMUI(inf, "project_id", "")
+					regEntry, _ := s.svc.registry.ResolveEntry(r.Context(), publisherID, remoteID, ArtifactType(artType))
+					if regEntry == nil && remoteID != artID {
+						regEntry, _ = s.svc.registry.ResolveEntry(r.Context(), publisherID, artID, ArtifactType(artType))
 					}
 					if regEntry != nil {
 						if art["registry_description"] == nil || art["registry_description"] == "" {
@@ -300,6 +306,7 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 
 	proj, _ := lock["project"].(map[string]any)
 	projectName := getMUI(proj, "name", filepath.Base(projectDir))
+	projectID := getMUI(proj, "id", "")
 
 	adapter := ide.GetAdapter(s.resolveIDE(r))
 	if adapter != nil {
@@ -314,7 +321,7 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 				"published": false,
 			}
 
-			if regEntry := s.svc.registry.GetEntry(la.ID, ArtifactType(la.Type)); regEntry != nil {
+			if regEntry, _ := s.svc.registry.ResolveEntry(r.Context(), projectID, la.ID, ArtifactType(la.Type)); regEntry != nil {
 				art["published"] = true
 				art["registry_name"] = regEntry.Name
 				art["registry_description"] = regEntry.Description
@@ -344,7 +351,7 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 				"path":      knowledgeDir,
 				"published": false,
 			}
-			if regEntry := s.svc.registry.GetEntry(projectName, TypeKnowledge); regEntry != nil {
+			if regEntry, _ := s.svc.registry.ResolveEntry(r.Context(), projectID, projectName, TypeKnowledge); regEntry != nil {
 				art["published"] = true
 				art["registry_name"] = regEntry.Name
 				art["registry_description"] = regEntry.Description
@@ -368,7 +375,7 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 				"path":      astStore,
 				"published": false,
 			}
-			if regEntry := s.svc.registry.GetEntry(displayID, TypeAST); regEntry != nil {
+			if regEntry, _ := s.svc.registry.ResolveEntry(r.Context(), projectID, displayID, TypeAST); regEntry != nil {
 				art["published"] = true
 				art["registry_name"] = regEntry.Name
 				art["registry_description"] = regEntry.Description
@@ -449,8 +456,12 @@ func (s *UIServer) handleGitAuthor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *UIServer) handleProjects(w http.ResponseWriter, r *http.Request) {
-	projects := s.svc.registry.ListProjects()
-	writeJSONUI(w, map[string]any{"projects": projects})
+	projects, err := s.svc.registry.DiscoverProjects(r.Context(), 100, r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeJSONUI(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSONUI(w, projects)
 }
 
 func (s *UIServer) handleInstall(w http.ResponseWriter, r *http.Request) {
@@ -470,7 +481,7 @@ func (s *UIServer) handleInstall(w http.ResponseWriter, r *http.Request) {
 	if body.Version != "" && !strings.Contains(body.ID, "@") {
 		installID = body.ID + "@" + body.Version
 	}
-	_, err := s.svc.Install(context.Background(), installID, body.Alias, body.IDE, ArtifactType(body.Type), "", body.ProjectDir)
+	_, err := s.svc.Install(r.Context(), installID, body.Alias, body.IDE, ArtifactType(body.Type), "", body.ProjectDir)
 	if err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -494,7 +505,7 @@ func (s *UIServer) handleUninstall(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		id = body.ID
 	}
-	err := s.svc.Uninstall(context.Background(), id, ArtifactType(body.Type), false, body.IDE, body.ProjectDir)
+	err := s.svc.Uninstall(r.Context(), id, ArtifactType(body.Type), false, body.IDE, body.ProjectDir)
 	writeJSONUI(w, map[string]any{"success": err == nil})
 }
 
@@ -507,7 +518,7 @@ func (s *UIServer) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 	if body.IDE == "" {
 		body.IDE = s.ide
 	}
-	results := s.svc.UpdateAll(context.Background(), body.IDE, body.ProjectDir)
+	results := s.svc.UpdateAll(r.Context(), body.IDE, body.ProjectDir)
 	hasErr := len(results) > 0
 	writeJSONUI(w, map[string]any{"success": !hasErr, "errors": results})
 }
@@ -523,7 +534,7 @@ func (s *UIServer) handleUpdateOne(w http.ResponseWriter, r *http.Request) {
 	if body.IDE == "" {
 		body.IDE = s.ide
 	}
-	err := s.svc.UpdateOne(context.Background(), body.ID, ArtifactType(body.Type), body.IDE, body.ProjectDir)
+	err := s.svc.UpdateOne(r.Context(), body.ID, ArtifactType(body.Type), body.IDE, body.ProjectDir)
 	if err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -602,18 +613,19 @@ func (s *UIServer) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		meta.Author = &Author{Username: body.Author}
 	}
 
-	if !body.Global {
-		if body.ProjectDir == "" {
-			writeJSONUI(w, map[string]any{"success": false, "error": "project_dir is required"})
-			return
-		}
-		lockPath := filepath.Join(body.ProjectDir, brand.LockFileName())
-		if lf, err := LoadLockfile(lockPath); err == nil && lf != nil && lf.Project.ID != "" {
-			meta.ProjectID = lf.Project.ID
-		}
+	if body.Global || body.ProjectDir == "" {
+		writeJSONUI(w, map[string]any{"success": false, "error": "project_dir is required; Hub v2 has no global artifact namespace"})
+		return
+	}
+	lockPath := filepath.Join(body.ProjectDir, brand.LockFileName())
+	if lf, err := LoadLockfile(lockPath); err == nil && lf != nil && lf.Project.ID != "" {
+		meta.ProjectID = lf.Project.ID
+	} else {
+		writeJSONUI(w, map[string]any{"success": false, "error": "publishing requires an initialized project"})
+		return
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.svc.registry.PublishEntry(ctx, body.ID, body.Path, meta, body.Version); err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -645,7 +657,7 @@ func (s *UIServer) handleUnpublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.svc.registry.DeleteEntry(ctx, body.ID, ArtifactType(body.Type)); err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -786,7 +798,7 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.svc.registry.PublishEntry(ctx, artifactID, tmpDir, meta, version); err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -945,7 +957,7 @@ func (s *UIServer) handleUnlink(w http.ResponseWriter, r *http.Request) {
 		ide = req.IDE
 	}
 
-	if err := s.svc.Unlink(context.Background(), req.ID, ide, ArtifactType(req.Type), req.ProjectDir); err != nil {
+	if err := s.svc.Unlink(r.Context(), req.ID, ide, ArtifactType(req.Type), req.ProjectDir); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

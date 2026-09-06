@@ -659,8 +659,8 @@ func newSyncCmd() *cobra.Command {
 		Long: `Force a full synchronization of the project state.
 
 Phase 1 (synchronous):
-  • Pull latest hub repository content
-  • Pull latest memory repository content
+  • Validate configured Hub object storage
+  • Open authoritative Memory and Task stores directly
   • Refresh module skills
   • Sync IDE hooks and MCP configuration from the current lockfile
   • Sync git hooks
@@ -863,7 +863,6 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 		if p != nil {
 			task = p.StartTask("Syncing background events...")
 		}
-		st.SyncEvents(ctx)
 		if task != nil {
 			task.Done("Events synced")
 		}
@@ -1017,14 +1016,14 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		task.Done("Memory wikis reindexed")
 	}
 
-	task = p.StartTask("Syncing hub registry...")
+	task = p.StartTask("Checking hub storage...")
 	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
 	if err != nil {
 		task.Fail("Hub not configured: %v", err)
-	} else if err := st.SyncRegistry(ctx); err != nil {
-		task.Fail("Hub sync: %v", err)
+	} else if err := st.EnsureReachable(ctx); err != nil {
+		task.Fail("Hub storage: %v", err)
 	} else {
-		task.Done("Hub registry synced")
+		task.Done("Hub storage reachable")
 	}
 
 	task = p.StartTask("Updating IDE skills...")
@@ -1144,8 +1143,8 @@ func newUninstallCmd() *cobra.Command {
 		Long: `Uninstall ` + brand.DisplayName + ` global resources.
 
 This command:
-  • Cleans hub repository caches
-  • Cleans memory repository worktrees and caches
+  • Cleans bounded Hub metadata caches
+  • Cleans local Memory projections and caches
   • Removes other transient caches from ~/` + brand.DotDir() + `/
 
 By default, your global configuration (~/` + brand.DotDir() + `/config.json) and
@@ -1158,11 +1157,6 @@ configuration and custom rules. This is a destructive operation.`,
 			p := output.NewPrinter("")
 
 			p.Header("Uninstalling %s", brand.DisplayName)
-
-			if st, err := hub.NewS3Store(cmd.Context(), nil, nil); err == nil {
-				tracker := hub.NewEventTracker(st)
-				tracker.TrackEvent("global.uninstall", "", nil, nil)
-			}
 
 			pid := daemon.NewPIDFile()
 			if alive := pid.IsAlive(); alive != nil {

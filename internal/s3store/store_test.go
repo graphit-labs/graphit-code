@@ -89,6 +89,62 @@ func TestPutGetExistsDelete(t *testing.T) {
 	}
 }
 
+func TestConditionalPutAndDeleteUseObjectETags(t *testing.T) {
+	store, _ := newTestStore(t, "")
+	ctx := context.Background()
+
+	etag, err := store.PutIfAbsent(ctx, "v2/registry/names/payments.json", []byte(`{"project_id":"01A"}`))
+	if err != nil || etag == "" {
+		t.Fatalf("PutIfAbsent = %q, %v", etag, err)
+	}
+	if _, err := store.PutIfAbsent(ctx, "v2/registry/names/payments.json", []byte(`{"project_id":"01B"}`)); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("second PutIfAbsent = %v, want ErrPreconditionFailed", err)
+	}
+
+	value, err := store.GetValue(ctx, "v2/registry/names/payments.json")
+	if err != nil || value.ETag != etag {
+		t.Fatalf("GetValue = %+v, %v; want ETag %q", value, err, etag)
+	}
+	newETag, err := store.PutIfMatch(ctx, "v2/registry/names/payments.json", []byte(`{"project_id":"01A","status":"active"}`), etag)
+	if err != nil || newETag == "" || newETag == etag {
+		t.Fatalf("PutIfMatch = %q, %v", newETag, err)
+	}
+	if _, err := store.PutIfMatch(ctx, "v2/registry/names/payments.json", []byte("stale"), etag); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale PutIfMatch = %v, want ErrPreconditionFailed", err)
+	}
+	if err := store.DeleteIfMatch(ctx, "v2/registry/names/payments.json", etag); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale DeleteIfMatch = %v, want ErrPreconditionFailed", err)
+	}
+	if err := store.DeleteIfMatch(ctx, "v2/registry/names/payments.json", newETag); err != nil {
+		t.Fatalf("DeleteIfMatch: %v", err)
+	}
+}
+
+func TestListPageUsesOpaqueContinuationAndRawPrefix(t *testing.T) {
+	store, _ := newTestStore(t, "hub")
+	ctx := context.Background()
+	for _, key := range []string{
+		"v2/registry/names/payments-api.json",
+		"v2/registry/names/payments-worker.json",
+		"v2/registry/names/search.json",
+	} {
+		if err := store.Put(ctx, key, []byte(key)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := store.ListPage(ctx, "v2/registry/names/payments-", 1, "")
+	if err != nil || len(first.Objects) != 1 || first.NextCursor == "" {
+		t.Fatalf("first page = %+v, %v", first, err)
+	}
+	second, err := store.ListPage(ctx, "v2/registry/names/payments-", 1, first.NextCursor)
+	if err != nil || len(second.Objects) != 1 || second.NextCursor != "" {
+		t.Fatalf("second page = %+v, %v", second, err)
+	}
+	if first.Objects[0].Key == second.Objects[0].Key {
+		t.Fatal("continuation repeated the first object")
+	}
+}
+
 // A missing object and a broken bucket are different problems: the first is a first run,
 // the second is a misconfiguration, and the callers branch on exactly this.
 func TestGetMissingObjectIsErrNotFound(t *testing.T) {

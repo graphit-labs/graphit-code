@@ -115,8 +115,8 @@ Controls which authoritative memory scope is projected and searched.
 
 | Value | Description | Storage Path |
 |-------|-------------|-------------|
-| `"project"` (default) | Project-specific memories | local or S3 `memory/project/<project-id>` table |
-| `"user"` | Personal cross-project memories | local or S3 `memory/user/<hash>` table |
+| `"project"` (default) | Project-specific memories | local or S3 `v2/projects/<project-ulid>/memory/` table |
+| `"user"` | Personal cross-project memories | local or S3 `v2/users/<trusted-user-id>/memory/` table |
 
 ```jsonc
 // Phase 1: load every unconditional memory, with no query
@@ -219,30 +219,39 @@ based on its scope:
 
 Hub knowledge artifacts provide pre-built documentation for external libraries and frameworks. Here is the complete lifecycle:
 
+The transport first establishes a trusted subject and resolves global, user, and team project
+grants. Every step below operates only within that authorized project set. Discovery caches may
+avoid repeated metadata transfer, but they do not authorize details, installation, search, or page
+reads.
+
 ### Step 1: Discover Available Artifacts
 
 ```jsonc
-graphit_hub_list(type: "knowledge")
-// Returns a list of available knowledge artifacts with IDs and descriptions
+graphit_hub_list(type: "knowledge", limit: 20)
+// Returns one authorized page plus an opaque continuation cursor
 ```
 
 ### Step 2: Inspect Artifact Details
 
 ```jsonc
-graphit_hub_show(id: "nextjs-docs")
+graphit_hub_show(id: "<project-ulid>/knowledge/nextjs-docs")
 // Returns metadata: description, version, size, contents summary
 ```
 
 ### Step 3: Install the Artifact
 
 ```jsonc
-graphit_hub_install(id: "nextjs-docs")
+graphit_hub_install(id: "<project-ulid>/knowledge/nextjs-docs")
 
 // Records the selected version in graphit.lock.json. The index remains on S3.
 ```
 
 The wiki itself is shared: a second project installing the same artifact adds a claim and copies
 nothing. Its rows are read through the knowledge/wiki tools, never as files.
+
+The claim records selection and version; it does not freeze permission. Opening the mounted S3
+index revalidates access to the publishing project and fails closed after revocation or an
+authorization-backend failure.
 
 ### Step 4: Search the Installed Artifact
 

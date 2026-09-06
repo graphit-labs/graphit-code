@@ -182,6 +182,12 @@ page file is ever transferred. Two consequences that surprise:
   published store, so a mounted wiki once answered every query with "read-only". A mounted
   artifact's tables exist by definition; they are OPENED.
 
+The authoritative URI is below
+`v2/projects/<publisher-ulid>/artifacts/knowledge/<artifact-id>/<version>/index.lance/`.
+The project lockfile selects the artifact and version, but it does not prove current permission.
+Graphit revalidates the subject's project grant before creating or reopening the mount; an
+authorization-backend failure fails closed rather than using cached discovery state.
+
 A **memory** wiki is deliberately never published as a versioned knowledge artifact. Its source
 table is read-and-write and multi-writer; each machine compiles the local query projection for the
 scope it uses. The distinction is mutability, not file format.

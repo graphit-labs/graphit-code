@@ -1,15 +1,14 @@
 package wikisvc
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
+	"github.com/oklog/ulid/v2"
 )
 
 // TestMain points the global brand directory at a scratch directory for the whole
@@ -23,14 +22,12 @@ func TestMain(m *testing.M) {
 	os.Exit(testenv.Run(m))
 }
 
-var seedCounter atomic.Int64
-
 func projectStoreID(t *testing.T, projectDir string) string {
 	t.Helper()
 	if id := store.ProjectID(projectDir); id != "" {
 		return id
 	}
-	id := fmt.Sprintf("01SEED%012d", seedCounter.Add(1))
+	id := ulid.Make().String()
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

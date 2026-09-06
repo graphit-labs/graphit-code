@@ -42,8 +42,8 @@ func TestAQualifiedIdentifierResolvesToTheSharedVersionedStore(t *testing.T) {
   "version": 2,
   "projects": {},
   "artifacts": {
-    "ast/demo-ast@2.1.0": {"id":"demo-ast","version":"2.1.0","type":"ast","projects":{"_global":{"projectDir":""}}},
-    "knowledge/demo-kb@1.0.0": {"id":"demo-kb","version":"1.0.0","type":"knowledge","projects":{"_global":{"projectDir":""}}}
+    "ast/demo-ast@2.1.0": {"id":"demo-ast","version":"2.1.0","type":"ast","projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","projects":{"_global":{"projectDir":""}}},
+    "knowledge/demo-kb@1.0.0": {"id":"demo-kb","version":"1.0.0","type":"knowledge","projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","projects":{"_global":{"projectDir":""}}}
   }
 }`)
 
@@ -68,19 +68,19 @@ func TestAPublishedArtifactIsFoundByBothItsNames(t *testing.T) {
 	writeGlobalLock(t, `{
   "version": 2,
   "artifacts": {
-    "ast/demo-ast@3.0.0": {"id":"demo-ast","version":"3.0.0","type":"ast","projectId":"01PUBLISHER","projects":{"_global":{"projectDir":""}}}
+    "ast/demo-ast@3.0.0": {"id":"demo-ast","version":"3.0.0","type":"ast","projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","projects":{"_global":{"projectDir":""}}}
   }
 }`)
 
-	for _, ref := range []string{"demo-ast", "demo-ast@3.0.0", "01PUBLISHER", "01PUBLISHER@3.0.0"} {
+	for _, ref := range []string{"demo-ast", "demo-ast@3.0.0", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "01ARZ3NDEKTSV4RRFFQ69G5FAV@3.0.0"} {
 		rec, ok := LookupContext("", KindAST, ref)
 		if !ok {
 			t.Fatalf("LookupContext(%q) not found", ref)
 		}
-		if rec.Name != "01PUBLISHER" {
+		if rec.Name != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
 			t.Errorf("%s: name = %q, want the publishing project", ref, rec.Name)
 		}
-		want := ASTHubDir("01PUBLISHER", "3.0.0")
+		want := ASTHubDir("01ARZ3NDEKTSV4RRFFQ69G5FAV", "3.0.0")
 		if got := ASTContextIcebugDirIn("", ref); got != want {
 			t.Errorf("%s: store = %q, want %q", ref, got, want)
 		}
@@ -118,7 +118,7 @@ func TestAProjectCannotReachAGlobalInstallItNeverClaimed(t *testing.T) {
 	writeGlobalLock(t, `{
   "version": 2,
   "artifacts": {
-    "ast/demo-ast@2.1.0": {"id":"demo-ast","version":"2.1.0","type":"ast","projects":{"_global":{"projectDir":""}}}
+    "ast/demo-ast@2.1.0": {"id":"demo-ast","version":"2.1.0","type":"ast","projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","projects":{"_global":{"projectDir":""}}}
   }
 }`)
 
@@ -135,8 +135,8 @@ func TestAnUnqualifiedReferenceTakesTheHighestInstalledVersion(t *testing.T) {
 	writeGlobalLock(t, `{
   "version": 2,
   "artifacts": {
-    "ast/demo-ast@1.9.0": {"id":"demo-ast","version":"1.9.0","type":"ast","projects":{"_global":{"projectDir":""}}},
-    "ast/demo-ast@2.1.0": {"id":"demo-ast","version":"2.1.0","type":"ast","projects":{"_global":{"projectDir":""}}}
+    "ast/demo-ast@1.9.0": {"id":"demo-ast","version":"1.9.0","type":"ast","projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","projects":{"_global":{"projectDir":""}}},
+    "ast/demo-ast@2.1.0": {"id":"demo-ast","version":"2.1.0","type":"ast","projectId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","projects":{"_global":{"projectDir":""}}}
   }
 }`)
 

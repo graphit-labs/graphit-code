@@ -66,6 +66,8 @@ Add these environment variables:
 | `GRAPHIT_HUB_REGION` | yes | `us-east-1` |
 | `GRAPHIT_HUB_ENDPOINT` | only for a custom S3-compatible service | `https://s3.example.com` |
 | `GRAPHIT_HUB_PREFIX` | no | `graphit` |
+| `GRAPHIT_HUB_SUBJECT_USER` | yes unless the runner transport binds a subject | `ci-publisher` |
+| `GRAPHIT_HUB_SUBJECT_TEAMS` | no | `release-engineering,platform` |
 | `GRAPHIT_AST_ARTIFACT_BASENAME` | yes | `payments-ast` |
 | `GRAPHIT_KNOWLEDGE_ARTIFACT_BASENAME` | yes | `payments-docs` |
 | `GRAPHIT_TAG_BASE_BRANCH` | no | Branch lineage used by detached tag builds; defaults to the repository default branch |
@@ -77,10 +79,13 @@ Add these environment variables:
 | `GRAPHIT_AI_RERANK_MODEL` | provider dependent | provider model name |
 | `GRAPHIT_AI_RERANK_BASE_URL` | no | custom rerank endpoint |
 
-The S3 principal needs list, read, write, and delete permission under `GRAPHIT_HUB_PREFIX`. Branch
-publication preserves Lance data and commit manifests while mirroring the remaining artifact files;
-tag publication replaces its compact snapshot exactly. This self-contained example requires the S3
-access key and secret as GitHub environment secrets.
+The publisher first reads the repository's immutable project ULID from `graphit.lock.json`. Its S3
+principal should be limited to `v2/projects/<that-ulid>/`, plus the exact conditional name-registry
+operation required to register or rename that project. It must not write global, user, or team ACL
+documents and should not list unrelated project prefixes. Branch publication preserves Lance data
+and commit manifests while mirroring the remaining artifact files; tag publication replaces its
+compact snapshot exactly. This self-contained example uses S3 credentials as GitHub environment
+secrets, but an OIDC workload role with the same prefix restriction is preferred.
 
 ## Workflow
 
@@ -100,7 +105,7 @@ on:
 permissions:
   contents: read
 
-# Registry entry updates are last-writer-wins. Serialize every ref from this repository.
+# Artifact entry updates for one project must be serialized across repository refs.
 concurrency:
   group: graphit-hub-publisher-${{ github.repository }}
   cancel-in-progress: false
@@ -306,6 +311,11 @@ compatibility depends on the artifact format plus the embedding provider, model,
 a CI job that always installs `latest` does not invalidate compatible embeddings. The local shallow
 clone reuses inherited embeddings without recomputing them; remote branch publication may create new
 Lance fragments while preserving the tagged versions needed by commit history.
+
+All remote keys for the publication remain below
+`v2/projects/<project-ulid>/artifacts/<type>/<artifact-id>/<version>/`, and the per-project registry
+entry is written last. The globally unique project name is a separate conditional reservation;
+changing it does not move branch history or artifact data.
 
 The local project still points only at its filesystem LanceDB. Sync reads inherited fragments from
 S3 through the shallow clone, but it never turns the project store into an S3 store and never writes

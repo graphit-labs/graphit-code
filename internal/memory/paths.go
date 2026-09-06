@@ -1,11 +1,13 @@
 package memory
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
@@ -35,6 +37,13 @@ func resolveScopeIDIn(projectDir, scope string) string {
 	case "project":
 		return store.ProjectID(projectDir)
 	case "user":
+		if config.HubS3Config().Configured() {
+			subject, err := hubaccess.TrustedSubject(context.Background())
+			if err != nil {
+				return ""
+			}
+			return subject.UserID
+		}
 		hash, err := UserScopeID()
 		if err != nil {
 			return ""
@@ -50,28 +59,29 @@ func resolveScopeID(scope string) string {
 	return resolveScopeIDIn(wd, scope)
 }
 
-// MemoryTableURI is where the Lance table of the scope at scopePath lives.
-//
-// `scopePath` is the REMOTE layout — what MemoryService.ScopePrefix returns — and `localDir` is
-// where the table goes when there is no bucket to put it in.
-//
-// 🔒 IT REUSES `remotePrefix` RATHER THAN REBUILDING THE KEY, deliberately. The mapping from a
-// scope to its remote location is not the identity: an imported context lives under
-// `memory/project/<name>`, because a context IS another project's prefix. A second normalisation
-// rule here would put two tables where there is one scope, and the two would diverge silently.
-//
-// `cfg.Prefix` has to be spelled out because the two clients disagree about who applies it:
-// `s3store.Store.Key` prepends it internally, while LanceDB is handed a URI and talks to S3
-// directly. A URI built without it addresses a different prefix from every other object this
-// project writes — and answers as an empty store rather than failing.
-//
-// The local form is not a fallback in the sense the project forbids: there is one store, one
-// schema and one code path, and only the URI string differs. A missing bucket has always been
-// local-only mode rather than an error, and a table that could exist only in S3 would take memory
-// away from every unit without a bucket.
+// MemoryTableURI maps a validated logical scope to its authoritative v2 S3 prefix.
 func MemoryTableURI(scopePath, localDir string) string {
 	if cfg := config.HubS3Config(); cfg.Configured() {
-		return s3store.URI(cfg.Bucket, s3store.JoinKey(cfg.Prefix, remotePrefix(scopePath)))
+		parts := strings.Split(strings.Trim(scopePath, "/"), "/")
+		if len(parts) != 3 || parts[0] != "memory" {
+			return ""
+		}
+		var prefix string
+		switch parts[1] {
+		case "project":
+			if hubaccess.ValidateProjectID(parts[2]) != nil {
+				return ""
+			}
+			prefix = hubaccess.ProjectMemoryPrefix(parts[2])
+		case "user":
+			if hubaccess.ValidateSubjectID("user", parts[2]) != nil {
+				return ""
+			}
+			prefix = hubaccess.UserMemoryPrefix(parts[2])
+		default:
+			return ""
+		}
+		return s3store.URI(cfg.Bucket, s3store.JoinKey(cfg.Prefix, prefix))
 	}
 	return localDir
 }
@@ -98,32 +108,12 @@ func TableURIForScope(scope string) string {
 	return TableURIFor(scope, scopeID)
 }
 
-// ContextTableURI is where an imported context's table lives.
-//
-// Separate from TableURIFor rather than folded into it, because a context is the one scope whose
-// remote location is not built from its own name: it lives under `memory/project/<name>`, since a
-// context IS another project's prefix. Making the caller pick which helper it wants keeps that from
-// being guessed from the shape of the arguments.
-func ContextTableURI(name string) string {
-	return MemoryTableURI("memory/project/"+name, TableDirFor(name, name))
+// ContextTableURI resolves an imported project's memory table by immutable project ID.
+func ContextTableURI(projectID string) string {
+	return MemoryTableURI("memory/project/"+projectID, TableDirFor(projectID, projectID))
 }
 
 // ContextNamesFrom lists the imported memory contexts a memory WIKI root holds.
-//
-// Memory contexts have no per-project registry, and should not have one: a context's
-// memories are a prefix in the shared memory bucket, and the set of local artifacts
-// is the record of which prefixes this unit has. Scoping them per project would need a
-// second record of the same fact.
-//
-// 🔒 THE WIKI IS THAT RECORD, AND IT IS THE ONLY CANDIDATE THAT ALWAYS EXISTS. A scope has two
-// artifacts and the other one is conditional: with a bucket configured — the normal case — the table
-// is `s3://…/memory/project/<name>` and NOTHING is written locally for it. The wiki is always local,
-// because being local is what it is for: it is what a search opens.
-//
-// The name is recovered from the layout `wiki/memory/<scope>/<id>`, where a context is the scope
-// whose two halves are the SAME string. That equality is what tells a context apart from `project`
-// and `user` without matching their names — and, before the layout mattered, it was also what let a
-// context's name survive containing a hyphen.
 func ContextNamesFrom(wikiRoot string) []string {
 	entries, err := os.ReadDir(wikiRoot)
 	if err != nil {

@@ -510,23 +510,5 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func loadProjectIDNames() map[string]string {
-	names := map[string]string{}
-	registryPath := filepath.Join(brand.GlobalDir(), "hub.registry.json")
-	data, err := os.ReadFile(registryPath)
-	if err != nil {
-		return names
-	}
-	var cache struct {
-		Projects map[string]struct {
-			Name string `json:"name"`
-		} `json:"projects"`
-	}
-	if json.Unmarshal(data, &cache) == nil {
-		for id, proj := range cache.Projects {
-			if proj.Name != "" {
-				names[id] = proj.Name
-			}
-		}
-	}
-	return names
+	return map[string]string{}
 }

@@ -3,12 +3,13 @@ package store
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+const storeTestProjectID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 func withHome(t *testing.T) string {
 	t.Helper()
@@ -96,41 +97,47 @@ func TestSanitizeName(t *testing.T) {
 
 func TestProjectStoreIDPrefersTheLockfileID(t *testing.T) {
 	projectDir := t.TempDir()
-	writeLockfile(t, projectDir, "01ACMEPROJECT")
+	writeLockfile(t, projectDir, storeTestProjectID)
 
-	if got := ProjectID(projectDir); got != "01ACMEPROJECT" {
-		t.Fatalf("ProjectID = %q, want 01ACMEPROJECT", got)
+	if got := ProjectID(projectDir); got != storeTestProjectID {
+		t.Fatalf("ProjectID = %q, want %s", got, storeTestProjectID)
 	}
-	if got := ProjectStoreID(projectDir); got != "01ACMEPROJECT" {
+	if got := ProjectStoreID(projectDir); got != storeTestProjectID {
 		t.Fatalf("ProjectStoreID = %q, want the lockfile id", got)
 	}
 }
 
-// An uninitialised directory still has to be indexable — `ast index` never required
-// `init` — so it gets a path-derived id instead of nothing.
-func TestProjectStoreIDFallsBackToAStablePathHash(t *testing.T) {
-	a := t.TempDir()
-	b := t.TempDir()
+func TestProjectStoreIDRejectsANonULIDLockIdentity(t *testing.T) {
+	projectDir := t.TempDir()
+	writeLockfile(t, projectDir, "path-deadbeef")
+	if got := ProjectStoreID(projectDir); got != "" {
+		t.Fatalf("ProjectStoreID = %q, want no store for a non-ULID identity", got)
+	}
+	if _, err := EnsureProjectID(projectDir); err == nil {
+		t.Fatal("EnsureProjectID accepted a non-ULID identity")
+	}
+}
 
-	idA := ProjectStoreID(a)
-	if idA == "" {
-		t.Fatal("ProjectStoreID returned empty for an uninitialised project")
+func TestProjectStoreIDDoesNotCreateIdentityForARead(t *testing.T) {
+	dir := t.TempDir()
+	if got := ProjectStoreID(dir); got != "" {
+		t.Fatalf("ProjectStoreID = %q, want no store before a stateful operation", got)
 	}
-	if idA[:5] != "path-" {
-		t.Errorf("ProjectStoreID = %q, want a path- prefix so it cannot be mistaken for a ULID", idA)
+	if _, err := os.Stat(filepath.Join(dir, brand.LockFileName())); !os.IsNotExist(err) {
+		t.Fatalf("read-only identity lookup created a lockfile: %v", err)
 	}
-	if ProjectStoreID(a) != idA {
-		t.Error("ProjectStoreID is not stable for the same directory")
+	if got := ASTProjectDir(dir); got != "" {
+		t.Fatalf("ASTProjectDir = %q, want no unidentified store", got)
 	}
-	if ProjectStoreID(b) == idA {
-		t.Error("two different directories collided on one store id")
+	if got := KnowledgeProjectDir(dir); got != "" {
+		t.Fatalf("KnowledgeProjectDir = %q, want no unidentified store", got)
 	}
 }
 
 func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	home := withHome(t)
 	projectDir := t.TempDir()
-	writeLockfile(t, projectDir, "01ACME")
+	writeLockfile(t, projectDir, storeTestProjectID)
 
 	global := filepath.Join(home, brand.DotDir())
 	cases := map[string]string{
@@ -142,8 +149,8 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 		"ast hub bundle":     ASTHubIcebugDir("01PUB", "1.2.3"),
 		"knowledge project":  KnowledgeProjectDir(projectDir),
 		"knowledge context":  KnowledgeContextDir("some-docs"),
-		"memory wiki":        MemoryWikiDir("project", "01ACME"),
-		"memory table":       MemoryTableDir("project", "01ACME"),
+		"memory wiki":        MemoryWikiDir("project", storeTestProjectID),
+		"memory table":       MemoryTableDir("project", storeTestProjectID),
 	}
 	for label, got := range cases {
 		rel, err := filepath.Rel(global, got)
@@ -158,13 +165,13 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	}
 
 	want := map[string]string{
-		ASTProjectIcebugDir(projectDir):     filepath.Join(global, "ast", "project", "01ACME", "graph.icebug"),
-		ASTContextIcebugDir("Other Repo"):   filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
-		ASTHubIcebugDir("01PUB", "1.2.3"):   filepath.Join(global, "ast", "hub", "01pub", "1.2.3", "graph.icebug"),
-		KnowledgeProjectDir(projectDir):     filepath.Join(global, "wiki", "knowledge", "project", "01ACME"),
-		KnowledgeContextDir("Some Docs"):    filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
-		MemoryWikiDir("user", "abc123"):     filepath.Join(global, "wiki", "memory", "user", "abc123"),
-		MemoryTableDir("project", "01ACME"): filepath.Join(global, "memory-table", "memory-project-01ACME"),
+		ASTProjectIcebugDir(projectDir):               filepath.Join(global, "ast", "project", storeTestProjectID, "graph.icebug"),
+		ASTContextIcebugDir("Other Repo"):             filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
+		ASTHubIcebugDir("01PUB", "1.2.3"):             filepath.Join(global, "ast", "hub", "01pub", "1.2.3", "graph.icebug"),
+		KnowledgeProjectDir(projectDir):               filepath.Join(global, "wiki", "knowledge", "project", storeTestProjectID),
+		KnowledgeContextDir("Some Docs"):              filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
+		MemoryWikiDir("user", "abc123"):               filepath.Join(global, "wiki", "memory", "user", "abc123"),
+		MemoryTableDir("project", storeTestProjectID): filepath.Join(global, "memory-table", "memory-project-"+storeTestProjectID),
 	}
 	for got, expected := range want {
 		if got != expected {
@@ -179,36 +186,13 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	}
 }
 
-func TestProjectStoreIDFoldsCaseOnlyWhereTheFilesystemDoes(t *testing.T) {
-	t.Parallel()
-	const lower = "/home/dev/proj"
-	const upper = "/home/dev/PROJ"
-
-	if a, b := pathStoreID(lower, true), pathStoreID(upper, true); a != b {
-		t.Errorf("with folding on, %q and %q must share a store id, got %q and %q", lower, upper, a, b)
-	}
-	if a, b := pathStoreID(lower, false), pathStoreID(upper, false); a == b {
-		t.Errorf("with folding off, %q and %q are different directories and must not share a store id", lower, upper)
-	}
-
-	wantFold := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
-	if caseInsensitivePaths != wantFold {
-		t.Errorf("caseInsensitivePaths = %v on %s, want %v", caseInsensitivePaths, runtime.GOOS, wantFold)
-	}
-
-	dir := t.TempDir()
-	if id := ProjectStoreID(dir); !strings.HasPrefix(id, "path-") {
-		t.Errorf("ProjectStoreID = %q, want a path- prefix", id)
-	}
-}
-
 // A project's own store and the same store seen from the ecosystem are resolved by
 // two different functions. They must agree, or one project writes where another
 // reads.
 func TestByIDResolversAgreeWithProjectStoreID(t *testing.T) {
 	withHome(t)
 	projectDir := t.TempDir()
-	writeLockfile(t, projectDir, "01ACME")
+	writeLockfile(t, projectDir, storeTestProjectID)
 
 	if got, want := ASTProjectDirByID(ProjectStoreID(projectDir)), ASTProjectDir(projectDir); got != want {
 		t.Errorf("ASTProjectDirByID = %q, want %q", got, want)
@@ -222,16 +206,11 @@ func TestByIDResolversAgreeWithProjectStoreID(t *testing.T) {
 // freely by its author — so an id can genuinely arrive as "nul". The suffix is applied
 // on every platform so that one artifact resolves to the same path everywhere: a
 // global directory carried to another machine, or a shared CI image, must agree.
-func TestReservedDeviceNamesAreDefusedEverywhere(t *testing.T) {
+func TestReservedDeviceNamesAreDefusedForExternalIdentifiers(t *testing.T) {
 	withHome(t)
-	projectDir := t.TempDir()
-	writeLockfile(t, projectDir, "nul")
 
 	for label, got := range map[string]string{
-		"ProjectStoreID":          ProjectStoreID(projectDir),
-		"ASTProjectDir":           filepath.Base(ASTProjectDir(projectDir)),
 		"ASTProjectDirByID":       filepath.Base(ASTProjectDirByID("nul")),
-		"KnowledgeProjectDir":     filepath.Base(KnowledgeProjectDir(projectDir)),
 		"KnowledgeProjectDirByID": filepath.Base(KnowledgeProjectDirByID("nul")),
 		"ASTContextDir":           filepath.Base(ASTContextDir("nul")),
 		"KnowledgeContextDir":     filepath.Base(KnowledgeContextDir("nul")),
@@ -249,7 +228,7 @@ func TestReservedDeviceNamesAreDefusedEverywhere(t *testing.T) {
 func TestNoStorePathCarriesACharacterWindowsForbids(t *testing.T) {
 	withHome(t)
 	projectDir := t.TempDir()
-	writeLockfile(t, projectDir, "01ACME")
+	writeLockfile(t, projectDir, storeTestProjectID)
 
 	hostile := `../..\nul*?<>|:x. `
 

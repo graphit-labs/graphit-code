@@ -41,6 +41,11 @@ func OnInit(ctx context.Context, registry *RegistryManager, ide, projectDir stri
 			}
 			_ = mgr.RegisterProject(savedLf.Project.ID, projDir, regOpts...)
 		}
+		if registry.IsReady() {
+			if _, err := registry.UpsertProject(ctx, savedLf.Project.ID, savedLf.Project.Name, savedLf.Project.Description); err != nil {
+				return fmt.Errorf("registering project in Hub: %w", err)
+			}
+		}
 	}
 
 	_, _ = AddIDE(pp.LockFilePath, ide)
@@ -62,7 +67,7 @@ func OnInit(ctx context.Context, registry *RegistryManager, ide, projectDir stri
 
 	if registry.IsReady() {
 		tracker := NewEventTracker(registry.Store())
-		tracker.TrackEvent("project.init", lf.Project.ID, nil, map[string]string{"ide": ide})
+		tracker.TrackEvent(ctx, "project.init", lf.Project.ID, nil, map[string]string{"ide": ide})
 	}
 
 	return nil
@@ -75,8 +80,11 @@ func OnUpdate(ctx context.Context, registry *RegistryManager, ide, projectDir st
 	if registry.IsReady() {
 		lf, _ := LoadLockfile(pp.LockFilePath)
 		if lf != nil {
+			if _, err := registry.UpsertProject(ctx, lf.Project.ID, lf.Project.Name, lf.Project.Description); err != nil {
+				return fmt.Errorf("updating project in Hub: %w", err)
+			}
 			tracker := NewEventTracker(registry.Store())
-			tracker.TrackEvent("project.update", lf.Project.ID, nil, map[string]string{"ide": ide})
+			tracker.TrackEvent(ctx, "project.update", lf.Project.ID, nil, map[string]string{"ide": ide})
 		}
 	}
 
@@ -102,7 +110,7 @@ func OnRemove(ctx context.Context, registry *RegistryManager, ide, projectDir st
 
 	if registry.IsReady() {
 		tracker := NewEventTracker(registry.Store())
-		tracker.TrackEvent("project.remove", projectID, nil, map[string]string{"ide": ide})
+		tracker.TrackEvent(ctx, "project.remove", projectID, nil, map[string]string{"ide": ide})
 	}
 
 	remaining, _ := RemoveIDE(pp.LockFilePath, ide)

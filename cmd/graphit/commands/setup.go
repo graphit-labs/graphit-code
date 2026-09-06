@@ -127,16 +127,16 @@ rather than leaving a half installation reporting success.`,
 				}
 			}
 
-			task := p.StartTask("Initialising local hub cache...")
+			task := p.StartTask("Checking hub storage...")
 			st, err := hub.NewS3Store(cmd.Context(), nil, nil)
 			if err != nil {
 				task.Fail("Hub init failed: %v", err)
 				return fmt.Errorf("initializing hub: %w", err)
 			}
-			if err := st.SyncRegistry(cmd.Context()); err != nil {
-				task.Fail("Registry sync failed (will retry on next command): %v", err)
+			if err := st.EnsureReachable(cmd.Context()); err != nil {
+				task.Fail("Hub storage check failed: %v", err)
 			} else {
-				task.Done("Hub cache ready at %s", st.CacheDir())
+				task.Done("Hub storage ready")
 			}
 
 			memTask := p.StartTask("Initialising memory store...")
@@ -186,12 +186,6 @@ rather than leaving a half installation reporting success.`,
 			if !config.IsModuleDisabled("daemon", nil, nil) {
 				_, _ = daemon.EnsureRunning()
 			}
-
-			tracker := hub.NewEventTracker(st)
-			tracker.TrackEvent("global.setup", "", nil, map[string]string{
-				"ide": ideInput,
-				"cli": cliInput,
-			})
 
 			return nil
 		},

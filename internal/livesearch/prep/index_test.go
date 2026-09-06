@@ -167,7 +167,7 @@ func TestCodeGraphsAreReportedByNameOnceAddressable(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	contextID := ast.HubContextID(hubProject, artifactID)
+	contextID := ast.HubContextID(hubProject)
 	storeDir := ast.HubContextDir(contextID, version)
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatalf("setup: %v", err)

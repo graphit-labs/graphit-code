@@ -10,10 +10,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/projectlock"
 )
 
-// GlobalOwnerKey is the reserved owner of an install that belongs to no project.
-//
-// It matches the key the Hub already uses for artifacts published outside any project,
-// so the two notions of "global" read the same in the files a user may open.
+// GlobalOwnerKey is the reserved local owner of an install that belongs to no checkout.
 const GlobalOwnerKey = "_global"
 
 const globalLockFileName = "global.lock.json"
@@ -74,7 +71,7 @@ func loadGlobalArtifacts() []globalArtifactRecord {
 
 func globalRecordFrom(rec globalArtifactRecord) ContextRecord {
 	return ContextRecord{
-		Name:       ContextNameFor(rec.ID, rec.ProjectID),
+		Name:       rec.ProjectID,
 		ArtifactID: rec.ID,
 		Version:    rec.Version,
 		Origin:     projectlock.OriginHub,
@@ -91,7 +88,7 @@ func globalRecordFrom(rec globalArtifactRecord) ContextRecord {
 func ListGlobalContexts(kind string) map[string]ContextRecord {
 	out := map[string]ContextRecord{}
 	for _, rec := range loadGlobalArtifacts() {
-		if rec.Type != kind || !rec.ownedGlobally() {
+		if rec.Type != kind || !rec.ownedGlobally() || rec.ProjectID == "" {
 			continue
 		}
 		cr := globalRecordFrom(rec)
@@ -130,9 +127,7 @@ func SplitQualified(ref string) (id, version string) {
 
 // LookupGlobalContext resolves one context name against the global installs.
 //
-// The name is accepted in every form a caller may have been shown it in: the context
-// name (the publishing project's id, or the artifact id when there is none), the
-// artifact id, either of those sanitised, and any of them qualified with @version.
+// The name is accepted as the publishing project ID or artifact ID, optionally versioned.
 func LookupGlobalContext(kind, name string) (ContextRecord, bool) {
 	if name == "" {
 		return ContextRecord{}, false
@@ -143,7 +138,7 @@ func LookupGlobalContext(kind, name string) (ContextRecord, bool) {
 	var best ContextRecord
 	found := false
 	for _, rec := range loadGlobalArtifacts() {
-		if rec.Type != kind || !rec.ownedGlobally() {
+		if rec.Type != kind || !rec.ownedGlobally() || rec.ProjectID == "" {
 			continue
 		}
 		if wantVersion != "" && rec.Version != wantVersion {

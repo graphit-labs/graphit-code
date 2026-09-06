@@ -134,12 +134,14 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ai.rerank.model` | Remote rerank model override | provider default |
 | `ai.rerank.base_url` | Remote rerank endpoint override | provider default |
 | `ai.rerank.api_key` | Graphit-managed rerank credential | provider-native environment |
-| `hub.bucket` | S3 bucket that stores the Hub registry and published artifacts | (compiled default) |
+| `hub.bucket` | S3 bucket that stores the Hub v2 identity/access control plane and project-scoped data | (compiled default) |
 | `hub.region` | AWS/S3 region | (compiled default) |
 | `hub.endpoint` | Optional S3-compatible endpoint, such as MinIO | AWS default endpoint |
 | `hub.prefix` | Key prefix inside the Hub bucket | (compiled default) |
 | `hub.access_key_id` | Optional explicit S3 access key; active only with `hub.secret_access_key` | AWS credential-provider chain |
 | `hub.secret_access_key` | Optional explicit S3 secret key; active only with `hub.access_key_id` | AWS credential-provider chain |
+| `hub.subject.user` | Trusted deployment user ID used when transport authentication did not bind a subject to the request context; global configuration only | unset (remote access denied) |
+| `hub.subject.teams` | Comma- or semicolon-separated trusted team IDs for `hub.subject.user`; global configuration only | empty |
 | `hub.icebug.reverse_edges` | Whether AST artifacts publish a separate reverse CSR for every relationship type. Only explicit `false` disables it. | `true` |
 | `ui.host` | Address on which the unified UI server listens | `127.0.0.1` |
 | `ui.allowed_origins` | Comma-separated exact CORS origins; configured values replace the localhost default allowlist | localhost loopback origins |
@@ -157,13 +159,13 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ast.grammars_blacklist` | Comma-separated grammars the AST index must **not** use. Their files are not discovered, not parsed, and their queries do not resolve. | (empty — nothing disabled) |
 | `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
 | `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
-| `task.prefix` | Namespace for authoritative Task LanceDB tables, nested under `hub.prefix` when S3 is configured. | `tasks` |
+| `task.prefix` | Namespace for authoritative Task LanceDB tables inside `v2/projects/<project-ulid>/` when S3 is configured. | `tasks` |
 | `dream.reports_dir` | Relative path to the dream reports vault. Move it under `docs/` to commit reports as a matter of course. | `.graphit/runtime/dream` |
 | `dream.idle_timeout` | Inactivity in **seconds** before a dream cycle starts | `7200` (2 hours) |
 | `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
 | `daemon.activity_window` | Go duration string; how recently a project must have changed to stay supervised. `0` disables parking. | `30m` |
 | `memory.version_retention` | Minimum retention window for authoritative memory table versions | `720h` (30 days) |
-| `unit.id` | Installation identity used to address user-scope memory | generated ULID |
+| `unit.id` | Local installation key used to address user-scope memory; never trusted remote Hub identity | generated ULID |
 | `modules.<name>` | Enable/disable a module (`true`/`false`) | Enabled for core, disabled for opt-in |
 
 The maintained [Configuration Reference](../guides/configuration.md) is the user-facing inventory
@@ -200,6 +202,20 @@ graphit config --global --secret hub.secret_access_key
 graphit config --global --unset hub.access_key_id
 graphit config --global --unset hub.secret_access_key
 ```
+
+### Hub identity, access control, and cache
+
+S3 keys authenticate the Graphit workload to object storage; they are not a user identity and do
+not determine which projects a caller may see. Trusted `user_id` and `team_ids` arrive from the
+local single-user deployment boundary, workload identity, or authenticated proxy context. They are
+not accepted as ordinary project/global config keys because doing so would let a caller impersonate
+another subject.
+
+Hub v2 grant documents and matching are defined by
+[Hub Access Control](hub_access_control.md). The local `~/.<brand>/hub/cache/` tree uses compiled,
+bounded TTL/LRU defaults unless dedicated cache controls are introduced. It is isolated by Hub and
+subject, contains no authoritative registry or ACL, and may be removed without migration. A cache
+setting must never enable stale positive authorization after a control-plane failure.
 
 ### Feature and process modules: `modules.agent`, `modules.daemon_ui`
 

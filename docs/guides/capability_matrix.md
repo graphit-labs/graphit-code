@@ -58,11 +58,15 @@ from a similar command on another interface.
 
 | Scope | Durable identity | Shareable state | Isolation rule |
 |---|---|---|---|
-| Project | Lockfile ULID | Artifacts, project memory, and Task tables can use S3-compatible storage | Project config and membership remain in its lockfile. |
-| User | `unit.id` | User memory can follow a trusted identity across machines | User conventions remain separate from project facts. |
+| Project | Immutable lockfile ULID; mutable globally unique discovery name | Artifacts, project memory, and Task tables share one S3 project prefix | Lockfile membership does not replace current Hub authorization. |
+| User | Trusted deployment subject; `unit.id` remains a local scope key | User memory and direct project grants can follow the authenticated identity | Config, request parameters, CORS, and a shared bearer cannot impersonate another user. |
 | Agent session | Host session ID or `GRAPHIT_AGENT_SESSION_ID` | Task audit records attribution and current ownership | A stale fencing token cannot mutate current work. |
 | Imported system | Context name or versioned Hub artifact identity | Code graphs and knowledge can be mounted or queried without repository copies | Access is explicit through lockfile membership or qualified Hub reference. |
 | Live Search session | Ephemeral project ID | Selected artifacts and event history exist only for the session | It owns no persistent project graph, wiki, or project-memory scope. |
+
+Hub project discovery is deny-by-default. The effective set is the union of global, direct-user,
+and team grants and is returned in cursor-bounded pages. Exact content and remote mounts revalidate
+access; `~/.<brand>/hub/cache/` improves repeated reads but has no authorization capability.
 
 For key-level behavior, continue with the [Configuration Reference](configuration.md). For every
 file and watch boundary, see [Filesystem, State, and Watchers](filesystem_contract.md). For language

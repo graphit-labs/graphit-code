@@ -70,6 +70,11 @@ Replace `codex` with the IDE or coding-agent adapter you use. Run `graphit init 
 
 Initialization registers the project and installs the selected adapter's hooks, MCP configuration, skills, commands, and agents. Graphit mandates and installed Hub rules are delivered dynamically by the hooks; Graphit does not manage `AGENTS.md`, `CLAUDE.md`, or IDE rule files for that purpose. Review generated changes before sharing or committing them.
 
+The project's immutable ULID may already exist: the first earlier command that needed durable
+project state created a minimal `graphit.lock.json`. Initialization reuses that ULID and completes
+adapter and baseline setup. The friendly project name may later change without re-keying any local
+or remote store. See [Project Identity](../specs/project_identity.md).
+
 Each developer must complete any trust or activation step required by their agent on their own machine. Follow [Activate Graphit Hooks in Each Agent](agent_hook_activation.md) for exact per-adapter instructions.
 
 ## 4. Build the first indexes

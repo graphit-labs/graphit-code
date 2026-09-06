@@ -2,12 +2,14 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -16,6 +18,7 @@ func contentHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("GRAPHIT_HUB_SUBJECT_USER", "alice")
 	return home
 }
 
@@ -37,13 +40,14 @@ func writeArtifactClone(t *testing.T, artType ArtifactType, id, version string, 
 		t.Fatalf("setup: %v", err)
 	}
 	if _, err := mgr.RegisterInstall(InstallRecord{
-		ID:        id,
-		Version:   version,
-		Type:      artType,
-		Name:      id,
-		CachePath: dir,
-		Owner:     store.GlobalOwnerKey,
-		LocalPath: dir,
+		ID:          id,
+		Version:     version,
+		Type:        artType,
+		Name:        id,
+		CachePath:   dir,
+		PublisherID: testProjectOne,
+		Owner:       store.GlobalOwnerKey,
+		LocalPath:   dir,
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -56,7 +60,14 @@ func contentService(t *testing.T) *HubService {
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	return &HubService{lockMgr: mgr}
+	store, _ := newTestS3Store(t)
+	ctx := context.Background()
+	allowProjects(t, ctx, store, hubaccess.Selector{All: true})
+	registry := registryForStore(ctx, store)
+	if _, err := registry.UpsertProject(ctx, testProjectOne, "content-project", ""); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	return &HubService{registry: registry, lockMgr: mgr}
 }
 
 func keysOf(m map[string]string) []string {
@@ -191,6 +202,17 @@ func TestAnArtifactThatIsNotInstalledNamesTheMissingStep(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not installed globally") || !strings.Contains(err.Error(), "install") {
 		t.Errorf("the error must name installing as the missing step, got: %v", err)
+	}
+}
+
+func TestCachedArtifactContentFailsAfterProjectAccessIsRevoked(t *testing.T) {
+	contentHome(t)
+	writeArtifactClone(t, TypeSkill, "demo-skill", "1.0.0", map[string]string{"SKILL.md": "# Demo"})
+	svc := contentService(t)
+	allowProjects(t, context.Background(), svc.registry.store)
+
+	if _, err := svc.ArtifactContentFor(context.Background(), "", "demo-skill@1.0.0", TypeSkill, ""); !errors.Is(err, hubaccess.ErrDenied) {
+		t.Fatalf("content after revocation error = %v", err)
 	}
 }
 

@@ -112,15 +112,21 @@ See [AI Models, Providers, and Agent CLIs](ai_models.md) for every provider, mod
 dimension, credential, CLI protocol, and data boundary.
 
 ### `init`
-Initializes a new project workspace.
-It creates a project-local `graphit.lock.json` file, registers the project under the global active tracker, generates rules or skills files, and maintains a generated block in the project's `.gitignore`. The block ignores `**/.graphit/runtime/` and `**/.graphit/grammars/`; project query YAMLs and rule overrides remain versionable. See [Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
+Completes project workspace initialization. It creates a minimal project identity when none exists,
+otherwise preserves the existing ULID, registers the project under the global active tracker,
+generates rules or skills files, and maintains a generated block in the project's `.gitignore`.
+The block ignores `**/.graphit/runtime/` and `**/.graphit/grammars/`; project query YAMLs and rule
+overrides remain versionable. See
+[Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
 ```bash
 graphit init --ide <ide_name> [flags]
 ```
 **Flags:**
 - `--ide <string>`: Targets a specific model coding assistant (e.g. `cursor`, `claude`, `kiro`, `gemini`, `antigravity`).
-- `--id <string>`: Explicitly overrides or sets the project ULID metadata.
-- `--name <string>`: Sets the human-readable project name.
+- `--id <string>`: Sets the initial ULID only when identity does not exist; a conflicting existing
+  ULID is rejected.
+- `--name <string>`: Sets or renames the human-readable discovery name; remote registration still
+  enforces global uniqueness.
 - `--description <string>`: Sets the project description inline to skip prompts.
 
 ### `sync`
@@ -139,7 +145,9 @@ fragments remain in S3 and subsequent writes remain local. A detached checkout c
 lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than cloned.
 
 ### `update`
-Checks for updates to registered artifacts (rules, skills, prompts) in the decentralized Hub registry and pulls down fresh copies.
+Checks authorized per-project Hub entries for updates to installed artifacts and refreshes managed
+file materializations or remote mount metadata as appropriate. It does not download or synchronize
+the complete global name directory.
 ```bash
 graphit update --ide <ide_name>
 ```
@@ -260,6 +268,11 @@ graphit mcp [flags]
 Discovers and distributes versioned code graphs, documentation, rules, skills, agents, commands,
 MCP definitions, powers, and language packs.
 
+Remote list and search results are deny-by-default, limited to projects granted to the trusted
+subject, and returned as bounded pages. Exact show, install, update, content, submit, and mount
+operations revalidate authorization; a known ULID or artifact ID is not a capability. The project
+ULID is the stable qualifier, while a mutable globally unique name is only a friendly lookup.
+
 ```bash
 graphit hub <subcommand> [flags]
 ```
@@ -270,9 +283,12 @@ a project-scoped installation.
 
 **Subcommands:**
 
-- `list [--type <type>]`: List registry artifacts, optionally by type.
-- `search <term> [--type <type>]`: Search IDs, names, and descriptions.
-- `show <id> [--type <type>]`: Show one registry entry and its published versions.
+- `list [--type <type>] [--page-size <n>] [--cursor <token>]`: List one bounded page of
+  authorized registry artifacts.
+- `search <term> [--type <type>] [--page-size <n>] [--cursor <token>]`: Search IDs, names, and
+  descriptions within authorized projects.
+- `show <id> [--type <type>] [--project-id <ulid>]`: Show one authorized registry entry. Supply
+  the publishing project ULID to avoid a cross-project scan or to disambiguate repeated artifact IDs.
 - `install <id>[@version] [--type <type>] [--alias <name>]`: Install globally. Pin an exact version
   for reproducible agent work. Versions may be numeric constraints (`2`, `2.1`, `2.1.3`) or exact
   named channels such as `branch/main` and `branch/feature/api`.
@@ -295,7 +311,8 @@ a project-scoped installation.
   the current initialized project. AST/Knowledge point to the sibling's compiled global store;
   adapter-native artifacts use the adapter's own destination.
 - `unlink <name> --type <type>`: Remove a local link from the current project.
-- `projects`: List registered projects.
+- `projects [--page-size <n>] [--cursor <token>]`: List one bounded page of Hub projects visible to
+  the trusted subject. This is distinct from the machine-local ecosystem registry.
 - `type-path <type> <name>`: Print the adapter-native destination for creating a physical skill,
   command, agent, or MCP artifact. Rules have no physical destination because hooks load them.
 - `rule`: Inspect or override the Hub routing mandate.

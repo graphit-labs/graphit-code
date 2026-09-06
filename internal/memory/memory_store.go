@@ -6,12 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
-
-const memoryPrefix = "memory"
 
 // MemoryStore is the memory scopes' persistence backend.
 //
@@ -63,12 +60,6 @@ func (m *MemoryStore) EnsureInitialised() error { return nil }
 // EnsureInitialisedFast is EnsureInitialised. It survives as a separate name because callers choose
 // between them to mean "skip the network", and initialisation no longer touches it at all.
 func (m *MemoryStore) EnsureInitialisedFast() error { return m.EnsureInitialised() }
-
-func remotePrefix(scopePath string) string {
-	trimmed := strings.Trim(scopePath, "/")
-	trimmed = strings.TrimPrefix(trimmed, memoryPrefix+"/")
-	return s3store.JoinKey(memoryPrefix, trimmed)
-}
 
 func (m *MemoryStore) scopeDir(scopePath string) string {
 	safe := strings.NewReplacer("/", "-", " ", "_").Replace(scopePath)

@@ -108,7 +108,7 @@ func TestAProjectlessInstallRecordsThePublishingProject(t *testing.T) {
 		Name:      "Demo AST",
 		Type:      TypeAST,
 		Latest:    "2.1.0",
-		ProjectID: "01PUBLISHER",
+		ProjectID: testProjectOne,
 	}))
 
 	if _, err := svc.Install(context.Background(), "demo-ast@2.1.0", "", "", TypeAST, "", ""); err != nil {
@@ -119,7 +119,7 @@ func TestAProjectlessInstallRecordsThePublishingProject(t *testing.T) {
 	if art == nil {
 		t.Fatal("no global lock entry")
 	}
-	if art.ProjectID != "01PUBLISHER" {
+	if art.ProjectID != testProjectOne {
 		t.Errorf("projectId = %q, want the publishing project — without it the store cannot be addressed", art.ProjectID)
 	}
 
@@ -127,10 +127,10 @@ func TestAProjectlessInstallRecordsThePublishingProject(t *testing.T) {
 	if !ok {
 		t.Fatal("the install is not resolvable as a global context")
 	}
-	if want := store.ASTHubDir("01PUBLISHER", "2.1.0"); store.ASTContextDirIn("", "demo-ast@2.1.0") != want {
+	if want := store.ASTHubDir(testProjectOne, "2.1.0"); store.ASTContextDirIn("", "demo-ast@2.1.0") != want {
 		t.Errorf("store = %q, want %q", store.ASTContextDirIn("", "demo-ast@2.1.0"), want)
 	}
-	if rec.Name != "01PUBLISHER" {
+	if rec.Name != testProjectOne {
 		t.Errorf("context name = %q, want the publishing project", rec.Name)
 	}
 }
@@ -258,7 +258,7 @@ func TestTheGlobalLockShapeIsWhatTheStoreReaderExpects(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	svc := serviceWithGlobalLock(t, registryWith(&Entry{
-		ID: "demo-kb", Name: "Demo KB", Type: TypeKnowledge, Latest: "1.0.0", ProjectID: "01PUB",
+		ID: "demo-kb", Name: "Demo KB", Type: TypeKnowledge, Latest: "1.0.0", ProjectID: testProjectOne,
 	}))
 	if _, err := svc.Install(context.Background(), "demo-kb@1.0.0", "", "", TypeKnowledge, "", ""); err != nil {
 		t.Fatalf("install failed: %v", err)

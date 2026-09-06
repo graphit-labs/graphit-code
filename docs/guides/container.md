@@ -294,10 +294,18 @@ separate list of supported variables.
 | `GRAPHIT_HUB_ENDPOINT` | `hub.endpoint` | For MinIO and other S3-compatible servers |
 | `GRAPHIT_HUB_PREFIX` | `hub.prefix` | |
 | `GRAPHIT_HUB_ACCESS_KEY_ID` | `hub.access_key_id` | An identifier, not a secret — the framework prints it |
+| `GRAPHIT_HUB_SUBJECT_USER` | `hub.subject.user` | Global workload identity fallback when authenticated transport middleware does not bind the subject |
+| `GRAPHIT_HUB_SUBJECT_TEAMS` | `hub.subject.teams` | Comma- or semicolon-separated trusted team memberships |
 
 Supply no credentials and the AWS default credential chain resolves them instead:
 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`, a mounted `~/.aws/credentials`,
 or an instance role.
+
+Those credentials authenticate the container, not an end user. For Hub v2, project data is rooted
+at `v2/projects/<ULID>/` and selective discovery requires a trusted `user_id` plus `team_ids`. A
+multi-user container therefore needs an authenticated identity adapter in front of Graphit and
+either an authorizing Hub service or per-request temporary credentials scoped to the allowed
+project prefixes. Do not give clients the container's broad bucket credential.
 
 ### Secrets
 
@@ -352,7 +360,8 @@ docker build --build-arg BASE_IMAGE=node:22-bookworm-slim .
 A server that only answers its own loopback is not a server, so this is the section to read before
 anyone else's agent connects.
 
-**MCP is bearer-authenticated, but the UI is not and can reveal the bearer key.** Anything that can
+**MCP is bearer-authenticated, but that shared bearer is not a user/team identity; the UI has no
+built-in user authentication and can reveal the bearer key.** Anything that can
 reach port 8080 can read every artifact in the global store, act on it, and copy the credential for
 the MCP endpoint. Both servers bind `0.0.0.0` *inside* the container because a container answering
 only its own loopback would be unusable — that is not a judgment that the ports are safe to publish.
@@ -376,6 +385,13 @@ For anything beyond the local machine:
    a new key and invalidates every distributed credential. With a configured key, restart preserves
    it; rotate by changing the secret and then restarting. The old key stops working when the new
    daemon is ready.
+5. **Establish the Hub subject.** For more than one user, make the authenticated proxy or identity
+   adapter supply trusted user/team claims and keep raw S3 credentials server-side. Without that
+   boundary the deployment is single-user, regardless of ACL objects present in the bucket.
+
+The server cache at `/opt/graphit/hub/cache/` is bounded and partitioned by Hub and subject. It may
+accelerate discovery, but it never authorizes a content read or mount and can be discarded with the
+rest of rebuildable cache state.
 
 ## docker compose
 

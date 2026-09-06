@@ -369,10 +369,9 @@ func TestUIServer_Port(t *testing.T) {
 	}
 }
 
-func TestUIServer_handleProjects(t *testing.T) {
+func TestUIServerHandleProjectsDoesNotFallBackToInMemoryGlobalRegistry(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
-	s.svc.registry.projects["p1"] = &Project{RemoteID: "p1", Name: "Proj"}
 
 	req := httptest.NewRequest("GET", "/api/projects", nil)
 	w := httptest.NewRecorder()
@@ -380,12 +379,8 @@ func TestUIServer_handleProjects(t *testing.T) {
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	projects, ok := resp["projects"].([]any)
-	if !ok {
-		t.Fatal("expected projects array in response")
-	}
-	if len(projects) != 1 {
-		t.Errorf("expected 1 project, got %d", len(projects))
+	if resp["error"] == nil {
+		t.Fatalf("expected unconfigured Hub error, got %#v", resp)
 	}
 }
 

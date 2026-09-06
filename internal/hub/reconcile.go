@@ -27,7 +27,10 @@ func ReconcileManagedArtifacts(registry *RegistryManager, lockfilePath string) e
 		return nil
 	}
 
-	entries := registry.ListEntries("")
+	entries, err := registry.ListProjectEntries(registry.baseCtx, projectID)
+	if err != nil {
+		return err
+	}
 	if len(entries) == 0 {
 		return nil
 	}

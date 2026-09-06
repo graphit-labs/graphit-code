@@ -1,13 +1,11 @@
 package ast
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/projectlock"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
@@ -161,23 +159,5 @@ func contextStoreBuilt(dir string) bool {
 }
 
 func loadProjectIDNamesFromRegistry() map[string]string {
-	names := map[string]string{}
-	registryPath := filepath.Join(brand.GlobalDir(), "hub.registry.json")
-	data, err := os.ReadFile(registryPath)
-	if err != nil {
-		return names
-	}
-	var cache struct {
-		Projects map[string]struct {
-			Name string `json:"name"`
-		} `json:"projects"`
-	}
-	if json.Unmarshal(data, &cache) == nil {
-		for id, proj := range cache.Projects {
-			if proj.Name != "" {
-				names[id] = proj.Name
-			}
-		}
-	}
-	return names
+	return map[string]string{}
 }

@@ -173,8 +173,7 @@ type InstallRecord struct {
 	// CachePath is the local directory the install produced — a clone for a file
 	// artifact, a mounted store for AST.
 	CachePath string
-	// PublisherID is the project that PUBLISHED the artifact, and half of the
-	// address of its shared store. Empty means it was published outside any project.
+	// PublisherID is the immutable project that published the artifact.
 	PublisherID string
 	// Owner is who asked for the install: a project id, store.GlobalOwnerKey for an
 	// install that belongs to no project, or "__transient__" for a download made to

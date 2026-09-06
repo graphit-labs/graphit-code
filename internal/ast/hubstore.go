@@ -15,16 +15,8 @@ func HubContextDir(projectID, version string) string {
 	return store.ASTHubDir(projectID, version)
 }
 
-// HubContextID is the name a Hub AST context is known by: the publishing project's
-// ID, which is also its directory name. An artifact published outside any project
-// has no project ID, so it falls back to the artifact ID — otherwise its store
-// would be built somewhere no lookup could name.
-func HubContextID(projectID, artifactID string) string {
-	if projectID != "" {
-		return projectID
-	}
-	return artifactID
-}
+// HubContextID is the immutable publishing-project identity used by mounted AST stores.
+func HubContextID(projectID string) string { return projectID }
 
 // IsUnderHubContextsRoot reports whether path lies inside the shared store root.
 //

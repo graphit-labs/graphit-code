@@ -20,7 +20,8 @@ local-only mode:
   ~/.graphit/memory-table/memory-<scope>-<id>/
 
 S3 mode:
-  s3://<bucket>/<hub.prefix>/memory/<scope>/<id>/
+  project: s3://<bucket>/<hub.prefix>/v2/projects/<project-ulid>/memory/
+  user:    s3://<bucket>/<hub.prefix>/v2/users/<user-id>/memory/
 
 local query projection:
   ~/.graphit/wiki/memory/<scope>/<id>/index.lance/
@@ -34,6 +35,11 @@ Nothing is copied into a project's `.graphit` directory. See
 Memory shares the Hub's S3 configuration; there is no memory-specific repository or bucket key.
 When `hub.bucket` is configured, LanceDB opens the scope directly at its `s3://` URI. Otherwise the
 same schema and operations run against the local table directory.
+
+Project memory is authorized as part of the enclosing project ULID. User memory is authorized by
+the trusted user subject; `unit.id` is a local scope key and does not authenticate a remote user.
+Every remote operation follows [Hub Access Control](hub_access_control.md), and cached Hub metadata
+cannot authorize a memory read or mutation.
 
 There is no synchronization phase between local files and S3:
 

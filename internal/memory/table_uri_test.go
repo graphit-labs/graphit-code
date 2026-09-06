@@ -2,7 +2,6 @@ package memory
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -16,8 +15,8 @@ func TestMemoryTableURIRemoteFormCarriesBucketAndPrefix(t *testing.T) {
 	t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
 	t.Setenv("GRAPHIT_HUB_PREFIX", "team-a")
 
-	got := MemoryTableURI("memory/project/01ABC", filepath.Join("unused", "local"))
-	const want = "s3://acme-hub/team-a/memory/project/01ABC"
+	got := MemoryTableURI("memory/project/01ARZ3NDEKTSV4RRFFQ69G5FAV", filepath.Join("unused", "local"))
+	const want = "s3://acme-hub/team-a/v2/projects/01ARZ3NDEKTSV4RRFFQ69G5FAV/memory"
 	if got != want {
 		t.Errorf("MemoryTableURI = %q, want %q", got, want)
 	}
@@ -35,35 +34,24 @@ func TestMemoryTableURIFallsToTheLocalDirWithNoBucket(t *testing.T) {
 	}
 }
 
-// A scope path is normalised by remotePrefix and by nothing else, so a caller that omits the
-// leading `memory/` addresses the SAME table. Two normalisation rules would put two tables where
-// there is one scope.
-func TestMemoryTableURINormalisesTheScopePathLikeTheObjectStore(t *testing.T) {
+func TestMemoryTableURIRejectsAnUnqualifiedRemoteScope(t *testing.T) {
 	t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
 	t.Setenv("GRAPHIT_HUB_PREFIX", "")
 
-	withPrefix := MemoryTableURI("memory/project/01ABC", "l")
-	withoutPrefix := MemoryTableURI("project/01ABC", "l")
-	if withPrefix != withoutPrefix {
-		t.Errorf("the same scope produced two URIs:\n  %q\n  %q", withPrefix, withoutPrefix)
-	}
-	if !strings.HasSuffix(withPrefix, "/memory/project/01ABC") {
-		t.Errorf("URI = %q, want it to end in /memory/project/01ABC", withPrefix)
+	if got := MemoryTableURI("project/01ARZ3NDEKTSV4RRFFQ69G5FAV", "l"); got != "" {
+		t.Errorf("unqualified scope produced URI %q", got)
 	}
 }
 
-// An imported context's REMOTE location is another project's prefix — `memory/project/<name>` —
-// while its LOCAL directory is named from the doubled scope. Both facts are load-bearing, and a
-// single helper that assumed the identity mapping would break one of them.
 func TestAContextResolvesToTheProjectPrefixRemotelyAndADoubledNameLocally(t *testing.T) {
 	t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
 	t.Setenv("GRAPHIT_HUB_PREFIX", "")
 
-	svc := NewMemoryServiceForContext("shared-notes", nil)
-	if got, want := svc.ScopePrefix(), "memory/project/shared-notes"; got != want {
+	svc := NewMemoryServiceForContext("01ARZ3NDEKTSV4RRFFQ69G5FAV", nil)
+	if got, want := svc.ScopePrefix(), "memory/project/01ARZ3NDEKTSV4RRFFQ69G5FAV"; got != want {
 		t.Fatalf("ScopePrefix = %q, want %q", got, want)
 	}
-	if got, want := MemoryTableURI(svc.ScopePrefix(), "l"), "s3://acme-hub/memory/project/shared-notes"; got != want {
+	if got, want := MemoryTableURI(svc.ScopePrefix(), "l"), "s3://acme-hub/v2/projects/01ARZ3NDEKTSV4RRFFQ69G5FAV/memory"; got != want {
 		t.Errorf("remote URI = %q, want %q", got, want)
 	}
 	if got := TableDirFor("shared-notes", "shared-notes"); got != store.MemoryTableDir("shared-notes", "shared-notes") {

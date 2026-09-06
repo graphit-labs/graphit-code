@@ -205,13 +205,14 @@ Examples:
 }
 
 func newHubListCmd() *cobra.Command {
-	var artType string
+	var artType, cursor string
+	var pageSize int
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List available artifacts in the hub",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			reg, err := getRegistry(ctx)
 			if err != nil {
@@ -219,7 +220,11 @@ func newHubListCmd() *cobra.Command {
 			}
 
 			p := output.NewPrinter("hub")
-			entries := reg.ListEntries(hub.ArtifactType(artType))
+			page, err := reg.ListEntriesPage(ctx, hub.ArtifactType(artType), pageSize, cursor)
+			if err != nil {
+				return err
+			}
+			entries := page.Entries
 			if len(entries) == 0 {
 				p.Info("No entries found.")
 				return nil
@@ -249,17 +254,23 @@ func newHubListCmd() *cobra.Command {
 			}
 
 			p.Table([2]string{"TYPE / NAME", "ID / VERSION"}, rows)
+			if page.NextCursor != "" {
+				p.Info("Next cursor: %s", page.NextCursor)
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&artType, "type", "", "Filter by artifact type")
+	cmd.Flags().IntVar(&pageSize, "page-size", 100, "Maximum artifacts to return")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Opaque cursor returned by the previous page")
 	registerArtifactTypeFlagCompletion(cmd)
 	return cmd
 }
 
 func newHubSearchCmd() *cobra.Command {
-	var artType string
+	var artType, cursor string
+	var pageSize int
 
 	cmd := &cobra.Command{
 		Use:   "search <term>",
@@ -269,7 +280,7 @@ func newHubSearchCmd() *cobra.Command {
   ` + brand.BinName() + ` hub search "payment gateway" --type knowledge`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			term := strings.Join(args, " ")
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			reg, err := getRegistry(ctx)
 			if err != nil {
@@ -277,7 +288,11 @@ func newHubSearchCmd() *cobra.Command {
 			}
 
 			p := output.NewPrinter("hub")
-			entries := reg.SearchEntries(term, hub.ArtifactType(artType))
+			page, err := reg.SearchEntriesPage(ctx, term, hub.ArtifactType(artType), pageSize, cursor)
+			if err != nil {
+				return err
+			}
+			entries := page.Entries
 			if len(entries) == 0 {
 				p.Info("No results for %q.", term)
 				return nil
@@ -307,24 +322,29 @@ func newHubSearchCmd() *cobra.Command {
 			}
 
 			p.Table([2]string{"TYPE / NAME", "ID / VERSION / DESCRIPTION"}, rows)
+			if page.NextCursor != "" {
+				p.Info("Next cursor: %s", page.NextCursor)
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&artType, "type", "", "Filter by artifact type (knowledge, ast, rule, skill, command, spec, ...)")
+	cmd.Flags().IntVar(&pageSize, "page-size", 100, "Maximum artifacts to return")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Opaque cursor returned by the previous page")
 	registerArtifactTypeFlagCompletion(cmd)
 	return cmd
 }
 
 func newHubShowCmd() *cobra.Command {
-	var artType string
+	var artType, projectID string
 
 	cmd := &cobra.Command{
 		Use:   "show <artifact-id>",
 		Short: "Show details of a hub artifact",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			reg, err := getRegistry(ctx)
 			if err != nil {
@@ -332,10 +352,9 @@ func newHubShowCmd() *cobra.Command {
 			}
 
 			p := output.NewPrinter("hub")
-			entry := reg.GetEntry(args[0], hub.ArtifactType(artType))
-			if entry == nil {
-				p.Error("Entry %q not found in registry.", args[0])
-				return nil
+			entry, err := reg.ResolveEntry(ctx, projectID, args[0], hub.ArtifactType(artType))
+			if err != nil {
+				return err
 			}
 
 			p.Header("Artifact: %s", entry.Name)
@@ -373,6 +392,7 @@ func newHubShowCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&artType, "type", "", "Artifact type (helps resolve ambiguous IDs)")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "Publishing project ULID")
 	registerArtifactTypeFlagCompletion(cmd)
 	cmd.ValidArgsFunction = completionInstalledArtifactIDs()
 	return cmd
@@ -419,14 +439,12 @@ func newHubSubmitCmd() *cobra.Command {
 				Description: description,
 				Tags:        tagList,
 			}
-			if hub.IsMountable(meta.Type) {
-				projectDir, err := filepath.Abs(localPath)
-				if err != nil {
-					return fmt.Errorf("resolve publishing project: %w", err)
-				}
-				if err := assignPublishingProject(meta, projectDir); err != nil {
-					return err
-				}
+			projectDir, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("resolve publishing project: %w", err)
+			}
+			if err := assignPublishingProject(meta, projectDir); err != nil {
+				return err
 			}
 
 			p := output.NewPrinter("hub")
@@ -474,32 +492,43 @@ func assignPublishingProject(meta *hub.Entry, projectDir string) error {
 }
 
 func newHubProjectsCmd() *cobra.Command {
-	return &cobra.Command{
+	var cursor string
+	var pageSize int
+	cmd := &cobra.Command{
 		Use:   "projects",
 		Short: "List registered projects",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.Background()
+			ctx := cmd.Context()
 			reg, err := getRegistry(ctx)
 			if err != nil {
 				return err
 			}
 
 			p := output.NewPrinter("hub")
-			projects := reg.ListProjects()
-			if len(projects) == 0 {
+			page, err := reg.DiscoverProjects(ctx, pageSize, cursor)
+			if err != nil {
+				return err
+			}
+			if len(page.Projects) == 0 {
 				p.Info("No projects registered.")
 				return nil
 			}
 
-			rows := make([][2]string, 0, len(projects))
-			for _, proj := range projects {
-				rows = append(rows, [2]string{proj.Name, proj.RemoteID})
+			rows := make([][2]string, 0, len(page.Projects))
+			for _, proj := range page.Projects {
+				rows = append(rows, [2]string{proj.Name, proj.ID})
 			}
 
 			p.Table([2]string{"PROJECT", "REMOTE ID"}, rows)
+			if page.NextCursor != "" {
+				p.Info("Next cursor: %s", page.NextCursor)
+			}
 			return nil
 		},
 	}
+	cmd.Flags().IntVar(&pageSize, "page-size", 100, "Maximum projects to return")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Opaque cursor returned by the previous page")
+	return cmd
 }
 
 func newHubTypePathCmd() *cobra.Command {

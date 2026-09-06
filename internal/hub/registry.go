@@ -2,8 +2,7 @@ package hub
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,14 +10,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
+	"sync"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -71,9 +70,11 @@ type Dependency struct {
 }
 
 type Project struct {
-	RemoteID    string `json:"remote_id"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Revision    int64  `json:"revision"`
+	Status      string `json:"status"`
 }
 
 type Baseline struct {
@@ -92,22 +93,40 @@ type entryFile struct {
 	Entry   Entry `json:"entry"`
 }
 
-type RegistryCache struct {
-	V        int                `json:"v"`
-	Commit   string             `json:"commit"`
-	Projects map[string]Project `json:"projects"`
-	Entries  []Entry            `json:"entries"`
-}
-
 type baselinesData struct {
 	Baselines []Baseline `json:"baselines"`
 }
 
-const (
-	hubManifestVersion = 1
-	globalProjectKey   = "_global"
-	registryCacheFile  = "hub.registry.json"
-)
+type nameRecord struct {
+	Version         int    `json:"v"`
+	Name            string `json:"name"`
+	ProjectID       string `json:"project_id"`
+	ProjectRevision int64  `json:"project_revision"`
+	Status          string `json:"status"`
+}
+
+type discoveryCursor struct {
+	Scope int    `json:"scope"`
+	Exact int    `json:"exact,omitempty"`
+	S3    string `json:"s3,omitempty"`
+}
+
+type entryCursor struct {
+	Project  string `json:"project,omitempty"`
+	Artifact string `json:"artifact,omitempty"`
+}
+
+type ProjectPage struct {
+	Projects   []*Project `json:"projects"`
+	NextCursor string     `json:"next_cursor,omitempty"`
+}
+
+type EntryPage struct {
+	Entries    []*Entry `json:"entries"`
+	NextCursor string   `json:"next_cursor,omitempty"`
+}
+
+const hubManifestVersion = 2
 
 type RegistryManager struct {
 	Logger        *slog.Logger
@@ -115,21 +134,20 @@ type RegistryManager struct {
 	projectConfig config.ConfigMap
 
 	baseCtx context.Context
+	cache   *metadataCache
+	dataMu  sync.RWMutex
 
 	entries  map[ArtifactType]map[string]*Entry
 	projects map[string]*Project
-
-	registryPaths []string
 }
 
 func (r *RegistryManager) log() *slog.Logger { return slogutil.Resolve(r.Logger) }
 
-func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager, error) {
+func NewRegistryManager(ctx context.Context) (*RegistryManager, error) {
 	m := &RegistryManager{
-		entries:       make(map[ArtifactType]map[string]*Entry),
-		projects:      make(map[string]*Project),
-		registryPaths: paths,
-		baseCtx:       ctx,
+		entries:  make(map[ArtifactType]map[string]*Entry),
+		projects: make(map[string]*Project),
+		baseCtx:  ctx,
 	}
 
 	var projectCfg config.ConfigMap
@@ -142,220 +160,368 @@ func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager,
 	st, err := NewS3Store(ctx, nil, projectCfg)
 	if err == nil && st.Configured() {
 		m.store = st
-		if err := st.SyncRegistry(ctx); err != nil {
-			m.log().Warn("sync registry", "error", err)
-			m.store = nil
-		} else if err := m.loadRegistry(); err != nil {
-			m.log().Warn("load registry", "error", err)
+		if subject, subjectErr := hubaccess.TrustedSubject(ctx); subjectErr == nil {
+			m.cache = newMetadataCache(st.CacheDir(), st.cfg, subject)
 		}
 	}
 
-	m.loadLocalRegistries()
 	return m, nil
 }
 
-func (m *RegistryManager) loadRegistry() error {
+func (m *RegistryManager) DiscoverProjects(ctx context.Context, limit int, cursor string) (ProjectPage, error) {
 	if m.store == nil {
-		return fmt.Errorf("git store not initialized")
+		return ProjectPage{}, fmt.Errorf("hub not configured")
 	}
-
-	cache, err := m.LoadRegistryCache()
-	if err == nil && cache != nil {
-		headCommit := m.store.RegistryRevision(m.baseCtx)
-		if cache.Commit != "" && cache.Commit == headCommit {
-			m.loadFromCacheData(cache)
-			return nil
-		}
-	}
-
-	newCache, err := m.BuildRegistryCache()
+	grants, _, err := hubaccess.ResolveTrusted(ctx, m.store)
 	if err != nil {
-		return err
+		return ProjectPage{}, err
 	}
-	m.loadFromCacheData(newCache)
-	return nil
-}
-
-func (m *RegistryManager) loadFromCacheData(cache *RegistryCache) {
-	for rid, p := range cache.Projects {
-		p := p
-		if rid != globalProjectKey {
-			m.projects[rid] = &p
-		}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
 	}
-	for _, entry := range cache.Entries {
-		entry := entry
-		t := entry.Type
-		if m.entries[t] == nil {
-			m.entries[t] = make(map[string]*Entry)
-		}
-		m.entries[t][entry.ID] = &entry
-	}
-}
-
-func (m *RegistryManager) BuildRegistryCache() (*RegistryCache, error) {
-	if m.store == nil {
-		return nil, fmt.Errorf("git store not initialized")
-	}
-
-	cache := &RegistryCache{
-		V:        hubManifestVersion,
-		Commit:   m.store.RegistryRevision(m.baseCtx),
-		Projects: make(map[string]Project),
-		Entries:  []Entry{},
-	}
-
-	projectsDir := m.store.AbsPath("projects")
-
-	topEntries, err := os.ReadDir(projectsDir)
+	state, err := decodeDiscoveryCursor(cursor)
 	if err != nil {
-
-		if err := m.SaveRegistryCache(cache); err != nil {
-			return nil, err
-		}
-		return cache, nil
+		return ProjectPage{}, err
 	}
 
-	for _, topEntry := range topEntries {
-		topPath := filepath.Join(projectsDir, topEntry.Name())
-
-		if topEntry.IsDir() {
-
-			children, err := os.ReadDir(topPath)
-			if err != nil {
+	result := ProjectPage{}
+	seen := make(map[string]struct{})
+	exactIDs := grants.ExactIDs()
+	exactSet := make(map[string]struct{}, len(exactIDs))
+	for _, projectID := range exactIDs {
+		exactSet[projectID] = struct{}{}
+	}
+	if state.Scope == 0 {
+		if state.Exact > len(exactIDs) {
+			return ProjectPage{}, fmt.Errorf("invalid discovery cursor")
+		}
+		for index, projectID := range exactIDs[state.Exact:] {
+			project, err := m.readProjectCached(ctx, projectID)
+			if errors.Is(err, s3store.ErrNotFound) {
 				continue
 			}
-			for _, child := range children {
-				if child.IsDir() {
-					childPath := filepath.Join(topPath, child.Name())
-					m.loadProjectDir(childPath, "", cache)
+			if err != nil {
+				return ProjectPage{}, err
+			}
+			m.acceptProject(project)
+			seen[project.ID] = struct{}{}
+			result.Projects = append(result.Projects, project)
+			if len(result.Projects) == limit {
+				next := state.Exact + index + 1
+				if next < len(exactIDs) {
+					result.NextCursor = encodeDiscoveryCursor(discoveryCursor{Exact: next})
+				} else {
+					result.NextCursor = encodeDiscoveryCursor(discoveryCursor{Scope: 1})
 				}
+				return result, nil
+			}
+		}
+		state.Scope = 1
+	}
+
+	scopes := grants.NamePrefixes()
+	if grants.All() {
+		scopes = []string{""}
+	}
+	for scope := state.Scope - 1; scope < len(scopes); scope++ {
+		prefix := hubaccess.NameDirectoryPrefix() + scopes[scope]
+		page, err := m.store.ListPage(ctx, prefix, limit-len(result.Projects), state.S3)
+		if err != nil {
+			return ProjectPage{}, err
+		}
+		for _, object := range page.Objects {
+			project, err := m.readNameProject(ctx, object.Key)
+			if errors.Is(err, s3store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return ProjectPage{}, err
+			}
+			if !grants.Allows(project.ID, project.Name) {
+				continue
+			}
+			if _, exact := exactSet[project.ID]; exact {
+				continue
+			}
+			if _, duplicate := seen[project.ID]; duplicate {
+				continue
+			}
+			seen[project.ID] = struct{}{}
+			m.acceptProject(project)
+			result.Projects = append(result.Projects, project)
+		}
+		if page.NextCursor != "" {
+			result.NextCursor = encodeDiscoveryCursor(discoveryCursor{Scope: scope + 1, S3: page.NextCursor})
+			return result, nil
+		}
+		state.S3 = ""
+		if len(result.Projects) == limit && scope+1 < len(scopes) {
+			result.NextCursor = encodeDiscoveryCursor(discoveryCursor{Scope: scope + 2})
+			return result, nil
+		}
+	}
+	return result, nil
+}
+
+func (m *RegistryManager) readProject(ctx context.Context, projectID string) (*Project, error) {
+	if err := hubaccess.ValidateProjectID(projectID); err != nil {
+		return nil, err
+	}
+	value, err := m.store.ReadValue(ctx, hubaccess.ProjectMetadataKey(projectID))
+	if err != nil {
+		return nil, err
+	}
+	project, err := decodeProject(projectID, value.Data)
+	if err == nil && m.cache != nil {
+		_ = m.cache.Put(hubaccess.ProjectMetadataKey(projectID), value.Data, value.ETag)
+	}
+	return project, err
+}
+
+func (m *RegistryManager) readProjectCached(ctx context.Context, projectID string) (*Project, error) {
+	if err := hubaccess.ValidateProjectID(projectID); err != nil {
+		return nil, err
+	}
+	key := hubaccess.ProjectMetadataKey(projectID)
+	if m.cache != nil {
+		if data, _, ok := m.cache.GetFresh(key); ok {
+			if project, err := decodeProject(projectID, data); err == nil {
+				return project, nil
 			}
 		}
 	}
+	return m.readProject(ctx, projectID)
+}
 
-	sort.Slice(cache.Entries, func(i, j int) bool {
-		if cache.Entries[i].Type != cache.Entries[j].Type {
-			return cache.Entries[i].Type < cache.Entries[j].Type
-		}
-		return cache.Entries[i].ID < cache.Entries[j].ID
-	})
-
-	if err := m.SaveRegistryCache(cache); err != nil {
+func decodeProject(projectID string, data []byte) (*Project, error) {
+	var file projectFile
+	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, err
 	}
-
-	return cache, nil
+	if file.Version != hubManifestVersion || file.Project == nil || file.Project.ID != projectID || file.Project.Status != "active" {
+		return nil, fmt.Errorf("invalid project metadata for %s", projectID)
+	}
+	name, err := hubaccess.NormalizeProjectName(file.Project.Name)
+	if err != nil || name != file.Project.Name {
+		return nil, fmt.Errorf("invalid project metadata name for %s", projectID)
+	}
+	return file.Project, nil
 }
 
-func (m *RegistryManager) loadProjectDir(dir string, knownID string, cache *RegistryCache) {
-
-	projectID := knownID
-	projData, err := os.ReadFile(filepath.Join(dir, "project.json"))
-	if err == nil {
-		var pf projectFile
-		if json.Unmarshal(projData, &pf) == nil && pf.Project != nil {
-			projectID = pf.Project.RemoteID
-			cache.Projects[projectID] = *pf.Project
-		}
+func (m *RegistryManager) readNameProject(ctx context.Context, key string) (*Project, error) {
+	var record nameRecord
+	if err := ReadJSON(ctx, m.store, key, &record); err != nil {
+		return nil, err
 	}
-
-	dirEntries, err := os.ReadDir(dir)
-	if err != nil {
-		return
+	if record.Version != hubManifestVersion || record.Status != "active" {
+		return nil, s3store.ErrNotFound
 	}
-	for _, de := range dirEntries {
-		if de.IsDir() || de.Name() == "project.json" || !strings.HasSuffix(de.Name(), ".json") {
-			continue
-		}
-
-		data, err := os.ReadFile(filepath.Join(dir, de.Name()))
-		if err != nil {
-			continue
-		}
-
-		var ef entryFile
-		if err := json.Unmarshal(data, &ef); err != nil {
-			continue
-		}
-
-		if ef.Entry.ProjectID == "" && projectID != "" {
-			ef.Entry.ProjectID = projectID
-		}
-
-		if projectID == "" && ef.Entry.ProjectID != "" {
-			projectID = ef.Entry.ProjectID
-		}
-
-		cache.Entries = append(cache.Entries, ef.Entry)
+	if hubaccess.NameRecordKey(record.Name) != key {
+		return nil, fmt.Errorf("name directory key %s disagrees with record %q", key, record.Name)
 	}
-}
-
-func RegistryCachePath() string {
-	return filepath.Join(brand.GlobalDir(), registryCacheFile)
-}
-
-func (m *RegistryManager) LoadRegistryCache() (*RegistryCache, error) {
-	data, err := os.ReadFile(RegistryCachePath())
+	project, err := m.readProject(ctx, record.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	var cache RegistryCache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, err
+	if project.Name != record.Name || project.Revision != record.ProjectRevision {
+		return nil, fmt.Errorf("name directory record %s disagrees with project %s", key, project.ID)
 	}
-	return &cache, nil
+	return project, nil
 }
 
-func (m *RegistryManager) SaveRegistryCache(cache *RegistryCache) error {
-	data, err := json.MarshalIndent(cache, "", "  ")
+func (m *RegistryManager) acceptProject(project *Project) {
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+	if m.projects == nil {
+		m.projects = make(map[string]*Project)
+	}
+	m.projects[project.ID] = project
+}
+
+func encodeDiscoveryCursor(cursor discoveryCursor) string {
+	data, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeDiscoveryCursor(value string) (discoveryCursor, error) {
+	if value == "" {
+		return discoveryCursor{}, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
-		return fmt.Errorf("serializing registry cache: %w", err)
+		return discoveryCursor{}, fmt.Errorf("invalid discovery cursor")
 	}
-	cachePath := RegistryCachePath()
-	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
-		return err
+	var cursor discoveryCursor
+	if json.Unmarshal(data, &cursor) != nil || cursor.Scope < 0 {
+		return discoveryCursor{}, fmt.Errorf("invalid discovery cursor")
 	}
-	return os.WriteFile(cachePath, data, 0o644)
-}
-
-func (m *RegistryManager) loadLocalRegistries() {
-	for _, path := range m.registryPaths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		type flatRegistry struct {
-			Entries []Entry `json:"entries"`
-		}
-		var rd flatRegistry
-		if json.Unmarshal(data, &rd) == nil {
-			for _, entry := range rd.Entries {
-				entry := entry
-				t := entry.Type
-				if m.entries[t] == nil {
-					m.entries[t] = make(map[string]*Entry)
-				}
-				m.entries[t][entry.ID] = &entry
-			}
-		}
-	}
+	return cursor, nil
 }
 
 func (m *RegistryManager) GetEntry(id string, entryType ArtifactType) *Entry {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
 	if entryType != "" {
-		e := m.entries[entryType][id]
-		return e
+		return uniqueEntry(m.entries[entryType], id)
 	}
+	var found *Entry
 	for _, typeMap := range m.entries {
-		if e, ok := typeMap[id]; ok {
-			return e
+		if entry := uniqueEntry(typeMap, id); entry != nil {
+			if found != nil {
+				return nil
+			}
+			found = entry
 		}
 	}
-	return nil
+	return found
+}
+
+func (m *RegistryManager) GetEntryInProject(projectID, id string, entryType ArtifactType) *Entry {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
+	if entryType != "" {
+		return m.entries[entryType][entryKey(projectID, id)]
+	}
+	var found *Entry
+	for _, typeMap := range m.entries {
+		if entry := typeMap[entryKey(projectID, id)]; entry != nil {
+			if found != nil {
+				return nil
+			}
+			found = entry
+		}
+	}
+	return found
+}
+
+func (m *RegistryManager) ResolveEntry(ctx context.Context, projectID, id string, entryType ArtifactType) (*Entry, error) {
+	if projectID == "" {
+		if m.store == nil {
+			entry := m.GetEntry(id, entryType)
+			if entry == nil {
+				return nil, fmt.Errorf("artifact %q is absent or ambiguous; provide project_id", id)
+			}
+			return entry, nil
+		}
+		var found *Entry
+		cursor := ""
+		for {
+			page, err := m.ListEntriesPage(ctx, entryType, 100, cursor)
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range page.Entries {
+				if entry.ID != id {
+					continue
+				}
+				if found != nil && found.ProjectID != entry.ProjectID {
+					return nil, fmt.Errorf("artifact %q is ambiguous; provide project_id", id)
+				}
+				found = entry
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		if found == nil {
+			return nil, fmt.Errorf("artifact %q was not found in accessible projects", id)
+		}
+		return found, nil
+	}
+	if m.store == nil {
+		entry := m.GetEntryInProject(projectID, id, entryType)
+		if entry == nil {
+			return nil, fmt.Errorf("artifact %q was not found in project %s", id, projectID)
+		}
+		return entry, nil
+	}
+	if err := m.authorizeProject(ctx, projectID); err != nil {
+		return nil, err
+	}
+	if entryType == "" {
+		return nil, fmt.Errorf("artifact type is required with project_id")
+	}
+	key := hubaccess.ProjectRegistryKey(projectID, string(entryType), id)
+	var file entryFile
+	if err := ReadJSON(ctx, m.store, key, &file); err != nil {
+		return nil, err
+	}
+	if file.Version != hubManifestVersion || file.Entry.ProjectID != projectID || file.Entry.ID != id || file.Entry.Type != entryType {
+		return nil, fmt.Errorf("invalid registry entry %s", key)
+	}
+	entry := file.Entry
+	return &entry, nil
+}
+
+func uniqueEntry(entries map[string]*Entry, id string) *Entry {
+	var found *Entry
+	for _, entry := range entries {
+		if entry.ID != id {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = entry
+	}
+	return found
+}
+
+func entryKey(projectID, id string) string {
+	return projectID + "\x00" + id
+}
+
+func encodeEntryCursor(cursor entryCursor) string {
+	data, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+func decodeEntryCursor(value string) (entryCursor, error) {
+	if value == "" {
+		return entryCursor{}, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return entryCursor{}, fmt.Errorf("invalid entry cursor: %w", err)
+	}
+	var cursor entryCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return entryCursor{}, fmt.Errorf("invalid entry cursor: %w", err)
+	}
+	return cursor, nil
+}
+
+func (m *RegistryManager) loadEntryPage(ctx context.Context, projectID string, limit int, cursor string) ([]*Entry, string, error) {
+	page, err := m.store.ListPage(ctx, hubaccess.ProjectRegistryPrefix(projectID), limit, cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	entries := make([]*Entry, 0, len(page.Objects))
+	for _, object := range page.Objects {
+		var file entryFile
+		if err := ReadJSON(ctx, m.store, object.Key, &file); err != nil {
+			return nil, "", err
+		}
+		entry := file.Entry
+		if file.Version != hubManifestVersion || entry.ProjectID != projectID || entry.ID == "" || entry.Type == "" {
+			return nil, "", fmt.Errorf("invalid registry entry %s", object.Key)
+		}
+		entryCopy := entry
+		m.dataMu.Lock()
+		if m.entries[entry.Type] == nil {
+			m.entries[entry.Type] = make(map[string]*Entry)
+		}
+		m.entries[entry.Type][entryKey(projectID, entry.ID)] = &entryCopy
+		m.dataMu.Unlock()
+		entries = append(entries, &entryCopy)
+	}
+	return entries, page.NextCursor, nil
 }
 
 func (m *RegistryManager) ListEntries(typeFilter ArtifactType) []*Entry {
+	m.dataMu.RLock()
+	defer m.dataMu.RUnlock()
 	var result []*Entry
 	for t, typeMap := range m.entries {
 		if typeFilter != "" && t != typeFilter {
@@ -368,67 +534,128 @@ func (m *RegistryManager) ListEntries(typeFilter ArtifactType) []*Entry {
 	return result
 }
 
-func (m *RegistryManager) SearchEntries(term string, typeFilter ArtifactType) []*Entry {
+func (m *RegistryManager) ListEntriesPage(ctx context.Context, typeFilter ArtifactType, limit int, cursor string) (EntryPage, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	state, err := decodeEntryCursor(cursor)
+	if err != nil {
+		return EntryPage{}, err
+	}
+
+	result := EntryPage{}
+	for scannedProjects := 0; len(result.Entries) < limit && scannedProjects < limit; scannedProjects++ {
+		projects, err := m.DiscoverProjects(ctx, 1, state.Project)
+		if err != nil {
+			return EntryPage{}, err
+		}
+		if len(projects.Projects) == 0 {
+			return result, nil
+		}
+		project := projects.Projects[0]
+		entries, nextArtifact, err := m.loadEntryPage(ctx, project.ID, limit-len(result.Entries), state.Artifact)
+		if err != nil {
+			return EntryPage{}, err
+		}
+		for _, entry := range entries {
+			if typeFilter == "" || entry.Type == typeFilter {
+				result.Entries = append(result.Entries, entry)
+			}
+		}
+		if nextArtifact != "" {
+			result.NextCursor = encodeEntryCursor(entryCursor{Project: state.Project, Artifact: nextArtifact})
+			return result, nil
+		}
+		state.Project = projects.NextCursor
+		state.Artifact = ""
+		if state.Project == "" {
+			return result, nil
+		}
+	}
+	result.NextCursor = encodeEntryCursor(state)
+	return result, nil
+}
+
+func (m *RegistryManager) SearchEntriesPage(ctx context.Context, term string, typeFilter ArtifactType, limit int, cursor string) (EntryPage, error) {
+	page, err := m.ListEntriesPage(ctx, typeFilter, limit, cursor)
+	if err != nil {
+		return EntryPage{}, err
+	}
 	lower := strings.ToLower(term)
-
-	var nameMatches, descMatches []*Entry
-	for t, typeMap := range m.entries {
-		if typeFilter != "" && t != typeFilter {
-			continue
+	filtered := page.Entries[:0]
+	for _, entry := range page.Entries {
+		if strings.Contains(strings.ToLower(entry.Name), lower) || strings.Contains(strings.ToLower(entry.ID), lower) || strings.Contains(strings.ToLower(entry.Description), lower) {
+			filtered = append(filtered, entry)
 		}
-		for _, e := range typeMap {
-			nameLower := strings.ToLower(e.Name)
-			descLower := strings.ToLower(e.Description)
-			idLower := strings.ToLower(e.ID)
+	}
+	page.Entries = filtered
+	return page, nil
+}
 
-			if strings.Contains(nameLower, lower) || strings.Contains(idLower, lower) {
-				nameMatches = append(nameMatches, e)
-			} else if strings.Contains(descLower, lower) {
-				descMatches = append(descMatches, e)
+func (m *RegistryManager) ListProjectEntries(ctx context.Context, projectID string) ([]*Entry, error) {
+	if m.store == nil {
+		return m.ListEntries(""), nil
+	}
+	if err := m.authorizeProject(ctx, projectID); err != nil {
+		return nil, err
+	}
+	var result []*Entry
+	cursor := ""
+	for {
+		entries, next, err := m.loadEntryPage(ctx, projectID, 100, cursor)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, entries...)
+		if next == "" {
+			return result, nil
+		}
+		cursor = next
+	}
+}
+
+func (m *RegistryManager) ResolveProject(ctx context.Context, idOrName string) (*Project, error) {
+	if m.store == nil {
+		m.dataMu.RLock()
+		defer m.dataMu.RUnlock()
+		for _, project := range m.projects {
+			if project.ID == idOrName || project.Name == idOrName {
+				return project, nil
 			}
 		}
+		return nil, fmt.Errorf("project %q was not found", idOrName)
 	}
-
-	sortEntries := func(entries []*Entry) {
-		sort.Slice(entries, func(i, j int) bool {
-			if entries[i].Type != entries[j].Type {
-				return entries[i].Type < entries[j].Type
-			}
-			return entries[i].ID < entries[j].ID
-		})
-	}
-	sortEntries(nameMatches)
-	sortEntries(descMatches)
-
-	return append(nameMatches, descMatches...)
-}
-
-func (m *RegistryManager) ListProjects() []*Project {
-	result := make([]*Project, 0, len(m.projects))
-	for _, p := range m.projects {
-		result = append(result, p)
-	}
-	return result
-}
-
-func (m *RegistryManager) GetProject(remoteID string) *Project {
-	return m.projects[remoteID]
-}
-
-func (m *RegistryManager) GetProjectByName(name string) *Project {
-	for _, p := range m.projects {
-		if p.Name == name {
-			return p
+	if hubaccess.ValidateProjectID(idOrName) == nil {
+		project, err := m.readProject(ctx, idOrName)
+		if err != nil {
+			return nil, err
 		}
+		if err := hubaccess.Authorize(ctx, m.store, project.ID, project.Name); err != nil {
+			return nil, err
+		}
+		m.acceptProject(project)
+		return project, nil
 	}
-	return nil
+	name, err := hubaccess.NormalizeProjectName(idOrName)
+	if err != nil {
+		return nil, err
+	}
+	project, err := m.readNameProject(ctx, hubaccess.NameRecordKey(name))
+	if err != nil {
+		return nil, err
+	}
+	if err := hubaccess.Authorize(ctx, m.store, project.ID, project.Name); err != nil {
+		return nil, err
+	}
+	m.acceptProject(project)
+	return project, nil
 }
 
 func (m *RegistryManager) GetDefaultBaselines(_ context.Context) ([]Baseline, error) {
 	if m.store == nil {
 		return nil, fmt.Errorf("hub not configured")
 	}
-	data, err := m.store.ReadFile(m.baseCtx, "baselines.json")
+	data, err := m.store.ReadFile(m.baseCtx, hubaccess.BaselinesKey())
 	if err != nil {
 		return nil, err
 	}
@@ -446,8 +673,7 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 	if err := ValidatePublishedVersion(version); err != nil {
 		return fmt.Errorf("invalid published version: %w", err)
 	}
-
-	if err := m.store.SyncRegistry(ctx); err != nil {
+	if err := m.authorizeProject(ctx, meta.ProjectID); err != nil {
 		return err
 	}
 
@@ -516,9 +742,16 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 		return fmt.Errorf("publishing artifact: %w", err)
 	}
 
-	existing := m.entries[meta.Type][entryID]
-	if existing == nil {
-		existing = &Entry{}
+	existing := &Entry{}
+	var existingFile entryFile
+	entryPath := hubaccess.ProjectRegistryKey(meta.ProjectID, string(meta.Type), entryID)
+	if err := ReadJSON(ctx, m.store, entryPath, &existingFile); err == nil {
+		if existingFile.Version != hubManifestVersion || existingFile.Entry.ProjectID != meta.ProjectID {
+			return fmt.Errorf("invalid registry entry %s", entryPath)
+		}
+		existing = &existingFile.Entry
+	} else if !errors.Is(err, s3store.ErrNotFound) {
+		return err
 	}
 
 	meta.ID = entryID
@@ -550,22 +783,16 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 	hashes[version] = versionHash
 	meta.Hashes = hashes
 
+	m.dataMu.Lock()
 	if m.entries[meta.Type] == nil {
 		m.entries[meta.Type] = make(map[string]*Entry)
 	}
-	m.entries[meta.Type][entryID] = meta
+	m.entries[meta.Type][entryKey(meta.ProjectID, entryID)] = meta
+	m.dataMu.Unlock()
 
 	if err := m.persistEntryFile(meta); err != nil {
 		return err
 	}
-	if err := m.persistProjectFile(meta.ProjectID); err != nil {
-		return err
-	}
-
-	if _, err := m.BuildRegistryCache(); err != nil {
-		m.log().Warn("rebuild cache after publish", "error", err)
-	}
-
 	return nil
 }
 
@@ -578,18 +805,12 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 		return fmt.Errorf("hub not configured")
 	}
 
-	if err := m.store.SyncRegistry(ctx); err != nil {
-		return err
-	}
-
 	entry := m.GetEntry(entryID, entryType)
 	if entry == nil {
 		return fmt.Errorf("entry %q not found in registry", entryID)
 	}
-
-	projKey := entry.ProjectID
-	if projKey == "" {
-		projKey = globalProjectKey
+	if err := m.authorizeProject(ctx, entry.ProjectID); err != nil {
+		return err
 	}
 
 	for _, ver := range entry.Versions {
@@ -598,63 +819,190 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 		}
 	}
 
-	entryRelPath := projectDir(projKey) + "/" + sanitizeEntryFileName(entry)
+	entryRelPath := hubaccess.ProjectRegistryKey(entry.ProjectID, string(entry.Type), entry.ID)
 	if err := m.store.RemoveFile(ctx, entryRelPath); err != nil {
 		m.log().Warn("remove entry file", "path", entryRelPath, "error", err)
 	}
 
-	delete(m.entries[entry.Type], entryID)
+	m.dataMu.Lock()
+	delete(m.entries[entry.Type], entryKey(entry.ProjectID, entryID))
 	if len(m.entries[entry.Type]) == 0 {
 		delete(m.entries, entry.Type)
 	}
-
-	if _, err := m.BuildRegistryCache(); err != nil {
-		m.log().Warn("rebuild cache after delete", "error", err)
-	}
+	m.dataMu.Unlock()
 
 	return nil
 }
 
 func (m *RegistryManager) UpsertProject(ctx context.Context, remoteID, name, description string) (*Project, error) {
-	if remoteID == "" {
-		return nil, fmt.Errorf("remoteID must not be empty")
-	}
-	if name == "" {
-		return nil, fmt.Errorf("project name must not be empty")
-	}
-
-	for rid, p := range m.projects {
-		if rid != remoteID && p.Name == name {
-			return nil, fmt.Errorf("project name %q is already used by project %q", name, rid)
-		}
-	}
-
-	proj := &Project{RemoteID: remoteID, Name: name, Description: description}
-	if existing, ok := m.projects[remoteID]; ok {
-		proj = existing
-		proj.Name = name
-		proj.Description = description
-	}
-	m.projects[remoteID] = proj
-
-	if m.store == nil {
-		return proj, nil
-	}
-
-	if err := m.persistProjectFile(remoteID); err != nil {
+	if err := hubaccess.ValidateProjectID(remoteID); err != nil {
 		return nil, err
 	}
+	name, err := hubaccess.NormalizeProjectName(name)
+	if err != nil {
+		return nil, err
+	}
+	if m.store == nil {
+		return nil, fmt.Errorf("hub not configured")
+	}
+	grants, _, err := hubaccess.ResolveTrusted(ctx, m.store)
+	if err != nil {
+		return nil, err
+	}
+	if !grants.Allows(remoteID, name) {
+		return nil, fmt.Errorf("%w: %s", hubaccess.ErrDenied, remoteID)
+	}
+	return m.upsertProject(ctx, remoteID, name, description)
+}
 
-	if _, err := m.BuildRegistryCache(); err != nil {
-		m.log().Warn("rebuild cache after upsert", "error", err)
+func (m *RegistryManager) authorizeProject(ctx context.Context, projectID string) error {
+	project, err := m.readProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	return hubaccess.Authorize(ctx, m.store, project.ID, project.Name)
+}
+
+func (m *RegistryManager) upsertProject(ctx context.Context, projectID, name, description string) (*Project, error) {
+	projectKey := hubaccess.ProjectMetadataKey(projectID)
+	currentValue, err := m.store.ReadValue(ctx, projectKey)
+	if errors.Is(err, s3store.ErrNotFound) {
+		return m.createProject(ctx, projectID, name, description)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var currentFile projectFile
+	if err := json.Unmarshal(currentValue.Data, &currentFile); err != nil || currentFile.Version != hubManifestVersion || currentFile.Project == nil || currentFile.Project.ID != projectID {
+		return nil, fmt.Errorf("invalid project metadata for %s", projectID)
+	}
+	current := currentFile.Project
+	if current.Status != "active" {
+		return nil, fmt.Errorf("project %s is not active", projectID)
 	}
 
-	return proj, nil
+	next := &Project{ID: projectID, Name: name, Description: description, Revision: current.Revision + 1, Status: "active"}
+	if current.Name == name {
+		if err := m.writeProjectCAS(ctx, projectKey, currentValue.ETag, next); err != nil {
+			return nil, err
+		}
+		if err := m.refreshNameRecord(ctx, name, next); err != nil {
+			return nil, err
+		}
+		m.acceptProject(next)
+		return next, nil
+	}
+
+	reservationETag, err := m.reserveName(ctx, name, next)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.writeProjectCAS(ctx, projectKey, currentValue.ETag, next); err != nil {
+		_ = m.store.RemoveFileIfMatch(ctx, hubaccess.NameRecordKey(name), reservationETag)
+		return nil, err
+	}
+	if err := m.activateReservedName(ctx, name, reservationETag, next); err != nil {
+		return nil, err
+	}
+	if err := m.removeOwnedName(ctx, current.Name, projectID); err != nil {
+		return nil, err
+	}
+	m.acceptProject(next)
+	return next, nil
+}
+
+func (m *RegistryManager) createProject(ctx context.Context, projectID, name, description string) (*Project, error) {
+	project := &Project{ID: projectID, Name: name, Description: description, Revision: 1, Status: "active"}
+	reservationETag, err := m.reserveName(ctx, name, project)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.MarshalIndent(projectFile{Version: hubManifestVersion, Project: project}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := m.store.WriteFileIfAbsent(ctx, hubaccess.ProjectMetadataKey(projectID), data); err != nil {
+		_ = m.store.RemoveFileIfMatch(ctx, hubaccess.NameRecordKey(name), reservationETag)
+		return nil, fmt.Errorf("creating project %s: %w", projectID, err)
+	}
+	if err := m.activateReservedName(ctx, name, reservationETag, project); err != nil {
+		return nil, err
+	}
+	m.acceptProject(project)
+	return project, nil
+}
+
+func (m *RegistryManager) reserveName(ctx context.Context, name string, project *Project) (string, error) {
+	record := nameRecord{Version: hubManifestVersion, Name: name, ProjectID: project.ID, ProjectRevision: project.Revision, Status: "pending"}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	etag, err := m.store.WriteFileIfAbsent(ctx, hubaccess.NameRecordKey(name), data)
+	if errors.Is(err, s3store.ErrPreconditionFailed) {
+		return "", fmt.Errorf("project name %q is already reserved", name)
+	}
+	return etag, err
+}
+
+func (m *RegistryManager) activateReservedName(ctx context.Context, name, etag string, project *Project) error {
+	record := nameRecord{Version: hubManifestVersion, Name: name, ProjectID: project.ID, ProjectRevision: project.Revision, Status: "active"}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = m.store.WriteFileIfMatch(ctx, hubaccess.NameRecordKey(name), data, etag)
+	return err
+}
+
+func (m *RegistryManager) refreshNameRecord(ctx context.Context, name string, project *Project) error {
+	value, err := m.store.ReadValue(ctx, hubaccess.NameRecordKey(name))
+	if err != nil {
+		return err
+	}
+	var current nameRecord
+	if json.Unmarshal(value.Data, &current) != nil || current.ProjectID != project.ID || current.Status != "active" {
+		return fmt.Errorf("name record %q is not owned by project %s", name, project.ID)
+	}
+	record := nameRecord{Version: hubManifestVersion, Name: name, ProjectID: project.ID, ProjectRevision: project.Revision, Status: "active"}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = m.store.WriteFileIfMatch(ctx, hubaccess.NameRecordKey(name), data, value.ETag)
+	return err
+}
+
+func (m *RegistryManager) writeProjectCAS(ctx context.Context, key, etag string, project *Project) error {
+	data, err := json.MarshalIndent(projectFile{Version: hubManifestVersion, Project: project}, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = m.store.WriteFileIfMatch(ctx, key, data, etag)
+	return err
+}
+
+func (m *RegistryManager) removeOwnedName(ctx context.Context, name, projectID string) error {
+	value, err := m.store.ReadValue(ctx, hubaccess.NameRecordKey(name))
+	if errors.Is(err, s3store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var record nameRecord
+	if json.Unmarshal(value.Data, &record) != nil || record.ProjectID != projectID {
+		return fmt.Errorf("name record %q is not owned by project %s", name, projectID)
+	}
+	return m.store.RemoveFileIfMatch(ctx, hubaccess.NameRecordKey(name), value.ETag)
 }
 
 func (m *RegistryManager) EnsureArtifactClone(ctx context.Context, artType ArtifactType, entryID, version, projectID string) (string, error) {
 	if m.store == nil {
 		return "", fmt.Errorf("hub not configured")
+	}
+	if err := m.authorizeProject(ctx, projectID); err != nil {
+		return "", err
 	}
 
 	cloneDir, err := m.store.DownloadArtifact(ctx, artType, entryID, version, projectID)
@@ -810,50 +1158,12 @@ func (m *RegistryManager) MountsArtifact(artType ArtifactType) bool {
 	return m.store != nil && m.store.Configured() && lancestore.Available()
 }
 
-func projectDir(remoteID string) string {
-	if remoteID == "" {
-		remoteID = globalProjectKey
-	}
-	hash := sha256.Sum256([]byte(remoteID))
-	hexHash := hex.EncodeToString(hash[:])
-	return "projects/" + hexHash[:2] + "/" + hexHash
-}
-
-var unsafeCharsRe = regexp.MustCompile(`[^a-z0-9._-]+`)
-
-func sanitizeForFileName(s string) string {
-	s = strings.ToLower(s)
-	s = unsafeCharsRe.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	if s == "" {
-		s = "_"
-	}
-	return s
-}
-
-func sanitizeEntryFileName(entry *Entry) string {
-	typ := sanitizeForFileName(string(entry.Type))
-	ver := sanitizeForFileName(entry.Latest)
-
-	if entry.Type == TypeAST || entry.Type == TypeKnowledge {
-		return typ + "_" + ver + ".json"
-	}
-
-	name := sanitizeForFileName(entry.Name)
-	if name == "" || name == "_" {
-		name = sanitizeForFileName(entry.ID)
-	}
-	return typ + "_" + name + "_" + ver + ".json"
-}
-
 func (m *RegistryManager) persistEntryFile(entry *Entry) error {
 	if m.store == nil {
 		return fmt.Errorf("hub not configured")
 	}
-
-	projKey := entry.ProjectID
-	if projKey == "" {
-		projKey = globalProjectKey
+	if err := hubaccess.ValidateProjectID(entry.ProjectID); err != nil {
+		return err
 	}
 
 	ef := entryFile{
@@ -866,45 +1176,9 @@ func (m *RegistryManager) persistEntryFile(entry *Entry) error {
 		return fmt.Errorf("serializing entry file: %w", err)
 	}
 
-	relPath := projectDir(projKey) + "/" + sanitizeEntryFileName(entry)
+	relPath := hubaccess.ProjectRegistryKey(entry.ProjectID, string(entry.Type), entry.ID)
 	if err := m.store.WriteFile(m.baseCtx, relPath, data); err != nil {
 		return fmt.Errorf("writing entry file %s: %w", relPath, err)
-	}
-
-	return nil
-}
-
-func (m *RegistryManager) persistProjectFile(remoteID string) error {
-	if m.store == nil {
-		return fmt.Errorf("hub not configured")
-	}
-
-	if remoteID == "" {
-		remoteID = globalProjectKey
-	}
-
-	relPath := projectDir(remoteID) + "/project.json"
-
-	pf := projectFile{Version: hubManifestVersion}
-	if existing, err := m.store.ReadFile(m.baseCtx, relPath); err == nil {
-		var existingPF projectFile
-		if json.Unmarshal(existing, &existingPF) == nil {
-			pf = existingPF
-		}
-	}
-
-	if p := m.projects[remoteID]; p != nil && remoteID != globalProjectKey {
-		pf.Project = p
-	}
-	pf.Version = hubManifestVersion
-
-	data, err := json.MarshalIndent(pf, "", "  ")
-	if err != nil {
-		return fmt.Errorf("serializing project file: %w", err)
-	}
-
-	if err := m.store.WriteFile(m.baseCtx, relPath, data); err != nil {
-		return fmt.Errorf("writing project file %s: %w", relPath, err)
 	}
 
 	return nil

@@ -1,354 +1,242 @@
 ---
 title: "Hub S3 object layout"
-description: "The key convention and document schemas of the Hub's S3 bucket — the contract that replaces the git repository as the Hub's persistence and retrieval backend."
+description: "The versioned S3 key and document contract for project identity, discovery, access control, artifacts, and mutable project state."
 status: draft
 created: 2026-08-21
-updated: 2026-09-04
-tags: [hub, s3, integration, spec, registry, artifact, icebug, lancedb]
+updated: 2026-09-05
+tags: [hub, s3, registry, project, acl, artifact, icebug, lancedb]
 ---
 
 # Hub S3 object layout
 
-The Hub's backend is an S3 bucket. This document is the **contract** between the publisher
-and the consumer: which keys exist, what each one holds, and which of them a query engine
-mounts directly instead of downloading.
-
-It replaces the git repository described in
-[Hub Collaboration Specification](hub_collaboration.md), whose five responsibilities —
-registry, one orphan branch per artifact version, `refs/events/*` telemetry, rule
-distribution on `main`, and memory worktrees — all map onto key prefixes here. Implemented by
-`internal/hub` over `internal/s3store`; tracked in
-the migrated Graphit Task `tsk-c049ad9ad5b7`.
+The Hub's authoritative backend is an S3 bucket. This document fixes the keys, ownership
+boundaries, publication ordering, and document shapes shared by publishers and consumers. Project
+identity is defined by [Project Identity](project_identity.md); authorization and selective
+discovery are defined by [Hub Access Control](hub_access_control.md).
 
 ## Location and credentials
 
 | Setting | Config key | Notes |
 |---|---|---|
-| Bucket | `hub.bucket` | Absent means local-only mode, which is not an error |
-| Region | `hub.region` | Falls back to the AWS default chain when unset |
-| Endpoint | `hub.endpoint` | For MinIO and other S3-compatible servers; implies path-style addressing |
-| Key prefix | `hub.prefix` | Optional, lets several Hubs share one bucket |
-| Access key | `hub.access_key_id` | Optional; active only with the secret key |
-| Secret key | `hub.secret_access_key` | Optional; active only with the access key |
+| Bucket | `hub.bucket` | Absent enables local-only behavior where supported |
+| Region | `hub.region` | Falls back to the AWS provider chain |
+| Endpoint | `hub.endpoint` | Supports MinIO and other S3-compatible services |
+| Key prefix | `hub.prefix` | Isolates Hubs sharing one bucket |
+| Access key | `hub.access_key_id` | Used only with the secret key |
+| Secret key | `hub.secret_access_key` | Used only with the access key |
 
-Authentication has two modes. A complete explicit pair can be stored in the global
-Graphit config by `graphit setup`; otherwise the AWS SDK default provider chain resolves
-environment variables, shared profiles, container credentials, or workload/instance roles.
-If either explicit key is blank, both are removed and the provider chain remains active.
-`config.S3Config` carries the pair to the AWS SDK, LanceDB/object_store, and LadybugDB only
-when both values exist. The secret is redacted from config output but is plain text at rest
-in the owner-only global config file. See
-[S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
+Every key below is relative to `hub.prefix`. S3 credentials authenticate a workload to the bucket;
+they do not identify an end user or replace project authorization. A production deployment either
+routes reads through an authorizing Hub service or issues temporary credentials scoped to the
+authorized `v2/projects/<ULID>/` prefixes.
 
-Every key below is written relative to `hub.prefix`. `internal/s3store` applies and strips the
-prefix, so nothing above that layer ever sees it.
+## Version 2 key convention
 
-## Key convention
+```text
+v2/
+  registry/
+    names/<normalized-name>.json
+    baselines.json
 
-```
-registry/
-  projects/<h2>/<hash>/project.json                     project metadata
-  projects/<h2>/<hash>/<type>_<name>_<version>.json     one artifact entry
-  baselines.json                                        default baseline artifacts
+  projects/<project-ulid>/
+    project.json
+    registry/<artifact-type>/<artifact-id>.json
+    artifacts/<folder>/<artifact-id>/<version>/...
+    events/<artifact-type>/<event-ulid>_<action>.json
+    memory/...
+    <task.prefix>/...
 
-artifacts/
-  <folder>/<project>/<id>/<version>/…                   file-based artifact types
-  ast/<project>/<version>/…                             graph + search stores
-  knowledge/<project>/<version>/index.lance/            complete published wiki
+  global/
+    projects.json
+    rules/<module>.md
+    rules/<module>_skill.md
 
-events/
-  <project>/<artifactType>/<ULID>_<action>.json         telemetry, append-only
+  users/<user-id>/
+    projects.json
+    memory/...
 
-rules/
-  <name>.md                                             team-wide rule overrides
-
-memory/
-  <scope>/<id>/…                                        authoritative LanceDB memory tables
-
-<task.prefix>/
-  project/<id>/…                                        authoritative LanceDB task/control/check/comment tables
+  teams/<team-id>/
+    projects.json
 ```
 
-Where:
+`<project-ulid>` is the immutable `project.id`; the mutable project name never occurs in a project
+data prefix. `<folder>` is the storage folder for the artifact type: `agents`, `rules`, `workflows`,
+`skills`, `knowledge`, `ast`, `mcp-servers`, `commands`, `powers`, or `languages`. A numeric or named
+version is encoded as one opaque collision-free segment so `branch/feature/api` cannot create nested
+or overlapping prefixes.
 
-- `<h2>` is the first two hex characters of `<hash>`, which is `sha256(projectRemoteID)` in
-  lowercase hex. The fan-out keeps any single listing small. A globally-scoped artifact uses
-  the literal project id `_global`.
-- `<folder>` comes from `hub.TypeFolderMap`: `agents`, `rules`, `workflows`, `skills`,
-  `knowledge`, `ast`, `mcp-servers`, `commands`, `powers`, `languages`.
-- `<project>` is the publishing project's remote id, or `_global`.
-- `ast` and `knowledge` omit the `<id>` segment because their compiled context is scoped by
-  publishing project and version.
-- `<task.prefix>` is the normalized `task.prefix` configuration value and defaults to `tasks`.
+The name directory is a small control-plane index for uniqueness and friendly lookup. It does not
+contain artifact entries. Project metadata, registry entries, payloads, project events, project
+memory, and project Tasks are colocated by ULID so one project prefix is the physical policy unit.
 
-Numeric versions keep their literal key segment. Named versions may use Git-style branch paths such
-as `branch/feature/api`; the logical name remains unchanged in the registry, while the storage layer
-encodes it as one opaque, collision-free segment. A named version therefore cannot create nested or
-overlapping S3 prefixes.
+## Project and name documents
 
-### An artifact version is a prefix, not a file
-
-`artifacts/<folder>/<project>/[<id>/]<version>/` is the unit of publication and of
-retraction. It is written by `s3store.UploadDir` and removed by `s3store.DeletePrefix`.
-An upload is an exact mirror: after every local object has uploaded successfully, remote objects
-missing from the local directory are deleted from that version prefix. No unrelated version or
-artifact prefix is touched.
-
-`branch/...` is the deliberate exception to exact directory mirroring. Its `*.lance` directories
-are authoritative mutable lineages, and `graphit-history.json` maps Git commits to protected native
-Lance tags and versions for each table. Republishing mirrors non-Lance files but never deletes these
-datasets or their history manifest. A fresh sync shallow-clones a protected table tag, so removing a
-referenced branch manifest or data fragment can orphan that local clone.
-
-A `branch/...` name first published outside Git uses ordinary exact mirroring and has no
-`graphit-history.json`. This supports mutable named channels for non-Git projects without pretending
-that commit ancestry exists. Such a publication is rejected if that prefix already contains a
-Git-backed history manifest.
-
-**The registry entry is the commit for a new version.** The prefix is uploaded first, and only then
-does the entry file under `registry/` name it. A publication interrupted midway leaves an orphan
-prefix that no entry points at — wasted bytes, never a half-visible version. Replacing an already
-published version is supported and updates the entry's content hash, but readers already using that
-known prefix do not gain a new atomic indirection; production publishers should use a new version
-when live readers require snapshot isolation.
-
-For a named version beginning with `tag/`, the staged `search.lance` and `index.lance` stores are
-release snapshots. Every table is compacted and pruned until only its current Lance version remains;
-publication aborts if that invariant cannot be verified. This removes edit/time-travel history and,
-combined with exact mirroring, prevents stale manifests or data files from accumulating when the
-same tag is republished. Other version prefixes are not part of that cleanup.
-
-## What the query engines mount directly
-
-This is the part that makes installation stop downloading.
-
-| Artifact half | Engine | What it receives |
-|---|---|---|
-| graph | LadybugDB | `s3://<bucket>/<prefix>/artifacts/ast/<project>/<version>/graph` as a table's `storage`, with `format = 'icebug-disk'` |
-| search | LanceDB | `s3://<bucket>/<prefix>/artifacts/ast/<project>/<version>/search` as the connection target |
-| knowledge wiki | LanceDB | `s3://<bucket>/<prefix>/artifacts/knowledge/<project>/<version>/index.lance` as the connection target |
-
-Both URIs come from `s3store.Store.URI`, which is why its exact shape (`s3://bucket/key`,
-never an HTTPS endpoint URL) is load-bearing rather than cosmetic.
-
-Installing a mountable artifact therefore records its versioned claim and derives the URI at read
-time. **No knowledge-index bytes are transferred at install time.** File-based artifact types — rules, skills,
-commands, agents, MCP configs, languages — are still downloaded, because the IDE reads them
-from disk.
-
-### The graph half: icebug-disk
-
-`artifacts/ast/<project>/<version>/graph/` holds, per table:
-
-| Object | Content |
-|---|---|
-| `nodes_<table>.parquet` | the node's own attributes |
-| `indices_<table>.parquet` | target nodes sorted by source — the CSR `indices` array |
-| `indptr_<table>.parquet` | the CSR row-pointer array |
-| `schema.cypher` | the DDL that mounts every table, with `storage` rewritten to this prefix's S3 URI |
-
-Each Parquet carries `icebug_disk_version` in its file metadata. Reading requires the
-LadybugDB `httpfs` extension, which ships inside the launcher payload and is loaded with
-`LOAD EXTENSION '<runtime>/httpfs.lbug_extension'` — never `INSTALL`, so no query ever waits
-on the network for it.
-
-### The search half: LanceDB
-
-`artifacts/ast/<project>/<version>/search/` is a LanceDB database directory. Indexes are
-**data here, not an engine structure to rebuild**: unlike the SQLite era, the inverted index
-and the vector index travel with the table, because the consumer never opens a local copy to
-build them in.
-
-## Document schemas
-
-### `registry/projects/<h2>/<hash>/<type>_<name>_<version>.json`
+`v2/projects/<project-ulid>/project.json` is the canonical ULID-to-current-name record:
 
 ```json
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Hub registry entry file",
-  "type": "object",
-  "required": ["v", "entry"],
-  "additionalProperties": false,
-  "properties": {
-    "v": {
-      "type": "integer",
-      "const": 1,
-      "description": "Manifest version. A consumer that does not know this value must refuse the file rather than guess its shape."
-    },
-    "entry": {
-      "type": "object",
-      "required": ["id", "name", "type"],
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Stable artifact identifier, unique within its type."
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Human-readable name shown in listings."
-        },
-        "type": {
-          "type": "string",
-          "enum": ["agent", "rule", "workflow", "skill", "knowledge", "ast", "mcp", "command", "power", "language"],
-          "description": "Artifact type. Determines the folder segment of the artifact prefix."
-        },
-        "description": {
-          "type": "string",
-          "description": "One-line summary; this is the text Hub search matches as a substring."
-        },
-        "tags": {
-          "type": "array",
-          "items": {"type": "string"},
-          "description": "Free-form labels for discovery."
-        },
-        "author": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "username": {"type": "string", "description": "Publisher's username."}
-          },
-          "description": "Who published the artifact."
-        },
-        "latest": {
-          "type": "string",
-          "description": "Numeric or named version resolved when an install omits @version."
-        },
-        "versions": {
-          "type": "array",
-          "items": {"type": "string"},
-          "description": "Every published version, each with a prefix under artifacts/."
-        },
-        "hashes": {
-          "type": "object",
-          "additionalProperties": {"type": "string"},
-          "description": "Version to content hash, for detecting a prefix that changed under a published version."
-        },
-        "dependencies": {
-          "type": "array",
-          "description": "Artifacts installed alongside this one.",
-          "items": {
-            "type": "object",
-            "required": ["id"],
-            "additionalProperties": false,
-            "properties": {
-              "id": {"type": "string", "description": "Dependency artifact id."},
-              "type": {"type": "string", "description": "Dependency artifact type; inferred when omitted."},
-              "version": {"type": "string", "description": "Version constraint; latest when omitted."}
-            }
-          }
-        },
-        "project_id": {
-          "type": "string",
-          "description": "Publishing project's remote id. Absent means the artifact is global."
-        }
-      }
-    }
+  "v": 2,
+  "project": {
+    "id": "01J...",
+    "name": "payments-api",
+    "description": "Payments service",
+    "revision": 7,
+    "status": "active"
   }
 }
 ```
 
-Example:
+The key ULID and `project.id` must agree. `revision` is monotonic and participates in conditional
+updates. Unknown schema versions, disagreement, or a changed ULID are integrity errors.
+
+`v2/registry/names/<normalized-name>.json` resolves an active name to its project:
+
+```json
+{
+  "v": 2,
+  "name": "payments-api",
+  "project_id": "01J...",
+  "project_revision": 7,
+  "status": "active"
+}
+```
+
+Name creation uses conditional put-if-absent. Rename reserves the new name, updates the project at
+the expected revision, activates the new record, then tombstones or removes the old record. Readers
+accept only an active name whose project document agrees. No step moves `v2/projects/<ULID>/`.
+
+## Access documents
+
+`v2/global/projects.json`, `v2/users/<user-id>/projects.json`, and
+`v2/teams/<team-id>/projects.json` share this shape:
 
 ```json
 {
   "v": 1,
+  "projects": [
+    {"id": "01J..."},
+    {"name_prefix": "payments-"},
+    {"all": true}
+  ]
+}
+```
+
+A missing or empty document contributes no grant from that level. Unknown versions and malformed
+selectors fail closed. ACL objects are control-plane inputs, never project payloads; their complete
+evaluation contract is in [Hub Access Control](hub_access_control.md).
+
+## Artifact registry entries
+
+`v2/projects/<project-ulid>/registry/<artifact-type>/<artifact-id>.json` contains discovery metadata
+and all published versions for one artifact. The tuple `(project_id, type, artifact_id)` is the
+stable artifact identity; an artifact ID need not be globally unique.
+
+```json
+{
+  "v": 2,
   "entry": {
+    "project_id": "01J...",
     "id": "payments-core",
     "name": "Payments Core",
     "type": "ast",
     "description": "Indexed code graph of the payments service",
     "tags": ["billing", "go"],
-    "author": {"username": "laino.santos"},
+    "author": {"username": "publisher"},
     "latest": "2.1.0",
     "versions": ["2.0.0", "2.1.0"],
     "hashes": {"2.1.0": "9f2c4e1b7a03d5c8"},
-    "project_id": "payments-service"
+    "dependencies": []
   }
 }
 ```
 
-### `registry/projects/<h2>/<hash>/project.json`
+The key type and ID, enclosing project ULID, and document fields must agree. Dependencies may carry
+`project_id`, `type`, `id`, and `version`; omission of `project_id` means the same publishing project,
+not a global artifact.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Hub project file",
-  "type": "object",
-  "required": ["v"],
-  "additionalProperties": false,
-  "properties": {
-    "v": {"type": "integer", "const": 1, "description": "Manifest version."},
-    "project": {
-      "type": "object",
-      "required": ["remote_id", "name"],
-      "additionalProperties": false,
-      "properties": {
-        "remote_id": {"type": "string", "minLength": 1, "description": "Stable project identity; the input to the sha256 that names this directory."},
-        "name": {"type": "string", "minLength": 1, "description": "Human-readable project name."},
-        "description": {"type": "string", "description": "What the project is for."}
-      }
-    }
-  }
-}
+## Publication ordering
+
+An artifact version is the prefix
+`v2/projects/<ULID>/artifacts/<folder>/<artifact-id>/<version>/`. It is the unit of upload,
+replacement, and retraction.
+
+The publisher uploads or mirrors the payload first and writes the per-project registry entry last.
+An interrupted upload therefore leaves unreferenced bytes, never a visible half-published version.
+Replacing an already published version updates its content hash, but readers that already mounted
+the prefix must reopen it; a new numeric version is the safe snapshot cutover.
+
+`branch/...` may retain native Lance history and `graphit-history.json`; `tag/...` is a compact
+self-contained snapshot. Retention must not delete objects still referenced by a registry entry or
+protected branch history.
+
+## Directly mounted artifacts
+
+AST and knowledge data stay on S3:
+
+| Artifact half | Engine | Authoritative URI |
+|---|---|---|
+| AST graph | LadybugDB | `s3://<bucket>/<prefix>/v2/projects/<ULID>/artifacts/ast/<id>/<version>/graph` |
+| AST search | LanceDB | `s3://<bucket>/<prefix>/v2/projects/<ULID>/artifacts/ast/<id>/<version>/search` |
+| Knowledge wiki | LanceDB | `s3://<bucket>/<prefix>/v2/projects/<ULID>/artifacts/knowledge/<id>/<version>/index.lance` |
+
+Install records a versioned claim and creates only the local mount metadata required by the engine.
+It does not download graph, search, or wiki data. File-based artifact types are materialized under
+the managed `~/.<brand>/artifacts/modules/` tree because IDEs consume ordinary files.
+
+Authorization is revalidated before creating or reopening a remote mount. A lockfile claim proves
+membership and version selection, not current permission.
+
+## Mutable project state
+
+Project memory and Task tables use the same project policy boundary:
+
+```text
+v2/projects/<ULID>/memory/...
+v2/projects/<ULID>/<task.prefix>/...
 ```
 
-### `events/<project>/<artifactType>/<ULID>_<action>.json`
+`task.prefix` defaults to `tasks` and remains the configurable final segment. User memory remains
+under `v2/users/<user-id>/memory/...`. These are mutable multi-writer LanceDB
+stores, not versioned artifacts. Their table schemas, revisions, leases, and concurrency rules stay
+owned by the Memory and Task module specifications.
 
-Append-only telemetry. The ULID prefix keeps a listing chronological, and every object is
-written exactly once — there is no update path, so concurrent publishers never contend.
+Events are append-only objects below
+`v2/projects/<ULID>/events/<artifact-type>/<event-ulid>_<action>.json`. The project key and any
+`project_id` field must agree.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Hub telemetry event",
-  "type": "object",
-  "required": ["action", "at"],
-  "additionalProperties": false,
-  "properties": {
-    "action": {
-      "type": "string",
-      "enum": ["global.setup", "global.uninstall", "project.init", "project.update", "project.remove", "artifact.install", "artifact.uninstall"],
-      "description": "What happened. The set is closed: an unknown action is a newer publisher and the consumer must skip it, not fail."
-    },
-    "at": {"type": "string", "format": "date-time", "description": "When it happened, RFC 3339 in UTC."},
-    "artifact_id": {"type": "string", "description": "Artifact acted on, when the action names one."},
-    "artifact_type": {"type": "string", "description": "Its type, mirroring the key segment."},
-    "version": {"type": "string", "description": "Version acted on."},
-    "project_id": {"type": "string", "description": "Project the action happened in."},
-    "attributes": {
-      "type": "object",
-      "additionalProperties": {"type": "string"},
-      "description": "Action-specific detail, such as the ide and cli chosen at setup."
-    }
-  }
-}
-```
+## Local cache is not part of the object layout
+
+`~/.<brand>/hub/cache/<hub-fingerprint>/<subject-fingerprint>/` may cache selectively read name,
+project, artifact, and page metadata. It is bounded, lazy, and disposable. It never becomes an S3
+replica, never grants access, and is not part of the publication protocol. The former eager registry
+mirror and `~/.<brand>/hub.registry.json` authority are removed.
 
 ## Error scenarios
 
 | Condition | Behaviour |
 |---|---|
-| `hub.bucket` unset | `s3store.ErrNotConfigured` — local-only mode, never surfaced as a failure |
-| Object absent | `s3store.ErrNotFound` — a missing registry is a first run, not an error |
-| Bucket unreachable or credentials missing | Fatal at `setup`, which names the bucket and endpoint and explains that the configured pair or AWS provider chain must supply authentication |
-| Entry file with an unknown `v` | Refused, not parsed — a newer publisher wrote it |
-| Artifact prefix present with no registry entry | Ignored as an interrupted publication; safe to delete |
-| Context prefix absent | Not an error — the project published no wiki; the consumer indexes zero chunks and says so |
-| Registry entry naming a version whose prefix is absent | Hard error on install: the pointer moved without its data, which is the one ordering this layout is designed to prevent |
+| `hub.bucket` unset | Local-only behavior where supported; remote Hub operations report not configured |
+| ACL document absent | No grant from that level |
+| Trusted subject unavailable | Deny remote discovery and access |
+| ACL invalid or authorization backend unavailable | Fail closed; do not use a cached positive decision |
+| Name already reserved | Registration or rename fails without changing the project ULID |
+| Name record and project metadata disagree | Integrity error; do not resolve the name |
+| Artifact registry entry absent | Artifact is not discoverable even if an orphan payload exists |
+| Registry entry names a missing payload | Hard integrity error |
+| Cache absent, stale, or deleted | Re-read selectively from the authoritative control plane |
 
-## Deliberate non-goals
+## Clean cutover
 
-- **No locking.** Two publishers writing different artifacts touch disjoint prefixes. Two
-  publishers writing the *same* artifact version is a collision the registry entry resolves
-  last-writer-wins, exactly as the branch-per-artifact layout did. A CI publisher that can update
-  multiple refs must serialize registry writes.
-- **No automatic artifact-version retention.** Lance maintenance applies only to local database
-  history and skips remote mounts. Published versions remain registry-addressable until explicitly
-  retracted, so an independent bucket lifecycle must not delete referenced prefixes.
-- **No backward compatibility with the git layout.** Nothing reads a Git branch, Git ref, or
-  worktree; a named Hub version is registry data, not a repository reference. The project is in
-  development and the old format is not migrated.
+Only this v2 layout is valid. Hub does not discover, import, copy, or fall back to objects stored
+under another layout. Projects and artifacts that must remain available are registered and
+published again into v2, and grant documents are created explicitly. Objects outside `v2/` are
+invisible to the runtime and never imply access.
+
+## Related specifications
+
+- [Project identity](project_identity.md)
+- [Hub access control](hub_access_control.md)
+- [Hub collaboration](hub_collaboration.md)
+- [Storage layout](../architecture/storage_layout.md)
+- [Memory module](memory_module.md)
+- [Task module](task_module.md)

@@ -57,7 +57,8 @@ validation, persistence, and completion gates around whichever coding agent you 
 - **One engineer, many systems.** Project memory stays repository-specific while user memory follows
   personal conventions across projects. Registered sibling projects retain independent stores.
 - **One team, many machines.** Optional S3-compatible storage makes Hub artifacts plus Memory and Task
-  tables directly shareable without copying them into every checkout.
+  tables directly shareable under immutable project ULIDs. Deny-by-default global, user, and team
+  grants make discovery selective without copying a global catalog into every checkout.
 - **One framework, many assistants.** Native adapters support Codex, Claude Code, Cursor, Gemini CLI,
   Kiro, OpenCode, and Antigravity; any MCP client can use the server endpoint.
 - **One query, several retrieval modes.** BM25 full-text search, semantic vectors, hybrid reciprocal
@@ -137,9 +138,9 @@ graphit ui
 ```
 
 `graphit setup` prepares machine-wide providers and the local model when selected. `graphit init`
-creates the project identity, installs the selected IDE's native MCP/hooks, and performs the first
-synchronization. `graphit sync` is the explicit all-system checkpoint; the daemon keeps incremental
-indexes current afterwards.
+ensures the project identity, preserving an ULID already created by an earlier stateful operation,
+installs the selected IDE's native MCP/hooks, and performs the first synchronization. `graphit sync`
+is the explicit all-system checkpoint; the daemon keeps incremental indexes current afterwards.
 
 Use the exact IDE identifier supported by your environment; `graphit init --help` lists the available values.
 
@@ -208,10 +209,19 @@ default, switch, provider, network boundary, and runtime resource control.
 
 - Mutable project sources and compiled local stores remain on the machine by default.
 - Hub publication and S3-compatible storage are optional and explicitly configured; shared Task storage uses the configured S3 location directly.
+- S3 is authoritative for Hub data. `~/.<brand>/hub` is only a bounded, subject-isolated metadata
+  cache; it never grants access or replaces remote validation.
+- A project name is mutable discovery metadata. Its immutable ULID owns remote paths, locks, and exact grants.
 - The UI binds according to `ui.host` and has no built-in authentication layer.
 - Remote UI access requires an appropriate firewall, VPN, or authenticated reverse proxy; CORS is not authorization.
+- S3 credentials and the daemon bearer authenticate workloads/endpoints, not individual users or
+  teams. Multi-user Hub ACL requires a trusted identity adapter and data-plane enforcement by the
+  Hub service or project-scoped temporary credentials.
 
 See [S3 credentials and UI network configuration](docs/guides/s3-and-ui-network.md) before exposing the UI or configuring shared storage.
+The normative contracts are [Project identity](docs/specs/project_identity.md),
+[Hub access control](docs/specs/hub_access_control.md), and
+[Hub S3 object layout](docs/specs/hub-s3-object-layout.md).
 
 ## Documentation
 

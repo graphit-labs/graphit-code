@@ -120,7 +120,16 @@ configured, all agents use the same tables directly; no task Markdown is stored 
 
 The ecosystem registry resolves sibling projects already present on the machine. Each sibling retains its own stores and documentation.
 
-The Hub packages reusable artifacts and imported contexts. Local operation does not require remote storage; an optional S3-compatible bucket can publish and install shared catalogs, artifact versions, and memory prefixes.
+The Hub packages reusable artifacts and imported contexts. Its S3 control plane keeps a lightweight
+global `name -> project ULID` directory and deny-by-default grant documents; its data plane roots
+each project's metadata, artifact registry, payloads, events, memory, and Tasks below the immutable
+ULID. The mutable globally unique name is discovery metadata and rename never moves project data.
+Local operation does not require remote storage.
+
+An authenticated subject resolves the union of global, direct-user, and team grants before
+discovery. Exact ULIDs use direct reads; name-prefix and all-project grants are listed in bounded
+pages. Authorization is checked again for exact content and remote mounts. A local Hub cache may
+accelerate these reads, but it is subject-isolated, disposable, and never grants access.
 
 ### Live Search
 
@@ -137,14 +146,21 @@ This model:
 - keeps user memory globally available without copying it into each checkout;
 - gives concurrent agents one fenced, resumable project work queue;
 - gives the daemon one canonical store per identity.
+- keeps Hub metadata caches separate from authoritative S3 state and installed file materializations.
 
 See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 
 ## Trust boundaries
 
 - Source and mutable indexes remain local unless an explicit publish or remote configuration is used. With S3 configured, authoritative Memory and Task LanceDB tables live directly at their remote URIs.
-- S3-compatible storage is an optional shared boundary with its own credential and access controls.
-- The UI server is a network boundary and has no built-in authentication.
+- S3-compatible storage is an optional shared boundary. Application ACL is not sufficient for a
+  client with broad bucket credentials; deployments use an authorizing Hub service or temporary
+  credentials scoped to `v2/projects/<ULID>/` prefixes.
+- Multi-user Hub authorization requires a trusted user and team subject. CORS, request parameters,
+  `unit.id`, and a shared daemon bearer token are not that identity.
+- The UI server is a network boundary and has no built-in user authentication. A reachable
+  multi-user deployment requires an authenticated proxy or another trusted identity adapter before
+  it can use selective user/team grants.
 - Coding-agent CLIs and IDE adapters are external processes; Graphit prepares their workspace and tool configuration but does not replace their own permission model.
 
 ## Related specifications
@@ -154,6 +170,8 @@ See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 - [Memory Module](../specs/memory_module.md)
 - [Task Module](../specs/task_module.md)
 - [Hub Collaboration](../specs/hub_collaboration.md)
+- [Project Identity](../specs/project_identity.md)
+- [Hub Access Control](../specs/hub_access_control.md)
 - [Daemon Module](../specs/daemon_module.md)
 - [Dream Module](../specs/dream_module.md)
 - [UI Dashboard](../specs/ui_dashboard.md)

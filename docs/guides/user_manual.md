@@ -160,6 +160,16 @@ The Hub distributes reusable artifacts:
 
 Optional S3-compatible storage holds published catalog and artifact data. Installing or publishing is an explicit action. Read the relevant artifact metadata and understand its scope before applying it to a project.
 
+Each project has an immutable ULID and a mutable globally unique friendly name. The ULID owns paths,
+locks, installed claims, and exact grants; rename changes discovery metadata without moving data.
+Remote discovery is deny-by-default and shows only the union of projects granted globally, directly
+to the trusted user, or through that user's teams. List and search are paginated. Knowing an artifact
+or project ID does not bypass authorization for show, content, install, update, or a mount.
+
+`~/.<brand>/hub/cache/` may make repeated discovery faster, but it is disposable, isolated by Hub
+and subject, and never grants access. File artifacts already installed for an adapter live
+separately under `~/.<brand>/artifacts/modules/`.
+
 AST and knowledge artifacts may use mutable `branch/<git-branch>` channels, including branch names
 with `/`, or compact `tag/<git-tag>` snapshots. On an empty local store, `graphit sync` can reuse the
 exact compatible Git commit or nearest published ancestor as a shallow LanceDB base: inherited data
@@ -273,6 +283,8 @@ Before remote access:
 - restrict traffic with a firewall or VPN;
 - place the service behind an authenticated TLS proxy when appropriate;
 - keep credentials out of repository configuration.
+- distinguish the MCP bearer and S3 workload credential from trusted user/team identity;
+- keep broad S3 credentials behind the service or issue temporary credentials scoped by project ULID.
 
 ## Operational checklist
 

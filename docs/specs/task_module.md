@@ -15,13 +15,17 @@ Tasks use the Hub S3 configuration directly. With `hub.bucket` configured, every
 opens the authoritative database at:
 
 ```text
-s3://<hub.bucket>/<hub.prefix>/<task.prefix>/project/<project-id>
+s3://<hub.bucket>/<hub.prefix>/v2/projects/<project-ulid>/<task.prefix>/
 ```
 
 `task.prefix` defaults to `tasks` and follows normal inline, environment
 (`GRAPHIT_TASK_PREFIX`), project, and global configuration precedence. Without a bucket, the same
 schema lives in the global Graphit data directory for local development. There is no repository
 replica, download, background upload, or Markdown synchronization path.
+
+The enclosing project ULID is the Task authorization unit. A trusted subject must retain project
+access for every remote search, read, claim, mutation, and export; knowing a Task or project ID is
+not sufficient. See [Hub Access Control](hub_access_control.md).
 
 Connections request zero read-consistency interval. After winning the scheduler lease, an operation
 explicitly advances every opened table handle to the latest committed manifest before reading task

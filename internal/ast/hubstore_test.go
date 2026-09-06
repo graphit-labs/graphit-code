@@ -69,11 +69,11 @@ func TestIsUnderHubContextsRoot(t *testing.T) {
 
 func TestHubContextID(t *testing.T) {
 	t.Parallel()
-	if got := HubContextID("01ACME", "acme-ast"); got != "01ACME" {
+	if got := HubContextID("01ACME"); got != "01ACME" {
 		t.Errorf("HubContextID with a project = %q, want 01ACME", got)
 	}
-	if got := HubContextID("", "acme-ast"); got != "acme-ast" {
-		t.Errorf("HubContextID without a project = %q, want acme-ast", got)
+	if got := HubContextID(""); got != "" {
+		t.Errorf("HubContextID without a project = %q, want empty", got)
 	}
 }
 

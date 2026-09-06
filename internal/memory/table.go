@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -138,6 +141,9 @@ type MemoryTable struct {
 // not a published artifact somebody else owns. That distinction is why `lancestore.Config.Writable`
 // exists rather than the permission being derived from the scheme.
 func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
+	if err := authorizeMemoryURI(ctx, uri); err != nil {
+		return nil, err
+	}
 	st, err := lancestore.Open(ctx, lancestore.Config{
 		URI:      uri,
 		S3:       config.HubS3Config(),
@@ -165,6 +171,46 @@ func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
 		}
 	}
 	return &MemoryTable{store: st, table: tbl}, nil
+}
+
+func authorizeMemoryURI(ctx context.Context, uri string) error {
+	if !strings.HasPrefix(uri, "s3://") {
+		return nil
+	}
+	cfg := config.HubS3Config()
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Scheme != "s3" || parsed.Host != cfg.Bucket || !cfg.Configured() {
+		return fmt.Errorf("remote memory URI is outside the configured Hub")
+	}
+	key := strings.TrimPrefix(parsed.Path, "/")
+	objects, err := s3store.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	projectRoot := s3store.JoinKey(cfg.Prefix, hubaccess.VersionPrefix, "projects") + "/"
+	if strings.HasPrefix(key, projectRoot) {
+		projectID := strings.SplitN(strings.TrimPrefix(key, projectRoot), "/", 2)[0]
+		if key != s3store.JoinKey(cfg.Prefix, hubaccess.ProjectMemoryPrefix(projectID)) {
+			return fmt.Errorf("remote memory URI is not a project memory prefix")
+		}
+		return hubaccess.AuthorizeProject(ctx, objects, projectID)
+	}
+	userRoot := s3store.JoinKey(cfg.Prefix, hubaccess.VersionPrefix, "users") + "/"
+	if strings.HasPrefix(key, userRoot) {
+		userID := strings.SplitN(strings.TrimPrefix(key, userRoot), "/", 2)[0]
+		if key != s3store.JoinKey(cfg.Prefix, hubaccess.UserMemoryPrefix(userID)) {
+			return fmt.Errorf("remote memory URI is not a user memory prefix")
+		}
+		subject, err := hubaccess.TrustedSubject(ctx)
+		if err != nil {
+			return err
+		}
+		if subject.UserID != userID {
+			return fmt.Errorf("%w: user memory %s", hubaccess.ErrDenied, userID)
+		}
+		return nil
+	}
+	return fmt.Errorf("remote memory URI is outside Hub v2 memory namespaces")
 }
 
 // Close releases the store.

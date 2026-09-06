@@ -27,6 +27,9 @@ var ErrNotConfigured = errors.New("no hub bucket configured")
 // the callers need because a missing registry is a first run and a denied one is a setup bug.
 var ErrNotFound = errors.New("object not found")
 
+// ErrPreconditionFailed reports a failed compare-and-swap or put-if-absent operation.
+var ErrPreconditionFailed = errors.New("object precondition failed")
+
 type Store struct {
 	client   *s3.Client
 	bucket   string
@@ -38,6 +41,16 @@ type Object struct {
 	Key  string
 	Size int64
 	ETag string
+}
+
+type Value struct {
+	Data []byte
+	ETag string
+}
+
+type Page struct {
+	Objects    []Object
+	NextCursor string
 }
 
 // New builds a store from the resolved Hub configuration.
@@ -94,39 +107,98 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 }
 
 func (s *Store) Get(ctx context.Context, relPath string) ([]byte, error) {
+	value, err := s.GetValue(ctx, relPath)
+	if err != nil {
+		return nil, err
+	}
+	return value.Data, nil
+}
+
+func (s *Store) GetValue(ctx context.Context, relPath string) (Value, error) {
 	key := s.Key(relPath)
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &key})
 	if err != nil {
 		if isMissing(err) {
-			return nil, fmt.Errorf("%s: %w", key, ErrNotFound)
+			return Value{}, fmt.Errorf("%s: %w", key, ErrNotFound)
 		}
-		return nil, fmt.Errorf("get %s: %w", key, err)
+		return Value{}, fmt.Errorf("get %s: %w", key, err)
 	}
 	defer out.Body.Close()
 
 	data, err := io.ReadAll(out.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", key, err)
+		return Value{}, fmt.Errorf("reading %s: %w", key, err)
 	}
-	return data, nil
+	etag := ""
+	if out.ETag != nil {
+		etag = *out.ETag
+	}
+	return Value{Data: data, ETag: etag}, nil
 }
 
 func (s *Store) Put(ctx context.Context, relPath string, data []byte) error {
+	_, err := s.put(ctx, relPath, data, "", "")
+	return err
+}
+
+func (s *Store) PutIfAbsent(ctx context.Context, relPath string, data []byte) (string, error) {
+	return s.put(ctx, relPath, data, "", "*")
+}
+
+func (s *Store) PutIfMatch(ctx context.Context, relPath string, data []byte, etag string) (string, error) {
+	if strings.TrimSpace(etag) == "" {
+		return "", fmt.Errorf("put %s: empty ETag: %w", s.Key(relPath), ErrPreconditionFailed)
+	}
+	return s.put(ctx, relPath, data, etag, "")
+}
+
+func (s *Store) put(ctx context.Context, relPath string, data []byte, ifMatch, ifNoneMatch string) (string, error) {
 	key := s.Key(relPath)
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	in := &s3.PutObjectInput{
 		Bucket: &s.bucket,
 		Key:    &key,
 		Body:   bytes.NewReader(data),
-	})
-	if err != nil {
-		return fmt.Errorf("put %s: %w", key, err)
 	}
-	return nil
+	if ifMatch != "" {
+		in.IfMatch = &ifMatch
+	}
+	if ifNoneMatch != "" {
+		in.IfNoneMatch = &ifNoneMatch
+	}
+	out, err := s.client.PutObject(ctx, in)
+	if err != nil {
+		if isPreconditionFailed(err) {
+			return "", fmt.Errorf("put %s: %w", key, ErrPreconditionFailed)
+		}
+		return "", fmt.Errorf("put %s: %w", key, err)
+	}
+	if out.ETag == nil {
+		return "", nil
+	}
+	return *out.ETag, nil
 }
 
 func (s *Store) Delete(ctx context.Context, relPath string) error {
+	return s.delete(ctx, relPath, "")
+}
+
+func (s *Store) DeleteIfMatch(ctx context.Context, relPath, etag string) error {
+	if strings.TrimSpace(etag) == "" {
+		return fmt.Errorf("delete %s: empty ETag: %w", s.Key(relPath), ErrPreconditionFailed)
+	}
+	return s.delete(ctx, relPath, etag)
+}
+
+func (s *Store) delete(ctx context.Context, relPath, ifMatch string) error {
 	key := s.Key(relPath)
-	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key}); err != nil {
+	in := &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key}
+	if ifMatch != "" {
+		in.IfMatch = &ifMatch
+	}
+	if _, err := s.client.DeleteObject(ctx, in); err != nil {
+		if isPreconditionFailed(err) {
+			return fmt.Errorf("delete %s: %w", key, ErrPreconditionFailed)
+		}
 		return fmt.Errorf("delete %s: %w", key, err)
 	}
 	return nil
@@ -184,6 +256,44 @@ func (s *Store) List(ctx context.Context, relPrefix string) ([]Object, error) {
 		}
 		token = page.NextContinuationToken
 	}
+}
+
+// ListPage lists keys beginning with relPrefix without materializing every matching object.
+// The returned cursor is opaque to callers and can be passed to the next call unchanged.
+func (s *Store) ListPage(ctx context.Context, relPrefix string, limit int, cursor string) (Page, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	full := s.Key(relPrefix)
+	maxKeys := int32(limit)
+	in := &s3.ListObjectsV2Input{Bucket: &s.bucket, Prefix: &full, MaxKeys: &maxKeys}
+	if cursor != "" {
+		in.ContinuationToken = &cursor
+	}
+	out, err := s.client.ListObjectsV2(ctx, in)
+	if err != nil {
+		return Page{}, fmt.Errorf("list %s: %w", full, err)
+	}
+	page := Page{Objects: make([]Object, 0, len(out.Contents))}
+	for _, obj := range out.Contents {
+		if obj.Key == nil {
+			continue
+		}
+		rel := strings.TrimPrefix(*obj.Key, s.prefixWithSlash())
+		var size int64
+		if obj.Size != nil {
+			size = *obj.Size
+		}
+		etag := ""
+		if obj.ETag != nil {
+			etag = *obj.ETag
+		}
+		page.Objects = append(page.Objects, Object{Key: rel, Size: size, ETag: etag})
+	}
+	if out.IsTruncated != nil && *out.IsTruncated && out.NextContinuationToken != nil {
+		page.NextCursor = *out.NextContinuationToken
+	}
+	return page, nil
 }
 
 // DeletePrefix removes everything under relPrefix. This is how a published version is
@@ -303,6 +413,17 @@ func isMissing(err error) bool {
 	if errors.As(err, &apiErr) {
 		switch apiErr.ErrorCode() {
 		case "NotFound", "NoSuchKey", "404":
+			return true
+		}
+	}
+	return false
+}
+
+func isPreconditionFailed(err error) bool {
+	var apiErr interface{ ErrorCode() string }
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "PreconditionFailed", "ConditionalRequestConflict", "409", "412":
 			return true
 		}
 	}

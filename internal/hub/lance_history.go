@@ -18,6 +18,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -80,7 +81,7 @@ func (s *S3Store) branchHistoryKey(artType ArtifactType, id, branchVersion, proj
 }
 
 func (s *S3Store) readBranchHistory(ctx context.Context, artType ArtifactType, id, branchVersion, projectID string) (lanceBranchHistory, error) {
-	data, err := s.ReadArtifactFile(ctx, s.branchHistoryKey(artType, id, branchVersion, projectID))
+	data, err := s.ReadArtifactFile(ctx, projectID, s.branchHistoryKey(artType, id, branchVersion, projectID))
 	if err != nil {
 		return lanceBranchHistory{}, err
 	}
@@ -99,7 +100,7 @@ func (s *S3Store) writeBranchHistory(ctx context.Context, artType ArtifactType, 
 	if err != nil {
 		return err
 	}
-	return s.writeArtifactFile(ctx, s.branchHistoryKey(artType, id, branchVersion, projectID), data)
+	return s.writeArtifactFile(ctx, projectID, s.branchHistoryKey(artType, id, branchVersion, projectID), data)
 }
 
 func publishedLanceStorePath(artType ArtifactType, root string) string {
@@ -280,6 +281,9 @@ func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg conf
 	}
 	s3, err := NewS3Store(ctx, nil, projectCfg)
 	if err != nil || !s3.Configured() {
+		return err
+	}
+	if err := hubaccess.AuthorizeProject(ctx, s3, lock.Project.ID); err != nil {
 		return err
 	}
 	branchVersion := snapshot.BranchVersion()

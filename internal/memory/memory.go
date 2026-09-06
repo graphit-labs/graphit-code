@@ -62,6 +62,7 @@ type MemoryService struct {
 	store    *MemoryStore
 	tableURI string
 	wikiDir  string
+	baseCtx  context.Context
 }
 
 func (m *MemoryService) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
@@ -80,12 +81,29 @@ func newMemorySvcInternal(scope MemoryScope, scopeID string, store *MemoryStore)
 		scopeID: scopeID,
 		store:   store,
 		wikiDir: MemoryWikiGlobalDir(localScope(scope, scopeID)),
+		baseCtx: context.Background(),
 	}
 	svc.tableURI = MemoryTableURI(svc.ScopePrefix(), TableDirFor(localScope(scope, scopeID)))
 	if store != nil {
 		store.Logger = svc.Logger
 	}
 	return svc
+}
+
+func (m *MemoryService) WithContext(ctx context.Context) *MemoryService {
+	clone := *m
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	clone.baseCtx = ctx
+	return &clone
+}
+
+func (m *MemoryService) operationContext() context.Context {
+	if m.baseCtx != nil {
+		return m.baseCtx
+	}
+	return context.Background()
 }
 
 func localScope(scope MemoryScope, scopeID string) (string, string) {
@@ -194,7 +212,7 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 	content := buildMemoryFileWithRelevance(id, title, body, string(m.scope), m.scopeID, assocProject,
 		opts.Important, opts.Mandatory, string(memType), opts.Tags)
 
-	ctx := context.Background()
+	ctx := m.operationContext()
 	tbl, err := m.openTable(ctx)
 	if err != nil {
 		return "", err
@@ -230,7 +248,7 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
 
-	ctx := context.Background()
+	ctx := m.operationContext()
 	tbl, err := m.openTable(ctx)
 	if err != nil {
 		return err
@@ -276,7 +294,7 @@ func (m *MemoryService) RemoveMemory(id string) error {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
 
-	ctx := context.Background()
+	ctx := m.operationContext()
 	tbl, err := m.openTable(ctx)
 	if err != nil {
 		return err
@@ -391,7 +409,7 @@ func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
 
-	ctx := context.Background()
+	ctx := m.operationContext()
 	tbl, err := m.openTable(ctx)
 	if err != nil {
 		return err
@@ -445,7 +463,7 @@ func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 }
 
 func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
-	ctx := context.Background()
+	ctx := m.operationContext()
 	tbl, err := m.openTable(ctx)
 	if err != nil {
 		return nil, err
@@ -491,7 +509,7 @@ func (m *MemoryService) LiveMemories(ctx context.Context) ([]MemoryRecord, error
 // SyncWiki recompiles this scope's local query projection from its authoritative table.
 func (m *MemoryService) SyncWiki() error {
 	m.ensureWikiDir()
-	if err := m.IndexMemories(context.Background()); err != nil {
+	if err := m.IndexMemories(m.operationContext()); err != nil {
 		m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
 	}
 	return nil

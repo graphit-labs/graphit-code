@@ -60,13 +60,15 @@ Semantic tokens define meaning across both themes. New features extend existing 
 
 ## Workspace identity
 
-The app store loads registered projects from `GET /api/global-projects` and persists the selected project directory under the `graphit-app-state` browser key.
+The app store loads machine-local ecosystem projects from `GET /api/global-projects` and persists
+the selected project directory under the `graphit-app-state` browser key. That local list is not
+the remote Hub project directory. Hub discovery uses its own ACL-filtered cursor API.
 
 Every project-scoped request must use the active project directory or context. Because the selection survives browser sessions, explorer screens must display the active project clearly enough for a user to verify it before interpreting data.
 
 Switching projects updates:
 
-- project name and identity;
+- mutable project name and immutable ULID identity;
 - Knowledge, AST, Memory, and Task navigation entries;
 - Hub target context;
 - explorer API parameters;
@@ -152,12 +154,15 @@ Successful responses use this versioned envelope:
 
 The Hub routes present:
 
-- registry browsing and filters;
+- ACL-filtered, cursor-paginated project and artifact discovery;
 - project-installed artifacts;
 - artifact details and version metadata;
 - install, update, uninstall, and publish actions where supported.
 
-Remote operations depend on configured Hub storage and credentials.
+Remote operations depend on configured Hub storage, a trusted subject, and current project grants.
+The UI never fetches an all-project export implicitly. It distinguishes an empty authorized result
+from unavailable authentication, forbidden access, and a stale offline cache. Selecting a cached
+row does not authorize details, content, installation, or a mount; those requests revalidate.
 
 ### Live Search
 
@@ -181,7 +186,12 @@ Live Search lets the user choose compatible artifacts, select a target IDE, ente
 
 The built-in UI host is the IPv4 loopback address. The frontend uses same-origin `/api` URLs so it continues to work behind a correctly configured reverse proxy.
 
-The server has no authentication. CORS limits browser origins but does not authorize non-browser clients. See [S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
+The server has no built-in user authentication. CORS limits browser origins but does not authorize
+non-browser clients. A multi-user Hub deployment must put the UI behind an authenticated proxy or
+another trusted identity adapter that supplies user and team identity; otherwise only a
+single-user deployment subject is valid. See
+[S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md) and
+[Hub Access Control](hub_access_control.md).
 
 ## Error and loading behavior
 
@@ -202,6 +212,8 @@ The server has no authentication. CORS limits browser origins but does not autho
 - Task discovery uses a bounded paginated catalogue; exact detail and explicit JSON download consume the canonical complete export contract.
 - The embedded server serves the SPA and same-origin API calls.
 - The default network configuration remains local; documentation does not present CORS as authentication.
+- Hub discovery is bounded and filtered before project or artifact metadata reaches the browser.
+- A stale Hub cache never grants detail, content, install, publish, or mount access.
 
 ## Reference captures
 

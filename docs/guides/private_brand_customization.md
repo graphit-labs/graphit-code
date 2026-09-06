@@ -55,17 +55,25 @@ with `BRAND=acme-code` uses `~/.acme-code/` and `ACME_CODE_*` variables. The
 environment-only `<PREFIX>_GLOBAL_DIR` can relocate that directory before config
 resolution begins.
 
-Global state includes configuration, global rules, authoritative memory tables, compiled AST/wiki
-stores, runtime payloads, models, and daemon metadata. Project-local source,
+Global state includes configuration, global rules, local authoritative stores, compiled AST/wiki
+stores, runtime payloads, models, daemon metadata, managed file artifacts, and the bounded Hub cache
+at `~/.<brand>/hub/cache/`. The cache is isolated by Hub and trusted subject, is safe to remove, and
+is neither an ACL authority nor a complete registry mirror. Project-local source,
 `graphit.lock.json`, rule/query overrides, and generated runtime state remain
 separate. See [Storage Layout](../architecture/storage_layout.md).
 
 ## Setting up private collaboration ecosystems
 
 Use a private AWS S3 bucket or an S3-compatible endpoint such as an internal MinIO
-deployment. The configured bucket carries the registry, versioned artifacts,
-events, team rules, published knowledge, mounted graph/search stores, and memory
-scopes under distinct prefixes.
+deployment. Hub v2 carries a global name directory, deny-by-default global/user/team grant
+documents, and project data rooted below immutable ULIDs. Versioned artifacts, events, published
+knowledge, mounted graph/search stores, project memory, and project Tasks remain inside their
+project prefix; user memory remains inside its user prefix.
+
+For a single-user or workload deployment, configure the branded equivalents of
+`GRAPHIT_HUB_SUBJECT_USER` and `GRAPHIT_HUB_SUBJECT_TEAMS` globally. A multi-user service should
+bind the authenticated subject to each request instead; it must not accept these values from an API
+payload or project file.
 
 ```bash
 acme-code setup
@@ -77,11 +85,13 @@ removes both explicit values and uses the AWS provider chain, which is preferred
 for workload roles and short-lived credentials.
 
 Explicit secrets are stored as plain text in the owner-only global config file.
-They are redacted from config output but are not encrypted at rest. Bucket policy,
-endpoint TLS, identity/role policy, and network segmentation remain the real data
-security boundary. See
+They are redacted from config output but are not encrypted at rest. These credentials authenticate
+the workload, not a user. A multi-user ecosystem needs trusted user/team identity plus a Hub
+service or temporary credentials scoped to authorized project ULIDs. Bucket policy, endpoint TLS,
+identity/role policy, and network segmentation remain the real data security boundary. See
 [S3 Credentials and UI Network Configuration](s3-and-ui-network.md) and
-[Hub S3 Object Layout](../specs/hub-s3-object-layout.md).
+[Hub S3 Object Layout](../specs/hub-s3-object-layout.md), and
+[Hub Access Control](../specs/hub_access_control.md).
 
 ### Prefix isolation
 

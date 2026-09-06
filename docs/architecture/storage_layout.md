@@ -89,7 +89,12 @@ Things worth knowing before you set it:
 ├── config.json                         global configuration (mode `0600`)
 ├── global.lock.json                    registered projects and installed artifact metadata
 ├── memory.lock.json                    external memory context mappings
-├── hub.registry.json                   local Hub registry metadata cache
+├── hub/
+│   └── cache/<hub-fingerprint>/<subject-fingerprint>/
+│       ├── names/                      selectively resolved name records
+│       ├── projects/                   authorized project metadata
+│       ├── discovery-pages/            bounded paginated responses
+│       └── cache-state.json            TTL, ETag/revision, size, and LRU state
 ├── daemon/
 │   ├── daemon.pid                      process metadata plus the single-daemon file lock
 │   ├── daemon.log                      daemon output
@@ -104,7 +109,7 @@ Things worth knowing before you set it:
 ├── grammars/{treesitter,antlr}/        globally installed native parser binaries
 ├── runtime/<version>/                  extracted version-scoped core runtime
 ├── frameworks/                         globally installed framework content
-├── artifacts/modules/                  installed file-artifact cache
+├── artifacts/modules/                  managed file-artifact materializations
 ├── sessions/<project-hash>/            saved AI chat metadata and JSONL messages
 ├── sessions/<session-id>/              ephemeral Live Search workspaces and events
 ├── ast/
@@ -120,7 +125,7 @@ Things worth knowing before you set it:
 │   │       └── <relPath>.emb.zst            exact float32 embedding cache in a Zstandard frame
 │   ├── context/<name>/                  a locally imported code graph — same icebug filesystem layout
 │   │   └── graph.icebug/ + search.lance/ …
-│   ├── hub/<context-id>/<version>/      a Hub code graph, MOUNTED per version
+│   ├── hub/<project-ulid>/<artifact-id>/<version>/ a Hub code graph, MOUNTED per version
 │   │   ├── schema.cypher                    storage = 's3://…', format='icebug-disk' — the graph's Parquet stays on S3, never downloaded
 │   │   ├── icebug.json                      canonical manifest v2
 │   │   └── search.uri                       where the search index lives (an s3:// URI)
@@ -129,14 +134,32 @@ Things worth knowing before you set it:
 │   ├── knowledge/
 │   │   ├── project/<project-id>/        a project's local `index.lance/`
 │   │   ├── context/<name>/              a linked/local documentation wiki
-│   │   └── hub/<context-id>/<version>/  logical version key; Hub data stays at its `s3://` URI
+│   │   └── hub/<project-ulid>/<artifact-id>/<version>/ logical version key; Hub data stays at its `s3://` URI
 │   └── memory/<scope>/<scope-id>/       a memory wiki (scope: project | user | <context>)
 ├── memory-table/memory-<scope>-<id>/    authoritative LanceDB memory table in local-only mode
 ├── task-table/<task-prefix>/<project-id>/ authoritative LanceDB task tables in local-only mode
 ├── models/coderankembed/                the embedding model — downloaded at setup
 │   ├── model.onnx                           ~132 MB, NOT carried in the binary
 │   └── tokenizer.json
-└── …                                    hub clones, registry cache, global lock, runtime
+└── …                                    other versioned runtime and machine state
+```
+
+The Hub cache is not a registry mirror. It is populated only by requested, authorized reads,
+partitioned by the effective Hub endpoint/bucket/prefix and authenticated subject, and safe to
+delete. It cannot grant access: remote content and mounts revalidate authorization, and a failed
+revalidation fails closed. The removed `hub.registry.json` and eager `hub/registry/` mirror must not
+be recreated under another name. File artifacts under `artifacts/modules/` are different: they are
+managed installed content that IDEs need as ordinary files.
+
+Authoritative S3 project state uses the layout below; the complete object and document schemas are
+in [Hub S3 Object Layout](../specs/hub-s3-object-layout.md):
+
+```text
+v2/registry/names/<normalized-name>.json
+v2/projects/<project-ulid>/{project.json,registry/,artifacts/,events/,memory/,<task.prefix>/}
+v2/global/projects.json
+v2/users/<user-id>/projects.json
+v2/teams/<team-id>/projects.json
 ```
 
 Every local wiki directory — knowledge or memory, project or context — has the same shape:
@@ -255,17 +278,17 @@ repository owns the explicit maintainer source-build path and Graphit's binding 
 | Store | Key |
 |---|---|
 | a project's graph and wiki | the project's **lockfile ULID** |
-| a project that has never been `init`ed | `path-<16 hex>`, a hash of its absolute path |
+| a project not yet fully `init`ed | the ULID created by its first stateful operation |
 | a locally imported context | its **sanitised name** |
-| a Hub context, AST or documentation | its **publishing project's id** plus the **version** |
+| a Hub context, AST or documentation | publishing project **ULID**, artifact **ID**, and **version** |
 | a memory scope | `project` → the project id; `user` → a hash of `unit.id` from the global config; a context → its own name |
 | the embedding model | nothing — there is one copy per machine, shared by every project and every version |
 
-`store.ProjectStoreID` implements the first two. The path-hash fallback exists so
-that `ast index` keeps working in a directory that has not been initialised — it
-never has required `init`. The consequence is worth stating: running `init` in a
-directory that was already indexed re-keys its store, and the next query reindexes
-once. That is a one-time cost at the moment a project gains an identity.
+Identity creation is a smaller operation than full initialization. The first command that needs to
+persist project state atomically creates a minimal `graphit.lock.json`; later `graphit init`
+reconciles adapters and baselines without changing the ULID. Pure reads do not create identity.
+Only the ULID-addressed store is valid; `path-*` directories are neither read nor migrated. Missing
+state is rebuilt under the ULID. See [Project Identity](../specs/project_identity.md).
 
 ### Having an identity is not the same as being entitled to a store
 
@@ -290,23 +313,14 @@ The flag is recorded rather than inferred. "Has no source of its own" would also
 a real project on its first day. See
 Graphit Task `tsk-976ef4e8973d` records why an ephemeral session owns no store.
 
-### Two platform rules the identity has to obey
-
-**The path hash folds case on Windows and macOS, and not on Linux.** Those two treat
-paths differing only in letter case as the same directory, so a project reached as
-`C:\Proj` and as `C:\proj` would otherwise get two store ids — two graphs and two
-wikis, each looking healthy while holding half the answers. `store.pathStoreID` takes
-the fold as a parameter so both behaviours are testable on any host; the platform
-decides the value once, in `caseInsensitivePaths`.
+### Platform-safe identity segments
 
 **A Windows device name is defused on every platform.** `nul`, `con`, `com1` and the
-rest are refused as directory names by Windows, and an identity can genuinely be one:
-`HubContextID` falls back to a Hub artifact ID its author chose freely. `nul` becomes
-`nul_` everywhere — not only on Windows — so that one artifact resolves to the same
-path on every machine, including a global directory carried to another one or a shared
-CI image.
+rest are refused as directory names by Windows, and a user-chosen artifact ID can genuinely be one.
+`nul` becomes `nul_` everywhere — not only on Windows — so that one artifact resolves to the same
+path on every machine, including a global directory carried to another one or a shared CI image.
 
-Both rules go through `storeIDSegment`, which changes nothing else: case and characters
+The rule goes through `storeIDSegment`, which changes nothing else: case and characters
 are left alone, because an id is an identity and the two resolvers keyed by it
 (`ProjectStoreID` and the `*ByID` variants) must agree on the path or a project's own
 store and the same store seen from the ecosystem become two directories.
@@ -382,9 +396,8 @@ The whole brand directory stays out of the **code graph** regardless, through a 
 `.astignore` pattern — being versioned and being indexed are different questions. See
 [Ignore Files](../guides/ignore_files.md).
 
-Legacy paths `.graphit/ast/export/` and `.graphit/dream/` are no longer defaults. Graphit
-does not move or delete them automatically; use `--output` or `dream.reports_dir` to point
-at them temporarily while migrating data explicitly.
+`.graphit/ast/export/` and `.graphit/dream/` are not runtime paths and are never discovered
+implicitly. Current generated output belongs below `.graphit/runtime/`.
 
 ### Membership has one home: `graphit.lock.json`
 

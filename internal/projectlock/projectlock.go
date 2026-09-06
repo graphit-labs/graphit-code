@@ -6,8 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
+	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -152,6 +156,23 @@ func Save(path string, lf *Lockfile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating lockfile directory: %w", err)
 	}
+	guardPath := brand.ProjectRuntimePath(filepath.Dir(path), "identity.lock")
+	guard, err := lockfile.Acquire(guardPath, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("locking project identity: %w", err)
+	}
+	defer guard.Release()
+
+	existing, err := Load(path)
+	if err != nil {
+		return err
+	}
+	if existing != nil && existing.Project.ID != "" {
+		if lf.Project.ID != "" && lf.Project.ID != existing.Project.ID {
+			return fmt.Errorf("project identity is immutable: existing %q, requested %q", existing.Project.ID, lf.Project.ID)
+		}
+		lf.Project.ID = existing.Project.ID
+	}
 
 	if lf.Project.ID == "" {
 		existingName := lf.Project.Name
@@ -173,7 +194,50 @@ func Save(path string, lf *Lockfile) error {
 		return fmt.Errorf("serializing lockfile: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0o644)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".graphit-lock-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temporary lockfile: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("writing temporary lockfile: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("syncing temporary lockfile: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temporary lockfile: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replacing lockfile: %w", err)
+	}
+	return nil
+}
+
+// EnsureIdentity creates the minimal project lockfile when a stateful operation first needs it.
+// Concurrent callers serialize through Save and all observe the same immutable ULID.
+func EnsureIdentity(path string) (*Lockfile, error) {
+	lf, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	if lf != nil && lf.Project.ID != "" {
+		return lf, nil
+	}
+	if lf == nil {
+		lf = &Lockfile{Artifacts: make(map[ArtifactType]map[string]*ArtifactMeta)}
+	}
+	if err := Save(path, lf); err != nil {
+		return nil, err
+	}
+	return Load(path)
 }
 
 func resolveProjectIdentity(projectDir string) ProjectIdentity {
@@ -184,11 +248,20 @@ func resolveProjectIdentity(projectDir string) ProjectIdentity {
 		url := out
 		if url != "" {
 			if m := regexp.MustCompile(`^git@[^:]+:(.+?)(?:\.git)?$`).FindStringSubmatch(url); m != nil {
-				name = m[1]
+				name = filepath.Base(filepath.FromSlash(m[1]))
 			} else if m := regexp.MustCompile(`^https?://.+?/(.+?)(?:\.git)?$`).FindStringSubmatch(url); m != nil {
-				name = m[1]
+				name = filepath.Base(filepath.FromSlash(m[1]))
 			}
 		}
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = regexp.MustCompile(`[^a-z0-9._-]+`).ReplaceAllString(name, "-")
+	name = strings.Trim(name, ".-_")
+	if len(name) > 64 {
+		name = strings.TrimRight(name[:64], ".-_")
+	}
+	if name == "" {
+		name = "project"
 	}
 
 	return ProjectIdentity{

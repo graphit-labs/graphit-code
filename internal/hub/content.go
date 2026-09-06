@@ -70,9 +70,14 @@ func (s *HubService) ArtifactContentFor(ctx context.Context, projectDir, ref str
 		return nil, unservableTypeError(artType)
 	}
 
-	dir, resolvedType, resolvedVersion, notice, err := s.artifactContentDir(projectDir, id, artType, version)
+	dir, resolvedType, resolvedVersion, notice, publisherID, err := s.artifactContentDir(projectDir, id, artType, version)
 	if err != nil {
 		return nil, err
+	}
+	if publisherID != "" {
+		if err := s.registry.authorizeProject(ctx, publisherID); err != nil {
+			return nil, err
+		}
 	}
 
 	files, canonical, err := readArtifactFiles(dir, resolvedType, only)
@@ -106,20 +111,24 @@ func unservableTypeError(artType ArtifactType) error {
 
 func (s *HubService) artifactContentDir(
 	projectDir, id string, artType ArtifactType, version string,
-) (dir string, resolvedType ArtifactType, resolvedVersion, notice string, err error) {
+) (dir string, resolvedType ArtifactType, resolvedVersion, notice, publisherID string, err error) {
+
 	if projectDir != "" {
 		return s.projectArtifactDir(projectDir, id, artType, version)
 	}
 
 	art, gErr := s.findGlobalInstall(id, artType, version)
 	if gErr != nil {
-		return "", "", "", "", gErr
+		return "", "", "", "", "", gErr
 	}
 	if !contentTypes[art.Type] {
-		return "", "", "", "", unservableTypeError(art.Type)
+		return "", "", "", "", "", unservableTypeError(art.Type)
 	}
 	if version == "" {
 		notice = fmt.Sprintf("no version was given, so the globally installed %s@%s was read", art.ID, art.Version)
+	}
+	if art.ProjectID == "" {
+		return "", "", "", "", "", fmt.Errorf("%s %s@%s has no publishing project ULID; reinstall it from Hub v2", art.Type, art.ID, art.Version)
 	}
 
 	dir = art.CachePath
@@ -127,18 +136,18 @@ func (s *HubService) artifactContentDir(
 		dir = s.cacheDirFor(art.Type, art.ID, art.Version, art.ProjectID)
 	}
 	if dir == "" {
-		return "", "", "", "", fmt.Errorf("%s %s@%s is recorded as installed but its local directory is unknown — "+
+		return "", "", "", "", "", fmt.Errorf("%s %s@%s is recorded as installed but its local directory is unknown — "+
 			"reinstall it to repair the record", art.Type, art.ID, art.Version)
 	}
-	return dir, art.Type, art.Version, notice, nil
+	return dir, art.Type, art.Version, notice, art.ProjectID, nil
 }
 
 func (s *HubService) projectArtifactDir(
 	projectDir, id string, artType ArtifactType, version string,
-) (string, ArtifactType, string, string, error) {
+) (string, ArtifactType, string, string, string, error) {
 	lf, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil || lf == nil {
-		return "", "", "", "", fmt.Errorf("no project at %s — omit project_dir to read a globally installed artifact", projectDir)
+		return "", "", "", "", "", fmt.Errorf("no project at %s — omit project_dir to read a globally installed artifact", projectDir)
 	}
 
 	var meta *LockfileArtifactMeta
@@ -154,29 +163,32 @@ func (s *HubService) projectArtifactDir(
 		}
 	}
 	if meta == nil {
-		return "", "", "", "", fmt.Errorf("%q is not installed in %s — install it there, or omit project_dir "+
+		return "", "", "", "", "", fmt.Errorf("%q is not installed in %s — install it there, or omit project_dir "+
 			"to read a globally installed copy", id, projectDir)
 	}
 	if !contentTypes[resolvedType] {
-		return "", "", "", "", unservableTypeError(resolvedType)
+		return "", "", "", "", "", unservableTypeError(resolvedType)
 	}
 
 	resolvedVersion := meta.Version
 	if version != "" && version != resolvedVersion {
-		return "", "", "", "", fmt.Errorf("%s has %s@%s installed, not @%s — omit project_dir to read another version",
+		return "", "", "", "", "", fmt.Errorf("%s has %s@%s installed, not @%s — omit project_dir to read another version",
 			projectDir, id, resolvedVersion, version)
 	}
 
 	if meta.Origin == projectlock.OriginLink && meta.SourcePath != "" {
-		return projectlock.SourceDir(projectDir, meta.SourcePath), resolvedType, resolvedVersion, "", nil
+		return projectlock.SourceDir(projectDir, meta.SourcePath), resolvedType, resolvedVersion, "", "", nil
+	}
+	if meta.ProjectID == "" {
+		return "", "", "", "", "", fmt.Errorf("%s %s@%s has no publishing project ULID; reinstall it from Hub v2", resolvedType, id, resolvedVersion)
 	}
 
 	dir := s.cacheDirFor(resolvedType, id, resolvedVersion, meta.ProjectID)
 	if dir == "" {
-		return "", "", "", "", fmt.Errorf("the hub is not configured, so the local directory of %s@%s cannot be resolved",
+		return "", "", "", "", "", fmt.Errorf("the hub is not configured, so the local directory of %s@%s cannot be resolved",
 			id, resolvedVersion)
 	}
-	return dir, resolvedType, resolvedVersion, "", nil
+	return dir, resolvedType, resolvedVersion, "", meta.ProjectID, nil
 }
 
 func (s *HubService) cacheDirFor(artType ArtifactType, id, version, publisherID string) string {

@@ -1,6 +1,7 @@
 package mcpstdio
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,7 +108,7 @@ func TestTheGlobalScopeReadsNoProjectConfiguration(t *testing.T) {
 func TestProjectlessMemoryIsServedFromTheUserScope(t *testing.T) {
 	isolateHome(t)
 
-	scope, scopeID, redirected, err := memoryScopeFor(false, "")
+	scope, scopeID, redirected, err := memoryScopeFor(context.Background(), false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

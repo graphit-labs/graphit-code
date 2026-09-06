@@ -151,10 +151,10 @@
           <h2>Local by default. Shareable when you choose.</h2>
         </div>
         <div class="trust-copy">
-          <p>Mutable code and documentation stay in their repositories. Compiled graphs, indexes, memory, and tasks live once in the global store; optional S3-compatible storage makes authoritative state and versioned artifacts available across machines.</p>
+          <p>Mutable code and documentation stay in their repositories. Compiled graphs, indexes, memory, and tasks live once in the global store; optional S3-compatible storage organizes shared state by immutable project ULID and exposes only projects granted to the trusted user and teams.</p>
           <ul>
             <li><strong>Local core</strong><span>No hosted database is required for everyday operation.</span></li>
-            <li><strong>Explicit sharing</strong><span>Hub publishing and remote storage are configured separately.</span></li>
+            <li><strong>Explicit sharing</strong><span>Hub publishing is explicit, discovery is deny-by-default, and the local Hub directory is only a disposable metadata cache.</span></li>
             <li><strong>Network-aware UI</strong><span>The UI binds to loopback by default and is not an authentication layer.</span></li>
             <li><strong>Serve it when you want to</strong><span>Run the same core as a container: an MCP endpoint your whole team's agents connect to.</span></li>
           </ul>

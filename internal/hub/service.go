@@ -11,7 +11,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/config"
 	ideAdapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/paths"
@@ -120,9 +119,9 @@ func (s *HubService) Install(
 		return nil, err
 	}
 
-	entry := s.registry.GetEntry(realID, entryType)
-	if entry == nil {
-		return nil, fmt.Errorf("entry %q not found in hub registry — is the registry accessible?", realID)
+	entry, err := s.registry.ResolveEntry(ctx, "", realID, entryType)
+	if err != nil {
+		return nil, err
 	}
 
 	constraint, err := ParseVersionConstraint(reqVersion)
@@ -183,8 +182,8 @@ func (s *HubService) Install(
 	var cachePath string
 	var cloneDir string
 	if mountArtifact && artType == TypeAST {
-		contextID := ast.HubContextID(entry.ProjectID, realID)
-		storeDir, err := s.ensureASTStore(ctx, "", contextID, resolvedVersion,
+		contextID := ast.HubContextID(entry.ProjectID)
+		storeDir, err := s.ensureASTStore(ctx, contextID, resolvedVersion,
 			artifactRef{ID: realID, ProjectID: entry.ProjectID})
 		if err != nil {
 			return nil, err
@@ -205,8 +204,8 @@ func (s *HubService) Install(
 			// nothing is placed in the project itself: resolution reads the
 			// lockfile entry written below, and an AST store is only ever reached
 			// through this binary, never opened as files by an agent.
-			contextID := ast.HubContextID(entry.ProjectID, realID)
-			storeDir, err := s.ensureASTStore(ctx, cloneDir, contextID, resolvedVersion,
+			contextID := ast.HubContextID(entry.ProjectID)
+			storeDir, err := s.ensureASTStore(ctx, contextID, resolvedVersion,
 				artifactRef{ID: realID, ProjectID: entry.ProjectID})
 			if err != nil {
 				return nil, err
@@ -362,8 +361,9 @@ func (s *HubService) Install(
 			continue
 		}
 
-		depEntry := s.registry.GetEntry(dep.ID, dep.Type)
-		if depEntry == nil {
+		depEntry, err := s.registry.ResolveEntry(ctx, "", dep.ID, dep.Type)
+		if err != nil {
+			s.log().Warn("resolve dependency", "dependency", dep.ID, "parent", realID, "error", err)
 			continue
 		}
 
@@ -391,7 +391,7 @@ func (s *HubService) Install(
 		ArtType: artType,
 	}
 
-	s.tracker.TrackEvent("artifact.install", "",
+	s.tracker.TrackEvent(ctx, "artifact.install", entry.ProjectID,
 		map[string]string{"type": string(artType), "version": resolvedVersion},
 		map[string]string{"ide": ide})
 
@@ -426,11 +426,13 @@ func (s *HubService) RecordPublish(
 			existing.Origin = "publish"
 		}
 		existing.RemoteID = entryID
+		existing.ProjectID = lf.Project.ID
 	} else {
 		lf.Artifacts[artType][entryID] = &LockfileArtifactMeta{
-			Version:  version,
-			Origin:   "publish",
-			RemoteID: entryID,
+			Version:   version,
+			Origin:    "publish",
+			RemoteID:  entryID,
+			ProjectID: lf.Project.ID,
 		}
 	}
 
@@ -518,14 +520,14 @@ func (s *HubService) UninstallGlobal(ctx context.Context, entryID string, entryT
 			s.cleanupSharedASTStore(&LockfileArtifactMeta{
 				Version:   art.Version,
 				ProjectID: art.ProjectID,
-			}, art.ID)
+			})
 		}
 		if _, gcErr := s.lockMgr.GCOrphans(); gcErr != nil {
 			s.log().Warn("GC orphans", "after", art.ID, "error", gcErr)
 		}
 	}
 
-	s.tracker.TrackEvent("artifact.uninstall", "",
+	s.tracker.TrackEvent(ctx, "artifact.uninstall", art.ProjectID,
 		map[string]string{"type": string(art.Type), "version": art.Version},
 		map[string]string{"ide": ""})
 	return nil
@@ -652,7 +654,7 @@ func (s *HubService) Uninstall(
 		return err
 	}
 
-	s.tracker.TrackEvent("artifact.uninstall", "",
+	s.tracker.TrackEvent(ctx, "artifact.uninstall", meta.ProjectID,
 		map[string]string{"type": string(artType), "version": meta.Version},
 		map[string]string{"ide": ide})
 
@@ -674,7 +676,7 @@ func (s *HubService) Uninstall(
 				s.cleanupGlobalLanguageFiles(meta, entryID, pp)
 			}
 			if artType == TypeAST {
-				s.cleanupSharedASTStore(meta, entryID)
+				s.cleanupSharedASTStore(meta)
 			}
 			if _, gcErr := s.lockMgr.GCOrphans(); gcErr != nil {
 				s.log().Warn("GC orphans", "after", entryID, "error", gcErr)
@@ -745,9 +747,9 @@ func (s *HubService) UpdateOne(ctx context.Context, entryID string, entryType Ar
 		remoteID = resolvedID
 	}
 
-	entry := s.registry.GetEntry(remoteID, entryType)
-	if entry == nil {
-		return fmt.Errorf("%q not found in registry", remoteID)
+	entry, err := s.registry.ResolveEntry(ctx, meta.PublisherID, remoteID, entryType)
+	if err != nil {
+		return err
 	}
 
 	if entry.Latest == "" {
@@ -1110,9 +1112,9 @@ func (s *HubService) ResolveKnowledgeMount(ctx context.Context, artifactID strin
 		realID, reqVersion = parts[0], parts[1]
 	}
 
-	entry := s.registry.GetEntry(realID, TypeKnowledge)
-	if entry == nil {
-		return MountedWiki{}, fmt.Errorf("knowledge artifact %q not found in hub registry", realID)
+	entry, err := s.registry.ResolveEntry(ctx, "", realID, TypeKnowledge)
+	if err != nil {
+		return MountedWiki{}, err
 	}
 
 	resolvedVersion, err := resolveEntryVersion(entry, reqVersion)
@@ -1126,7 +1128,10 @@ func (s *HubService) ResolveKnowledgeMount(ctx context.Context, artifactID strin
 	if !s.registry.MountsKnowledge() {
 		return MountedWiki{}, fmt.Errorf("mounting knowledge artifact %s@%s: %w", realID, resolvedVersion, lancestore.ErrNotBuilt)
 	}
-	mount, ok := s.registry.Store().MountedWikiAt(realID, resolvedVersion, entry.ProjectID)
+	mount, ok, err := s.registry.Store().MountedWikiAt(ctx, realID, resolvedVersion, entry.ProjectID)
+	if err != nil {
+		return MountedWiki{}, err
+	}
 	if !ok {
 		return MountedWiki{}, fmt.Errorf("cannot resolve mount for knowledge artifact %s@%s", realID, resolvedVersion)
 	}
@@ -1161,13 +1166,13 @@ func resolveArtifactPath(meta *LockfileArtifactMeta, artType ArtifactType, artID
 		return meta.LinkSource
 	}
 
-	hubDir, err := config.HubRepoDirPath()
-	if err == nil {
+	globalDir := brand.GlobalDir()
+	if globalDir != "" {
 		remoteID := meta.RemoteID
 		if remoteID == "" {
 			remoteID = artID
 		}
-		return ArtifactCacheDirIn(hubDir, artType, remoteID, meta.Version, meta.ProjectID)
+		return ArtifactCacheDirIn(globalDir, artType, remoteID, meta.Version, meta.ProjectID)
 	}
 
 	folder := TypeFolderMap[artType]

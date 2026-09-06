@@ -289,10 +289,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			}
 		}
 
-		if st, err := hub.NewS3Store(ctx, nil, projectCfg); err == nil {
-			_ = st.SyncRegistry(ctx)
-		}
-
 		for _, targetIDE := range idesToSync {
 			for _, r := range []func(string, string) error{
 				knowledge.InstallSkill,

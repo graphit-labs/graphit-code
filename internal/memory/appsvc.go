@@ -1,12 +1,13 @@
 package memory
 
 import (
+	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // MemoryInsertOpts is a view-agnostic DTO for validated memory insertion.
@@ -35,19 +36,26 @@ func (s *MemoryAppService) NewMemorySvc(userScope bool) (*MemoryService, error) 
 
 	if userScope {
 		scope = MemoryScopeUser
-		hash, err := UserScopeID()
-		if err != nil {
-			return nil, fmt.Errorf("cannot determine user identity: %w", err)
+		if config.HubS3Config().Configured() {
+			subject, err := hubaccess.TrustedSubject(context.Background())
+			if err != nil {
+				return nil, err
+			}
+			scopeID = subject.UserID
+		} else {
+			hash, err := UserScopeID()
+			if err != nil {
+				return nil, fmt.Errorf("cannot determine user identity: %w", err)
+			}
+			scopeID = hash
 		}
-		scopeID = hash
 	} else {
 		scope = MemoryScopeProject
-		lockPath := filepath.Join(s.projectDir, brand.LockFileName())
-		lf, err := hub.LoadLockfile(lockPath)
-		if err != nil || lf == nil {
-			return nil, fmt.Errorf("project not initialised at %s — run '%s init' first", s.projectDir, brand.BinName())
+		projectID, err := store.EnsureProjectID(s.projectDir)
+		if err != nil {
+			return nil, err
 		}
-		scopeID = lf.Project.ID
+		scopeID = projectID
 	}
 
 	ms, _ := NewMemoryStore()

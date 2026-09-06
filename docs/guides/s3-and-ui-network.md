@@ -32,6 +32,8 @@ Both commands above write `graphit.lock.json`; add `--global` to write
 | `hub.prefix` | `GRAPHIT_HUB_PREFIX` | Optional key prefix inside the bucket |
 | `hub.access_key_id` | `GRAPHIT_HUB_ACCESS_KEY_ID` | Optional explicit access key |
 | `hub.secret_access_key` | `GRAPHIT_HUB_SECRET_ACCESS_KEY` | Optional explicit secret key |
+| `hub.subject.user` | `GRAPHIT_HUB_SUBJECT_USER` | Trusted deployment user ID fallback; keep global, never project-scoped |
+| `hub.subject.teams` | `GRAPHIT_HUB_SUBJECT_TEAMS` | Comma- or semicolon-separated trusted team memberships |
 
 For an ephemeral publisher, keep these values in GitHub environment variables and secrets rather
 than writing them to global configuration. The complete branch/tag workflow, including remote
@@ -92,6 +94,25 @@ local and remote state already exist independently, select which side is authori
 expecting an automatic merge. See
 [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md#update-and-cleanup-semantics).
 
+## Project identity and authorization
+
+S3 credentials authenticate the Graphit process to object storage. They do not identify the person
+making a request and do not grant visibility to every project. Hub v2 roots project data below the
+immutable project ULID and resolves the mutable globally unique name through a separate name
+directory. See [Project Identity](../specs/project_identity.md).
+
+A trusted authentication boundary supplies `user_id` and `team_ids`. Graphit then unions the
+applicable global, user, and team project grants. Missing grant files contribute no access and an
+unavailable or invalid authorization backend fails closed. A shared MCP bearer key controls access
+to the endpoint but does not distinguish users; CORS does neither. Multi-user deployments therefore
+need an authenticated proxy/identity adapter and a Hub service or temporary S3 credentials scoped
+to authorized `v2/projects/<ULID>/` prefixes. See
+[Hub Access Control](../specs/hub_access_control.md).
+
+The local `~/.<brand>/hub/cache/` tree holds only bounded, subject-isolated metadata. It never
+replaces ACL validation. Clearing it is safe; a network failure cannot turn a cached positive grant
+into offline authorization.
+
 ## UI bind address and browser origins
 
 | Key | Environment variable | Built-in default |
@@ -135,6 +156,10 @@ access-control mechanism for curl, scripts, or hosts on the network. Because the
 default bind is `0.0.0.0`, protect reachable deployments with a firewall, VPN, or
 an authenticated TLS reverse proxy. Do not expose the server directly to the
 public Internet.
+
+An authenticated reverse proxy must pass identity through a trusted integration understood by the
+deployment; merely making up user or team headers is not sufficient. Until such an integration is
+configured, operate the UI as a single-user service even if S3 contains user/team ACL documents.
 
 Typical safe profiles:
 

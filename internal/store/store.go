@@ -1,17 +1,17 @@
 package store
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -54,7 +54,12 @@ func ProjectID(projectDir string) string {
 	if json.Unmarshal(data, &lock) != nil {
 		return ""
 	}
-	return lock.Project.ID
+	id := strings.TrimSpace(lock.Project.ID)
+	parsed, err := ulid.ParseStrict(id)
+	if err != nil || parsed.String() != id {
+		return ""
+	}
+	return id
 }
 
 // IsEphemeralProject reports whether a directory is a throwaway workspace rather
@@ -89,48 +94,32 @@ func IsEphemeralProject(projectDir string) bool {
 	return lock.Project.Ephemeral
 }
 
-// ProjectStoreID is the directory name a project's stores are filed under.
-//
-// It is the lockfile ID wherever there is one, so that two checkouts of the same
-// project on one machine share a store and a project keeps its store across a move.
-// An uninitialised directory still has to be indexable — `ast index` has never
-// required `init` — so it falls back to a hash of the absolute path, which is
-// stable, collision-free in practice, and unmistakably not a ULID.
-//
-// The consequence is worth stating: running `init` in a directory that was already
-// indexed re-keys its store, and the first query afterwards reindexes. That is a
-// one-time cost at the moment a project gains an identity, and the alternative —
-// refusing to index until init — is worse.
+// ProjectStoreID is the immutable lockfile ULID used by every durable project store.
+// A read does not create identity; stateful entry points call EnsureProjectID first.
 func ProjectStoreID(projectDir string) string {
-	if id := ProjectID(projectDir); id != "" {
-		return storeIDSegment(id)
+	return storeIDSegment(ProjectID(projectDir))
+}
+
+// EnsureProjectID creates or reads the minimal lockfile required by a stateful project operation.
+func EnsureProjectID(projectDir string) (string, error) {
+	if projectDir == "" {
+		return "", fmt.Errorf("project directory is required")
 	}
-	abs, err := filepath.Abs(projectDir)
+	lf, err := projectlock.EnsureIdentity(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil {
-		abs = filepath.Clean(projectDir)
+		return "", err
 	}
-	return pathStoreID(abs, caseInsensitivePaths)
+	if lf == nil || lf.Project.ID == "" {
+		return "", fmt.Errorf("project identity was not created")
+	}
+	parsed, err := ulid.ParseStrict(lf.Project.ID)
+	if err != nil || parsed.String() != lf.Project.ID {
+		return "", fmt.Errorf("project identity %q is not a ULID", lf.Project.ID)
+	}
+	return storeIDSegment(lf.Project.ID), nil
 }
 
-func pathStoreID(abs string, fold bool) string {
-	key := filepath.ToSlash(abs)
-	if fold {
-		key = strings.ToLower(key)
-	}
-	sum := sha256.Sum256([]byte(key))
-	return "path-" + fmt.Sprintf("%x", sum)[:16]
-}
-
-var caseInsensitivePaths = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
-
-// storeIDSegment makes an identity usable as a directory name without changing what
-// it is.
-//
-// It only defuses Windows device names; case and characters are left alone, because
-// an id is an identity and two resolvers keyed by the same id must agree on the path.
-// A project id is a ULID and will never be a device name, but ProjectStoreID also
-// answers for an id that came from a global lock written by an older version, and
-// HubContextID falls back to a Hub artifact ID its author chose freely.
+// storeIDSegment keeps an immutable identity stable across filesystem platforms.
 func storeIDSegment(id string) string { return DefuseReservedName(id) }
 
 var nonNameChars = regexp.MustCompile(`[^a-z0-9_-]`)
@@ -226,23 +215,47 @@ func globalOr(projectDir string, parts ...string) string {
 // ASTProjectDir is the store directory for a project's own code graph. The graph,
 // its search index, the shard manifest and the shard tree all live inside it.
 func ASTProjectDir(projectDir string) string {
-	return globalOr(projectDir, "ast", projectNamespace, ProjectStoreID(projectDir))
+	id := ProjectStoreID(projectDir)
+	if id == "" {
+		return ""
+	}
+	return globalOr(projectDir, "ast", projectNamespace, id)
+}
+
+func EnsureASTProjectDir(projectDir string) (string, error) {
+	id, err := EnsureProjectID(projectDir)
+	if err != nil {
+		return "", err
+	}
+	return globalOr(projectDir, "ast", projectNamespace, id), nil
 }
 
 // ASTProjectIcebugDir is the icebug bundle for a project's own graph (filesystem on-the-fly).
 // See docs/icebug-disk.md: storage = '<abs-dir>', files resolved as <dir>/nodes_*.parquet etc.
 func ASTProjectIcebugDir(projectDir string) string {
-	return filepath.Join(ASTProjectDir(projectDir), "graph.icebug")
+	dir := ASTProjectDir(projectDir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "graph.icebug")
 }
 
 // ASTProjectIcebugSchema is the DDL that mounts the local icebug bundle.
 func ASTProjectIcebugSchema(projectDir string) string {
-	return filepath.Join(ASTProjectIcebugDir(projectDir), "schema.cypher")
+	dir := ASTProjectIcebugDir(projectDir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "schema.cypher")
 }
 
 // ASTProjectIcebugManifest is the canonical manifest beside the bundle.
 func ASTProjectIcebugManifest(projectDir string) string {
-	return filepath.Join(ASTProjectDir(projectDir), "icebug.json")
+	dir := ASTProjectDir(projectDir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "icebug.json")
 }
 
 // ASTProjectDirByID is ASTProjectDir for a project whose id is already known — from
@@ -292,7 +305,19 @@ func ASTHubIcebugSchema(contextID, version string) string {
 
 // KnowledgeProjectDir is the compiled documentation wiki of one project.
 func KnowledgeProjectDir(projectDir string) string {
-	return globalOr(projectDir, "wiki", "knowledge", projectNamespace, ProjectStoreID(projectDir))
+	id := ProjectStoreID(projectDir)
+	if id == "" {
+		return ""
+	}
+	return globalOr(projectDir, "wiki", "knowledge", projectNamespace, id)
+}
+
+func EnsureKnowledgeProjectDir(projectDir string) (string, error) {
+	id, err := EnsureProjectID(projectDir)
+	if err != nil {
+		return "", err
+	}
+	return globalOr(projectDir, "wiki", "knowledge", projectNamespace, id), nil
 }
 
 // KnowledgeProjectDirByID is KnowledgeProjectDir for a project whose id is already

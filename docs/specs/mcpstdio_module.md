@@ -137,6 +137,17 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 - Prevents path traversal by stripping directory components via `filepath.Base()`.
 - Rejects `.`, `..`, and names containing path separators.
 
+### Trusted Hub subject
+
+Remote Hub transports attach a trusted `user_id` and `team_ids` to request context before a Hub,
+mounted AST/knowledge, project Memory, or project Task handler runs. Tool arguments cannot override
+that subject. A local stdio process may use the deployment's single-user subject; a remote daemon
+must receive identity from an authenticated proxy or another trusted adapter. The daemon bearer key
+authenticates access to the MCP endpoint but is not, by itself, a multi-user identity.
+
+The request resolves deny-by-default grants before discovery and revalidates authorization before
+content or mount access. See [Hub Access Control](hub_access_control.md).
+
 ---
 
 ## 📂 Tool Categories
@@ -147,7 +158,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 |---|---|
 | `graphit_mandates` | Resolve dynamic mandates from global config/rule overrides and framework defaults; takes no parameters and reads no lockfile. |
 | `graphit_module_skill` | Return the complete resolved Task, Memory, AST, Hub, or Knowledge skill source and its enabled state; `project_dir` is optional. |
-| `graphit_init` | Initialize a new project: create lockfile, generate ULID, set up gitignore, register in global lock. |
+| `graphit_init` | Complete project initialization: ensure the existing or newly created ULID, set up gitignore and adapters, and register in the global lock. |
 | `graphit_sync` | Full sync: reindex AST, rebuild knowledge wiki, run memory cycle, sync hub, install IDE rules. |
 | `graphit_update` | Update all installed hub artifacts to latest versions and refresh IDE rules. |
 | `graphit_remove` | Uninstall Graphit: remove hooks, gitignore entries, hub artifacts, and IDE rules. |
@@ -208,9 +219,9 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 
 | Tool | Description |
 |---|---|
-| `graphit_hub_list` | List available artifacts in the Hub registry, optionally filtered by type. |
-| `graphit_hub_search` | Search the Hub by name, ID, or description. |
-| `graphit_hub_show` | Show detailed information about a specific artifact. |
+| `graphit_hub_list` | Return one bounded page of artifacts from projects visible to the trusted subject, optionally filtered by type. |
+| `graphit_hub_search` | Search only projects visible to the trusted subject and return a bounded page. |
+| `graphit_hub_show` | Show one authorized project-qualified artifact; a known ID does not bypass ACL. |
 | `graphit_hub_install` | Install an artifact into a project, or globally when `project_dir` is omitted. Supports version pinning (`@version`) and project IDE targeting. |
 | `graphit_hub_uninstall` | Remove a project installation, or a global installation when `project_dir` is omitted. |
 | `graphit_hub_update` | Update one or all installed artifacts. |
@@ -218,7 +229,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | `graphit_hub_link` | Link a local project's artifacts via symlinks. |
 | `graphit_hub_unlink` | Remove a linked artifact. |
 | `graphit_hub_content` | Read a Hub artifact's source content with bounded slicing. |
-| `graphit_hub_projects` | List registered projects in the global lock. |
+| `graphit_hub_projects` | List one bounded page of Hub projects visible to the trusted subject; local ecosystem registration is a separate concern. |
 | `graphit_hub_type_path` | Resolve the conventional project path for an artifact type. |
 
 ### 6. Wiki Tools (`tools_wiki.go`)

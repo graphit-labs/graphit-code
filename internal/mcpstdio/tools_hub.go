@@ -17,17 +17,22 @@ import (
 
 type hubListInput struct {
 	Type        string `json:"type,omitempty" jsonschema:"Filter by artifact type: knowledge, ast, rule, skill, command, agent, mcp, power"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Maximum number of project scopes to inspect (default 100, maximum 1000)"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by the previous page"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type hubSearchInput struct {
 	Query       string `json:"query" jsonschema:"Search term to find artifacts (required)"`
 	Type        string `json:"type,omitempty" jsonschema:"Filter by artifact type"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Maximum number of project scopes to inspect (default 100, maximum 1000)"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by the previous page"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type hubShowInput struct {
 	ID          string `json:"id" jsonschema:"Artifact ID to show details for (required)"`
+	ProjectID   string `json:"project_id,omitempty" jsonschema:"Publishing project ULID; required when the artifact ID is not globally unambiguous"`
 	Type        string `json:"type,omitempty" jsonschema:"Artifact type (helps disambiguate)"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
@@ -90,7 +95,9 @@ type hubUnlinkInput struct {
 }
 
 type hubProjectsInput struct {
-	AiOptimized *bool `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Maximum projects to return (default 100, maximum 1000)"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by the previous page"`
 }
 
 type hubTypePathInput struct {
@@ -110,7 +117,10 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		entries := reg.ListEntries(hub.ArtifactType(input.Type))
+		entries, err := reg.ListEntriesPage(ctx, hub.ArtifactType(input.Type), input.PageSize, input.Cursor)
+		if err != nil {
+			return errResult(err)
+		}
 		if aiOpt(input.AiOptimized) {
 			return toonResult(entries)
 		}
@@ -126,7 +136,10 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		entries := reg.SearchEntries(input.Query, hub.ArtifactType(input.Type))
+		entries, err := reg.SearchEntriesPage(ctx, input.Query, hub.ArtifactType(input.Type), input.PageSize, input.Cursor)
+		if err != nil {
+			return errResult(err)
+		}
 		if aiOpt(input.AiOptimized) {
 			return toonResult(entries)
 		}
@@ -142,9 +155,9 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		entry := reg.GetEntry(input.ID, hub.ArtifactType(input.Type))
-		if entry == nil {
-			return errResult(fmt.Errorf("artifact %q not found", input.ID))
+		entry, err := reg.ResolveEntry(ctx, input.ProjectID, input.ID, hub.ArtifactType(input.Type))
+		if err != nil {
+			return errResult(err)
 		}
 		if aiOpt(input.AiOptimized) {
 			return toonResult(entry)
@@ -299,6 +312,11 @@ func registerHubTools(server *mcp.Server) {
 			Description: input.Description,
 			Tags:        tagList,
 		}
+		lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+		if err != nil || lf == nil || lf.Project.ID == "" {
+			return errResult(fmt.Errorf("publishing requires an initialized project"))
+		}
+		meta.ProjectID = lf.Project.ID
 
 		err = withProjectDir(projectDir, func() error {
 			reg, rerr := hub.NewRegistryManager(ctx)
@@ -420,14 +438,17 @@ func registerHubTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "projects"),
-		Description: "List registered projects in the global lock.",
+		Description: "List one page of Hub projects visible to the trusted subject.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubProjectsInput) (*mcp.CallToolResult, any, error) {
 		reg, err := hub.NewRegistryManager(ctx)
 		if err != nil {
 			return errResult(err)
 		}
 
-		projects := reg.ListProjects()
+		projects, err := reg.DiscoverProjects(ctx, input.PageSize, input.Cursor)
+		if err != nil {
+			return errResult(err)
+		}
 		if aiOpt(input.AiOptimized) {
 			return toonResult(projects)
 		}

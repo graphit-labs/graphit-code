@@ -1,47 +1,9 @@
 package hub
 
 import (
+	"context"
 	"testing"
 )
-
-func TestBuildEventKey(t *testing.T) {
-	t.Parallel()
-
-	t.Run("with artifact type", func(t *testing.T) {
-		t.Parallel()
-		key := buildEventKey("hub.install", map[string]string{"type": "rule"})
-		if key == "" {
-			t.Error("expected non-empty key")
-		}
-		if len(key) < 10 {
-			t.Errorf("key too short: %q", key)
-		}
-	})
-
-	t.Run("artifact with empty type", func(t *testing.T) {
-		t.Parallel()
-		key := buildEventKey("hub.install", map[string]string{})
-		if key == "" {
-			t.Error("expected non-empty key")
-		}
-	})
-
-	t.Run("no artifact", func(t *testing.T) {
-		t.Parallel()
-		key := buildEventKey("project.init", nil)
-		if key == "" {
-			t.Error("expected non-empty key")
-		}
-	})
-
-	t.Run("action without dot", func(t *testing.T) {
-		t.Parallel()
-		key := buildEventKey("install", map[string]string{"type": "rule"})
-		if key == "" {
-			t.Error("expected non-empty key")
-		}
-	})
-}
 
 func TestGenerateULID(t *testing.T) {
 	t.Parallel()
@@ -63,10 +25,10 @@ func TestEventTrackerTrackEvent_NilHandling(t *testing.T) {
 	t.Parallel()
 
 	var tracker *EventTracker
-	tracker.TrackEvent("test", "", nil, nil)
+	tracker.TrackEvent(context.Background(), "test", "", nil, nil)
 
 	tracker2 := &EventTracker{store: nil}
-	tracker2.TrackEvent("test", "", nil, nil)
+	tracker2.TrackEvent(context.Background(), "test", "", nil, nil)
 }
 
 func TestComputeProjectHash(t *testing.T) {

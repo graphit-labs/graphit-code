@@ -2,9 +2,14 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
+	"github.com/graphit-labs/graphit-code/internal/s3store"
 )
 
 func MemoryFileName(id string) string {
@@ -77,6 +82,23 @@ func listMemoriesByRelevanceIn(projectDir, scope string, mandatory bool) ([]Impo
 		return nil, nil
 	}
 	ctx := context.Background()
+	if cfg := config.HubS3Config(); cfg.Configured() {
+		objects, err := s3store.New(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		switch scope {
+		case "project":
+			if err := hubaccess.AuthorizeProject(ctx, objects, scopeID); err != nil {
+				return nil, err
+			}
+		case "user":
+			subject, err := hubaccess.TrustedSubject(ctx)
+			if err != nil || subject.UserID != scopeID {
+				return nil, fmt.Errorf("%w: user memory %s", hubaccess.ErrDenied, scopeID)
+			}
+		}
+	}
 	tbl, err := OpenMemoryTable(ctx, uri)
 	if err != nil {
 		return nil, err

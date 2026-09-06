@@ -8,10 +8,13 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/oklog/ulid/v2"
 )
@@ -27,11 +30,13 @@ var (
 )
 
 type Service struct {
-	projectID, uri   string
-	s3               config.S3Config
-	now              func() time.Time
-	operationTimeout time.Duration
-	versionRetention time.Duration
+	projectID, projectDir, uri string
+	projectConfig              config.ConfigMap
+	s3                         config.S3Config
+	now                        func() time.Time
+	operationTimeout           time.Duration
+	versionRetention           time.Duration
+	identityMu                 sync.Mutex
 }
 
 const (
@@ -44,15 +49,17 @@ const (
 
 func Open(projectDir string) (*Service, error) {
 	id := store.ProjectID(projectDir)
-	if id == "" {
-		return nil, fmt.Errorf("project is not initialized")
-	}
 	projectCfg := config.LoadProjectConfig(projectDir)
 	if config.IsModuleDisabled("task", nil, projectCfg) {
 		return nil, ErrDisabled
 	}
+	uri := ""
+	if id != "" {
+		uri = TableURI(id, projectCfg)
+	}
 	return &Service{
-		projectID: id, uri: TableURI(id, projectCfg), s3: config.ResolveHubS3(nil, projectCfg), now: time.Now,
+		projectID: id, projectDir: projectDir, uri: uri, projectConfig: projectCfg,
+		s3: config.ResolveHubS3(nil, projectCfg), now: time.Now,
 		operationTimeout: config.ResolveTaskOperationTimeout(nil, projectCfg),
 		versionRetention: config.ResolveTaskVersionRetention(nil, projectCfg),
 	}, nil
@@ -66,9 +73,16 @@ func OpenAt(projectID, uri string) *Service {
 }
 
 func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
+	projectID, uri := s.identity()
+	if projectID == "" || uri == "" {
+		return fmt.Errorf("project is not initialized")
+	}
 	ctx, cancel := boundedContext(ctx, s.operationTimeout)
 	defer cancel()
-	t, err := openTables(ctx, s.uri, s.s3)
+	if err := s.authorizeRemote(ctx, projectID); err != nil {
+		return err
+	}
+	t, err := openTables(ctx, uri, s.s3)
 	if err != nil {
 		return taskStorageError(ctx, err)
 	}
@@ -89,12 +103,19 @@ func (s *Service) withLockReconcile(ctx context.Context, actor string, reconcile
 }
 
 func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile bool, timeout time.Duration, fn func(*tables) error) error {
+	if err := s.ensureIdentity(); err != nil {
+		return err
+	}
+	projectID, uri := s.identity()
 	ctx, cancel := boundedContext(ctx, timeout)
 	defer cancel()
+	if err := s.authorizeRemote(ctx, projectID); err != nil {
+		return err
+	}
 	if strings.TrimSpace(actor) == "" {
 		actor = "system"
 	}
-	t, err := openTables(ctx, s.uri, s.s3)
+	t, err := openTables(ctx, uri, s.s3)
 	if err != nil {
 		return taskStorageError(ctx, err)
 	}
@@ -137,7 +158,49 @@ func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile b
 	return fmt.Errorf("task scheduler is busy; retry the operation")
 }
 
+func (s *Service) ensureIdentity() error {
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	if s.projectID != "" && s.uri != "" {
+		return nil
+	}
+	if s.projectDir == "" {
+		return fmt.Errorf("project is not initialized")
+	}
+	projectID, err := store.EnsureProjectID(s.projectDir)
+	if err != nil {
+		return err
+	}
+	s.projectID = projectID
+	s.uri = TableURI(projectID, s.projectConfig)
+	if s.uri == "" {
+		return fmt.Errorf("task store URI is unavailable")
+	}
+	return nil
+}
+
+func (s *Service) identity() (string, string) {
+	s.identityMu.Lock()
+	defer s.identityMu.Unlock()
+	return s.projectID, s.uri
+}
+
+func (s *Service) authorizeRemote(ctx context.Context, projectID string) error {
+	if !s.s3.Configured() {
+		return nil
+	}
+	objects, err := s3store.New(ctx, s.s3)
+	if err != nil {
+		return err
+	}
+	return hubaccess.AuthorizeProject(ctx, objects, projectID)
+}
+
 func (s *Service) Maintain(ctx context.Context) error {
+	projectID, _ := s.identity()
+	if projectID == "" {
+		return nil
+	}
 	_, err := s.maintain(ctx)
 	return err
 }

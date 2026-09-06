@@ -1,17 +1,18 @@
 package hub
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -24,12 +25,16 @@ func NewEventTracker(st *S3Store) *EventTracker {
 }
 
 func (t *EventTracker) TrackEvent(
+	ctx context.Context,
 	action string,
 	projectID string,
 	artifact map[string]string,
 	extraCtx map[string]string,
 ) {
 	if t == nil || t.store == nil {
+		return
+	}
+	if hubaccess.ValidateProjectID(projectID) != nil {
 		return
 	}
 
@@ -65,26 +70,12 @@ func (t *EventTracker) TrackEvent(
 		return
 	}
 
-	key := buildEventKey(action, artifact)
-	t.store.WriteEventFile(key, body)
-}
-
-func buildEventKey(action string, artifact map[string]string) string {
-	ulid := generateULID()
-	shortAction := action
-	if i := strings.LastIndex(action, "."); i >= 0 {
-		shortAction = action[i+1:]
-	}
-
+	artifactType := ""
 	if artifact != nil {
-		artType := artifact["type"]
-		if artType == "" {
-			artType = "unknown"
-		}
-		return fmt.Sprintf("%s/%s_%s.json", artType, ulid, shortAction)
+		artifactType = artifact["type"]
 	}
-
-	return fmt.Sprintf("%s_%s.json", ulid, shortAction)
+	key := EventKey(projectID, artifactType, action, time.Now(), generateULID())
+	t.store.WriteEventFile(ctx, projectID, key, body)
 }
 
 const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

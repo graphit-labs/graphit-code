@@ -22,6 +22,8 @@ current guidance without mixing it with historical implementation records.
 | Choose between FTS, semantic, hybrid, graph, AI, and live search | [Retrieval Architecture](guides/retrieval_architecture.md) | [AI Engine](specs/ai_engine.md) |
 | Add or customize a language parser | [AST Grammars and Parser Extensibility](guides/ast_extensibility.md) | [AST Module](specs/ast_module.md) |
 | Share context across repositories and machines | [User Manual](guides/user_manual.md#teams-agents-and-software-ecosystems) | [Hub Collaboration](specs/hub_collaboration.md) |
+| Understand project IDs, names, rename, and early identity | [Project Identity](specs/project_identity.md) | [Storage Layout](architecture/storage_layout.md) |
+| Design or operate selective Hub access | [Hub Access Control](specs/hub_access_control.md) | [S3 and UI Network](guides/s3-and-ui-network.md) |
 | Understand system boundaries | [Architecture Overview](architecture/architecture_overview.md) | [Storage Layout](architecture/storage_layout.md) |
 | Operate shared storage or networked UI | [S3 and UI Network](guides/s3-and-ui-network.md) | [Hub S3 Object Layout](specs/hub-s3-object-layout.md) |
 | Serve a team over MCP from a container | [Run as a Server in a Container](guides/container.md) | [MCP Tools Reference](guides/mcp_tools_reference.md) |
@@ -66,6 +68,8 @@ Specifications describe current module behavior and technical contracts.
 - [Task Module](specs/task_module.md)
 - [Hub Collaboration](specs/hub_collaboration.md)
 - [Hub S3 Object Layout](specs/hub-s3-object-layout.md)
+- [Project Identity](specs/project_identity.md)
+- [Hub Access Control](specs/hub_access_control.md)
 - [Configuration Module](specs/config_module.md)
 - [Daemon Module](specs/daemon_module.md)
 - [Dream Module](specs/dream_module.md)

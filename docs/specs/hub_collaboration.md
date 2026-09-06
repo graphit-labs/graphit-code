@@ -1,9 +1,10 @@
 # Hub Collaboration Specification
 
-The Hub is the S3-backed registry used to share rules, skills, commands, agents,
-MCP definitions, language queries, AST graphs, and knowledge contexts. It also owns
-the bucket namespace used by project and user memories. No Git checkout or Hub
-repository is involved in the current persistence model.
+The Hub is the S3-backed control and data plane used to share rules, skills, commands, agents,
+MCP definitions, language queries, AST graphs, and knowledge contexts. Every project's durable
+remote state is rooted at its immutable ULID. A lightweight global name directory provides friendly
+discovery without making the mutable project name a storage address. No Git checkout or Hub
+repository is involved in the persistence model.
 
 ## Backend and configuration
 
@@ -27,14 +28,18 @@ The exact object prefixes, registry documents, publication ordering, and error
 contract are defined in [Hub S3 Object Layout](hub-s3-object-layout.md). Operator
 configuration and security guidance are in
 [S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
+The separation between immutable ULID and mutable globally unique name is defined in
+[Project Identity](project_identity.md). Deny-by-default grants, trusted subjects, selective
+discovery, and cache rules are defined in [Hub Access Control](hub_access_control.md).
 
 ## Registry and artifact operations
 
-The registry is a set of JSON objects below `registry/`; artifact payloads are
-stored below `artifacts/`. Operations use object-store semantics:
+The global registry contains only `name -> project ULID` identity records. Project metadata,
+artifact entries, payloads, events, memory, and Tasks live below `v2/projects/<ULID>/`.
+Operations use object-store semantics:
 
-- `Sync` refreshes the registry catalog and reconciles the project's installed
-  artifacts against `graphit.lock.json`.
+- `Sync` resolves the caller's grants, reads only authorized project and artifact metadata, and
+  reconciles installed artifacts against `graphit.lock.json`.
 - `Submit` publishes a versioned payload first and writes its registry pointer
   last, so a visible entry does not name incomplete data.
 - `Install` downloads file-based artifacts or mounts the read-only remote stores
@@ -43,19 +48,20 @@ stored below `artifacts/`. Operations use object-store semantics:
 - `Uninstall` removes the current project's claim and deletes shared local data
   only when no project still references it.
 
-S3 object writes replace the old commit/push/fetch workflow. Independent artifact
-versions use disjoint prefixes. Concurrent writes to the same registry entry are
-last-writer-wins; publication ordering prevents consumers from observing a pointer
-before its payload exists.
+S3 object writes replace the old commit/push/fetch workflow. Independent artifact versions use
+disjoint prefixes. Publication ordering prevents consumers from observing a pointer before its
+payload exists. Name creation and rename use conditional writes; two clients cannot successfully
+reserve the same normalized name. Renaming changes only the name index and project metadata and
+never moves the `v2/projects/<ULID>/` prefix.
 
 ## Where installed artifacts live
 
 | Type | Local placement | Claim |
 |---|---|---|
-| `rule`, `skill`, `command`, `agent`, `mcp` | IDE/project files | `graphit.lock.json` |
-| `knowledge` | global knowledge context store, once per machine | project lockfile and context registry |
-| `ast` | global Hub AST store, once per version | project lockfile |
-| `language` | global grammar query directory | project lockfile |
+| `rule`, `skill`, `command`, `agent`, `mcp` | managed materialization below `~/.<brand>/artifacts/modules/`, then adapter/project files | `graphit.lock.json` |
+| `knowledge` | local mount metadata; authoritative index remains on S3 | project lockfile and context registry |
+| `ast` | local catalog/URI metadata; authoritative graph and search remain on S3 | project lockfile |
+| `language` | managed global grammar/query materialization | project lockfile |
 
 AST and knowledge artifacts publish remote graph/search data that is read-only to consumers. A
 publisher may add a version or replace the payload and content hash of an existing version. The
@@ -81,7 +87,7 @@ bound-endpoint results on large graphs when a file has multiple row groups. The
 writer emits one Arrow record with one `Write` per file, and
 `TestIcebugWritesOneRowGroupPerFile` protects that container contract. Consequently,
 row-group pruning is intentionally unavailable; node-label filtering may scan the
-folded `Entity` file.
+corresponding canonical label table.
 
 AST artifacts are published in the CANONICAL icebug layout: one node table
 per label over its own columns and primary key, and one rel table per
@@ -108,18 +114,19 @@ exactly-one-hop traversals through the same mechanism. `X.uid = 'lit'`
 is rewritten to an IN list before anything else runs, because MEASURED
 equality against an icebug-disk primary key answers zero rows.
 
-The folded layout (one Entity table plus a label column) remains readable
-by the same backend when no v2 manifest is present, for bundles published
-before this change.
+The v2 `icebug.json` manifest and canonical per-label tables are required. A bundle without that
+manifest, or with a different table shape, fails as an unsupported artifact format.
 `graphit hub link --type ast|knowledge <path>` records a sibling-project pointer
 instead of copying its compiled store. Reads resolve that sibling's global store
 from the source project identity.
 
 ## Project lockfile
 
-Every initialized project carries `graphit.lock.json`. Its `project` section holds
-identity, `ides` lists adapters, `config` stores project-scoped layered values, and
-`artifacts` records installed versions and origins.
+Every durable project receives `graphit.lock.json` when its first stateful operation needs an
+identity; this may happen before full `graphit init`. Its `project.id` is an immutable ULID and its
+`project.name` is mutable discovery metadata. `ides` lists adapters, `config` stores project-scoped
+layered values, and `artifacts` records installed versions and origins. See
+[Project Identity](project_identity.md).
 
 Configuration values mirror dotted CLI names as one nested level and are strings:
 
@@ -147,7 +154,8 @@ See [Configuration Module](config_module.md) for precedence and the full key lis
 
 On `graphit sync`, the Hub:
 
-1. resolves the current S3 registry and installed versions;
+1. authenticates the subject, resolves global/user/team grants, and reads only authorized S3
+   metadata;
 2. verifies payloads and re-installs missing or changed files;
 3. reinjects managed rule blocks into configured IDE targets;
 4. maintains project claims in the global lock; and
@@ -203,20 +211,31 @@ are retained until explicitly retracted. See
 [Publishing Graphit artifacts from GitHub Actions](../guides/github-actions-artifacts.md) for the
 unattended named-channel workflow.
 
-Memory is mutable and multi-writer, so it is not a versioned Hub artifact. Its authoritative LanceDB
-table uses the bucket's `memory/<scope>/<id>/` namespace and the direct-write semantics in
-[Memory Module](memory_module.md).
+Memory is mutable and multi-writer, so it is not a versioned Hub artifact. Project memory uses
+`v2/projects/<ULID>/memory/`; user memory uses `v2/users/<user-id>/memory/`. Both follow the
+direct-write semantics in [Memory Module](memory_module.md).
 
 Task is also mutable and multi-writer. Its authoritative LanceDB database uses
-`<task.prefix>/project/<project-id>/`, with scheduler leases and fenced task revisions described in
+`v2/projects/<ULID>/<task.prefix>/`, with scheduler leases and fenced task revisions described in
 [Task Module](task_module.md). It is never a published versioned artifact or repository replica.
 
-## Security and failure behavior
+## Security, discovery, and cache behavior
 
-- Bucket policy and endpoint/network controls are the authorization boundary.
-- Explicit Graphit credentials are optional and stored globally as plain text in
-  an owner-only file; provider-chain roles are preferred.
-- A missing object is normally first-run state. A registry entry whose payload is
-  missing is a hard integrity error.
-- A missing bucket leaves memory local-only and disables remote Hub operations;
-  it is not interpreted as a Git fallback.
+- A trusted subject supplies a user ID and team IDs. Request parameters, CORS, `unit.id`, and a
+  shared daemon bearer key are not user identity.
+- Effective project visibility is the union of `v2/global/projects.json`, the user's projects file,
+  and one `v2/teams/<team-id>/projects.json` file per team. Missing files contribute no grant; invalid or unavailable access
+  state fails closed.
+- List and search are paginated and ACL-filtered. Exact ULIDs use direct reads and name-prefix
+  selectors list only the matching portion of the global name directory.
+- Authorization protects exact lookup, content, install, update, mounts, events, memory, Tasks,
+  submit, and unpublish; knowing a key never bypasses it.
+- `~/.<brand>/hub/cache/<hub>/<subject>/` is a bounded, lazy, disposable metadata cache. Cached data
+  never grants access and consequential operations revalidate permission. It is not the former
+  eager registry mirror and is separate from installed file-artifact materializations.
+- Explicit Graphit S3 credentials are optional and stored globally as plain text in an owner-only
+  file; provider-chain roles or scoped temporary credentials are preferred. Bucket policy or an
+  authorizing Hub service remains the data-plane boundary.
+- A registry entry whose payload is missing is a hard integrity error. A missing bucket leaves
+  supported stores local-only and disables remote Hub operations; it is not interpreted as a Git
+  or old-layout fallback.

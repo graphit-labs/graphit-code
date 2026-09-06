@@ -1,6 +1,7 @@
 package mcpstdio
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -185,25 +187,8 @@ func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
 	return ast.NewLadybugDB(astConfigForProject(projectDir, contextName)), nil
 }
 
-// memoryScopeFor decides which memory scope a request actually gets, which is not
-// always the one it asked for.
-//
-// An ephemeral workspace never gets a project scope. Asking for one is not a caller
-// error — the mandate tells an agent to search project memory before its first
-// response, so every live search session asks — but opening it is destructive in a way
-// that is easy to miss: the scope is created on first use, and creating it means an
-// orphan branch and a worktree in the SHARED memory repository, named after a session
-// that exists for one search. Nothing reclaims them.
-//
-// So the request is redirected to the user scope, and the caller is told. The user's
-// memory is the only memory such a session legitimately has: it is about the user,
-// applies everywhere, and is frequently the only place a constraint was written down.
-// Refusing outright would be more literal and less useful — it would fail the first
-// call of every session and lose any memory the search was about to record.
-//
-// The bool reports the redirect so a tool can say so rather than quietly answering a
-// different question.
-func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, string, bool, error) {
+// memoryScopeFor redirects ephemeral or projectless requests to user memory and reports it.
+func memoryScopeFor(ctx context.Context, userScope bool, projectDir string) (memory.MemoryScope, string, bool, error) {
 	redirected := false
 	if !userScope && projectDir == "" {
 		userScope = true
@@ -215,6 +200,13 @@ func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, stri
 	}
 
 	if userScope {
+		if config.HubS3Config().Configured() {
+			subject, err := hubaccess.TrustedSubject(ctx)
+			if err != nil {
+				return "", "", redirected, err
+			}
+			return memory.MemoryScopeUser, subject.UserID, redirected, nil
+		}
 		hash, err := memory.UserScopeID()
 		if err != nil {
 			return "", "", redirected, fmt.Errorf("cannot determine user identity: %w", err)
@@ -246,14 +238,19 @@ func memoryScopeNotice(userScope bool, projectDir string) string {
 	return "note: this is an ephemeral live search session, which has no project memory of its own — your user memory was used instead"
 }
 
-func newMemorySvc(userScope bool, projectDir string) (*memory.MemoryService, error) {
-	scope, scopeID, _, err := memoryScopeFor(userScope, projectDir)
+func newMemorySvc(ctx context.Context, userScope bool, projectDir string, stateful ...bool) (*memory.MemoryService, error) {
+	if !userScope && projectDir != "" && !store.IsEphemeralProject(projectDir) && len(stateful) > 0 && stateful[0] {
+		if _, err := store.EnsureProjectID(projectDir); err != nil {
+			return nil, err
+		}
+	}
+	scope, scopeID, _, err := memoryScopeFor(ctx, userScope, projectDir)
 	if err != nil {
 		return nil, err
 	}
 
 	ms, _ := memory.NewMemoryStore()
-	svc := memory.NewMemoryService(scope, scopeID, ms)
+	svc := memory.NewMemoryService(scope, scopeID, ms).WithContext(ctx)
 	if err := svc.EnsureInitialised(); err != nil {
 		_ = err
 	}

@@ -107,14 +107,15 @@ with `graphit_module_skill` before using the module's tools. See the copy-ready
 
 ### `graphit_init`
 
-**Description:** Initialize a new project in the given project directory, creating project identity and lockfiles.
+**Description:** Complete initialization in the given project directory, creating a minimal
+identity only when none exists and otherwise preserving the existing ULID.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | The directory of the project to initialize |
 | `ide` | string | | Target IDE (claude, cursor, gemini, etc.) |
-| `id` | string | | Project ID (ULID) override |
-| `name` | string | | Project name override |
+| `id` | string | | Initial ULID only when identity does not exist; a conflicting existing ULID is rejected |
+| `name` | string | | Initial or renamed human-readable discovery name; remote uniqueness is conditional |
 | `description` | string | | Project description |
 
 ---
@@ -132,7 +133,7 @@ This tool performs a full sync cycle:
 1. AST indexing (if the `ast` module is enabled)
 2. Knowledge indexing (if the `knowledge` module is enabled)
 3. Memory cycle (project and user)
-4. Hub registry and managed-artifact reconciliation
+4. Authorized per-project Hub metadata and managed-artifact reconciliation
 5. managed module-skill refresh
 6. native IDE MCP and lifecycle-hook reconciliation
 7. Git hook reconciliation when enabled
@@ -168,7 +169,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory (ignored if `global` is `true`) |
-| `key` | string | ✅ | Configuration key (e.g., `ide`, `cli`, `hub.repo`) |
+| `key` | string | ✅ | Configuration key (e.g., `ide`, `cli`, `hub.bucket`) |
 | `value` | string | ✅ | Configuration value |
 | `global` | boolean | | Save to global configuration instead of project |
 
@@ -684,25 +685,35 @@ independent states.
 
 Tools for interacting with the Graphit Hub artifact registry.
 
+Every remote Hub tool runs as the transport's trusted subject. Discovery returns only granted
+projects and uses bounded `limit`/`cursor` pages; exact lookup, content, install, update, submit, and
+mounted reads revalidate authorization. Tool parameters cannot choose a user or team identity, and
+knowing an ULID or artifact ID does not bypass ACL. Artifact identity is project-qualified as
+`(project_id, type, id)`.
+
 ### `graphit_hub_list`
 
-**Description:** List available artifacts in the Graphit Hub registry.
+**Description:** List one bounded page of artifacts in Hub projects visible to the trusted subject.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `type` | string | | Filter by artifact type: `knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power` |
+| `limit` | integer | | Maximum results in this page, subject to the server cap |
+| `cursor` | string | | Opaque continuation cursor from the preceding page |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
 ### `graphit_hub_search`
 
-**Description:** Search the Graphit Hub registry for artifacts by name, ID, or description.
+**Description:** Search visible Hub projects for artifacts by name, ID, or description.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | ✅ | Search term to find artifacts |
 | `type` | string | | Filter by artifact type |
+| `limit` | integer | | Maximum results in this page, subject to the server cap |
+| `cursor` | string | | Opaque continuation cursor from the preceding page |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
@@ -713,7 +724,7 @@ Tools for interacting with the Graphit Hub artifact registry.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `id` | string | ✅ | Artifact ID to show details for |
+| `id` | string | ✅ | Project-qualified artifact ID, or an unambiguous visible artifact ID |
 | `type` | string | | Artifact type (helps disambiguate) |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -809,10 +820,13 @@ version-keyed store when `project_dir` is omitted.
 
 ### `graphit_hub_projects`
 
-**Description:** List registered projects in the global lock.
+**Description:** List one bounded page of Hub projects visible to the trusted subject. This remote
+discovery result is distinct from the machine-local ecosystem global lock.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
+| `limit` | integer | | Maximum results in this page, subject to the server cap |
+| `cursor` | string | | Opaque continuation cursor from the preceding page |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
@@ -825,7 +839,7 @@ artifacts remain mounted and are read with `graphit_ast_source` or `graphit_wiki
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `id` | string | ✅ | Artifact ID, preferably qualified as `id@version`; exact qualification is required for reproducible remote work |
+| `id` | string | ✅ | Project-qualified artifact ID, preferably with `@version`; exact qualification is required for reproducible remote work |
 | `project_dir` | string | | Project whose lockfile selects the version; omit for a global installation |
 | `type` | string | | Disambiguates an ID used by more than one physical artifact type |
 | `path` | string | | Return one artifact-relative file instead of the complete file map |

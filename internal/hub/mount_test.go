@@ -1,17 +1,27 @@
 package hub
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
 	st, _ := newTestS3Store(t)
+	ctx := trustedHubContext(t)
+	allowProjects(t, ctx, st, hubaccess.Selector{All: true})
+	if _, err := registryForStore(ctx, st).UpsertProject(ctx, testProjectOne, "acme", ""); err != nil {
+		t.Fatal(err)
+	}
 
-	mount, ok := st.MountedWikiAt("acme-docs", "1.4.0", "acme")
+	mount, ok, err := st.MountedWikiAt(ctx, "acme-docs", "1.4.0", testProjectOne)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
 		t.Fatal("a configured store did not produce a mount")
 	}
@@ -35,9 +45,17 @@ func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
 // nothing would notice until a read failed against a location that had drifted.
 func TestMountedWikiURIIsStable(t *testing.T) {
 	st, _ := newTestS3Store(t)
+	ctx := trustedHubContext(t)
+	allowProjects(t, ctx, st, hubaccess.Selector{All: true})
+	if _, err := registryForStore(ctx, st).UpsertProject(ctx, testProjectOne, "acme", ""); err != nil {
+		t.Fatal(err)
+	}
 
-	first, ok1 := st.MountedWikiAt("acme-docs", "1.4.0", "acme")
-	second, ok2 := st.MountedWikiAt("acme-docs", "1.4.0", "acme")
+	first, ok1, err1 := st.MountedWikiAt(ctx, "acme-docs", "1.4.0", testProjectOne)
+	second, ok2, err2 := st.MountedWikiAt(ctx, "acme-docs", "1.4.0", testProjectOne)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("mount errors: %v, %v", err1, err2)
+	}
 	if !ok1 || !ok2 {
 		t.Fatal("the mount did not resolve")
 	}
@@ -51,7 +69,7 @@ func TestMountedWikiURIIsStable(t *testing.T) {
 func TestMountedWikiRefusesAnEmptyVersion(t *testing.T) {
 	st, _ := newTestS3Store(t)
 
-	if _, ok := st.MountedWikiAt("acme-docs", "", "acme"); ok {
+	if _, ok, _ := st.MountedWikiAt(context.Background(), "acme-docs", "", testProjectOne); ok {
 		t.Error("a mount resolved for an artifact with no version")
 	}
 }
@@ -60,7 +78,7 @@ func TestMountedWikiRefusesAnEmptyVersion(t *testing.T) {
 // bytes transferred and no location to read them from.
 func TestMountedWikiRefusesWhenTheHubIsNotConfigured(t *testing.T) {
 	var st *S3Store
-	if _, ok := st.MountedWikiAt("acme-docs", "1.4.0", "acme"); ok {
+	if _, ok, _ := st.MountedWikiAt(context.Background(), "acme-docs", "1.4.0", testProjectOne); ok {
 		t.Error("a nil store produced a mount")
 	}
 
@@ -68,7 +86,7 @@ func TestMountedWikiRefusesWhenTheHubIsNotConfigured(t *testing.T) {
 	if empty.Configured() {
 		t.Fatal("an empty store reports itself configured; this test proves nothing")
 	}
-	if _, ok := empty.MountedWikiAt("acme-docs", "1.4.0", "acme"); ok {
+	if _, ok, _ := empty.MountedWikiAt(context.Background(), "acme-docs", "1.4.0", testProjectOne); ok {
 		t.Error("an unconfigured store produced a mount")
 	}
 }

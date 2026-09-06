@@ -233,6 +233,12 @@ process deletes or changes them. On shutdown it removes them only when they stil
 listener. Binding beyond loopback exposes every MCP tool to anyone holding the key; use a trusted
 network, firewall, VPN, or authenticated proxy.
 
+The bearer authenticates possession of one daemon credential; it does not identify distinct Hub
+users or teams. A multi-user Hub deployment requires a trusted proxy or identity adapter to attach
+the subject used by deny-by-default project ACLs. Client-supplied identity arguments and arbitrary
+headers are rejected. The daemon may cache authorized Hub metadata below
+`~/.<brand>/hub/cache/<hub>/<subject>/`, but remote content and mounts always revalidate access.
+
 ### Daemon-hosted Observatory
 
 `modules.daemon_ui=true` starts the unified UI as a supervised global module. It selects the first

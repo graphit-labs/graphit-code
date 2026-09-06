@@ -1,9 +1,14 @@
 package projectlock
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/oklog/ulid/v2"
 )
 
 func TestResolveProjectIdentity(t *testing.T) {
@@ -18,6 +23,58 @@ func TestResolveProjectIdentity(t *testing.T) {
 	}
 	if !strings.Contains(identity.Name, filepath.Base(dir)) {
 		t.Logf("Name %q from dir %q — may have come from a git remote", identity.Name, dir)
+	}
+}
+
+func TestEnsureIdentityCreatesOneStableULIDUnderConcurrency(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, brand.LockFileName())
+	const callers = 12
+	ids := make(chan string, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lf, err := EnsureIdentity(path)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ids <- lf.Project.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	close(errs)
+	for err := range errs {
+		t.Errorf("EnsureIdentity: %v", err)
+	}
+	var want string
+	for id := range ids {
+		if _, err := ulid.ParseStrict(id); err != nil {
+			t.Errorf("identity %q is not a ULID: %v", id, err)
+		}
+		if want == "" {
+			want = id
+		} else if id != want {
+			t.Errorf("concurrent identity = %q, want %q", id, want)
+		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("lockfile was not created: %v", err)
+	}
+}
+
+func TestSaveRejectsChangingAnExistingProjectID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), brand.LockFileName())
+	if err := Save(path, &Lockfile{Project: ProjectIdentity{ID: "01FIRST"}}); err != nil {
+		t.Fatal(err)
+	}
+	err := Save(path, &Lockfile{Project: ProjectIdentity{ID: "01SECOND"}})
+	if err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("Save changed an existing project id: %v", err)
 	}
 }
 

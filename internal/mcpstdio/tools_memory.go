@@ -9,6 +9,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 )
@@ -129,7 +131,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		var slug string
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir, true)
 			if err != nil {
 				return err
 			}
@@ -137,7 +139,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 			assocProject := ""
 			if userScope && input.LinkProject {
-				_, pID, _ := newMemorySvcDetails(false, projectDir)
+				_, pID, _ := newMemorySvcDetails(ctx, false, projectDir)
 				assocProject = pID
 			}
 
@@ -171,7 +173,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		userScope := scopeFromString(input.Scope)
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir, true)
 			if err != nil {
 				return err
 			}
@@ -196,7 +198,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		userScope := scopeFromString(input.Scope)
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir, true)
 			if err != nil {
 				return err
 			}
@@ -222,7 +224,7 @@ func registerMemoryTools(server *mcp.Server) {
 		userScope := scopeFromString(input.Scope)
 		var memories []memory.MemoryEntry
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir)
 			if err != nil {
 				return err
 			}
@@ -345,7 +347,7 @@ func registerMemoryTools(server *mcp.Server) {
 			}
 			userScope := scopeFromString(input.Scope)
 			err = withProjectDir(projectDir, func() error {
-				svc, svcErr := newMemorySvc(userScope, projectDir)
+				svc, svcErr := newMemorySvc(ctx, userScope, projectDir, true)
 				if svcErr != nil {
 					return svcErr
 				}
@@ -402,7 +404,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		userScope := scopeFromString(input.Scope)
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir, true)
 			if err != nil {
 				return err
 			}
@@ -427,7 +429,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		userScope := scopeFromString(input.Scope)
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir, true)
 			if err != nil {
 				return err
 			}
@@ -452,7 +454,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		userScope := scopeFromString(input.Scope)
 		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(userScope, projectDir)
+			svc, err := newMemorySvc(ctx, userScope, projectDir, true)
 			if err != nil {
 				return err
 			}
@@ -514,7 +516,19 @@ func registerMemoryTools(server *mcp.Server) {
 			if err != nil {
 				return err
 			}
-			svc := memory.NewMemoryServiceForContext(cleanCtx, ms)
+			scopeID := cleanCtx
+			if config.HubS3Config().Configured() {
+				registry, err := hub.NewRegistryManager(ctx)
+				if err != nil {
+					return err
+				}
+				project, err := registry.ResolveProject(ctx, cleanCtx)
+				if err != nil {
+					return fmt.Errorf("memory context %q is not an authorized Hub project: %w", cleanCtx, err)
+				}
+				scopeID = project.ID
+			}
+			svc := memory.NewMemoryServiceForContext(scopeID, ms).WithContext(ctx)
 			defer func() { _ = svc.Close() }()
 
 			return svc.SyncWiki()
@@ -526,14 +540,14 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 }
 
-func newMemorySvcDetails(userScope bool, projectDir string) (*memory.MemoryService, string, error) {
-	scope, scopeID, _, err := memoryScopeFor(userScope, projectDir)
+func newMemorySvcDetails(ctx context.Context, userScope bool, projectDir string) (*memory.MemoryService, string, error) {
+	scope, scopeID, _, err := memoryScopeFor(ctx, userScope, projectDir)
 	if err != nil {
 		return nil, "", err
 	}
 
 	ms, _ := memory.NewMemoryStore()
-	svc := memory.NewMemoryService(scope, scopeID, ms)
+	svc := memory.NewMemoryService(scope, scopeID, ms).WithContext(ctx)
 	_ = svc.EnsureInitialised()
 	return svc, scopeID, nil
 }

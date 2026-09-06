@@ -3,13 +3,13 @@
 package hub
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/testsupport"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestPublishEntryAllowsNewNonGitBranchSnapshotButProtectsGitHistory(t *testing.T) {
-	ctx := context.Background()
+	ctx := trustedHubContext(t)
 	_, endpoint := testsupport.StartFakeS3(t, "graphit-hub")
 	cfg := config.S3Config{
 		Bucket:          "graphit-hub",
@@ -37,7 +37,11 @@ func TestPublishEntryAllowsNewNonGitBranchSnapshotButProtectsGitHistory(t *testi
 		entries:  make(map[ArtifactType]map[string]*Entry),
 		projects: make(map[string]*Project),
 	}
-	meta := &Entry{Type: TypeKnowledge, ProjectID: "project"}
+	allowProjects(t, ctx, remote, hubaccess.Selector{All: true})
+	if _, err := manager.UpsertProject(ctx, testProjectOne, "knowledge-project", ""); err != nil {
+		t.Fatal(err)
+	}
+	meta := &Entry{Type: TypeKnowledge, ProjectID: testProjectOne}
 	branchVersion := "branch/manual"
 
 	root := t.TempDir()
@@ -57,12 +61,12 @@ func TestPublishEntryAllowsNewNonGitBranchSnapshotButProtectsGitHistory(t *testi
 	if err := manager.PublishEntry(ctx, "knowledge", root, meta, branchVersion); err != nil {
 		t.Fatalf("publish non-Git branch snapshot: %v", err)
 	}
-	if _, err := remote.readBranchHistory(ctx, TypeKnowledge, "knowledge", branchVersion, "project"); !errors.Is(err, s3store.ErrNotFound) {
+	if _, err := remote.readBranchHistory(ctx, TypeKnowledge, "knowledge", branchVersion, testProjectOne); !errors.Is(err, s3store.ErrNotFound) {
 		t.Fatalf("non-Git publication history error = %v, want not found", err)
 	}
 
-	history := lanceBranchHistory{Version: branchHistoryVersion, ProjectID: "project", ArtifactType: TypeKnowledge, Branch: "manual"}
-	if err := remote.writeBranchHistory(ctx, TypeKnowledge, "knowledge", branchVersion, "project", history); err != nil {
+	history := lanceBranchHistory{Version: branchHistoryVersion, ProjectID: testProjectOne, ArtifactType: TypeKnowledge, Branch: "manual"}
+	if err := remote.writeBranchHistory(ctx, TypeKnowledge, "knowledge", branchVersion, testProjectOne, history); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.PublishEntry(ctx, "knowledge", root, meta, branchVersion); err == nil || !strings.Contains(err.Error(), "cannot publish non-Git snapshot over Git-backed Lance branch") {
@@ -71,7 +75,7 @@ func TestPublishEntryAllowsNewNonGitBranchSnapshotButProtectsGitHistory(t *testi
 }
 
 func TestPublishBranchLanceRecordsCommitTagsInOneBranchLineage(t *testing.T) {
-	ctx := context.Background()
+	ctx := trustedHubContext(t)
 	_, endpoint := testsupport.StartFakeS3(t, "graphit-hub")
 	cfg := config.S3Config{
 		Bucket:          "graphit-hub",
@@ -86,7 +90,11 @@ func TestPublishBranchLanceRecordsCommitTagsInOneBranchLineage(t *testing.T) {
 	}
 	remote := &S3Store{objects: objects, cfg: cfg}
 	manager := &RegistryManager{store: remote}
-	meta := &Entry{Type: TypeKnowledge, ProjectID: "project"}
+	allowProjects(t, ctx, remote, hubaccess.Selector{All: true})
+	if _, err := manager.UpsertProject(ctx, testProjectOne, "knowledge-project", ""); err != nil {
+		t.Fatal(err)
+	}
+	meta := &Entry{Type: TypeKnowledge, ProjectID: testProjectOne}
 	branchVersion := "branch/feature/hub-sync"
 
 	stagedRoot := t.TempDir()
@@ -113,7 +121,7 @@ func TestPublishBranchLanceRecordsCommitTagsInOneBranchLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := remote.writeBranchHistory(ctx, TypeKnowledge, "ignored", branchVersion, "project", first); err != nil {
+	if err := remote.writeBranchHistory(ctx, TypeKnowledge, "ignored", branchVersion, testProjectOne, first); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +153,7 @@ func TestPublishBranchLanceRecordsCommitTagsInOneBranchLineage(t *testing.T) {
 		}
 	}
 
-	remoteURI := remote.ArtifactURI(TypeKnowledge, "ignored", branchVersion, "project", wiki.WikiIndexDirName)
+	remoteURI := remote.ArtifactURI(TypeKnowledge, "ignored", branchVersion, testProjectOne, wiki.WikiIndexDirName)
 	published, err := lancestore.Open(ctx, remote.lanceConfig(remoteURI, false))
 	if err != nil {
 		t.Fatal(err)

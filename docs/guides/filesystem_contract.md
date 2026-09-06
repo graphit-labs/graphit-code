@@ -29,9 +29,12 @@ override, see the [Configuration Reference](configuration.md).
 | `.graphit/grammars/{treesitter,antlr}/` | Platform-specific local parser libraries | No |
 | `.graphit/runtime/` | Generated caches, locks, stamps, exports, Dream output, and per-project logs | No |
 
-`graphit init` creates or reconciles the lockfile and the managed `.gitignore` block. Graphit edits
-only its marked block and leaves user-owned ignore rules intact. `graphit remove` removes the files
-or sections it owns without treating the rest of an agent configuration as disposable.
+The first operation that must persist project state creates a minimal lockfile with an immutable
+project ULID and a mutable discovery name. `graphit init` then creates or reconciles the remaining
+lockfile fields and the managed `.gitignore` block without changing that ULID. Graphit edits only
+its marked block and leaves user-owned ignore rules intact. `graphit remove` removes the files or
+sections it owns without treating the rest of an agent configuration as disposable. See
+[Project Identity](../specs/project_identity.md).
 
 The generated ignore block covers `**/.graphit/runtime/` and `**/.graphit/grammars/` at every depth.
 The broader `.graphit/` directory is intentionally not ignored: rules and AST query overrides are
@@ -72,7 +75,7 @@ Important global paths include:
 | `config.json` | Global configuration |
 | `global.lock.json` | Registered projects and global artifact metadata |
 | `memory.lock.json` | Registered external memory context mappings |
-| `hub.registry.json` | Local mirror/cache of Hub registry metadata |
+| `hub/cache/<hub-fingerprint>/<subject-fingerprint>/` | Bounded, lazy, non-authoritative Hub metadata and discovery cache |
 | `daemon/daemon.pid` | Single-daemon lock and process metadata |
 | `daemon/daemon.log` | Daemon log |
 | `daemon/mcp.port` | Actual MCP port, including an OS-selected port |
@@ -82,7 +85,7 @@ Important global paths include:
 | `sync.log` | Errors that prevented a detached lifecycle-triggered full sync from starting |
 | `runtime/<version>/` | Extracted, version-scoped framework runtime |
 | `models/` | Local embedding and optional reranker models |
-| `frameworks/`, `artifacts/` | Installed framework and file-artifact caches |
+| `frameworks/`, `artifacts/modules/` | Installed framework content and managed file-artifact materializations |
 | `rules/<module>.md`, `rules/<module>_skill.md` | User-global mandate and managed-skill overrides |
 | `hub/rules/` | Installed Hub overrides used after project and user-global rules |
 | `grammars/{treesitter,antlr}/`, `ast/queries/` | Globally installed parser binaries and user/Hub grammar profiles |
@@ -93,6 +96,12 @@ Important global paths include:
 Do not commit global state or read compiled stores directly. Use Graphit tools so project identity,
 scope, version, remote storage, and pagination remain correct. The narrower `GRAPHIT_MODEL_CACHE`
 override can place model weights on a different volume without moving the other state.
+
+The Hub cache is isolated by both Hub and authenticated subject and may be deleted at any time. It
+does not contain an eager registry mirror, cannot establish a permission, and is not used after a
+failed authorization refresh. Cached discovery may be displayed as explicitly stale while offline,
+but it cannot authorize content or a remote mount. See
+[Hub Access Control](../specs/hub_access_control.md).
 
 In the supplied container, `GRAPHIT_GLOBAL_DIR=/opt/graphit`, so daemon files are under
 `/opt/graphit/daemon/`, not under a project `.graphit/runtime/` tree.

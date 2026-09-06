@@ -1514,6 +1514,11 @@ other order, so the cheap local check runs first.
 
 A Hub AST context is **mounted**, not downloaded. The graph is icebug on object storage and the
 search index is a LanceDB directory beside it; installing writes a local catalog and a `search.uri`,
-and neither carries data. See `internal/ast/icebug_transfer.go` for the mechanism and for the two
-format gaps that were accepted — multi-hop traversal, and the label fold that makes
-`MATCH (n:Function)` into `MATCH (n:Entity {label:'Function'})` against a mounted context.
+and neither carries data. The mounted graph must contain the canonical v2 `icebug.json` manifest,
+one node table per label, and the declared relationship member tables. A missing manifest or a
+different table shape is an unsupported artifact format.
+
+The graph and search URIs are rooted below
+`v2/projects/<publisher-ulid>/artifacts/ast/<artifact-id>/<version>/`. A lockfile claim selects the
+version but does not grant access. The trusted subject's project authorization is revalidated before
+the mount is created or reopened; failure is closed and never falls back to cached registry data.

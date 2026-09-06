@@ -153,7 +153,9 @@ project not initialised
 ```bash
 graphit init
 ```
-This creates the `.graphit-lock.json` file and project identity (ULID). If you are using an IDE adapter, specify it:
+This ensures `graphit.lock.json` contains the immutable project ULID and completes initialization.
+If an earlier stateful operation already created the minimal lockfile, `init` reuses its ULID. If
+you are using an IDE adapter, specify it:
 ```bash
 graphit init --ide claude
 ```
@@ -799,7 +801,8 @@ and working authentication.
 registry unavailable: ...
 ```
 
-**Cause:** The S3-backed Hub registry cannot be accessed.
+**Cause:** The S3-backed Hub control plane cannot be accessed or authorization cannot be
+revalidated. Graphit does not fall back to a cached positive decision.
 
 **Solutions:**
 1. Check the bucket location:
@@ -809,8 +812,33 @@ registry unavailable: ...
    graphit config --get --global hub.endpoint
    ```
 2. Verify endpoint DNS/TLS and that the bucket exists.
-3. Verify the configured complete pair or AWS provider chain can list/read/write the
-   required prefixes. Re-run `graphit setup` to switch authentication modes.
+3. Verify the configured complete pair or AWS provider chain can reach the required control-plane
+   and authorized project prefixes. Re-run `graphit setup` to switch S3 authentication modes.
+4. For multi-user deployments, verify that the authenticated proxy or identity adapter supplied a
+   trusted user and team subject. The shared MCP bearer alone is not that identity.
+
+### Hub lists no projects
+
+An empty result is valid deny-by-default behavior. Check whether any applicable document exists at
+`v2/global/projects.json`, `v2/users/<user-id>/projects.json`, or the subject's
+`v2/teams/<team-id>/projects.json` keys. A missing or empty file contributes no grant from that
+level, and Graphit never creates an implicit global `*` grant.
+
+Do not solve this by broadening the client's S3 credentials. Add the intended project selectors to
+the control-plane documents and keep data-plane access limited to the resolved project ULIDs.
+
+### Hub access is forbidden for a known ID
+
+Knowing a project ULID, artifact ID, version, or S3 key does not grant access. Confirm that the
+current trusted subject has an exact ULID, matching name-prefix, or all-project grant. A lockfile
+installation claim can outlive a grant; reopening its AST or knowledge mount correctly fails after
+revocation.
+
+### Hub cache is stale
+
+`~/.<brand>/hub/cache/` is disposable discovery metadata. Remove the affected Hub/subject cache or
+let its TTL expire, then retry while the control plane is reachable. Cached rows may be shown as
+stale offline, but they cannot authorize details, content, installation, or mounts.
 
 ### Artifact not found
 
@@ -826,10 +854,18 @@ artifact "<id>" not found
    graphit hub search "<keyword>"
    ```
 2. Check the artifact ID for typos.
-3. Sync the registry to fetch the latest entries:
+3. Refresh authorized discovery metadata:
    ```bash
    graphit hub update
    ```
+4. If the artifact ID is ambiguous across projects, qualify it with the publishing project ULID and
+   type.
+
+### Project name already reserved
+
+The friendly name is globally unique within one Hub. Choose another name or complete an interrupted
+rename repair. Do not change the local ULID: it is the project's stable identity and remains valid
+even when name registration fails.
 
 ### Cannot load lockfile
 

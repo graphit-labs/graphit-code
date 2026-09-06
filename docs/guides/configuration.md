@@ -101,7 +101,7 @@ explicit model and API key; `ai.embedding.provider=local` is not supported there
 | `ai.cli` | unset | Global compatibility override checked before the normal CLI fallback chain. |
 | `ai.agent_args` | unset | Global arguments appended only to streamed agentic runs with tool use enabled, currently Live Search and Dream. |
 | `ai.agent_args.<binary>` | unset | Global agentic-run arguments for one executable, such as `ai.agent_args.claude`; wins over the generic value. Values split on whitespace, without shell quoting. |
-| `unit.id` | generated ULID | Machine/user identity for user-scope memory. Set the same value on trusted machines to address the same user scope. |
+| `unit.id` | generated ULID | Local installation key for user-scope memory. It is not trusted remote Hub identity. |
 
 Supported IDE adapters are `antigravity`, `claude`, `codex`, `cursor`, `gemini`, `kiro`, and
 `opencode`. The adapter owns the project-local MCP and lifecycle-hook format; Graphit does not
@@ -175,17 +175,33 @@ The local provider downloads `bge-reranker-base` lazily on first use. Remote def
 | `hub.prefix` | empty unless compiled | Slash-normalized namespace inside the bucket. |
 | `hub.access_key_id` | AWS provider chain | Optional explicit identifier; active only with the secret. |
 | `hub.secret_access_key` | AWS provider chain | Optional explicit secret; active only with the identifier. |
+| `hub.subject.user` | unset | Global deployment identity fallback. If neither transport authentication nor this key establishes a trusted user, remote access is denied. |
+| `hub.subject.teams` | empty | Comma- or semicolon-separated trusted team IDs for the global deployment identity. Project configuration cannot override this identity. |
 | `hub.icebug.reverse_edges` | `true` | Set explicit `false` to omit reverse CSR data from published AST artifacts. |
-| `task.prefix` | `tasks` | Namespace for authoritative project task tables under the Hub prefix. It changes location; it does not migrate existing tables. |
+| `task.prefix` | `tasks` | Namespace for authoritative Task tables inside `v2/projects/<project-ulid>/`. It changes location; it does not migrate existing tables. |
 
 Hub artifact types are `knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power`,
 and `language`. Installed artifacts are version-pinned in `graphit.lock.json`; large AST and
 knowledge stores remain mounted at their global or S3 location instead of being copied into each
 checkout.
 
+The Hub uses the project's immutable ULID for remote paths and treats its globally unique mutable
+name as discovery metadata. S3 credentials authenticate the process to the bucket; they do not
+identify a user or grant project access. User and team identity must come from the deployment's
+trusted authentication boundary and cannot be supplied through project configuration. See
+[Project Identity](../specs/project_identity.md) and
+[Hub Access Control](../specs/hub_access_control.md).
+
+`~/.<brand>/hub/cache/` is a bounded, lazy metadata cache isolated by Hub and subject. It has no
+user-facing authority switch: clearing it is safe, and no configuration may make stale cache data
+authorize remote content or mounts. File artifacts required by adapters are managed separately
+under `~/.<brand>/artifacts/modules/`.
+
 The unattended artifact-publisher profile supplies these keys directly as
 `GRAPHIT_HUB_BUCKET`, `GRAPHIT_HUB_REGION`, `GRAPHIT_HUB_ENDPOINT`, `GRAPHIT_HUB_PREFIX`,
-`GRAPHIT_HUB_ACCESS_KEY_ID`, and `GRAPHIT_HUB_SECRET_ACCESS_KEY`. Its embedding identity and
+`GRAPHIT_HUB_ACCESS_KEY_ID`, and `GRAPHIT_HUB_SECRET_ACCESS_KEY`. A trusted single-user or workload
+deployment may additionally set `GRAPHIT_HUB_SUBJECT_USER` and `GRAPHIT_HUB_SUBJECT_TEAMS`. Its
+embedding identity and
 credential are `GRAPHIT_AI_EMBEDDING_PROVIDER`, `GRAPHIT_AI_EMBEDDING_MODEL`, optional
 `GRAPHIT_AI_EMBEDDING_BASE_URL` and `GRAPHIT_AI_EMBEDDING_DIMENSIONS`, and
 `GRAPHIT_AI_EMBEDDING_API_KEY`. That profile requires a non-local embedding provider. See

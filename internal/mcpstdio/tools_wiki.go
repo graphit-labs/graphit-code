@@ -165,7 +165,10 @@ func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName str
 	if err != nil {
 		return nil, false, nil
 	}
-	mount, ok := st.MountedWikiFor(projectDir, contextName)
+	mount, ok, err := st.MountedWikiFor(ctx, projectDir, contextName)
+	if err != nil {
+		return nil, false, err
+	}
 	if !ok {
 		return nil, false, nil
 	}

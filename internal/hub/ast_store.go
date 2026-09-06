@@ -13,18 +13,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 )
 
-// ensureASTStore builds the local catalog of a Hub AST version and returns its directory.
-//
-// It is idempotent by design, because that idempotence is the whole saving: the second project to
-// install the same version finds the catalog already there and pays nothing. A cross-process lock
-// guards the build so that two installs racing on the same version do not interleave writes into
-// one database — the loser waits and then finds the work done.
-//
-// cloneDir is accepted and unused. It is kept in the signature because the caller that has one is
-// the caller that will stop having one: an artifact published before icebug still has a clone, and
-// deleting the parameter now would silently change which of the two paths a stale artifact takes.
-func (s *HubService) ensureASTStore(ctx context.Context, cloneDir, projectID, version string, artifact artifactRef) (string, error) {
-	_ = cloneDir
+// ensureASTStore builds the local catalog of a Hub AST version under a cross-process lock.
+func (s *HubService) ensureASTStore(ctx context.Context, projectID, version string, artifact artifactRef) (string, error) {
+	if err := s.registry.authorizeProject(ctx, artifact.ProjectID); err != nil {
+		return "", err
+	}
 	storeDir := ast.HubContextDir(projectID, version)
 
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
@@ -54,23 +47,8 @@ func (s *HubService) ensureASTStore(ctx context.Context, cloneDir, projectID, ve
 	return storeDir, nil
 }
 
-// artifactRef is the identity the PUBLISHER used, which is not the identity the local store is
-// keyed by.
-//
-// THE TWO WERE CONFLATED AND IT BROKE EVERY INSTALL, in a way no unit test could catch: the local
-// directory is keyed by a context id (`<project>-<artifact>`), and the object prefix is keyed by
-// the publishing project. Passing the context id as the project produced a prefix nothing had ever
-// been written to — `artifacts/ast/t15-demo/3.0.0/` against a publish at
-// `artifacts/ast/_global/3.0.0/` — and the failure surfaced as "object not found" on the schema,
-// which reads like a corrupt artifact.
-//
-// The tests could not see it because they called publish and mount with arguments chosen by hand,
-// so the two agreed by construction. An end-to-end run through the CLI found it immediately.
 type artifactRef struct {
-	// ID is the artifact's own id, as published.
-	ID string
-	// ProjectID is the publishing project, and it is what keys the object prefix. Empty is
-	// legitimate and means the global namespace — ArtifactPrefix substitutes its own key.
+	ID        string
 	ProjectID string
 }
 
@@ -88,7 +66,7 @@ func (s *HubService) mountASTGraph(ctx context.Context, artifact artifactRef, ve
 	prefix := ArtifactPrefix(TypeAST, artifact.ID, version, artifact.ProjectID)
 
 	key := s3store.JoinKey(prefix, ast.IcebugBundleDir, ast.IcebugSchemaFile)
-	schema, err := st.ReadArtifactFile(ctx, key)
+	schema, err := st.ReadArtifactFile(ctx, artifact.ProjectID, key)
 	if err != nil {
 		return fmt.Errorf("mounting the AST context %s@%s: reading the published schema at %s: %w",
 			artifact.ID, version, key, err)
@@ -98,7 +76,7 @@ func (s *HubService) mountASTGraph(ctx context.Context, artifact artifactRef, ve
 	}
 
 	manifestKey := s3store.JoinKey(prefix, ast.IcebugBundleDir, ladybug.IcebugManifestFile)
-	if manifestRaw, mErr := st.ReadArtifactFile(ctx, manifestKey); mErr == nil {
+	if manifestRaw, mErr := st.ReadArtifactFile(ctx, artifact.ProjectID, manifestKey); mErr == nil {
 		manifestPath := filepath.Join(storeDir, ladybug.IcebugManifestFile)
 		if wErr := os.WriteFile(manifestPath, manifestRaw, 0o644); wErr != nil {
 			return fmt.Errorf("mounting the AST context %s@%s: staging %s: %w",
@@ -146,11 +124,11 @@ func resolveEntryVersion(entry *Entry, reqVersion string) (string, error) {
 	}
 }
 
-func (s *HubService) cleanupSharedASTStore(meta *LockfileArtifactMeta, artifactID string) {
+func (s *HubService) cleanupSharedASTStore(meta *LockfileArtifactMeta) {
 	if meta == nil || meta.Version == "" || meta.Version == "local" {
 		return
 	}
-	contextID := ast.HubContextID(meta.ProjectID, artifactID)
+	contextID := ast.HubContextID(meta.ProjectID)
 	if contextID == "" {
 		return
 	}
