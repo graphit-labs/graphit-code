@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
@@ -13,6 +14,24 @@ import (
 func TestHydrateProjectLanceSkipsNonGitProject(t *testing.T) {
 	if err := HydrateProjectLance(context.Background(), t.TempDir(), nil); err != nil {
 		t.Fatalf("hydrate non-Git project: %v", err)
+	}
+}
+
+func TestHydrationTreatsMissingProjectMetadataAsNoPublishedBase(t *testing.T) {
+	store, _ := newTestS3Store(t)
+	published, err := authorizeHydrationProject(context.Background(), store, testProjectOne)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published {
+		t.Fatal("missing project metadata was treated as a published project")
+	}
+
+	if err := store.WriteFile(context.Background(), hubaccess.ProjectMetadataKey(testProjectOne), []byte(`{"v":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authorizeHydrationProject(context.Background(), store, testProjectOne); err == nil {
+		t.Fatal("malformed project metadata did not fail closed")
 	}
 }
 

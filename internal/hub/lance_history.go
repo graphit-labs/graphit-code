@@ -283,8 +283,12 @@ func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg conf
 	if err != nil || !s3.Configured() {
 		return err
 	}
-	if err := hubaccess.AuthorizeProject(ctx, s3, lock.Project.ID); err != nil {
+	published, err := authorizeHydrationProject(ctx, s3, lock.Project.ID)
+	if err != nil {
 		return err
+	}
+	if !published {
+		return nil
 	}
 	branchVersion := snapshot.BranchVersion()
 	targets := []struct {
@@ -314,6 +318,14 @@ func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg conf
 		}
 	}
 	return nil
+}
+
+func authorizeHydrationProject(ctx context.Context, s3 *S3Store, projectID string) (bool, error) {
+	err := hubaccess.AuthorizeProject(ctx, s3, projectID)
+	if errors.Is(err, s3store.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func initializedLanceStore(path string) bool {

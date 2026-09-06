@@ -185,6 +185,10 @@ func Save(path string, lf *Lockfile) error {
 			lf.Project.Description = existingDesc
 		}
 	}
+	lf.Project.Name = normalizeProjectName(lf.Project.Name)
+	if lf.Project.Name == "" {
+		lf.Project.Name = resolveProjectName(filepath.Dir(path))
+	}
 	if lf.Artifacts == nil {
 		lf.Artifacts = make(map[ArtifactType]map[string]*ArtifactMeta)
 	}
@@ -241,6 +245,13 @@ func EnsureIdentity(path string) (*Lockfile, error) {
 }
 
 func resolveProjectIdentity(projectDir string) ProjectIdentity {
+	return ProjectIdentity{
+		ID:   ulid.Make().String(),
+		Name: resolveProjectName(projectDir),
+	}
+}
+
+func resolveProjectName(projectDir string) string {
 	name := filepath.Base(projectDir)
 
 	out, err := gitmod.Default().RunOutput(projectDir, "remote", "get-url", "origin")
@@ -248,24 +259,26 @@ func resolveProjectIdentity(projectDir string) ProjectIdentity {
 		url := out
 		if url != "" {
 			if m := regexp.MustCompile(`^git@[^:]+:(.+?)(?:\.git)?$`).FindStringSubmatch(url); m != nil {
-				name = filepath.Base(filepath.FromSlash(m[1]))
+				name = m[1]
 			} else if m := regexp.MustCompile(`^https?://.+?/(.+?)(?:\.git)?$`).FindStringSubmatch(url); m != nil {
-				name = filepath.Base(filepath.FromSlash(m[1]))
+				name = m[1]
 			}
 		}
 	}
+	name = normalizeProjectName(name)
+	if name == "" {
+		return "project"
+	}
+	return name
+}
+
+func normalizeProjectName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.TrimSuffix(name, ".git")
 	name = regexp.MustCompile(`[^a-z0-9._-]+`).ReplaceAllString(name, "-")
 	name = strings.Trim(name, ".-_")
 	if len(name) > 64 {
 		name = strings.TrimRight(name[:64], ".-_")
 	}
-	if name == "" {
-		name = "project"
-	}
-
-	return ProjectIdentity{
-		ID:   ulid.Make().String(),
-		Name: name,
-	}
+	return name
 }

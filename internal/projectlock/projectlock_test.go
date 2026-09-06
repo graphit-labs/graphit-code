@@ -78,6 +78,31 @@ func TestSaveRejectsChangingAnExistingProjectID(t *testing.T) {
 	}
 }
 
+func TestSaveCanonicalizesAnExistingFriendlyNameWithoutChangingTheID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), brand.LockFileName())
+	id := ulid.Make().String()
+	if err := os.WriteFile(path, []byte(`{"project":{"id":"`+id+`","name":"Graphit-Labs/Graphit-Code"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, lf); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Project.ID != id {
+		t.Fatalf("project ID = %q, want %q", got.Project.ID, id)
+	}
+	if got.Project.Name != "graphit-labs-graphit-code" {
+		t.Fatalf("project name = %q, want graphit-labs-graphit-code", got.Project.Name)
+	}
+}
+
 func TestSourcePathRoundTripsThroughTheProject(t *testing.T) {
 	project := filepath.Join(string(filepath.Separator), "home", "someone", "work", "app")
 	sibling := filepath.Join(string(filepath.Separator), "home", "someone", "work", "lib")
