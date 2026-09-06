@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/graphit-labs/graphit-code/internal/wiki"
-
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 func TestKnowledgePathsAndIgnore(t *testing.T) {
@@ -23,6 +23,9 @@ func TestKnowledgePathsAndIgnore(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	projectDir := t.TempDir()
+	if _, err := store.EnsureProjectID(projectDir); err != nil {
+		t.Fatalf("create project identity: %v", err)
+	}
 	global := filepath.Join(tempHome, brand.DotDir())
 
 	projWiki := WikiDirFor(projectDir)

@@ -184,6 +184,11 @@ func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
 	if contextName == "" && store.IsEphemeralProject(projectDir) {
 		return nil, errEphemeralHasNoGraph()
 	}
+	if contextName == "" {
+		if _, err := store.EnsureProjectID(projectDir); err != nil {
+			return nil, fmt.Errorf("ensuring project identity: %w", err)
+		}
+	}
 	return ast.NewLadybugDB(astConfigForProject(projectDir, contextName)), nil
 }
 

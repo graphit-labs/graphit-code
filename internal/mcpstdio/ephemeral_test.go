@@ -21,9 +21,13 @@ func ephemeralWorkspace(t *testing.T) string {
 }
 
 func realProject(t *testing.T) string {
+	return realProjectWithID(t, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+}
+
+func realProjectWithID(t *testing.T, id string) string {
 	t.Helper()
 	dir := t.TempDir()
-	body := `{"project":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}}`
+	body := `{"project":{"id":"` + id + `"}}`
 	if err := os.WriteFile(filepath.Join(dir, brand.LockFileName()), []byte(body), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}

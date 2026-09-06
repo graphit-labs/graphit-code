@@ -23,8 +23,8 @@ func TestASTConfigForProjectResolvesTheNamedProjectsStore(t *testing.T) {
 	t.Setenv("LADYBUGDB_PATH", "")
 	isolateHome(t)
 
-	target := t.TempDir()
-	bystander := t.TempDir()
+	target := realProject(t)
+	bystander := realProjectWithID(t, "01BX5ZZKBKACTAV9WEVGEMMVRZ")
 	t.Chdir(bystander)
 
 	got := astConfigForProject(target, "").StoreDir
@@ -85,7 +85,7 @@ func TestOpenASTDBReadWriteWritesIntoTheRequestedProjectsStore(t *testing.T) {
 	isolateHome(t)
 
 	target := t.TempDir()
-	bystander := t.TempDir()
+	bystander := realProject(t)
 
 	t.Chdir(bystander)
 
@@ -118,8 +118,8 @@ func TestOpenASTDBReadWriteWritesIntoTheRequestedProjectsStore(t *testing.T) {
 	if _, err := os.Stat(store.ASTProjectDir(bystander)); !os.IsNotExist(err) {
 		t.Errorf("indexing %s created a store for the working-directory project %s", target, bystander)
 	}
-	if _, err := os.Stat(filepath.Join(target, brand.DotDir())); !os.IsNotExist(err) {
-		t.Errorf("indexing created %s inside the project; the store is global", brand.DotDir())
+	if _, err := os.Stat(filepath.Join(target, brand.DotDir(), "ast")); !os.IsNotExist(err) {
+		t.Errorf("indexing created an AST store inside the project; the store is global")
 	}
 }
 
@@ -130,8 +130,8 @@ func TestOpenASTDBReportsMissingDatabaseInRequestedProject(t *testing.T) {
 	t.Setenv("LADYBUGDB_PATH", "")
 	isolateHome(t)
 
-	target := t.TempDir()
-	bystander := t.TempDir()
+	target := realProject(t)
+	bystander := realProjectWithID(t, "01BX5ZZKBKACTAV9WEVGEMMVRZ")
 
 	if err := os.MkdirAll(store.ASTProjectIcebugDir(bystander), 0o755); err != nil {
 		t.Fatalf("seed bystander bundle: %v", err)
@@ -150,8 +150,8 @@ func TestOpenASTDBReportsMissingDatabaseInRequestedProject(t *testing.T) {
 func TestResolveWikiDirResolvesTheNamedProjectsWiki(t *testing.T) {
 	isolateHome(t)
 
-	target := t.TempDir()
-	bystander := t.TempDir()
+	target := realProject(t)
+	bystander := realProjectWithID(t, "01BX5ZZKBKACTAV9WEVGEMMVRZ")
 	t.Chdir(bystander)
 
 	got := resolveWikiDir("knowledge", target, "")

@@ -399,7 +399,7 @@ func TestUIServer_handleRegistry_NoProjectDir(t *testing.T) {
 	}
 }
 
-func TestUIServer_handleRegistry_WithProjectDir(t *testing.T) {
+func TestUIServerHandleRegistryDoesNotFallBackToInMemoryGlobalRegistry(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
 	dir := t.TempDir()
@@ -410,11 +410,8 @@ func TestUIServer_handleRegistry_WithProjectDir(t *testing.T) {
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if _, ok := resp["entries"]; !ok {
-		t.Error("expected entries in response")
-	}
-	if _, ok := resp["installed"]; !ok {
-		t.Error("expected installed in response")
+	if resp["error"] == nil {
+		t.Fatalf("expected unconfigured Hub error, got %#v", resp)
 	}
 }
 

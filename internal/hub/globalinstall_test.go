@@ -284,7 +284,7 @@ func TestTheGlobalLockShapeIsWhatTheStoreReaderExpects(t *testing.T) {
 	if !ok {
 		t.Fatal("the artifact key is not the one the reader expects")
 	}
-	if entry.ID != "demo-kb" || entry.Version != "1.0.0" || entry.Type != "knowledge" || entry.ProjectID != "01PUB" {
+	if entry.ID != "demo-kb" || entry.Version != "1.0.0" || entry.Type != "knowledge" || entry.ProjectID != testProjectOne {
 		t.Errorf("decoded entry = %+v; one of the field names the store reader relies on has drifted", entry)
 	}
 	if _, ok := entry.Projects[store.GlobalOwnerKey]; !ok {

@@ -142,7 +142,7 @@ func TestSaveLockfile(t *testing.T) {
 		}
 	})
 
-	t.Run("preserves existing name", func(t *testing.T) {
+	t.Run("canonicalizes existing name", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		path := filepath.Join(dir, "lock.json")
@@ -156,8 +156,8 @@ func TestSaveLockfile(t *testing.T) {
 		}
 
 		lf2, _ := LoadLockfile(path)
-		if lf2.Project.Name != "Preserved Name" {
-			t.Errorf("expected 'Preserved Name', got %q", lf2.Project.Name)
+		if lf2.Project.Name != "preserved-name" {
+			t.Errorf("expected 'preserved-name', got %q", lf2.Project.Name)
 		}
 	})
 
@@ -366,7 +366,7 @@ func TestLockfileArtifactMeta_IsHubInstalled(t *testing.T) {
 		{"has RemoteID", LockfileArtifactMeta{RemoteID: "some-id"}, true},
 		{"hub origin", LockfileArtifactMeta{Origin: "hub"}, true},
 		{"managed origin", LockfileArtifactMeta{Origin: "managed"}, true},
-		{"link origin", LockfileArtifactMeta{Origin: "link"}, true},
+		{"link origin", LockfileArtifactMeta{Origin: "link"}, false},
 		{"local origin", LockfileArtifactMeta{Origin: "local"}, false},
 		{"empty", LockfileArtifactMeta{}, false},
 	}

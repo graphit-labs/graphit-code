@@ -20,6 +20,10 @@ import (
 func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
+	ecoProjectID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	ecoProject2ID := "01BX5ZZKBKACTAV9WEVGEMMVRZ"
+	ecoProject3ID := "01C3V8X7PA58Q9RFPXG2K6M1TY"
+	otherProjectID := "01D4W9Y8QB69RAGQYH3M7N2VUZ"
 
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmp)
@@ -38,7 +42,7 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 	}
 
 	lockFilePath := filepath.Join(ecoProjectDir, brand.LockFileName())
-	if err := os.WriteFile(lockFilePath, []byte(`{"project":{"id":"eco-proj"}}`), 0o644); err != nil {
+	if err := os.WriteFile(lockFilePath, []byte(`{"project":{"id":"`+ecoProjectID+`"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,7 +54,7 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 	lockData := hub.GlobalHubLock{
 		Version: hub.GlobalLockVersion,
 		Projects: map[string]*hub.ProjectEntry{
-			"eco-proj": {
+			ecoProjectID: {
 				Instances: []hub.InstanceEntry{
 					{
 						Dir:          ecoProjectDir,
@@ -74,12 +78,12 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 
 	t.Run("project found with wiki dir", func(t *testing.T) {
 		svc := NewWikiService(t.TempDir())
-		src, err := svc.resolveEcosystemSource("eco-proj")
+		src, err := svc.resolveEcosystemSource(ecoProjectID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if src.ID != "eco-proj" {
-			t.Errorf("ID = %q; want %q", src.ID, "eco-proj")
+		if src.ID != ecoProjectID {
+			t.Errorf("ID = %q; want %q", src.ID, ecoProjectID)
 		}
 		if src.Label != filepath.Base(ecoProjectDir) {
 			t.Errorf("Label = %q; want %q", src.Label, filepath.Base(ecoProjectDir))
@@ -95,19 +99,19 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		lockFilePath2 := filepath.Join(ecoProject2Dir, brand.LockFileName())
-		if err := os.WriteFile(lockFilePath2, []byte(`{"project":{"id":"eco-proj2"}}`), 0o644); err != nil {
+		if err := os.WriteFile(lockFilePath2, []byte(`{"project":{"id":"`+ecoProject2ID+`"}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
 		lockData2 := hub.GlobalHubLock{
 			Version: hub.GlobalLockVersion,
 			Projects: map[string]*hub.ProjectEntry{
-				"eco-proj": {
+				ecoProjectID: {
 					Instances: []hub.InstanceEntry{
 						{Dir: ecoProjectDir, RegisteredAt: "2025-01-01T00:00:00Z"},
 					},
 				},
-				"eco-proj2": {
+				ecoProject2ID: {
 					Instances: []hub.InstanceEntry{
 						{Dir: ecoProject2Dir, RegisteredAt: "2025-01-01T00:00:00Z"},
 					},
@@ -124,12 +128,12 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		}
 
 		svc := NewWikiService(t.TempDir())
-		_, err = svc.resolveEcosystemSource("eco-proj2")
+		_, err = svc.resolveEcosystemSource(ecoProject2ID)
 		if err == nil {
 			t.Fatal("expected error when wiki dir doesn't exist")
 		}
-		if got := err.Error(); !strings.Contains(got, "wiki not found for project eco-proj2") {
-			t.Errorf("error = %q; want to contain 'wiki not found for project eco-proj2'", got)
+		if got := err.Error(); !strings.Contains(got, "wiki not found for project "+ecoProject2ID) {
+			t.Errorf("error = %q; want missing wiki for %q", got, ecoProject2ID)
 		}
 	})
 
@@ -140,7 +144,7 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		lockFilePath3 := filepath.Join(ecoProject3Dir, brand.LockFileName())
-		if err := os.WriteFile(lockFilePath3, []byte(`{"project":{"id":"eco-proj3"}}`), 0o644); err != nil {
+		if err := os.WriteFile(lockFilePath3, []byte(`{"project":{"id":"`+ecoProject3ID+`"}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -153,7 +157,7 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		lockData3 := hub.GlobalHubLock{
 			Version: hub.GlobalLockVersion,
 			Projects: map[string]*hub.ProjectEntry{
-				"eco-proj3": {
+				ecoProject3ID: {
 					Instances: []hub.InstanceEntry{
 						{Dir: ecoProject3Dir, RegisteredAt: "2025-01-01T00:00:00Z"},
 					},
@@ -170,12 +174,12 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		}
 
 		svc := NewWikiService(t.TempDir())
-		src, err := svc.resolveEcosystemSource("eco-proj3")
+		src, err := svc.resolveEcosystemSource(ecoProject3ID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if src.ID != "eco-proj3" {
-			t.Errorf("ID = %q; want %q", src.ID, "eco-proj3")
+		if src.ID != ecoProject3ID {
+			t.Errorf("ID = %q; want %q", src.ID, ecoProject3ID)
 		}
 	})
 
@@ -194,7 +198,7 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		lockData4 := hub.GlobalHubLock{
 			Version: hub.GlobalLockVersion,
 			Projects: map[string]*hub.ProjectEntry{
-				"other-proj": {
+				otherProjectID: {
 					Instances: []hub.InstanceEntry{
 						{Dir: ecoProjectDir, RegisteredAt: "2025-01-01T00:00:00Z"},
 					},
@@ -271,6 +275,7 @@ func TestResolveLocalSource_WikiSubdirFallback(t *testing.T) {
 func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
+	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", tmp)
@@ -288,7 +293,7 @@ func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockFile := filepath.Join(ecoDir, brand.LockFileName())
-	if err := os.WriteFile(lockFile, []byte(`{"project":{"id":"my-eco"}}`), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(`{"project":{"id":"`+projectID+`"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	wikiDir := knowledgeWikiDirFor(t, ecoDir)
@@ -299,7 +304,7 @@ func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 	lockData := hub.GlobalHubLock{
 		Version: hub.GlobalLockVersion,
 		Projects: map[string]*hub.ProjectEntry{
-			"my-eco": {
+			projectID: {
 				Instances: []hub.InstanceEntry{
 					{Dir: ecoDir, RegisteredAt: "2025-01-01T00:00:00Z"},
 				},
@@ -318,12 +323,12 @@ func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 	newGlobalLockManager = hub.NewGlobalLockManager
 
 	svc := NewWikiService(t.TempDir())
-	src, err := svc.ResolveWikiSource("my-eco")
+	src, err := svc.ResolveWikiSource(projectID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if src.ID != "my-eco" {
-		t.Errorf("ID = %q; want %q", src.ID, "my-eco")
+	if src.ID != projectID {
+		t.Errorf("ID = %q; want %q", src.ID, projectID)
 	}
 }
 

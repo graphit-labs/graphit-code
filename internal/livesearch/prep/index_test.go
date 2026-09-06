@@ -259,6 +259,9 @@ func TestPreparingASessionCompilesNothingOfItsOwn(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	ws := s.WorkspaceDir()
+	if err := writeLockfile(ws, "claude", s.ID()); err != nil {
+		t.Fatalf("writeLockfile: %v", err)
+	}
 	seedKnowledgeArtifact(t, ws, "acme-docs", map[string]string{"a.md": "# A\n\nbody\n"})
 
 	var progress []string
@@ -293,6 +296,9 @@ func TestThePreparedWorkspaceIsSelfDescribing(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	ws := s.WorkspaceDir()
+	if err := writeLockfile(ws, "claude", s.ID()); err != nil {
+		t.Fatalf("writeLockfile: %v", err)
+	}
 	seedKnowledgeArtifact(t, ws, "acme-docs", map[string]string{"a.md": "# A\n\nbody\n"})
 
 	var progress []string
