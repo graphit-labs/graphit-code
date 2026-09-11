@@ -183,7 +183,7 @@ func TestDaemonBearerAcceptsRuntimeAndVerifiedOIDCAccessTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := auth.Provider{Name: "oidc", Type: auth.ProviderOIDC, OIDC: &auth.OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name"}, MCP: auth.MCPConfig{Audience: "graphit-mcp"}, Broker: &auth.BrokerConfig{Endpoint: "https://broker.example", Audience: "graphit-mcp"}, AI: auth.AIConfig{Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker}, Rerank: auth.AIServiceConfig{Mode: auth.ServiceBroker}}}
+	provider := auth.Provider{Name: "oidc", Type: auth.ProviderOIDC, OIDC: &auth.OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name", MCPAudience: "graphit-mcp"}}
 	if err := store.AddProvider(provider); err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +209,51 @@ func TestDaemonBearerAcceptsRuntimeAndVerifiedOIDCAccessTokens(t *testing.T) {
 	}
 	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier); allowed {
 		t.Fatal("wrong token accepted")
+	}
+}
+
+func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	store, err := auth.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := auth.Provider{
+		Name: "broker", Type: auth.ProviderBroker,
+		Broker: &auth.BrokerConfig{Endpoint: "https://broker.example"},
+		AI: auth.AIConfig{
+			Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker},
+			Rerank:    auth.AIServiceConfig{Mode: auth.ServiceBroker},
+		},
+	}
+	if err := store.AddProvider(provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Login(auth.Profile{
+		Name: "alice", Provider: provider.Name, Issuer: "https://broker.example", Subject: "subject", Username: "alice",
+		OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	verifier := daemonVerifierFunc(func(_ context.Context, gotProvider auth.Provider, token, audience string) (auth.VerifiedIdentity, error) {
+		if gotProvider.Type != auth.ProviderBroker || token != "broker-token" || audience != "" {
+			return auth.VerifiedIdentity{}, errors.New("invalid token")
+		}
+		return auth.VerifiedIdentity{Issuer: "https://broker.example", Subject: "caller", Username: "bob", Teams: []string{"platform"}}, nil
+	})
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier); !allowed {
+		t.Fatal("runtime key rejected")
+	}
+	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "broker-token", "runtime-key", verifier)
+	if !allowed || auth.RequestBrokerBearer(requestContext) != "broker-token" {
+		t.Fatalf("verified Broker bearer was not bound: allowed=%v token=%q", allowed, auth.RequestBrokerBearer(requestContext))
+	}
+	subject, err := hubaccess.TrustedSubject(requestContext)
+	if err != nil || subject.UserID != "bob" || len(subject.TeamIDs) != 1 || subject.TeamIDs[0] != "platform" {
+		t.Fatalf("trusted subject=%#v err=%v", subject, err)
+	}
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier); allowed {
+		t.Fatal("invalid Broker token accepted")
 	}
 }
 
@@ -240,8 +285,7 @@ func TestConcurrentOIDCMCPRequestsKeepTheirBearerThroughBrokerResolution(t *test
 	}
 	provider := auth.Provider{
 		Name: "oidc", Type: auth.ProviderOIDC,
-		OIDC:   &auth.OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name"},
-		MCP:    auth.MCPConfig{Audience: "graphit-services"},
+		OIDC:   &auth.OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name", MCPAudience: "graphit-services"},
 		Broker: &auth.BrokerConfig{Endpoint: broker.URL, Audience: "graphit-services", TokenStrategy: "relay"},
 		AI:     auth.AIConfig{Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker}, Rerank: auth.AIServiceConfig{Mode: auth.ServiceBroker}},
 	}

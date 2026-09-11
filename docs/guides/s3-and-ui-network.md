@@ -91,9 +91,13 @@ proxy establishes the boundary.
 
 `mcp.host` and `mcp.port` configure the daemon listener. Its generated runtime key rotates at each
 start. A local provider may use a static MCP key. With a direct OIDC or Broker-managed provider,
-the caller sends an access token that Graphit verifies against the issuer or Broker userinfo and
-propagates to the broker. Direct OIDC may use relay or RFC 8693 exchange. Remote MCP
-endpoint/audience/resource belongs to the named provider.
+the caller sends an access token that Graphit verifies against the configured or Broker-discovered
+issuer/audience/JWKS and
+propagates to the broker. Direct OIDC may use relay or RFC 8693 exchange and keeps its daemon-MCP
+audience/resource under the OIDC configuration. `graphit mcp --stdio` always targets the local
+daemon and resolves the active session token before each HTTP request, so refreshed tokens are used
+without restarting the bridge. A first-class Broker provider discovers its token contract and has
+no MCP configuration block.
 
 ## Diagnostics
 

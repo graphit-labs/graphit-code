@@ -17,11 +17,13 @@ type BrokerDiscovery struct {
 	Version        string `json:"version"`
 	Issuer         string `json:"issuer"`
 	Authentication struct {
-		Type            string   `json:"type"`
-		Issuer          string   `json:"issuer"`
-		ClientID        string   `json:"client_id"`
-		Scopes          []string `json:"scopes"`
-		RedirectURIPath string   `json:"redirect_uri_path"`
+		Type                string   `json:"type"`
+		Issuer              string   `json:"issuer"`
+		ClientID            string   `json:"client_id"`
+		Scopes              []string `json:"scopes"`
+		RedirectURIPath     string   `json:"redirect_uri_path"`
+		Audiences           []string `json:"audiences"`
+		AccessTokenAudience string   `json:"access_token_audience"`
 	} `json:"authentication"`
 	Services struct {
 		Embeddings *struct {

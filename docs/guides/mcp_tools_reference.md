@@ -27,7 +27,8 @@ Remote clients send `Authorization: Bearer <credential>`. The local runtime key 
 **System → Daemon** and the daemon's mode-`0600` `mcp.key` file; it is random and rotates on every
 start. A local provider may use its login's static MCP key. With an active direct OIDC or
 Broker-managed provider, the credential is the caller's access token: Graphit validates it against
-the issuer or Broker userinfo and propagates that request identity to the broker. Direct OIDC may
+the configured or Broker-discovered issuer/audience/JWKS and propagates that request identity to
+the broker. Direct OIDC may
 use relay or configured RFC 8693 exchange. It never replaces one caller's token with the active
 profile token.
 

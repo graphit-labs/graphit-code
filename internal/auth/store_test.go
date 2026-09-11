@@ -49,6 +49,17 @@ func TestStoreProviderProfileLifecycleAndPermissions(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsPreviousStateVersionWithoutMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(path, []byte(`{"version":3,"providers":{},"profiles":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := OpenAt(path).Load()
+	if err == nil || !strings.Contains(err.Error(), "unsupported authentication state version 3") {
+		t.Fatalf("old auth state error = %v", err)
+	}
+}
+
 func TestProviderRevisionInvalidatesProfilesAndCascadeIsExplicit(t *testing.T) {
 	store := OpenAt(filepath.Join(t.TempDir(), "auth.json"))
 	p := Provider{Name: "corp", Type: ProviderOIDC, OIDC: &OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "preferred_username"}}
@@ -143,7 +154,7 @@ func TestEnsureDefaultLocalProviderCompletesOnlyMissingDefaults(t *testing.T) {
 	cpu := ONNXExecutionConfig{Device: ONNXDeviceCPU, DeviceID: 4}
 	partial := Provider{
 		Name: DefaultLocalProviderName, Type: ProviderLocal,
-		Local: &LocalConfig{AllowDaemonMCPKey: true},
+		Local: &LocalConfig{AllowAWSCredentialChain: true},
 		AI: AIConfig{
 			Embedding: AIServiceConfig{Mode: ServiceLocal, ONNX: &cpu},
 			Rerank:    AIServiceConfig{},
@@ -159,7 +170,7 @@ func TestEnsureDefaultLocalProviderCompletesOnlyMissingDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created || !provider.Local.AllowDaemonMCPKey || provider.AI.Embedding.ONNX == nil || *provider.AI.Embedding.ONNX != cpu {
+	if created || !provider.Local.AllowAWSCredentialChain || provider.AI.Embedding.ONNX == nil || *provider.AI.Embedding.ONNX != cpu {
 		t.Fatalf("explicit local configuration was overwritten: %#v", provider)
 	}
 	if provider.AI.Rerank.Mode != ServiceLocal || provider.AI.Rerank.ONNX == nil || *provider.AI.Rerank.ONNX != DefaultONNXExecutionConfig() {

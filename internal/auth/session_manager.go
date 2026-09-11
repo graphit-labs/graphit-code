@@ -73,7 +73,6 @@ func (m *SessionManager) Active(ctx context.Context) (Snapshot, error) {
 		}
 		refreshed.Name = profile.Name
 		refreshed.CreatedAt = profile.CreatedAt
-		refreshed.MCPKey = profile.MCPKey
 		refreshed.BrokerKey = profile.BrokerKey
 		refreshed.EmbeddingAPIKey = profile.EmbeddingAPIKey
 		refreshed.RerankAPIKey = profile.RerankAPIKey

@@ -25,7 +25,6 @@ For a service identity backed by the organizational broker:
 
 ```bash
 docker exec graphit graphit --non-interactive provider add server --type local \
-  --mcp-endpoint http://127.0.0.1:8081/mcp \
   --broker-endpoint https://broker.example.com \
   --embedding-mode broker --rerank-mode broker
 
@@ -49,7 +48,8 @@ separately deployed broker.
 The local daemon creates a new runtime key at each start; it is visible in **System → Daemon** and
 `/opt/graphit/daemon/mcp.key`. A local provider may also supply a static MCP key. With an active
 direct OIDC or Broker-managed provider, every remote client sends its own access token as
-`Authorization: Bearer ...`; Graphit verifies it against the issuer or Broker userinfo and uses
+`Authorization: Bearer ...`; Graphit verifies it against the configured or Broker-discovered
+issuer/audience/JWKS and uses
 that request identity for all broker calls. Direct OIDC may use relay or configured RFC 8693
 exchange. It never substitutes the service profile's token for an inbound user.
 

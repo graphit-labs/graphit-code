@@ -164,8 +164,9 @@ HTTP MCP uses the verified access token and broker calls relay or exchange that 
 Broker login is browser-only: Graphit discovers the OpenID issuer, public client ID, scopes and
 callback path from `--broker-endpoint`, then uses standard OIDC discovery and endpoints; the Broker
 page chooses between enabled local and upstream OIDC methods and returns a signed ID token plus
-opaque access/refresh tokens. Graphit verifies exact issuer and same-origin endpoints plus
-Authorization Code, refresh, PKCE S256, public-client, EdDSA, and userinfo capabilities before
+an EdDSA-signed access JWT and opaque rotating refresh token. Graphit verifies exact issuer,
+advertised access-token audience, and same-origin endpoints plus Authorization Code, refresh, PKCE
+S256, public-client, EdDSA, and JWKS capabilities before
 opening the browser. Broker providers reject direct OIDC, static-key,
 anonymous, audience/resource, and token-exchange flags.
 Login always activates the profile.
@@ -178,7 +179,7 @@ Important provider option groups:
 |---|---|
 | Broker identity | `--type broker --broker-endpoint URL`; login contract is discovered from that Broker |
 | OIDC | `--issuer`, `--client-id`, `--client-secret`, `--token-auth-method`, `--scopes`, `--redirect-uri`, claim mappings, repeatable `--auth-param` |
-| MCP | `--mcp-endpoint`, `--mcp-audience`, `--mcp-resource`, `--allow-daemon-mcp-key` |
+| Direct OIDC token for daemon MCP | `--mcp-audience`, `--mcp-resource` |
 | Broker | `--broker-endpoint`, `--broker-audience`, `--broker-resource`, `--broker-token-strategy relay|token-exchange`, `--broker-token-exchange-endpoint`, `--broker-allow-anonymous` |
 | Embedding | `--embedding-mode local|direct|broker|disabled`; local `--embedding-device auto|cpu|cuda|coreml` and `--embedding-device-id`; direct protocol/endpoint/model/dimensions |
 | Rerank | `--rerank-mode local|direct|broker|disabled`; local `--rerank-device auto|cpu|cuda|coreml` and `--rerank-device-id`; direct protocol/endpoint/model plus `--rerank-dimensions` for OpenAI/OpenAI-compatible/Google embedding-simulated rerank |
@@ -282,9 +283,11 @@ graphit mcp [flags]
 **Architecture:**
 - The daemon listens on `127.0.0.1:<dynamic-port>/mcp` (Streamable HTTP transport)
 - Authentication: generated runtime key; local-provider static MCP key; or, with an active OIDC
-  broker provider, the caller's verified MCP-audience token propagated to the broker by relay or
-  RFC 8693 exchange
-- A configured provider MCP endpoint is selected by the stdio proxy instead of the local daemon
+  or Broker provider, a verified access token propagated to the broker by relay or RFC 8693
+  exchange when applicable
+- The stdio proxy always connects to this local daemon. Before every HTTP request it resolves the
+  active profile again, using its renewable OIDC/Broker access token, a local static MCP key, or
+  the current daemon runtime key when no profile credential applies
 - Port: Written to `~/.graphit/daemon/mcp.port`
 - The stdio proxy auto-recovers if the daemon restarts, preserves its host-agent identity, replays the MCP handshake, and sends `notifications/tools/list_changed` so clients that implement catalog invalidation refresh their tools. Fresh sessions always receive the new catalog.
 

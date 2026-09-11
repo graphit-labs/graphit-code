@@ -15,7 +15,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -27,7 +26,7 @@ type providerOptions struct {
 	typeName, issuer, clientID, clientSecret, tokenAuthMethod, scopes, redirectURI string
 	usernameClaim, organizationClaim, teamsClaim                                   string
 	authParams                                                                     map[string]string
-	mcpEndpoint, mcpAudience, mcpResource                                          string
+	mcpAudience, mcpResource                                                       string
 	brokerEndpoint, brokerAudience, brokerResource, brokerTokenStrategy            string
 	brokerTokenExchangeEndpoint                                                    string
 	embeddingMode, embeddingProtocol, embeddingEndpoint, embeddingModel            string
@@ -38,7 +37,7 @@ type providerOptions struct {
 	s3Bucket, s3Region, s3Endpoint, s3Prefix, s3CredentialSource                   string
 	stsEndpoint, stsRoleARN, stsSessionName                                        string
 	stsDuration                                                                    int32
-	clearBroker, clearSTS, allowAWSChain, allowDaemonKey                           bool
+	clearBroker, clearSTS, allowAWSChain                                           bool
 	stsUseAccessToken                                                              bool
 	allowBrokerAnonymous                                                           bool
 }
@@ -119,9 +118,8 @@ func registerProviderFlags(cmd *cobra.Command, o *providerOptions, add bool) {
 	cmd.Flags().StringVar(&o.organizationClaim, "organization-claim", "", "Verified claim used as organization")
 	cmd.Flags().StringVar(&o.teamsClaim, "teams-claim", "", "Verified string or string-array claim used as teams")
 	cmd.Flags().StringToStringVar(&o.authParams, "auth-param", nil, "Additional OIDC authorization parameter (key=value, repeatable)")
-	cmd.Flags().StringVar(&o.mcpEndpoint, "mcp-endpoint", "", "MCP endpoint")
-	cmd.Flags().StringVar(&o.mcpAudience, "mcp-audience", "", "OIDC audience requested for MCP")
-	cmd.Flags().StringVar(&o.mcpResource, "mcp-resource", "", "OAuth resource requested for MCP")
+	cmd.Flags().StringVar(&o.mcpAudience, "mcp-audience", "", "OIDC audience requested for the daemon MCP listener")
+	cmd.Flags().StringVar(&o.mcpResource, "mcp-resource", "", "OAuth resource requested for the daemon MCP listener")
 	cmd.Flags().StringVar(&o.brokerEndpoint, "broker-endpoint", "", "Graphit capability broker base URL (requires broker embedding and rerank modes)")
 	cmd.Flags().StringVar(&o.brokerAudience, "broker-audience", "", "OIDC audience requested for the broker")
 	cmd.Flags().StringVar(&o.brokerResource, "broker-resource", "", "OAuth resource requested for the broker")
@@ -148,7 +146,6 @@ func registerProviderFlags(cmd *cobra.Command, o *providerOptions, add bool) {
 	cmd.Flags().StringVar(&o.s3Prefix, "s3-prefix", "", "S3 key prefix")
 	cmd.Flags().StringVar(&o.s3CredentialSource, "s3-credential-source", "", "S3 credentials: login, aws-chain, or sts (broker providers always use broker STS)")
 	cmd.Flags().BoolVar(&o.allowAWSChain, "allow-aws-credential-chain", false, "Allow a local login to use the AWS credential chain")
-	cmd.Flags().BoolVar(&o.allowDaemonKey, "allow-daemon-mcp-key", false, "Allow a local login to use the generated daemon MCP key")
 	cmd.Flags().StringVar(&o.stsEndpoint, "sts-endpoint", "", "AWS-compatible STS endpoint")
 	cmd.Flags().StringVar(&o.stsRoleARN, "sts-role-arn", "", "Role ARN for AssumeRoleWithWebIdentity")
 	cmd.Flags().StringVar(&o.stsSessionName, "sts-session-name", "", "STS role session name")
@@ -177,6 +174,9 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 	}
 	switch p.Type {
 	case auth.ProviderLocal:
+		if cmd.Flags().Changed("mcp-audience") || cmd.Flags().Changed("mcp-resource") {
+			return p, errors.New("MCP audience and resource require an OIDC provider")
+		}
 		if p.Local == nil {
 			p.Local = &auth.LocalConfig{}
 		}
@@ -184,9 +184,6 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 		p.STS = nil
 		if current == nil || cmd.Flags().Changed("allow-aws-credential-chain") {
 			p.Local.AllowAWSCredentialChain = o.allowAWSChain
-		}
-		if current == nil || cmd.Flags().Changed("allow-daemon-mcp-key") {
-			p.Local.AllowDaemonMCPKey = o.allowDaemonKey
 		}
 	case auth.ProviderOIDC:
 		if p.OIDC == nil {
@@ -201,6 +198,8 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 		setString("username-claim", &p.OIDC.UsernameClaim, o.usernameClaim)
 		setString("organization-claim", &p.OIDC.OrganizationClaim, o.organizationClaim)
 		setString("teams-claim", &p.OIDC.TeamsClaim, o.teamsClaim)
+		setString("mcp-audience", &p.OIDC.MCPAudience, o.mcpAudience)
+		setString("mcp-resource", &p.OIDC.MCPResource, o.mcpResource)
 		if current == nil || cmd.Flags().Changed("scopes") {
 			p.OIDC.Scopes = splitCSV(o.scopes)
 		}
@@ -228,6 +227,9 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 			p.OIDC.UsernameClaim = "preferred_username"
 		}
 	case auth.ProviderBroker:
+		if cmd.Flags().Changed("mcp-audience") || cmd.Flags().Changed("mcp-resource") {
+			return p, errors.New("broker providers validate daemon MCP tokens through Broker userinfo and do not accept MCP audience or resource flags")
+		}
 		if cmd.Flags().Changed("issuer") || cmd.Flags().Changed("client-id") || cmd.Flags().Changed("client-secret") || cmd.Flags().Changed("token-auth-method") || cmd.Flags().Changed("scopes") || cmd.Flags().Changed("redirect-uri") || cmd.Flags().Changed("username-claim") || cmd.Flags().Changed("organization-claim") || cmd.Flags().Changed("teams-claim") || cmd.Flags().Changed("auth-param") {
 			return p, errors.New("broker providers discover login from the broker and do not accept upstream OIDC flags")
 		}
@@ -237,9 +239,6 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 			p.Broker = &auth.BrokerConfig{}
 		}
 	}
-	setString("mcp-endpoint", &p.MCP.Endpoint, o.mcpEndpoint)
-	setString("mcp-audience", &p.MCP.Audience, o.mcpAudience)
-	setString("mcp-resource", &p.MCP.Resource, o.mcpResource)
 	brokerChanged := cmd.Flags().Changed("broker-endpoint") || cmd.Flags().Changed("broker-audience") || cmd.Flags().Changed("broker-resource") || cmd.Flags().Changed("broker-token-strategy") || cmd.Flags().Changed("broker-token-exchange-endpoint") || cmd.Flags().Changed("broker-allow-anonymous")
 	if current == nil {
 		brokerChanged = o.brokerEndpoint != "" || o.brokerAudience != "" || o.brokerResource != "" || o.brokerTokenStrategy != "" || o.brokerTokenExchangeEndpoint != ""
@@ -565,20 +564,6 @@ func runLogin(cmd *cobra.Command, o loginOptions) error {
 				return err
 			}
 		}
-		if o.mcpKey == "" && provider.MCP.Endpoint != "" {
-			if provider.Local != nil && provider.Local.AllowDaemonMCPKey {
-				data, readErr := os.ReadFile(daemonctl.KeyFilePath())
-				if readErr == nil {
-					o.mcpKey = strings.TrimSpace(string(data))
-				}
-			}
-			if o.mcpKey == "" {
-				o.mcpKey, err = inputValue("MCP key", true)
-				if err != nil {
-					return err
-				}
-			}
-		}
 		if provider.S3.Bucket != "" && o.awsProfile == "" && (o.s3AccessKey == "" || o.s3SecretKey == "") && (provider.Local == nil || !provider.Local.AllowAWSCredentialChain) {
 			if o.s3AccessKey == "" {
 				o.s3AccessKey, err = inputValue("S3 access key", true)
@@ -620,8 +605,8 @@ func runLogin(cmd *cobra.Command, o loginOptions) error {
 		if o.anonymous {
 			return errors.New("--anonymous is supported only by local providers")
 		}
-		if o.brokerKey != "" || (provider.Broker != nil && o.mcpKey != "") {
-			return errors.New("direct OIDC broker providers use the OIDC access token; --broker-key and --mcp-key are supported only by local/static providers")
+		if o.brokerKey != "" || o.mcpKey != "" {
+			return errors.New("OIDC providers use the OIDC access token; --broker-key and --mcp-key are supported only by local providers")
 		}
 		client := auth.NewOIDCClient()
 		if nonInteractive {
@@ -649,7 +634,6 @@ func runLogin(cmd *cobra.Command, o loginOptions) error {
 			return err
 		}
 		profile.Name = o.profile
-		profile.MCPKey = o.mcpKey
 		profile.BrokerKey = o.brokerKey
 		profile.EmbeddingAPIKey = o.embeddingAPIKey
 		profile.RerankAPIKey = o.rerankAPIKey

@@ -119,9 +119,13 @@ complete source of any core module skill with `graphit_module_skill`. Start from
 
 The MCP endpoint accepts the fresh runtime key shown in **System → Daemon**. A local provider may
 also define a static MCP key. With a direct OIDC or Broker-managed provider, each remote caller
-sends its own access token; Graphit verifies it with the configured issuer or Broker userinfo and
+sends its own access token; Graphit verifies its JWT signature, issuer, audience, expiry, client,
+scope, and identity claims through the configured or Broker-discovered JWKS and
 preserves that identity through broker Hub ACL, S3, embedding and rerank calls. Direct OIDC may use
 bearer relay or explicit RFC 8693 exchange; Broker-managed login uses the Broker-issued token.
+`graphit mcp --stdio` always bridges to this daemon listener and resolves the active profile before
+each HTTP request, so OIDC/Broker token refresh is picked up automatically; without such a session,
+it uses the local profile key or current daemon runtime key.
 For a `broker` provider, Graphit is always a standard native OIDC client: the Broker owns the login
 page and may offer local password/MFA, upstream OIDC, or both without exposing those credentials or
 upstream tokens to Graphit.

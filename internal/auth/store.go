@@ -230,9 +230,6 @@ func (s *Store) Login(profile Profile) error {
 			if provider.S3.Bucket != "" && provider.S3.CredentialSource != "broker" && provider.STS == nil && !profile.S3.Complete() && profile.S3.AWSProfile == "" && (local == nil || !local.AllowAWSCredentialChain) {
 				return errors.New("local profile requires S3 credentials, an AWS profile, or a provider that allows the AWS credential chain")
 			}
-			if provider.MCP.Endpoint != "" && profile.MCPKey == "" && (local == nil || !local.AllowDaemonMCPKey) {
-				return errors.New("local profile requires an MCP key for the configured endpoint")
-			}
 			if (provider.AI.Embedding.Mode == ServiceBroker || provider.AI.Rerank.Mode == ServiceBroker) && profile.BrokerKey == "" && (provider.Broker == nil || !provider.Broker.AllowAnonymous) {
 				return errors.New("local profile requires a broker key for broker capabilities")
 			}
@@ -240,12 +237,18 @@ func (s *Store) Login(profile Profile) error {
 			if profile.OIDC == nil || profile.OIDC.AccessToken == "" || profile.OIDC.IDToken == "" || profile.Issuer == "" || profile.Subject == "" {
 				return errors.New("OIDC profile requires a verified identity and token session")
 			}
+			if profile.MCPKey != "" {
+				return errors.New("OIDC profile cannot contain a static MCP key")
+			}
 		case ProviderBroker:
 			if profile.OIDC == nil || profile.OIDC.AccessToken == "" || profile.OIDC.IDToken == "" || profile.Issuer == "" || profile.Subject == "" {
 				return errors.New("broker profile requires a verified identity and OIDC token session")
 			}
 			if profile.BrokerKey != "" {
 				return errors.New("broker profile cannot contain a static broker key")
+			}
+			if profile.MCPKey != "" {
+				return errors.New("broker profile cannot contain a static MCP key")
 			}
 			profile.S3 = S3Credentials{}
 		}

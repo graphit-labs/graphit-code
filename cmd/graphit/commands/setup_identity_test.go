@@ -107,7 +107,7 @@ func TestSetupCompletesMissingLocalDefaultsWithoutOverwritingConfiguration(t *te
 	cpu := auth.ONNXExecutionConfig{Device: auth.ONNXDeviceCPU, DeviceID: 4}
 	if err := store.AddProvider(auth.Provider{
 		Name: auth.DefaultLocalProviderName, Type: auth.ProviderLocal,
-		Local: &auth.LocalConfig{AllowDaemonMCPKey: true},
+		Local: &auth.LocalConfig{AllowAWSCredentialChain: true},
 		AI: auth.AIConfig{
 			Embedding: auth.AIServiceConfig{Mode: auth.ServiceLocal, ONNX: &cpu},
 		},
@@ -124,7 +124,7 @@ func TestSetupCompletesMissingLocalDefaultsWithoutOverwritingConfiguration(t *te
 		t.Fatal(err)
 	}
 	provider := state.Providers[auth.DefaultLocalProviderName]
-	if provider.Local == nil || !provider.Local.AllowDaemonMCPKey || provider.AI.Embedding.ONNX == nil || *provider.AI.Embedding.ONNX != cpu {
+	if provider.Local == nil || !provider.Local.AllowAWSCredentialChain || provider.AI.Embedding.ONNX == nil || *provider.AI.Embedding.ONNX != cpu {
 		t.Fatalf("setup overwrote explicit local configuration: %#v", provider)
 	}
 	if provider.AI.Rerank.Mode != auth.ServiceLocal || provider.AI.Rerank.ONNX == nil || *provider.AI.Rerank.ONNX != auth.DefaultONNXExecutionConfig() {

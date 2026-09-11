@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const StateVersion = 3
+const StateVersion = 4
 
 type ProviderType string
 
@@ -27,7 +27,6 @@ type Provider struct {
 	Revision  uint64        `json:"revision"`
 	Local     *LocalConfig  `json:"local,omitempty"`
 	OIDC      *OIDCConfig   `json:"oidc,omitempty"`
-	MCP       MCPConfig     `json:"mcp,omitempty"`
 	Broker    *BrokerConfig `json:"broker,omitempty"`
 	AI        AIConfig      `json:"ai,omitempty"`
 	S3        S3Config      `json:"s3,omitempty"`
@@ -70,7 +69,6 @@ type AIServiceConfig struct {
 
 type LocalConfig struct {
 	AllowAWSCredentialChain bool `json:"allow_aws_credential_chain,omitempty"`
-	AllowDaemonMCPKey       bool `json:"allow_daemon_mcp_key,omitempty"`
 }
 
 type OIDCConfig struct {
@@ -84,13 +82,9 @@ type OIDCConfig struct {
 	UsernameClaim     string            `json:"username_claim,omitempty"`
 	OrganizationClaim string            `json:"organization_claim,omitempty"`
 	TeamsClaim        string            `json:"teams_claim,omitempty"`
+	MCPAudience       string            `json:"mcp_audience,omitempty"`
+	MCPResource       string            `json:"mcp_resource,omitempty"`
 	AuthParams        map[string]string `json:"auth_params,omitempty"`
-}
-
-type MCPConfig struct {
-	Endpoint string `json:"endpoint,omitempty"`
-	Audience string `json:"audience,omitempty"`
-	Resource string `json:"resource,omitempty"`
 }
 
 // S3Config describes the stable object-store location. Authentication material
@@ -302,7 +296,7 @@ func ValidateProvider(p Provider) error {
 					return err
 				}
 			}
-			if strings.TrimSpace(p.MCP.Audience) == "" {
+			if strings.TrimSpace(p.OIDC.MCPAudience) == "" {
 				return errors.New("broker token exchange requires an MCP audience for the subject access token")
 			}
 		}
@@ -345,10 +339,10 @@ func ValidateProvider(p Provider) error {
 			return errors.New("broker provider obtains temporary S3 credentials from the broker and cannot configure direct STS")
 		}
 	}
-	if p.Type == ProviderOIDC && p.Broker != nil && p.Broker.TokenStrategy != "token-exchange" && p.Broker.Audience != "" && p.MCP.Audience != "" && p.Broker.Audience != p.MCP.Audience {
+	if p.Type == ProviderOIDC && p.Broker != nil && p.Broker.TokenStrategy != "token-exchange" && p.Broker.Audience != "" && p.OIDC.MCPAudience != "" && p.Broker.Audience != p.OIDC.MCPAudience {
 		return errors.New("MCP and broker audiences must match while the profile uses one OIDC access-token session")
 	}
-	if p.Type == ProviderOIDC && p.Broker != nil && p.Broker.TokenStrategy != "token-exchange" && p.Broker.Resource != "" && p.MCP.Resource != "" && p.Broker.Resource != p.MCP.Resource {
+	if p.Type == ProviderOIDC && p.Broker != nil && p.Broker.TokenStrategy != "token-exchange" && p.Broker.Resource != "" && p.OIDC.MCPResource != "" && p.Broker.Resource != p.OIDC.MCPResource {
 		return errors.New("MCP and broker resources must match while direct token relay is enabled")
 	}
 	return nil

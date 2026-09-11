@@ -5,7 +5,8 @@ Graphit separates installation, reusable authentication topology, and login sess
 `local`. It never receives identity, OIDC, MCP, broker, custom AI, storage, or credential values.
 
 A named provider contains reusable identity and service configuration: `local`, direct `oidc`, or
-`broker`, claim mappings, MCP settings, S3/STS topology where applicable, an optional Graphit
+`broker`, claim mappings, direct-OIDC token audience/resource for the daemon MCP listener,
+S3/STS topology where applicable, an optional Graphit
 Broker endpoint, AI modes, and independent ONNX
 execution blocks for local embedding/rerank services. Without a broker,
 embedding and rerank may use local, direct, or disabled modes independently. With a broker, both
@@ -35,14 +36,16 @@ Use a local provider without a broker for a fully local installation:
 
 ```bash
 graphit provider add workstation --type local \
-  --mcp-endpoint http://127.0.0.1:8090/mcp \
-  --allow-daemon-mcp-key \
   --embedding-mode local --embedding-device auto --embedding-device-id 0 \
   --rerank-mode local --rerank-device auto --rerank-device-id 0
 
 graphit login --profile alice --provider workstation \
   --username alice --organization acme --team platform
 ```
+
+`graphit mcp --stdio` always connects to the local daemon. Without a profile-specific credential it
+uses the daemon's current runtime key; a local login may optionally set `--mcp-key` to define a
+stable inbound key instead.
 
 Interactive provider add/update prompts for `device` and `device_id` only on services whose mode is
 `local`, preselecting that provider's current value or `auto`/`0`. Embedding and rerank are stored
@@ -63,11 +66,11 @@ graphit login --profile alice-company --provider company
 ```
 
 Graphit Code reads `/.well-known/graphit-broker`, resolves the advertised issuer/client/scopes, then
-uses ordinary OpenID Connect discovery, Authorization Code, PKCE S256, state, nonce, JWKS and
-userinfo. The Broker page—not the CLI—offers local login and/or organization OIDC according to its
+uses ordinary OpenID Connect discovery, Authorization Code, PKCE S256, state, nonce and JWKS. The
+Broker page—not the CLI—offers local login and/or organization OIDC according to its
 active configuration; upstream-only deployments redirect automatically. After either method
-succeeds, Graphit Code verifies the Broker-signed ID token, stores the short-lived opaque access and
-rotating refresh tokens in its normal OIDC session, and activates the profile. The profile issuer
+succeeds, Graphit Code verifies the Broker-signed ID token, stores the short-lived signed access JWT
+and opaque rotating refresh token in its normal OIDC session, and activates the profile. The profile issuer
 and subject are the Broker issuer and stable Broker `sub`; they do not expose the upstream identity
 provider's subject. Graphit never receives a local password, upstream OIDC client secret, or
 upstream IdP token.
@@ -75,13 +78,20 @@ upstream IdP token.
 Broker providers are browser-interactive and accept only `--broker-endpoint`; upstream OIDC,
 static key, anonymous, audience, resource, and token-exchange flags are rejected. Their embedding
 and rerank modes default to `broker`. The Broker-issued access token authenticates Broker calls and,
-when configured, inbound HTTP MCP requests are verified through the Broker's advertised
-standard `userinfo_endpoint`.
+while that Broker profile is active, daemon HTTP MCP requests are verified locally through the
+Broker's advertised audience and standard discovery/JWKS. The stdio bridge resolves the active session before each
+HTTP request, so normal refresh-token rotation supplies the newest access token without restarting
+the Agent integration.
 
-Broker bootstrap discovery is accepted only when its issuer matches the configured Broker and its
-authorization, token, JWKS, and userinfo endpoints stay on that origin. Standard metadata must
+Broker bootstrap discovery is accepted only when its issuer matches the configured Broker, it
+publishes one `access_token_audience` contained in its audiences, and its authorization, token and
+JWKS endpoints stay on that origin. Standard metadata must
 advertise Authorization Code and refresh grants, PKCE S256, public-client authentication method
 `none`, and EdDSA ID tokens. Missing or downgraded metadata fails before the browser is opened.
+
+Because MCP validation is offline, Broker-side revocation or identity changes are not visible to
+the daemon for an already issued JWT; that token remains acceptable until `exp`. Refresh rotation
+ensures newly issued access tokens carry current state.
 
 The older `local` plus static Broker credential topology remains useful for service automation.
 Add a broker to a local provider when the organization manages Hub ACL or AI services. This makes

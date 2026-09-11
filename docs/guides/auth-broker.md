@@ -84,15 +84,15 @@ Graphit discovers the Broker's OpenID issuer and public client settings, then us
 discovery, an HTTP loopback callback, Authorization Code, PKCE S256, state, nonce and JWKS validation.
 It opens the Broker-owned sign-in page.
 The Broker performs local password/change/MFA verification or its upstream OIDC flow, then returns
-a one-time code to Graphit. Graphit exchanges it for opaque Broker access and rotating refresh
-tokens plus an EdDSA-signed ID token containing the stable Broker `sub`. It never handles the local
+a one-time code to Graphit. Graphit exchanges it for EdDSA-signed ID/access JWTs and an opaque
+rotating refresh token; both signed tokens contain the stable Broker `sub`. It never handles the local
 password or upstream IdP tokens. The same `OIDCSession` model and refresh path used by direct OIDC
 providers is used here; there is no Broker-specific OAuth session or token response.
 
 Before opening the browser, Graphit requires the Broker-specific discovery issuer to match the
 configured endpoint and the standard discovery issuer. It also requires Authorization Code and
-refresh grants, PKCE S256, public-client token authentication (`none`), EdDSA ID tokens, userinfo,
-and same-origin authorization/token/JWKS/userinfo endpoints. This prevents a compromised discovery
+refresh grants, PKCE S256, public-client token authentication (`none`), EdDSA ID tokens, an explicit
+Broker access-token audience, and same-origin authorization/token/JWKS endpoints. This prevents a compromised discovery
 document from sending credentials or codes to another origin.
 
 Only methods currently available at the Broker appear. Local login is governed by
@@ -104,15 +104,16 @@ advertised path.
 
 Broker provider setup rejects static credentials, anonymous mode, direct upstream OIDC flags and
 token exchange. The same Broker-issued access token is used for broker requests. A Graphit daemon
-using this provider validates inbound Bearer tokens through the Broker's discovered userinfo
-endpoint before binding their identity to request context.
+using this provider validates inbound Bearer JWTs locally through the Broker's discovered
+issuer/audience/JWKS before binding their identity to request context.
 
 The saved profile's issuer is the Broker and its subject is the stable Broker `sub`, never the
-upstream IdP `sub`. Graphit verifies the signed ID token at login and uses standard userinfo to
-validate opaque Broker access tokens received by HTTP MCP. Near expiry, it re-discovers the Broker,
+upstream IdP `sub`. Graphit verifies the signed ID token at login and validates signed Broker access
+JWTs locally through standard discovery/JWKS for HTTP MCP. Near expiry, it re-discovers the Broker,
 uses the ordinary OIDC refresh grant, requires a new rotated refresh token, and atomically replaces
 the saved `OIDCSession`. Reuse of an older refresh token is rejected by the Broker and revokes that
-token family.
+token family. Broker-side revocation cannot invalidate an already issued JWT in this offline
+validator; its acceptance window ends at `exp`.
 
 ## Local provider with a broker key
 
@@ -387,7 +388,7 @@ dependent profiles to log in again.
 | no active account profile | Run `graphit login` or `graphit account use`. |
 | broker credential missing | OIDC profile needs an access token; local profile needs `--broker-key`, unless provider/login intentionally use anonymous. |
 | discovery version/protocol invalid | Upgrade the client or broker so their contract versions overlap. |
-| Broker OIDC metadata rejected | Verify exact issuer/origin, Authorization Code + refresh grants, PKCE S256, auth method `none`, EdDSA, userinfo, and the advertised loopback path. |
+| Broker OIDC metadata rejected | Verify exact issuer/origin, Authorization Code + refresh grants, PKCE S256, auth method `none`, EdDSA, access-token audience/JWKS, and the advertised loopback path. |
 | Broker login opens but callback fails | Check that the loopback listener path matches Broker discovery and that state/nonce were not changed by a proxy or browser extension. |
 | Broker refresh fails | Log in again; the Broker requires refresh rotation and rejects reuse of an older family member. |
 | 401 | Check access-token issuer/audience/expiry/scopes or static key. |

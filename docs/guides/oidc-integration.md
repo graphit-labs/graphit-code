@@ -28,7 +28,7 @@ Graphit Code (native OIDC client)
             └─ or Broker (confidential OIDC client) → organization IdP → Broker callback
        └─ Broker authorization code → Graphit loopback callback
   └─ code + verifier → Broker token endpoint
-       └─ Broker EdDSA ID token + opaque access token + rotating refresh token
+       └─ Broker EdDSA ID/access JWTs + opaque rotating refresh token
 ```
 
 The outer issuer and `sub` seen by Graphit are always the Broker's. The Broker derives that stable
@@ -46,8 +46,8 @@ storage when S3 is not configured or advertised.
 
 | Graphit provider | Human authentication happens at | Issuer and subject saved by Graphit | Token validation |
 |---|---|---|---|
-| `broker`, local method | Broker SQL password/change/TOTP flow | Broker issuer + stable Broker `sub` | Broker ID token through JWKS; opaque access token through Broker userinfo |
-| `broker`, upstream method | Organization IdP through the Broker's confidential OIDC client | Broker issuer + stable Broker `sub` | Same Broker JWKS/userinfo contract; upstream tokens remain inside the Broker |
+| `broker`, local method | Broker SQL password/change/TOTP flow | Broker issuer + stable Broker `sub` | Broker ID/access JWTs through issuer, advertised audience and JWKS |
+| `broker`, upstream method | Organization IdP through the Broker's confidential OIDC client | Broker issuer + stable Broker `sub` | Same Broker JWT/JWKS contract; upstream tokens remain inside the Broker |
 | direct `oidc` | Configured organization IdP | Configured IdP `iss` + `sub` | ID/access JWT signature, issuer, audience, time, nonce, and configured claims |
 
 The first two rows are one OIDC client implementation from Graphit Code's perspective. Local
@@ -188,7 +188,6 @@ graphit provider add corporate --type oidc \
   --broker-token-strategy relay \
   --broker-audience graphit-services \
   --broker-resource https://broker.example.com/ \
-  --mcp-endpoint https://mcp.example.com/mcp \
   --mcp-audience graphit-services \
   --embedding-mode broker \
   --rerank-mode broker
@@ -219,7 +218,10 @@ graphit provider show corporate
 ```
 
 Login prints and opens the authorization URL, waits for the local callback, verifies the result,
-then stores and activates the profile. A second login creates an isolated profile:
+then stores and activates the profile. The loopback response renders a self-contained, build-branded
+confirmation page (or a generic failure state) without echoing the authorization code, state, or
+tokens; the terminal remains authoritative for final token validation. A second login creates an
+isolated profile:
 
 ```bash
 graphit login --profile bob-corporate --provider corporate
@@ -323,11 +325,17 @@ created on an empty database with the broker's `--bootstrap-admin` command.
 For a first-class `broker` provider, Graphit validates both discovery layers before opening the
 browser. The Graphit-specific document must advertise `type: openid_connect`, the exact Broker
 issuer, a public client ID, scopes containing `openid` and `graphit.use`, and an absolute loopback
-callback path. Standard discovery must advertise Authorization Code and refresh grants, PKCE
-`S256`, token authentication method `none`, EdDSA ID-token signing, and a userinfo endpoint. The
-authorization, token, JWKS, and userinfo URLs must remain on the configured Broker origin. A
+callback path, plus a non-empty `access_token_audience` contained in its advertised audiences.
+Standard discovery must advertise Authorization Code and refresh grants, PKCE `S256`, token
+authentication method `none`, and EdDSA ID-token signing. The authorization, token, and JWKS URLs
+must remain on the configured Broker origin. A
 cross-origin endpoint, mismatched issuer, missing capability, invalid callback path, or downgraded
 algorithm is rejected before login.
+
+The daemon validates Broker access JWTs offline. It checks signature, issuer, the discovered
+audience, expiry, Broker client ID, `graphit.use`, subject, username and optional identity claims.
+It does not call userinfo for each MCP request, so an already issued token remains valid there until
+`exp` even if it is revoked at the Broker in the meantime.
 
 ## 7. Configure Broker STS issuance
 

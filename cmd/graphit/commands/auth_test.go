@@ -40,7 +40,7 @@ func TestLocalProviderLoginProfilesAndRedaction(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
 	t.Setenv("GRAPHIT_MODULES_DAEMON", "false")
 
-	if out, err := executeCommand("--non-interactive", "provider", "add", "local", "--type", "local", "--mcp-endpoint", "http://mcp.example"); err != nil {
+	if out, err := executeCommand("--non-interactive", "provider", "add", "local", "--type", "local"); err != nil {
 		t.Fatalf("provider add: %v\n%s", err, out)
 	}
 	if out, err := executeCommand("--non-interactive", "login", "--profile", "alice", "--provider", "local", "--username", "alice", "--mcp-key", "mcp-secret"); err != nil {
@@ -137,11 +137,21 @@ func TestBrokerAuthenticationProviderDiscoversLoginAndRejectsStaticIdentityFlags
 	if provider.Type != auth.ProviderBroker || provider.Broker == nil || provider.Broker.Endpoint != "http://127.0.0.1:8080" || provider.AI.Embedding.Mode != auth.ServiceBroker || provider.AI.Rerank.Mode != auth.ServiceBroker {
 		t.Fatalf("broker provider=%#v", provider)
 	}
+	encoded, err := json.Marshal(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"mcp"`) {
+		t.Fatalf("broker provider persisted an MCP object: %s", encoded)
+	}
 	if _, err := executeCommand("--non-interactive", "login", "--profile", "alice", "--provider", "company"); err == nil || !strings.Contains(err.Error(), "interactive browser") {
 		t.Fatalf("non-interactive broker login err=%v", err)
 	}
 	if _, err := executeCommand("--non-interactive", "provider", "add", "invalid", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--issuer", "https://identity.example"); err == nil || !strings.Contains(err.Error(), "do not accept upstream OIDC") {
 		t.Fatalf("broker provider accepted OIDC flags: %v", err)
+	}
+	if _, err := executeCommand("--non-interactive", "provider", "add", "invalid-mcp", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--mcp-audience", "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "do not accept MCP audience") {
+		t.Fatalf("broker provider accepted MCP token flags: %v", err)
 	}
 }
 

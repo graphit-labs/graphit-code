@@ -67,9 +67,9 @@ and MCP host-session identity.
 - `broker`: require provider broker topology; downstream model is deliberately absent;
 - `disabled`: explicit failure when a caller requests the capability.
 
-Provider validation runs before persistence. OIDC providers using both remote MCP and broker with
-non-empty audiences must configure the same audience because one profile owns one refreshable
-access token.
+Provider validation runs before persistence. OIDC providers using both the daemon MCP listener and
+broker relay with non-empty audiences must configure the same audience because one profile owns one
+refreshable access token.
 
 Broker topology is an exclusive boundary for the two retrieval services. If `Provider.Broker` is
 present, both `AI.Embedding.Mode` and `AI.Rerank.Mode` must be `broker`; omitted, `local`, `direct`,

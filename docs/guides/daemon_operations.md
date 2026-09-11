@@ -215,7 +215,7 @@ The daemon always attempts to expose streamable HTTP MCP at `/mcp`:
 - a local provider's static MCP key is also accepted;
 - with an active direct OIDC or Broker-managed provider, each caller's token is verified and
   propagated to broker calls without using another caller's profile token; direct OIDC may use
-  relay or RFC 8693 exchange, while Broker tokens use discovered userinfo;
+  relay or RFC 8693 exchange, while Broker tokens use the discovered audience and JWKS;
 - every request must send `Authorization: Bearer <key>`.
 
 In the Observatory, open **System → Daemon**. The page shows the current port and usable endpoint;

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -52,44 +53,42 @@ Examples:
 
 func runMCPStdioProxy() error {
 	cfg := mcpproxy.Config{
-		PortFile:     daemonctl.PortFilePath(),
-		KeyFile:      daemonctl.KeyFilePath(),
-		EnsureDaemon: func() { _, _ = daemon.EnsureRunning() },
-		Stderr:       os.Stderr,
-	}
-	snapshot, err := auth.ResolveActive(context.Background())
-	if err == nil && snapshot.Provider.MCP.Endpoint != "" {
-		cfg.Endpoint = snapshot.Provider.MCP.Endpoint
-		cfg.EnsureDaemon = nil
-		cfg.ResolveBearer = func(ctx context.Context) (string, error) {
-			active, resolveErr := auth.ResolveActive(ctx)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			if active.Provider.MCP.Endpoint != cfg.Endpoint {
-				return "", fmt.Errorf("active profile MCP provider changed")
-			}
-			if active.Profile.OIDC != nil {
-				return active.Profile.OIDC.AccessToken, nil
-			}
-			return active.Profile.MCPKey, nil
-		}
-	} else if err != nil && !strings.Contains(err.Error(), "no active account profile") {
-		return err
+		PortFile:      daemonctl.PortFilePath(),
+		KeyFile:       daemonctl.KeyFilePath(),
+		EnsureDaemon:  func() { _, _ = daemon.EnsureRunning() },
+		ResolveBearer: resolveMCPStdioBearer,
+		Stderr:        os.Stderr,
 	}
 	return mcpproxy.RunProxy(cfg, os.Stdin, os.Stdout)
 }
 
-func showMCPEndpoint() error {
-	p := output.NewPrinter("")
-	if snapshot, err := auth.ResolveActive(context.Background()); err == nil && snapshot.Provider.MCP.Endpoint != "" {
-		p.Header("MCP Server")
-		p.KeyValue("Endpoint", snapshot.Provider.MCP.Endpoint)
-		p.KeyValue("Provider", snapshot.Provider.Name)
-		p.KeyValue("Auth", "Bearer credential from active profile "+snapshot.Profile.Name)
-		return nil
+func resolveMCPStdioBearer(ctx context.Context) (string, error) {
+	snapshot, err := auth.ResolveActive(ctx)
+	if err != nil {
+		if errors.Is(err, auth.ErrNoActiveProfile) {
+			return mcpproxy.ReadKey(daemonctl.KeyFilePath())
+		}
+		return "", err
 	}
 
+	switch snapshot.Provider.Type {
+	case auth.ProviderOIDC, auth.ProviderBroker:
+		if snapshot.Profile.OIDC == nil || strings.TrimSpace(snapshot.Profile.OIDC.AccessToken) == "" {
+			return "", fmt.Errorf("active profile %q has no OIDC access token", snapshot.Profile.Name)
+		}
+		return snapshot.Profile.OIDC.AccessToken, nil
+	case auth.ProviderLocal:
+		if key := strings.TrimSpace(snapshot.Profile.MCPKey); key != "" {
+			return key, nil
+		}
+		return mcpproxy.ReadKey(daemonctl.KeyFilePath())
+	default:
+		return "", fmt.Errorf("active profile %q uses unsupported provider type %q", snapshot.Profile.Name, snapshot.Provider.Type)
+	}
+}
+
+func showMCPEndpoint() error {
+	p := output.NewPrinter("")
 	_, _ = daemon.EnsureRunning()
 
 	var port int
@@ -111,7 +110,7 @@ func showMCPEndpoint() error {
 	p.Header("MCP Server")
 	p.KeyValue("Endpoint", fmt.Sprintf("http://127.0.0.1:%d/mcp", port))
 	p.KeyValue("Transport", "Streamable HTTP")
-	p.KeyValue("Auth", "Bearer token (see ~/"+brand.DotDir()+"/daemon/mcp.key)")
+	p.KeyValue("Auth", "Bearer: active OIDC/Broker token, local profile key, or ~/"+brand.DotDir()+"/daemon/mcp.key")
 	p.Step("For Agent integration: %s mcp --stdio", brand.BinName())
 
 	return nil

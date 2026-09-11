@@ -233,7 +233,8 @@ be declared in the image and mapped on the host. The chosen port is published to
 static MCP key for a local provider. With an active direct OIDC or Broker-managed provider, it
 accepts and verifies each caller's access token, then propagates that request identity to the
 broker instead of substituting the active profile token. Direct OIDC supports relay or RFC 8693
-exchange; Broker-managed identity validates the opaque token through Broker userinfo.
+exchange; Broker-managed identity validates the signed access JWT through the Broker-discovered
+issuer, audience and JWKS.
 
 An unparseable or out-of-range `mcp.port` falls back to `0` rather than failing the daemon. That is
 deliberate: in a container the daemon is PID 1, so refusing to start over a typo in one key would

@@ -394,10 +394,14 @@ func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey str
 	if snapshot.Provider.Type == auth.ProviderLocal {
 		return ctx, secretEqual(bearer, snapshot.Profile.MCPKey)
 	}
-	if (snapshot.Provider.Type != auth.ProviderOIDC && snapshot.Provider.Type != auth.ProviderBroker) || snapshot.Provider.Broker == nil {
+	if snapshot.Provider.Type != auth.ProviderOIDC && snapshot.Provider.Type != auth.ProviderBroker {
 		return ctx, false
 	}
-	identity, err := verifier.VerifyAccessToken(ctx, snapshot.Provider, bearer, snapshot.Provider.MCP.Audience)
+	audience := ""
+	if snapshot.Provider.OIDC != nil {
+		audience = snapshot.Provider.OIDC.MCPAudience
+	}
+	identity, err := verifier.VerifyAccessToken(ctx, snapshot.Provider, bearer, audience)
 	if err != nil {
 		return ctx, false
 	}

@@ -194,7 +194,7 @@ docker run -d --name graphit \
           <ul>
             <li><strong>URL</strong><span>http://your-server:8081/mcp</span></li>
             <li><strong>Header</strong><span>Authorization: Bearer &lt;key&gt;</span></li>
-            <li><strong>Trust boundary</strong><span>Local MCP checks a bearer key; direct OIDC validates issuer, signature, expiry, audience, and claims, while Broker-managed identity validates opaque tokens through Broker userinfo. The UI has no login, so protect it from untrusted networks.</span></li>
+            <li><strong>Trust boundary</strong><span>Local MCP checks a bearer key; direct OIDC validates issuer, signature, expiry, audience, and claims, while Broker-managed identity validates signed access JWTs through the Broker-discovered audience and JWKS. The UI has no login, so protect it from untrusted networks.</span></li>
           </ul>
           <p><a class="button button-small button-ghost" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md">Server guide ↗</a></p>
         </div>

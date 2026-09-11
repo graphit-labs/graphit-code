@@ -90,12 +90,12 @@ func (c *OIDCClient) LoginInteractive(ctx context.Context, provider Provider, op
 	result := make(chan callbackResult, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc(callbackPath, func(w http.ResponseWriter, r *http.Request) {
+		callback := callbackResult{code: r.URL.Query().Get("code"), state: r.URL.Query().Get("state"), protocolError: r.URL.Query().Get("error")}
 		select {
-		case result <- callbackResult{code: r.URL.Query().Get("code"), state: r.URL.Query().Get("state"), protocolError: r.URL.Query().Get("error")}:
+		case result <- callback:
 		default:
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = io.WriteString(w, "Authentication received. You may close this window.\n")
+		writeOIDCCallbackPage(w, callback.protocolError == "" && callback.state == authRequest.State && callback.code != "")
 	})
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	defer server.Close()
@@ -168,7 +168,7 @@ func (c *OIDCClient) AuthorizationRequest(provider Provider, discovery OIDCDisco
 		"scope": {strings.Join(scopes, " ")}, "state": {state}, "nonce": {nonce},
 		"code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"},
 	}
-	audience, resource := provider.MCP.Audience, provider.MCP.Resource
+	audience, resource := provider.OIDC.MCPAudience, provider.OIDC.MCPResource
 	// In relay mode the login token is minted for the shared MCP/broker audience.
 	// In token-exchange mode it must remain a token for MCP; a request-scoped RFC
 	// 8693 exchange obtains the distinct broker token later.
@@ -231,6 +231,16 @@ func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, r
 	claims, err := c.verifySignedToken(ctx, discovery, audience, raw, "", "access token")
 	if err != nil {
 		return VerifiedIdentity{}, fmt.Errorf("verify access token: %w", err)
+	}
+	if provider.Type == ProviderBroker {
+		clientID, err := stringClaim(claims, "client_id", true)
+		if err != nil || clientID != provider.OIDC.ClientID {
+			return VerifiedIdentity{}, errors.New("verified broker access token has an invalid client_id")
+		}
+		scope, err := stringClaim(claims, "scope", true)
+		if err != nil || !contains(strings.Fields(scope), "graphit.use") {
+			return VerifiedIdentity{}, errors.New("verified broker access token is missing graphit.use scope")
+		}
 	}
 	username, err := stringClaim(claims, provider.OIDC.UsernameClaim, true)
 	if err != nil {

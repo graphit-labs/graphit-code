@@ -25,7 +25,6 @@ const watchPollInterval = 500 * time.Millisecond
 const AgentSessionHeader = "X-Graphit-Agent-Session"
 
 type Config struct {
-	Endpoint       string
 	ResolveBearer  func(context.Context) (string, error)
 	PortFile       string
 	KeyFile        string
@@ -82,7 +81,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	cfg.applyDefaults()
 	ctx := context.Background()
 
-	if cfg.Endpoint == "" && cfg.EnsureDaemon != nil {
+	if cfg.EnsureDaemon != nil {
 		cfg.EnsureDaemon()
 	}
 	stdioTransport := &mcp.IOTransport{Reader: stdin, Writer: stdout}
@@ -96,35 +95,17 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	firstConnect := true
 
 	for {
-		var port int
-		var key, endpoint string
-		if cfg.Endpoint != "" {
-			endpoint = cfg.Endpoint
-			if cfg.ResolveBearer == nil {
-				return errors.New("remote MCP endpoint requires a bearer resolver")
-			}
-			var err error
-			key, err = cfg.ResolveBearer(ctx)
-			if err != nil {
-				return fmt.Errorf("resolve MCP bearer: %w", err)
-			}
-			if key == "" {
-				return errors.New("active profile has no MCP bearer credential")
-			}
-		} else {
-			var err error
-			port, key, err = waitForDaemon(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			endpoint = fmt.Sprintf("http://127.0.0.1:%d%s", port, cfg.MCPPath)
+		port, key, err := waitForDaemon(ctx, cfg)
+		if err != nil {
+			return err
 		}
+		endpoint := fmt.Sprintf("http://127.0.0.1:%d%s", port, cfg.MCPPath)
 		cfg.logf("connecting to MCP endpoint at %s", endpoint)
 
 		httpConn, err := connectHTTP(ctx, endpoint, key, cfg.ResolveBearer, cfg.AgentSessionID)
 		if err != nil {
 			cfg.logf("HTTP connect failed: %v, retrying…", err)
-			if cfg.Endpoint == "" && cfg.EnsureDaemon != nil {
+			if cfg.EnsureDaemon != nil {
 				cfg.EnsureDaemon()
 			}
 			time.Sleep(cfg.RetryInterval)
@@ -188,9 +169,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		}
 
 		relayCtx, cancelRelay := context.WithCancel(ctx)
-		if cfg.Endpoint == "" {
-			go watchDaemonFiles(relayCtx, cfg, port, key, cancelRelay)
-		}
+		go watchDaemonFiles(relayCtx, cfg, port, key, cancelRelay)
 
 		err = relay(relayCtx, stdioConn, httpConn)
 		cancelRelay()
@@ -207,7 +186,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		}
 		time.Sleep(cfg.RetryInterval)
 
-		if cfg.Endpoint == "" && cfg.EnsureDaemon != nil {
+		if cfg.EnsureDaemon != nil {
 			cfg.EnsureDaemon()
 		}
 	}
@@ -361,7 +340,7 @@ func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	}
 	if strings.TrimSpace(key) == "" {
-		return nil, errors.New("active profile has no MCP bearer credential")
+		return nil, errors.New("MCP bearer credential is empty")
 	}
 	req = req.Clone(req.Context())
 	req.Header.Set("Authorization", "Bearer "+key)

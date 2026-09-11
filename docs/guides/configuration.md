@@ -222,11 +222,15 @@ validation and noninteractive setup sequence.
 
 The daemon writes a fresh local runtime key to `~/.graphit/daemon/mcp.key` with mode `0600` on
 each start. Static MCP keys are local-provider credentials. With an active direct OIDC or
-Broker-managed provider, the listener instead verifies each caller's access token; Broker-managed
-tokens use discovered userinfo, while direct OIDC checks `mcp.audience`. Broker calls made by that
-request use the same bearer (`relay`) or, for direct OIDC, a request-scoped RFC 8693 exchanged token. The
-active profile bearer is never substituted across HTTP callers. A provider's remote MCP endpoint,
-audience, and resource are selected automatically by the stdio proxy.
+Broker-managed provider, the listener also verifies each caller's access token; Broker-managed
+tokens use the audience and JWKS discovered from the Broker, while direct OIDC checks
+`oidc.mcp_audience`. Broker calls made by
+that request use the same bearer (`relay`) or, for direct OIDC, a request-scoped RFC 8693 exchanged
+token. A direct HTTP caller must supply its own identity. The stdio bridge always targets this local
+daemon and deliberately uses the renewable access token of its active OIDC/Broker session, resolving
+it again before every request; local/no-profile use falls back to a static local MCP key or the
+current runtime key. `oidc.mcp_audience` and `oidc.mcp_resource` configure only the direct OIDC token
+requested for this daemon listener, never a remote MCP endpoint.
 
 The UI listener does not authenticate users. CORS is not authorization. Keep both listeners on
 loopback unless a firewall, private network, or authenticated reverse proxy defines the remote

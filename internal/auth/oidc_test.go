@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 func TestOIDCVerifiesBrokerEdDSAIDToken(t *testing.T) {
@@ -95,6 +98,16 @@ func TestDirectOIDCLoginInteractiveEndToEnd(t *testing.T) {
 		OrganizationClaim: "organization", TeamsClaim: "groups",
 	}}
 	client := &OIDCClient{HTTP: issuer.Client(), Now: func() time.Time { return now }}
+	type callbackHTTPResponse struct {
+		status      int
+		contentType string
+		cache       string
+		csp         string
+		body        string
+		err         error
+	}
+	callbackResponse := make(chan callbackHTTPResponse, 1)
+	var callbackState string
 	profile, err := client.LoginInteractive(context.Background(), provider, func(target string) error {
 		request, parseErr := url.Parse(target)
 		if parseErr != nil {
@@ -107,11 +120,20 @@ func TestDirectOIDCLoginInteractiveEndToEnd(t *testing.T) {
 		nonce = request.Query().Get("nonce")
 		challenge = request.Query().Get("code_challenge")
 		redirectURI = request.Query().Get("redirect_uri")
-		callback := redirectURI + "?code=direct-code&state=" + url.QueryEscape(request.Query().Get("state"))
+		callbackState = request.Query().Get("state")
+		callback := redirectURI + "?code=direct-code&state=" + url.QueryEscape(callbackState)
 		go func() {
 			response, requestErr := http.Get(callback)
-			if requestErr == nil {
-				_ = response.Body.Close()
+			if requestErr != nil {
+				callbackResponse <- callbackHTTPResponse{err: requestErr}
+				return
+			}
+			defer response.Body.Close()
+			body, readErr := io.ReadAll(response.Body)
+			callbackResponse <- callbackHTTPResponse{
+				status: response.StatusCode, contentType: response.Header.Get("Content-Type"),
+				cache: response.Header.Get("Cache-Control"), csp: response.Header.Get("Content-Security-Policy"),
+				body: string(body), err: readErr,
 			}
 		}()
 		return nil
@@ -124,6 +146,78 @@ func TestDirectOIDCLoginInteractiveEndToEnd(t *testing.T) {
 		profile.Username != "alice" || profile.Organization != "acme" || strings.Join(profile.Teams, ",") != "platform,security" ||
 		profile.OIDC == nil || profile.OIDC.AccessToken != "direct-access" || profile.OIDC.RefreshToken != "direct-refresh" {
 		t.Fatalf("direct OIDC profile=%#v nonce=%q challenge=%q redirect=%q", profile, nonce, challenge, redirectURI)
+	}
+	callbackResult := <-callbackResponse
+	if callbackResult.err != nil {
+		t.Fatal(callbackResult.err)
+	}
+	if callbackResult.status != http.StatusOK || callbackResult.contentType != "text/html; charset=utf-8" ||
+		callbackResult.cache != "no-store" || !strings.Contains(callbackResult.csp, "default-src 'none'") {
+		t.Fatalf("unexpected callback response: status=%d content-type=%q cache=%q csp=%q", callbackResult.status, callbackResult.contentType, callbackResult.cache, callbackResult.csp)
+	}
+	for _, expected := range []string{"Graphit", "AI engineering system", "Sign-in received", "You can close this window."} {
+		if !strings.Contains(callbackResult.body, expected) {
+			t.Errorf("callback page does not contain %q", expected)
+		}
+	}
+	for _, secret := range []string{"direct-code", callbackState} {
+		if strings.Contains(callbackResult.body, secret) {
+			t.Errorf("callback page leaked OAuth value %q", secret)
+		}
+	}
+}
+
+func TestOIDCCallbackPageStatesAreSelfContained(t *testing.T) {
+	tests := []struct {
+		name       string
+		success    bool
+		expected   []string
+		unexpected []string
+	}{
+		{name: "success", success: true, expected: []string{`class="success"`, "Sign-in received", "Secure sign-in"}, unexpected: []string{"Authentication not completed"}},
+		{name: "error", success: false, expected: []string{`class="error"`, "Authentication not completed", "Sign-in interrupted"}, unexpected: []string{"Sign-in received"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			writeOIDCCallbackPage(recorder, test.success)
+			response := recorder.Result()
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page := string(body)
+			if response.Header.Get("Content-Type") != "text/html; charset=utf-8" || response.Header.Get("Referrer-Policy") != "no-referrer" ||
+				response.Header.Get("X-Content-Type-Options") != "nosniff" {
+				t.Fatalf("missing callback security headers: %#v", response.Header)
+			}
+			for _, expected := range append(test.expected,
+				"@media (max-width: 430px)", "@media (prefers-color-scheme: dark)", "@media (prefers-reduced-motion: no-preference)",
+				`<main class="shell" aria-labelledby="page-title">`, "No credentials shown") {
+				if !strings.Contains(page, expected) {
+					t.Errorf("callback page does not contain %q", expected)
+				}
+			}
+			for _, unexpected := range append(test.unexpected, "https://", "http://", "<script", "<form") {
+				if strings.Contains(page, unexpected) {
+					t.Errorf("callback page unexpectedly contains %q", unexpected)
+				}
+			}
+		})
+	}
+}
+
+func TestOIDCCallbackPageUsesEscapedBuildBrand(t *testing.T) {
+	originalDisplayName := brand.DisplayName
+	t.Cleanup(func() { brand.DisplayName = originalDisplayName })
+	brand.DisplayName = "Acme <Code>: private agent harness"
+
+	recorder := httptest.NewRecorder()
+	writeOIDCCallbackPage(recorder, true)
+	page := recorder.Body.String()
+	if !strings.Contains(page, "Acme &lt;Code&gt;") || strings.Contains(page, "private agent harness") || strings.Contains(page, "Acme <Code>") {
+		t.Fatalf("callback page did not safely apply the short build brand: %s", page)
 	}
 }
 
@@ -311,7 +405,7 @@ func TestVerifyAccessTokenValidatesAndMapsOnlySignedClaims(t *testing.T) {
 
 func TestAuthorizationRequestUsesPKCEAudienceAndResource(t *testing.T) {
 	client := NewOIDCClient()
-	provider := Provider{Type: ProviderOIDC, OIDC: &OIDCConfig{ClientID: "client", Scopes: []string{"profile"}, AuthParams: map[string]string{"prompt": "select_account"}}, MCP: MCPConfig{Audience: "aud", Resource: "res"}}
+	provider := Provider{Type: ProviderOIDC, OIDC: &OIDCConfig{ClientID: "client", Scopes: []string{"profile"}, AuthParams: map[string]string{"prompt": "select_account"}, MCPAudience: "aud", MCPResource: "res"}}
 	req, err := client.AuthorizationRequest(provider, OIDCDiscovery{AuthorizationEndpoint: "https://id.example/auth"}, "http://127.0.0.1/callback")
 	if err != nil {
 		t.Fatal(err)
@@ -333,8 +427,7 @@ func TestAuthorizationRequestKeepsMCPAudienceForBrokerTokenExchange(t *testing.T
 	client := NewOIDCClient()
 	provider := Provider{
 		Type: ProviderOIDC,
-		OIDC: &OIDCConfig{ClientID: "client"},
-		MCP:  MCPConfig{Audience: "graphit-mcp", Resource: "https://mcp.example"},
+		OIDC: &OIDCConfig{ClientID: "client", MCPAudience: "graphit-mcp", MCPResource: "https://mcp.example"},
 		Broker: &BrokerConfig{
 			Audience:      "graphit-broker",
 			Resource:      "https://broker.example",
@@ -360,8 +453,7 @@ func TestAuthorizationRequestKeepsMCPAudienceForBrokerTokenExchange(t *testing.T
 func TestProviderValidatesBrokerTokenAudienceStrategy(t *testing.T) {
 	base := Provider{
 		Name: "corp", Type: ProviderOIDC,
-		OIDC:   &OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name"},
-		MCP:    MCPConfig{Audience: "graphit-mcp"},
+		OIDC:   &OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name", MCPAudience: "graphit-mcp"},
 		Broker: &BrokerConfig{Endpoint: "https://broker.example", Audience: "graphit-broker"},
 		AI:     AIConfig{Embedding: AIServiceConfig{Mode: ServiceBroker}, Rerank: AIServiceConfig{Mode: ServiceBroker}},
 	}
@@ -369,7 +461,7 @@ func TestProviderValidatesBrokerTokenAudienceStrategy(t *testing.T) {
 		t.Fatalf("expected relay audience mismatch rejection, got %v", err)
 	}
 	base.Broker.Audience = "graphit-mcp"
-	base.MCP.Resource = "https://mcp.example"
+	base.OIDC.MCPResource = "https://mcp.example"
 	base.Broker.Resource = "https://broker.example"
 	if err := ValidateProvider(base); err == nil || !strings.Contains(err.Error(), "resources must match") {
 		t.Fatalf("expected relay resource mismatch rejection, got %v", err)
@@ -379,7 +471,7 @@ func TestProviderValidatesBrokerTokenAudienceStrategy(t *testing.T) {
 	if err := ValidateProvider(base); err != nil {
 		t.Fatalf("token exchange should allow separate audiences: %v", err)
 	}
-	base.MCP.Audience = ""
+	base.OIDC.MCPAudience = ""
 	if err := ValidateProvider(base); err == nil || !strings.Contains(err.Error(), "MCP audience") {
 		t.Fatalf("expected missing MCP audience rejection, got %v", err)
 	}
