@@ -1,0 +1,190 @@
+package ast
+
+import (
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/config"
+)
+
+type grammarFilter struct {
+	whitelist map[string]bool
+	blacklist map[string]bool
+}
+
+func (f grammarFilter) inert() bool {
+	return len(f.whitelist) == 0 && len(f.blacklist) == 0
+}
+
+func (f grammarFilter) allows(language, grammar string) bool {
+	if f.inert() {
+		return true
+	}
+	aliases := grammarAliases(language, grammar)
+	if len(f.whitelist) > 0 && !anyListed(f.whitelist, aliases) {
+		return false
+	}
+	return !anyListed(f.blacklist, aliases)
+}
+
+func (f grammarFilter) allowsFile(qf ExternalQueryFile) bool {
+	if f.inert() {
+		return true
+	}
+	return f.allows(qf.Language, effectiveGrammarName(qf))
+}
+
+func (f grammarFilter) keepFiles(files []ExternalQueryFile) []ExternalQueryFile {
+	if f.inert() || len(files) == 0 {
+		return files
+	}
+	kept := make([]ExternalQueryFile, 0, len(files))
+	for _, qf := range files {
+		if f.allowsFile(qf) {
+			kept = append(kept, qf)
+		}
+	}
+	if len(kept) == len(files) {
+		return files
+	}
+	return kept
+}
+
+func grammarAliases(language, grammar string) []string {
+	aliases := make([]string, 0, 3)
+	if l := normalizeGrammarName(language); l != "" {
+		aliases = append(aliases, l)
+	}
+	g := normalizeGrammarName(grammar)
+	if g != "" && !containsString(aliases, g) {
+		aliases = append(aliases, g)
+	}
+	if bare := stripGrammarPrefix(g); bare != "" && !containsString(aliases, bare) {
+		aliases = append(aliases, bare)
+	}
+	return aliases
+}
+
+func effectiveGrammarName(qf ExternalQueryFile) string {
+	if qf.Grammar != "" {
+		return qf.Grammar
+	}
+	if qf.Language == "" {
+		return ""
+	}
+	if qf.Parser == "antlr4" {
+		return "antlr-" + qf.Language
+	}
+	return "tree-sitter-" + qf.Language
+}
+
+func stripGrammarPrefix(name string) string {
+	for _, prefix := range []string{"tree-sitter-", "antlr-"} {
+		if strings.HasPrefix(name, prefix) {
+			return strings.TrimPrefix(name, prefix)
+		}
+	}
+	return ""
+}
+
+func normalizeGrammarName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func anyListed(set map[string]bool, names []string) bool {
+	for _, n := range names {
+		if set[n] {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func parseGrammarList(val string) map[string]bool {
+	if val == "" {
+		return nil
+	}
+	set := make(map[string]bool)
+	for _, entry := range strings.Split(val, ",") {
+		if n := normalizeGrammarName(entry); n != "" {
+			set[n] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+type grammarFilterState struct {
+	mu        sync.Mutex
+	loaded    bool
+	filter    grammarFilter
+	signature string
+	lastCheck time.Time
+}
+
+func (s *grammarFilterState) get(projectDir string) (grammarFilter, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	if s.loaded && now.Sub(s.lastCheck) < queryStaleCheckInterval {
+		return s.filter, false
+	}
+	s.lastCheck = now
+
+	var projectCfg config.ConfigMap
+	if projectDir != "" {
+		projectCfg = config.LoadProjectConfig(projectDir)
+	}
+	white := config.ResolveASTGrammarsWhitelist(nil, projectCfg)
+	black := config.ResolveASTGrammarsBlacklist(nil, projectCfg)
+
+	sig := white + "\x00" + black
+	if s.loaded && sig == s.signature {
+		return s.filter, false
+	}
+
+	s.filter = grammarFilter{
+		whitelist: parseGrammarList(white),
+		blacklist: parseGrammarList(black),
+	}
+	s.signature, s.loaded = sig, true
+	return s.filter, true
+}
+
+var grammarFilterStates sync.Map
+
+func grammarFilterFor(projectDir string) grammarFilter {
+	v, _ := grammarFilterStates.LoadOrStore(projectDir, &grammarFilterState{})
+	filter, changed := v.(*grammarFilterState).get(projectDir)
+	if changed {
+		invalidateDerivedQueryCaches()
+	}
+	return filter
+}
+
+func grammarEnabledIn(projectDir, language, grammar string) bool {
+	return grammarFilterFor(projectDir).allows(language, grammar)
+}
+
+func invalidateGrammarFilters() {
+	grammarFilterStates.Range(func(_, v any) bool {
+		st := v.(*grammarFilterState)
+		st.mu.Lock()
+		st.loaded = false
+		st.mu.Unlock()
+		return true
+	})
+}

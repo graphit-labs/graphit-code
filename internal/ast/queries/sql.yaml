@@ -1,0 +1,131 @@
+language: sql
+grammar: tree-sitter-sql
+extensions: [".sql"]
+
+target_rules:
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+  - data_key: column_writes_update
+    pattern: '(update (relation (object_reference (identifier) @tbl)) (assignment (field (identifier) @name)))'
+    name_capture: name
+    qualifier_capture: tbl
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: column_writes_insert
+    pattern: '(insert (object_reference (identifier) @tbl) (list (column (identifier) @name)))'
+    name_capture: name
+    qualifier_capture: tbl
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(create_function (object_reference (identifier) @name))'
+  - data_key: tables
+    graph_label: Table
+    pattern: '(create_table (object_reference (identifier) @name))'
+  - data_key: views
+    graph_label: View
+    pattern: '(create_view (object_reference (identifier) @name))'
+
+  - data_key: columns
+    graph_label: Column
+    pattern: '(create_table (object_reference (identifier) @table) (column_definitions (column_definition (identifier) @name)))'
+    parent_capture: table
+    parent_label: Table
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: '(create_index (identifier) @name)'
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: '(create_index (keyword_unique) @uniq (identifier) @name)'
+    name_capture: name
+    value_capture: uniq
+    value_label: Value
+
+  - data_key: index_table
+    pattern: '(create_index (object_reference (identifier) @name))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: '(create_index (index_fields (field (identifier) @name)))'
+
+  - data_key: dml_selects
+    graph_label: ""
+    pattern: '(from (relation (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: SELECTS
+  - data_key: dml_selects
+    graph_label: ""
+    pattern: '(join (relation (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: SELECTS
+  - data_key: dml_inserts
+    graph_label: ""
+    pattern: '(insert (object_reference (identifier) @name))'
+    type: relation
+    relation_type: INSERTS
+  - data_key: dml_updates
+    graph_label: ""
+    pattern: '(update (relation (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: UPDATES
+  - data_key: dml_deletes
+    graph_label: ""
+    pattern: '(statement (delete) (from (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: DELETES
+  - data_key: dml_alters
+    graph_label: ""
+    pattern: '(alter_table (object_reference (identifier) @name))'
+    type: relation
+    relation_type: ALTERS
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+
+  create_index: Index
+  create_table: Table
+  create_view: View
+  create_function: Function
+
+context_name_paths:
+  create_index: identifier
+  create_table: object_reference
+  create_view: object_reference
+  create_function: object_reference
+
+anon_func_types: []
+
+declaration_types:
+  - create_function
+  - create_table
+  - create_view
+  - column_definition
+
+comment_types:
+  - comment
+  - marginalia
+
+complexity:
+  node_types:
+    - case
+
+embed_labels:
+  - Table
+  - View
+  - Function
+  - Column
+  - Index
+  - Comment

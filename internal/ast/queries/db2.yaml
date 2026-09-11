@@ -1,0 +1,302 @@
+
+
+language: db2
+parser: antlr4
+grammar: antlr-db2
+start_rule: db2_file
+extensions: [".sql", ".db2"]
+exclusive: true
+
+target_rules:
+  CALLS: { labels: [Function, StoredProcedure, Trigger] }
+  SELECTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  INSERTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  UPDATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  DELETES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  ALTERS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  DROPS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  CREATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  TRUNCATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  REFERENCES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+  - data_key: column_writes_update
+    pattern: "//assignment_clause/assignment_item/column_name"
+    name_capture: name
+    qualifier_capture: "update_statement/update_statement_searched_update/table_or_view_name/table_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_statement//function_name"
+    name_capture: name
+    type: entity
+
+  - data_key: procedures
+    graph_label: StoredProcedure
+    pattern: "//create_procedure_statement//procedure_name"
+    name_capture: name
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_trigger_statement/trigger_name"
+    name_capture: name
+    type: entity
+
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//create_trigger_statement/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//create_table_statement/table_name"
+    name_capture: name
+    type: entity
+
+  - data_key: views
+    graph_label: View
+    pattern: "//create_view_statement/view_name"
+    name_capture: name
+    type: entity
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//create_index_statement"
+    name_capture: index_name
+    value_capture: "UNIQUE"
+    value_label: Value
+    type: entity
+
+  - data_key: index_table
+    pattern: "//create_index_statement/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//create_index_statement/index_col_opts/index_col_opts_item/column_name"
+    name_capture: name
+    type: entity
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//create_sequence_statement/sequence_name"
+    name_capture: name
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type_statement/type_name"
+    name_capture: name
+    type: entity
+
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//create_schema_statement/schema_name"
+    name_capture: name
+    type: entity
+
+  - data_key: aliases
+    graph_label: Alias
+    pattern: "//create_alias_statement/alias_name"
+    name_capture: name
+    type: entity
+
+  - data_key: tablespaces
+    graph_label: Tablespace
+    pattern: "//create_tablespace_statement/tablespace_name"
+    name_capture: name
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition/column_name"
+    name_capture: name
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//parameter_declaration/parameter_name"
+    name_capture: name
+    type: entity
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//declare_variable_statement/variable_name"
+    name_capture: name
+    type: entity
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//call_statement/procedure_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_invocation/function_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause//table_reference//table_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insert_statement/table_name"
+    name_capture: name
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: updates
+    graph_label: ""
+    pattern: "//update_statement//table_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//delete_statement//table_name"
+    name_capture: name
+    type: relation
+    relation_type: DELETES
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_table_statement/table_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//view_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//index_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//function_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//procedure_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//trigger_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//sequence_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncate_statement/table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_database_authorities_statement//table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_index_privileges_statement//table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+context_types:
+  create_index_statement: Index
+  create_function_statement: Function
+  create_procedure_statement: StoredProcedure
+  create_trigger_statement: Trigger
+  create_table_statement: Table
+  create_view_statement: View
+  create_type_statement: Type
+  create_schema_statement: Schema
+
+comment_types:
+  - LINE_COMMENT
+  - BLOCK_COMMENT
+
+declaration_types:
+  - create_function_statement
+  - create_procedure_statement
+  - create_trigger_statement
+  - create_table_statement
+  - create_view_statement
+  - create_index_statement
+  - create_sequence_statement
+  - create_type_statement
+  - create_schema_statement
+
+complexity:
+  node_types:
+    - if_statement
+    - while_statement
+    - case_statement
+  operators: ["AND", "OR"]
+
+embed_labels:
+  - Table
+  - View
+  - StoredProcedure
+  - Function
+  - Trigger
+  - Type
+  - Schema
+  - Sequence
+  - Column
+  - Index
+  - Comment

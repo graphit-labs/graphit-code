@@ -1,0 +1,337 @@
+package commands
+
+import (
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/textslice"
+	"github.com/spf13/cobra"
+)
+
+func newWikiCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "wiki",
+		Aliases: []string{"w"},
+		Short:   "Multi-wiki AI search — search, chat, and manage sessions across wikis.",
+		Long: brand.DisplayName + ` Wiki — AI-powered search across multiple knowledge wikis.
+
+Search project knowledge, ecosystem projects, and hub artifacts
+simultaneously using BM25 pre-filtering and AI consultation cycles.
+Persistent memories are searched directly with ` + brand.BinName() + ` memory search/query.
+
+Commands:
+  search     Search across one or more wikis with AI
+  chat       Interactive chat over wiki context (continues a session)
+  sessions   List or delete wiki search sessions
+  browse     Browse wiki documents in a structured format
+  log        Show wiki sync history
+  xrefs      Show cross-references for an entity
+  source     Read a wiki page's content (head/tail, line ranges, pattern search)
+  export     Render the wiki as a directory of Markdown pages
+
+Examples:
+  ` + brand.BinName() + ` wiki search "how does auth work?"
+  ` + brand.BinName() + ` memory query "auth conventions"
+  ` + brand.BinName() + ` wiki search "deployment" --hub team-platform@latest
+  ` + brand.BinName() + ` wiki chat --continue
+  ` + brand.BinName() + ` wiki sessions
+  ` + brand.BinName() + ` wiki browse
+  ` + brand.BinName() + ` wiki log --limit 5
+  ` + brand.BinName() + ` wiki xrefs "auth-flow"
+  ` + brand.BinName() + ` wiki source "auth-flow"
+  ` + brand.BinName() + ` wiki export --out ./wiki-md`,
+	}
+
+	cmd.AddCommand(
+		newWikiSearchCmd(),
+		newWikiChatCmd(),
+		newWikiSessionsCmd(),
+		newWikiBrowseCmd(),
+		newWikiLogCmd(),
+		newWikiXRefsCmd(),
+		newWikiEmbedCmd(),
+		newWikiSourceCmd(),
+		newWikiExportCmd(),
+	)
+
+	return cmd
+}
+
+func newWikiExportCmd() *cobra.Command {
+	var (
+		contextName string
+		projectDir  string
+		outDir      string
+	)
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Render the wiki as a directory of Markdown pages",
+		Long: `Render a compiled wiki into a directory of Obsidian-compatible Markdown:
+one <slug>.md per page with OKF frontmatter, plus index.md and log.md.
+
+The wiki itself is stored in LanceDB — the frontmatter is columns, the body is a
+column, the cross-references and the sync history are tables. This command exists
+for the consumer that cannot query any of that: a person who wants the wiki in an
+editor, in Obsidian, or committed to a repository.
+
+Examples:
+  ` + brand.BinName() + ` wiki export --out ./wiki-md
+  ` + brand.BinName() + ` wiki export --context team-platform --out ./ctx-md`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiExport(contextName, projectDir, outDir)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Imported knowledge context name")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "Project directory (defaults to the working directory)")
+	cmd.Flags().StringVar(&outDir, "out", "", "Directory to write the Markdown into (required)")
+	_ = cmd.MarkFlagRequired("out")
+	return cmd
+}
+
+func newWikiSourceCmd() *cobra.Command {
+	var (
+		contextName string
+		projectDir  string
+		head        int
+		tail        int
+		startLine   int
+		endLine     int
+		pattern     string
+		isRegex     bool
+		before      int
+		after       int
+		lineNumbers bool
+	)
+	cmd := &cobra.Command{
+		Use:   "source <page>",
+		Short: "Read a wiki page's content",
+		Long: `Read the content of a wiki page, with the same slicing the code-source
+command offers: head/tail, line ranges, and pattern search with context.
+
+<page> accepts what search, browse and xrefs hand back: a slug, that slug with
+its .md extension, or a path relative to the wiki directory. Lookup is
+case-insensitive.
+
+Use --project to read a page belonging to another project in the ecosystem —
+` + brand.BinName() + ` cluster projects lists their directories.
+
+Examples:
+  ` + brand.BinName() + ` wiki source auth-flow
+  ` + brand.BinName() + ` wiki source auth-flow --head 40
+  ` + brand.BinName() + ` wiki source auth-flow --start-line 20 --end-line 60 --line-numbers
+  ` + brand.BinName() + ` wiki source auth-flow --pattern "token" --before 2 --after 4
+  ` + brand.BinName() + ` wiki source auth-flow --project /path/to/other-project`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiSource(args[0], contextName, projectDir, textslice.Request{
+				Head:        head,
+				Tail:        tail,
+				StartLine:   startLine,
+				EndLine:     endLine,
+				Pattern:     pattern,
+				IsRegex:     isRegex,
+				Before:      before,
+				After:       after,
+				LineNumbers: lineNumbers,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Named imported knowledge context")
+	cmd.Flags().StringVar(&projectDir, "project", "", "Read from another project's wiki (absolute path)")
+	cmd.Flags().IntVar(&head, "head", 0, "Show only the first N lines")
+	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N lines")
+	cmd.Flags().IntVar(&startLine, "start-line", 0, "Start line number (1-indexed)")
+	cmd.Flags().IntVar(&endLine, "end-line", 0, "End line number (1-indexed, inclusive)")
+	cmd.Flags().StringVar(&pattern, "pattern", "", "Search for a pattern within the page")
+	cmd.Flags().BoolVar(&isRegex, "regex", false, "Treat --pattern as a regular expression")
+	cmd.Flags().IntVar(&before, "before", 0, "Context lines before each match")
+	cmd.Flags().IntVar(&after, "after", 0, "Context lines after each match")
+	cmd.Flags().BoolVar(&lineNumbers, "line-numbers", false, "Include line numbers in the output")
+	return cmd
+}
+
+func newWikiSearchCmd() *cobra.Command {
+	var (
+		wikiRefs        []string
+		hubRefs         []string
+		sessionName     string
+		continueSession bool
+		topK            int
+		searchMode      string
+		aiOptimized     bool
+	)
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search across one or more wikis with AI",
+		Long: `Search multiple wiki sources simultaneously using BM25 pre-filtering and
+AI consultation cycles. Each wiki source is searched independently and
+results are merged for the AI to synthesize a unified answer.
+
+This searches DOCUMENTATION. To search a system's documentation, its code graph
+and the framework's own tooling together, in a streaming session, use
+` + brand.BinName() + ` live instead.
+
+Knowledge sources (--wiki):
+  project    — the project's knowledge wiki (docs/)
+  <id>       — another ecosystem project (looked up in global lock)
+
+Hub sources (--hub):
+  <artifact-id>[@<version>]  — auto-downloaded from the hub registry
+
+Sessions:
+  Each search creates a persistent session that can be continued with
+  ` + brand.BinName() + ` wiki chat --continue or by session ID.
+
+Examples:
+  ` + brand.BinName() + ` wiki search "how does authentication work?"
+  ` + brand.BinName() + ` wiki search "deployment" --wiki project --hub team-platform
+  ` + brand.BinName() + ` wiki search "patterns" --top-k 10 --continue`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiSearch(args[0], wikiRefs, hubRefs, sessionName, continueSession, topK, searchMode, aiOptimized)
+		},
+	}
+	cmd.Flags().StringSliceVar(&wikiRefs, "wiki", []string{"project"}, "Knowledge sources: project or ecosystem project ID (comma-separated)")
+	cmd.Flags().StringSliceVar(&hubRefs, "hub", nil, "Hub knowledge artifacts: artifact-id[@version] (comma-separated, auto-downloaded)")
+	cmd.Flags().StringVar(&sessionName, "session", "", "Name for the search session")
+	cmd.Flags().BoolVar(&continueSession, "continue", false, "Continue the most recent session")
+	cmd.Flags().IntVar(&topK, "top-k", 0, "BM25 results per wiki source (0 = no limit)")
+	cmd.Flags().StringVar(&searchMode, "mode", "hybrid", "Search mode: hybrid (default, FTS + semantic), fts (keyword only), semantic (vector only)")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
+	return cmd
+}
+
+func newWikiChatCmd() *cobra.Command {
+	var (
+		sessionID       string
+		continueSession bool
+	)
+	cmd := &cobra.Command{
+		Use:   "chat",
+		Short: "Interactive chat over wiki context",
+		Long: `Start an interactive chat session over wiki context. Continues an
+existing session to ask follow-up questions about previous search results.
+
+The chat engine maintains conversation history and wiki source context
+across turns, allowing natural multi-turn exploration of documentation.
+
+Commands:
+  /exit    — end the chat session
+  Ctrl+D   — end the chat session
+
+Examples:
+  ` + brand.BinName() + ` wiki chat --continue
+  ` + brand.BinName() + ` wiki chat --session 01HXYZ...`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiChat(sessionID, continueSession)
+		},
+	}
+	cmd.Flags().StringVar(&sessionID, "session", "", "Continue a specific session by ID")
+	cmd.Flags().BoolVar(&continueSession, "continue", false, "Continue the most recent session")
+	return cmd
+}
+
+func newWikiSessionsCmd() *cobra.Command {
+	var deleteID string
+	cmd := &cobra.Command{
+		Use:   "sessions",
+		Short: "List or delete wiki search sessions",
+		Long: `List all wiki search sessions for this project, or delete a specific session.
+
+Sessions are stored globally and associated with the current project directory.
+Each session contains the conversation history, wiki sources, and search context.
+
+Examples:
+  ` + brand.BinName() + ` wiki sessions
+  ` + brand.BinName() + ` wiki sessions --delete 01HXYZ...`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiSessions(deleteID)
+		},
+	}
+	cmd.Flags().StringVar(&deleteID, "delete", "", "Delete a specific session by ID")
+	return cmd
+}
+
+func newWikiBrowseCmd() *cobra.Command {
+	var (
+		docType     string
+		limit       int
+		aiOptimized bool
+	)
+	cmd := &cobra.Command{
+		Use:   "browse",
+		Short: "Browse wiki documents in a structured format",
+		Long: `Browse knowledge-wiki chunks/documents stored in the WikiDB. Lists entries in a
+structured format, replacing the need to read index.md directly.
+
+Examples:
+  ` + brand.BinName() + ` wiki browse
+  ` + brand.BinName() + ` wiki browse --type specification --limit 20`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiBrowse(docType, limit, aiOptimized)
+		},
+	}
+	cmd.Flags().StringVar(&docType, "type", "", "Filter by document type (e.g., specification, architecture)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Max results to return")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
+	return cmd
+}
+
+func newWikiLogCmd() *cobra.Command {
+	var (
+		limit       int
+		aiOptimized bool
+	)
+	cmd := &cobra.Command{
+		Use:   "log",
+		Short: "Show wiki sync history",
+		Long: `Show the sync history for a wiki database. Displays a timeline of sync
+operations, including what was added, updated, and deleted.
+
+Examples:
+  ` + brand.BinName() + ` wiki log
+  ` + brand.BinName() + ` wiki log --limit 5`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiLog(limit, aiOptimized)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max log entries to show")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
+	return cmd
+}
+
+func newWikiXRefsCmd() *cobra.Command {
+	var (
+		depth       int
+		aiOptimized bool
+	)
+	cmd := &cobra.Command{
+		Use:   "xrefs <query>",
+		Short: "Show cross-references for an entity",
+		Long: `Show inbound and outbound cross-references for a wiki entity slug.
+Uses the WikiDB xrefs table to find related documents.
+
+Examples:
+  ` + brand.BinName() + ` wiki xrefs auth-flow
+  ` + brand.BinName() + ` wiki xrefs "database-schema" --depth 2
+`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiXRefs(args[0], depth, aiOptimized)
+		},
+	}
+	cmd.Flags().IntVar(&depth, "depth", 1, "Depth of graph traversal (1-3)")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
+	return cmd
+}
+
+func newWikiEmbedCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "embed",
+		Short: "Generate vector embeddings for wiki semantic search",
+		Long: `Generate or update vector embeddings for wiki document chunks.
+Embeddings enable semantic search (` + brand.BinName() + ` wiki search --mode semantic).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiEmbed()
+		},
+	}
+	return cmd
+}

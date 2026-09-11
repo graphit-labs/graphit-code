@@ -1,0 +1,128 @@
+package lancestore
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"path/filepath"
+	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/config"
+)
+
+const (
+	storageKeyRegion        = "region"
+	storageKeyEndpoint      = "endpoint"
+	storageKeyAccessKeyID   = "access_key_id"
+	storageKeySecretKey     = "secret_access_key"
+	storageKeySessionToken  = "session_token"
+	storageKeyVirtualHosted = "virtual_hosted_style_request"
+	storageKeyAllowHTTP     = "allow_http"
+	storageKeyV2Manifests   = "new_table_enable_v2_manifest_paths"
+)
+
+// Config says where a store lives and, when it is remote, how to reach it.
+type Config struct {
+	// URI is either a local directory path or an `s3://bucket/prefix` location. The scheme is
+	// what decides the mode, so a caller never has to say which it means.
+	URI string
+
+	// S3 carries the bucket's region, endpoint, addressing and optional explicit credentials.
+	// A local clone uses it to read inherited fragments from an S3 source.
+	S3 config.S3Config
+
+	Writable bool
+
+	// StrongReadConsistency makes every read refresh the table manifest first.
+	// Coordination data must enable it: a cached snapshot is acceptable for a
+	// search index, but never for deciding whether a shared lease is free.
+	StrongReadConsistency bool
+}
+
+func (c Config) refreshed(ctx context.Context) (Config, error) {
+	if c.S3.Refresh == nil || (!c.IsRemote() && !c.S3.Configured()) {
+		return c, nil
+	}
+	refreshed, err := c.S3.Refresh(ctx)
+	if err != nil {
+		return Config{}, fmt.Errorf("lancestore: refresh S3 credentials: %w", err)
+	}
+	if refreshed.Bucket != c.S3.Bucket || refreshed.Prefix != c.S3.Prefix || refreshed.Region != c.S3.Region || refreshed.Endpoint != c.S3.Endpoint {
+		return Config{}, fmt.Errorf("lancestore: S3 topology changed while refreshing credentials")
+	}
+	c.S3 = refreshed
+	return c, nil
+}
+
+// ReadOnly reports whether this configuration refuses writes.
+//
+// Remote and read-only are DIFFERENT questions, which is why there are two methods. `IsRemote`
+// answers "does this live in object storage", which decides how it is addressed and whether
+// maintenance applies; this answers "may this caller write", which is a statement the caller
+// makes.
+func (c Config) ReadOnly() bool { return c.IsRemote() && !c.Writable }
+
+// IsRemote reports whether the URI names object storage rather than a directory.
+func (c Config) IsRemote() bool { return isRemoteURI(c.URI) }
+
+func isRemoteURI(uri string) bool {
+	u := strings.ToLower(strings.TrimSpace(uri))
+	for _, scheme := range []string{"s3://", "gs://", "gcs://", "az://", "azure://"} {
+		if strings.HasPrefix(u, scheme) {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate refuses a configuration that cannot open.
+func (c Config) Validate() error {
+	if strings.TrimSpace(c.URI) == "" {
+		return fmt.Errorf("lancestore: no URI")
+	}
+	if c.IsRemote() && c.S3.Region == "" && c.S3.Endpoint == "" {
+		return fmt.Errorf("lancestore: %s needs a region or an endpoint", c.URI)
+	}
+	return nil
+}
+
+// storageOptions renders the object_store settings LanceDB needs for a remote URI.
+//
+// The two derived settings are the ones an S3-compatible server needs, and they are derived the
+// same way internal/s3store derives them, so a bucket that works for the Hub works here:
+//
+//   - a custom endpoint implies PATH-STYLE addressing, because MinIO and most compatible
+//     servers do not serve virtual-host style buckets;
+//   - an `http://` endpoint has to be allowed explicitly, or object_store refuses it.
+func (c Config) storageOptions() map[string]string {
+	if !c.IsRemote() && !c.S3.Configured() {
+		return nil
+	}
+	opts := map[string]string{storageKeyV2Manifests: "false"}
+	if c.S3.Region != "" {
+		opts[storageKeyRegion] = c.S3.Region
+	}
+	if c.S3.Endpoint != "" {
+		opts[storageKeyEndpoint] = c.S3.Endpoint
+		opts[storageKeyVirtualHosted] = "false"
+		if strings.HasPrefix(strings.ToLower(c.S3.Endpoint), "http://") {
+			opts[storageKeyAllowHTTP] = "true"
+		}
+	}
+	if c.S3.HasStaticCredentials() {
+		opts[storageKeyAccessKeyID] = c.S3.AccessKeyID
+		opts[storageKeySecretKey] = c.S3.SecretAccessKey
+		if c.S3.SessionToken != "" {
+			opts[storageKeySessionToken] = c.S3.SessionToken
+		}
+	}
+	return opts
+}
+
+func localFileURI(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absolute)}).String(), nil
+}

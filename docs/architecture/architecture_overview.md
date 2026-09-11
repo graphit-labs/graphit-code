@@ -1,0 +1,198 @@
+# System Architecture Overview
+
+Graphit Code is a local-first agent harness written primarily in Go. It combines structural code intelligence, compiled documentation, durable memory, deterministic shared tasks, reusable ecosystem artifacts, and one embedded visual workspace.
+
+## Topology
+
+```mermaid
+flowchart LR
+    User["Developer / coding agent"] --> Launcher["graphit launcher"]
+    Launcher --> Core["graphit-core"]
+
+    subgraph Core["Go core"]
+      CLI["CLI commands"]
+      MCP["MCP stdio server"]
+      Daemon["Daemon coordinator"]
+      UI["Unified HTTP server"]
+      AST["AST module"]
+      Knowledge["Knowledge module"]
+      Memory["Memory module"]
+      Task["Task module"]
+      Hub["Hub + ecosystem"]
+      Live["Live Search"]
+    end
+
+    CLI --> AST
+    CLI --> Knowledge
+    CLI --> Memory
+    CLI --> Task
+    CLI --> Hub
+    MCP --> AST
+    MCP --> Knowledge
+    MCP --> Memory
+    MCP --> Task
+    MCP --> Hub
+    Daemon --> AST
+    Daemon --> Knowledge
+    Daemon --> Memory
+    UI --> AST
+    UI --> Knowledge
+    UI --> Memory
+    UI --> Task
+    UI --> Hub
+    UI --> Live
+
+    AST --> Global["Global Graphit stores"]
+    Knowledge --> Global
+    Memory --> Global
+    Task --> Global
+    Hub --> Global
+    Hub -. credential renewal / ACL .-> Broker["Graphit Broker"]
+    Broker -. AssumeRole .-> STS["AWS-compatible STS"]
+    AST --> S3["S3-compatible object storage"]
+    Knowledge --> S3
+    Memory --> S3
+    Task --> S3
+    Hub --> S3
+    UI --> Browser["Graphit Observatory"]
+    MCP --> Agent["Agent / agent adapter"]
+```
+
+## Runtime layers
+
+### Launcher
+
+The distributed `graphit` executable is a lightweight wrapper. It extracts the versioned core runtime and native libraries into the global Graphit directory, configures the host linker path, starts `graphit-core`, and forwards arguments and standard streams.
+
+The local embedding model and language grammar libraries are not baked into the launcher. The model downloads lazily on first embedding use; language support is resolved through installed language artifacts and query definitions.
+
+### Go core
+
+`cmd/graphit/` contains CLI entry points and orchestration. Domain packages implement AST, wiki, memory, Hub, daemon, Dream, live search, configuration, project registry, and output behavior.
+
+Presentation is separated from domain logic through the output layer so CLI commands can render interactive terminal feedback without making lower-level packages write directly to standard output.
+
+### MCP interface
+
+The MCP stdio server exposes the same project capabilities to coding agents. Tools accept an explicit project directory or imported context where required. The interface separates candidate retrieval from content reads and structural traversal:
+
+- search returns names or titles;
+- source and wiki tools return selected content;
+- AST queries traverse exact graph relationships;
+- memory tools persist structured context.
+- task tools atomically claim, checkpoint, validate, and transfer shared work.
+
+Each concrete agent adapter installs and removes its native lifecycle integration. Hook paths live in each adapter's `FolderConfig` beside its other native paths, while event names, configuration shapes, and lifecycle remain in the concrete adapter; the folder-based adapter has no hook routing or agent identity. Only the semantic protocol and format-neutral payload reconciliation helpers are shared. Generated hook commands contain no checkout path: hook execution resolves the nearest Graphit project from native `cwd`/workspace-root input or process cwd (OpenCode starts the subprocess with its runtime `directory` as cwd), then reads that project's current module configuration, mandatory memories, and installed Hub `rule` artifacts. Enabled module mandates and rule bodies are normally composed dynamically; skills remain physical, discoverable artifacts. Kimi is the global-hook exception: `~/.kimi-code/config.toml` contains generic runtime-CWD hooks retained by a Graphit project-reference registry, and the full bootstrap is delivered at `UserPromptSubmit` because Kimi does not guarantee that `SessionStart` stdout becomes model context. Deep Code is the context-hook exception: its adapter maintains a marked Graphit block in project `.deepcode/AGENTS.md`, because Deep Code exposes a final `notify` callback but no context-producing lifecycle API. Its native schema requires `notify` to contain the full path of the owned project-local dispatcher; user content outside the managed block and user-owned notify settings remain untouched.
+
+Claude, Codex, Cursor, Gemini, Kiro, and Qwen Code use their native session-start event as a context boundary. Kimi installs `SessionStart` for lifecycle visibility but delivers the full bootstrap at `UserPromptSubmit`; Claude, Codex, Qwen, and Kimi also use `SubagentStart`. Cursor rewrites the `Task` input because its `subagentStart` output cannot add context. Antigravity uses `PreInvocation`, Gemini reasserts resident context through `BeforeAgent`, Kiro adds the CLI `AgentSpawn` boundary, and OpenCode combines the first system-prompt transform per session with its compaction hook. Deep Code receives the explicit AGENTS compensation and uses `notify` only for final asynchronous sync. Adapter removal removes only the Graphit-owned hook entry, file, registry reference, or marked block.
+
+The same project-scope rule applies to MCP installation, including MCP artifacts installed from the Hub. Antigravity writes `.agents/mcp_config.json`; Claude writes `.mcp.json`; Cursor writes `.cursor/mcp.json`; Kiro writes `.kiro/settings/mcp.json`; Codex writes `.codex/config.toml`; OpenCode writes only its native `mcp` object in `opencode.json`; Gemini and Qwen share their project settings JSON with hooks; Kimi writes `.kimi-code/mcp.json`; and Deep Code writes `.deepcode/settings.json`. All MCP targets are project-local and are reconciled by the owning adapter. Native agent files contain no cross-project ownership metadata. A project-local runtime manifest records only the server names written by Graphit so later sync/removal can preserve user-owned entries; no compatibility reader exists for older configuration shapes.
+
+### Daemon
+
+One machine-wide daemon supervises registered projects, receives file events, schedules incremental AST and wiki maintenance, coordinates local embedding work, and runs configured Dream activity. It reduces repeated cold starts but does not remove the need for explicit checkpoints after bulk external changes.
+
+### Unified UI
+
+The Go server embeds the production React bundle from `internal/ui/dist/` and serves both the SPA and its JSON endpoints. The Graphit Observatory visualizes project, context, registry, Task, daemon, Dream, and live-search state without maintaining a second data model. Its Task API separates lightweight paginated discovery from the complete exact/project export shared by CLI and MCP.
+
+The UI binds to the configured `ui.host`, with the IPv4 loopback address as the safe default. Exact-origin CORS is a browser policy, not authorization. Reachable deployments require network controls or an authenticated proxy.
+
+## Data planes
+
+### AST
+
+Source files are parsed through Tree-sitter and ANTLR language grammars. Declarations and relationships are stored in an Icebug/LadybugDB property graph; keyword and semantic retrieval use a separate search sidecar.
+
+The graph answers structural questions through Cypher. Source text is retrieved through the source interface after the graph identifies a relevant file or entity.
+
+### Knowledge
+
+The knowledge source is the maintained documentation tree plus the root README. Graphit compiles it into a searchable wiki with page metadata, confidence, provenance, cross-references, and update history.
+
+### Memory
+
+Project and user memory are independent scopes backed by one authoritative LanceDB table each. The
+table lives directly on S3 when configured and otherwise in the global filesystem. It stores current
+records, history, lexical indexes, and embeddings; searches and reads do not use a compiled wiki
+projection. Project memory belongs to one registered repository identity, while user memory follows
+the active local account profile across projects.
+
+Memory is a separate domain at every boundary: MCP exposes `graphit_memory_*`, the UI server exposes
+`/api/memories`, and the Observatory renders `/memory/explorer` with a dedicated component and
+Markdown renderer. Wiki contracts and `/api/wiki` serve only compiled Knowledge pages.
+
+### Task
+
+Task is the authoritative project work scheduler. LanceDB tables hold task snapshots, claims,
+dependencies, subtasks, acceptance/test checks, comments, and audit events. Lifecycle hooks
+reconcile projections and release or expire ownership so another agent can resume. With S3
+configured, all agents use the same tables directly; no task Markdown is stored in the checkout.
+
+### Hub and ecosystem
+
+The ecosystem registry resolves sibling projects already present on the machine. Each sibling retains its own stores and documentation.
+
+The Hub packages reusable artifacts and imported contexts. Its broker-owned object control plane keeps a lightweight
+global `name -> project ULID` directory and deny-by-default grant documents; its data plane roots
+each project's metadata, artifact registry, payloads, and events below the immutable ULID. Memory
+and Task use separate authoritative LanceDB prefixes when S3 is configured. The mutable globally
+unique name is discovery metadata and rename never moves project data.
+Local operation does not require remote storage.
+
+An authenticated subject resolves the union of global, authenticated, direct-user, and team grants
+before discovery. Anonymous resolves only global and `v2/anonymous/projects.json`. Exact ULIDs use direct
+reads; name-prefix and all-project grants are listed in bounded pages. Authorization is checked
+again for every consequential operation and when Broker credentials are renewed. A local Hub cache may accelerate metadata reads, but it is
+subject-isolated, disposable, and never grants access.
+
+### Live Search
+
+Live Search prepares a throwaway workspace from selected artifacts, installs the requested agent environment, runs a bounded agent session, and removes the ephemeral project data afterwards. It is for questions requiring several sources, not for replacing direct module queries.
+
+## Storage principles
+
+Compiled stores live once in the global brand directory and are keyed by project, user, or context identity. Project checkouts retain source, documentation, lockfiles, and small local records rather than copies of graphs and wikis.
+
+This model:
+
+- avoids duplicating large stores across repositories;
+- lets several projects reference the same published context;
+- keeps user memory globally available without copying it into each checkout;
+- gives concurrent agents one fenced, resumable project work queue;
+- gives the daemon one canonical store per identity.
+- keeps Hub metadata caches separate from authoritative S3 state and installed file materializations.
+
+See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
+
+## Trust boundaries
+
+- Source and local Icebug output remain local. Memory, Task, Knowledge/AST Lance data, and Hub
+  artifacts use direct S3 mounts when the active provider has S3.
+- S3-enabled Broker providers receive a short-lived S3 session and topology per project, user-memory,
+  or Hub-metadata scope and keep those values only in process memory. The Broker retains
+  permanent credentials, derives the STS policy from current ACLs, and never carries object bodies.
+  When Broker discovery omits storage, the authenticated provider uses local paths. Direct OIDC
+  providers use web-identity STS when configured; without it they also use local paths. Local
+  providers use explicitly configured AWS credentials when S3 is configured.
+- Multi-user Hub authorization requires a trusted user and team subject. CORS, request parameters,
+  `unit.id`, and a shared daemon bearer token are not that identity.
+- The UI server is a network boundary and has no built-in user authentication. A reachable
+  multi-user deployment requires an authenticated proxy or another trusted identity adapter before
+  it can use selective user/team grants.
+- Coding-agent CLIs and Agent adapters are external processes; Graphit prepares their workspace and tool configuration but does not replace their own permission model.
+
+## Related specifications
+
+- [AST Module](../specs/ast_module.md)
+- [Wiki Module](../specs/wiki_module.md)
+- [Memory Module](../specs/memory_module.md)
+- [Task Module](../specs/task_module.md)
+- [Hub Collaboration](../specs/hub_collaboration.md)
+- [Project Identity](../specs/project_identity.md)
+- [Hub Access Control](../specs/hub_access_control.md)
+- [Daemon Module](../specs/daemon_module.md)
+- [Dream Module](../specs/dream_module.md)
+- [UI Dashboard](../specs/ui_dashboard.md)
+- [AI Engine](../specs/ai_engine.md)
+- [S3 and UI Network](../guides/s3-and-ui-network.md)

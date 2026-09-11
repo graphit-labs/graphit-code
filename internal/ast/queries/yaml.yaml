@@ -1,0 +1,62 @@
+language: yaml
+grammar: tree-sitter-yaml
+extensions: [".yaml", ".yml"]
+queries:
+
+  - data_key: mappings
+    graph_label: Mapping
+    pattern: '(block_mapping_pair key: (flow_node) @name value: (flow_node) @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: mappings
+    graph_label: Mapping
+    pattern: '(block_mapping_pair key: (flow_node) @name)'
+
+  - data_key: mappings
+    graph_label: Mapping
+    pattern: '(flow_pair key: (flow_node) @name value: (flow_node) @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: sequence_items
+    graph_label: Value
+    pattern: '(block_mapping_pair key: (flow_node) @parent value: (block_node (block_sequence (block_sequence_item (flow_node) @name))))'
+    parent_capture: parent
+    parent_label: Mapping
+  - data_key: sequence_items
+    graph_label: Value
+    pattern: '(block_mapping_pair key: (flow_node) @parent value: (flow_node (flow_sequence (flow_node) @name)))'
+    parent_capture: parent
+    parent_label: Mapping
+
+  - data_key: anchors
+    graph_label: Anchor
+    pattern: '(anchor (anchor_name) @name)'
+  - data_key: tags
+    graph_label: Tag
+    pattern: '(tag) @name'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  block_mapping_pair: Mapping
+  flow_pair: Mapping
+
+context_name_paths:
+  block_mapping_pair: key
+  flow_pair: key
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - comment
+
+embed_labels:
+  - Mapping
+  - Comment

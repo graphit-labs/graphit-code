@@ -1,0 +1,356 @@
+
+
+language: tsql
+parser: antlr4
+grammar: antlr-tsql
+start_rule: tsql_file
+extensions: [".sql", ".tsql"]
+exclusive: true
+
+target_rules:
+  CALLS: { labels: [Function, StoredProcedure, Trigger] }
+  SELECTS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  INSERTS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  UPDATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  DELETES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  ALTERS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  DROPS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  CREATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  TRUNCATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  REFERENCES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+  - data_key: column_writes_update
+    pattern: "//update_elem/full_column_name"
+    name_capture: name
+    qualifier_capture: "update_statement/ddl_object/full_table_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: column_writes_insert
+    pattern: "//insert_column_name_list/insert_column_id"
+    name_capture: name
+    qualifier_capture: "insert_statement/ddl_object/full_table_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: procedures
+    graph_label: StoredProcedure
+    pattern: "//create_or_alter_procedure/func_proc_name_schema"
+    name_capture: name
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_or_alter_function/func_proc_name_schema"
+    name_capture: name
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_or_alter_dml_trigger/simple_name"
+    name_capture: name
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_or_alter_ddl_trigger/simple_name"
+    name_capture: name
+    type: entity
+
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//create_or_alter_dml_trigger/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//create_table/table_name"
+    name_capture: name
+    type: entity
+
+  - data_key: views
+    graph_label: View
+    pattern: "//create_view/simple_name"
+    name_capture: name
+    type: entity
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//create_index"
+    name_capture: id_
+    value_capture: "UNIQUE"
+    value_label: Value
+    type: entity
+
+  - data_key: index_table
+    pattern: "//create_index/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//create_index/column_name_list_with_order/id_"
+    name_capture: name
+    type: entity
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//create_sequence/full_table_name"
+    name_capture: name
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type/simple_name"
+    name_capture: name
+    type: entity
+
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//create_schema/id_"
+    name_capture: name
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition"
+    name_capture: id_
+    value_capture: "column_definition_element/expression"
+    value_label: Value
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition/id_"
+    name_capture: name
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//procedure_param/id_"
+    name_capture: name
+    type: entity
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//declare_local/LOCAL_ID"
+    name_capture: name
+    type: entity
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//execute_body/func_proc_name_server_database_schema"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_call//func_proc_name_server_database_schema"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_call/scalar_function_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//table_source_item/full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insert_statement/full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: updates
+    graph_label: ""
+    pattern: "//update_statement//full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//delete_statement_from//full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: DELETES
+
+  - data_key: merges
+    graph_label: ""
+    pattern: "//merge_statement//full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_table/table_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_table/table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_index//id_"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_view/simple_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_function/func_proc_name_schema"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_procedure/func_proc_name_schema"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_trigger/simple_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_schema/id_"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_sequence/full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_type/simple_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_database/id_"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncate_table/table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_permission//table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: revokes
+    graph_label: ""
+    pattern: "//revoke_permission//table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+context_types:
+  create_or_alter_function: Function
+  create_or_alter_procedure: StoredProcedure
+  create_schema: Schema
+  create_table: Table
+  create_view: View
+  create_or_alter_ddl_trigger: Trigger
+  create_or_alter_dml_trigger: Trigger
+  create_type: Type
+  create_index: Index
+
+context_name_paths:
+  create_or_alter_function: func_proc_name_schema
+  create_or_alter_procedure: func_proc_name_schema
+  create_schema: id_
+  create_index: id_
+
+comment_types:
+  - SINGLE_LINE_COMMENT
+  - BLOCK_COMMENT
+
+declaration_types:
+  - create_or_alter_procedure
+  - create_or_alter_function
+  - create_or_alter_dml_trigger
+  - create_or_alter_ddl_trigger
+  - create_table
+  - create_view
+  - create_index
+  - create_sequence
+  - create_type
+  - create_schema
+
+complexity:
+  node_types:
+    - if_statement
+    - while_statement
+    - try_catch_statement
+    - switch_section
+  operators: ["AND", "OR"]
+
+embed_labels:
+  - StoredProcedure
+  - Function
+  - Trigger
+  - Type
+  - Table
+  - View
+  - Schema
+  - Sequence
+  - Column
+  - Index
+  - Variable
+  - Comment

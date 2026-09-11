@@ -1,0 +1,329 @@
+package wiki
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+)
+
+type AIClient interface {
+	Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+}
+
+type SearchConfig struct {
+	WikiDir string
+	WorkDir string
+
+	ModuleTag string
+
+	MaxTurns int
+
+	BM25TopN int
+
+	UseBM25 bool
+}
+
+type SearchResult struct {
+	Answer         string
+	Turns          int
+	TokensSent     int
+	AgentSessionID string
+	AgentCLI       string
+}
+
+func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchConfig) (*SearchResult, error) {
+	db, err := OpenWikiDB(ctx, cfg.WikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening wiki at %s: %w", cfg.WikiDir, err)
+	}
+	defer func() { _ = db.Close() }()
+	return SearchWikiFrom(ctx, client, db, query, cfg)
+}
+
+// SearchWikiFrom runs the consultation cycle against an already-open index. Published Hub
+// knowledge uses this entry point because its index is mounted directly from object storage and
+// has no local directory to reopen.
+func SearchWikiFrom(ctx context.Context, client AIClient, db *WikiDB, query string, cfg SearchConfig) (*SearchResult, error) {
+	if cfg.MaxTurns <= 0 {
+		cfg.MaxTurns = 6
+	}
+
+	catalogue := WikiOverviewFrom(ctx, db)
+	if catalogue == "" {
+		return nil, fmt.Errorf("wiki has no indexed content — run '%s index' first", cfg.ModuleTag)
+	}
+
+	result := &SearchResult{}
+	conversation := searchConversation(client, cfg.WorkDir)
+	client = conversation
+	defer func() {
+		result.AgentSessionID = conversation.SessionID()
+		result.AgentCLI = conversation.AgentCLI()
+	}()
+	systemPrompt := buildSearchSystemPrompt(cfg.ModuleTag)
+
+	context_ := fmt.Sprintf("=== catalogue ===\n%s", catalogue)
+	result.TokensSent += len(catalogue) / 4
+
+	if cfg.UseBM25 {
+		bm25Ctx := bm25PreFilterFrom(ctx, db, query, cfg.BM25TopN)
+		if bm25Ctx != "" {
+			context_ += "\n\n" + bm25Ctx
+			result.TokensSent += len(bm25Ctx) / 4
+		}
+	}
+
+	loadedPages := make(map[string]bool)
+
+	for turn := 0; turn < cfg.MaxTurns; turn++ {
+		result.Turns = turn + 1
+
+		userMsg := fmt.Sprintf(
+			"Query: %s\n\nAvailable context:\n%s\n\nReply with EITHER:\n"+
+				"- A list of page names to read (one per line, no .md extension, no path prefix), OR\n"+
+				"- DONE: <your comprehensive Markdown answer synthesizing all context>",
+			query, context_,
+		)
+		result.TokensSent += len(userMsg) / 4
+
+		reply, err := client.Complete(ctx, systemPrompt, userMsg)
+		if err != nil {
+			return nil, fmt.Errorf("AI error on turn %d: %w", turn+1, err)
+		}
+
+		reply = strings.TrimSpace(reply)
+
+		if after, ok := strings.CutPrefix(reply, "DONE:"); ok {
+			result.Answer = strings.TrimSpace(after)
+			if isPageRefOnlyAnswer(result.Answer) {
+				retryMsg := buildSynthesisRetryPrompt(query, context_)
+				result.TokensSent += len(retryMsg) / 4
+				if retryAnswer, err := client.Complete(ctx, synthesisSystemPrompt, retryMsg); err == nil {
+					if !isPageRefOnlyAnswer(strings.TrimSpace(retryAnswer)) {
+						result.Answer = strings.TrimSpace(retryAnswer)
+					}
+				}
+			}
+			return result, nil
+		}
+		if after, ok := strings.CutPrefix(reply, "DONE "); ok {
+			result.Answer = strings.TrimSpace(after)
+			if isPageRefOnlyAnswer(result.Answer) {
+				retryMsg := buildSynthesisRetryPrompt(query, context_)
+				result.TokensSent += len(retryMsg) / 4
+				if retryAnswer, err := client.Complete(ctx, synthesisSystemPrompt, retryMsg); err == nil {
+					if !isPageRefOnlyAnswer(strings.TrimSpace(retryAnswer)) {
+						result.Answer = strings.TrimSpace(retryAnswer)
+					}
+				}
+			}
+			return result, nil
+		}
+
+		pages := parsePageList(reply)
+		if len(pages) == 0 {
+
+			result.Answer = reply
+			if isPageRefOnlyAnswer(result.Answer) {
+				retryMsg := buildSynthesisRetryPrompt(query, context_)
+				result.TokensSent += len(retryMsg) / 4
+				if retryAnswer, err := client.Complete(ctx, synthesisSystemPrompt, retryMsg); err == nil {
+					if !isPageRefOnlyAnswer(strings.TrimSpace(retryAnswer)) {
+						result.Answer = strings.TrimSpace(retryAnswer)
+					}
+				}
+			}
+			return result, nil
+		}
+
+		var loaded []string
+		foundAny := false
+		for _, page := range pages {
+			content, resolvedSlug := loadWikiPageFrom(ctx, db, page)
+			if content != "" {
+				foundAny = true
+				if !loadedPages[resolvedSlug] {
+					loadedPages[resolvedSlug] = true
+					loaded = append(loaded, fmt.Sprintf("=== %s.md ===\n%s", resolvedSlug, content))
+					result.TokensSent += len(content) / 4
+				}
+			}
+		}
+
+		if !foundAny {
+			result.Answer = fmt.Sprintf("(no matching pages found for: %s)", strings.Join(pages, ", "))
+			return result, nil
+		}
+
+		if len(loaded) > 0 {
+			context_ = fmt.Sprintf("%s\n\n%s", context_, strings.Join(loaded, "\n\n"))
+		} else {
+			context_ = fmt.Sprintf("%s\n\nSystem: All requested pages (%s) are already loaded in the context above.", context_, strings.Join(pages, ", "))
+		}
+	}
+
+	finalMsg := fmt.Sprintf(
+		"Query: %s\n\nFull context accumulated:\n%s\n\n"+
+			"You have now read all the relevant wiki pages. Synthesize a COMPREHENSIVE answer.\n"+
+			"Your response MUST be a detailed Markdown document with:\n"+
+			"- ## Headings to organize the answer\n"+
+			"- Bullet lists, **bold**, `code blocks` for clarity\n"+
+			"- Thorough explanations (several paragraphs minimum)\n"+
+			"- Inline [[Page_Name]] references as citations\n"+
+			"- DO NOT return a list of page names — write a proper synthesis.\n"+
+			"Write your complete answer now:",
+		query, context_,
+	)
+	result.TokensSent += len(finalMsg) / 4
+
+	answer, err := client.Complete(ctx, synthesisSystemPrompt, finalMsg)
+	if err != nil {
+		return result, fmt.Errorf("AI final answer: %w", err)
+	}
+	result.Answer = strings.TrimSpace(answer)
+
+	if isPageRefOnlyAnswer(result.Answer) {
+		retryMsg := buildSynthesisRetryPrompt(query, context_)
+		result.TokensSent += len(retryMsg) / 4
+		retryAnswer, retryErr := client.Complete(ctx, synthesisSystemPrompt, retryMsg)
+		if retryErr == nil && !isPageRefOnlyAnswer(strings.TrimSpace(retryAnswer)) {
+			result.Answer = strings.TrimSpace(retryAnswer)
+		}
+	}
+
+	return result, nil
+}
+
+func searchConversation(client AIClient, workDir string) *ai.Conversation {
+	if conversation, ok := client.(*ai.Conversation); ok {
+		return conversation
+	}
+	return ai.NewConversation(client, workDir)
+}
+
+func searchCompiledWikiFrom(ctx context.Context, db *WikiDB, query string, topN int) (results []WikiSearchResult, authoritative bool) {
+	if db == nil {
+		return nil, false
+	}
+	if !db.HasContent(ctx) {
+		return nil, false
+	}
+	results, err := db.Search(ctx, query, topN)
+	if err != nil {
+		return nil, false
+	}
+	return results, true
+}
+
+func bm25PreFilterFrom(ctx context.Context, db *WikiDB, query string, topN int) string {
+	if results, authoritative := searchCompiledWikiFrom(ctx, db, query, topN); authoritative && len(results) > 0 {
+		var b strings.Builder
+		b.WriteString("=== FTS5 Relevant Pages (pre-filtered) ===\n")
+		fmt.Fprintf(&b, "Query: %q — top %d by BM25+FTS5 relevance:\n\n", query, len(results))
+		for i, r := range results {
+			fmt.Fprintf(&b, "%d. [[%s]]", i+1, r.Slug)
+			if r.Title != "" {
+				fmt.Fprintf(&b, " — %s", r.Title)
+			}
+			fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
+		}
+		return b.String()
+	}
+
+	return ""
+}
+
+func BM25Search(ctx context.Context, wikiDir, query string, topN int) []BM25Result {
+	return BM25SearchWithOptions(ctx, wikiDir, query, topN, WikiSearchOptions{})
+
+}
+
+func BM25SearchWithOptions(ctx context.Context, wikiDir, query string, topN int, opts WikiSearchOptions) []BM25Result {
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = db.Close() }()
+	compiled, err := db.SearchWithOptions(ctx, query, topN, opts)
+	if err != nil {
+		return nil
+	}
+	return wikiFTSToB25Results(compiled)
+}
+
+// BM25SearchFrom searches an already-open local or mounted wiki index.
+func BM25SearchFrom(ctx context.Context, db *WikiDB, query string, topN int) []BM25Result {
+	compiled, _ := searchCompiledWikiFrom(ctx, db, query, topN)
+	return wikiFTSToB25Results(compiled)
+}
+
+func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
+	results := make([]BM25Result, 0, len(ftsResults))
+	for _, r := range ftsResults {
+		results = append(results, BM25Result{
+			Path:       r.Slug + ".md",
+			Title:      r.Title,
+			DocType:    r.DocType,
+			Score:      r.Score,
+			Snippet:    r.Snippet,
+			EntityID:   r.EntityID,
+			RevisionID: r.RevisionID,
+			Superseded: r.Superseded,
+			CurrentID:  r.CurrentID,
+			Mandatory:  r.Mandatory,
+		})
+	}
+	return results
+}
+
+func extractSnippet(content, query string) string {
+	return snippetAround(StripFrontmatter(content), query, wikiSnippetWidth)
+}
+
+func buildSearchSystemPrompt(moduleTag string) string {
+	return fmt.Sprintf(`You are a %s knowledge search agent operating on an Obsidian-compatible wiki.
+
+PROTOCOL:
+- You will receive: a query and the current context (wiki pages you have read so far).
+- If BM25 pre-filtered results are included, prioritize reading those pages first.
+- If you need more pages to answer the query, reply ONLY with the page names (one per line, no .md extension).
+- When you have enough context, reply with: DONE: <your complete answer>
+- Page names are listed in index.md. Request up to 5 pages per turn.
+- Minimize token usage by being selective about which pages you request.
+
+ANSWER REQUIREMENTS — CRITICAL:
+- Your DONE answer MUST be a COMPREHENSIVE, DETAILED Markdown synthesis.
+- Use ## headings, bullet lists, **bold**, code blocks, and tables as appropriate.
+- Write at least several paragraphs explaining the topic thoroughly.
+- Reference wiki pages inline using [[Page_Name]] syntax as citations.
+- NEVER reply with ONLY a list of page names or references — that is NOT an answer.
+- Explain concepts, describe relationships, provide context and architectural insights.
+- Do NOT hallucinate content — only reference what you have read.`, moduleTag)
+}
+
+func parsePageList(reply string) []string {
+	var pages []string
+	for _, line := range strings.Split(reply, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "- ")
+		line = strings.TrimPrefix(line, "* ")
+		line = strings.TrimPrefix(line, "1. ")
+		line = strings.TrimPrefix(line, "2. ")
+		line = strings.TrimPrefix(line, "3. ")
+		line = strings.TrimPrefix(line, "4. ")
+		line = strings.TrimPrefix(line, "5. ")
+		line = strings.TrimSuffix(line, ".md")
+		if line == "" || strings.HasPrefix(line, "DONE") || strings.ContainsAny(line, ":/") {
+			continue
+		}
+
+		line = strings.TrimPrefix(line, "[[")
+		line = strings.TrimSuffix(line, "]]")
+		if line != "" {
+			pages = append(pages, line)
+		}
+	}
+	return pages
+}

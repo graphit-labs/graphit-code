@@ -1,0 +1,1345 @@
+package ast
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
+)
+
+// LanceIndexDirName is the search index's directory, a sibling of the graph store.
+const LanceIndexDirName = "search.lance"
+
+const (
+	lanceFilesTable     = "files"
+	lanceEntitiesTable  = "entities"
+	lanceFileTextColumn = "source"
+
+	lanceBodyColumn = "body"
+
+	lanceVectorColumn = "embedding"
+)
+
+// SearchIndex is the search sidecar of a graph store.
+type SearchIndex struct {
+	store    *lancestore.Store
+	files    *lancestore.Table
+	entities *lancestore.Table
+
+	rebuildTiming SearchRebuildTiming
+
+	vectorCount int64
+	storeDir    string
+
+	Logger *slog.Logger
+}
+
+func (s *SearchIndex) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
+
+// SearchRebuildTiming separates row preparation and ingestion from each durable index build.
+// The pipeline copies this into its public timing result so a large corpus does not collapse every
+// search-side cost into one opaque "search-build" number.
+type SearchRebuildTiming struct {
+	Setup          time.Duration
+	Prepare        time.Duration
+	FilesWrite     time.Duration
+	EntitiesWrite  time.Duration
+	FilesFTS       time.Duration
+	FilesScalar    time.Duration
+	EntitiesFTS    time.Duration
+	EntitiesScalar time.Duration
+	Publish        time.Duration
+}
+
+type searchRebuildWriter struct {
+	ctx       context.Context
+	index     *SearchIndex
+	files     *lancestore.Table
+	entities  *lancestore.Table
+	embLookup func(relPath, uid string) []float32
+	timing    SearchRebuildTiming
+
+	fileRows []lancestore.Row
+	entRows  []lancestore.Row
+
+	fileCount int
+	entCount  int
+	vecCount  int
+}
+
+// LastRebuildTiming returns the most recent full rebuild's phase timings.
+func (s *SearchIndex) LastRebuildTiming() SearchRebuildTiming { return s.rebuildTiming }
+
+// LanceIndexPath is where the search index of a store directory lives: a sibling
+// of graph.icebug under the same store dir.
+func LanceIndexPath(storeDir string) string {
+	return filepath.Join(storeDir, LanceIndexDirName)
+}
+
+const (
+	embedsStatusFile       = "embeds.json"
+	embedsStatusLockFile   = "embeds.lock"
+	vectorFinalizeLockFile = "vector-index.lock"
+	vectorIndexPending     = "pending"
+	vectorIndexReady       = "ready"
+)
+
+type embedsStatus struct {
+	Vectors     int64  `json:"vectors"`
+	Entities    int64  `json:"entities"`
+	Generation  string `json:"generation,omitempty"`
+	VectorIndex string `json:"vector_index,omitempty"`
+}
+
+func embedsStatusPath(storeDir string) string {
+	return filepath.Join(storeDir, embedsStatusFile)
+}
+
+func readEmbedsStatus(storeDir string) embedsStatus {
+	var st embedsStatus
+	raw, err := os.ReadFile(embedsStatusPath(storeDir))
+	if err != nil {
+		return st
+	}
+	_ = json.Unmarshal(raw, &st)
+	return st
+}
+
+func writeEmbedsStatusFile(storeDir string, st embedsStatus) error {
+	raw, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(storeDir, ".embeds-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, embedsStatusPath(storeDir))
+}
+
+func withEmbedsStatusLock(storeDir string, fn func(embedsStatus) error) error {
+	lock, err := lockfile.Acquire(filepath.Join(storeDir, embedsStatusLockFile), 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("lock embeds status: %w", err)
+	}
+	defer lock.Release()
+	return fn(readEmbedsStatus(storeDir))
+}
+
+func newSearchGeneration() string {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err == nil {
+		return hex.EncodeToString(id[:])
+	}
+	return fmt.Sprintf("%x", time.Now().UnixNano())
+}
+
+func beginVectorGeneration(storeDir string) (string, error) {
+	generation := newSearchGeneration()
+	err := withEmbedsStatusLock(storeDir, func(st embedsStatus) error {
+		st.Generation = generation
+		st.VectorIndex = vectorIndexPending
+		return writeEmbedsStatusFile(storeDir, st)
+	})
+	return generation, err
+}
+
+func publishPendingVectorCounts(storeDir, generation string, vectors, entities int64) error {
+	return withEmbedsStatusLock(storeDir, func(st embedsStatus) error {
+		if st.Generation != generation {
+			return fmt.Errorf("vector generation changed from %s to %s", generation, st.Generation)
+		}
+		st.Vectors = vectors
+		st.Entities = entities
+		st.VectorIndex = vectorIndexPending
+		return writeEmbedsStatusFile(storeDir, st)
+	})
+}
+
+// VectorGeneration returns the currently published search corpus generation.
+func (s *SearchIndex) VectorGeneration() string {
+	if s == nil || s.storeDir == "" {
+		return ""
+	}
+	return readEmbedsStatus(s.storeDir).Generation
+}
+
+// OpenSearchIndex opens the search index of a graph store.
+//
+// It resolves to object storage when the store was MOUNTED and to a local directory otherwise, and
+// the caller does not have to know which — see searchConfigFor. That is what lets a query service
+// built the same way serve a local project and a Hub context.
+func OpenSearchIndex(ctx context.Context, storeDir string) (*SearchIndex, error) {
+	si, err := openLanceIndex(ctx, searchConfigFor(storeDir))
+	if err != nil {
+		return nil, err
+	}
+	si.storeDir = storeDir
+	si.vectorCount = readEmbedsStatus(storeDir).Vectors
+	return si, nil
+}
+
+// OpenSearchIndexForDir is OpenSearchIndex under its honest name: the argument is the
+// store directory, never a database file.
+func OpenSearchIndexForDir(ctx context.Context, storeDir string) (*SearchIndex, error) {
+	return OpenSearchIndex(ctx, storeDir)
+}
+
+// OpenSearchIndexAt opens an index by its own URI, which is how a PUBLISHED index on S3 is
+// read: the caller passes `s3://bucket/prefix` and the engine queries it in place.
+func OpenSearchIndexAt(ctx context.Context, cfg lancestore.Config) (*SearchIndex, error) {
+	return openLanceIndex(ctx, cfg)
+}
+
+func openLanceIndex(ctx context.Context, cfg lancestore.Config) (*SearchIndex, error) {
+	st, err := lancestore.Open(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open search index: %w", err)
+	}
+	return &SearchIndex{store: st}, nil
+}
+
+// Close releases the store.
+func (s *SearchIndex) Close() error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	return s.store.Close()
+}
+
+// Remote reports whether this index is a published one, which is read-only.
+func (s *SearchIndex) Remote() bool { return s.store != nil && s.store.Remote() }
+
+func lanceFilesSchema() lancestore.Schema {
+	return lancestore.Schema{Fields: []lancestore.Field{
+		{Name: "path", Type: lancestore.FieldString},
+		{Name: "name", Type: lancestore.FieldString},
+		{Name: "source", Type: lancestore.FieldString, Nullable: true},
+	}}
+}
+
+// lanceEntitiesSchema takes the vector width as a parameter rather than assuming
+// ai.EmbeddingDimensions: it is called with ai.ResolveConfiguredEmbeddingDimensions(), which is
+// 768 for the local model and whatever the configured remote provider/model resolves to
+// otherwise. A table built under one provider and later opened under another with a different
+// width fails on the first Append/Upsert — a Lance/Arrow type error, not silent corruption —
+// which is the intended signal to run a full reindex after switching embedding providers.
+func lanceEntitiesSchema(vectorDim int) lancestore.Schema {
+	return lancestore.Schema{Fields: []lancestore.Field{
+		{Name: "uid", Type: lancestore.FieldString},
+		{Name: "name", Type: lancestore.FieldString},
+		{Name: "etype", Type: lancestore.FieldString},
+		{Name: "path", Type: lancestore.FieldString},
+		{Name: "line", Type: lancestore.FieldInt64},
+		{Name: "docstring", Type: lancestore.FieldString, Nullable: true},
+		{Name: "is_dep", Type: lancestore.FieldBool},
+		{Name: lanceBodyColumn, Type: lancestore.FieldString},
+		{Name: lanceVectorColumn, Type: lancestore.FieldVector, Dim: vectorDim, Nullable: true},
+	}}
+}
+
+func lanceEntityIndexes() []lancestore.Index {
+	return []lancestore.Index{
+		{Column: lanceBodyColumn, Kind: lancestore.IndexInvertedText},
+		{Column: "etype", Kind: lancestore.IndexScalarBitmap},
+		{Column: "path", Kind: lancestore.IndexScalarBTree},
+	}
+}
+
+func lanceVectorIndex() lancestore.Index {
+	return lancestore.Index{Column: lanceVectorColumn, Kind: lancestore.IndexVectorIVFPQ}
+}
+
+func lanceFileIndexes() []lancestore.Index {
+	return []lancestore.Index{
+		{Column: lanceFileTextColumn, Kind: lancestore.IndexInvertedText},
+		{Column: "path", Kind: lancestore.IndexScalarBTree},
+	}
+}
+
+func entityBody(e cachedEntity) string {
+	split := splitCodeIdentifier(e.Name)
+	parts := []string{e.Name}
+	if split != e.Name {
+		parts = append(parts, split)
+	}
+	if lower := strings.ToLower(e.Name); lower != e.Name {
+		parts = append(parts, lower)
+	}
+	if lowerSplit := strings.ToLower(split); lowerSplit != split && lowerSplit != e.Name {
+		parts = append(parts, lowerSplit)
+	}
+	if e.Label != "" {
+		parts = append(parts, e.Label)
+	}
+	if e.Docstring != "" {
+		parts = append(parts, e.Docstring)
+	}
+	parts = append(parts, gramsFor(e.Name, split), e.Path)
+	return strings.Join(nonEmpty(parts), " ")
+}
+
+func fileSearchMetadata(relPath string) string {
+	base := filepath.Base(relPath)
+	split := splitCodeIdentifier(base)
+	parts := []string{base}
+	if split != base {
+		parts = append(parts, split)
+	}
+	parts = append(parts, gramsFor(base, split), relPath)
+	return strings.Join(nonEmpty(parts), " ")
+}
+
+const fileSourceBoundary = "\x00"
+
+func fileSearchDocument(relPath, source string) string {
+	return source + fileSourceBoundary + fileSearchMetadata(relPath)
+}
+
+func sourceFromFileSearchDocument(document string) string {
+	if boundary := strings.LastIndex(document, fileSourceBoundary); boundary >= 0 {
+		return document[:boundary]
+	}
+	return ""
+}
+
+func gramsFor(name, split string) string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(s string) {
+		for _, g := range identifierGrams(s) {
+			if !seen[g] {
+				seen[g] = true
+				out = append(out, g)
+			}
+		}
+	}
+	add(name)
+	for _, w := range strings.Fields(split) {
+		add(w)
+	}
+	return strings.Join(out, " ")
+}
+
+func identifierGrams(name string) []string {
+	norm := []rune(normalizeForTrigrams(name))
+	var out []string
+	for _, n := range []int{2, 3} {
+		for i := 0; i+n <= len(norm); i++ {
+			out = append(out, string(norm[i:i+n]))
+		}
+	}
+	return out
+}
+
+// LanceQueryText expands a query the same way the document was expanded.
+//
+// THE TWO SIDES MUST MATCH. A gram bag in the document that the query never produces is dead
+// weight that only dilutes BM25's term statistics, and a query gram the document lacks matches
+// nothing. The requirement is not new — the SQLite index had to keep the same pair in step.
+func LanceQueryText(query string) string {
+	tokens := tokenizeQuery(query)
+	seen := make(map[string]bool)
+	var out []string
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, t := range tokens {
+		add(strings.ToLower(t))
+	}
+	for _, t := range tokens {
+		for _, g := range identifierGrams(t) {
+			add(g)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+func nonEmpty(in []string) []string {
+	out := in[:0]
+	for _, s := range in {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func buildEntityRow(e cachedEntity, emb []float32) lancestore.Row {
+	row := lancestore.Row{
+		"uid":             e.UID,
+		"name":            e.Name,
+		"etype":           e.Label,
+		"path":            e.Path,
+		"line":            int64(e.Line),
+		"docstring":       e.Docstring,
+		"is_dep":          e.IsDep,
+		lanceBodyColumn:   entityBody(e),
+		lanceVectorColumn: nil,
+	}
+	// A failed embed call reports as a nil/empty vector (see localEmbeddingClient.EmbedBatch and
+	// its remote equivalents), which is the only case this must tell apart from a real one — NOT
+	// a fixed width. Gating on ai.EmbeddingDimensions specifically silently dropped every valid
+	// vector from any provider whose width isn't 768.
+	if len(emb) > 0 {
+		row[lanceVectorColumn] = emb
+	}
+	return row
+}
+
+func buildFileRow(relPath, source string) lancestore.Row {
+	return lancestore.Row{
+		"path":   relPath,
+		"name":   filepath.Base(relPath),
+		"source": fileSearchDocument(relPath, source),
+	}
+}
+
+const lanceMinRowsForVectorIndex = 256
+
+const lanceWriteBatch = 8192
+
+// RebuildFromCache replaces the whole index from the parse shards.
+//
+// The tables are DROPPED and recreated rather than emptied: a rebuild is defined as "the shards
+// are the truth", and dropping is the only way to be sure nothing survives from a schema that has
+// since changed. Then the rows stream in, and the indexes are built LAST — building them first
+// would pay index maintenance on every batch of a bulk load, which is the same reason the SQLite
+// version dropped its triggers and rebuilt afterwards.
+func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
+	embLookup func(relPath, uid string) []float32) error {
+	if cache == nil {
+		return fmt.Errorf("rebuild search index: no parse cache")
+	}
+	if s.Remote() {
+		return lancestore.ErrReadOnly
+	}
+	t0 := time.Now()
+	generation := ""
+	if s.storeDir != "" {
+		var err error
+		generation, err = beginVectorGeneration(s.storeDir)
+		if err != nil {
+			return fmt.Errorf("publishing pending vector generation: %w", err)
+		}
+	}
+
+	writer, err := s.beginSearchRebuild(ctx, embLookup)
+	if err != nil {
+		return err
+	}
+	tPrepare := time.Now()
+	var walkErr error
+	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
+		walkErr = writer.Add(relPath, cache.SourceOf(relPath), entry)
+		return walkErr == nil
+	})
+	writer.timing.Prepare = time.Since(tPrepare) - writer.timing.FilesWrite - writer.timing.EntitiesWrite
+	if writer.timing.Prepare < 0 {
+		writer.timing.Prepare = 0
+	}
+	if walkErr != nil {
+		return walkErr
+	}
+	if err := writer.Finish(); err != nil {
+		return err
+	}
+	s.rebuildTiming = writer.timing
+
+	s.log().Info("search index rebuild",
+		"files", writer.fileCount, "entities", writer.entCount, "vectors", writer.vecCount,
+		"duration_ms", time.Since(t0).Seconds()*1000)
+
+	if s.storeDir != "" {
+		tPublish := time.Now()
+		if err := publishPendingVectorCounts(s.storeDir, generation, int64(writer.vecCount), int64(writer.entCount)); err != nil {
+			return fmt.Errorf("writing embeds status: %w", err)
+		}
+		s.rebuildTiming.Publish = time.Since(tPublish)
+	}
+	s.vectorCount = int64(writer.vecCount)
+	return nil
+}
+
+func (s *SearchIndex) beginSearchRebuild(ctx context.Context,
+	embLookup func(relPath, uid string) []float32) (*searchRebuildWriter, error) {
+	tSetup := time.Now()
+	for _, name := range []string{lanceFilesTable, lanceEntitiesTable} {
+		if err := s.store.DropTable(ctx, name); err != nil {
+			return nil, fmt.Errorf("clearing %s: %w", name, err)
+		}
+	}
+	files, err := s.store.CreateTable(ctx, lanceFilesTable, lanceFilesSchema())
+	if err != nil {
+		return nil, err
+	}
+	entities, err := s.store.CreateTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
+	if err != nil {
+		return nil, err
+	}
+	s.files, s.entities = files, entities
+	return &searchRebuildWriter{
+		ctx: ctx, index: s, files: files, entities: entities, embLookup: embLookup,
+		timing: SearchRebuildTiming{Setup: time.Since(tSetup)},
+	}, nil
+}
+
+func (w *searchRebuildWriter) Add(relPath, source string, entry *parseCacheEntry) error {
+	if entry == nil {
+		return nil
+	}
+	tPrepare := time.Now()
+	w.fileRows = append(w.fileRows, buildFileRow(relPath, source))
+	w.fileCount++
+	for _, e := range entry.Entities {
+		var emb []float32
+		if w.embLookup != nil {
+			emb = w.embLookup(relPath, e.UID)
+		}
+		row := buildEntityRow(e, emb)
+		if row[lanceVectorColumn] != nil {
+			w.vecCount++
+		}
+		w.entRows = append(w.entRows, row)
+		w.entCount++
+	}
+	w.timing.Prepare += time.Since(tPrepare)
+	if len(w.fileRows) >= lanceWriteBatch {
+		if err := w.flushFiles(); err != nil {
+			return err
+		}
+	}
+	if len(w.entRows) >= lanceWriteBatch {
+		if err := w.flushEntities(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *searchRebuildWriter) flushFiles() error {
+	if len(w.fileRows) == 0 {
+		return nil
+	}
+	tWrite := time.Now()
+	err := w.files.Append(w.ctx, w.fileRows)
+	w.timing.FilesWrite += time.Since(tWrite)
+	if err != nil {
+		return fmt.Errorf("writing files: %w", err)
+	}
+	w.fileRows = w.fileRows[:0]
+	return nil
+}
+
+func (w *searchRebuildWriter) flushEntities() error {
+	if len(w.entRows) == 0 {
+		return nil
+	}
+	tWrite := time.Now()
+	err := w.entities.Append(w.ctx, w.entRows)
+	w.timing.EntitiesWrite += time.Since(tWrite)
+	if err != nil {
+		return fmt.Errorf("writing entities: %w", err)
+	}
+	w.entRows = w.entRows[:0]
+	return nil
+}
+
+func (w *searchRebuildWriter) Finish() error {
+	if err := w.flushFiles(); err != nil {
+		return err
+	}
+	if err := w.flushEntities(); err != nil {
+		return err
+	}
+	for _, idx := range lanceFileIndexes() {
+		tIndex := time.Now()
+		err := w.files.EnsureIndexes(w.ctx, idx)
+		d := time.Since(tIndex)
+		if idx.Kind == lancestore.IndexInvertedText {
+			w.timing.FilesFTS += d
+		} else {
+			w.timing.FilesScalar += d
+		}
+		if err != nil {
+			return err
+		}
+	}
+	for _, idx := range lanceEntityIndexes() {
+		tIndex := time.Now()
+		err := w.entities.EnsureIndexes(w.ctx, idx)
+		d := time.Since(tIndex)
+		if idx.Kind == lancestore.IndexInvertedText {
+			w.timing.EntitiesFTS += d
+		} else {
+			w.timing.EntitiesScalar += d
+		}
+		if err != nil {
+			return err
+		}
+	}
+	w.index.rebuildTiming = w.timing
+	w.index.vectorCount = int64(w.vecCount)
+	return nil
+}
+
+func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
+	changedFiles, deletedFiles []string, embLookup func(relPath, uid string) []float32) error {
+	if s.Remote() {
+		return lancestore.ErrReadOnly
+	}
+	affected := make([]string, 0, len(changedFiles)+len(deletedFiles))
+	affected = append(affected, changedFiles...)
+	affected = append(affected, deletedFiles...)
+	if len(affected) == 0 {
+		return nil
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		return err
+	}
+	t0 := time.Now()
+	generation := ""
+	if s.storeDir != "" {
+		var err error
+		generation, err = beginVectorGeneration(s.storeDir)
+		if err != nil {
+			return fmt.Errorf("publishing pending vector generation: %w", err)
+		}
+	}
+	if err := s.entities.DropIndex(ctx, lanceVectorIndex()); err != nil {
+		return fmt.Errorf("invalidating vector index: %w", err)
+	}
+
+	if err := s.entities.DeleteByKey(ctx, "path", affected); err != nil {
+		return fmt.Errorf("removing entities for %d paths: %w", len(affected), err)
+	}
+	if err := s.files.DeleteByKey(ctx, "path", affected); err != nil {
+		return fmt.Errorf("removing files for %d paths: %w", len(affected), err)
+	}
+
+	var fileRows, entRows []lancestore.Row
+	var vecCount int
+	for _, p := range changedFiles {
+		entry := cache.GetEntry(p)
+		if entry == nil {
+			continue
+		}
+		fileRows = append(fileRows, buildFileRow(p, cache.SourceOf(p)))
+		for _, e := range entry.Entities {
+			var emb []float32
+			if embLookup != nil {
+				emb = embLookup(p, e.UID)
+			}
+			row := buildEntityRow(e, emb)
+			if row[lanceVectorColumn] != nil {
+				vecCount++
+			}
+			entRows = append(entRows, row)
+		}
+	}
+
+	if len(fileRows) > 0 {
+		if err := s.files.Append(ctx, fileRows); err != nil {
+			return fmt.Errorf("writing %d files: %w", len(fileRows), err)
+		}
+	}
+	if len(entRows) > 0 {
+		if err := s.entities.Append(ctx, entRows); err != nil {
+			return fmt.Errorf("writing %d entities: %w", len(entRows), err)
+		}
+	}
+
+	for _, t := range []*lancestore.Table{s.files, s.entities} {
+		if err := t.FoldNewRowsIntoIndexes(ctx); err != nil {
+			s.log().Warn("could not fold new rows into the search index",
+				"table", t.Name(), "error", err,
+				"impact", "queries stay correct and get slower until the next rebuild")
+		}
+	}
+
+	s.log().Info("search index incremental",
+		"changed", len(changedFiles), "deleted", len(deletedFiles),
+		"entities", len(entRows), "vectors", vecCount,
+		"duration_ms", time.Since(t0).Seconds()*1000)
+
+	if s.storeDir != "" {
+		prev := readEmbedsStatus(s.storeDir)
+		vectors, entities := prev.Vectors, prev.Entities
+		switch {
+		case int64(vecCount) > 0:
+			if int64(vecCount) > vectors {
+				vectors = int64(vecCount)
+			}
+			if int64(len(entRows)) > entities {
+				entities = int64(len(entRows))
+			}
+		case len(deletedFiles) == 0:
+		default:
+			if !hasVectorRows(ctx, s.entities) {
+				vectors = 0
+			}
+		}
+		if err := publishPendingVectorCounts(s.storeDir, generation, vectors, entities); err != nil {
+			return fmt.Errorf("writing embeds status: %w", err)
+		}
+		s.vectorCount = vectors
+	}
+	return nil
+}
+
+func hasVectorRows(ctx context.Context, entities *lancestore.Table) bool {
+	hits, err := entities.Search(ctx, lancestore.Query{
+		Filter: "embedding IS NOT NULL", Limit: 1,
+	})
+	if err != nil || len(hits) == 0 {
+		return false
+	}
+	_, ok := hits[0].Row[lanceVectorColumn]
+	return ok
+}
+
+func (s *SearchIndex) ensureTables(ctx context.Context) error {
+	if s.files == nil {
+		t, err := s.store.EnsureTable(ctx, lanceFilesTable, lanceFilesSchema())
+		if err != nil {
+			return err
+		}
+		s.files = t
+	}
+	if s.entities == nil {
+		t, err := s.store.EnsureTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
+		if err != nil {
+			return err
+		}
+		s.entities = t
+	}
+	return nil
+}
+
+// Search runs the keyword half over both tables.
+//
+// Entities and files are searched SEPARATELY and concatenated with entities first, which is the
+// behaviour the SQLite index had and the reason it had two tables: a file whose name happens to
+// share a word with the query would otherwise outrank the function the user was looking for, and
+// there is no single relevance scale on which "this file" and "this function" compare.
+func (s *SearchIndex) Search(ctx context.Context, query string, topK int) ([]SearchResult, error) {
+	var err error
+	topK, err = s.resolveSearchLimit(ctx, topK, true)
+	if err != nil {
+		return nil, err
+	}
+	rerank, err := ai.ConfiguredLanceRerank(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.search(ctx, lancestore.Query{
+		Text: LanceQueryText(query), TextColumn: lanceBodyColumn, Limit: topK,
+		Rerank: rerank,
+	}, topK)
+}
+
+// SemanticSearch runs the vector half. Entities only: a file has no embedding of its own.
+func (s *SearchIndex) SemanticSearch(ctx context.Context, vec []float32, topK int) ([]SearchResult, error) {
+	if s.vectorCount == 0 {
+		s.log().Info("semantic search returned nothing: the index holds no embedding rows",
+			"hint", "run `graphit ast embed` to enable the semantic channel")
+		return nil, nil
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	var err error
+	topK, err = s.resolveSearchLimit(ctx, topK, false)
+	if err != nil {
+		return nil, err
+	}
+	hits, err := s.entities.Search(ctx, lancestore.Query{
+		Vector: vec, VectorColumn: lanceVectorColumn, Limit: topK,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := entityHitsToResults(hits, "semantic")
+
+	for i := range out {
+		out[i].RelevanceScore = cosineFromSquaredL2(out[i].Distance)
+	}
+	return confidentSemanticResults(out), nil
+}
+
+// HybridSearch runs both channels and lets the ENGINE fuse them.
+//
+// With no query vector it degrades to the keyword half rather than failing: a project whose
+// embeddings have not been generated yet still has to be searchable.
+func (s *SearchIndex) HybridSearch(ctx context.Context, query string, vec []float32, topK int) ([]SearchResult, error) {
+	if len(vec) == 0 || s.vectorCount == 0 {
+		if len(vec) > 0 && s.vectorCount == 0 {
+			s.log().Info("hybrid search degraded to keywords: the index holds no embedding rows",
+				"hint", "run `graphit ast embed` to enable the semantic channel")
+		}
+		return s.Search(ctx, query, topK)
+	}
+	var err error
+	topK, err = s.resolveSearchLimit(ctx, topK, true)
+	if err != nil {
+		return nil, err
+	}
+	rerank, err := ai.ConfiguredLanceRerank(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.search(ctx, lancestore.Query{
+		Text: LanceQueryText(query), TextColumn: lanceBodyColumn,
+		Vector: vec, VectorColumn: lanceVectorColumn, Limit: topK, Rerank: rerank,
+	}, topK)
+}
+
+func (s *SearchIndex) resolveSearchLimit(ctx context.Context, topK int, includeFiles bool) (int, error) {
+	if topK < 0 {
+		return 0, fmt.Errorf("top_k cannot be negative")
+	}
+	if topK > 0 {
+		return topK, nil
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		return 0, err
+	}
+	n, err := s.entities.Count(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if includeFiles {
+		files, err := s.files.Count(ctx)
+		if err != nil {
+			return 0, err
+		}
+		n += files
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if n > maxInt {
+		return int(maxInt), nil
+	}
+	if n == 0 {
+		return 1, nil
+	}
+	return int(n), nil
+}
+
+func (s *SearchIndex) search(ctx context.Context, q lancestore.Query, topK int) ([]SearchResult, error) {
+	if err := s.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	entHits, err := s.entities.Search(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	out := entityHitsToResults(entHits, q.Mode())
+
+	sortResultsDeterministic(out)
+
+	if len(out) < topK || topK <= 0 {
+		fq := lancestore.Query{
+			Text: q.Text, TextColumn: lanceFileTextColumn, Limit: topK,
+			Filter: q.Filter, Rerank: q.Rerank,
+		}
+		if fq.Text != "" {
+			fileHits, ferr := s.files.Search(ctx, fq)
+			if ferr == nil {
+				files := fileHitsToResults(fileHits)
+				sortResultsDeterministic(files)
+				out = append(out, files...)
+			}
+		}
+	}
+
+	if topK > 0 && len(out) > topK {
+		out = out[:topK]
+	}
+	return out, nil
+}
+
+func entityHitsToResults(hits []lancestore.Hit, mode string) []SearchResult {
+	out := make([]SearchResult, 0, len(hits))
+	for _, h := range hits {
+		name, _ := h.Row["name"].(string)
+		etype, _ := h.Row["etype"].(string)
+		path, _ := h.Row["path"].(string)
+		doc, _ := h.Row["docstring"].(string)
+		isDep, _ := h.Row["is_dep"].(bool)
+		var line int
+		switch n := h.Row["line"].(type) {
+		case int64:
+			line = int(n)
+		case float64:
+			line = int(n)
+		}
+		out = append(out, SearchResult{
+			Type: etype, Name: name, Path: path, Line: line,
+			Docstring: doc, IsDepend: isDep,
+			SearchType: mode, RelevanceScore: h.Score, Distance: h.Distance,
+		})
+	}
+	return out
+}
+
+func fileHitsToResults(hits []lancestore.Hit) []SearchResult {
+	out := make([]SearchResult, 0, len(hits))
+	for _, h := range hits {
+		path, _ := h.Row["path"].(string)
+		name, _ := h.Row["name"].(string)
+		document, _ := h.Row["source"].(string)
+		out = append(out, SearchResult{
+			Type: LabelFile, Name: name, Path: path, Source: sourceFromFileSearchDocument(document),
+			SearchType: "fts", RelevanceScore: h.Score,
+		})
+	}
+	return out
+}
+
+// Counts reports how many entities and how many of them carry an embedding.
+//
+// Exposed because a caller has to be able to verify that embeddings reached the store, and the old
+// way of doing it — counting rows in two tables with raw SQL — is gone with the tables.
+func (s *SearchIndex) Counts(ctx context.Context) (entities, withVector int64, err error) {
+	if err = s.ensureTables(ctx); err != nil {
+		return 0, 0, err
+	}
+	if entities, err = s.entities.Count(ctx); err != nil {
+		return 0, 0, err
+	}
+	hits, err := s.entities.Search(ctx, lancestore.Query{
+		Filter: lanceVectorColumn + " IS NOT NULL", Columns: []string{"uid"}, Limit: 1_000_000,
+	})
+	if err != nil {
+		return entities, 0, err
+	}
+	return entities, int64(len(hits)), nil
+}
+
+// CountForPath reports how many entities and files the index holds for one path, which is what a
+// reindex test needs to prove a delete actually took.
+func (s *SearchIndex) CountForPath(ctx context.Context, relPath string) (entities, files int) {
+	if err := s.ensureTables(ctx); err != nil {
+		return 0, 0
+	}
+	filter := fmt.Sprintf("path = %s", astQuote(relPath))
+	if hits, err := s.entities.Search(ctx, lancestore.Query{Filter: filter, Limit: 100000}); err == nil {
+		entities = len(hits)
+	}
+	if hits, err := s.files.Search(ctx, lancestore.Query{Filter: filter, Limit: 10}); err == nil {
+		files = len(hits)
+	}
+	return entities, files
+}
+
+// SearchIndexBuilt reports whether an index exists and has files in it.
+//
+// Populated, not merely present: opening creates, so a store whose build died after the graph has
+// an index that exists and answers nothing.
+func SearchIndexBuilt(ctx context.Context, dbPath string) bool {
+	if dbPath == "" {
+		return false
+	}
+	if info, err := os.Stat(LanceIndexPath(dbPath)); err != nil || !info.IsDir() {
+		return false
+	}
+	idx, err := OpenSearchIndex(ctx, dbPath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = idx.Close() }()
+	if err := idx.ensureTables(ctx); err != nil {
+		return false
+	}
+	n, err := idx.files.Count(ctx)
+	return err == nil && n > 0
+}
+
+// FileSourceAt reads one file's text out of the index.
+func FileSourceAt(ctx context.Context, dbPath, relPath string) (string, bool) {
+	if dbPath == "" || relPath == "" {
+		return "", false
+	}
+	if info, err := os.Stat(LanceIndexPath(dbPath)); err != nil || !info.IsDir() {
+		return "", false
+	}
+	idx, err := OpenSearchIndex(ctx, dbPath)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = idx.Close() }()
+	return idx.FileSource(ctx, relPath)
+}
+
+// FileSource reads one file's text from an already-open index.
+func (s *SearchIndex) FileSource(ctx context.Context, relPath string) (string, bool) {
+	if err := s.ensureTables(ctx); err != nil {
+		return "", false
+	}
+	hits, err := s.files.Search(ctx, lancestore.Query{
+		Filter: fmt.Sprintf("path = %s", astQuote(relPath)), Limit: 1,
+	})
+	if err != nil || len(hits) == 0 {
+		return "", false
+	}
+	document, _ := hits[0].Row["source"].(string)
+	src := sourceFromFileSearchDocument(document)
+	return src, src != ""
+}
+
+const eachFileSourceBatch = 200
+
+// EachFileSource calls fn for every indexed file that has text, one at a time and in path order.
+//
+// fn returning an error stops the walk.
+//
+// A MISSING INDEX IS AN ERROR, NOT AN EMPTY WALK, and that distinction has to be made here rather
+// than left to the open. OpenSearchIndex CREATES what it opens, so without this check a store with
+// no index walks cleanly over zero files — and a caller writing an artifact would publish it as
+// complete. The SQLite version got this for free from a read-only open that failed on a missing
+// file; the directory-based store has to be asked.
+func EachFileSource(ctx context.Context, dbPath string, fn func(relPath, source string) error) error {
+	if dbPath == "" {
+		return fmt.Errorf("no search index path")
+	}
+	idxPath := LanceIndexPath(dbPath)
+	if info, err := os.Stat(idxPath); err != nil || !info.IsDir() {
+		return fmt.Errorf("no search index at %s: the store has no indexed file text", idxPath)
+	}
+	idx, err := OpenSearchIndex(ctx, dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = idx.Close() }()
+	return idx.EachFileSource(ctx, fn)
+}
+
+// EachFileSource is the walk on an already-open index.
+//
+// Paged by PATH rather than by offset: the engine's filter has no stable row ordering to offset
+// into, so the cursor is the last path seen. That also makes the walk resumable and immune to a
+// concurrent write shifting rows under it, which an offset would not be.
+func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, source string) error) error {
+	if err := s.ensureTables(ctx); err != nil {
+		return err
+	}
+	pathHits, err := s.files.Search(ctx, lancestore.Query{
+		Filter: "path IS NOT NULL", Limit: 1_000_000,
+	})
+	if err != nil {
+		return fmt.Errorf("read file paths: %w", err)
+	}
+	paths := make([]string, 0, len(pathHits))
+	for _, h := range pathHits {
+		if p, _ := h.Row["path"].(string); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+
+	for start := 0; start < len(paths); start += eachFileSourceBatch {
+		end := start + eachFileSourceBatch
+		if end > len(paths) {
+			end = len(paths)
+		}
+		page := paths[start:end]
+
+		quoted := make([]string, 0, len(page))
+		for _, p := range page {
+			quoted = append(quoted, astQuote(p))
+		}
+		hits, err := s.files.Search(ctx, lancestore.Query{
+			Filter: fmt.Sprintf("path IN (%s)", strings.Join(quoted, ", ")),
+			Limit:  len(page),
+		})
+		if err != nil {
+			return fmt.Errorf("read file sources: %w", err)
+		}
+		byPath := make(map[string]string, len(hits))
+		for _, h := range hits {
+			p, _ := h.Row["path"].(string)
+			document, _ := h.Row["source"].(string)
+			byPath[p] = sourceFromFileSearchDocument(document)
+		}
+		for _, p := range page {
+			src := byPath[p]
+			if src == "" {
+				continue
+			}
+			if err := fn(p, src); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func astQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// BuildSearchIndexFor builds a store's search half from the shards it was parsed from.
+//
+// Used when installing a context whose artifact carried no search index: the shards live in the
+// Hub download rather than beside the store, so nothing else can serve them and the index has to
+// be built before they go away. An installed context without it can be traversed but neither
+// searched nor read.
+func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache, embCache *ShardEmbCache) error {
+	if cache == nil {
+		return fmt.Errorf("build search index: no parse cache")
+	}
+	idx, err := OpenSearchIndex(ctx, dbPath)
+	if err != nil {
+		return fmt.Errorf("open search index: %w", err)
+	}
+	defer func() { _ = idx.Close() }()
+	return idx.RebuildFromCache(ctx, cache, BuildEmbLookup(cache, embCache))
+}
+
+// SearchMountFile records that this store's search index lives on object storage.
+//
+// SAME SHAPE AS THE GRAPH, deliberately: mounting a graph writes a local catalog whose tables name
+// a remote location, and this is the search half of exactly that idea — a few bytes of local
+// metadata pointing at data nobody downloaded. Without it a mounted context would open a local
+// index directory that does not exist and answer every search with nothing, which is
+// indistinguishable from a corpus that genuinely has no match.
+const SearchMountFile = "search.uri"
+
+// WriteSearchMount records where a mounted store reads its search index from.
+//
+// ONLY THE URI IS STORED. Region and endpoint are resolved from the ambient configuration when the
+// index is opened, and that is not an oversight: writing them here would freeze them, so pointing
+// the framework at a different endpoint would leave every installed context reaching for the old
+// one. The bucket is part of the location and so belongs in the URI; the rest is how you connect.
+func WriteSearchMount(storeDir, uri string) error {
+	if strings.TrimSpace(uri) == "" {
+		return fmt.Errorf("recording the search mount: no URI")
+	}
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(storeDir, SearchMountFile), []byte(uri+"\n"), 0o644)
+}
+
+func searchMountURI(storeDir string) string {
+	data, err := os.ReadFile(filepath.Join(storeDir, SearchMountFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func searchConfigFor(storeDir string) lancestore.Config {
+	if uri := searchMountURI(storeDir); uri != "" {
+		return lancestore.Config{URI: uri, S3: config.S3ConfigForURI(context.Background(), uri)}
+	}
+	return lancestore.Config{URI: LanceIndexPath(storeDir)}
+}
+
+// StoreEntityVectors writes a batch of freshly embedded entities back.
+//
+// It is an Upsert rather than an update of one column because a row is replaced whole here, so
+// the row has to be rebuilt — through buildEntityRow, the single constructor, so the body and
+// its trigrams stay exactly what a rebuild would have produced.
+func (s *SearchIndex) StoreEntityVectors(ctx context.Context, ents []cachedEntity, vecs [][]float32) error {
+	if len(ents) == 0 {
+		return nil
+	}
+	if s.Remote() {
+		return lancestore.ErrReadOnly
+	}
+	if len(ents) != len(vecs) {
+		return fmt.Errorf("storing vectors: %d entities, %d vectors", len(ents), len(vecs))
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		return err
+	}
+	rows := make([]lancestore.Row, 0, len(ents))
+	for i, ent := range ents {
+		rows = append(rows, buildEntityRow(ent, vecs[i]))
+	}
+	if err := s.entities.Upsert(ctx, "uid", rows); err != nil {
+		return fmt.Errorf("storing %d vectors: %w", len(rows), err)
+	}
+	return nil
+}
+
+// FinalizeVectors is called once an embedding cycle has finished writing.
+//
+// The synchronous AST rebuild deliberately leaves IVF-PQ pending. This heavy finalizer builds it
+// after vectors are restored/generated; below the training floor, exact scan is the ready state.
+func (s *SearchIndex) FinalizeVectors(ctx context.Context) error {
+	generation := s.VectorGeneration()
+	if s.storeDir != "" && generation == "" {
+		var err error
+		generation, err = beginVectorGeneration(s.storeDir)
+		if err != nil {
+			return fmt.Errorf("publishing pending vector generation: %w", err)
+		}
+	}
+	_, err := s.FinalizeVectorsForGeneration(ctx, generation)
+	return err
+}
+
+// FinalizeVectorsForGeneration builds IVF-PQ only when generation is still current.
+func (s *SearchIndex) FinalizeVectorsForGeneration(ctx context.Context, generation string) (bool, error) {
+	if s.Remote() {
+		return false, lancestore.ErrReadOnly
+	}
+	var finalizeLock *lockfile.Lock
+	if s.storeDir != "" {
+		var err error
+		finalizeLock, err = lockfile.TryAcquire(filepath.Join(s.storeDir, vectorFinalizeLockFile))
+		if errors.Is(err, lockfile.ErrLocked) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("lock vector index finalization: %w", err)
+		}
+		defer finalizeLock.Release()
+		current := readEmbedsStatus(s.storeDir)
+		if current.Generation != generation {
+			return false, nil
+		}
+		if current.VectorIndex == vectorIndexReady {
+			s.vectorCount = current.Vectors
+			return true, nil
+		}
+	}
+	entCount, vecCount, err := s.Counts(ctx)
+	if err != nil {
+		return false, fmt.Errorf("counting vectors: %w", err)
+	}
+	if vecCount < lanceMinRowsForVectorIndex {
+		s.log().Info("vector index not built: too few embeddings to train on",
+			"vectors", vecCount, "required", lanceMinRowsForVectorIndex,
+			"impact", "semantic search still answers, by scanning instead of by index")
+	} else if err := s.entities.EnsureIndexes(ctx, lanceVectorIndex()); err != nil {
+		return false, fmt.Errorf("building vector index: %w", err)
+	}
+	if err := s.entities.FoldNewRowsIntoIndexes(ctx); err != nil {
+		s.log().Warn("folding new vectors into the indexes", "error", err)
+	}
+	if s.storeDir != "" {
+		published := false
+		if err := withEmbedsStatusLock(s.storeDir, func(st embedsStatus) error {
+			if st.Generation != generation {
+				if st.VectorIndex != vectorIndexReady {
+					if err := s.entities.DropIndex(ctx, lanceVectorIndex()); err != nil {
+						s.log().Warn("discarding stale vector index", "error", err)
+					}
+				}
+				return nil
+			}
+			st.Vectors = vecCount
+			st.Entities = entCount
+			st.VectorIndex = vectorIndexReady
+			published = true
+			return writeEmbedsStatusFile(s.storeDir, st)
+		}); err != nil {
+			return false, fmt.Errorf("publishing vector index: %w", err)
+		}
+		if !published {
+			s.log().Info("discarded vector index built for a stale corpus generation",
+				"generation", generation)
+			return false, nil
+		}
+	}
+	s.vectorCount = vecCount
+	s.Maintain(ctx)
+	return true, nil
+}
+
+// lanceVersionRetention is how long a superseded dataset version is left alone before pruning.
+//
+// It is NOT zero, and the reason is the engine's concurrency model rather than caution. Lance is
+// MVCC: a reader answers from the snapshot it opened, so compaction never takes a query down —
+// but pruning a version a live reader still holds does. The margin has to exceed the longest
+// read this process can have in flight, and a search served through the MCP tools is orders of
+// magnitude shorter than this.
+//
+// Nothing here uses time travel, so retention beyond that margin buys nothing and costs the
+// whole superseded copy.
+const lanceVersionRetention = 15 * time.Minute
+
+// Maintain reclaims the disk a sequence of writes leaves behind: dead rows still occupying their
+// fragments, and superseded versions kept for a time travel nobody performs.
+//
+// COMPACTION AND PRUNING ARE A PAIR, and the order matters. Compacting writes one merged
+// fragment and leaves the ones it replaced on disk, because the superseded versions still
+// reference them — so compaction ALONE reclaims nothing. Pruning those versions is what drops
+// the files.
+//
+// There is no "is it fragmented enough" test before compacting, and the first version of this
+// had one: it counted the files under the table's data directory and compacted above a
+// threshold. That number is not a fragment count — it does not go down when compaction merges,
+// so the threshold stayed tripped forever and it would have compacted on every single write,
+// which is the cost it was written to avoid. The engine already answers the question correctly:
+// with nothing to merge it reports FragmentsRemoved: 0 and has only read manifest metadata.
+//
+// It is called after the index has been written, never before a read, and it is best-effort:
+// every failure here degrades disk usage, not correctness, so it is logged rather than returned.
+func (s *SearchIndex) Maintain(ctx context.Context) {
+	if s.Remote() {
+		return
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		s.log().Warn("index maintenance skipped: tables unavailable", "error", err)
+		return
+	}
+	for _, t := range []struct {
+		name  string
+		table *lancestore.Table
+	}{
+		{lanceEntitiesTable, s.entities},
+		{lanceFilesTable, s.files},
+	} {
+		if t.table == nil {
+			continue
+		}
+		t0 := time.Now()
+		if res, err := t.table.Compact(ctx); err != nil {
+			s.log().Warn("compacting the search index", "table", t.name, "error", err)
+		} else if res.FragmentsRemoved > 0 {
+			s.log().Info("search index compacted", "table", t.name,
+				"fragments_removed", res.FragmentsRemoved, "fragments_added", res.FragmentsAdded,
+				"duration_ms", time.Since(t0).Milliseconds())
+		}
+		if res, err := t.table.PruneVersions(ctx, lanceVersionRetention); err != nil {
+			s.log().Warn("pruning superseded index versions", "table", t.name, "error", err)
+		} else if res.OldVersions > 0 {
+			s.log().Info("superseded index versions pruned", "table", t.name,
+				"versions", res.OldVersions, "bytes_reclaimed", res.BytesRemoved)
+		}
+	}
+}

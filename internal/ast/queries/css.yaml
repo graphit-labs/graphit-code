@@ -1,0 +1,116 @@
+
+
+language: css
+grammar: tree-sitter-css
+extensions: [".css", ".pcss", ".postcss"]
+
+queries:
+
+  - data_key: css_classes
+    graph_label: CssClass
+    pattern: '(class_selector (class_name (identifier) @name))'
+
+  - data_key: css_ids
+    graph_label: CssId
+    pattern: '(id_selector (id_name) @name)'
+
+  - data_key: css_elements
+    graph_label: CssElement
+    pattern: '(selectors (tag_name) @name)'
+  - data_key: css_elements
+    graph_label: CssElement
+    pattern: '(pseudo_class_selector (tag_name) @name)'
+
+  - data_key: css_pseudo_classes
+    graph_label: CssPseudoClass
+    pattern: '(pseudo_class_selector (class_name (identifier) @name))'
+
+  - data_key: css_pseudo_elements
+    graph_label: CssPseudoElement
+    pattern: '(pseudo_element_selector (tag_name) @name)'
+
+  - data_key: css_attributes
+    graph_label: Attribute
+    pattern: '(attribute_selector (attribute_name) @name)'
+  - data_key: css_attributes
+    graph_label: Attribute
+    pattern: '(attribute_selector (attribute_name) @name (string_value) @value)'
+    value_capture: value
+    value_label: AttributeValue
+
+  - data_key: css_properties
+    graph_label: CssProperty
+    pattern: '(declaration (property_name) @name (#not-match? @name "^--"))'
+  - data_key: css_properties
+    graph_label: CssProperty
+    pattern: '(declaration (property_name) @name [(plain_value) (color_value) (string_value) (integer_value) (float_value)] @value (#not-match? @name "^--"))'
+    value_capture: value
+    value_label: Value
+
+  - data_key: css_variables
+    graph_label: CssVariable
+    pattern: '(declaration (property_name) @name (#match? @name "^--"))'
+  - data_key: css_variables
+    graph_label: CssVariable
+    pattern: '(declaration (property_name) @name [(plain_value) (color_value) (string_value) (integer_value) (float_value)] @value (#match? @name "^--"))'
+    value_capture: value
+    value_label: Value
+
+  - data_key: css_keyframes
+    graph_label: Keyframes
+    pattern: '(keyframes_statement (keyframes_name) @name)'
+
+  - data_key: css_media_features
+    graph_label: MediaFeature
+    pattern: '(feature_query (feature_name) @name)'
+  - data_key: css_media_features
+    graph_label: MediaFeature
+    pattern: '(feature_query (feature_name) @name [(plain_value) (integer_value) (float_value)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: css_at_rules
+    graph_label: AtRule
+    pattern: '(at_rule (at_keyword) @name)'
+
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement (call_expression (function_name) @_fn (arguments (string_value (string_content) @name))) (#eq? @_fn "url"))'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement (string_value (string_content) @name))'
+
+  - data_key: css_var_refs
+    graph_label: ""
+    pattern: '(call_expression (function_name) @_fn (arguments (plain_value) @name) (#eq? @_fn "var"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: css_urls
+    graph_label: ""
+    pattern: '(call_expression (function_name) @_fn (arguments (string_value (string_content) @name)) (#eq? @_fn "url"))'
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types: {}
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - comment
+
+embed_labels:
+  - CssClass
+  - CssId
+  - CssElement
+  - CssVariable
+  - Keyframes
+  - AtRule
+  - Comment

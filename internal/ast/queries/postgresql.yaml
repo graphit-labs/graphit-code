@@ -1,0 +1,341 @@
+
+
+language: postgresql
+parser: antlr4
+grammar: antlr-postgresql
+start_rule: root
+extensions: [".sql", ".pgsql", ".plpgsql", ".pg"]
+exclusive: true
+
+target_rules:
+  CALLS: { labels: [Function, Procedure, Trigger] }
+  SELECTS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  INSERTS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  UPDATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  DELETES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  ALTERS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  DROPS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  CREATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  TRUNCATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  REFERENCES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+  - data_key: column_writes_update
+    pattern: "//set_clause/set_target"
+    name_capture: name
+    qualifier_capture: "updatestmt/relation_expr_opt_alias/relation_expr/qualified_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: column_writes_insert
+    pattern: "//insert_column_list/insert_column_item"
+    name_capture: name
+    qualifier_capture: "insertstmt/insert_target/qualified_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//createfunctionstmt/func_name"
+    name_capture: name
+    type: entity
+
+  - data_key: procedures
+    graph_label: Procedure
+    pattern: "//createprocedurestmt/func_name"
+    name_capture: name
+    type: entity
+
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//createschemastmt/colid"
+    name_capture: name
+    type: entity
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//createstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  - data_key: views
+    graph_label: View
+    pattern: "//viewstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  - data_key: mviews
+    graph_label: MaterializedView
+    pattern: "//creatematviewstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//indexstmt"
+    name_capture: index_name_
+    value_capture: "unique_"
+    value_label: Value
+    type: entity
+
+  - data_key: index_table
+    pattern: "//indexstmt/relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//indexstmt/index_params/index_elem"
+    name_capture: name
+    type: entity
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//createseqstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//createtrigstmt/name"
+    name_capture: name
+    type: entity
+
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//createtrigstmt/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//createdomainstmt/any_name"
+    name_capture: name
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//compositetypestmt/any_name"
+    name_capture: name
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//createenumstmt/any_name"
+    name_capture: name
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//createrangestmt/any_name"
+    name_capture: name
+    type: entity
+
+  - data_key: extensions
+    graph_label: Extension
+    pattern: "//createextensionstmt/name"
+    name_capture: name
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//columnDef/colid"
+    name_capture: name
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//columnDef"
+    name_capture: colid
+    value_capture: "colquallist/**/colconstraintelem/b_expr"
+    value_label: Value
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//func_arg/param_name"
+    name_capture: name
+    type: entity
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//decl_statement/decl_varname"
+    name_capture: name
+    type: entity
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//colconstraint/name"
+    name_capture: name
+    type: entity
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//tableconstraint/name"
+    name_capture: name
+    type: entity
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//callstmt//func_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//func_application/func_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause//relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_list//table_ref//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insertstmt/insert_target/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: updates
+    graph_label: ""
+    pattern: "//updatestmt/relation_expr_opt_alias//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//deletestmt/relation_expr_opt_alias//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: DELETES
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//altertablestmt/relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alterseqstmt/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//dropstmt//any_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//dropstmt//function_with_argtypes//func_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncatestmt//relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grantstmt//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: revokes
+    graph_label: ""
+    pattern: "//revokestmt//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+context_types:
+  createfunctionstmt: Function
+  createprocedurestmt: Procedure
+  createschemastmt: Schema
+  createstmt: Table
+  viewstmt: View
+  creatematviewstmt: MaterializedView
+  createtrigstmt: Trigger
+  createdomainstmt: Type
+  compositetypestmt: Type
+  createenumstmt: Type
+  createrangestmt: Type
+  indexstmt: Index
+
+context_name_paths:
+  createtrigstmt: name
+  indexstmt: index_name_
+
+comment_types:
+  - LineComment
+  - BlockComment
+
+declaration_types:
+  - createfunctionstmt
+  - createstmt
+  - viewstmt
+  - creatematviewstmt
+  - indexstmt
+  - createseqstmt
+  - createtrigstmt
+  - createschemastmt
+  - createdomainstmt
+
+complexity:
+  node_types:
+    - stmt_if
+    - elsif_clause
+    - stmt_for
+    - stmt_while
+    - stmt_foreach_a
+    - case_when
+    - proc_exception
+
+embed_labels:
+  - Function
+  - Procedure
+  - Trigger
+  - Type
+  - Table
+  - View
+  - MaterializedView
+  - Schema
+  - Extension
+  - Column
+  - Constraint
+  - Index
+  - Sequence
+  - Variable
+  - Comment

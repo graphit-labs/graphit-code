@@ -1,0 +1,179 @@
+language: javascript
+grammar: tree-sitter-javascript
+extensions: [".js", ".jsx", ".mjs"]
+
+target_rules:
+  CALLS: { labels: [Function, Method] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(generator_function_declaration name: (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_definition name: (property_identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(variable_declarator name: (identifier) @name value: (arrow_function))'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(variable_declarator name: (identifier) @name value: (function_expression))'
+
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (identifier) @name)'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(lexical_declaration (variable_declarator name: (identifier) @name))'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(variable_declarator name: (identifier) @name value: [(number) (true) (false) (null) (undefined) (string) (template_string) (regex)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement source: (string) @name)'
+  - data_key: imports
+    graph_label: Export
+    pattern: '(export_statement source: (string) @name)'
+
+  - data_key: imports
+    graph_label: Import
+    pattern: '(call_expression function: (identifier) @_fn arguments: (arguments (string) @name) (#eq? @_fn "require"))'
+
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair key: (property_identifier) @name value: (string (string_fragment) @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair key: (property_identifier) @name value: [(number) (true) (false) (null)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair key: (string (string_fragment) @name) value: (string (string_fragment) @value))'
+    value_capture: value
+    value_label: Value
+
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair key: (property_identifier) @name value: [(object) (array)])'
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair key: (string (string_fragment) @name) value: [(object) (array)])'
+
+  - data_key: array_items
+    graph_label: Value
+    pattern: '(pair key: (property_identifier) @parent value: (array (string (string_fragment) @name)))'
+    parent_capture: parent
+    parent_label: Pair
+  - data_key: array_items
+    graph_label: Value
+    pattern: '(pair key: (string (string_fragment) @parent) value: (array (string (string_fragment) @name)))'
+    parent_capture: parent
+    parent_label: Pair
+
+  - data_key: exports
+    type: relation
+    relation_type: EXPORT
+    pattern: '(export_statement declaration: (function_declaration name: (identifier) @name))'
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(formal_parameters (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_definition property: (property_identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_definition property: (property_identifier) @name value: [(number) (true) (false) (null) (undefined) (string) (template_string) (regex)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (member_expression property: (property_identifier) @name))'
+  - data_key: instantiations
+    type: relation
+    relation_type: INSTANTIATES
+    pattern: '(new_expression constructor: (identifier) @name)'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(class_heritage (identifier) @name)'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(member_expression property: (property_identifier) @name)'
+  - data_key: field_writes
+    type: relation
+    relation_type: WRITES_FIELD
+    pattern: '(assignment_expression left: (member_expression property: (property_identifier) @name))'
+
+exports:
+  strategy: export_statement
+
+self_keywords: ["this."]
+
+context_types:
+  class_declaration: Class
+  function_declaration: Function
+  method_definition: Method
+
+  generator_function_declaration: Function
+
+  lexical_declaration: Variable
+
+context_name_paths:
+  lexical_declaration: variable_declarator/name
+
+anon_func_types:
+  - arrow_function
+  - function_expression
+  - function
+  - generator_function
+
+declaration_types:
+  - function_declaration
+  - generator_function_declaration
+  - method_definition
+  - class_declaration
+  - variable_declarator
+  - lexical_declaration
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_case
+    - catch_clause
+    - ternary_expression
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Class
+  - Function
+  - Method
+  - Field
+  - Variable
+  - Comment

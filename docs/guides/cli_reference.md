@@ -1,0 +1,667 @@
+---
+title: "CLI Command Reference"
+description: "Reference manual detailing every subcommand, flag, and configuration override option in the Graphit CLI."
+content-type: reference
+audience: developers
+keywords:
+  - CLI
+  - commands
+  - reference
+  - arguments
+  - flags
+prerequisites:
+  - "docs/guides/getting_started.md"
+related:
+  - "docs/guides/user_manual.md"
+  - "docs/guides/github-actions-artifacts.md"
+---
+
+# Command Line Interface Reference
+
+The `graphit` command-line tool acts as the control center for configuring project registries, indexing code structure, query-tuning, and running background daemon tasks.
+This document lists every command and flag available in the CLI.
+
+---
+
+## Global Flags
+
+These flags can be appended to any command:
+
+| Flag | Shorthand | Description | Default |
+|---|---|---|---|
+| `--verbose` | `-v` | Enables detailed debug logs on stdout. | `false` |
+| `--config` | `-c` | Override a configuration value inline (e.g. `-c agent=cursor`). | `nil` |
+| `--non-interactive` | | Forbids prompts, confirmations, browsers, editors, pagers, and interactive chat; missing input is an error. | `false` |
+
+---
+
+## Project Lifecycle Commands
+
+These commands initialize and maintain Graphit Code environments:
+
+### `setup`
+Initializes the global directory, ensures the persisted default provider `local`, and collects
+event-privacy, agent-adapter, and agent-CLI preferences. The canonical provider has explicit local
+embedding/rerank services and ONNX `auto`/`0`, but no profile. Setup never configures account
+identity, MCP, broker, S3, OIDC, claims, custom AI topology, or credentials.
+```bash
+graphit setup
+```
+
+Every question has a flag. With `--non-interactive`, every applicable answer must be explicit,
+including empty values where a current/default value is intended. Setup does not prompt for
+embedding or rerank topology, devices, or credentials.
+
+```bash
+# one answer given, the rest still asked
+graphit setup --agent cursor
+
+graphit --non-interactive setup --agent cursor --cli cursor-agent \
+  --anonymize-events=false
+```
+
+An empty value is an answer for an optional runtime setting. Omitting a flag in interactive mode
+prompts; omitting it in non-interactive mode fails.
+
+**Flags:**
+
+| Flag | Sets | Notes |
+|---|---|---|
+| `--anonymize-events[=<bool>]` | `hub.events.anonymize` | Default `false`; bare flag means `true`, and an explicitly empty value clears the key. Chooses hashes instead of explicit project/user IDs in event payloads. |
+| `--agent <string>` | `agent` | Default agent adapter |
+| `--cli <string>` | `cli` | Default CLI for the AI fallback |
+
+Provider and account commands follow setup; see [Authentication](authentication.md).
+
+Local manifests with `fetch_policy: setup` are provisioned during setup; `on_demand` manifests wait
+until first use, and `never` manifests require operator-mounted files.
+See [AI Models, Providers, and Agent CLIs](ai_models.md) for every provider, model default,
+dimension, credential, CLI protocol, and data boundary.
+
+### `init`
+Completes project workspace initialization. It creates a minimal project identity when none exists,
+otherwise preserves the existing ULID, registers the project under the global active tracker,
+generates rules or skills files, and maintains a generated block in the project's `.gitignore`.
+The block ignores `**/.graphit/runtime/` and `**/.graphit/grammars/`; project query YAMLs and rule
+overrides remain versionable. See
+[Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
+```bash
+graphit init --agent <agent_name> [flags]
+```
+**Flags:**
+- `--agent <string>`: Targets a specific agent adapter: `antigravity`, `cursor`, `claude`, `gemini`, `kiro`, `codex`, `opencode`, `qwen`, `kimi`, or `deepcode`.
+- `--id <string>`: Sets the initial ULID only when identity does not exist; a conflicting existing
+  ULID is rejected.
+- `--name <string>`: Sets or renames the human-readable discovery name; remote registration still
+  enforces global uniqueness.
+- `--description <string>`: Sets the project description inline to skip prompts.
+
+### `sync`
+Forces a complete synchronization of the project state.
+```bash
+graphit sync [flags]
+```
+**Flags:**
+- `--no-background`: Prevents spawning background tasks asynchronously. Both phases (sync and heavy indexing/processing) execute synchronously inside the terminal process.
+- `--heavy`: Runs only Phase 2 tasks (generating embeddings and memory consolidation).
+
+Before indexing, sync inspects Git when the current project is a repository. If S3 storage is available and
+the local LanceDB stores are empty, it selects the exact compatible commit or nearest published
+ancestor from the current `branch/...` lineage and creates filesystem-local shallow clones whose
+base fragments remain in S3. Reads can touch S3 on demand and subsequent writes remain local. A detached checkout can select its source
+lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than cloned.
+
+### `update`
+Checks authorized per-project Hub entries for updates to installed artifacts, refreshes managed
+files, and advances native-store version selections as appropriate. It does not download or synchronize
+the complete global name directory.
+```bash
+graphit update --agent <agent_name>
+```
+
+### `remove`
+Deletes project-local configuration, rules files, git hooks, and ignorer configurations. Does not affect source code or the global database.
+```bash
+graphit remove --agent <agent_name>
+```
+
+### `uninstall`
+Cleans up all global parameters, schedules, background daemons, and deletes the `~/.graphit` workspace directory.
+```bash
+graphit uninstall
+```
+
+### `self-update`
+Self-downloads and replaces the current `graphit` CLI binary with the latest release published on GitHub.
+```bash
+graphit self-update
+```
+
+---
+
+## Configuration Management
+
+## Authentication commands
+
+### `provider`
+
+`provider add <name> --type local|oidc|broker` creates reusable identity, MCP/broker and AI service
+topology. Provider outputs redact an OIDC client secret.
+`provider list`, `provider show`, `provider update`, and `provider remove` manage it. Updates advance
+the provider revision and force dependent profiles to log in again. Removal requires confirmation;
+referenced providers additionally require `--cascade`. If `local` is removed while no profile is
+active, the next AI resolution recreates its canonical local/ONNX `auto`/`0` configuration. While
+another profile is active, that profile's provider wins and `local` remains absent.
+
+### `login`, `logout`, and `account`
+
+`login --profile <name> --provider <name>` authenticates and always activates the profile. Local
+login accepts `--username`, `--organization`, repeatable `--team`, `--mcp-key`, `--broker-key`,
+`--embedding-api-key`, and `--rerank-api-key`. OIDC login uses
+Authorization Code + PKCE interactively; non-interactive OIDC login requires `--access-token` and
+`--id-token`, with optional refresh token and expiry. OIDC login rejects static MCP/broker keys;
+HTTP MCP uses the verified access token and broker calls relay or exchange that request bearer.
+Broker login is browser-only: Graphit discovers the OpenID issuer, public client ID, scopes and
+callback path from `--broker-endpoint`, then uses standard OIDC discovery and endpoints; the Broker
+page chooses between enabled local and upstream OIDC methods and returns a signed ID token plus
+opaque access/refresh tokens. Graphit verifies exact issuer and same-origin endpoints plus
+Authorization Code, refresh, PKCE S256, public-client, EdDSA, and userinfo capabilities before
+opening the browser. Broker providers reject direct OIDC, static-key,
+anonymous, audience/resource, and token-exchange flags.
+Login always activates the profile.
+For a provider configured with `--broker-allow-anonymous`, local login may instead use
+`--anonymous`; it cannot be combined with username/organization/team/broker-key flags.
+
+Important provider option groups:
+
+| Capability | Options |
+|---|---|
+| Broker identity | `--type broker --broker-endpoint URL`; login contract is discovered from that Broker |
+| OIDC | `--issuer`, `--client-id`, `--client-secret`, `--token-auth-method`, `--scopes`, `--redirect-uri`, claim mappings, repeatable `--auth-param` |
+| MCP | `--mcp-endpoint`, `--mcp-audience`, `--mcp-resource`, `--allow-daemon-mcp-key` |
+| Broker | `--broker-endpoint`, `--broker-audience`, `--broker-resource`, `--broker-token-strategy relay|token-exchange`, `--broker-token-exchange-endpoint`, `--broker-allow-anonymous` |
+| Embedding | `--embedding-mode local|direct|broker|disabled`; local `--embedding-device auto|cpu|cuda|coreml` and `--embedding-device-id`; direct protocol/endpoint/model/dimensions |
+| Rerank | `--rerank-mode local|direct|broker|disabled`; local `--rerank-device auto|cpu|cuda|coreml` and `--rerank-device-id`; direct protocol/endpoint/model plus `--rerank-dimensions` for OpenAI/OpenAI-compatible/Google embedding-simulated rerank |
+| S3 topology | `--s3-bucket`, `--s3-region`, `--s3-endpoint`, `--s3-prefix`, `--s3-credential-source login|aws-chain|sts`; first-class Broker providers resolve these values in memory per project/user/Hub scope when Broker S3 is enabled and otherwise use local storage |
+| OIDC STS | `--sts-endpoint`, `--sts-role-arn`, `--sts-session-name`, `--sts-duration`, `--sts-use-access-token`, `--clear-sts` |
+| Local S3 login | `--s3-access-key`, `--s3-secret-key`, `--s3-session-token`, or `--aws-profile`; `--allow-aws-credential-chain` enables the ambient chain |
+
+Adding broker configuration requires both `--embedding-mode broker` and `--rerank-mode broker`;
+provider validation rejects any mixed, local, direct, disabled, or omitted AI mode. Rerank execution
+is still controlled separately by `search.rerank`. Use `provider update NAME --clear-broker` to
+remove the broker block and set both AI modes to the desired non-broker values in the same update.
+Interactive add/update prompts for device and device ID only for local services, preselecting the
+provider's current values or `auto`/`0`. Non-interactive add/update may omit either value to preserve
+the current value or accept the new-service default. Device flags are rejected for direct, broker,
+and disabled services. The rule follows AI service mode for both local and OIDC auth providers.
+
+`account list`, `account show [profile]`, and `account use <profile>` inspect or atomically select
+profiles. `logout [--profile <name>]` deletes that profile's credentials. Full provider flags are
+in [Authentication](authentication.md); IdP registration and complete Keycloak,
+Microsoft Entra ID, Auth0, MCP, and Broker-issued S3 session walkthroughs are in
+[OIDC integration](oidc-integration.md).
+
+### `config`
+Gets, sets, or unsets parameters inside your active configuration file.
+By default, targets your project-local `graphit.lock.json`.
+```bash
+graphit config [key] [value] [flags]
+```
+**Flags:**
+- `--global`: Reads or updates parameters in `~/.graphit/config.json` instead.
+- `--get`: Retrieves the value of a key.
+- `--unset`: Deletes a key from the configuration.
+- `--list`: Prints all keys and values.
+- `--secret`: Reads a value securely from stdin without echoing it on terminal logs.
+
+**Examples:**
+```bash
+graphit config agent cursor
+graphit config --global agent cursor
+graphit config --get agent
+graphit config --unset agent
+graphit config --list
+```
+
+**AST Cluster Configuration:**
+```bash
+# Set cluster mapping for multi-domain monorepos (persisted to graphit.lock.json)
+graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
+
+```
+The `ast.cluster_map` accepts comma-separated `path=cluster` pairs. Paths are directory prefixes
+(trailing slash optional). `--cluster-path` persists that mapping. Use `--cluster <name>` on an
+individual `ast index` or `ast watch` invocation for a fallback cluster. Although current commands
+may preserve an `ast.cluster` field in the lockfile, no configuration resolver consumes it.
+
+For every supported key, environment spelling, scope, default, and module switch, see the
+[Configuration Reference](configuration.md).
+
+Client configuration secrets are redacted by `--get` and `--list`; redaction does not encrypt the
+value on disk. Authentication and AI keys are rejected here and belong to provider/login.
+Project values override global values, while matching
+`GRAPHIT_*` environment variables override both.
+
+---
+
+## Dashboard Interface
+
+### `ui`
+Launches the embedded unified web application server and automatically selects a free port.
+Allows you to explore the AST code database in 3D, chat with the wiki knowledge, and view memories.
+```bash
+graphit ui [--repo <path>]
+```
+
+The server binds to `ui.host` (`127.0.0.1` by default). Browser origins use the exact,
+comma-separated `ui.allowed_origins` policy; without an override, only same-origin and
+localhost loopback origins are accepted. The server has no authentication, so a reachable
+instance needs a firewall, VPN, or authenticated reverse proxy. `--repo` selects the
+repository to visualize; there is no fixed-port flag. See
+[S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
+
+---
+
+## MCP Integration
+
+### `mcp`
+Starts an MCP (Model Context Protocol) server.
+Allows AI tools to consume AST querying, memory search, and wiki indexes via standardized MCP actions.
+
+The MCP server runs inside the daemon process, exposed via HTTP on a dynamic port with Bearer token authentication.
+The `--stdio` flag starts a lightweight proxy that relays JSON-RPC messages between stdin/stdout and the daemon's HTTP endpoint.
+
+```bash
+graphit mcp [flags]
+```
+**Flags:**
+- `--stdio`: Starts the MCP stdio proxy for Agent integration (used by Claude Code, Cursor, Gemini, etc.).
+
+**Without flags:** Displays the MCP HTTP endpoint URL and auth information.
+
+**Architecture:**
+- The daemon listens on `127.0.0.1:<dynamic-port>/mcp` (Streamable HTTP transport)
+- Authentication: generated runtime key; local-provider static MCP key; or, with an active OIDC
+  broker provider, the caller's verified MCP-audience token propagated to the broker by relay or
+  RFC 8693 exchange
+- A configured provider MCP endpoint is selected by the stdio proxy instead of the local daemon
+- Port: Written to `~/.graphit/daemon/mcp.port`
+- The stdio proxy auto-recovers if the daemon restarts, preserves its host-agent identity, replays the MCP handshake, and sends `notifications/tools/list_changed` so clients that implement catalog invalidation refresh their tools. Fresh sessions always receive the new catalog.
+
+---
+
+## Subsystem Commands
+
+### `hub`
+
+Discovers and distributes versioned code graphs, documentation, rules, skills, agents, commands,
+MCP definitions, powers, and language packs.
+
+Remote list and search results are deny-by-default, limited to projects granted to the trusted
+subject, and returned as bounded pages. Exact show, install, update, content, submit, and mount
+operations revalidate authorization; a known ULID or artifact ID is not a capability. The project
+ULID is the stable qualifier, while a mutable globally unique name is only a friendly lookup.
+
+```bash
+graphit hub <subcommand> [flags]
+```
+
+The CLI `install` and `uninstall` commands operate on the global version-keyed store, so they also
+work on a server with no checkout. MCP clients may additionally pass a real `project_dir` to create
+a project-scoped installation.
+
+**Subcommands:**
+
+- `list [--type <type>] [--page-size <n>] [--cursor <token>]`: List one bounded page of
+  authorized registry artifacts.
+- `search <term> [--type <type>] [--page-size <n>] [--cursor <token>]`: Search IDs, names, and
+  descriptions within authorized projects.
+- `show <id> [--type <type>] [--project-id <ulid>]`: Show one authorized registry entry. Supply
+  the publishing project ULID to avoid a cross-project scan or to disambiguate repeated artifact IDs.
+- `install <id>[@version] [--type <type>] [--alias <name>]`: Install globally. Pin an exact version
+  for reproducible agent work. Versions may be numeric constraints (`2`, `2.1`, `2.1.3`) or exact
+  named channels such as `branch/main` and `branch/feature/api`.
+- `uninstall <id> [--type <type>]`: Drop a global installation.
+- `update [id] [--type <type>]`: Update every installed artifact or one selected artifact.
+- `submit <id> <local-path>`: Publish local source. Flags are `--version` (default `1.0.0`),
+  `--type` (default `rule`), `--name`, `--description`, and comma-separated `--tags`. Publishing AST
+  or knowledge requires an initialized checkout; the command reads `project.id` from
+  `graphit.lock.json` so broker authorization is scoped to that project. Republishing the same
+  numeric or named version is supported and replaces its content with last-writer-wins semantics. A
+  version beginning with `branch/` matches the resolved Git branch and requires a clean worktree
+  when the project is in Git; each such publication records the commit and exact table versions in
+  the branch history. Outside Git, a new `branch/...` channel is an exact mutable snapshot without
+  commit history and cannot replace an existing Git-backed lineage. A version
+  beginning with `tag/` is a compact release snapshot: each staged LanceDB table retains only its
+  current version, and publication fails if superseded MVCC history cannot be removed. See
+  [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the unattended
+  branch/tag workflow and retention constraints.
+- `link <name> --path <project> --type <type>`: Record or materialize a local development link in
+  the current initialized project. AST/Knowledge point to the sibling's compiled global store;
+  adapter-native artifacts use the adapter's own destination.
+- `unlink <name> --type <type>`: Remove a local link from the current project.
+- `projects [--page-size <n>] [--cursor <token>]`: List one bounded page of Hub projects visible to
+  the trusted subject. This is distinct from the machine-local ecosystem registry.
+- `type-path <type> <name>`: Print the adapter-native destination for creating a physical skill,
+  command, agent, or MCP artifact. Rules have no physical destination because hooks load them.
+- `rule`: Inspect or override the Hub routing mandate.
+
+The inherited `--agent` flag selects the adapter for project materialization. Artifact types are
+`knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power`, and `language`.
+
+### `live`
+
+Runs an agent in a disposable workspace assembled from selected Hub artifacts plus user memory.
+Every `-a/--artifact` accepts `[<type>:]<id>[@version]` and is repeatable.
+
+```bash
+graphit live "where is retry decided?" \
+  --artifact knowledge:acme-docs@3.0.1 \
+  --artifact ast:acme-api@2.1.0
+```
+
+- With a question, the answer streams and the command exits; without one, the session remains
+  interactive until `/exit` or a second `Ctrl+C`.
+- `--agent <name>` chooses adapter conventions in the throwaway project.
+- `--json` emits one structured event per line.
+- `graphit live sessions` lists retained sessions.
+- `graphit live remove <session-id>` deletes one session and its throwaway workspace.
+
+Leaving an interactive run does not delete it. `modules.agent=false` disables Live Search because
+the server must launch a coding-agent CLI; artifact retrieval itself remains available.
+
+### `completion`
+
+Generates shell completion scripts for `bash`, `fish`, `powershell`, or `zsh`:
+
+```bash
+graphit completion bash
+graphit completion zsh
+```
+
+Each shell subcommand's `--help` shows the installation command for that shell.
+
+### `ast`
+Directly indexes, queries, and manages the abstract syntax tree.
+```bash
+graphit ast <subcommand> [flags]
+```
+**Subcommands:**
+- `index [path...]`: Parses source code and builds the AST knowledge graph.
+  - `--reset`: Wipe the complete AST store before indexing. It waits for active embedding/index work; the daemon resumes from the rebuilt store without a restart.
+  - `--reindex`: Wipe only this repo's data before re-indexing.
+  - `--cluster <name>`: Logical cluster tag for queries (fallback for unmatched paths).
+  - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable). Paths are directory prefixes; most specific match wins.
+  - `--workers <int>`: Worker thread count.
+  - `--no-source`: Skip storing raw source code inside nodes.
+- `watch [path]`: Watch directory for file changes and re-index incrementally.
+  - `--cluster <name>`: Logical cluster tag (fallback).
+  - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable).
+  - `--workers <int>`: Worker thread count.
+- `query <cypher-query | natural-language-question>`: Execute graph query.
+  - `--ai`: Generate Cypher from natural language via AI.
+  - `--cypher`: Print generated Cypher without executing (requires `--ai`).
+  - `--ai-optimized`: Output tabular representation for AI agent tokens.
+  - `--hybrid`: Perform combined BM25 + semantic vector search (RRF).
+  - `--top <int>`: Limit results count.
+  - `--context <name>`: Query an imported context instead of project.
+- `schema`: Print the AST node properties and labels schema.
+  - `--context <name>`: Context name.
+- `install <path> --context <name>`: Import external AST database into named context.
+  - `--reset`: Wipe context before importing.
+  - `--list`: List imported contexts.
+  - `--workers <int>`: Thread count.
+- `remove`: Wipe project AST or context.
+  - `--context <name>`: Context name.
+- `sync`: Re-sync imported context from cache.
+- `export`: Export AST graph to Obsidian vault or `.ast` bundle.
+  - `--format <format>`: Format: `obsidian` or `bundle`.
+  - `--output <dir>`: Output path; defaults to `.graphit/runtime/ast/export/`.
+  - `--no-sources`: Exclude source code contents.
+- `list`: List all installed AST contexts.
+- `source <relative-path>`: Show stored source code for a file.
+  - `--entity <name>`: Extract specific entity range.
+  - `--entity-type <type>`: Class context type.
+  - `--head <int>`: Show first N lines.
+  - `--tail <int>`: Show last N lines.
+  - `--start <int>`: Start line.
+  - `--end <int>`: End line.
+  - `--pattern <string>`: Grep-like match.
+  - `--regex`: Treat pattern as regex.
+  - `--before <int>`: Context before match.
+  - `--after <int>`: Context after match.
+  - `--line-numbers`: Print line prefixes.
+  - `--context <name>`: Context name.
+- `embed`: Generate vector embeddings for semantic search.
+- `rule`: Manage the AST module rule.
+  - `--unset`: Remove customization.
+  - `--default`: Show default rule.
+
+### `knowledge`
+Manages project documentation wiki and contexts.
+```bash
+graphit knowledge <subcommand> [flags]
+```
+**Subcommands:**
+- `index [path]`: Scan `knowledge.docs_dir` (default `docs/`) plus the root README, and compile the wiki index. A `path` argument overrides both and indexes that directory wholesale.
+  - `--reset`: Clear the knowledge store first. It coordinates with background embedding and does not require a daemon restart.
+  - `--louvain`: Detect community structures.
+  - `--workers <int>`: Thread count.
+  - `--context <name>`: Re-index context.
+- `watch [path]`: Watch the project and incrementally recompile from the same scope. A `path` argument watches and indexes that directory wholesale.
+  - `--louvain`: Detect community structures.
+- `query <text>`: Search the knowledge wiki.
+  - `--context <name>`: Search context.
+- `lint`: Audit wiki files for link defects.
+  - `--fix`: Fix broken backlinks.
+  - `--deep`: Enable AI contradiction audit.
+  - `--stale-days <int>`: Age threshold.
+  - `--context <name>`: Context name.
+- `schema`: Print knowledge graph schema.
+- `install <name>`: Fetch knowledge context.
+- `remove`: Clear knowledge graph or context.
+  - `--context <name>`: Context name.
+- `sync`: Re-sync context.
+- `export`: Export wiki DB.
+- `list`: List contexts.
+- `rule`: Manage knowledge rule.
+
+### `memory`
+Manipulates persistent agent memories.
+```bash
+graphit memory <subcommand> [flags]
+```
+**Subcommands:**
+- `index`: Refresh indexes on the authoritative memory table.
+  - `--user`: Target user scope.
+  - `--louvain`: Run clustering.
+  - `--context <name>`: Re-index context.
+- `watch`: Watch memory changes.
+  - `--user`: Target user scope.
+  - `--louvain`: Run clustering.
+- `query <question>`: Query memories using AI.
+  - `--user`: Target user scope.
+  - `--context <name>`: Context name.
+- `schema`: Show memory graph schema.
+- `install <project-id-or-name>`: Fetch external memory context.
+- `remove`: Remove a memory or disconnect an imported context.
+  - `--context <name>`: Context name.
+- `sync`: Refresh the authoritative context table's indexes.
+- `list`: List memories.
+  - `--user`: List user scope.
+- `insert <title>`: Add new memory entry.
+  - `--content <body>`: Memory details.
+  - `--user`: Save to user scope.
+  - `--project`: Link user memory to active project.
+  - `--important`: Surface in Agent rules.
+  - `--mandatory`: Require unconditional session-start recall.
+  - `--type <type>`: convention, correction, decision, tension, fact, or skill.
+  - `--tags <list>`: Comma-separated tags.
+  - `--context <name>`: Target context.
+- `update <id>`: Modify existing memory.
+  - `--content <body>`: New body.
+  - `--title <title>`: New title.
+  - `--user`: User scope.
+- `delete <slug>`: Remove memory.
+  - `--user`: User scope.
+  - `--context <name>`: Context name.
+- `search <term>`: Grep-like memory search.
+  - `--user`: Target user scope.
+- `important`: List important memories.
+  - `--user`: User scope.
+- `mandatory`: List every mandatory memory with complete content, without search.
+  - `--user`: User scope.
+- `promote <id>`: Mark memory as important.
+  - `--user`: User scope.
+- `demote <id>`: Remove important status.
+  - `--user`: User scope.
+- `mark-mandatory <id>`: Require unconditional recall for a memory.
+  - `--user`: User scope.
+- `unmark-mandatory <id>`: Stop unconditional recall when the requirement no longer applies.
+  - `--user`: User scope.
+- `consolidate`: Find and resolve duplicate, contradicting and stale memories.
+  - `--user`: User scope.
+  - `--dry-run`: Show the plan only, change nothing (default `true`).
+
+All Memory list and search output is grouped `mandatory`, `important`, then normal. Within each
+group, the most recently updated memories appear first (`created_at` is used when `updated_at` is
+absent). A search score reports match strength but does not override this order.
+
+The analysis runs on the agent CLI from `ai.cli`; every change is then applied in Go
+under invariants the analysis cannot override — content is always carried into a
+surviving memory before anything is removed, importance, mandatory status, and classification
+survive a merge, an important or mandatory memory is never deleted outright, the last memory in a scope is
+never deleted, and every refusal is reported with its reason. Without an AI CLI, only
+the deterministic staleness check runs.
+
+This is the same pass the [dream module](../specs/dream_module.md) performs on idle.
+Run it here to have it now, or when the dream module is off.
+
+> `gc` was removed. Collecting memories by age answers the wrong question: age says a
+> memory has not been revised, not that it is wrong. Consolidation reasons about
+> content instead, and carries it forward instead of deleting it.
+  - `--stale-days <int>`: Expiry threshold.
+- `rule`: Manage memory rule.
+
+### `wiki`
+AI multi-wiki explorer.
+```bash
+graphit wiki <subcommand> [flags]
+```
+**Subcommands:**
+- `search <query>`: Search multiple wiki sources.
+  - `--wiki <refs>`: Knowledge sources to search: `project` or project IDs.
+  - `--hub <refs>`: Registry knowledge artifacts.
+  - `--session <name>`: Session identifier.
+  - `--continue`: Resume last session.
+  - `--top-k <int>`: BM25 filter limit.
+- `chat`: Multi-turn chat over wiki context.
+  - `--session <id>`: Session ID.
+  - `--continue`: Resume last session.
+- `sessions`: List or delete wiki sessions.
+  - `--delete <id>`: Delete session ID.
+- `embed`: Generate or update vector embeddings for the project knowledge wiki.
+
+### `daemon`
+Controls background service lifecycle.
+```bash
+graphit daemon <subcommand> [flags]
+```
+**Subcommands:**
+- Foreground daemon start: `graphit daemon`
+  - `--no-embedding`: Disable embedding server.
+  - `--no-dream`: Disable dream runner.
+  - `--log <path>`: Log file.
+- `stop`: Terminate running daemon.
+- `status`: Show daemon status and log tail.
+- `restart`: Stop the current daemon, start its replacement in the background, wait for readiness,
+  and return to the terminal.
+- `scheduler <install|remove|status>`: Manage OS system launchers (cron, launchd, task scheduler).
+
+The recursive filesystem watcher is configured rather than controlled by a daemon flag:
+
+```bash
+graphit config modules.sync false
+graphit daemon restart
+```
+
+That setting disables watching for the current project. Use the global configuration command below
+for every registered project, or `GRAPHIT_MODULES_SYNC=false` in the daemon environment:
+
+```bash
+graphit config --global modules.sync false
+```
+
+Watching defaults to enabled. Disabling it stops incremental AST/Knowledge reactions but leaves
+manual `graphit sync` and direct index commands available.
+
+### `dream`
+Controls autonomous skill generation and knowledge mining.
+```bash
+graphit dream <subcommand> [flags]
+```
+**Subcommands:**
+- `status`: Show dream state (active/idle/exhausted), report count, and timing configuration.
+- `reports`: List dream session reports.
+  - `--all`: Show all reports.
+
+The default reports vault is `.graphit/runtime/dream/`, which is covered by the generated
+`.gitignore`. Set `dream.reports_dir` to a versioned directory such as `docs/dream` when
+reports are intended to be reviewed and committed. Existing `.graphit/dream/` reports are
+not moved or deleted automatically.
+
+### `task`
+Manages deterministic project work in the shared LanceDB task store.
+```bash
+graphit task <subcommand> [flags]
+```
+**Subcommands:**
+- `batch <file|->`: Run 1-100 ordered mutations from a JSON object with `operations` and optional default `lease`; `-` reads standard input. Every item reports success or an explicit error, and the command exits non-zero if any item fails.
+- `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask.
+- `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, or parent.
+- `get`, `search`: Retrieve authoritative history or search task/comment text.
+- `export [task-id]`: Print a stable complete JSON document for every project task, or one exact task and its recursive subtasks. The document contains task snapshots, dependency/check projections, events, comments, and specification revisions; private fencing tokens are never exported.
+- `claim`, `heartbeat`, `release`: Own or hand off work with a fenced lease.
+- `progress`, `comment`, `check`: Record checkpoints, typed context, and acceptance/test evidence.
+- `revise <task-id> <patch-file|->`: Apply a strict JSON specification patch with `--expected-revision`, `--reason`, and the current claim token.
+- `check supersede <task-id> <check-id>`: Preserve an obsolete check as superseded, with a reason and optional replacement.
+- `flag`, `unflag`: Add or resolve a completion gate with a reason.
+- `dependency add|remove`: Maintain explicit blocking edges.
+- `complete`: Finish only after every active check and subtask passes and no flag remains.
+- `cancel`: Preserve an obsolete task as an audited terminal record with a required reason.
+- `remove` / `rm`: Hard-delete certainly erroneous work with `--confirm <exact-id>` and `--reason`; referenced tasks are refused.
+
+Complete exports always write JSON and can be redirected without an additional format flag:
+
+```bash
+# Export the complete project Task document.
+graphit task export > tasks.json
+
+# Export one exact task and every nested subtask below it.
+graphit task export tsk-abcd > tsk-abcd.json
+```
+
+Both forms use the same versioned export contract as `graphit_task_export` and the Observatory
+`/api/tasks/export` endpoint. Arrays are ordered deterministically. Claim fencing tokens and
+internal scheduler-control rows are excluded.
+
+Claims default to one hour. Renewing through heartbeat, progress, checks, comments, or lifecycle
+hooks never shortens a longer active lease.
+
+Open, unclaimed tasks are the backlog; no Markdown task files are created. On a direction change,
+cancel or remove obsolete work immediately instead of leaving task garbage. See
+[Task Module](../specs/task_module.md).
+
+### `cluster`
+Manages project grouping.
+```bash
+graphit cluster [key] [value] [flags]
+```
+Without subcommands:
+- `graphit cluster <key> <value>`: Set cluster label.
+- `--get <key>`: Read label.
+- `--list`: List all labels.
+- `--unset <key>`: Remove label.
+
+**Subcommands:**
+- `projects`: List sibling projects.

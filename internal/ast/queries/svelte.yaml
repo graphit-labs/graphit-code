@@ -1,0 +1,135 @@
+
+
+language: svelte
+grammar: tree-sitter-svelte
+extensions: [".svelte"]
+
+queries:
+
+  - data_key: elements
+    graph_label: Element
+    pattern: '(start_tag (tag_name) @name)'
+  - data_key: elements
+    graph_label: Element
+    pattern: '(self_closing_tag (tag_name) @name)'
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (expression (svelte_raw_text) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: Value
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name (expression (svelte_raw_text) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: Value
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name))'
+    parent_capture: element
+    parent_label: Element
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name))'
+    parent_capture: element
+    parent_label: Element
+
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (start_tag (tag_name) @name) (text) @value)'
+    value_capture: value
+    value_label: Text
+
+  - data_key: bindings
+    graph_label: ""
+    pattern: '(element (expression (svelte_raw_text) @name))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: conditions
+    graph_label: Condition
+    pattern: '(if_start condition: (svelte_raw_text) @name)'
+  - data_key: conditions
+    graph_label: Condition
+    pattern: '(each_start (svelte_raw_text) @name)'
+
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(script_element (start_tag (tag_name) @name) (raw_text) @value)'
+    value_capture: value
+    value_label: Text
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(style_element (start_tag (tag_name) @name) (raw_text) @value)'
+    value_capture: value
+    value_label: Text
+
+embedded:
+  - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      js: javascript
+      javascript: javascript
+      ts: typescript
+      typescript: typescript
+  - pattern: '(script_element (raw_text) @body)'
+    text_capture: body
+    default: javascript
+
+  - pattern: '(style_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
+    text_capture: body
+    lang_capture: lang
+    languages: {}
+  - pattern: '(style_element (raw_text) @body)'
+    text_capture: body
+    default: css
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  element: Element
+
+  script_element: Element
+  style_element: Element
+
+context_name_paths:
+  element: start_tag/tag_name
+  script_element: start_tag/tag_name
+  style_element: start_tag/tag_name
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - comment
+
+embed_labels:
+  - Element
+  - Text
+  - Condition
+  - Comment

@@ -1,0 +1,391 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+
+  ci:
+    name: CI Gate
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libicu-dev libprotobuf-dev pkg-config protobuf-compiler
+
+      - name: Create UI dist placeholder
+        run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
+
+      - name: Cache verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
+
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: /tmp/graphit-model-cache
+          key: embedding-model-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            embedding-model-${{ runner.os }}-
+
+      - name: Validate workflow files
+        run: make actionlint
+
+      - name: Vet
+        run: make vet
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+
+      - name: Vulnerability scan
+        run: make vulncheck
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: UI Build
+        run: make ui
+
+      - name: Test
+        run: make test-full
+        env:
+          GRAPHIT_HEAVY_TEST_ISOLATED: "1"
+
+      - name: UI Lint
+        run: make ui-lint
+
+      - name: Upload LanceDB native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-lancedb-native-linux-amd64
+          path: .native
+          include-hidden-files: true
+          retention-days: 1
+
+  build-linux:
+    name: Build (linux-amd64)
+    needs: [ci]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download LanceDB native library
+        uses: actions/download-artifact@v4
+        with:
+          name: release-lancedb-native-linux-amd64
+          path: .native
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install system dependencies (CGO)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libicu-dev \
+            pkg-config \
+            curl \
+            unzip
+
+      - name: Cache verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
+
+      - name: Build (Linux)
+        run: |
+          make build-linux \
+            VERSION="${{ github.ref_name }}" \
+            BRAND="graphit" \
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
+
+      - name: Package and generate SHA-256 checksum
+        run: |
+          cd .build
+          tar -czf graphit-linux-amd64.tar.gz graphit-linux-amd64
+          sha256sum graphit-linux-amd64.tar.gz > graphit-linux-amd64.sha256
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64
+          path: |
+            .build/graphit-linux-amd64.tar.gz
+            .build/graphit-linux-amd64.sha256
+          retention-days: 1
+
+  build-darwin:
+    name: Build (darwin-arm64)
+    needs: [ci]
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install system dependencies (Homebrew)
+        run: |
+          brew install icu4c pkg-config protobuf
+
+      - name: Cache verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-darwin-arm64-${{ hashFiles('native-deps.env') }}
+
+      - name: Build (macOS)
+        run: |
+          make build-darwin \
+            VERSION="${{ github.ref_name }}" \
+            BRAND="graphit" \
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
+
+      - name: Package and generate SHA-256 checksum
+        run: |
+          cd .build
+          tar -czf graphit-darwin-arm64.tar.gz graphit-darwin-arm64
+          shasum -a 256 graphit-darwin-arm64.tar.gz > graphit-darwin-arm64.sha256
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-arm64
+          path: |
+            .build/graphit-darwin-arm64.tar.gz
+            .build/graphit-darwin-arm64.sha256
+          retention-days: 1
+
+  build-windows:
+    name: Build (windows-amd64)
+    needs: [ci]
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-icu
+            mingw-w64-x86_64-protobuf
+            mingw-w64-x86_64-sqlite3
+            make
+            unzip
+            curl
+            tar
+            gzip
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Cache verified native bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/graphit/native
+          key: graphit-native-windows-amd64-${{ hashFiles('native-deps.env') }}
+
+      - name: Build (Windows native)
+        run: |
+          make build-windows-native \
+            VERSION="${{ github.ref_name }}" \
+            BRAND="graphit" \
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
+            GITHUB_REPO="graphit-labs/graphit-code" \
+            ORT_CACHE="/c/cache/ort" \
+            MODEL_CACHE="/c/cache/model" \
+            LANCEDB_CACHE="/c/cache/lancedb"
+
+      - name: Package and generate SHA-256 checksum
+        run: |
+          cd .build
+          tar -czf graphit-windows-amd64.tar.gz graphit-windows-amd64.exe
+          sha256sum graphit-windows-amd64.tar.gz > graphit-windows-amd64.sha256
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: |
+            .build/graphit-windows-amd64.tar.gz
+            .build/graphit-windows-amd64.sha256
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build-linux, build-darwin, build-windows]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Flatten artifact directories
+        run: |
+          mkdir -p release-assets
+          find dist/ -type f -not -name '*.wasm' -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Generate combined checksums file
+        run: |
+          cd release-assets
+          cat ./*.sha256 > checksums.sha256
+          echo "=== checksums.sha256 ==="
+          cat checksums.sha256
+
+      - name: Extract changelog for this tag
+        id: changelog
+        run: |
+          TAG="${{ github.ref_name }}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- 2>/dev/null || echo "")
+          else
+            CHANGES=$(git log --pretty=format:"- %s (%h)" 2>/dev/null | head -20 || echo "")
+          fi
+          {
+            echo "changes<<EOF"
+            echo "$CHANGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Graphit Code ${{ github.ref_name }}"
+          body: |
+            ## What's Changed
+
+            ${{ steps.changelog.outputs.changes }}
+
+            ## Installation
+
+            ### Linux / macOS (one-liner)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
+            ```
+
+            ### Windows (one-liner — PowerShell)
+            ```powershell
+            irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+            ```
+
+            ### Manual download
+
+            | Platform | Archive |
+            |---|---|
+            | Linux (amd64) | `graphit-linux-amd64.tar.gz` |
+            | macOS (Apple Silicon) | `graphit-darwin-arm64.tar.gz` |
+            | Windows (amd64) | `graphit-windows-amd64.tar.gz` |
+
+            Extract and move to your PATH:
+            ```bash
+            # Linux/macOS
+            tar -xzf graphit-<platform>.tar.gz
+            sudo mv graphit-<platform> /usr/local/bin/graphit
+            ```
+
+            ### Verify integrity
+            ```bash
+            sha256sum -c checksums.sha256
+            ```
+
+            ## Self-update
+            If you already have `graphit` installed:
+            ```bash
+            graphit self-update
+            ```
+            > **Note:** Starting from this release, `graphit self-update` downloads `.tar.gz` archives.
+            > Builds using a custom `SELF_UPDATE_URL` must update their release endpoint accordingly.
+          files: |
+            release-assets/graphit-linux-amd64.tar.gz
+            release-assets/graphit-linux-amd64.sha256
+            release-assets/graphit-darwin-arm64.tar.gz
+            release-assets/graphit-darwin-arm64.sha256
+            release-assets/graphit-windows-amd64.tar.gz
+            release-assets/graphit-windows-amd64.sha256
+            release-assets/checksums.sha256
+          fail_on_unmatched_files: true
+          make_latest: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

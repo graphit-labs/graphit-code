@@ -1,0 +1,105 @@
+language: swift
+grammar: tree-sitter-swift
+extensions: [".swift"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+  READS_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (simple_identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration "class" name: (type_identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(class_declaration "struct" name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(class_declaration "enum" name: (type_identifier) @name)'
+  - data_key: protocols
+    graph_label: Protocol
+    pattern: '(protocol_declaration name: (type_identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration (pattern (simple_identifier) @name))'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration name: (pattern bound_identifier: (simple_identifier) @name) value: [(integer_literal) (real_literal) (hex_literal) (oct_literal) (bin_literal) (boolean_literal) (line_string_literal) (nil_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter name: (simple_identifier) @name)'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (simple_identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (navigation_expression (simple_identifier) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(inheritance_specifier (user_type (type_identifier) @name))'
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(attribute (user_type (type_identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(navigation_expression (simple_identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_body (property_declaration (pattern (simple_identifier) @name)))'
+
+exports:
+  strategy: no_modifier
+  config_list:
+    keywords: ["private", "fileprivate"]
+
+self_keywords: ["self.", "Self."]
+
+context_types:
+  class_declaration: Class
+  protocol_declaration: Protocol
+  function_declaration: Function
+
+anon_func_types: []
+
+declaration_types:
+  - function_declaration
+  - class_declaration
+  - protocol_declaration
+  - property_declaration
+
+comment_types:
+  - comment
+  - multiline_comment
+
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_entry
+    - catch_block
+    - ternary_expression
+    - conjunction_expression
+    - disjunction_expression
+
+embed_labels:
+  - Class
+  - Struct
+  - Protocol
+  - Enum
+  - Function
+  - Field
+  - Variable
+  - Comment

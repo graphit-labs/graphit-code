@@ -1,0 +1,1239 @@
+package commands
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/term"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
+	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/output"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
+	"github.com/graphit-labs/graphit-code/internal/updater"
+	"github.com/graphit-labs/graphit-code/internal/version"
+	"github.com/spf13/cobra"
+)
+
+func installAllModuleSkills(p *output.Printer, wd, agentName string) {
+	removeRetiredImprovementsGuidance(p, wd, agentName)
+
+	for _, r := range []struct {
+		name  string
+		skill func(string, string) error
+	}{
+		{"Knowledge", knowledge.InstallSkill},
+		{"AST", ast.InstallSkill},
+		{"Hub", hub.InstallSkill},
+		{"Memory", memory.InstallSkill},
+		{"Task", graphtask.InstallSkill},
+	} {
+		if err := r.skill(wd, agentName); err != nil {
+			p.StepWarn("%s skill: %v", r.name, err)
+		}
+	}
+}
+
+func removeAllModuleSkills(p *output.Printer, wd, agent string) {
+	for _, r := range []struct {
+		name        string
+		removeSkill func(string, string) error
+	}{
+		{"Knowledge", knowledge.RemoveSkill},
+		{"AST", ast.RemoveSkill},
+		{"Hub", hub.RemoveSkill},
+		{"Memory", memory.RemoveSkill},
+		{"Task", graphtask.RemoveSkill},
+	} {
+		if err := r.removeSkill(wd, agent); err != nil {
+			p.StepWarn("%s skill cleanup: %v", r.name, err)
+		}
+	}
+	removeRetiredImprovementsGuidance(p, wd, agent)
+}
+
+func removeRetiredImprovementsGuidance(p *output.Printer, projectDir, agentName string) {
+	if err := agent.RemoveManagedSkill(projectDir, agentName, brand.SkillDirName("improvements")); err != nil {
+		p.StepWarn("retired Improvements skill cleanup: %v", err)
+	}
+}
+
+func newInitCmd() *cobra.Command {
+	var flagID string
+	var flagName string
+	var flagDesc string
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize " + brand.DisplayName + " in the current project",
+		Long: `Initialize ` + brand.DisplayName + ` for the current project.
+
+This command:
+  • Creates a project identity and ` + brand.LockFileName() + `
+  • Installs baseline artifacts (rules, commands, agents)
+  • Configures the selected Agent adapter
+
+Use --id, --name and --description to set the project identity inline (useful
+for CI/CD or scripted setups). When provided, these flags take precedence over
+auto-generated values and interactive prompts.`,
+		PreRunE: requireSetup,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent := resolveAgentFlag(cmd)
+			ctx := context.Background()
+			p := output.NewPrinter("")
+
+			p.Running("Initializing project...")
+
+			wd, _ := os.Getwd()
+			lockPath := filepath.Join(wd, brand.LockFileName())
+			lf, _ := hub.LoadLockfile(lockPath)
+
+			if flagDesc != "" {
+				if lf == nil {
+					lf = &hub.Lockfile{Artifacts: make(map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta)}
+				}
+				lf.Project.Description = flagDesc
+				if err := hub.SaveLockfile(lockPath, lf); err != nil {
+					p.StepWarn("Could not save description: %v", err)
+				} else {
+					p.StepOK("Description set: %s", flagDesc)
+				}
+			} else if lf == nil || lf.Project.Description == "" {
+				if nonInteractive {
+					return errors.New("--description is required with --non-interactive (pass an explicit value to avoid the project-description prompt)")
+				}
+				var currentDesc string
+				if lf != nil {
+					currentDesc = lf.Project.Description
+				}
+				if currentDesc != "" {
+					p.Detail("Current description", currentDesc)
+				}
+				fmt.Print("  Enter project description [leave blank to skip]: ")
+				reader := bufio.NewReader(os.Stdin)
+				descInput, _ := reader.ReadString('\n')
+				descInput = strings.TrimSpace(descInput)
+				if descInput != "" {
+
+					if lf == nil {
+						lf = &hub.Lockfile{Artifacts: make(map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta)}
+					}
+					lf.Project.Description = descInput
+					if err := hub.SaveLockfile(lockPath, lf); err != nil {
+						p.StepWarn("Could not save description: %v", err)
+					} else {
+						p.StepOK("Description set: %s", descInput)
+					}
+				}
+			}
+
+			if flagID != "" {
+				if lf == nil {
+					lf = &hub.Lockfile{Artifacts: make(map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta)}
+				}
+				lf.Project.ID = flagID
+				p.StepOK("Project ID set: %s", flagID)
+			}
+
+			if flagName != "" {
+				if lf == nil {
+					lf = &hub.Lockfile{Artifacts: make(map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta)}
+				}
+				lf.Project.Name = flagName
+				p.StepOK("Project name set: %s", flagName)
+			}
+
+			if flagID != "" || flagName != "" {
+				if err := hub.SaveLockfile(lockPath, lf); err != nil {
+					p.StepWarn("Could not save project identity: %v", err)
+				}
+			}
+
+			reg, err := hub.NewRegistryManager(ctx)
+			if err != nil {
+				p.StepWarn("Hub registry unavailable (offline mode): %v", err)
+
+				reg, _ = hub.NewRegistryManager(ctx)
+			}
+
+			if err := hub.OnInit(ctx, reg, agent, ""); err != nil {
+				p.Error("%v", err)
+				return err
+			}
+
+			gitignorePath := filepath.Join(wd, ".gitignore")
+			if err := git.InjectGitignore(gitignorePath, brand.GitignoreContent()); err != nil {
+				p.StepWarn(".gitignore: %v", err)
+			}
+
+			wd, _ = os.Getwd()
+			p.Success("Project initialized successfully")
+
+			p.Running("Synchronizing project...")
+			if err := runSyncPhase1(ctx, wd, []string{agent}, p); err != nil {
+				return err
+			}
+			spawnBackgroundSync(wd, agent)
+
+			return nil
+		},
+	}
+	cmd.Flags().String("agent", "", "Target agent (antigravity, cursor, claude, gemini, kiro, codex, opencode, qwen, kimi, deepcode)")
+	registerAgentFlagCompletion(cmd)
+	cmd.Flags().StringVar(&flagID, "id", "", "Project ULID (overrides auto-generated ID)")
+	cmd.Flags().StringVar(&flagName, "name", "", "Project name (overrides auto-detected name)")
+	cmd.Flags().StringVar(&flagDesc, "description", "", "Project description (skips interactive prompt)")
+	return cmd
+}
+
+func newUpdateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "update",
+		Short:   "Update all installed artifacts to their latest versions",
+		PreRunE: requireSetupAndProject,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent := resolveAgentFlag(cmd)
+			ctx := context.Background()
+			p := output.NewPrinter("")
+
+			p.Running("Checking for updates...")
+
+			reg, err := hub.NewRegistryManager(ctx)
+			if err != nil {
+				p.Error("Hub registry unavailable: %v", err)
+				return err
+			}
+
+			if err := hub.OnUpdate(ctx, reg, agent, ""); err != nil {
+				p.Error("%v", err)
+				return err
+			}
+
+			wd, _ := os.Getwd()
+			installAllModuleSkills(p, wd, agent)
+
+			p.Success("Update complete")
+			return nil
+		},
+	}
+	cmd.Flags().String("agent", "", "Target agent (antigravity, cursor, claude, gemini, kiro, codex, opencode, qwen, kimi, deepcode)")
+	registerAgentFlagCompletion(cmd)
+	return cmd
+}
+
+func newRemoveCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "remove",
+		Short:   "Remove " + brand.DisplayName + " from the current project",
+		PreRunE: requireSetupAndProject,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agent := resolveAgentFlag(cmd)
+			ctx := context.Background()
+			p := output.NewPrinter("")
+
+			p.Running("Removing %s from this project...", brand.DisplayName)
+
+			wd, _ := os.Getwd()
+
+			hm := git.NewHookManager("")
+			if err := hm.Remove(); err != nil {
+				p.StepWarn("Git hooks cleanup: %v", err)
+			}
+
+			if _, err := git.RemoveGitignore(filepath.Join(wd, ".gitignore")); err != nil {
+				p.StepWarn(".gitignore cleanup: %v", err)
+			}
+
+			reg, _ := hub.NewRegistryManager(ctx)
+
+			if err := hub.OnRemove(ctx, reg, agent, ""); err != nil {
+				p.Error("%v", err)
+				return err
+			}
+
+			removeAllModuleSkills(p, wd, agent)
+
+			p.Success("%s removed from this project", brand.DisplayName)
+			return nil
+		},
+	}
+	cmd.Flags().String("agent", "", "Target agent (antigravity, cursor, claude, gemini, kiro, codex, opencode, qwen, kimi, deepcode)")
+	registerAgentFlagCompletion(cmd)
+	return cmd
+}
+
+func newConfigCmd() *cobra.Command {
+	var global bool
+	var get bool
+	var unset bool
+	var list bool
+	var secret bool
+
+	cmd := &cobra.Command{
+		Use:   "config [--global] [--get|--unset|--list|--secret] [key] [value]",
+		Short: "Manage " + brand.DisplayName + " configuration",
+		Long: `Manage ` + brand.DisplayName + ` configuration (per-project or global).
+
+Per-project config is stored in ` + brand.LockFileName() + ` (default).
+Global config is stored in ~/` + brand.DotDir() + `/config.json (use --global).
+
+Examples:
+  ` + brand.BinName() + ` config agent cursor                   # set per-project
+  ` + brand.BinName() + ` config --global agent cursor          # set global
+  ` + brand.BinName() + ` config --get agent                    # get per-project
+  ` + brand.BinName() + ` config --get --global agent           # get global
+  ` + brand.BinName() + ` config --unset agent                  # unset per-project
+  ` + brand.BinName() + ` config --global --unset agent         # unset global
+  ` + brand.BinName() + ` config --list                       # list per-project config
+  ` + brand.BinName() + ` config --list --global              # list global config`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := output.NewPrinter("")
+
+			if !global {
+				if err := requireProject(cmd, args); err != nil {
+					return err
+				}
+			}
+
+			if list {
+				return runConfigList(p, global)
+			}
+
+			if get {
+				if len(args) != 1 {
+					return fmt.Errorf("usage: %s config --get [--global] <key>", brand.BinName())
+				}
+				return runConfigGet(p, args[0], global)
+			}
+
+			if unset {
+				if len(args) != 1 {
+					return fmt.Errorf("usage: %s config [--global] --unset <key>", brand.BinName())
+				}
+				return runConfigUnset(p, args[0], global)
+			}
+
+			if secret {
+				if len(args) != 1 {
+					return fmt.Errorf("usage: %s config [--global] --secret <key>", brand.BinName())
+				}
+				var bytes []byte
+				var err error
+
+				if term.IsTerminal(int(os.Stdin.Fd())) {
+					if nonInteractive {
+						return errors.New("config --secret requires the secret on stdin in non-interactive mode")
+					}
+					fmt.Printf("  Enter secret value for %s: ", args[0])
+					bytes, err = term.ReadPassword(int(os.Stdin.Fd()))
+					p.Blank()
+				} else {
+					bytes, err = io.ReadAll(os.Stdin)
+				}
+
+				if err != nil {
+					return fmt.Errorf("reading secret: %w", err)
+				}
+				value := strings.TrimSpace(string(bytes))
+				if value == "" {
+					return fmt.Errorf("empty secret received")
+				}
+				return runConfigSet(p, args[0], value, global, true)
+			}
+
+			if len(args) != 2 {
+				return fmt.Errorf("usage: %s config [--global] <key> <value>", brand.BinName())
+			}
+			return runConfigSet(p, args[0], args[1], global, false)
+		},
+	}
+
+	cmd.Flags().BoolVar(&global, "global", false, "Use global config (~/"+brand.DotDir()+"/config.json)")
+	cmd.Flags().BoolVar(&get, "get", false, "Get a configuration value")
+	cmd.Flags().BoolVar(&unset, "unset", false, "Unset a configuration key")
+	cmd.Flags().BoolVar(&list, "list", false, "List all configuration")
+	cmd.Flags().BoolVar(&secret, "secret", false, "Read configuration value from stdin (useful for secrets)")
+
+	return cmd
+}
+
+func runConfigSet(p *output.Printer, key, value string, global bool, isSecret bool) error {
+	if config.IsAuthenticationConfigKey(key) {
+		return fmt.Errorf("%s is authentication state; use `%s provider` or `%s login`", key, brand.BinName(), brand.BinName())
+	}
+	displayValue := value
+	if isSecret || config.IsSecretConfigKey(key) {
+		displayValue = "***"
+	}
+
+	if global {
+		if err := config.SetGlobalConfigValue(key, value); err != nil {
+			return err
+		}
+		p.Success("Set %s = %s (global)", key, displayValue)
+		return nil
+	}
+
+	lockPath := lockfilePath()
+	lf, err := hub.LoadLockfile(lockPath)
+	if err != nil {
+		return fmt.Errorf("reading lockfile: %w", err)
+	}
+	if lf == nil {
+		return fmt.Errorf("no project found — run '%s init' first", brand.BinName())
+	}
+	if lf.Config == nil {
+		lf.Config = make(map[string]any)
+	}
+	config.SetConfigValue(lf.Config, key, value)
+	if err := hub.SaveLockfile(lockPath, lf); err != nil {
+		return fmt.Errorf("saving lockfile: %w", err)
+	}
+	p.Success("Set %s = %s (project)", key, displayValue)
+	return nil
+}
+
+func runConfigGet(p *output.Printer, key string, global bool) error {
+	if config.IsAuthenticationConfigKey(key) {
+		return fmt.Errorf("%s is authentication state; use `%s provider show` or `%s account show`", key, brand.BinName(), brand.BinName())
+	}
+	if global {
+		val, ok, err := config.GetGlobalConfigValue(key)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("key %q not set in global config", key)
+		}
+		if config.IsSecretConfigKey(key) {
+			val = "***"
+		}
+		p.Data(val)
+		return nil
+	}
+
+	lockPath := lockfilePath()
+	lf, err := hub.LoadLockfile(lockPath)
+	if err != nil {
+		return fmt.Errorf("reading lockfile: %w", err)
+	}
+	if lf == nil {
+		return fmt.Errorf("no project found — run '%s init' first", brand.BinName())
+	}
+	if lf.Config == nil {
+		return fmt.Errorf("key %q not set in project config", key)
+	}
+	val, ok := config.GetConfigValue(lf.Config, key)
+	if !ok {
+		return fmt.Errorf("key %q not set in project config", key)
+	}
+	if config.IsSecretConfigKey(key) {
+		val = "***"
+	}
+	p.Data(val)
+	return nil
+}
+
+func runConfigUnset(p *output.Printer, key string, global bool) error {
+	if config.IsAuthenticationConfigKey(key) {
+		return fmt.Errorf("%s is authentication state; use `%s provider remove` or `%s logout`", key, brand.BinName(), brand.BinName())
+	}
+	if global {
+		if err := config.UnsetGlobalConfigValue(key); err != nil {
+			return err
+		}
+		p.Success("Unset %s (global)", key)
+		return nil
+	}
+
+	lockPath := lockfilePath()
+	lf, err := hub.LoadLockfile(lockPath)
+	if err != nil {
+		return fmt.Errorf("reading lockfile: %w", err)
+	}
+	if lf == nil {
+		return fmt.Errorf("no project found — run '%s init' first", brand.BinName())
+	}
+	if lf.Config != nil {
+		config.UnsetConfigValue(lf.Config, key)
+	}
+	if err := hub.SaveLockfile(lockPath, lf); err != nil {
+		return fmt.Errorf("saving lockfile: %w", err)
+	}
+	p.Success("Unset %s (project)", key)
+	return nil
+}
+
+func runConfigList(p *output.Printer, global bool) error {
+	if global {
+		cfg, err := config.LoadGlobalConfig()
+		if err != nil {
+			return err
+		}
+		entries := config.ListConfigEntries(cfg)
+		if len(entries) == 0 {
+			p.Info("No global configuration set.")
+			return nil
+		}
+		for _, e := range entries {
+			if config.IsAuthenticationConfigKey(e[0]) {
+				continue
+			}
+			value := e[1]
+			if config.IsSecretConfigKey(e[0]) {
+				value = "***"
+			}
+			p.KeyValue(e[0], value)
+		}
+		return nil
+	}
+
+	lockPath := lockfilePath()
+	lf, err := hub.LoadLockfile(lockPath)
+	if err != nil {
+		return fmt.Errorf("reading lockfile: %w", err)
+	}
+	if lf == nil {
+		return fmt.Errorf("no project found — run '%s init' first", brand.BinName())
+	}
+	if len(lf.Config) == 0 {
+		p.Info("No project configuration set.")
+		return nil
+	}
+	entries := config.ListConfigEntries(lf.Config)
+	for _, e := range entries {
+		if config.IsAuthenticationConfigKey(e[0]) {
+			continue
+		}
+		value := e[1]
+		if config.IsSecretConfigKey(e[0]) {
+			value = "***"
+		}
+		p.KeyValue(e[0], value)
+	}
+	return nil
+}
+
+func lockfilePath() string {
+	wd, _ := os.Getwd()
+	return filepath.Join(wd, brand.LockFileName())
+}
+
+func newSelfUpdateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "self-update",
+		Short: "Update the " + brand.BinName() + " binary to the latest version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := output.NewPrinter("")
+
+			task := p.StartTask("Checking for updates...")
+
+			if brand.GitHubRepo == "" && brand.SelfUpdateURL == "" {
+				task.Fail("No update source configured")
+				return fmt.Errorf("self-update is not configured for this build — contact your distributor")
+			}
+
+			currentExe, err := os.Executable()
+			if err != nil {
+				task.Fail("Cannot determine current executable: %v", err)
+				return fmt.Errorf("cannot determine current executable: %w", err)
+			}
+			currentExe, _ = filepath.EvalSymlinks(currentExe)
+
+			launcherPath := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+			if launcherPath != "" {
+				currentExe = launcherPath
+			}
+
+			task.Update("Fetching latest release...")
+			release, err := updater.LatestRelease(brand.GitHubRepo, brand.SelfUpdateURL)
+			if err != nil {
+				task.Fail("Failed to fetch latest release: %v", err)
+				return fmt.Errorf("fetching latest release: %w", err)
+			}
+
+			if !updater.NeedsUpdate(version.Version, release.TagName) {
+				task.Done("Already up to date (%s)", version.Version)
+				return nil
+			}
+
+			task.Update("Updating %s → %s...", version.Version, release.TagName)
+
+			archiveName := updater.PlatformArchiveName(brand.BinName())
+			archiveURL := updater.FindAsset(release, archiveName)
+			if archiveURL == "" {
+				task.Fail("No archive available for this platform (%s)", archiveName)
+				return fmt.Errorf("no release asset %q found in %s", archiveName, release.TagName)
+			}
+			checksumURL := strings.TrimSuffix(archiveURL, ".tar.gz") + ".sha256"
+
+			tmpDir := filepath.Dir(currentExe)
+			tmpArchive, err := os.CreateTemp(tmpDir, "."+brand.Brand+"-update-archive-*")
+			if err != nil {
+				tmpArchive, err = os.CreateTemp("", brand.Brand+"-update-archive-*")
+				if err != nil {
+					task.Fail("Create temp archive: %v", err)
+					return fmt.Errorf("create temp archive: %w", err)
+				}
+			}
+			tmpArchivePath := tmpArchive.Name()
+			_ = tmpArchive.Close()
+			defer func() { _ = os.Remove(tmpArchivePath) }()
+
+			task.Update("Downloading %s...", archiveName)
+			if err := updater.Download(archiveURL, tmpArchivePath, nil); err != nil {
+				task.Fail("Download failed: %v", err)
+				return fmt.Errorf("downloading archive: %w", err)
+			}
+
+			checksumTmp, err := os.CreateTemp("", brand.Brand+"-checksum-*")
+			if err != nil {
+				task.Fail("Create checksum temp file: %v", err)
+				return fmt.Errorf("create checksum temp file: %w", err)
+			}
+			checksumTmpPath := checksumTmp.Name()
+			_ = checksumTmp.Close()
+			defer func() { _ = os.Remove(checksumTmpPath) }()
+
+			if err := updater.Download(checksumURL, checksumTmpPath, nil); err != nil {
+				task.Fail("Download checksum failed: %v", err)
+				return fmt.Errorf("downloading checksum: %w", err)
+			}
+
+			task.Update("Verifying checksum...")
+			if err := updater.VerifyChecksum(tmpArchivePath, checksumTmpPath); err != nil {
+				task.Fail("Checksum verification failed: %v", err)
+				return fmt.Errorf("checksum verification: %w", err)
+			}
+
+			tmpBin, err := os.CreateTemp(tmpDir, "."+brand.Brand+"-update-bin-*")
+			if err != nil {
+				tmpBin, err = os.CreateTemp("", brand.Brand+"-update-bin-*")
+				if err != nil {
+					task.Fail("Create temp binary: %v", err)
+					return fmt.Errorf("create temp binary: %w", err)
+				}
+			}
+			tmpBinPath := tmpBin.Name()
+			_ = tmpBin.Close()
+			defer func() { _ = os.Remove(tmpBinPath) }()
+
+			task.Update("Extracting archive...")
+			if err := updater.ExtractFromTarGz(tmpArchivePath, brand.BinName(), tmpBinPath); err != nil {
+				task.Fail("Extraction failed: %v", err)
+				return fmt.Errorf("extracting binary: %w", err)
+			}
+
+			if err := os.Chmod(tmpBinPath, 0o755); err != nil {
+				task.Fail("Chmod: %v", err)
+				return fmt.Errorf("chmod: %w", err)
+			}
+
+			if err := updater.AtomicReplace(tmpBinPath, currentExe); err != nil {
+				task.Fail("Replace binary: %v", err)
+				return fmt.Errorf("replacing binary: %w", err)
+			}
+
+			task.Done("Updated to %s", release.TagName)
+
+			if daemon.IsSchedulerInstalled() {
+				schedTask := p.StartTask("Updating OS scheduler...")
+				if err := daemon.InstallScheduler(); err != nil {
+					schedTask.Fail("Scheduler update: %v", err)
+				} else {
+					schedTask.Done("OS scheduler updated")
+				}
+			}
+
+			return nil
+		},
+	}
+}
+
+func newSyncCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Synchronize the entire project state",
+		Long: `Force a full synchronization of the project state.
+
+Phase 1 (synchronous):
+  • Validate configured Hub object storage
+  • Open authoritative Memory and Task stores directly
+  • Refresh module skills
+  • Sync Agent hooks and MCP configuration from the current lockfile
+  • Sync git hooks
+  • Reindex the AST knowledge graph
+  • Reindex the docs/knowledge wiki
+  • Refresh authoritative memory indexes
+
+Phase 2 (background by default):
+  • Generate vector embeddings for semantic search
+  • Run memory GC
+
+Flags:
+  --no-background   Run both phases in the same process with terminal output
+  --heavy           Run only Phase 2 with terminal output
+  --debounce        Skip when a sync already finished this recently
+
+Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
+		PreRunE: requireSetupAndProject,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wd, _ := os.Getwd()
+
+			if heavy, _ := cmd.Flags().GetBool("heavy"); heavy {
+				lock, proceed := acquireSyncLock(wd, "sync-heavy.lock")
+				if !proceed {
+					return nil
+				}
+				defer lock.Release()
+
+				p := output.NewPrinter("")
+				runSyncHeavyTasks(cmd.Context(), wd, p)
+				return nil
+			}
+
+			p := output.NewPrinter("")
+			ctx := context.Background()
+
+			debounce, _ := cmd.Flags().GetDuration("debounce")
+			if syncedWithin(wd, debounce) {
+				return nil
+			}
+
+			lock, proceed := acquireSyncLock(wd, "sync.lock")
+			if !proceed {
+				if debounce == 0 {
+					p.StepWarn("Another sync is already running — skipping")
+				}
+				return nil
+			}
+			defer lock.Release()
+
+			p.Running("Synchronizing project...")
+
+			explicitAgent, _ := cmd.Flags().GetString("agent")
+			lf, lfErr := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
+			var agentsToSync []string
+			if explicitAgent != "" {
+				agentsToSync = []string{explicitAgent}
+			} else if lfErr == nil && lf != nil && len(lf.Agents) > 0 {
+				agentsToSync = hub.FilterSupportedAgents(lf.Agents)
+			}
+
+			if err := runSyncPhase1(ctx, wd, agentsToSync, p); err != nil {
+				return err
+			}
+			stampSync(wd)
+
+			noBg, _ := cmd.Flags().GetBool("no-background")
+			if noBg {
+				runSyncHeavyTasks(ctx, wd, p)
+			} else {
+				spawnBackgroundSync(wd, "")
+			}
+
+			return nil
+		},
+	}
+	cmd.Flags().String("agent", "", "Target agent (antigravity, cursor, claude, gemini, kiro, codex, opencode, qwen, kimi, deepcode)")
+	registerAgentFlagCompletion(cmd)
+	cmd.Flags().Bool("no-background", false, "Run all tasks synchronously in the same terminal")
+	cmd.Flags().Bool("heavy", false, "Run only heavy tasks (embeddings, memory GC) with terminal output")
+	cmd.Flags().Duration("debounce", 0,
+		"Skip the sync when one finished less than this ago (used by the git hooks)")
+	return cmd
+}
+
+func syncStateFile(wd, name string) string {
+	return brand.ProjectRuntimePath(wd, name)
+}
+
+// acquireSyncLock takes the named lock and reports whether the caller should go ahead.
+//
+// Three outcomes, and only one of them stops the work: the lock is free (proceed with
+// it held), someone else holds it (skip — they are doing this already), or the lock
+// itself could not be created. The last case proceeds WITHOUT a lock: an unwritable
+// brand directory is a reason to log and degrade to the old unsynchronized behaviour,
+// never a reason to silently stop syncing the project.
+//
+// A nil *lockfile.Lock is safe to Release, so callers can defer unconditionally.
+func acquireSyncLock(wd, name string) (*lockfile.Lock, bool) {
+	lock, err := lockfile.TryAcquire(syncStateFile(wd, name))
+	switch {
+	case err == nil:
+		return lock, true
+	case errors.Is(err, lockfile.ErrLocked):
+		return nil, false
+	default:
+		syncLogError("lock", "%s: %v", name, err)
+		return nil, true
+	}
+}
+
+func syncedWithin(wd string, window time.Duration) bool {
+	if window <= 0 {
+		return false
+	}
+	data, err := os.ReadFile(syncStateFile(wd, "sync.stamp"))
+	if err != nil {
+		return false
+	}
+	last, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return false
+	}
+	return time.Since(last) < window
+}
+
+func stampSync(wd string) {
+	path := syncStateFile(wd, "sync.stamp")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+}
+
+func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
+	projectCfg := loadProjectConfigFromDir(wd)
+
+	if !config.IsModuleDisabled("embedding", nil, projectCfg) {
+		var task *output.Task
+		if p != nil {
+			task = p.StartTask("Generating embeddings and finalizing vector index...")
+		}
+		cfg := ast.DefaultEmbeddingConfig()
+		cfg.RepoRoot = wd
+		cfg.ProjectDir = wd
+		ladybugCfg := ast.DefaultLadybugConfig()
+		cacheDir := ladybugCfg.StoreDir
+		parseCache, cacheErr := ast.NewShardCache(cacheDir)
+		if cacheErr == nil {
+			parseCache.SetRoot(cfg.RepoRoot)
+			cfg.ParseCache = parseCache
+		}
+		searchIdx, idxErr := ast.OpenSearchIndex(ctx, cacheDir)
+		if idxErr == nil {
+			cfg.Index = searchIdx
+			defer func() { _ = searchIdx.Close() }()
+		}
+		if cfg.ParseCache != nil {
+			if embCache, embErr := ast.NewShardEmbCache(cacheDir, cfg.ParseCache); embErr == nil {
+				cfg.EmbCache = embCache
+				defer func() { _ = embCache.Close() }()
+			}
+		}
+
+		var embClient ai.EmbeddingClient
+		if cfg.Index == nil || cfg.ParseCache == nil || cfg.EmbCache == nil {
+			syncLogError("embedding", "search index or embedding caches are unavailable")
+			if task != nil {
+				task.Fail("Vector index: search index or caches unavailable")
+			}
+		} else {
+			pending := ast.NewEmbedder(nil, cfg).CountPending(ctx)
+			if pending > 0 {
+				var err error
+				embClient, err = ai.NewEmbeddingClientFromConfig()
+				if err != nil {
+					syncLogError("embedding", "client init: %v", err)
+					if task != nil {
+						task.Fail("Embeddings: %v", err)
+					}
+				}
+			}
+			if pending == 0 || embClient != nil {
+				embedder := ast.NewEmbedder(embClient, cfg)
+				n, err := embedder.RunCycle(ctx)
+				if err != nil {
+					syncLogError("embedding", "cycle: %v", err)
+					if task != nil {
+						task.Fail("Vector index: %v", err)
+					}
+				} else if task != nil {
+					task.Done("Vector index finalized (%d embeddings generated)", n)
+				}
+			}
+		}
+	}
+
+	var reconTask *output.Task
+	if p != nil {
+		reconTask = p.StartTask("Reconciling hub artifacts...")
+	}
+	reg, regErr := hub.NewRegistryManager(ctx)
+	if regErr == nil {
+		if err := hub.ReconcileManagedArtifactsFromDir(reg, wd); err != nil {
+			syncLogError("hub-reconcile", "reconcile: %v", err)
+			if reconTask != nil {
+				reconTask.Fail("Reconcile: %v", err)
+			}
+		} else if reconTask != nil {
+			reconTask.Done("Hub artifacts reconciled")
+		}
+	} else {
+		syncLogError("hub-reconcile", "registry init: %v", regErr)
+		if reconTask != nil {
+			reconTask.Fail("Registry: %v", regErr)
+		}
+	}
+
+	lockPath := filepath.Join(wd, brand.LockFileName())
+	if err := hub.EnsureGlobalLanguageArtifacts(lockPath); err != nil {
+		syncLogError("hub-lang-global", "ensure global language: %v", err)
+	}
+
+	if !config.IsModuleDisabled("memory", nil, projectCfg) {
+		var task *output.Task
+		if p != nil {
+			task = p.StartTask("Running memory maintenance...")
+		}
+		runMemoryMaintenance(ctx, wd)
+		if task != nil {
+			task.Done("Memory maintenance complete")
+		}
+	}
+}
+
+func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *output.Printer) error {
+	projectCfg := loadProjectConfigFromDir(wd)
+	var adapterSyncErr error
+	if err := hub.HydrateProjectLance(ctx, wd, projectCfg); err != nil {
+		return fmt.Errorf("hydrate published Lance base: %w", err)
+	}
+
+	if !config.IsModuleDisabled("ast", nil, projectCfg) {
+		task := p.StartTask("Reindexing AST graph...")
+		absPath, _ := filepath.Abs(wd)
+		db, err := newASTBackend()
+		if err != nil {
+			task.Fail("AST backend: %v", err)
+		} else {
+			ladybugCfg := ast.DefaultLadybugConfig()
+			pipeOpts := ast.PipelineOptions{
+				Workers:          ast.SafeWorkers(0),
+				IndexSource:      config.ResolveIndexSource(nil, projectCfg),
+				CacheDir:         ladybugCfg.StoreDir,
+				GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
+			}
+			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
+			if err != nil {
+				task.Fail("AST index: %v", err)
+			} else if result.ErrorCount > 0 && result.ParsedFiles == 0 {
+				task.Fail("AST: %d files discovered, %d parse errors (grammars may be missing)", result.TotalFiles, result.ErrorCount)
+			} else if result.ErrorCount > 0 {
+				task.Done("AST: %d files indexed, %d errors (%.1fs)", result.ParsedFiles, result.ErrorCount, result.TotalTime.Seconds())
+			} else if result.ParsedFiles == 0 {
+				task.Done("AST: %d files up to date", result.TotalFiles)
+			} else {
+				task.Done("AST: %d files indexed (%.1fs)", result.ParsedFiles, result.TotalTime.Seconds())
+			}
+			_ = db.Close()
+		}
+	}
+
+	if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+		task := p.StartTask("Reindexing knowledge wiki...")
+		scope := knowledge.ScopeFor(wd, nil, projectCfg)
+		_, docsErr := os.Stat(filepath.Join(wd, scope.Subdir))
+		if docsErr == nil || len(scope.ExtraFiles) > 0 {
+			wikiDir := knowledge.WikiDir()
+			cfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
+			if _, err := knowledge.RunIndexPipeline(ctx, wd, wikiDir, cfg); err != nil {
+				task.Fail("Knowledge index: %v", err)
+			} else if docsErr == nil {
+				task.Done("Knowledge wiki reindexed")
+			} else {
+				task.Done("Knowledge wiki reindexed (no %s/ yet — %s only)",
+					scope.Subdir, strings.Join(scope.ExtraFiles, ", "))
+			}
+		} else {
+			task.Done("No %s/ directory and no README — skipping", scope.Subdir)
+		}
+	}
+
+	task := p.StartTask("Refreshing authoritative memory indexes...")
+	memStore, err := memory.NewMemoryStore()
+	if err != nil {
+		task.Fail("Memory store: %v", err)
+	} else {
+		type syncResult struct{ err error }
+		projResult := make(chan syncResult, 1)
+		userResult := make(chan syncResult, 1)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
+				projResult <- syncResult{err: projSvc.IndexMemories(ctx)}
+				_ = projSvc.Close()
+			} else {
+				projResult <- syncResult{}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
+				userResult <- syncResult{err: userSvc.IndexMemories(ctx)}
+				_ = userSvc.Close()
+			} else {
+				userResult <- syncResult{}
+			}
+		}()
+		wg.Wait()
+
+		syncOK := true
+		if r := <-projResult; r.err != nil {
+			p.StepWarn("Project memory indexes: %v", r.err)
+			syncOK = false
+		}
+		if r := <-userResult; r.err != nil {
+			p.StepWarn("User memory indexes: %v", r.err)
+			syncOK = false
+		}
+		_ = memStore
+		if syncOK {
+			task.Done("Authoritative memory indexes refreshed")
+		}
+	}
+
+	task = p.StartTask("Checking hub storage...")
+	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
+	if err != nil {
+		task.Fail("Hub not configured: %v", err)
+	} else if err := st.EnsureReachable(ctx); err != nil {
+		task.Fail("Hub storage: %v", err)
+	} else {
+		task.Done("Hub storage reachable")
+	}
+
+	task = p.StartTask("Updating Agent skills...")
+	for _, targetAgent := range agentsToSync {
+		installAllModuleSkills(p, wd, targetAgent)
+	}
+	task.Done("Agent skills updated")
+
+	task = p.StartTask("Syncing Agent MCP and hooks...")
+	lf, lfErr := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
+	if lfErr == nil && lf != nil {
+		var syncErrs []string
+		for _, targetAgent := range agentsToSync {
+			if syncErr := hub.SyncAgentAdapter(targetAgent, wd, lf); syncErr != nil {
+				syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetAgent, syncErr))
+			}
+		}
+		if len(syncErrs) > 0 {
+			task.Fail("Agent MCP and hooks sync failed: %s", strings.Join(syncErrs, "; "))
+			adapterSyncErr = fmt.Errorf("syncing Agent MCP and hooks: %s", strings.Join(syncErrs, "; "))
+		} else {
+			task.Done("Agent MCP and hooks synced")
+		}
+	} else if lfErr != nil {
+		task.Fail("Agent MCP and hooks sync failed: %v", lfErr)
+		adapterSyncErr = fmt.Errorf("reading lockfile for Agent sync: %w", lfErr)
+	} else {
+		task.Done("No lockfile — skipping Agent MCP and hooks sync")
+	}
+
+	task = p.StartTask("Syncing git hooks...")
+	hm := git.NewHookManager("")
+	if config.IsModuleDisabled("hooks", nil, projectCfg) {
+		if err := hm.Remove(); err != nil {
+			task.Fail("Git hooks removal: %v", err)
+		} else {
+			task.Done("Git hooks removed (disabled by config)")
+		}
+	} else {
+		if err := hm.Install(false); err != nil {
+			task.Fail("Git hooks: %v", err)
+		} else {
+			task.Done("Git hooks synced")
+		}
+	}
+
+	if adapterSyncErr != nil {
+		return adapterSyncErr
+	}
+	p.Success("Sync complete")
+	return nil
+}
+
+func spawnBackgroundSync(wd, agent string) {
+	exe := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+	if exe == "" {
+		var err error
+		exe, err = os.Executable()
+		if err != nil {
+			syncLogError("spawn", "executable path: %v", err)
+			return
+		}
+		exe, _ = filepath.EvalSymlinks(exe)
+	}
+
+	args := []string{"sync", "--heavy"}
+	if agent != "" {
+		args = append(args, "--agent", agent)
+	}
+
+	cmd := exec.Command(exe, args...)
+	cmd.Dir = wd
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	if err := cmd.Start(); err != nil {
+		syncLogError("spawn", "start: %v", err)
+		return
+	}
+
+	go func() { _ = cmd.Wait() }()
+}
+
+func syncLogError(module, format string, args ...any) {
+	logDir := brand.GlobalDir()
+	if logDir == "" {
+		return
+	}
+	logPath := filepath.Join(logDir, "sync.log")
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	msg := fmt.Sprintf(format, args...)
+	_, _ = fmt.Fprintf(f, "%s [sync:%s] %s\n", time.Now().UTC().Format(time.RFC3339), module, msg)
+}
+
+func runMemoryMaintenance(ctx context.Context, projectDir string) {
+	_ = projectDir
+	for _, userScope := range []bool{false, true} {
+		svc, _, err := newMemorySvc(userScope)
+		if err != nil {
+			continue
+		}
+		_ = svc.IndexMemories(ctx)
+		_ = svc.Close()
+	}
+}
+
+func newUninstallCmd() *cobra.Command {
+	var removeAll bool
+
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove " + brand.DisplayName + " global resources (caches, repositories)",
+		Long: `Uninstall ` + brand.DisplayName + ` global resources.
+
+This command:
+  • Cleans bounded Hub metadata caches
+  • Cleans local caches
+  • Removes other transient caches from ~/` + brand.DotDir() + `/
+
+By default, your global configuration (~/` + brand.DotDir() + `/config.json) and
+custom rules (~/` + brand.DotDir() + `/rules/) are preserved.
+
+Use --all to remove the entire ~/` + brand.DotDir() + `/ directory, including
+configuration and custom rules. This is a destructive operation.`,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := output.NewPrinter("")
+
+			p.Header("Uninstalling %s", brand.DisplayName)
+
+			pid := daemon.NewPIDFile()
+			if alive := pid.IsAlive(); alive != nil {
+				task := p.StartTask("Stopping daemon (pid %d)...", alive.PID)
+				_ = pid.Signal(os.Interrupt)
+
+				for i := 0; i < 10; i++ {
+					time.Sleep(500 * time.Millisecond)
+					if pid.IsAlive() == nil {
+						break
+					}
+				}
+				if pid.IsAlive() != nil {
+					_ = pid.Signal(os.Kill)
+					pid.Remove()
+				}
+				task.Done("Daemon stopped")
+			}
+
+			if daemon.IsSchedulerInstalled() {
+				task := p.StartTask("Removing OS scheduler...")
+				if err := daemon.RemoveScheduler(); err != nil {
+					task.Fail("Scheduler removal: %v", err)
+				} else {
+					task.Done("OS scheduler removed")
+				}
+			}
+
+			globalDir := brand.GlobalDir()
+			if globalDir == "" {
+				return fmt.Errorf("cannot determine home directory")
+			}
+
+			if removeAll {
+
+				task := p.StartTask("Removing %s/...", brand.DotDir())
+				if err := os.RemoveAll(globalDir); err != nil {
+					task.Fail("Could not remove %s: %v", globalDir, err)
+				} else {
+					task.Done("Removed %s", globalDir)
+				}
+			} else {
+
+				cacheDirs := []string{
+					"hub",
+					"memory",
+					"knowledge",
+					"ast",
+				}
+
+				for _, dir := range cacheDirs {
+					dirPath := filepath.Join(globalDir, dir)
+					if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+						continue
+					}
+					task := p.StartTask("Cleaning %s/...", dir)
+					if err := os.RemoveAll(dirPath); err != nil {
+						task.Fail("Could not remove %s: %v", dirPath, err)
+					} else {
+						task.Done("Removed ~/%s/%s", brand.DotDir(), dir)
+					}
+				}
+			}
+
+			p.Blank()
+			if removeAll {
+				p.Success("Uninstall complete — all %s data removed", brand.DisplayName)
+			} else {
+				p.Success("Uninstall complete — caches cleaned, config preserved")
+				p.Step("Your configuration is still at ~/%s/config.json", brand.DotDir())
+				p.Step("Custom rules are still at ~/%s/rules/", brand.DotDir())
+				p.Step("Use --all to remove everything")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&removeAll, "all", false, "Remove the entire ~/"+brand.DotDir()+"/ directory (including config and rules)")
+	return cmd
+}

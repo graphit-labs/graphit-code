@@ -1,0 +1,61 @@
+language: xml
+grammar: tree-sitter-xml
+extensions: [".xml", ".xsl", ".xslt", ".xsd", ".svg", ".wsdl", ".plist", ".xhtml"]
+queries:
+
+  - data_key: elements
+    graph_label: Element
+    pattern: '(STag (Name) @name)'
+  - data_key: elements
+    graph_label: Element
+    pattern: '(EmptyElemTag (Name) @name)'
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(STag (Name) @element (Attribute (Name) @name (AttValue) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(EmptyElemTag (Name) @element (Attribute (Name) @name (AttValue) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (STag (Name) @name) (content (CharData) @value))'
+    value_capture: value
+    value_label: Text
+
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (STag (Name) @name) (content (CDSect (CData) @value)))'
+    value_capture: value
+    value_label: Text
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  element: Element
+
+context_name_paths:
+  element: STag/Name
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - Comment
+
+embed_labels:
+  - Element
+  - Text
+  - Comment

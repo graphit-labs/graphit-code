@@ -1,0 +1,193 @@
+package task
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+const MaxBatchOperations = 100
+
+type BatchInput struct {
+	Operations []BatchOperation `json:"operations"`
+	Lease      string           `json:"lease,omitempty"`
+	Actor      string           `json:"-"`
+}
+
+type BatchOperation struct {
+	Key                string   `json:"key,omitempty" jsonschema:"Optional caller correlation key"`
+	Action             string   `json:"action" jsonschema:"create, claim, force_takeover, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, check_supersede, revise, comment, dependency_add, or dependency_remove"`
+	ID                 string   `json:"id,omitempty" jsonschema:"Task ID for every action except create"`
+	ClaimToken         string   `json:"claim_token,omitempty" jsonschema:"Fencing token for owner mutations"`
+	Lease              string   `json:"lease,omitempty" jsonschema:"Per-item lease override such as 2h"`
+	Title              string   `json:"title,omitempty" jsonschema:"Create or revise: concise action-oriented plain-text title naming one outcome"`
+	Description        string   `json:"description,omitempty" jsonschema:"Create or revise: self-contained Markdown specification with objective, context, scope, requirements, constraints, interfaces, risks, and intended result"`
+	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" jsonschema:"Create or revise: singular imperative Markdown statements of what the system must do or must not allow"`
+	Tests              []string `json:"tests,omitempty" jsonschema:"Create or revise: Given-When-Then behavior checks or method-target-expected-result validations"`
+	Type               string   `json:"type,omitempty" jsonschema:"Create or revise: task type"`
+	Priority           *int     `json:"priority,omitempty" jsonschema:"Create or revise: priority 0 through 4; create defaults to 2"`
+	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Create or revise: parent delivery task ID; required for cleanup, validation, review, documentation, commit preparation, release checks, and similar finalization work"`
+	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Create or revise: complete blocking task ID list"`
+	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Create or comment: stable caller key"`
+	Summary            string   `json:"summary,omitempty" jsonschema:"Progress, release, or complete Markdown summary with state and evidence"`
+	NextStep           string   `json:"next_step,omitempty" jsonschema:"Progress or release Markdown continuation action with target and completion condition"`
+	Reason             string   `json:"reason,omitempty" jsonschema:"Cancel, remove, force takeover, flag, revise, or check supersede Markdown rationale with cause and impact"`
+	ConfirmID          string   `json:"confirm_id,omitempty" jsonschema:"Remove or force takeover: exact task ID confirmation"`
+	CheckID            string   `json:"check_id,omitempty" jsonschema:"Check: acceptance or test check ID"`
+	Passed             *bool    `json:"passed,omitempty" jsonschema:"Check: whether the check passed"`
+	Evidence           string   `json:"evidence,omitempty" jsonschema:"Check: Markdown command, observation, or artifact with conditions and actual result"`
+	Kind               string   `json:"kind,omitempty" jsonschema:"Comment: note, decision, problem, lesson, or knowledge"`
+	Body               string   `json:"body,omitempty" jsonschema:"Comment: durable self-contained Markdown context, rationale, impact, and references"`
+	DependencyID       string   `json:"dependency_id,omitempty" jsonschema:"Dependency actions: blocking task ID"`
+	ExpectedRevision   int64    `json:"expected_revision,omitempty" jsonschema:"Force takeover, revise, or check_supersede: current task revision"`
+	ClearParent        bool     `json:"clear_parent,omitempty" jsonschema:"Revise: clear the parent task relationship"`
+	ReplacementText    string   `json:"replacement_text,omitempty" jsonschema:"Check supersede: optional replacement using the same quality form as acceptance or test checks"`
+	ReplacementKind    string   `json:"replacement_kind,omitempty" jsonschema:"Check supersede: optional acceptance or test replacement kind"`
+}
+
+type BatchItemResult struct {
+	Index  int    `json:"index"`
+	Key    string `json:"key,omitempty"`
+	Action string `json:"action"`
+	ID     string `json:"id,omitempty"`
+	OK     bool   `json:"ok"`
+	Value  any    `json:"value,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+type BatchResult struct {
+	Results   []BatchItemResult `json:"results"`
+	Succeeded int               `json:"succeeded"`
+	Failed    int               `json:"failed"`
+}
+
+func (s *Service) Batch(ctx context.Context, in BatchInput) (BatchResult, error) {
+	if len(in.Operations) == 0 {
+		return BatchResult{}, errors.New("at least one batch operation is required")
+	}
+	if len(in.Operations) > MaxBatchOperations {
+		return BatchResult{}, fmt.Errorf("batch has %d operations; maximum is %d", len(in.Operations), MaxBatchOperations)
+	}
+	in.Actor = strings.TrimSpace(in.Actor)
+	if in.Actor == "" {
+		return BatchResult{}, errors.New("agent id is required")
+	}
+	defaultLease, err := batchLease(in.Lease, DefaultLease)
+	if err != nil {
+		return BatchResult{}, err
+	}
+
+	out := BatchResult{Results: make([]BatchItemResult, 0, len(in.Operations))}
+	for index, operation := range in.Operations {
+		item := BatchItemResult{Index: index, Key: operation.Key, Action: strings.ToLower(strings.TrimSpace(operation.Action)), ID: strings.TrimSpace(operation.ID)}
+		value, runErr := s.runBatchOperation(ctx, in.Actor, defaultLease, operation)
+		if runErr != nil {
+			item.Error = runErr.Error()
+			out.Failed++
+		} else {
+			item.OK = true
+			item.Value = value
+			out.Succeeded++
+			if item.ID == "" {
+				switch created := value.(type) {
+				case Task:
+					item.ID = created.ID
+				case Comment:
+					item.ID = created.TaskID
+				case Removal:
+					item.ID = created.ID
+				}
+			}
+		}
+		out.Results = append(out.Results, item)
+	}
+	return out, nil
+}
+
+func (s *Service) runBatchOperation(ctx context.Context, actor string, defaultLease time.Duration, operation BatchOperation) (any, error) {
+	action := strings.ToLower(strings.TrimSpace(operation.Action))
+	lease, err := batchLease(operation.Lease, defaultLease)
+	if err != nil {
+		return nil, err
+	}
+	priority := 2
+	if operation.Priority != nil {
+		priority = *operation.Priority
+	}
+	switch action {
+	case "create":
+		return s.Create(ctx, CreateInput{Title: operation.Title, Description: operation.Description, AcceptanceCriteria: operation.AcceptanceCriteria, Tests: operation.Tests, Type: operation.Type, Priority: priority, ParentID: operation.ParentID, DependsOn: operation.DependsOn, IdempotencyKey: operation.IdempotencyKey, Actor: actor})
+	case "claim":
+		return s.Claim(ctx, operation.ID, actor, lease)
+	case "force_takeover":
+		if strings.TrimSpace(operation.Lease) == "" {
+			return nil, errors.New("force_takeover action requires an explicit replacement lease")
+		}
+		return s.ForceTakeover(ctx, operation.ID, actor, ForceTakeoverInput{ExpectedRevision: operation.ExpectedRevision, ConfirmID: operation.ConfirmID, Reason: operation.Reason}, lease)
+	case "progress":
+		return s.Progress(ctx, operation.ID, operation.ClaimToken, actor, operation.Summary, operation.NextStep, lease)
+	case "heartbeat":
+		return s.Heartbeat(ctx, operation.ID, operation.ClaimToken, actor, lease)
+	case "release":
+		return s.Release(ctx, operation.ID, operation.ClaimToken, actor, operation.Summary, operation.NextStep)
+	case "complete":
+		return s.Complete(ctx, operation.ID, operation.ClaimToken, actor, operation.Summary)
+	case "cancel":
+		return s.Cancel(ctx, operation.ID, operation.ClaimToken, actor, operation.Reason)
+	case "remove":
+		return s.Remove(ctx, operation.ID, operation.ConfirmID, actor, operation.Reason)
+	case "flag":
+		return s.Flag(ctx, operation.ID, operation.ClaimToken, actor, operation.Reason)
+	case "unflag":
+		return s.Unflag(ctx, operation.ID, operation.ClaimToken, actor)
+	case "check":
+		if operation.Passed == nil {
+			return nil, errors.New("check action requires passed")
+		}
+		return s.VerifyCheck(ctx, operation.ID, operation.ClaimToken, actor, operation.CheckID, *operation.Passed, operation.Evidence, lease)
+	case "check_supersede":
+		return s.SupersedeCheck(ctx, operation.ID, operation.ClaimToken, actor, SupersedeCheckInput{ExpectedRevision: operation.ExpectedRevision, CheckID: operation.CheckID, Reason: operation.Reason, ReplacementText: operation.ReplacementText, ReplacementKind: operation.ReplacementKind}, lease)
+	case "revise":
+		input := ReviseInput{ExpectedRevision: operation.ExpectedRevision, Reason: operation.Reason, Priority: operation.Priority, AddAcceptanceCriteria: operation.AcceptanceCriteria, AddTests: operation.Tests}
+		if strings.TrimSpace(operation.Title) != "" {
+			input.Title = &operation.Title
+		}
+		if strings.TrimSpace(operation.Description) != "" {
+			input.Description = &operation.Description
+		}
+		if strings.TrimSpace(operation.Type) != "" {
+			input.Type = &operation.Type
+		}
+		if operation.ClearParent {
+			empty := ""
+			input.ParentID = &empty
+		} else if strings.TrimSpace(operation.ParentID) != "" {
+			input.ParentID = &operation.ParentID
+		}
+		if operation.DependsOn != nil {
+			input.DependsOn = &operation.DependsOn
+		}
+		return s.Revise(ctx, operation.ID, operation.ClaimToken, actor, input, lease)
+	case "comment":
+		return s.AddComment(ctx, operation.ID, operation.ClaimToken, actor, operation.Kind, operation.Body, operation.IdempotencyKey, lease)
+	case "dependency_add":
+		return s.AddDependency(ctx, operation.ID, operation.DependencyID, actor)
+	case "dependency_remove":
+		return s.RemoveDependency(ctx, operation.ID, operation.DependencyID, actor)
+	default:
+		return nil, fmt.Errorf("unsupported task batch action %q", operation.Action)
+	}
+}
+
+func batchLease(value string, fallback time.Duration) (time.Duration, error) {
+	if strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	lease, err := time.ParseDuration(value)
+	if err != nil || lease <= 0 {
+		return 0, fmt.Errorf("invalid positive lease duration %q", value)
+	}
+	return lease, nil
+}

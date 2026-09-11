@@ -1,0 +1,79 @@
+language: r
+grammar: tree-sitter-r
+extensions: [".r", ".R", ".Rmd"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(binary_operator (identifier) @name (function_definition))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(binary_operator (identifier) @name)'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(binary_operator lhs: (identifier) @name rhs: [(float) (integer) (complex) (string) (true) (false) (null) (na) (inf) (nan)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(binary_operator (identifier) @parent (function_definition (parameters (parameter (identifier) @name))))'
+    parent_capture: parent
+    parent_label: Function
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (parameter (identifier) @name))'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call (namespace_operator (identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(extract_operator (identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(call function: (identifier) @_fn arguments: (arguments (argument value: (string) @name)))'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  binary_operator: Function
+
+context_name_paths:
+  binary_operator: lhs
+
+anon_func_types:
+  - function_definition
+
+declaration_types:
+  - binary_operator
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Function
+  - Variable
+  - Comment

@@ -1,0 +1,531 @@
+package mcpstdio
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
+	"github.com/graphit-labs/graphit-code/internal/version"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
+	"github.com/oklog/ulid/v2"
+)
+
+type initInput struct {
+	ProjectDir  string `json:"project_dir" jsonschema:"The directory of the project to initialize (required)"`
+	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, deepcode, etc.)"`
+	ID          string `json:"id,omitempty" jsonschema:"Project ID (ULID) override"`
+	Name        string `json:"name,omitempty" jsonschema:"Project name override"`
+	Description string `json:"description,omitempty" jsonschema:"Project description"`
+}
+
+type syncInput struct {
+	ProjectDir string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
+	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
+}
+
+type mandatesInput struct{}
+
+type moduleSkillInput struct {
+	Module     string `json:"module" jsonschema:"Core module: task, memory, ast, hub, or knowledge (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project directory whose skill override and configuration should be resolved. Omit on an artifact-only remote server."`
+}
+
+type moduleSkillResult struct {
+	Module  string `json:"module"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Content string `json:"content"`
+}
+
+type updateInput struct {
+	ProjectDir string `json:"project_dir" jsonschema:"Project directory to update (required)"`
+	Agent      string `json:"agent,omitempty" jsonschema:"Target Agent"`
+}
+
+type removeInput struct {
+	ProjectDir string `json:"project_dir" jsonschema:"Project directory to remove from (required)"`
+	Agent      string `json:"agent,omitempty" jsonschema:"Target Agent"`
+}
+
+type configSetInput struct {
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
+	Key        string `json:"key" jsonschema:"Runtime configuration key (e.g. agent, cli, ui.port)"`
+	Value      string `json:"value" jsonschema:"Configuration value"`
+	Global     bool   `json:"global,omitempty" jsonschema:"Save to global configuration instead of project"`
+}
+
+type configGetInput struct {
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
+	Key        string `json:"key" jsonschema:"Configuration key to retrieve"`
+	Global     bool   `json:"global,omitempty" jsonschema:"Load from global configuration instead of project"`
+}
+
+type configUnsetInput struct {
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
+	Key        string `json:"key" jsonschema:"Configuration key to unset"`
+	Global     bool   `json:"global,omitempty" jsonschema:"Remove from global configuration instead of project"`
+}
+
+type configListInput struct {
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory."`
+	Global      bool   `json:"global,omitempty" jsonschema:"List global configuration"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type versionInput struct{}
+
+func syncASTPipelineOptions(projectDir string, projectCfg config.ConfigMap) ast.PipelineOptions {
+	cfg := astConfigForProject(projectDir, "")
+	return ast.PipelineOptions{
+		Workers:          4,
+		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
+		CacheDir:         cfg.StoreDir,
+		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
+	}
+}
+
+func registerLifecycleTools(server *mcp.Server) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("mandates"),
+		Description: "Return the dynamic Graphit mandates resolved from global config, global rule overrides, and framework defaults. Takes no parameters and does not read project state.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true,
+		},
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input mandatesInput) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: sessioncontext.Mandates()}},
+		}, nil, nil
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("module", "skill"),
+		Description: "Return the authoritative source of one core Graphit module skill. Call graphit_mandates first, then read the skill named by the matching mandate trigger. The source is resolved from the optional project override, global override, installed Hub override, or framework default without requiring a local agent filesystem.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true,
+		},
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input moduleSkillInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		module := strings.ToLower(strings.TrimSpace(input.Module))
+		var projectCfg config.ConfigMap
+		if projectDir != "" {
+			projectCfg = config.LoadProjectConfig(projectDir)
+		}
+
+		var defaultContent string
+		switch module {
+		case "task":
+			defaultContent = graphtask.RuleContent()
+		case "memory":
+			defaultContent = memory.RuleContent(nil)
+		case "ast":
+			defaultContent = ast.ASTRuleContent()
+		case "hub":
+			defaultContent = hub.HubRuleContent()
+		case "knowledge":
+			docsDir := config.ResolveConfig("knowledge.docs_dir", nil, projectCfg)
+			defaultContent = knowledge.KnowledgeRuleContent(nil, docsDir)
+		default:
+			return errResult(fmt.Errorf("module %q is not a core skill (want task, memory, ast, hub, or knowledge)", input.Module))
+		}
+
+		return jsonResult(moduleSkillResult{
+			Module:  module,
+			Name:    brand.SkillDirName(module),
+			Enabled: !config.IsModuleDisabled(module, nil, projectCfg),
+			Content: brand.ResolveModuleSkillIn(projectDir, module, defaultContent),
+		})
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("init"),
+		Description: "Initialize a new project in the given project directory, creating project identity and lockfiles.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input initInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		lockPath := filepath.Join(projectDir, brand.LockFileName())
+		var lf *hub.Lockfile
+		if existing, err := hub.LoadLockfile(lockPath); err == nil && existing != nil {
+			lf = existing
+		} else {
+			lf = &hub.Lockfile{Artifacts: make(map[hub.ArtifactType]map[string]*hub.LockfileArtifactMeta)}
+		}
+
+		if input.ID != "" {
+			lf.Project.ID = input.ID
+		} else if lf.Project.ID == "" {
+			lf.Project.ID = ulid.Make().String()
+		}
+
+		if input.Name != "" {
+			lf.Project.Name = input.Name
+		} else if lf.Project.Name == "" {
+			lf.Project.Name = filepath.Base(projectDir)
+		}
+
+		if input.Description != "" {
+			lf.Project.Description = input.Description
+		}
+
+		if err := hub.SaveLockfile(lockPath, lf); err != nil {
+			return errResult(fmt.Errorf("saving lockfile: %w", err))
+		}
+
+		reg, err := hub.NewRegistryManager(ctx)
+		if err != nil {
+			reg, _ = hub.NewRegistryManager(ctx)
+		}
+
+		resolvedAgent := config.ResolveProjectAgent(input.Agent, nil, lf.Config, lf.Agents)
+
+		if err := hub.OnInit(ctx, reg, resolvedAgent, projectDir); err != nil {
+			return errResult(fmt.Errorf("hub OnInit: %w", err))
+		}
+
+		gitignorePath := filepath.Join(projectDir, ".gitignore")
+		_ = git.InjectGitignore(gitignorePath, brand.GitignoreContent())
+
+		if mgr, err := hub.NewGlobalLockManager(); err == nil {
+			var regOpts []func(*hub.InstanceEntry)
+			if lf.Project.Name != "" {
+				regOpts = append(regOpts, hub.WithProjectName(lf.Project.Name))
+			}
+			if lf.Project.Description != "" {
+				regOpts = append(regOpts, hub.WithProjectDescription(lf.Project.Description))
+			}
+			_ = mgr.RegisterProject(lf.Project.ID, projectDir, regOpts...)
+		}
+
+		return textResult(fmt.Sprintf("Project %q initialized successfully (ID: %s, Agent: %s)", lf.Project.Name, lf.Project.ID, resolvedAgent))
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("sync"),
+		Description: "Sync and reindex local modules, AST DB, authoritative memory indexes, Agent rules, MCP configuration, and native Agent hooks.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input syncInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		projectCfg, agents := loadProjectLockInfo(projectDir)
+
+		var notes []string
+
+		var agentsToSync []string
+		if input.Agent != "" {
+			agentsToSync = []string{input.Agent}
+		} else if len(agents) > 0 {
+			agentsToSync = hub.FilterSupportedAgents(agents)
+		}
+
+		if !config.IsModuleDisabled("ast", nil, projectCfg) {
+			db, err := openASTDBReadWrite(projectDir, "")
+			if err == nil {
+				pipeOpts := syncASTPipelineOptions(projectDir, projectCfg)
+				_, _ = ast.RunPipeline(ctx, db, projectDir, pipeOpts)
+				_ = db.Close()
+			}
+		}
+
+		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+			wikiDir := resolveWikiDir("knowledge", projectDir, "")
+			_, _ = knowledge.RunIndexPipeline(ctx, projectDir, wikiDir, knowledge.IndexConfig{
+				Workers:    4,
+				ProjectCfg: projectCfg,
+				Scope:      knowledge.ScopeFor(projectDir, nil, projectCfg),
+			})
+		}
+
+		if !config.IsModuleDisabled("memory", nil, projectCfg) {
+			_ = withProjectDir(projectDir, func() error {
+				for _, userScope := range []bool{false, true} {
+					svc, svcErr := newMemorySvc(ctx, userScope, projectDir)
+					if svcErr == nil {
+						_ = svc.IndexMemories(ctx)
+						_ = svc.Close()
+					}
+				}
+				return nil
+			})
+		}
+
+		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+			embClient, embErr := ai.NewEmbeddingClientFromConfig()
+			if embErr != nil {
+				notes = append(notes, fmt.Sprintf("wiki embeddings skipped: %v", embErr))
+			} else {
+				embedder := wiki.NewWikiEmbedder(embClient, wiki.DefaultWikiEmbedConfig())
+				embedded := 0
+				for _, target := range daemon.WikiEmbedTargets(projectDir, nil) {
+					n, err := embedder.RunCycle(ctx, target.Dir)
+					if err != nil {
+						notes = append(notes, fmt.Sprintf("wiki embeddings failed for %s: %v", target.Dir, err))
+						continue
+					}
+					embedded += n
+				}
+				if embedded > 0 {
+					notes = append(notes, fmt.Sprintf("wiki embeddings: %d chunk(s)", embedded))
+				}
+			}
+		}
+
+		for _, targetAgent := range agentsToSync {
+			for _, r := range []func(string, string) error{
+				knowledge.InstallSkill,
+				ast.InstallSkill,
+				hub.InstallSkill,
+				memory.InstallSkill,
+				graphtask.InstallSkill,
+			} {
+				_ = r(projectDir, targetAgent)
+			}
+			removeRetiredImprovementsGuidance(projectDir, targetAgent)
+		}
+
+		lf, lockErr := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+		if lockErr != nil {
+			return errResult(fmt.Errorf("reading lockfile for Agent sync: %w", lockErr))
+		}
+		if lf != nil {
+			var syncErrs []string
+			for _, targetAgent := range agentsToSync {
+				if err := hub.SyncAgentAdapter(targetAgent, projectDir, lf); err != nil {
+					syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetAgent, err))
+				}
+			}
+			if len(syncErrs) > 0 {
+				return errResult(fmt.Errorf("syncing Agent MCP and hooks: %s", strings.Join(syncErrs, "; ")))
+			}
+		}
+
+		if len(notes) > 0 {
+			return textResult("Sync completed.\n\n" + strings.Join(notes, "\n"))
+		}
+		return textResult("Sync completed successfully.")
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("update"),
+		Description: "Update all installed Hub artifacts and refresh dynamic hooks and skills.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input updateInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		projectCfg, agents := loadProjectLockInfo(projectDir)
+		resolvedAgent := config.ResolveProjectAgent(input.Agent, nil, projectCfg, agents)
+
+		reg, err := hub.NewRegistryManager(ctx)
+		if err != nil {
+			return errResult(fmt.Errorf("registry unavailable: %w", err))
+		}
+
+		if err := hub.OnUpdate(ctx, reg, resolvedAgent, projectDir); err != nil {
+			return errResult(err)
+		}
+
+		for _, r := range []func(string, string) error{
+			knowledge.InstallSkill,
+			ast.InstallSkill,
+			hub.InstallSkill,
+			memory.InstallSkill,
+			graphtask.InstallSkill,
+		} {
+			_ = r(projectDir, resolvedAgent)
+		}
+		removeRetiredImprovementsGuidance(projectDir, resolvedAgent)
+
+		return textResult("Update completed successfully.")
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("remove"),
+		Description: "Uninstall and remove Graphit from the current project.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input removeInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		projectCfg, agents := loadProjectLockInfo(projectDir)
+		resolvedAgent := config.ResolveProjectAgent(input.Agent, nil, projectCfg, agents)
+
+		hm := git.NewHookManager(projectDir)
+		_ = hm.Remove()
+
+		_, _ = git.RemoveGitignore(filepath.Join(projectDir, ".gitignore"))
+
+		reg, _ := hub.NewRegistryManager(ctx)
+		_ = hub.OnRemove(ctx, reg, resolvedAgent, projectDir)
+
+		for _, r := range []func(string, string) error{
+			knowledge.RemoveSkill,
+			ast.RemoveSkill,
+			hub.RemoveSkill,
+			memory.RemoveSkill,
+			graphtask.RemoveSkill,
+		} {
+			_ = r(projectDir, resolvedAgent)
+		}
+		removeRetiredImprovementsGuidance(projectDir, resolvedAgent)
+
+		return textResult("Graphit removed from this project successfully.")
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("config", "set"),
+		Description: "Set a configuration key to the specified value globally or locally.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configSetInput) (*mcp.CallToolResult, any, error) {
+		if input.Global {
+			if err := config.SetGlobalConfigValue(input.Key, input.Value); err != nil {
+				return errResult(err)
+			}
+			return textResult(fmt.Sprintf("Global config set: %s=%s", input.Key, input.Value))
+		}
+
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		lp := filepath.Join(projectDir, brand.LockFileName())
+		lf, err := hub.LoadLockfile(lp)
+		if err != nil || lf == nil {
+			return errResult(fmt.Errorf("project not initialized. Run init first"))
+		}
+
+		if lf.Config == nil {
+			lf.Config = make(config.ConfigMap)
+		}
+		config.SetConfigValue(lf.Config, input.Key, input.Value)
+		if err := hub.SaveLockfile(lp, lf); err != nil {
+			return errResult(err)
+		}
+		return textResult(fmt.Sprintf("Project config set: %s=%s", input.Key, input.Value))
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("config", "get"),
+		Description: "Get the value of a configuration key.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configGetInput) (*mcp.CallToolResult, any, error) {
+		if input.Global {
+			val, ok, err := config.GetGlobalConfigValue(input.Key)
+			if err != nil {
+				return errResult(err)
+			}
+			if !ok {
+				return textResult(fmt.Sprintf("Key %q is not set globally.", input.Key))
+			}
+			return textResult(val)
+		}
+
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		projectCfg := loadProjectConfig(projectDir)
+		if projectCfg == nil {
+			return errResult(fmt.Errorf("project not initialized"))
+		}
+
+		val, ok := config.GetConfigValue(projectCfg, input.Key)
+		if !ok {
+			return textResult(fmt.Sprintf("Key %q is not set locally.", input.Key))
+		}
+		return textResult(val)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("config", "unset"),
+		Description: "Unset a configuration key.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configUnsetInput) (*mcp.CallToolResult, any, error) {
+		if input.Global {
+			if err := config.UnsetGlobalConfigValue(input.Key); err != nil {
+				return errResult(err)
+			}
+			return textResult(fmt.Sprintf("Global key %q unset.", input.Key))
+		}
+
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		lp := filepath.Join(projectDir, brand.LockFileName())
+		lf, err := hub.LoadLockfile(lp)
+		if err != nil || lf == nil {
+			return errResult(fmt.Errorf("project not initialized"))
+		}
+
+		config.UnsetConfigValue(lf.Config, input.Key)
+		if err := hub.SaveLockfile(lp, lf); err != nil {
+			return errResult(err)
+		}
+		return textResult(fmt.Sprintf("Project key %q unset.", input.Key))
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("config", "list"),
+		Description: "List all configuration keys and their values.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configListInput) (*mcp.CallToolResult, any, error) {
+		var cfg config.ConfigMap
+		var err error
+
+		if input.Global {
+			cfg, err = config.LoadGlobalConfig()
+			if err != nil {
+				return errResult(err)
+			}
+		} else {
+			projectDir, err := resolveProjectDir(input.ProjectDir)
+			if err != nil {
+				return errResult(err)
+			}
+			cfg = loadProjectConfig(projectDir)
+			if cfg == nil {
+				return errResult(fmt.Errorf("project not initialized"))
+			}
+		}
+
+		entries := config.ListConfigEntries(cfg)
+		if aiOpt(input.AiOptimized) {
+			return toonResult(entries)
+		}
+		return jsonResult(entries)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("version"),
+		Description: "Get the current version of the Graphit CLI and MCP server.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {
+		return textResult(version.Version)
+	}))
+}
+
+func removeRetiredImprovementsGuidance(projectDir, agentName string) {
+	_ = agent.RemoveManagedSkill(projectDir, agentName, brand.SkillDirName("improvements"))
+}

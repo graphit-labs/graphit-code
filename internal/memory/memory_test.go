@@ -1,0 +1,538 @@
+package memory
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestMemoryFileName(t *testing.T) {
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"123", "123.md"},
+		{"01J5X", "01J5X.md"},
+		{"", ".md"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			got := MemoryFileName(tc.id)
+			if got != tc.want {
+				t.Errorf("MemoryFileName(%q) = %q; want %q", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMemoryIDFromFileName(t *testing.T) {
+	tests := []struct {
+		filename string
+		want     string
+	}{
+		{"abc.md", "abc"},
+		{"01J123.md", "01J123"},
+		{"dir/nested.md", "nested"},
+		{"abc.txt", "abc.txt"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.filename, func(t *testing.T) {
+			got := MemoryIDFromFileName(tc.filename)
+			if got != tc.want {
+				t.Errorf("MemoryIDFromFileName(%q) = %q; want %q", tc.filename, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsImportantContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"flag set", "---\ntitle: T\nimportant: true\n---\n\n# T\n\nBody.", true},
+		{"flag absent", "---\ntitle: T\n---\n\n# T\n\nBody.", false},
+		{"flag false", "---\ntitle: T\nimportant: false\n---\n\n# T\n\nBody.", false},
+		{"word in body only", "---\ntitle: T\n---\n\n# T\n\nimportant: true", false},
+		{"no frontmatter", "# T\n\nBody.", false},
+		{"empty", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsImportantContent(tc.content)
+			if got != tc.want {
+				t.Errorf("IsImportantContent(%q) = %v; want %v", tc.content, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidMemoryType(t *testing.T) {
+	tests := []struct {
+		typ  string
+		want bool
+	}{
+		{"convention", true},
+		{"correction", true},
+		{"decision", true},
+		{"tension", true},
+		{"fact", true},
+		{"skill", true},
+		{"invalid", false},
+		{"", false},
+		{"FACT", false},
+		{"Convention", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.typ, func(t *testing.T) {
+			got := ValidMemoryType(tc.typ)
+			if got != tc.want {
+				t.Errorf("ValidMemoryType(%q) = %v; want %v", tc.typ, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExtractBodyAfterFrontmatter(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "full frontmatter and H1",
+			content: `---
+title: My Title
+tags: [memory]
+---
+
+# My Title
+
+Body content starts here.
+Another line.`,
+			want: "Body content starts here.\nAnother line.",
+		},
+		{
+			name:    "no frontmatter",
+			content: "Just some text without frontmatter",
+			want:    "Just some text without frontmatter",
+		},
+		{
+			name: "frontmatter no H1",
+			content: `---
+title: Test
+---
+
+Body after frontmatter only.`,
+			want: "Body after frontmatter only.",
+		},
+		{
+			name:    "empty",
+			content: "",
+			want:    "",
+		},
+		{
+			name: "frontmatter only",
+			content: `---
+title: Title Only
+---`,
+			want: "",
+		},
+		{
+			name: "frontmatter H1 no body",
+			content: `---
+title: Test
+---
+
+# Test`,
+			want: "",
+		},
+		{
+			name: "multiple H1s",
+			content: `---
+title: Test
+---
+
+# First Heading
+
+Some content.
+
+# Second Heading
+
+More content.`,
+			want: "Some content.\n\n# Second Heading\n\nMore content.",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractBodyAfterFrontmatter(tc.content)
+			if got != tc.want {
+				t.Errorf("extractBodyAfterFrontmatter:\n  got:  %q\n  want: %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFirstLineFromContent(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"empty", "", ""},
+		{"single line", "Hello world", "Hello world"},
+		{"skip heading", "# Heading\n\nActual content", "Actual content"},
+		{"truncate at 100", strings.Repeat("A", 120), strings.Repeat("A", 100) + "…"},
+		{"blank lines", "\n\n\n", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := firstLineFromContent(tc.body)
+			if got != tc.want {
+				t.Errorf("firstLineFromContent(%q) = %q; want %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTags(t *testing.T) {
+	tests := []struct {
+		name string
+		csv  string
+		want []string
+	}{
+		{"empty", "", nil},
+		{"single", "auth", []string{"auth"}},
+		{"multi", "auth,security,login", []string{"auth", "security", "login"}},
+		{"with spaces", " auth , security , login ", []string{"auth", "security", "login"}},
+		{"trailing comma", "auth,security,", []string{"auth", "security"}},
+		{"empty segments", "auth,,security", []string{"auth", "security"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseTags(tc.csv)
+			if tc.want == nil {
+				if got != nil {
+					t.Errorf("ParseTags(%q) = %v; want nil", tc.csv, got)
+				}
+				return
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("ParseTags(%q) length = %d; want %d", tc.csv, len(got), len(tc.want))
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("ParseTags(%q)[%d] = %q; want %q", tc.csv, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestBuildMemoryFile(t *testing.T) {
+	content := buildMemoryFile(
+		"TEST-ID", "Test Title", "Body text here",
+		"project", "proj-123", "",
+		true, "convention", []string{"tag1", "tag2"},
+	)
+
+	checks := []struct {
+		desc    string
+		substr  string
+		present bool
+	}{
+		{"contains id", "id: TEST-ID", true},
+		{"contains title", "title: Test Title", true},
+		{"contains scope", "scope: project", true},
+		{"contains scope_id", "scope_id: proj-123", true},
+		{"contains type", "type: convention", true},
+		{"contains important", "important: true", true},
+		{"contains created_at", "created_at:", true},
+		{"contains updated_at", "updated_at:", true},
+		{"contains tags", "tags: [memory, project, convention, tag1, tag2]", true},
+		{"contains H1", "# Test Title", true},
+		{"contains body", "Body text here", true},
+		{"no project_id for project scope", "project_id:", false},
+	}
+	for _, c := range checks {
+		t.Run(c.desc, func(t *testing.T) {
+			found := strings.Contains(content, c.substr)
+			if found != c.present {
+				if c.present {
+					t.Errorf("expected content to contain %q", c.substr)
+				} else {
+					t.Errorf("expected content NOT to contain %q", c.substr)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildMemoryFile_UserScope(t *testing.T) {
+	content := buildMemoryFile(
+		"ID2", "User Memory", "Body",
+		"user", "user-hash", "orig-project-id",
+		false, "fact", nil,
+	)
+	if !strings.Contains(content, "project_id: orig-project-id") {
+		t.Error("expected project_id field for user scope with origProjectID")
+	}
+	if strings.Contains(content, "important: true") {
+		t.Error("should not contain important: true when not important")
+	}
+}
+
+func TestBuildMemoryFile_NoType(t *testing.T) {
+	content := buildMemoryFile("ID3", "Title", "Body", "project", "pid", "", false, "", nil)
+	if strings.Contains(content, "type:") {
+		t.Error("should not contain type field when type is empty")
+	}
+}
+
+func TestBuildMemoryFile_BodyTrailingNewline(t *testing.T) {
+	content := buildMemoryFile("ID4", "Title", "Body\n", "project", "pid", "", false, "fact", nil)
+	if strings.Contains(content, "Body\n\n\n") {
+		t.Error("double newline after body that already ends with newline")
+	}
+}
+
+func TestConsolidationReport_HasActions(t *testing.T) {
+	tests := []struct {
+		name string
+		r    ConsolidationReport
+		want bool
+	}{
+		{"empty", ConsolidationReport{}, false},
+		{"only duplicates", ConsolidationReport{Duplicates: []ConsolidationAction{{}}}, true},
+		{"only contradictions", ConsolidationReport{Contradictions: []ConsolidationAction{{}}}, true},
+		{"only stale", ConsolidationReport{Stale: []ConsolidationAction{{}}}, true},
+		{"only suggestions", ConsolidationReport{Suggestions: []ConsolidationAction{{}}}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.r.HasActions()
+			if got != tc.want {
+				t.Errorf("HasActions() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConsolidationReport_TotalActions(t *testing.T) {
+	r := ConsolidationReport{
+		Duplicates:     []ConsolidationAction{{}, {}},
+		Contradictions: []ConsolidationAction{{}},
+		Stale:          []ConsolidationAction{{}, {}, {}},
+		Suggestions:    []ConsolidationAction{{}},
+	}
+	if got := r.TotalActions(); got != 7 {
+		t.Errorf("TotalActions() = %d; want 7", got)
+	}
+}
+
+func TestDetectStaleMemories(t *testing.T) {
+	now := time.Now().UTC()
+	oldDate := now.Add(-120 * 24 * time.Hour).Format(time.RFC3339)
+	freshDate := now.Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+
+	memories := []memorySnapshot{
+		{ID: "old-1", Title: "Old Memory", CreatedAt: oldDate, Important: false},
+		{ID: "fresh-1", Title: "Fresh Memory", CreatedAt: freshDate, Important: false},
+		{ID: "old-important", Title: "Old Important", CreatedAt: oldDate, Important: true},
+		{ID: "no-date", Title: "No Date", CreatedAt: "", Important: false},
+	}
+
+	stale := detectStaleMemories(memories)
+
+	if len(stale) != 1 {
+		t.Fatalf("expected 1 stale memory, got %d", len(stale))
+	}
+	if stale[0].MemoryIDs[0] != "old-1" {
+		t.Errorf("expected stale ID 'old-1', got %q", stale[0].MemoryIDs[0])
+	}
+	if !strings.Contains(stale[0].Reason, "120 days old") {
+		t.Errorf("expected reason to mention age, got %q", stale[0].Reason)
+	}
+	if stale[0].Type != ActionUpdate {
+		t.Errorf("stale action type = %q; want %q", stale[0].Type, ActionUpdate)
+	}
+}
+
+func TestDetectStaleMemories_AllFresh(t *testing.T) {
+	now := time.Now().UTC()
+	freshDate := now.Add(-5 * 24 * time.Hour).Format(time.RFC3339)
+
+	memories := []memorySnapshot{
+		{ID: "1", Title: "Fresh", CreatedAt: freshDate, Important: false},
+	}
+
+	stale := detectStaleMemories(memories)
+	if len(stale) != 0 {
+		t.Errorf("expected 0 stale memories, got %d", len(stale))
+	}
+}
+
+func TestDetectStaleMemories_Empty(t *testing.T) {
+	stale := detectStaleMemories(nil)
+	if len(stale) != 0 {
+		t.Errorf("expected 0 stale memories for nil input, got %d", len(stale))
+	}
+}
+
+func TestScopePrefix(t *testing.T) {
+	tests := []struct {
+		scope   MemoryScope
+		scopeID string
+		want    string
+	}{
+		{MemoryScopeProject, "proj-abc", "memory/project/proj-abc"},
+		{MemoryScopeUser, "user-hash", "memory/user/user-hash"},
+		{MemoryScopeContext, "ctx-name", "memory/project/ctx-name"},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.scope), func(t *testing.T) {
+			svc := &MemoryService{scope: tc.scope, scopeID: tc.scopeID}
+			got := svc.ScopePrefix()
+			if got != tc.want {
+				t.Errorf("ScopePrefix() = %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMemoryService_Close(t *testing.T) {
+	svc := &MemoryService{}
+	if err := svc.Close(); err != nil {
+		t.Errorf("Close() should return nil, got: %v", err)
+	}
+}
+
+func TestMemoryService_NoGitStore_Errors(t *testing.T) {
+	svc := &MemoryService{
+		scope:   MemoryScopeProject,
+		scopeID: "test",
+	}
+
+	_, err := svc.AddMemory("title", "body", MemoryOpts{})
+	if err == nil {
+		t.Error("AddMemory should error without gitStore")
+	}
+
+	err = svc.UpdateMemory("id", "title", "body")
+	if err == nil {
+		t.Error("UpdateMemory should error without gitStore")
+	}
+
+	err = svc.RemoveMemory("id")
+	if err == nil {
+		t.Error("RemoveMemory should error without gitStore")
+	}
+
+	err = svc.PromoteMemory("id")
+	if err == nil {
+		t.Error("PromoteMemory should error without gitStore")
+	}
+
+	err = svc.DemoteMemory("id")
+	if err == nil {
+		t.Error("DemoteMemory should error without gitStore")
+	}
+
+}
+
+func TestMemoryEntry_Fields(t *testing.T) {
+	e := MemoryEntry{
+		ID:        "TEST-ID",
+		Title:     "Test Title",
+		CreatedAt: "2026-01-01T00:00:00Z",
+		Scope:     MemoryScopeProject,
+		ScopeID:   "proj-id",
+		Important: true,
+		Type:      MemoryTypeConvention,
+		Tags:      []string{"tag1", "tag2"},
+	}
+	if e.ID != "TEST-ID" {
+		t.Errorf("ID = %q", e.ID)
+	}
+	if e.Scope != MemoryScopeProject {
+		t.Errorf("Scope = %q", e.Scope)
+	}
+}
+
+func TestMemoryScopeConstants(t *testing.T) {
+	if MemoryScopeProject != "project" {
+		t.Errorf("MemoryScopeProject = %q", MemoryScopeProject)
+	}
+	if MemoryScopeUser != "user" {
+		t.Errorf("MemoryScopeUser = %q", MemoryScopeUser)
+	}
+	if MemoryScopeContext != "context" {
+		t.Errorf("MemoryScopeContext = %q", MemoryScopeContext)
+	}
+}
+
+func TestMemoryTypeConstants(t *testing.T) {
+	expected := map[MemoryType]string{
+		MemoryTypeConvention: "convention",
+		MemoryTypeCorrection: "correction",
+		MemoryTypeDecision:   "decision",
+		MemoryTypeTension:    "tension",
+		MemoryTypeFact:       "fact",
+		MemoryTypeSkill:      "skill",
+	}
+	for k, v := range expected {
+		if string(k) != v {
+			t.Errorf("MemoryType %q != %q", k, v)
+		}
+	}
+}
+
+func TestConsolidationAction_Fields(t *testing.T) {
+	a := ConsolidationAction{
+		Type:       "merge",
+		MemoryIDs:  []string{"ID1", "ID2"},
+		Title:      "Merged Memory",
+		Reason:     "They say the same thing",
+		NewContent: "Merged content",
+		NewTitle:   "New Title",
+	}
+	if a.Type != "merge" {
+		t.Errorf("Type = %q", a.Type)
+	}
+	if len(a.MemoryIDs) != 2 {
+		t.Errorf("MemoryIDs len = %d", len(a.MemoryIDs))
+	}
+}
+
+func TestMemoryInsertOpts_DTO(t *testing.T) {
+	opts := MemoryInsertOpts{
+		Title:     "Test",
+		Content:   "Body",
+		Type:      "fact",
+		Tags:      "a,b",
+		Scope:     "project",
+		Important: true,
+	}
+	if opts.Title != "Test" {
+		t.Errorf("Title = %q", opts.Title)
+	}
+}
+
+func TestNewMemoryAppService(t *testing.T) {
+	svc := NewMemoryAppService("/some/project")
+	if svc == nil {
+		t.Fatal("expected non-nil service")
+	}
+}
+
+func TestImportanceIsNotEncodedInTheFileName(t *testing.T) {
+	content := renderMemoryFile(MemoryFrontmatter{ID: "MEM1", Title: "T", Important: true}, "Body.")
+	if !strings.Contains(content, "\nimportant: true\n") {
+		t.Errorf("rendered memory carries no important flag:\n%s", content)
+	}
+	if name := MemoryFileName("MEM1"); name != "MEM1.md" {
+		t.Errorf("MemoryFileName for an important memory = %q; want the plain id", name)
+	}
+}

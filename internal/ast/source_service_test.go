@@ -1,0 +1,115 @@
+package ast
+
+import (
+	"testing"
+)
+
+func TestFormatMatches_Basic(t *testing.T) {
+	matches := []SourceMatch{
+		{LineNumber: 1, Line: "package main", IsMatch: true},
+		{LineNumber: 2, Line: "", IsMatch: false},
+		{LineNumber: 3, Line: "func main() {", IsMatch: true},
+	}
+	got := formatMatches(matches)
+
+	if got == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !contains(got, ">    1: package main") {
+		t.Errorf("expected match marker for line 1, got:\n%s", got)
+	}
+	if !contains(got, "     2:") {
+		t.Errorf("expected context marker for line 2, got:\n%s", got)
+	}
+	if !contains(got, ">    3: func main() {") {
+		t.Errorf("expected match marker for line 3, got:\n%s", got)
+	}
+}
+
+func TestFormatMatches_SeparatorOnGap(t *testing.T) {
+	matches := []SourceMatch{
+		{LineNumber: 1, Line: "first", IsMatch: true},
+		{LineNumber: 5, Line: "fifth", IsMatch: true},
+	}
+	got := formatMatches(matches)
+	if !contains(got, "---") {
+		t.Errorf("expected separator for gap, got:\n%s", got)
+	}
+}
+
+func TestFormatMatches_NoSeparatorConsecutive(t *testing.T) {
+	matches := []SourceMatch{
+		{LineNumber: 10, Line: "a", IsMatch: true},
+		{LineNumber: 11, Line: "b", IsMatch: false},
+	}
+	got := formatMatches(matches)
+	if contains(got, "---") {
+		t.Errorf("should not have separator for consecutive lines, got:\n%s", got)
+	}
+}
+
+func TestFormatMatches_Empty(t *testing.T) {
+	got := formatMatches(nil)
+	if got != "" {
+		t.Errorf("expected empty string for nil matches, got %q", got)
+	}
+}
+
+func TestFormatWithLineNumbers(t *testing.T) {
+	tests := []struct {
+		name   string
+		lines  []string
+		offset int
+		want   string
+	}{
+		{
+			name:   "simple",
+			lines:  []string{"alpha", "beta"},
+			offset: 1,
+			want:   "   1: alpha\n   2: beta",
+		},
+		{
+			name:   "offset_100",
+			lines:  []string{"foo"},
+			offset: 100,
+			want:   " 100: foo",
+		},
+		{
+			name:   "empty_lines",
+			lines:  []string{},
+			offset: 1,
+			want:   "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatWithLineNumbers(tt.lines, tt.offset)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSourceRequestDefaults(t *testing.T) {
+	req := SourceRequest{}
+	if req.Path != "" {
+		t.Error("expected empty path")
+	}
+	if req.Head != 0 || req.Tail != 0 {
+		t.Error("expected zero head/tail")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchSubstring(s, substr)
+}
+
+func searchSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

@@ -1,0 +1,24 @@
+{
+  "graphit-memory-session-start": {
+    "PostInvocation": [
+      {
+        "command": "'graphit' _session-hook --format post-invocation",
+        "timeout": 10,
+        "type": "command"
+      }
+    ],
+    "PreInvocation": [
+      {
+        "command": "'graphit' _session-hook --format first-invocation",
+        "timeout": 10,
+        "type": "command"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "'graphit' _session-hook --format antigravity-stop --sync",
+        "type": "command"
+      }
+    ]
+  }
+}

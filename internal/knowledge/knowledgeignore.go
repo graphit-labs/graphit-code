@@ -1,0 +1,54 @@
+package knowledge
+
+import (
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
+)
+
+const KnowledgeIgnoreFile = ".wikiignore"
+
+var DefaultKnowledgeIgnorePatterns = []string{
+
+	"*.exe", "*.dll", "*.so", "*.dylib", "*.o", "*.a", "*.lib",
+	"*.class", "*.jar", "*.war", "*.pyc", "*.pyo", "*.whl", "*.egg",
+
+	"*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.ico", "*.svg", "*.webp",
+	"*.mp3", "*.mp4", "*.avi", "*.mov", "*.mkv", "*.flv", "*.wav", "*.flac",
+
+	"*.zip", "*.tar", "*.gz", "*.bz2", "*.7z", "*.rar", "*.xz",
+
+	"*.pdf", "*.doc", "*.docx", "*.xls", "*.xlsx", "*.ppt", "*.pptx",
+
+	"*.min.js", "*.min.css", "*.map",
+
+	"*.lock", "package-lock.json", "yarn.lock", "Cargo.lock", "go.sum",
+
+	"node_modules/", ".git/", "__pycache__/", ".venv/", "venv/",
+	"vendor/", "dist/", "build/", ".cache/", "coverage/",
+	".idea/", ".vscode/", ".vs/", "*.swp", "*.swo", "*~",
+
+	".DS_Store", "Thumbs.db",
+
+	brand.DotDir() + "/",
+
+	".agents/", ".claude/", ".cursor/", ".kiro/", ".codex/", ".gemini/", ".opencode/",
+	".qwen/", ".kimi-code/", ".deepcode/",
+}
+
+func NewKnowledgeIgnoreChecker(rootPath string) *ignorer.IgnoreChecker {
+	return NewKnowledgeIgnoreCheckerIn(rootPath, rootPath)
+}
+
+// NewKnowledgeIgnoreCheckerIn builds a checker whose patterns are resolved
+// against rootPath but collected starting from startDir.
+//
+// The two differ whenever the build is scoped: rootPath is the project, startDir
+// is the documentation tree. Ignore files are collected by walking *up* from
+// startDir, so passing the project for both — which is what the plain
+// constructor does — silently stops reading a .wikiignore or .gitignore that
+// lives inside the docs tree. Passing the docs tree as startDir reads both, and
+// each still gets its domain relative to rootPath, so a root-level pattern
+// applies from the root and a docs-level one applies from docs/.
+func NewKnowledgeIgnoreCheckerIn(rootPath, startDir string) *ignorer.IgnoreChecker {
+	return ignorer.New(rootPath, startDir, KnowledgeIgnoreFile, DefaultKnowledgeIgnorePatterns)
+}

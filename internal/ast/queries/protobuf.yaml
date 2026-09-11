@@ -1,0 +1,88 @@
+language: protobuf
+grammar: tree-sitter-proto
+extensions: [".proto"]
+queries:
+
+  - data_key: services
+    graph_label: Service
+    pattern: '(service (service_name) @name)'
+  - data_key: messages
+    graph_label: Message
+    pattern: '(message (message_name) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum (enum_name) @name)'
+  - data_key: rpcs
+    graph_label: RPC
+    pattern: '(rpc (rpc_name) @name)'
+  - data_key: fields
+    graph_label: MessageField
+    pattern: '(field (identifier) @name)'
+  - data_key: map_fields
+    graph_label: MessageField
+    pattern: '(map_field (identifier) @name)'
+  - data_key: oneofs
+    graph_label: Oneof
+    pattern: '(oneof (identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package (full_ident) @name)'
+  - data_key: enum_values
+    graph_label: EnumValue
+    pattern: '(enum_field (identifier) @name)'
+
+  - data_key: fields
+    graph_label: MessageField
+    pattern: '(field (identifier) @name (field_number (int_lit) @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: enum_values
+    graph_label: EnumValue
+    pattern: '(enum_field (identifier) @name (int_lit) @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: options
+    graph_label: Option
+    pattern: '(option (identifier) @name)'
+
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import (string) @name)'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  service: Service
+  message: Message
+  enum: Enum
+
+context_name_paths:
+  service: service_name
+  message: message_name
+  enum: enum_name
+
+anon_func_types: []
+
+declaration_types:
+  - service
+  - message
+  - enum
+  - rpc
+
+comment_types:
+  - comment
+
+embed_labels:
+  - Service
+  - RPC
+  - Message
+  - MessageField
+  - Enum
+  - EnumValue
+  - Oneof
+  - Package
+  - Comment

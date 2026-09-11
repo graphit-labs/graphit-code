@@ -1,0 +1,247 @@
+package wikisvc
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/chat"
+	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
+)
+
+var (
+	newAIClientFromConfig = ai.NewClientFromConfig
+
+	newGlobalLockManager = hub.NewGlobalLockManager
+
+	newRegistryManager = hub.NewRegistryManager
+
+	newHubService = func(reg *hub.RegistryManager) interface {
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
+	} {
+		return hub.NewHubService(reg)
+	}
+
+	searchMultiWiki = func(ctx context.Context, client ai.Client, query string, cfg wiki.MultiWikiSearchConfig) (*wiki.SearchResult, error) {
+		return wiki.SearchMultiWiki(ctx, client, query, cfg)
+	}
+
+	newChatSession = chat.NewSession
+
+	loadChatSession = chat.LoadSession
+
+	newChatEngine = func(client ai.Client, session *chat.ChatSession) interface {
+		Send(ctx context.Context, message string) (string, error)
+	} {
+		return chat.NewChatEngine(client, session)
+	}
+
+	listChatSessions = chat.ListSessions
+
+	deleteChatSession = chat.DeleteSession
+)
+
+// WikiSearchOpts is a multi-wiki search request.
+//
+// This service backs `graphit wiki search`, which searches documentation only. The
+// live search — wikis plus code graphs plus the framework's own tooling — is a
+// separate subsystem with its own session runtime; see internal/livesearch.
+type WikiSearchOpts struct {
+	Query string
+	Wikis []string
+	// HubRefs are Hub knowledge artifacts, `id[@version]`.
+	HubRefs []string
+	TopK    int
+}
+
+type WikiSearchResult struct {
+	Answer    string
+	SessionID string
+	Turns     int
+}
+
+// WikiService orchestrates wiki search, source resolution, and chat sessions
+// across multiple domain modules (wiki, chat, hub, ai).
+type WikiService struct {
+	projectDir string
+}
+
+func NewWikiService(projectDir string) *WikiService {
+	return &WikiService{projectDir: projectDir}
+}
+
+func (s *WikiService) ResolveWikiSource(name string) (wiki.WikiSource, error) {
+	switch name {
+	case "project":
+		return s.resolveLocalSource(name, filepath.Base(s.projectDir),
+			knowledge.WikiDirFor(s.projectDir))
+
+	case "memory":
+		return wiki.WikiSource{}, fmt.Errorf("memory is queried directly from its authoritative table, not as a wiki source")
+
+	default:
+		return s.resolveEcosystemSource(name)
+	}
+}
+
+func (s *WikiService) resolveLocalSource(id, label, dir string) (wiki.WikiSource, error) {
+	if _, err := os.Stat(dir); err != nil {
+		wikiSub := filepath.Join(dir, "wiki")
+		if _, err := os.Stat(wikiSub); err == nil {
+			dir = wikiSub
+		}
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return wiki.WikiSource{}, fmt.Errorf("%s wiki not found at %s", id, dir)
+	}
+	return wiki.WikiSource{ID: id, Label: label, Dir: dir}, nil
+}
+
+func (s *WikiService) resolveEcosystemSource(projectID string) (wiki.WikiSource, error) {
+	lockMgr, err := newGlobalLockManager()
+	if err != nil {
+		return wiki.WikiSource{}, fmt.Errorf("cannot access global lock: %w", err)
+	}
+
+	projects, err := lockMgr.ListActiveProjects()
+	if err != nil {
+		return wiki.WikiSource{}, fmt.Errorf("cannot list ecosystem projects: %w", err)
+	}
+
+	for _, p := range projects {
+		if p.ID != projectID {
+			continue
+		}
+		dir := store.KnowledgeProjectDirByID(p.ID)
+		if _, err := os.Stat(dir); err != nil {
+			return wiki.WikiSource{}, fmt.Errorf("wiki not found for project %s at %s", projectID, dir)
+		}
+		return wiki.WikiSource{
+			ID:    projectID,
+			Label: filepath.Base(p.Dir),
+			Dir:   dir,
+		}, nil
+	}
+
+	return wiki.WikiSource{}, fmt.Errorf("project %q not found in ecosystem — check global.lock.json", projectID)
+}
+
+func (s *WikiService) ResolveHubKnowledgeSource(ctx context.Context, ref string) (wiki.WikiSource, error) {
+	reg, err := newRegistryManager(ctx)
+	if err != nil {
+		return wiki.WikiSource{}, fmt.Errorf("hub registry not available: %w", err)
+	}
+
+	hubSvc := newHubService(reg)
+	mount, err := hubSvc.ResolveKnowledgeMount(ctx, ref)
+	if err != nil {
+		return wiki.WikiSource{}, err
+	}
+
+	artifactID := ref
+	if parts := strings.SplitN(ref, "@", 2); len(parts) == 2 {
+		artifactID = parts[0]
+	}
+
+	return wiki.WikiSource{
+		ID:          "hub/" + artifactID,
+		Label:       artifactID,
+		Dir:         mount.Config.URI,
+		StoreConfig: &mount.Config,
+	}, nil
+}
+
+func (s *WikiService) ResolveSources(ctx context.Context, wikis, hubRefs []string) ([]wiki.WikiSource, []error) {
+	var sources []wiki.WikiSource
+	var errs []error
+
+	for _, w := range wikis {
+		src, err := s.ResolveWikiSource(w)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		sources = append(sources, src)
+	}
+
+	for _, ref := range hubRefs {
+		src, err := s.ResolveHubKnowledgeSource(ctx, ref)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("hub knowledge %q: %w", ref, err))
+			continue
+		}
+		sources = append(sources, src)
+	}
+
+	return sources, errs
+}
+
+func (s *WikiService) SearchMultiWiki(ctx context.Context, opts WikiSearchOpts) (*WikiSearchResult, error) {
+	sources, _ := s.ResolveSources(ctx, opts.Wikis, opts.HubRefs)
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("no valid wiki sources found — specify wikis or hub_refs")
+	}
+
+	aiClient, err := newAIClientFromConfig()
+	if err != nil {
+		return nil, fmt.Errorf("AI not configured: %w", err)
+	}
+
+	topK := opts.TopK
+	result, err := searchMultiWiki(ctx, aiClient, opts.Query, wiki.MultiWikiSearchConfig{
+		Sources:           sources,
+		WorkDir:           s.projectDir,
+		UseBM25:           true,
+		BM25TopNPerSource: topK,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	chatSources := make([]chat.Source, len(sources))
+	for i, src := range sources {
+		chatSources[i] = chat.Source{
+			ID: src.ID, Label: src.Label, Kind: chat.SourceWiki, Dir: src.Dir,
+		}
+	}
+	session := newChatSession(s.projectDir, chatSources, opts.Query)
+	_ = session.SetAgentSession(result.AgentSessionID, result.AgentCLI)
+
+	_ = session.Append(chat.ChatMessage{Role: "user", Content: opts.Query})
+	_ = session.Append(chat.ChatMessage{Role: "assistant", Content: result.Answer})
+
+	return &WikiSearchResult{
+		Answer:    result.Answer,
+		SessionID: session.ID,
+		Turns:     result.Turns,
+	}, nil
+}
+
+func (s *WikiService) ContinueChat(ctx context.Context, sessionID, message string) (string, error) {
+	session, err := loadChatSession(sessionID)
+	if err != nil {
+		return "", fmt.Errorf("session not found: %w", err)
+	}
+
+	aiClient, err := newAIClientFromConfig()
+	if err != nil {
+		return "", fmt.Errorf("AI not configured: %w", err)
+	}
+
+	engine := newChatEngine(aiClient, session)
+	return engine.Send(ctx, message)
+}
+
+func (s *WikiService) ListSessions() ([]*chat.ChatSession, error) {
+	return listChatSessions(s.projectDir)
+}
+
+func (s *WikiService) DeleteSession(id string) error {
+	return deleteChatSession(id)
+}

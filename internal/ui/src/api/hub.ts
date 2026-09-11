@@ -1,0 +1,173 @@
+import { api } from './client'
+
+export interface RegistryEntry {
+  id: string
+  name: string
+  description?: string
+  type: string
+  latest?: string
+  versions?: string[]
+  author?: { username: string; avatar_url?: string }
+  project_id?: string
+  tags?: string[]
+}
+
+export interface InstalledArtifact {
+  local_id: string
+  remote_id: string
+  type: string
+  version?: string
+  alias?: string
+  has_update?: boolean
+  path?: string
+  published?: boolean
+  origin?: string
+  registry_name?: string
+  registry_description?: string
+  registry_tags?: string[]
+  registry_author?: string
+  registry_version?: string
+  registry_dependencies?: Array<{ type: string; id: string; version: string }>
+}
+
+export interface RegistryResponse {
+  entries: RegistryEntry[]
+  installed: InstalledArtifact[]
+  project_lock: Record<string, unknown>
+  active_project: string
+  active_project_id: string
+  active_project_name: string
+  project_path: string
+  project_cluster?: Record<string, string>
+  agent: string
+  projects?: Array<{ name: string; remote_id: string }>
+}
+
+export interface Project {
+  name: string
+  remote_id: string
+}
+
+export interface GlobalProject {
+  id: string
+  name: string
+  dir: string
+  description?: string
+  registered_at?: string
+  cluster?: Record<string, string[]>
+}
+
+export interface GlobalProjectsResponse {
+  projects: GlobalProject[]
+  current_project_dir: string
+  current_agent: string
+  supported_agents: string[]
+}
+
+export const hubApi = {
+  getGlobalProjects: () => api.get<GlobalProjectsResponse>('/api/global-projects'),
+
+  setClusterLabel: (projectId: string, projectDir: string, key: string, value: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/cluster/set', {
+      project_id: projectId,
+      project_dir: projectDir,
+      key,
+      value,
+    }),
+
+  unsetClusterLabel: (projectId: string, projectDir: string, key: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/cluster/unset', {
+      project_id: projectId,
+      project_dir: projectDir,
+      key,
+    }),
+
+  unregisterProject: (projectId: string, projectDir: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/project/unregister', {
+      project_id: projectId,
+      project_dir: projectDir,
+    }),
+  
+  getRegistry: (projectDir?: string, agent?: string) => {
+    const params = new URLSearchParams()
+    if (projectDir) params.set('project_dir', projectDir)
+    if (agent) params.set('agent', agent)
+    const qs = params.toString()
+    return api.get<RegistryResponse>(`/api/registry${qs ? `?${qs}` : ''}`)
+  },
+  
+  getProjectArtifacts: (projectDir?: string, agent?: string) => {
+    const params = new URLSearchParams()
+    if (projectDir) params.set('project_dir', projectDir)
+    if (agent) params.set('agent', agent)
+    const qs = params.toString()
+    return api.get<{
+      project_artifacts: InstalledArtifact[]
+      imported_artifacts: InstalledArtifact[]
+      project_name: string
+      project_path: string
+      project_cluster?: Record<string, string>
+      agent: string
+    }>(`/api/project-artifacts${qs ? `?${qs}` : ''}`)
+  },
+  
+  getGitAuthor: () => api.get<{ author: string }>('/api/git-author'),
+  getProjects: () => api.get<{ projects: Project[] }>('/api/projects'),
+
+  install: (id: string, alias: string | null, agent: string, type: string, projectDir?: string, version?: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/install', {
+      id,
+      alias: alias || undefined,
+      agent,
+      type,
+      project_dir: projectDir || undefined,
+      version: version || undefined,
+    }),
+
+  uninstall: (id: string, localId: string, agent: string, type: string, projectDir?: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/uninstall', {
+      id,
+      local_id: localId || undefined,
+      agent,
+      type,
+      project_dir: projectDir || undefined,
+    }),
+
+  updateAll: (agent: string, projectDir?: string) =>
+    api.post<{ success: boolean; errors: string[] }>('/api/update_all', {
+      agent,
+      project_dir: projectDir || undefined,
+    }),
+
+  updateOne: (id: string, type: string, agent: string, projectDir?: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/update_one', {
+      id,
+      type,
+      agent,
+      project_dir: projectDir || undefined,
+    }),
+
+  submit: (payload: Record<string, unknown>) =>
+    api.post<{ success: boolean; error?: string }>('/api/submit', payload),
+
+  unpublish: (id: string, type: string, projectDir?: string) =>
+    api.post<{ success: boolean }>('/api/unpublish', { id, type, project_dir: projectDir }),
+
+  unlinkLocal: (id: string, type: string, agent: string, projectDir: string) =>
+    api.post('/api/unlink', { id, type, agent, project_dir: projectDir }),
+
+  upload: (formData: FormData) => {
+    const base = window.__API_BASE__ ?? ''
+    const fullBase = base.endsWith('/api') ? base : `${base}/api`
+    const headers: Record<string, string> = {}
+    const token = document.cookie.match(/(^| )graphit_id_token=([^;]+)/)?.[2]
+    if (token && window.__WEB_MODE__) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    return fetch(`${fullBase}/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    }).then((r) => r.json())
+  },
+}

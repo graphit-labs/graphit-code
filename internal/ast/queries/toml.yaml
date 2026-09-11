@@ -1,0 +1,74 @@
+language: toml
+grammar: tree-sitter-toml
+extensions: [".toml"]
+queries:
+
+  - data_key: tables
+    graph_label: Table
+    pattern: '(table (bare_key) @name)'
+  - data_key: tables
+    graph_label: Table
+    pattern: '(table (dotted_key) @name)'
+  - data_key: array_tables
+    graph_label: ArrayTable
+    pattern: '(table_array_element (bare_key) @name)'
+  - data_key: array_tables
+    graph_label: ArrayTable
+    pattern: '(table_array_element (dotted_key) @name)'
+
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (bare_key) @name [(string) (integer) (float) (boolean) (local_date) (local_time) (local_date_time) (offset_date_time)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (dotted_key) @name [(string) (integer) (float) (boolean) (local_date) (local_time) (local_date_time) (offset_date_time)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (bare_key) @name)'
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (dotted_key) @name)'
+
+  - data_key: array_items
+    graph_label: Value
+    pattern: '(pair (bare_key) @parent (array (string) @name))'
+    parent_capture: parent
+    parent_label: Pair
+  - data_key: array_items
+    graph_label: Value
+    pattern: '(pair (bare_key) @parent (array [(integer) (float) (boolean)] @name))'
+    parent_capture: parent
+    parent_label: Pair
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  table: Table
+  table_array_element: ArrayTable
+
+context_name_paths:
+  table: bare_key|dotted_key
+  table_array_element: bare_key|dotted_key
+
+anon_func_types: []
+
+declaration_types:
+  - table
+  - table_array_element
+
+comment_types:
+  - comment
+
+embed_labels:
+  - Table
+  - ArrayTable
+  - Pair
+  - Comment

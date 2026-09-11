@@ -1,0 +1,195 @@
+
+
+language: html
+grammar: tree-sitter-html
+extensions: [".html", ".htm"]
+
+queries:
+
+  - data_key: elements
+    graph_label: Element
+    pattern: '(start_tag (tag_name) @name)'
+
+  - data_key: elements
+    graph_label: Element
+    pattern: '(self_closing_tag (tag_name) @name)'
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (attribute_value) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name (attribute_value) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name))'
+    parent_capture: element
+    parent_label: Element
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name))'
+    parent_capture: element
+    parent_label: Element
+
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (start_tag (tag_name) @name) (text) @value)'
+    value_capture: value
+    value_label: Text
+
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(script_element (start_tag (tag_name) @name) (raw_text) @value)'
+    value_capture: value
+    value_label: Text
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(style_element (start_tag (tag_name) @name) (raw_text) @value)'
+    value_capture: value
+    value_label: Text
+
+  - data_key: doctypes
+    graph_label: Doctype
+    pattern: '(doctype) @name'
+
+  - data_key: ids
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "id"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: classes
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "class"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: hrefs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "href"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: srcs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "src"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: actions
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "action"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: scripts
+    graph_label: Element
+    pattern: '(script_element (start_tag (tag_name) @name))'
+
+  - data_key: styles
+    graph_label: Element
+    pattern: '(style_element (start_tag (tag_name) @name))'
+
+  - data_key: names
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "name"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: data_attrs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @name (#match? @name "^data-"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: label_fors
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "for"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: aria_attrs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @name (#match? @name "^aria-"))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: roles
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "role"))'
+    type: relation
+    relation_type: REFERENCES
+
+embedded:
+  - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "type"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      module: javascript
+      text/javascript: javascript
+      application/javascript: javascript
+      text/ecmascript: javascript
+      application/ecmascript: javascript
+  - pattern: '(script_element (raw_text) @body)'
+    text_capture: body
+    default: javascript
+
+  - pattern: '(style_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "type"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      text/css: css
+  - pattern: '(style_element (raw_text) @body)'
+    text_capture: body
+    default: css
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  element: Element
+  script_element: Element
+  style_element: Element
+
+context_name_paths:
+  element: start_tag/tag_name
+  script_element: start_tag/tag_name
+  style_element: start_tag/tag_name
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - comment
+
+embed_labels:
+  - Element
+  - Text
+  - Comment

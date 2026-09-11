@@ -1,0 +1,68 @@
+version: "2"
+run:
+
+  build-tags:
+    - lancedb
+linters:
+  enable:
+    - gosec
+    - errorlint
+    - gocritic
+
+  settings:
+    govet:
+      disable-all: false
+    gosec:
+      excludes:
+        - G104
+        - G110
+        - G112
+        - G115
+        - G118
+        - G120
+        - G122
+        - G204
+        - G304
+        - G305
+        - G306
+        - G404
+        - G602
+        - G702
+        - G703
+        - G705
+        - G101
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+  exclusions:
+    generated: strict
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - govet
+          - staticcheck
+        path: node_modules/
+      - linters:
+          - gosec
+        path: _test\.go
+    paths:
+      - node_modules
+      - third_party
+      - third_party$
+      - builtin$
+      - examples$
+      - internal/ast/antlr
+      - internal/ast/treesitter
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
