@@ -143,7 +143,6 @@ func (a *CodexAdapter) syncSessionStartHook(projectDir string) error {
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
-		"codex",
 	); err != nil {
 		return err
 	}
@@ -165,7 +164,7 @@ func (a *CodexAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileGroupedFinalSyncHook(path, "SessionEnd", sessionhook.FormatSessionEnd); err != nil {
 		return err
 	}
-	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")
+	return nil
 }
 
 func (a *CodexAdapter) removeSessionStartHook(projectDir string) error {
@@ -177,7 +176,6 @@ func (a *CodexAdapter) removeSessionStartHook(projectDir string) error {
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
-		"codex",
 	); err != nil {
 		return err
 	}
@@ -199,5 +197,5 @@ func (a *CodexAdapter) removeSessionStartHook(projectDir string) error {
 	if err := removeGroupedCommandHook(path, "SessionEnd", sessionhook.FormatSessionEnd); err != nil {
 		return err
 	}
-	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")
+	return nil
 }

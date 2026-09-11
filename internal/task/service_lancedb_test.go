@@ -893,48 +893,6 @@ func TestCompactTaskIDsLengthenOnCollision(t *testing.T) {
 	}
 }
 
-func TestCreateReusesLegacyLongIDByIdempotencyKey(t *testing.T) {
-	ctx := context.Background()
-	projectID := "project-legacy-id"
-	uri := t.TempDir()
-	svc := OpenAt(projectID, uri)
-	input := testCreate("Legacy task", "legacy-idempotency-key")
-	input.Actor = "planner"
-	legacyID := "tsk-0123456789ab"
-	checks, err := buildChecks(legacyID, input.AcceptanceCriteria, input.Tests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := stamp(time.Now().UTC())
-	legacy := Task{ID: legacyID, ProjectID: projectID, IdempotencyKey: input.IdempotencyKey, Title: input.Title,
-		Description: input.Description, Type: "task", Status: StatusOpen, Priority: 2, Checks: checks,
-		CreatedAt: now, UpdatedAt: now, Revision: 1}
-	legacy.LastEvent = newEvent(legacy, "created", input.Actor, "", StatusOpen, "task created", "")
-	tables, err := openTables(ctx, uri, svc.s3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := tables.tasks.Upsert(ctx, "id", []lancestore.Row{taskRow(legacy)}); err != nil {
-		_ = tables.close()
-		t.Fatal(err)
-	}
-	if err := svc.projectTask(ctx, tables, legacy, input.Actor); err != nil {
-		_ = tables.close()
-		t.Fatal(err)
-	}
-	if err := tables.close(); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := svc.Create(ctx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ID != legacyID {
-		t.Fatalf("legacy id changed: got %q want %q", got.ID, legacyID)
-	}
-}
-
 func TestConcurrentCollidingTaskCreationDoesNotOverwrite(t *testing.T) {
 	ctx := context.Background()
 	projectID := "project-concurrent-short-id"

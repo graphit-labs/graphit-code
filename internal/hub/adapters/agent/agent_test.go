@@ -15,7 +15,7 @@ func TestGetAdapter(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		agent     string
+		agent   string
 		wantNil bool
 	}{
 		{"antigravity", "antigravity", false},
@@ -78,7 +78,7 @@ func TestSupportedAgents(t *testing.T) {
 func TestGetFileMode(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		agent      string
+		agent    string
 		artType  string
 		wantMode string
 	}{
@@ -109,7 +109,7 @@ func TestArtifactTypePath(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		agent     string
+		agent   string
 		artType string
 		artName string
 		wantSub string
@@ -851,8 +851,8 @@ func TestReconcileMCPFile(t *testing.T) {
 			t.Error("expected server1 in mcpServers")
 		}
 
-		legacyKey := "_" + brand.Brand + "ManagedMcpKeys"
-		if _, ok := parsed[legacyKey]; ok {
+		ownershipMetadataKey := "_" + brand.Brand + "ManagedMcpKeys"
+		if _, ok := parsed[ownershipMetadataKey]; ok {
 			t.Error("project MCP config must not contain cross-project ownership metadata")
 		}
 		names, err := mcpManifestNames(manifest)

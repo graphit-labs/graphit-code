@@ -54,35 +54,27 @@ func finalSyncHookCommand(format string) string {
 	return sessionHookCommand(format) + " --sync"
 }
 
-func isManagedSessionCommand(value any, format string, legacyAdapters ...string) bool {
+func isManagedSessionCommand(value any, format string) bool {
 	command, ok := value.(string)
 	if !ok {
 		return false
 	}
-	if strings.Contains(command, "_session-hook --format "+format) {
-		return true
-	}
-	for _, adapter := range legacyAdapters {
-		if strings.Contains(command, "_session-hook --adapter "+adapter) {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(command, "_session-hook --format "+format)
 }
 
-func reconcileDirectCommandHook(path, event, format string, legacyAdapters ...string) error {
-	return reconcileDirectCommandHookMatched(path, event, "", format, legacyAdapters...)
+func reconcileDirectCommandHook(path, event, format string) error {
+	return reconcileDirectCommandHookMatched(path, event, "", format)
 }
 
-func reconcileDirectCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
-	return reconcileDirectCommandHookWith(path, event, matcher, format, sessionHookCommand(format), legacyAdapters...)
+func reconcileDirectCommandHookMatched(path, event, matcher, format string) error {
+	return reconcileDirectCommandHookWith(path, event, matcher, format, sessionHookCommand(format))
 }
 
 func reconcileDirectFinalSyncHook(path, event, format string) error {
 	return reconcileDirectCommandHookWith(path, event, "", format, finalSyncHookCommand(format))
 }
 
-func reconcileDirectCommandHookWith(path, event, matcher, format, command string, legacyAdapters ...string) error {
+func reconcileDirectCommandHookWith(path, event, matcher, format, command string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -95,7 +87,7 @@ func reconcileDirectCommandHookWith(path, event, matcher, format, command string
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
-	entries = filterDirectCommandHooks(entries, format, legacyAdapters...)
+	entries = filterDirectCommandHooks(entries, format)
 	entry := map[string]any{"command": command}
 	if matcher != "" {
 		entry["matcher"] = matcher
@@ -107,7 +99,7 @@ func reconcileDirectCommandHookWith(path, event, matcher, format, command string
 	return writeJSONObject(path, root)
 }
 
-func removeDirectCommandHook(path, event, format string, legacyAdapters ...string) error {
+func removeDirectCommandHook(path, event, format string) error {
 	root, err := readJSONObjectIfExists(path)
 	if err != nil || root == nil {
 		return err
@@ -120,7 +112,7 @@ func removeDirectCommandHook(path, event, format string, legacyAdapters ...strin
 	if !ok {
 		return nil
 	}
-	remaining := filterDirectCommandHooks(entries, format, legacyAdapters...)
+	remaining := filterDirectCommandHooks(entries, format)
 	if len(remaining) == 0 {
 		delete(hooks, event)
 	} else {
@@ -134,11 +126,11 @@ func removeDirectCommandHook(path, event, format string, legacyAdapters ...strin
 	return writeOrRemoveJSONObject(path, root)
 }
 
-func filterDirectCommandHooks(entries []any, format string, legacyAdapters ...string) []any {
+func filterDirectCommandHooks(entries []any, format string) []any {
 	remaining := make([]any, 0, len(entries))
 	for _, entry := range entries {
 		item, ok := entry.(map[string]any)
-		if ok && isManagedSessionCommand(item["command"], format, legacyAdapters...) {
+		if ok && isManagedSessionCommand(item["command"], format) {
 			continue
 		}
 		remaining = append(remaining, entry)
@@ -146,19 +138,19 @@ func filterDirectCommandHooks(entries []any, format string, legacyAdapters ...st
 	return remaining
 }
 
-func reconcileGroupedCommandHook(path, event, format string, legacyAdapters ...string) error {
-	return reconcileGroupedCommandHookMatched(path, event, "", format, legacyAdapters...)
+func reconcileGroupedCommandHook(path, event, format string) error {
+	return reconcileGroupedCommandHookMatched(path, event, "", format)
 }
 
-func reconcileGroupedCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
-	return reconcileGroupedCommandHookWith(path, event, matcher, format, sessionHookCommand(format), legacyAdapters...)
+func reconcileGroupedCommandHookMatched(path, event, matcher, format string) error {
+	return reconcileGroupedCommandHookWith(path, event, matcher, format, sessionHookCommand(format))
 }
 
 func reconcileGroupedFinalSyncHook(path, event, format string) error {
 	return reconcileGroupedCommandHookWith(path, event, "", format, finalSyncHookCommand(format))
 }
 
-func reconcileGroupedCommandHookWith(path, event, matcher, format, command string, legacyAdapters ...string) error {
+func reconcileGroupedCommandHookWith(path, event, matcher, format, command string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -171,7 +163,7 @@ func reconcileGroupedCommandHookWith(path, event, matcher, format, command strin
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
-	groups = filterGroupedCommandHooks(groups, format, legacyAdapters...)
+	groups = filterGroupedCommandHooks(groups, format)
 	handler := map[string]any{"type": "command", "command": command}
 	group := map[string]any{"hooks": []any{handler}}
 	if matcher != "" {
@@ -183,7 +175,7 @@ func reconcileGroupedCommandHookWith(path, event, matcher, format, command strin
 	return writeJSONObject(path, root)
 }
 
-func removeGroupedCommandHook(path, event, format string, legacyAdapters ...string) error {
+func removeGroupedCommandHook(path, event, format string) error {
 	root, err := readJSONObjectIfExists(path)
 	if err != nil || root == nil {
 		return err
@@ -196,7 +188,7 @@ func removeGroupedCommandHook(path, event, format string, legacyAdapters ...stri
 	if !ok {
 		return nil
 	}
-	remaining := filterGroupedCommandHooks(groups, format, legacyAdapters...)
+	remaining := filterGroupedCommandHooks(groups, format)
 	if len(remaining) == 0 {
 		delete(hooks, event)
 	} else {
@@ -210,7 +202,7 @@ func removeGroupedCommandHook(path, event, format string, legacyAdapters ...stri
 	return writeOrRemoveJSONObject(path, root)
 }
 
-func filterGroupedCommandHooks(groups []any, format string, legacyAdapters ...string) []any {
+func filterGroupedCommandHooks(groups []any, format string) []any {
 	remainingGroups := make([]any, 0, len(groups))
 	for _, groupValue := range groups {
 		group, ok := groupValue.(map[string]any)
@@ -226,7 +218,7 @@ func filterGroupedCommandHooks(groups []any, format string, legacyAdapters ...st
 		remainingHandlers := make([]any, 0, len(handlers))
 		for _, handlerValue := range handlers {
 			handler, ok := handlerValue.(map[string]any)
-			if ok && isManagedSessionCommand(handler["command"], format, legacyAdapters...) {
+			if ok && isManagedSessionCommand(handler["command"], format) {
 				continue
 			}
 			remainingHandlers = append(remainingHandlers, handlerValue)
@@ -252,20 +244,20 @@ func filterNamedHooks(hooks []any, name string) []any {
 	return remaining
 }
 
-func containsManagedCommand(value any, format string, legacyAdapters ...string) bool {
+func containsManagedCommand(value any, format string) bool {
 	switch current := value.(type) {
 	case map[string]any:
 		for key, child := range current {
-			if key == "command" && isManagedSessionCommand(child, format, legacyAdapters...) {
+			if key == "command" && isManagedSessionCommand(child, format) {
 				return true
 			}
-			if containsManagedCommand(child, format, legacyAdapters...) {
+			if containsManagedCommand(child, format) {
 				return true
 			}
 		}
 	case []any:
 		for _, child := range current {
-			if containsManagedCommand(child, format, legacyAdapters...) {
+			if containsManagedCommand(child, format) {
 				return true
 			}
 		}

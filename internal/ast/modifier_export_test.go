@@ -2,70 +2,35 @@ package ast
 
 import "testing"
 
-func legacyIsExportedByModifier(strategy, source string, config map[string]string, configList map[string][]string) bool {
-	switch strategy {
-	case "modifier":
-		keyword := config["keyword"]
-		if keyword == "" {
-			return false
-		}
-		return source != "" && containsModifier(source, keyword)
-	case "no_modifier":
-		keywords := configList["keywords"]
-		if len(keywords) == 0 {
-			return true
-		}
-		if source == "" {
-			return true
-		}
-		for _, kw := range keywords {
-			if containsModifier(source, kw) {
-				return false
-			}
-		}
-		return true
-	case "no_static":
-		return source != "" && !containsModifier(source, "static")
-	}
-	return false
-}
-
-func TestModifierExportVerdictMatchesLegacy(t *testing.T) {
-	sources := []string{
-		"",
-		"public void run() {}",
-		"private static int x;",
-		"protected final String s;",
-		"static void helper() {}",
-		"func Exported() {}",
-		"publicish notAModifier",
-		"  public   void spaced()",
-		"nonpublic",
-		"PUBLIC UPPER",
-		"export default function f(){}",
-	}
-	strategies := []struct {
-		name string
-		cfg  map[string]string
-		list map[string][]string
+func TestModifierExportVerdictUsesWholeCurrentModifiers(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy string
+		source   string
+		config   map[string]string
+		list     map[string][]string
+		want     bool
 	}{
-		{"modifier", map[string]string{"keyword": "public"}, nil},
-		{"modifier", map[string]string{}, nil},
-		{"no_modifier", nil, map[string][]string{"keywords": {"private", "protected"}}},
-		{"no_modifier", nil, map[string][]string{}},
-		{"no_static", nil, nil},
-		{"none", nil, nil},
-		{"unknown_strategy", nil, nil},
+		{"required modifier", "modifier", "public void run() {}", map[string]string{"keyword": "public"}, nil, true},
+		{"required modifier missing", "modifier", "private void run() {}", map[string]string{"keyword": "public"}, nil, false},
+		{"required modifier is a whole word", "modifier", "publicish void run() {}", map[string]string{"keyword": "public"}, nil, false},
+		{"required modifier needs configuration", "modifier", "public void run() {}", nil, nil, false},
+		{"forbidden modifier", "no_modifier", "protected final String s;", nil, map[string][]string{"keywords": {"private", "protected"}}, false},
+		{"forbidden modifier absent", "no_modifier", "public final String s;", nil, map[string][]string{"keywords": {"private", "protected"}}, true},
+		{"empty source has no forbidden modifier", "no_modifier", "", nil, map[string][]string{"keywords": {"private"}}, true},
+		{"no forbidden modifiers configured", "no_modifier", "private int x;", nil, nil, true},
+		{"instance member", "no_static", "public void run() {}", nil, nil, true},
+		{"static member", "no_static", "private static int x;", nil, nil, false},
+		{"no static needs source", "no_static", "", nil, nil, false},
+		{"unknown strategy", "unknown", "public void run() {}", nil, nil, false},
 	}
 
-	for _, st := range strategies {
-		for _, src := range sources {
-			got := ModifierExportVerdict(st.name, src, st.cfg, st.list)
-			want := legacyIsExportedByModifier(st.name, src, st.cfg, st.list)
-			if got != want {
-				t.Errorf("strategy=%q src=%q: got %v, want %v", st.name, src, got, want)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ModifierExportVerdict(tc.strategy, tc.source, tc.config, tc.list); got != tc.want {
+				t.Fatalf("ModifierExportVerdict(%q, %q) = %v, want %v", tc.strategy, tc.source, got, tc.want)
 			}
-		}
+		})
 	}
 }
 

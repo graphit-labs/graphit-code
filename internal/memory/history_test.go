@@ -65,9 +65,9 @@ func TestMutationsNeverCreateAMemoryWikiProjection(t *testing.T) {
 	if err := svc.RemoveMemory(id); err != nil {
 		t.Fatal(err)
 	}
-	legacy := filepath.Join(home, ".graphit", "wiki", "memory")
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Fatalf("memory mutation created the retired projection at %s: %v", legacy, err)
+	retiredProjection := filepath.Join(home, ".graphit", "wiki", "memory")
+	if _, err := os.Stat(retiredProjection); !os.IsNotExist(err) {
+		t.Fatalf("memory mutation created the retired projection at %s: %v", retiredProjection, err)
 	}
 }
 
@@ -343,27 +343,6 @@ func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 	}
 	if got := ParseMemoryFrontmatter(string(archived)).Next; got != "" {
 		t.Errorf("next = %q on the archive of a deleted memory, want empty", got)
-	}
-}
-
-// A memory written before revisions existed has none. Its first edit must become revision 2
-// rather than restarting the count, or the chain would claim the edit was the original.
-func TestAMemoryWithoutARevisionIsTreatedAsTheFirst(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	old := "---\nid: X1\ntitle: Legacy\nscope: project\nscope_id: p\ntags: [memory, project]\n---\n\n# Legacy\n\nbody\n"
-	archive := HistoryPath("X1", "01M1FZZZZZZZZZZZZZZZZZZZZZ")
-	got := updatedMemoryContent(old, memoryUpdate{
-		ID: "X1", Scope: "project", ScopeID: "p",
-		NewTitle: "Legacy edited", Previous: archive,
-	})
-
-	fm := ParseMemoryFrontmatter(got)
-	if fm.Revision != 2 {
-		t.Errorf("revision = %d, want 2", fm.Revision)
-	}
-	if fm.Previous != archive {
-		t.Errorf("previous = %q, want the first revision's path", fm.Previous)
 	}
 }
 

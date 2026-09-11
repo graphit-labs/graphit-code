@@ -210,7 +210,7 @@ func removeKimiHooks(path string) error {
 func filterKimiHook(hooks []map[string]any, event, format string) []map[string]any {
 	remaining := hooks[:0]
 	for _, hook := range hooks {
-		if fmt.Sprint(hook["event"]) == event && isManagedSessionCommand(hook["command"], format, "kimi") {
+		if fmt.Sprint(hook["event"]) == event && isManagedSessionCommand(hook["command"], format) {
 			continue
 		}
 		remaining = append(remaining, hook)

@@ -147,7 +147,7 @@ func TestShardOnDiskNeverCarriesFileText(t *testing.T) {
 		t.Error("the file body leaked into the shard JSON")
 	}
 	if strings.Contains(string(raw), "file_row") {
-		t.Error("the legacy file_row tuple leaked into the shard JSON")
+		t.Error("the internal file_row tuple leaked into the shard JSON")
 	}
 
 	reloaded, err := NewShardCache(e.cfg.ParseCache.dir)

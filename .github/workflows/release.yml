@@ -83,6 +83,9 @@ jobs:
       - name: UI Lint
         run: make ui-lint
 
+      - name: UI Test
+        run: make ui-test
+
       - name: Upload LanceDB native library
         uses: actions/upload-artifact@v4
         with:

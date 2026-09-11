@@ -8,10 +8,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// The differential in docstring_equiv_test.go feeds attachDocstringsTS the sites
-// a whole-tree scan finds, which pins the pairing rule but says nothing about the
-// change that actually happened: production no longer scans, it collects the
-// declaration around each captured name.
+// The focused attachment test feeds attachDocstringsTS declaration sites found in a
+// whole-tree scan, which pins the pairing rule. This test covers the production path,
+// where declarations are collected around each captured name.
 //
 // This parses real source through the real query pipeline, so a capture whose
 // declaration sits more than one level up — or which declSiteFor fails to reach

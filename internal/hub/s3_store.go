@@ -355,7 +355,11 @@ func validateProjectObjectKey(projectID, key string) error {
 }
 
 func (s *S3Store) lanceConfig(uri string, writable bool) lancestore.Config {
-	return lancestore.Config{URI: uri, S3: config.S3ConfigForURI(context.Background(), uri), Writable: writable}
+	s3Config := s.cfg
+	if s.broker {
+		s3Config = config.S3ConfigForURI(context.Background(), uri)
+	}
+	return lancestore.Config{URI: uri, S3: s3Config, Writable: writable}
 }
 
 func (s *S3Store) WriteFile(ctx context.Context, relPath string, data []byte) error {

@@ -9,7 +9,6 @@ import (
 
 const (
 	antigravityManagedHookName = "graphit-memory-session-start"
-	antigravitySearchGuardName = "graphit-native-search-guard"
 )
 
 type AntigravityAdapter struct {
@@ -58,7 +57,7 @@ func (a *AntigravityAdapter) syncSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	if existing, ok := root[antigravityManagedHookName]; ok && !containsManagedCommand(existing, sessionhook.FormatFirstInvocation, "antigravity") {
+	if existing, ok := root[antigravityManagedHookName]; ok && !containsManagedCommand(existing, sessionhook.FormatFirstInvocation) {
 		return fmt.Errorf("reconciling %s: hook name %q is owned by the user", path, antigravityManagedHookName)
 	}
 	root[antigravityManagedHookName] = map[string]any{
@@ -77,9 +76,6 @@ func (a *AntigravityAdapter) syncSessionStartHook(projectDir string) error {
 			"command": finalSyncHookCommand(sessionhook.FormatAntigravityStop),
 		}},
 	}
-	if existing, ok := root[antigravitySearchGuardName]; ok && containsManagedCommand(existing, "guard-antigravity") {
-		delete(root, antigravitySearchGuardName)
-	}
 	return writeJSONObject(path, root)
 }
 
@@ -92,11 +88,8 @@ func (a *AntigravityAdapter) removeSessionStartHook(projectDir string) error {
 	if err != nil || root == nil {
 		return err
 	}
-	if existing, ok := root[antigravityManagedHookName]; ok && containsManagedCommand(existing, sessionhook.FormatFirstInvocation, "antigravity") {
+	if existing, ok := root[antigravityManagedHookName]; ok && containsManagedCommand(existing, sessionhook.FormatFirstInvocation) {
 		delete(root, antigravityManagedHookName)
-	}
-	if existing, ok := root[antigravitySearchGuardName]; ok && containsManagedCommand(existing, "guard-antigravity") {
-		delete(root, antigravitySearchGuardName)
 	}
 	return writeOrRemoveJSONObject(path, root)
 }

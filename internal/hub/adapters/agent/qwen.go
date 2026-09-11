@@ -62,7 +62,7 @@ func (a *QwenAdapter) syncSessionStartHook(projectDir string) error {
 			if err := reconcileGroupedFinalSyncHook(path, step.event, step.format); err != nil {
 				return err
 			}
-		} else if err := reconcileGroupedCommandHook(path, step.event, step.format, "qwen"); err != nil {
+		} else if err := reconcileGroupedCommandHook(path, step.event, step.format); err != nil {
 			return err
 		}
 	}
@@ -80,7 +80,7 @@ func (a *QwenAdapter) removeSessionStartHook(projectDir string) error {
 		{"SubagentStop", sessionhook.FormatStop}, {"Stop", sessionhook.FormatStop},
 		{"SessionEnd", sessionhook.FormatSessionEnd},
 	} {
-		if err := removeGroupedCommandHook(path, step.event, step.format, "qwen"); err != nil {
+		if err := removeGroupedCommandHook(path, step.event, step.format); err != nil {
 			return err
 		}
 	}

@@ -130,8 +130,12 @@ func containsModifier(source, modifier string) bool {
 	if idx := strings.Index(check, "\n"); idx > 0 {
 		check = check[:idx]
 	}
-	return strings.Contains(check, modifier+" ") || strings.Contains(check, modifier+"\t") ||
-		strings.HasPrefix(strings.TrimSpace(check), modifier)
+	for _, token := range strings.Fields(check) {
+		if token == modifier {
+			return true
+		}
+	}
+	return false
 }
 
 func processRelations(result *ParsedFile, relationTypes map[string]string) {

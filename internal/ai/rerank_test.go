@@ -126,7 +126,7 @@ func TestRerankAdapterDegradesOnScorerFailure(t *testing.T) {
 func TestBuildRerankTextCarriesLanguageAndNotGrams(t *testing.T) {
 	text := BuildRerankText(
 		"validateSchema", "validate Schema",
-		"Validates the database schema before migration.", "Function", "schema.go")
+		"Validates the database schema before deployment.", "Function", "schema.go")
 
 	for _, want := range []string{"validateSchema", "validate Schema", "Function",
 		"Validates the database schema", "schema.go"} {

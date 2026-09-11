@@ -97,15 +97,14 @@ func TestProjectWikisResolveFromTheGlobalStore(t *testing.T) {
 
 }
 
-// A wiki left at the pre-centralization location must not be reported: reporting it
-// would resurrect the split that made a project answer from a stale replica.
-func TestALegacyProjectLocalWikiIsNotReported(t *testing.T) {
+// Project-local data is never a wiki source: every current wiki comes from the global store.
+func TestProjectLocalWikiIsNotADataSource(t *testing.T) {
 	isolateHome(t)
 	project := t.TempDir()
 	initProject(t, project, "acme")
 
-	legacy := filepath.Join(project, brand.DotDir(), "knowledge", "project")
-	writeWiki(t, legacy, "index.md", "stale.md")
+	projectLocal := filepath.Join(project, brand.DotDir(), "knowledge", "project")
+	writeWiki(t, projectLocal, "index.md", "stale.md")
 
 	for _, m := range discoverModules(project) {
 		if strings.HasPrefix(m.Path, project) {

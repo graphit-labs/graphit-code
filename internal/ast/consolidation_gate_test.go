@@ -9,7 +9,7 @@ func gateCorpus() []gateEntity {
 		{"u1", "parseConfig", "Parses the configuration file into a Config struct.", "Function", "config.go"},
 		{"u2", "Config", "Configuration for the parser.", "Struct", "config.go"},
 		{"u3", "loadUserConfig", "Loads user level configuration overrides.", "Function", "user.go"},
-		{"u4", "validateSchema", "Validates the database schema before migration.", "Function", "schema.go"},
+		{"u4", "validateSchema", "Validates the database schema before deployment.", "Function", "schema.go"},
 		{"u5", "SchemaValidator", "Validates schemas.", "Class", "schema.go"},
 		{"u6", "connectDatabase", "Opens a connection to the database.", "Function", "db.go"},
 		{"u7", "closeDatabase", "Closes the database connection.", "Function", "db.go"},

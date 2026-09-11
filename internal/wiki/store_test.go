@@ -27,13 +27,13 @@ func TestOpenWikiResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir() + "/index.lance"
 	expected := lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())
-	legacy := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
-	legacy.Fields = legacy.Fields[:len(legacy.Fields)-1]
+	incompatible := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
+	incompatible.Fields = incompatible.Fields[:len(incompatible.Fields)-1]
 	store, err := lancestore.Open(ctx, lancestore.Config{URI: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, err := store.CreateTable(ctx, lanceChunksTable, legacy)
+	old, err := store.CreateTable(ctx, lanceChunksTable, incompatible)
 	if err != nil {
 		t.Fatal(err)
 	}

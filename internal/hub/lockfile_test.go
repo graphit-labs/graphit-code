@@ -43,7 +43,7 @@ func TestLoadLockfile(t *testing.T) {
 		}
 	})
 
-	t.Run("agent field has no legacy alias", func(t *testing.T) {
+	t.Run("unrecognized ides field is ignored", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		path := filepath.Join(dir, "lock.json")

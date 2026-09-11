@@ -229,7 +229,7 @@ func TestLanceFileSourceIsStoredOnceAndRemainsSearchable(t *testing.T) {
 		t.Fatalf("source round trip: ok=%v got=%q want=%q", ok, got, source)
 	}
 	if got := sourceFromFileSearchDocument("old raw source without envelope"); got != "" {
-		t.Fatalf("legacy source row decoded without a rebuild: %q", got)
+		t.Fatalf("unenveloped source row was accepted: %q", got)
 	}
 	directHits, err := idx.files.Search(ctx, lancestore.Query{
 		Text: LanceQueryText("OpenScope"), TextColumn: lanceFileTextColumn, Limit: 10,

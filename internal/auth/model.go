@@ -36,11 +36,6 @@ type Provider struct {
 	UpdatedAt time.Time     `json:"updated_at"`
 }
 
-func netParseIPLoopback(host string) bool {
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
 type ServiceMode string
 
 const (

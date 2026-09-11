@@ -289,6 +289,9 @@ jobs:
       - name: Lint UI
         run: make ui-lint
 
+      - name: Test UI
+        run: make ui-test
+
       - name: Upload built UI
         uses: actions/upload-artifact@v4
         with:

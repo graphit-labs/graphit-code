@@ -97,7 +97,7 @@ func hubS3Config(ctx context.Context, brokerScope *auth.BrokerStorageScope) S3Co
 			return S3Config{}
 		}
 		if brokerScope == nil {
-			return S3Config{ResolutionError: errors.New("Broker S3 configuration requires a project, user, or Hub metadata scope")}
+			return S3Config{ResolutionError: errors.New("broker S3 configuration requires a project, user, or Hub metadata scope")}
 		}
 		credentials, err := auth.ResolveBrokerS3(ctx, *brokerScope)
 		if err != nil {

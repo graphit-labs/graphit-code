@@ -1,6 +1,6 @@
 .PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev native-deps setup-lbug lancedb-native build-local \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows lint \
-	   ui-lint ci ci-fast check test test-full test-race require-heavy-test-isolation \
+	   ui-lint ui-test ci ci-fast check test test-full test-race require-heavy-test-isolation \
 	   _ci-isolated _ci-fast-isolated _check-isolated _test-full-isolated _test-race-isolated build-windows-native \
        grammars grammars-treesitter grammars-antlr grammars-clean
 
@@ -667,8 +667,11 @@ vulncheck: setup-lbug lancedb-native
 actionlint:
 	@go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -no-color .github/workflows/*.yml
 
-ui-lint:
+ui-lint: $(UI_NPM_STATE)
 	cd internal/ui && npm run lint
+
+ui-test: $(UI_NPM_STATE)
+	cd internal/ui && npm test
 
 fmt:
 	gofmt -w .
@@ -687,6 +690,7 @@ _ci-fast-isolated:
 	@$(MAKE) vet
 	@$(MAKE) lint
 	@$(MAKE) ui-lint
+	@$(MAKE) ui-test
 	@$(MAKE) test
 
 ci: require-heavy-test-isolation
@@ -702,6 +706,7 @@ _ci-isolated:
 	@$(MAKE) lint
 	@$(MAKE) vulncheck
 	@$(MAKE) ui-lint
+	@$(MAKE) ui-test
 	@$(MAKE) test-full
 	@$(MAKE) test-race
 	@echo ""

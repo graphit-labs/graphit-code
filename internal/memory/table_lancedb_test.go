@@ -26,13 +26,13 @@ func TestOpenMemoryTableResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	expected := memoryTableSchema(ai.ResolveConfiguredEmbeddingDimensions())
-	legacy := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
-	legacy.Fields = legacy.Fields[:len(legacy.Fields)-1]
+	incompatible := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
+	incompatible.Fields = incompatible.Fields[:len(incompatible.Fields)-1]
 	store, err := lancestore.Open(ctx, lancestore.Config{URI: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, err := store.CreateTable(ctx, memoryTableName, legacy)
+	old, err := store.CreateTable(ctx, memoryTableName, incompatible)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,16 +279,8 @@ func TestMandatoryMarkAndUnmarkAreIndependentFromImportance(t *testing.T) {
 	}
 }
 
-// A record must survive the round trip with EVERY field, and the field list is the point.
-//
-// Six of these existed only in the markdown file and had no column anywhere in the wiki — `Scope`,
-// `ScopeID`, `ProjectID`, `UpdatedBy`, `Tags`, and `UpdatedAt` (the wiki's `updated` is stamped with
-// the COMPILE date, so a memory's real last-write time survived nowhere else). A schema that quietly
-// dropped one of them would lose it on every write, not just once.
-//
-// This replaces a version that compared canonical content hashes through the migration's helper.
-// The migration is retired; the guarantee is not, so the comparison is now field by field — which is
-// stricter, and says which field was lost instead of only that one was.
+// A record must survive the round trip with every field. Comparing each field names the exact
+// contract violation if the storage schema or row conversion drops data.
 func TestAMemoryRecordSurvivesTheRoundTripWithEveryField(t *testing.T) {
 	ctx := context.Background()
 	tbl, err := OpenMemoryTable(ctx, filepath.Join(t.TempDir(), "table"))

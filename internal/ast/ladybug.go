@@ -278,7 +278,7 @@ func (k *LadybugBackend) refreshRemoteAccessLocked() error {
 		return fmt.Errorf("renew scoped S3 access for Icebug: %w", err)
 	}
 	if refreshed.Bucket != k.remoteS3.Bucket || refreshed.Prefix != k.remoteS3.Prefix || refreshed.Region != k.remoteS3.Region || refreshed.Endpoint != k.remoteS3.Endpoint {
-		return errors.New("Icebug S3 topology changed while renewing credentials; rebuild the mounted context")
+		return errors.New("icebug S3 topology changed while renewing credentials; rebuild the mounted context")
 	}
 	for _, statement := range ladybug.S3ConfigStatements(resolvedLadybugS3Credentials(refreshed)) {
 		if err := k.execQueryLocked(statement); err != nil {

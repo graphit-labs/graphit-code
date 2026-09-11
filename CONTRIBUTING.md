@@ -88,10 +88,9 @@ make build-local
 For Observatory changes:
 
 ```bash
-cd internal/ui
-npm run lint
-npm test
-npm run build
+make ui-lint
+make ui-test
+make ui
 ```
 
 Tests must be hermetic: temporary isolated state, no network or external service, no real user home
@@ -99,8 +98,9 @@ mutation, and bounded resource use. Test current behavior and non-obvious invari
 environment-gated suites, production test switches, historical regression narratives, or duplicated
 coverage.
 
-`make ci` is the broad local gate. Native release builds are platform-specific because the LanceDB
-bridge cannot be cross-compiled.
+`make ci` is the broad local gate and includes the Observatory lint, test, and build checks. GitHub
+Actions runs `make ui-test` in both CI and release validation. Native release builds are
+platform-specific because the LanceDB bridge cannot be cross-compiled.
 
 ## Documentation and UI
 

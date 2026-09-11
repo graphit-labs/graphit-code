@@ -13,7 +13,6 @@ const (
 	kiroUnitHookName      = "graphit-task-checkpoint"
 	kiroTaskHookName      = "graphit-task-completed"
 	kiroFinalSyncHookName = "graphit-final-sync"
-	kiroSearchGuardName   = "graphit-native-search-guard"
 )
 
 type KiroAdapter struct {
@@ -73,7 +72,6 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 		kiroUnitHookName,
 		kiroTaskHookName,
 		kiroFinalSyncHookName,
-		kiroSearchGuardName,
 	} {
 		hooks = filterNamedHooks(hooks, name)
 	}
@@ -163,7 +161,6 @@ func (a *KiroAdapter) removeSessionStartHook(projectDir string) error {
 		kiroUnitHookName,
 		kiroTaskHookName,
 		kiroFinalSyncHookName,
-		kiroSearchGuardName,
 	} {
 		remaining = filterNamedHooks(remaining, name)
 	}
