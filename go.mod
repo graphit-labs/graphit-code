@@ -48,7 +48,7 @@ require (
 	github.com/tree-sitter/tree-sitter-scala v0.26.0
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/yalue/onnxruntime_go v1.36.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 )
