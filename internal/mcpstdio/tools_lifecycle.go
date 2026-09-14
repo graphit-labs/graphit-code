@@ -231,6 +231,9 @@ func registerLifecycleTools(server *mcp.Server) {
 		projectCfg, agents := loadProjectLockInfo(projectDir)
 
 		var notes []string
+		if err := hub.HydrateProjectLance(ctx, projectDir, projectCfg); err != nil {
+			return errResult(fmt.Errorf("hydrate published Lance base: %w", err))
+		}
 
 		var agentsToSync []string
 		if input.Agent != "" {
@@ -241,20 +244,30 @@ func registerLifecycleTools(server *mcp.Server) {
 
 		if !config.IsModuleDisabled("ast", nil, projectCfg) {
 			db, err := openASTDBReadWrite(projectDir, "")
-			if err == nil {
-				pipeOpts := syncASTPipelineOptions(projectDir, projectCfg)
-				_, _ = ast.RunPipeline(ctx, db, projectDir, pipeOpts)
-				_ = db.Close()
+			if err != nil {
+				return errResult(fmt.Errorf("open AST index: %w", err))
+			}
+			pipeOpts := syncASTPipelineOptions(projectDir, projectCfg)
+			_, indexErr := ast.RunPipeline(ctx, db, projectDir, pipeOpts)
+			closeErr := db.Close()
+			if indexErr != nil {
+				return errResult(fmt.Errorf("reconcile AST index: %w", indexErr))
+			}
+			if closeErr != nil {
+				return errResult(fmt.Errorf("close AST index: %w", closeErr))
 			}
 		}
 
 		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 			wikiDir := resolveWikiDir("knowledge", projectDir, "")
-			_, _ = knowledge.RunIndexPipeline(ctx, projectDir, wikiDir, knowledge.IndexConfig{
+			_, err := knowledge.RunIndexPipeline(ctx, projectDir, wikiDir, knowledge.IndexConfig{
 				Workers:    4,
 				ProjectCfg: projectCfg,
 				Scope:      knowledge.ScopeFor(projectDir, nil, projectCfg),
 			})
+			if err != nil {
+				return errResult(fmt.Errorf("reconcile Knowledge index: %w", err))
+			}
 		}
 
 		if !config.IsModuleDisabled("memory", nil, projectCfg) {

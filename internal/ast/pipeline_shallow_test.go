@@ -92,6 +92,99 @@ func TestPipelineKeepsShallowBaseAndIndexesOnlyCheckoutDelta(t *testing.T) {
 	}
 }
 
+func TestPipelineReconcilesBranchHeadWithoutLocalGitCommit(t *testing.T) {
+	ctx := context.Background()
+	source := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
+	for name, body := range map[string]string{
+		"sample.go":      "package sample\nfunc Published() {}\n",
+		"remote_only.go": "package sample\nfunc RemoteOnly() {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(source, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitShallowTest(t, source, "init", "-b", "main")
+	gitShallowTest(t, source, "add", ".")
+	gitShallowTest(t, source, "-c", "user.name=Graphit Test", "-c", "user.email=test@example.invalid", "commit", "-m", "published")
+	baseCommit := strings.TrimSpace(gitShallowTest(t, source, "rev-parse", "HEAD"))
+	sourceStore := filepath.Join(t.TempDir(), "source-store")
+	indexShallowTest(t, ctx, source, sourceStore)
+
+	localRepo := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
+	for name, body := range map[string]string{
+		"sample.go":     "package sample\nfunc Local() {}\n",
+		"local_only.go": "package sample\nfunc LocalOnly() {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(localRepo, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitShallowTest(t, localRepo, "init", "-b", "main")
+	gitShallowTest(t, localRepo, "add", ".")
+	gitShallowTest(t, localRepo, "-c", "user.name=Graphit Test", "-c", "user.email=test@example.invalid", "commit", "-m", "independent")
+
+	cloneStore := filepath.Join(t.TempDir(), "clone-store")
+	base, err := lancestore.Open(ctx, lancestore.Config{URI: LanceIndexPath(sourceStore)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := lancestore.Open(ctx, lancestore.Config{URI: LanceIndexPath(cloneStore), Writable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"files", "entities"} {
+		table, err := base.OpenTable(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		version, err := table.CurrentVersion(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tag := "git-" + baseCommit
+		if err := table.PutTag(ctx, tag, version); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := local.CloneTable(ctx, name, filepath.Join(LanceIndexPath(sourceStore), name+".lance"), lancestore.CloneOptions{SourceTag: tag}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := local.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := base.Close(); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := json.Marshal(map[string]any{"branch": "branch/main", "base": map[string]string{"commit": baseCommit}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(LanceIndexPath(cloneStore), ".graphit-base.json"), marker, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	indexShallowTest(t, ctx, localRepo, cloneStore)
+	if got, ok := FileSourceAt(ctx, cloneStore, "sample.go"); !ok || !strings.Contains(got, "func Local()") {
+		t.Fatalf("local replacement = %q, %v", got, ok)
+	}
+	if _, ok := FileSourceAt(ctx, cloneStore, "remote_only.go"); ok {
+		t.Fatal("remote-only file survived branch-head reconciliation")
+	}
+	if got, ok := FileSourceAt(ctx, cloneStore, "local_only.go"); !ok || !strings.Contains(got, "func LocalOnly()") {
+		t.Fatalf("local-only file = %q, %v", got, ok)
+	}
+	for _, name := range []string{"sample.go", "local_only.go"} {
+		if err := os.Remove(filepath.Join(localRepo, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	indexShallowTest(t, ctx, localRepo, cloneStore)
+	for _, name := range []string{"sample.go", "local_only.go", "remote_only.go"} {
+		if _, ok := FileSourceAt(ctx, cloneStore, name); ok {
+			t.Fatalf("%s survived reconciliation with an empty checkout", name)
+		}
+	}
+}
+
 func indexShallowTest(t *testing.T, ctx context.Context, project, cacheDir string) {
 	t.Helper()
 	db := NewLadybugDB(LadybugConfig{StoreDir: cacheDir, IcebugDir: filepath.Join(cacheDir, "graph.icebug")})

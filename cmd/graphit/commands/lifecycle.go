@@ -926,6 +926,7 @@ func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *out
 		db, err := newASTBackend()
 		if err != nil {
 			task.Fail("AST backend: %v", err)
+			return fmt.Errorf("open AST index: %w", err)
 		} else {
 			ladybugCfg := ast.DefaultLadybugConfig()
 			pipeOpts := ast.PipelineOptions{
@@ -937,6 +938,8 @@ func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *out
 			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
 			if err != nil {
 				task.Fail("AST index: %v", err)
+				_ = db.Close()
+				return fmt.Errorf("reconcile AST index: %w", err)
 			} else if result.ErrorCount > 0 && result.ParsedFiles == 0 {
 				task.Fail("AST: %d files discovered, %d parse errors (grammars may be missing)", result.TotalFiles, result.ErrorCount)
 			} else if result.ErrorCount > 0 {
@@ -953,21 +956,13 @@ func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *out
 	if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 		task := p.StartTask("Reindexing knowledge wiki...")
 		scope := knowledge.ScopeFor(wd, nil, projectCfg)
-		_, docsErr := os.Stat(filepath.Join(wd, scope.Subdir))
-		if docsErr == nil || len(scope.ExtraFiles) > 0 {
-			wikiDir := knowledge.WikiDir()
-			cfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
-			if _, err := knowledge.RunIndexPipeline(ctx, wd, wikiDir, cfg); err != nil {
-				task.Fail("Knowledge index: %v", err)
-			} else if docsErr == nil {
-				task.Done("Knowledge wiki reindexed")
-			} else {
-				task.Done("Knowledge wiki reindexed (no %s/ yet — %s only)",
-					scope.Subdir, strings.Join(scope.ExtraFiles, ", "))
-			}
-		} else {
-			task.Done("No %s/ directory and no README — skipping", scope.Subdir)
+		wikiDir := knowledge.WikiDir()
+		cfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
+		if _, err := knowledge.RunIndexPipeline(ctx, wd, wikiDir, cfg); err != nil {
+			task.Fail("Knowledge index: %v", err)
+			return fmt.Errorf("reconcile Knowledge index: %w", err)
 		}
+		task.Done("Knowledge wiki reconciled")
 	}
 
 	task := p.StartTask("Refreshing authoritative memory indexes...")

@@ -89,6 +89,14 @@ func TestKnowledgeSyncAddsLocalLayerToShallowClone(t *testing.T) {
 	assertWikiSearchCount(t, ctx, cloneWiki, "localterm", 1)
 	assertWikiPage(t, ctx, cloneWiki, "Local Plan", "localterm", true)
 	assertWikiPage(t, ctx, baseWiki, "Local Plan", "", false)
+	if err := os.RemoveAll(filepath.Join(clone, "docs")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunIndexPipeline(ctx, clone, cloneWiki, cfg); err != nil {
+		t.Fatal(err)
+	}
+	assertWikiSearchCount(t, ctx, cloneWiki, "baseterm", 0)
+	assertWikiSearchCount(t, ctx, cloneWiki, "localterm", 0)
 }
 
 func assertWikiSearchCount(t *testing.T, ctx context.Context, wikiDir, query string, want int) {

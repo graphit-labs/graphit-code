@@ -1113,6 +1113,9 @@ func runKnowledgeSync() error {
 		return err
 	}
 	projectCfg := loadProjectConfig()
+	if err := hub.HydrateProjectKnowledgeLance(context.Background(), wd, projectCfg); err != nil {
+		return fmt.Errorf("hydrate published Lance base: %w", err)
+	}
 	scope := knowledge.ScopeFor(wd, nil, projectCfg)
 	p.Running("Re-indexing knowledge wiki from %s/…", scope.Subdir)
 	return runKnowledgeIndex(wd, scope, 0, false, false)

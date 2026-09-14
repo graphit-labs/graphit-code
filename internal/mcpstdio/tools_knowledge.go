@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -243,6 +244,9 @@ func registerKnowledgeTools(server *mcp.Server) {
 		}
 
 		projectCfg := loadProjectConfig(projectDir)
+		if err := hub.HydrateProjectKnowledgeLance(ctx, projectDir, projectCfg); err != nil {
+			return errResult(fmt.Errorf("hydrate published Lance base: %w", err))
+		}
 		wikiDir := resolveWikiDir("knowledge", projectDir, "")
 		cfg := knowledge.IndexConfig{
 			Workers:    4,

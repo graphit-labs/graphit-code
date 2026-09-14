@@ -59,6 +59,20 @@ func TestSelectLanceBaseUsesNearestCompatibleAncestor(t *testing.T) {
 	}
 }
 
+func TestSelectLanceBaseFallsBackToPublishedBranchHead(t *testing.T) {
+	history := lanceBranchHistory{Commits: []lanceCommit{
+		{Commit: "newest", Fingerprint: "compatible"},
+		{Commit: "older", Fingerprint: "compatible"},
+	}}
+	got, ok := selectLanceBase(history, []string{"local-head", "local-parent"}, "compatible")
+	if !ok || got.Commit != "newest" {
+		t.Fatalf("base = %#v, %v; want newest published branch commit", got, ok)
+	}
+	if got, ok := selectLanceBase(history, []string{"local-head"}, "different-format"); ok {
+		t.Fatalf("incompatible branch head selected: %#v", got)
+	}
+}
+
 func TestSelectHydrationEntryUsesPublishedBranchAndExplicitPin(t *testing.T) {
 	lock := &Lockfile{Project: ProjectIdentity{ID: testProjectOne}}
 	entries := []*Entry{

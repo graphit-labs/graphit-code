@@ -1052,22 +1052,10 @@ func EachFileSource(ctx context.Context, dbPath string, fn func(relPath, source 
 // into, so the cursor is the last path seen. That also makes the walk resumable and immune to a
 // concurrent write shifting rows under it, which an offset would not be.
 func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, source string) error) error {
-	if err := s.ensureTables(ctx); err != nil {
+	paths, err := s.FilePaths(ctx)
+	if err != nil {
 		return err
 	}
-	pathHits, err := s.files.Search(ctx, lancestore.Query{
-		Filter: "path IS NOT NULL", Limit: 1_000_000,
-	})
-	if err != nil {
-		return fmt.Errorf("read file paths: %w", err)
-	}
-	paths := make([]string, 0, len(pathHits))
-	for _, h := range pathHits {
-		if p, _ := h.Row["path"].(string); p != "" {
-			paths = append(paths, p)
-		}
-	}
-	sort.Strings(paths)
 
 	for start := 0; start < len(paths); start += eachFileSourceBatch {
 		end := start + eachFileSourceBatch
@@ -1104,6 +1092,27 @@ func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, sourc
 		}
 	}
 	return nil
+}
+
+// FilePaths returns indexed paths without fetching their source text.
+func (s *SearchIndex) FilePaths(ctx context.Context) ([]string, error) {
+	if err := s.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	pathHits, err := s.files.Search(ctx, lancestore.Query{
+		Filter: "path IS NOT NULL", Columns: []string{"path"}, Limit: 1_000_000,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read file paths: %w", err)
+	}
+	paths := make([]string, 0, len(pathHits))
+	for _, h := range pathHits {
+		if p, _ := h.Row["path"].(string); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func astQuote(s string) string {

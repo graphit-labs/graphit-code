@@ -37,8 +37,10 @@ const (
 // A non-empty AST commit lets the indexer reconcile only the checkout delta
 // while retaining the shallow-cloned search tables.
 type HydrationResult struct {
-	ASTBaseCommit       string
-	KnowledgeBaseCommit string
+	ASTBaseCommit        string
+	KnowledgeBaseCommit  string
+	ASTBaseChanged       bool
+	KnowledgeBaseChanged bool
 }
 
 type localLanceBase struct {
@@ -87,6 +89,14 @@ func selectLanceBase(history lanceBranchHistory, ancestry []string, fingerprint 
 	}
 	for _, ancestor := range ancestry {
 		if commit, ok := byCommit[ancestor]; ok {
+			return commit, true
+		}
+	}
+	// A checkout may not contain the commit used by the published branch head
+	// (for example after a force-push). Reconcile its files over the newest
+	// compatible published snapshot instead of leaving an unrelated local base.
+	for _, commit := range history.Commits {
+		if commit.Fingerprint == fingerprint {
 			return commit, true
 		}
 	}
@@ -298,10 +308,21 @@ func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg conf
 	return err
 }
 
+// HydrateProjectKnowledgeLance refreshes only the Knowledge base for a
+// Knowledge-only sync, leaving an AST overlay untouched until AST is reindexed.
+func HydrateProjectKnowledgeLance(ctx context.Context, projectDir string, projectCfg config.ConfigMap) error {
+	_, err := hydrateProjectLanceTypes(ctx, projectDir, projectCfg, TypeKnowledge)
+	return err
+}
+
 // HydrateProjectLanceWithResult checks the remote branch on every invocation.
 // When its compatible base changes, a fresh shallow clone replaces the previous
 // generated store; the caller then reconciles checkout changes into that base.
 func HydrateProjectLanceWithResult(ctx context.Context, projectDir string, projectCfg config.ConfigMap) (HydrationResult, error) {
+	return hydrateProjectLanceTypes(ctx, projectDir, projectCfg, TypeAST, TypeKnowledge)
+}
+
+func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg config.ConfigMap, types ...ArtifactType) (HydrationResult, error) {
 	var result HydrationResult
 	snapshot, err := gitstate.InspectSnapshot(projectDir)
 	if err != nil || snapshot.Branch == "" {
@@ -337,6 +358,16 @@ func HydrateProjectLanceWithResult(ctx context.Context, projectDir string, proje
 		{TypeKnowledge, wiki.WikiIndexPath(store.KnowledgeProjectDir(projectDir)), store.KnowledgeProjectDir(projectDir)},
 	}
 	for _, target := range targets {
+		requested := false
+		for _, artType := range types {
+			if target.artType == artType {
+				requested = true
+				break
+			}
+		}
+		if !requested {
+			continue
+		}
 		entryID, entryErr := selectHydrationEntry(entries, lock, target.artType, branchVersion)
 		if entryErr != nil {
 			return result, entryErr
@@ -367,6 +398,11 @@ func HydrateProjectLanceWithResult(ctx context.Context, projectDir string, proje
 			if err := hydrateLanceStore(lockedCtx, s3, branchVersion, target.path, base, selected); err != nil {
 				lifecycleLock.Release()
 				return result, err
+			}
+			if target.artType == TypeAST {
+				result.ASTBaseChanged = true
+			} else {
+				result.KnowledgeBaseChanged = true
 			}
 		}
 		if target.artType == TypeAST {
@@ -480,7 +516,9 @@ func hydrateLanceStore(ctx context.Context, s3 *S3Store, branchVersion, targetPa
 	for _, name := range tableNames {
 		ref := base.Tables[name]
 		sourceURI := strings.TrimSuffix(remoteStore, "/") + "/" + name + ".lance"
-		if _, err := local.CloneTable(ctx, name, sourceURI, lancestore.CloneOptions{SourceTag: ref.Tag}); err != nil {
+		// The history binds this table version to the selected commit. Clone by
+		// version so a missing Git tag does not prevent reconciliation.
+		if _, err := local.CloneTable(ctx, name, sourceURI, lancestore.CloneOptions{SourceVersion: &ref.Version}); err != nil {
 			_ = local.Close()
 			return fmt.Errorf("hydrate %s from %s at %s: %w", name, branchVersion, base.Commit, err)
 		}

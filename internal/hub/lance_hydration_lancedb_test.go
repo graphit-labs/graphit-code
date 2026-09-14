@@ -83,6 +83,13 @@ func TestGitCommitHydratesASTAndKnowledgeWithLocalOnlyOverlay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if target.artType == TypeAST {
+			// Hydration must use the recorded table version even when the
+			// corresponding Git tag is unavailable in LanceDB.
+			ref := history.Commits[0].Tables["meta"]
+			ref.Tag = "git-tag-not-present"
+			history.Commits[0].Tables["meta"] = ref
+		}
 		if err := remote.writeBranchHistory(ctx, target.artType, target.id, "branch/main", testProjectOne, history); err != nil {
 			t.Fatal(err)
 		}
@@ -241,6 +248,25 @@ func TestGitCommitHydratesASTAndKnowledgeWithLocalOnlyOverlay(t *testing.T) {
 	}
 	if !reflect.DeepEqual(before.Objects, after.Objects) {
 		t.Fatal("reconciled local overlay changed S3 artifact objects")
+	}
+
+	// This checkout has the same branch name but no published commit in its
+	// history. It must clone the latest published branch base, not skip hydration.
+	unrelated := filepath.Join(t.TempDir(), "unrelated")
+	if err := os.MkdirAll(unrelated, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHydrationFixture(t, unrelated)
+	runHydrationGit(t, unrelated, "init", "-b", "main")
+	runHydrationGit(t, unrelated, "add", ".")
+	runHydrationGit(t, unrelated, "-c", "user.name=Graphit Test", "-c", "user.email=test@example.invalid", "commit", "-m", "independent")
+	seedHydrationAuth(t, filepath.Join(t.TempDir(), "unrelated-global"), endpoint)
+	if result, err := HydrateProjectLanceWithResult(ctx, unrelated, nil); err != nil ||
+		result.ASTBaseCommit != next.Commit || result.KnowledgeBaseCommit != next.Commit {
+		t.Fatalf("branch-head fallback = %#v, %v", result, err)
+	}
+	for _, target := range targets {
+		assertHydrationRows(t, ctx, remote, hydrationTargetPath(unrelated, target.artType), map[string]string{"commit": next.Commit})
 	}
 }
 

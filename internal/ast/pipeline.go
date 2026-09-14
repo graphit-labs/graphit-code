@@ -200,14 +200,15 @@ func repoRelativePaths(root string, paths []string) []string {
 
 func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
 	var shallowChanged, shallowDeleted []string
+	var shallowFullOverlay bool
 	if opts.SearchBaseCommit != "" && !opts.ForceRebuild {
 		var err error
-		shallowChanged, shallowDeleted, err = checkoutDeltaFromBase(abs, opts.SearchBaseCommit)
+		shallowChanged, shallowDeleted, shallowFullOverlay, err = checkoutDeltaFromBase(ctx, abs, opts.CacheDir, opts.SearchBaseCommit)
 		if err != nil {
 			return nil, fmt.Errorf("reconcile shallow AST base: %w", err)
 		}
 	}
-	scoped := len(opts.ChangedPaths) > 0 || len(opts.DeletedPaths) > 0
+	scoped := !shallowFullOverlay && (len(opts.ChangedPaths) > 0 || len(opts.DeletedPaths) > 0)
 
 	discover := func() ([]string, error) {
 		found, err := collectFiles(abs)
@@ -712,7 +713,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		writeErrorFiles = append(writeErrorFiles, stagedSearchErr.Error())
 	}
 
-	if !dryRun && stagedSearchErr == nil && jsonCache != nil && jsonCache.Count() > 0 {
+	if !dryRun && stagedSearchErr == nil && jsonCache != nil && (jsonCache.Count() > 0 || len(shallowChanged)+len(shallowDeleted) > 0) {
 		tw0 := time.Now()
 
 		if opts.OnProgress != nil {
@@ -912,26 +913,48 @@ func shallowSearchBase(projectDir, cacheDir string) string {
 	if err != nil || snapshot.BranchVersion() != marker.Branch {
 		return ""
 	}
-	for _, ancestor := range snapshot.Ancestors {
-		if ancestor == marker.Base.Commit {
-			return marker.Base.Commit
-		}
-	}
-	return ""
+	return marker.Base.Commit
 }
 
-func checkoutDeltaFromBase(projectDir, baseCommit string) ([]string, []string, error) {
+func checkoutDeltaFromBase(ctx context.Context, projectDir, cacheDir, baseCommit string) ([]string, []string, bool, error) {
 	git, err := gitstate.DefaultErr()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
+	}
+	if _, err := git.RunOutput(projectDir, "cat-file", "-e", baseCommit+"^{commit}"); err != nil {
+		// The published branch head can come from a different Git history. In
+		// that case every local file replaces its remote counterpart and every
+		// remote path is deleted before the local rows are appended.
+		files, err := collectFiles(projectDir)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		changed := make([]string, 0, len(files))
+		for _, file := range files {
+			rel, err := filepath.Rel(projectDir, file)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			changed = append(changed, filepath.ToSlash(rel))
+		}
+		index, err := OpenSearchIndex(ctx, cacheDir)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		deleted, err := index.FilePaths(ctx)
+		_ = index.Close()
+		if err != nil {
+			return nil, nil, false, err
+		}
+		return changed, deleted, true, nil
 	}
 	tracked, err := git.RunOutput(projectDir, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", baseCommit, "--")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	untracked, err := git.RunOutput(projectDir, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	seen := make(map[string]bool)
 	var changed, deleted []string
@@ -946,10 +969,10 @@ func checkoutDeltaFromBase(projectDir, baseCommit string) ([]string, []string, e
 		} else if os.IsNotExist(err) {
 			deleted = append(deleted, rel)
 		} else {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 	}
-	return changed, deleted, nil
+	return changed, deleted, false, nil
 }
 
 // pruneVanished drops every cached shard whose file is no longer among the live

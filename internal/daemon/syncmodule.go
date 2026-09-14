@@ -14,6 +14,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
+	gitstate "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
@@ -28,6 +30,7 @@ type SyncModule struct {
 	projectDir string
 	cacheDir   string
 	onActivity func()
+	lastCommit string
 }
 
 func NewSyncModule(projectDir, cacheDir string) *SyncModule {
@@ -182,7 +185,11 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 		(batch.Rescan || len(targets.astChanged) > 0 || len(targets.astRemoved) > 0)
 	knowledgeWork := (targets.knowledge || batch.Rescan) &&
 		!config.IsModuleDisabled("knowledge", nil, projectCfg)
-	if !astWork && !knowledgeWork {
+	gitHead := ""
+	if git, err := gitstate.DefaultErr(); err == nil {
+		gitHead, _ = git.RunOutput(m.projectDir, "rev-parse", "HEAD")
+	}
+	if !astWork && !knowledgeWork && (gitHead == "" || gitHead == m.lastCommit) {
 		return
 	}
 
@@ -196,6 +203,19 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	if waited := time.Since(askedAt); waited > time.Second {
 		slog.Info("daemon: waited for the indexing slot",
 			"project", m.projectDir, "waited", waited.Round(time.Millisecond))
+	}
+	hydrated, err := hub.HydrateProjectLanceWithResult(ctx, m.projectDir, projectCfg)
+	if err != nil {
+		slog.Error("daemon: published Lance hydration failed", "project", m.projectDir, "error", err)
+		return
+	}
+	m.lastCommit = gitHead
+	if hydrated.ASTBaseChanged && !config.IsModuleDisabled("ast", nil, projectCfg) {
+		astWork = true
+		batch.Rescan = true
+	}
+	if hydrated.KnowledgeBaseChanged && !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+		knowledgeWork = true
 	}
 
 	if astWork {
@@ -267,11 +287,6 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 
 func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.ConfigMap) {
 	scope := knowledge.ScopeFor(m.projectDir, nil, projectCfg)
-
-	if _, err := os.Stat(filepath.Join(m.projectDir, scope.Subdir)); err != nil && len(scope.ExtraFiles) == 0 {
-		return
-	}
-
 	wikiDir := store.KnowledgeProjectDir(m.projectDir)
 	kCfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
 	if _, err := knowledge.RunIndexPipeline(ctx, m.projectDir, wikiDir, kCfg); err != nil {
