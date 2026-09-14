@@ -95,50 +95,9 @@ irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1
 
 The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. On the next invocation, the launcher extracts a changed Core, the daemon replaces itself, and the stdio MCP proxy asks connected clients to refresh their tool catalog through the protocol's list-change notification. Pin a release with `--version <tag>`. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
 
-### Run it as a server for any MCP agent
-
-The root `Dockerfile` builds a server: the daemon as PID 1, publishing an **MCP endpoint** and the UI.
-
-**Any MCP-capable AI agent connects to it** — Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot, Kiro, Qwen Code, Kimi Code, Deep Code, or your own client. The agent runs wherever the developer is and brings its own model; the server supplies the code graphs, documentation wikis and memory it reasons over. One container serves a team, and nobody indexes anything locally.
-
-```bash
-docker build -t graphit-code .
-
-docker run -d --name graphit \
-  -p 127.0.0.1:8080:8080 \
-  -p 127.0.0.1:8081:8081 \
-  -v graphit-global:/opt/graphit \
-  graphit-code
-```
-
-Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full active key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
-
-Remote agents can load the server's current routing contract with `graphit_mandates` and fetch the
-complete source of any core module skill with `graphit_module_skill`. Start from the copy-ready
-[remote agent skill](docs/examples/skills/graphit-remote/SKILL.md).
-
-The MCP endpoint accepts the fresh runtime key shown in **System → Daemon**. A local provider may
-also define a static MCP key. With a direct OIDC or Broker-managed provider, each remote caller
-sends its own access token; Graphit verifies its JWT signature, issuer, audience, expiry, client,
-scope, and identity claims through the configured or Broker-discovered JWKS and
-preserves that identity through broker Hub ACL, S3, embedding and rerank calls. Direct OIDC may use
-bearer relay or explicit RFC 8693 exchange; Broker-managed login uses the Broker-issued token.
-`graphit mcp --stdio` always bridges to this daemon listener and resolves the active profile before
-each HTTP request, so OIDC/Broker token refresh is picked up automatically; without such a session,
-it uses the local profile key or current daemon runtime key.
-For a `broker` provider, Graphit is always a standard native OIDC client: the Broker owns the login
-page and may offer local password/MFA, upstream OIDC, or both without exposing those credentials or
-upstream tokens to Graphit.
-Provider/profile secrets live in the
-mode-`0600` global authentication store, while the generated runtime key remains in its restricted
-runtime file. The UI has no built-in authentication, and CORS is not authorization,
-so keep both ports on a trusted
-network or put an authenticated proxy in front. Read
-[Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
-
 ## First run
 
-Run Graphit from the repository it should understand:
+For the usual local workflow, run Graphit from the repository it should understand:
 
 ```bash
 cd your-project
@@ -168,6 +127,59 @@ installs the selected agent's native MCP/hooks, and performs the first synchroni
 is the explicit all-system checkpoint; the daemon keeps incremental indexes current afterwards.
 
 Use the exact agent identifier supported by your environment; `graphit init --help` lists the available values.
+
+## Optional deployment: server for teams and enterprise
+
+The local workflow above does not require a server deployment. When external agents (including
+web-based agents) need to connect over MCP, you can run Graphit as a shared service instead.
+The root `Dockerfile` builds a server with the daemon as PID 1, publishing an **MCP endpoint** and
+the UI.
+
+Any MCP-capable AI agent can connect to it — Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot,
+Kiro, Qwen Code, Kimi Code, Deep Code, or your own client. The agent runs wherever the developer is
+and brings its own model; the server supplies published code graphs, documentation wikis, and memory
+it reasons over. One container can serve a team without requiring each remote client to index
+anything locally.
+
+```bash
+docker build -t graphit-code .
+
+docker run -d --name graphit \
+  -p 127.0.0.1:8080:8080 \
+  -p 127.0.0.1:8081:8081 \
+  -v graphit-global:/opt/graphit \
+  graphit-code
+```
+
+Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full active key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
+
+Remote agents can load the server's current routing contract with `graphit_mandates` and fetch the
+complete source of any core module skill with `graphit_module_skill`. Start from the copy-ready
+[remote agent skill](docs/examples/skills/graphit-remote/SKILL.md).
+
+For a broader enterprise or team ecosystem, the optional, separately deployed
+[Graphit Broker](docs/guides/auth-broker.md) complements the MCP server with centralized identity,
+access control, shared storage, and embedding/rerank services. It is not required for the local
+workflow or for a basic MCP server.
+
+The MCP endpoint accepts the fresh runtime key shown in **System → Daemon**. A local provider may
+also define a static MCP key. With a direct OIDC or Broker-managed provider, each remote caller
+sends its own access token; Graphit verifies its JWT signature, issuer, audience, expiry, client,
+scope, and identity claims through the configured or Broker-discovered JWKS and
+preserves that identity through broker Hub ACL, S3, embedding and rerank calls. Direct OIDC may use
+bearer relay or explicit RFC 8693 exchange; Broker-managed login uses the Broker-issued token.
+`graphit mcp --stdio` always bridges to this daemon listener and resolves the active profile before
+each HTTP request, so OIDC/Broker token refresh is picked up automatically; without such a session,
+it uses the local profile key or current daemon runtime key.
+For a `broker` provider, Graphit is always a standard native OIDC client: the Broker owns the login
+page and may offer local password/MFA, upstream OIDC, or both without exposing those credentials or
+upstream tokens to Graphit.
+Provider/profile secrets live in the
+mode-`0600` global authentication store, while the generated runtime key remains in its restricted
+runtime file. The UI has no built-in authentication, and CORS is not authorization,
+so keep both ports on a trusted
+network or put an authenticated proxy in front. Read
+[Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
 
 ## What agents gain
 
