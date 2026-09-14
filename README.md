@@ -236,8 +236,8 @@ default, switch, provider, network boundary, and runtime resource control.
 
 - Mutable project sources and compiled local stores remain on the machine by default.
 - Hub publication is optional. When enabled, Graphit mounts S3 directly. Local providers use the
-  configured AWS identity, direct OIDC providers exchange web identity through STS, and Broker
-  providers receive short-lived, scope-specific STS credentials and topology in process memory when the Broker advertises
+  configured AWS identity; direct OIDC and Broker providers receive short-lived, scope-specific STS
+  credentials only in process memory when storage is configured or the Broker advertises
   storage. Without that capability, the authenticated Broker profile uses local storage.
 - S3 is authoritative for Hub artifact data; broker SQL or standalone `projects.json` is selected
   as the provider's one ACL authority. `~/.<brand>/hub` is only a bounded, subject-isolated metadata

@@ -1,15 +1,15 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"fmt"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,7 +171,7 @@ func TestBrokerLoginDropsS3MaterialBeforePersistence(t *testing.T) {
 	}
 }
 
-func TestSessionManagerSerializesOIDCSTSRefresh(t *testing.T) {
+func TestSessionManagerLeavesOIDCSTSUnexchangedUntilStorageScopeIsKnown(t *testing.T) {
 	store := OpenAt(filepath.Join(t.TempDir(), "auth.json"))
 	provider := Provider{
 		Name: "oidc", Type: ProviderOIDC,
@@ -189,41 +189,115 @@ func TestSessionManagerSerializesOIDCSTSRefresh(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var exchanges atomic.Int32
-	manager := &SessionManager{
-		Store: store, RefreshBefore: time.Minute,
-		STS: exchangerFunc(func(_ context.Context, _ Provider, profile Profile) (S3Credentials, error) {
-			exchanges.Add(1)
-			if profile.OIDC == nil || profile.OIDC.IDToken != "id-token" {
-				t.Fatal("STS exchange did not receive the current OIDC session")
-			}
-			return S3Credentials{
-				AccessKeyID: "new", SecretAccessKey: "new", SessionToken: "new-token",
-				ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Prefixes: []string{"graphit"},
-			}, nil
-		}),
+	manager := &SessionManager{Store: store, RefreshBefore: time.Minute}
+	snapshot, err := manager.Active(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	var wg sync.WaitGroup
-	errs := make(chan error, 8)
-	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			snapshot, err := manager.Active(context.Background())
-			if err == nil && snapshot.Profile.S3.AccessKeyID != "new" {
-				err = fmt.Errorf("active S3 access key = %q", snapshot.Profile.S3.AccessKeyID)
-			}
-			errs <- err
-		}()
+	if !snapshot.Profile.S3.Empty() {
+		t.Fatalf("OIDC STS credentials appeared without a storage scope: %#v", snapshot.Profile.S3.RedactedForTest())
 	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatal(err)
-		}
+}
+
+func TestOIDCSTSAuthStateMigratesPersistedCredentialsAway(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	store := OpenAt(path)
+	provider := Provider{Name: "oidc", Type: ProviderOIDC,
+		OIDC: &OIDCConfig{Issuer: "https://id.example", ClientID: "graphit", UsernameClaim: "preferred_username"},
+		S3:   S3Config{Bucket: "artifacts", Region: "us-east-1", CredentialSource: "sts"}, STS: &STSConfig{RoleARN: "role"}}
+	if err := store.AddProvider(provider); err != nil {
+		t.Fatal(err)
 	}
-	if got := exchanges.Load(); got != 1 {
-		t.Fatalf("STS exchanges = %d, want 1", got)
+	if err := store.Login(Profile{Name: "alice", Provider: "oidc", Issuer: "https://id.example", Subject: "subject", Username: "alice",
+		OIDC: &OIDCSession{AccessToken: "access", IDToken: "identity", ExpiresAt: time.Now().Add(time.Hour)},
+		S3:   S3Credentials{AccessKeyID: "should-not-save", SecretAccessKey: "should-not-save", SessionToken: "should-not-save"}}); err != nil {
+		t.Fatal(err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) == "" || !storeS3Absent(data) {
+		t.Fatal("OIDC STS login persisted temporary credentials")
+	}
+	// Simulate an auth.json produced by the older version. Load must remove its
+	// STS grant from disk atomically while retaining the OIDC login session.
+	state, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := state.Profiles["alice"]
+	profile.S3 = S3Credentials{AccessKeyID: "legacy-access", SecretAccessKey: "legacy-secret", SessionToken: "legacy-session", ExpiresAt: time.Now().Add(time.Hour)}
+	state.Profiles["alice"] = profile
+	legacy, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Profiles["alice"].S3.Empty() || loaded.Profiles["alice"].OIDC.AccessToken != "access" {
+		t.Fatalf("migration changed the wrong fields: %#v", loaded.Profiles["alice"].S3.RedactedForTest())
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !storeS3Absent(data) {
+		t.Fatal("legacy temporary credentials remain on disk")
+	}
+}
+
+func TestResolveActiveBindsRemoteOIDCToVerifiedCaller(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	store, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := Provider{Name: "oidc", Type: ProviderOIDC,
+		OIDC: &OIDCConfig{Issuer: "https://id.example", ClientID: "graphit", UsernameClaim: "sub"},
+		S3:   S3Config{Bucket: "artifacts", CredentialSource: "sts"}, STS: &STSConfig{RoleARN: "role", UseAccessToken: true}}
+	if err := store.AddProvider(provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Login(Profile{Name: "daemon", Provider: "oidc", Issuer: "https://id.example", Subject: "daemon-sub", Username: "daemon",
+		OIDC: &OIDCSession{AccessToken: "daemon-access", IDToken: "daemon-identity", RefreshToken: "revoked-refresh", ExpiresAt: time.Now().Add(-time.Hour)}}); err != nil {
+		t.Fatal(err)
+	}
+	identity := VerifiedIdentity{Issuer: "https://id.example", Subject: "caller-sub", Username: "caller", Teams: []string{"dev"}}
+	ctx := WithRequestIdentity(WithBrokerBearer(context.Background(), "caller-access"), identity)
+	snapshot, err := ResolveActive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Profile.Username != "caller" || snapshot.Profile.Subject != "caller-sub" || snapshot.Profile.OIDC.AccessToken != "caller-access" ||
+		snapshot.Profile.OIDC.IDToken != "" || snapshot.Profile.OIDC.RefreshToken != "" || !snapshot.Profile.S3.Empty() {
+		t.Fatalf("remote OIDC request inherited daemon credentials: %#v", snapshot.Profile.S3.RedactedForTest())
+	}
+	stored, err := store.Active()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Profile.Username != "daemon" || stored.Profile.OIDC.AccessToken != "daemon-access" {
+		t.Fatal("request changed the daemon's persisted login")
+	}
+	if _, err := ResolveActive(WithBrokerBearer(context.Background(), "unverified")); err == nil {
+		t.Fatal("OIDC bearer without verified identity was accepted")
+	}
+}
+
+func storeS3Absent(data []byte) bool {
+	var state struct {
+		Profiles map[string]map[string]json.RawMessage `json:"profiles"`
+	}
+	if json.Unmarshal(data, &state) != nil {
+		return false
+	}
+	_, hasS3 := state.Profiles["alice"]["s3"]
+	return !hasS3 && !bytes.Contains(data, []byte("legacy-access")) && !bytes.Contains(data, []byte("legacy-secret")) &&
+		!bytes.Contains(data, []byte("legacy-session")) && !bytes.Contains(data, []byte("should-not-save"))
 }

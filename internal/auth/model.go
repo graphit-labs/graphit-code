@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +21,11 @@ const (
 	ProviderOIDC   ProviderType = "oidc"
 	ProviderBroker ProviderType = "broker"
 )
+
+func UsesScopedS3(provider Provider) bool {
+	return provider.Type == ProviderBroker ||
+		(provider.Type == ProviderOIDC && provider.STS != nil && provider.S3.Bucket != "")
+}
 
 type Provider struct {
 	Name      string        `json:"name"`
@@ -129,6 +135,20 @@ type Profile struct {
 	BrokerS3Disabled bool          `json:"broker_s3_disabled,omitempty"`
 	CreatedAt        time.Time     `json:"created_at"`
 	UpdatedAt        time.Time     `json:"updated_at"`
+}
+
+// An empty S3 grant has no serialized representation. In particular, OIDC STS
+// and Broker profiles must not leave even a placeholder grant in auth.json.
+func (p Profile) MarshalJSON() ([]byte, error) {
+	type profileAlias Profile
+	var s3 *S3Credentials
+	if !p.S3.Empty() {
+		s3 = &p.S3
+	}
+	return json.Marshal(struct {
+		*profileAlias
+		S3 *S3Credentials `json:"s3,omitempty"`
+	}{profileAlias: (*profileAlias)(&p), S3: s3})
 }
 
 type OIDCSession struct {

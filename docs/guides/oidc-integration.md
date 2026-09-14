@@ -89,12 +89,12 @@ graphit login
   ├─ browser → IdP → loopback authorization code
   ├─ code exchange and ID-token signature/issuer/audience/nonce validation
   ├─ map username, organization, teams from verified claims
-  └─ persist + activate refreshable profile
-  └─ exchange ID/access token with STS when S3 is configured
+  └─ persist + activate refreshable OIDC profile, without STS credentials
        ↓
-each storage session
+each project, user-memory, or Hub-metadata storage scope
   ├─ refresh the OIDC token when needed
-  ├─ call AssumeRoleWithWebIdentity before S3 credential expiry
+  ├─ call AssumeRoleWithWebIdentity with a scope-limiting session policy
+  ├─ cache temporary credentials only in process memory until near expiry
   └─ use the temporary key, secret and session token directly with S3
 ```
 
@@ -237,10 +237,15 @@ graphit login --profile alice-corporate --provider corporate
 
 State is stored in `~/.graphit/auth.json` (or `$GRAPHIT_GLOBAL_DIR/auth.json`) with directory mode
 `0700`, file mode `0600`, atomic replacement, and cross-process locking. Outputs redact client
-secrets, access/refresh/ID tokens, MCP/broker keys, direct AI keys, and S3 secrets. Direct OIDC
-temporary S3 credentials are stored in this restricted file so they can be refreshed and resumed.
-Broker-issued S3 credentials and returned topology remain only in process memory and are reacquired
-after restart.
+secrets, access/refresh/ID tokens, MCP/broker keys, direct AI keys, and S3 secrets. Direct OIDC and
+Broker STS credentials remain only in process memory, separately for each project, user-memory, or
+Hub-metadata scope. They are reacquired after restart. Older direct OIDC profiles with persisted
+STS credentials are scrubbed from `auth.json` on first load.
+
+For remote HTTP MCP callers, direct OIDC STS requires `--sts-use-access-token`. The daemon exchanges
+the verified caller's access token; it never substitutes its own saved ID token. The STS endpoint
+must accept that access token. If it accepts only ID tokens, use a Broker provider for remote MCP
+storage or configure an identity flow that provides a caller-bound token suitable for STS.
 
 ## 5. Authenticate HTTP MCP and broker calls
 

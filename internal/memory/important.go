@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/auth"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 )
@@ -65,29 +67,50 @@ func ListMandatoryMemoriesForProject(projectDir, scope string) ([]MandatoryEntry
 	return listMemoriesByRelevanceIn(projectDir, scope, true)
 }
 
+// ListMandatoryMemoriesForProjectContext preserves the verified caller identity
+// when mandatory memories are read through remote MCP.
+func ListMandatoryMemoriesForProjectContext(ctx context.Context, projectDir, scope string) ([]MandatoryEntry, error) {
+	return listMemoriesByRelevanceInContext(ctx, projectDir, scope, true)
+}
+
 func listMemoriesByRelevance(scope string, mandatory bool) ([]ImportantEntry, error) {
 	wd, _ := os.Getwd()
 	return listMemoriesByRelevanceIn(wd, scope, mandatory)
 }
 
 func listMemoriesByRelevanceIn(projectDir, scope string, mandatory bool) ([]ImportantEntry, error) {
-	scopeID := resolveScopeIDIn(projectDir, scope)
+	return listMemoriesByRelevanceInContext(context.Background(), projectDir, scope, mandatory)
+}
+
+func listMemoriesByRelevanceInContext(ctx context.Context, projectDir, scope string, mandatory bool) ([]ImportantEntry, error) {
+	scopeID := resolveScopeIDInContext(ctx, projectDir, scope)
 	if scopeID == "" {
 		return nil, nil
 	}
-	uri := TableURIFor(scope, scopeID)
+	uri := MemoryTableURIWithContext(ctx, "memory/"+scope+"/"+scopeID, TableDirFor(scope, scopeID))
 	if uri == "" {
 		return nil, nil
 	}
-	ctx := context.Background()
-	if cfg := memoryS3Config(context.Background(), []string{"memory", scope, scopeID}); strings.HasPrefix(uri, "s3://") {
+	if cfg := memoryS3Config(ctx, []string{"memory", scope, scopeID}); strings.HasPrefix(uri, "s3://") {
 		objects, err := s3store.New(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 		switch scope {
 		case "project":
-			if err := hubaccess.AuthorizeProject(ctx, objects, scopeID); err != nil {
+			snapshot, err := auth.ResolveActive(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if auth.UsesScopedS3(snapshot.Provider) {
+				registry, err := hub.NewS3Store(ctx, nil, nil)
+				if err != nil {
+					return nil, err
+				}
+				if err := registry.AuthorizeProject(ctx, scopeID); err != nil {
+					return nil, err
+				}
+			} else if err := hubaccess.AuthorizeProject(ctx, objects, scopeID); err != nil {
 				return nil, err
 			}
 		case "user":

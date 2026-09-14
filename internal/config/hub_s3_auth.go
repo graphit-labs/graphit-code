@@ -55,9 +55,8 @@ func HubMetadataS3Config(ctx context.Context) S3Config {
 	return hubS3Config(ctx, &scope)
 }
 
-// S3ConfigForURI resolves the narrow Broker grant implied by an authoritative
-// storage URI. Direct OIDC and Local providers continue to use their one ambient
-// configuration.
+// S3ConfigForURI resolves the narrow temporary grant implied by an authoritative
+// storage URI. Local providers continue to use their one ambient configuration.
 func S3ConfigForURI(ctx context.Context, storageURI string) S3Config {
 	parsed, err := url.Parse(strings.TrimSpace(storageURI))
 	if err != nil || strings.ToLower(parsed.Scheme) != "s3" {
@@ -82,7 +81,7 @@ func S3ConfigForURI(ctx context.Context, storageURI string) S3Config {
 	return HubS3Config()
 }
 
-func hubS3Config(ctx context.Context, brokerScope *auth.BrokerStorageScope) S3Config {
+func hubS3Config(ctx context.Context, storageScope *auth.BrokerStorageScope) S3Config {
 	snapshot, err := auth.ResolveActive(ctx)
 	if err != nil {
 		// No account means local-only operation. Every other active-profile failure is
@@ -92,19 +91,28 @@ func hubS3Config(ctx context.Context, brokerScope *auth.BrokerStorageScope) S3Co
 		}
 		return S3Config{ResolutionError: err}
 	}
-	if snapshot.Provider.Type == auth.ProviderBroker {
+	broker := snapshot.Provider.Type == auth.ProviderBroker
+	sts := snapshot.Provider.Type == auth.ProviderOIDC && snapshot.Provider.STS != nil && snapshot.Provider.S3.Bucket != ""
+	if broker || sts {
 		if snapshot.Profile.BrokerS3Disabled {
 			return S3Config{}
 		}
-		if brokerScope == nil {
-			return S3Config{ResolutionError: errors.New("broker S3 configuration requires a project, user, or Hub metadata scope")}
+		if storageScope == nil {
+			return S3Config{Bucket: snapshot.Provider.S3.Bucket, Region: snapshot.Provider.S3.Region,
+				Endpoint: snapshot.Provider.S3.Endpoint, Prefix: normalizePrefix(snapshot.Provider.S3.Prefix),
+				ResolutionError: errors.New("temporary S3 credentials require a project, user, or Hub metadata scope")}
 		}
-		credentials, err := auth.ResolveBrokerS3(ctx, *brokerScope)
+		var credentials auth.S3Credentials
+		if broker {
+			credentials, err = auth.ResolveBrokerS3(ctx, *storageScope)
+		} else {
+			credentials, err = auth.ResolveOIDCSTS(ctx, *storageScope)
+		}
 		if err != nil {
 			return S3Config{ResolutionError: err}
 		}
 		return s3ConfigFromCredentials(credentials, func(refreshCtx context.Context) (S3Config, error) {
-			cfg := hubS3Config(refreshCtx, brokerScope)
+			cfg := hubS3Config(refreshCtx, storageScope)
 			if cfg.ResolutionError != nil {
 				return S3Config{}, cfg.ResolutionError
 			}

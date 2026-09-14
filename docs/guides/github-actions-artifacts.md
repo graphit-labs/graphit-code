@@ -120,5 +120,5 @@ with the same `branch/<name>` version if the project and indexed artifact paths 
 server host; a remote client cannot upload its own local path through this tool.
 
 Disable unused background modules for an ephemeral publisher. Never cache or upload the runner's
-global auth directory, and never log tokens, broker keys, or temporary S3 credentials. Broker S3
-values live only in runner memory and are reacquired after a new process starts.
+global auth directory, and never log tokens, broker keys, or temporary S3 credentials. Broker and
+direct OIDC STS values live only in runner memory and are reacquired after a new process starts.

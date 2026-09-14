@@ -415,6 +415,7 @@ func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey str
 		return ctx, false
 	}
 	ctx = auth.WithBrokerBearer(ctx, bearer)
+	ctx = auth.WithRequestIdentity(ctx, identity)
 	ctx, err = hubaccess.WithTrustedSubject(ctx, hubaccess.Subject{UserID: identity.Username, TeamIDs: identity.Teams})
 	if err != nil {
 		return ctx, false

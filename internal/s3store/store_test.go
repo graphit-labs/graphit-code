@@ -181,6 +181,20 @@ func TestListPageUsesOpaqueContinuationAndRawPrefix(t *testing.T) {
 	}
 }
 
+func TestListPagePreservesDirectoryBoundary(t *testing.T) {
+	store, _ := newTestStore(t, "hub")
+	ctx := context.Background()
+	for _, key := range []string{"v2/registry/names/a.json", "v2/registry-old/names/b.json"} {
+		if err := store.Put(ctx, key, []byte(key)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := store.ListPage(ctx, "v2/registry/", 10, "")
+	if err != nil || len(page.Objects) != 1 || page.Objects[0].Key != "v2/registry/names/a.json" {
+		t.Fatalf("directory list = %+v, %v", page, err)
+	}
+}
+
 // A missing object and a broken bucket are different problems: the first is a first run,
 // the second is a misconfiguration, and the callers branch on exactly this.
 func TestGetMissingObjectIsErrNotFound(t *testing.T) {

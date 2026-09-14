@@ -197,7 +197,7 @@ func (s *Service) authorizeRemote(ctx context.Context, projectID string) error {
 	if err != nil {
 		return err
 	}
-	if snapshot.Provider.Type == auth.ProviderBroker {
+	if auth.UsesScopedS3(snapshot.Provider) {
 		registryStore, err := hub.NewS3Store(ctx, nil, s.projectConfig)
 		if err != nil {
 			return err

@@ -166,7 +166,9 @@ graphit login --profile alice-acme --provider corporate
 For CLI-initiated work, the refreshed access token authenticates each broker call. For HTTP MCP,
 Graphit verifies the caller's MCP-audience access token and propagates that request bearer to Hub
 ACL resolution, Broker calls, embeddings and rerank. It never substitutes the active profile's
-token across users. Direct OIDC S3 uses a renewable web-identity STS session; the optional Broker
+token across users. Direct OIDC S3 uses a renewable, scope-specific web-identity STS session;
+remote MCP storage requires `--sts-use-access-token` and an STS endpoint that accepts the caller's
+access token. The optional Broker
 validates its own calls independently. See the
 [detailed OIDC integration guide](oidc-integration.md) for IdP registration, claims, audiences,
 route policies, and examples.
@@ -220,9 +222,9 @@ selected profile; it never activates another profile implicitly.
 State lives in `~/.graphit/auth.json` (or `$GRAPHIT_GLOBAL_DIR/auth.json`), under an owner-only
 directory (`0700`) and file (`0600`) with atomic replacement and cross-process locking. Command
 output redacts OIDC client secrets, tokens, MCP/broker keys, direct AI keys, and temporary or direct
-S3 secrets. Direct OIDC temporary S3 sessions may be persisted and are renewed before expiry.
-Broker-issued S3 credentials and returned topology are held only in process memory; restart causes
-fresh scoped exchanges.
+S3 secrets. Direct OIDC and Broker STS credentials are held only in process memory, separately for
+each project, user-memory, or Hub-metadata scope; restart causes fresh scoped exchanges. Older
+direct OIDC STS credentials are removed from `auth.json` on first load.
 
 There is no migration or compatibility path for incompatible provider/profile schema versions.
 Recreate providers and log in again after a development schema change.

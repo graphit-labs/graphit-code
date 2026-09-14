@@ -11,7 +11,6 @@ import (
 type SessionManager struct {
 	Store         *Store
 	OIDC          *OIDCClient
-	STS           STSExchanger
 	RefreshBefore time.Duration
 	mu            sync.Mutex
 }
@@ -31,21 +30,26 @@ func ResolveActive(ctx context.Context) (Snapshot, error) {
 		if err != nil {
 			return Snapshot{}, err
 		}
-		if snapshot.Provider.Type == ProviderBroker {
-			// Keep broker calls and scoped S3 caches tied to the verified HTTP
-			// caller. Never refresh or persist the daemon's unrelated profile.
+		if snapshot.Provider.Type == ProviderBroker || snapshot.Provider.Type == ProviderOIDC {
+			// Keep scoped S3 exchanges tied to the verified HTTP caller. Never
+			// refresh or persist the daemon's unrelated profile.
 			profile := snapshot.Profile
-			if profile.OIDC != nil {
-				session := *profile.OIDC
-				session.AccessToken = bearer
-				session.IDToken = ""
-				profile.OIDC = &session
+			profile.OIDC = &OIDCSession{AccessToken: bearer, TokenType: "Bearer"}
+			identity, ok := RequestIdentity(ctx)
+			if snapshot.Provider.Type == ProviderOIDC && !ok {
+				return Snapshot{}, errors.New("verified OIDC request identity is unavailable")
 			}
+			if ok {
+				profile.Issuer, profile.Subject = identity.Issuer, identity.Subject
+				profile.Username, profile.Organization = identity.Username, identity.Organization
+				profile.Teams = append([]string(nil), identity.Teams...)
+			}
+			profile.S3 = S3Credentials{}
 			snapshot.Profile = profile
 			return snapshot, nil
 		}
 	}
-	return (&SessionManager{Store: store, OIDC: NewOIDCClient(), STS: AWSSTSExchanger{}}).Active(ctx)
+	return (&SessionManager{Store: store, OIDC: NewOIDCClient()}).Active(ctx)
 }
 
 // ResolveActiveOrDefaultLocal refreshes an active account session when present. With no active
@@ -98,19 +102,6 @@ func (m *SessionManager) Active(ctx context.Context) (Snapshot, error) {
 		refreshed.S3 = profile.S3
 		refreshed.BrokerS3Disabled = profile.BrokerS3Disabled
 		profile = refreshed
-		changed = true
-	}
-	needsS3Refresh := !profile.S3.Complete() || (!profile.S3.ExpiresAt.IsZero() && time.Until(profile.S3.ExpiresAt) <= margin)
-	if snapshot.Provider.STS != nil && needsS3Refresh {
-		exchanger := m.STS
-		if exchanger == nil {
-			exchanger = AWSSTSExchanger{}
-		}
-		creds, err := exchanger.Exchange(ctx, snapshot.Provider, profile)
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("exchange OIDC identity for S3 credentials: %w", err)
-		}
-		profile.S3 = creds
 		changed = true
 	}
 	if changed {

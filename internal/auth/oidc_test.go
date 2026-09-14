@@ -638,8 +638,8 @@ func TestAWSSTSExchange(t *testing.T) {
 		fmt.Fprint(w, `<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleWithWebIdentityResult><Credentials><AccessKeyId>AKIA_TEST</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>session</SessionToken><Expiration>2030-01-01T00:00:00Z</Expiration></Credentials></AssumeRoleWithWebIdentityResult><ResponseMetadata><RequestId>request</RequestId></ResponseMetadata></AssumeRoleWithWebIdentityResponse>`)
 	}))
 	defer server.Close()
-	provider := Provider{Name: "corp", S3: S3Config{Region: "us-east-1"}, STS: &STSConfig{Endpoint: server.URL, RoleARN: "arn:aws:iam::123456789012:role/graphit"}}
-	creds, err := (AWSSTSExchanger{}).Exchange(context.Background(), provider, Profile{Name: "alice", OIDC: &OIDCSession{IDToken: "id-token"}})
+	provider := Provider{Name: "corp", Type: ProviderOIDC, S3: S3Config{Bucket: "artifacts", Region: "us-east-1", CredentialSource: "sts"}, STS: &STSConfig{Endpoint: server.URL, RoleARN: "arn:aws:iam::123456789012:role/graphit"}}
+	creds, err := (AWSSTSExchanger{}).ExchangeForScope(context.Background(), provider, Profile{Name: "alice", Username: "alice", OIDC: &OIDCSession{IDToken: "id-token"}}, ProjectStorageScope("project-a"))
 	if err != nil {
 		t.Fatal(err)
 	}

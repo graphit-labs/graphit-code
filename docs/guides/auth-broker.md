@@ -205,9 +205,11 @@ graphit provider add company --type oidc \
 graphit login --provider company --profile alice-acme
 ```
 
-Login opens the browser, verifies the ID token, exchanges web identity with STS, stores both
-refreshable sessions in the restricted global auth file, and activates `alice-acme`. Before either
-session expires Graphit renews it and atomically publishes the updated profile.
+Login opens the browser, verifies the ID token, stores the refreshable OIDC session in the
+restricted global auth file, and activates `alice-acme`. STS exchange occurs only when a project,
+user-memory, or Hub-metadata scope first needs S3; temporary credentials stay in memory and are
+renewed before expiry. For remote MCP callers, configure `--sts-use-access-token` only when the
+STS endpoint accepts the caller's access token.
 
 ### HTTP MCP bearer propagation
 

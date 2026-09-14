@@ -109,5 +109,5 @@ graphit mcp
 ```
 
 Inspect `~/.graphit/auth.json` permissions, but never publish its contents. It contains identity
-and service credentials. Broker-issued S3 credentials and topology are never stored there; local
-and direct OIDC profiles may contain their own configured or temporary S3 values.
+and service credentials. STS credentials from both Broker and direct OIDC providers are never
+stored there; local profiles may contain their configured S3 credentials.

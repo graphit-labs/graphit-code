@@ -39,7 +39,27 @@ func (s *Store) Path() string { return s.path }
 func (s *Store) Load() (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.loadUnlocked()
+	state, err := s.loadUnlocked()
+	if err != nil || !hasPersistedTemporaryS3(state) {
+		return state, err
+	}
+	// Migrate credentials written by older OIDC STS versions on the first read.
+	// Re-read under the cross-process lock so a concurrent login is not lost.
+	lock, err := lockfile.Acquire(s.path+".lock", 3*time.Second)
+	if err != nil {
+		return State{}, fmt.Errorf("lock authentication state migration: %w", err)
+	}
+	defer lock.Release()
+	state, err = s.loadUnlocked()
+	if err != nil {
+		return State{}, err
+	}
+	if stripTemporaryS3ForPersistence(&state) {
+		if err := s.saveUnlocked(state); err != nil {
+			return State{}, err
+		}
+	}
+	return state, nil
 }
 
 func (s *Store) loadUnlocked() (State, error) {
@@ -112,7 +132,7 @@ func (s *Store) updateIfChanged(fn func(*State) (bool, error)) error {
 }
 
 func (s *Store) saveUnlocked(state State) error {
-	stripBrokerS3ForPersistence(&state)
+	stripTemporaryS3ForPersistence(&state)
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("serialize authentication state: %w", err)
@@ -240,6 +260,9 @@ func (s *Store) Login(profile Profile) error {
 			if profile.MCPKey != "" {
 				return errors.New("OIDC profile cannot contain a static MCP key")
 			}
+			if provider.STS != nil {
+				profile.S3 = S3Credentials{}
+			}
 		case ProviderBroker:
 			if profile.OIDC == nil || profile.OIDC.AccessToken == "" || profile.OIDC.IDToken == "" || profile.Issuer == "" || profile.Subject == "" {
 				return errors.New("broker profile requires a verified identity and OIDC token session")
@@ -277,15 +300,28 @@ func (s *Store) Login(profile Profile) error {
 	})
 }
 
-func stripBrokerS3ForPersistence(state *State) {
+func hasPersistedTemporaryS3(state State) bool {
+	for _, profile := range state.Profiles {
+		provider, ok := state.Providers[profile.Provider]
+		if ok && (provider.Type == ProviderBroker || provider.STS != nil) && !profile.S3.Empty() {
+			return true
+		}
+	}
+	return false
+}
+
+func stripTemporaryS3ForPersistence(state *State) bool {
+	changed := false
 	for name, profile := range state.Profiles {
 		provider, ok := state.Providers[profile.Provider]
-		if !ok || provider.Type != ProviderBroker || profile.S3.Empty() {
+		if !ok || (provider.Type != ProviderBroker && provider.STS == nil) || profile.S3.Empty() {
 			continue
 		}
 		profile.S3 = S3Credentials{}
 		state.Profiles[name] = profile
+		changed = true
 	}
+	return changed
 }
 
 func (s *Store) UseProfile(name string) error {
@@ -332,6 +368,9 @@ func (s *Store) UpdateActive(profile Profile) error {
 		provider, exists := state.Providers[profile.Provider]
 		if !exists || provider.Revision != profile.ProviderRevision {
 			return errors.New("provider changed while refreshing credentials")
+		}
+		if provider.STS != nil {
+			profile.S3 = S3Credentials{}
 		}
 		profile.CreatedAt = state.Profiles[profile.Name].CreatedAt
 		profile.UpdatedAt = s.now().UTC()

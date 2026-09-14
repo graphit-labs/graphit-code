@@ -374,7 +374,7 @@ func registerMemoryTools(server *mcp.Server) {
 		var entries []memory.MandatoryEntry
 		err = withProjectDir(projectDir, func() error {
 			var listErr error
-			entries, listErr = memory.ListMandatoryMemories(scope)
+			entries, listErr = memory.ListMandatoryMemoriesForProjectContext(ctx, projectDir, scope)
 			return listErr
 		})
 		if err != nil {

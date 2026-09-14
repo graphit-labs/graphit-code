@@ -12,6 +12,7 @@ import (
 )
 
 type requestBrokerBearerKey struct{}
+type requestVerifiedIdentityKey struct{}
 
 // WithBrokerBearer binds a verified inbound end-user token to one request. Broker clients prefer
 // this token over profile credentials, preventing cross-user identity leakage in the HTTP daemon.
@@ -22,6 +23,17 @@ func WithBrokerBearer(ctx context.Context, token string) context.Context {
 func RequestBrokerBearer(ctx context.Context) string {
 	token, _ := ctx.Value(requestBrokerBearerKey{}).(string)
 	return strings.TrimSpace(token)
+}
+
+// WithRequestIdentity binds the claims verified by the HTTP authentication
+// middleware to the same request as its bearer token.
+func WithRequestIdentity(ctx context.Context, identity VerifiedIdentity) context.Context {
+	return context.WithValue(ctx, requestVerifiedIdentityKey{}, identity)
+}
+
+func RequestIdentity(ctx context.Context) (VerifiedIdentity, bool) {
+	identity, ok := ctx.Value(requestVerifiedIdentityKey{}).(VerifiedIdentity)
+	return identity, ok
 }
 
 type brokerTokenCacheEntry struct {

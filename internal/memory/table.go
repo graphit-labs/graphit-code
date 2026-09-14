@@ -203,7 +203,7 @@ func authorizeMemoryURI(ctx context.Context, uri string, configs ...config.S3Con
 		if err != nil {
 			return err
 		}
-		if snapshot.Provider.Type == auth.ProviderBroker {
+		if auth.UsesScopedS3(snapshot.Provider) {
 			registryStore, err := hub.NewS3Store(ctx, nil, nil)
 			if err != nil {
 				return err

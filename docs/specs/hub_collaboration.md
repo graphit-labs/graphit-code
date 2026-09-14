@@ -11,8 +11,9 @@ repository is involved in the persistence model.
 The active profile's named provider supplies the storage mode. Local providers may configure S3
 directly; direct OIDC providers obtain renewable web-identity STS credentials when S3/STS is
 configured; first-class Broker providers obtain a restricted STS session plus topology when
-discovery advertises `graphit-s3-credentials-v2`; credentials and topology are resolved in memory
-for each project or Hub metadata scope. Local, OIDC, and Broker providers without S3
+discovery advertises `graphit-s3-credentials-v2`; all STS credentials are resolved and cached only
+in memory for each project, user-memory, or Hub-metadata scope. Direct OIDC exchanges include a
+scope-limiting STS session policy. Local, OIDC, and Broker providers without S3
 remain filesystem-only. A configured STS exchange, advertised Broker capability, or renewal of an
 existing Broker S3 grant fails closed on error.
 

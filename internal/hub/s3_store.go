@@ -34,14 +34,15 @@ var mountableTypes = map[ArtifactType]bool{
 type S3Store struct {
 	Logger *slog.Logger
 
-	objects   *s3store.Store
-	cfg       config.S3Config
-	cacheBase string
-	brokerACL *auth.BrokerHubAccessClient
-	broker    bool
-	brokerID  string
-	mu        sync.Mutex
-	scoped    map[string]scopedS3Store
+	objects           *s3store.Store
+	cfg               config.S3Config
+	cacheBase         string
+	brokerACL         *auth.BrokerHubAccessClient
+	broker            bool
+	scopedCredentials bool
+	storageID         string
+	mu                sync.Mutex
+	scoped            map[string]scopedS3Store
 }
 
 type scopedS3Store struct {
@@ -60,11 +61,14 @@ func NewS3Store(ctx context.Context, inlineCfg, projectCfg config.ConfigMap) (*S
 
 	cfg := config.ResolveHubS3(inlineCfg, projectCfg)
 	hubStore := &S3Store{cfg: cfg, cacheBase: cacheDir, scoped: map[string]scopedS3Store{}}
-	if snapshot, activeErr := auth.ResolveActive(ctx); activeErr == nil && snapshot.Provider.Type == auth.ProviderBroker {
-		hubStore.broker = true
-		hubStore.brokerID = auth.BrokerStorageIdentity(snapshot)
-		cfg = config.HubMetadataS3Config(ctx)
-		hubStore.cfg = cfg
+	if snapshot, activeErr := auth.ResolveActive(ctx); activeErr == nil {
+		hubStore.broker = snapshot.Provider.Type == auth.ProviderBroker
+		hubStore.scopedCredentials = hubStore.broker || (snapshot.Provider.Type == auth.ProviderOIDC && snapshot.Provider.STS != nil && snapshot.Provider.S3.Bucket != "")
+		if hubStore.scopedCredentials {
+			hubStore.storageID = auth.BrokerStorageIdentity(snapshot)
+			cfg = config.HubMetadataS3Config(ctx)
+			hubStore.cfg = cfg
+		}
 	}
 	if !cfg.Configured() {
 		return hubStore, nil
@@ -77,7 +81,7 @@ func NewS3Store(ctx context.Context, inlineCfg, projectCfg config.ConfigMap) (*S
 		return nil, err
 	}
 	hubStore.objects = objects
-	if hubStore.broker {
+	if hubStore.scopedCredentials {
 		hubStore.scoped["hub"] = scopedS3Store{objects: objects, cfg: cfg}
 	}
 	brokerACL, accessErr := auth.NewBrokerHubAccessClient(ctx, nil)
@@ -180,7 +184,7 @@ func (s *S3Store) AuthorizeProject(ctx context.Context, projectID string) error 
 
 // Configured reports whether there is a remote at all.
 func (s *S3Store) Configured() bool {
-	if !s.broker {
+	if !s.scopedCredentials {
 		return s.objects != nil
 	}
 	s.mu.Lock()
@@ -193,7 +197,7 @@ func (s *S3Store) CacheDir() string { return s.cacheBase }
 
 // Bucket is the configured bucket, empty in local-only mode.
 func (s *S3Store) Bucket() string {
-	if !s.broker {
+	if !s.scopedCredentials {
 		return s.cfg.Bucket
 	}
 	s.mu.Lock()
@@ -202,7 +206,7 @@ func (s *S3Store) Bucket() string {
 }
 
 func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope) (scopedS3Store, error) {
-	if !s.broker {
+	if !s.scopedCredentials {
 		return scopedS3Store{objects: s.objects, cfg: s.cfg}, nil
 	}
 	snapshot, err := auth.ResolveActive(ctx)
@@ -212,9 +216,9 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 	identity := auth.BrokerStorageIdentity(snapshot)
 	key := scope.Kind + "\x00" + scope.ProjectID
 	s.mu.Lock()
-	if identity != s.brokerID {
+	if identity != s.storageID {
 		s.scoped = map[string]scopedS3Store{}
-		s.brokerID = identity
+		s.storageID = identity
 	}
 	if cached, ok := s.scoped[key]; ok {
 		s.mu.Unlock()
@@ -236,7 +240,7 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 	}
 	resolved := scopedS3Store{objects: objects, cfg: cfg}
 	s.mu.Lock()
-	if identity != s.brokerID {
+	if identity != s.storageID {
 		s.mu.Unlock()
 		return s.scopeStore(ctx, scope)
 	}
@@ -272,7 +276,7 @@ func (s *S3Store) projectStore(ctx context.Context, projectID string) (scopedS3S
 	return s.scopeStore(ctx, auth.ProjectStorageScope(projectID))
 }
 
-// EnsureReachable verifies that the broker can authorize a minimal object-store request.
+// EnsureReachable verifies that the active credentials authorize a minimal object-store request.
 // In local-only mode there is nothing to reach and nothing to report.
 func (s *S3Store) EnsureReachable(ctx context.Context) error {
 	if !s.Configured() {
@@ -280,6 +284,12 @@ func (s *S3Store) EnsureReachable(ctx context.Context) error {
 	}
 	storage, err := s.scopeStore(ctx, auth.HubStorageScope())
 	if err != nil {
+		return err
+	}
+	if s.scopedCredentials && !s.broker {
+		// HeadBucket would require an unscoped ListBucket grant. Probe the
+		// registry namespace instead so OIDC STS retains its session policy.
+		_, err := storage.objects.ListPage(ctx, "v2/registry/", 1, "")
 		return err
 	}
 	return storage.objects.EnsureBucket(ctx)
@@ -361,7 +371,7 @@ func (s *S3Store) lanceConfig(uri string, writable bool) lancestore.Config {
 
 func (s *S3Store) lanceConfigFor(ctx context.Context, uri string, writable bool) lancestore.Config {
 	s3Config := s.cfg
-	if s.broker {
+	if s.scopedCredentials {
 		s3Config = config.S3ConfigForURI(ctx, uri)
 	}
 	return lancestore.Config{URI: uri, S3: s3Config, Writable: writable}
@@ -456,7 +466,7 @@ func (s *S3Store) ArtifactURI(artType ArtifactType, id, version, projectID strin
 		return ""
 	}
 	var objects *s3store.Store
-	if s.broker {
+	if s.scopedCredentials {
 		s.mu.Lock()
 		storage, ok := s.scoped["project\x00"+projectID]
 		s.mu.Unlock()

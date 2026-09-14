@@ -303,6 +303,9 @@ func (s *Store) ListPage(ctx context.Context, relPrefix string, limit int, curso
 		limit = 100
 	}
 	full := s.Key(relPrefix)
+	if full != "" && strings.HasSuffix(relPrefix, "/") {
+		full += "/"
+	}
 	maxKeys := int32(limit)
 	in := &s3.ListObjectsV2Input{Bucket: &s.bucket, Prefix: &full, MaxKeys: &maxKeys}
 	if cursor != "" {

@@ -12,11 +12,15 @@ import (
 )
 
 func resolveScopeIDIn(projectDir, scope string) string {
+	return resolveScopeIDInContext(context.Background(), projectDir, scope)
+}
+
+func resolveScopeIDInContext(ctx context.Context, projectDir, scope string) string {
 	switch scope {
 	case "project":
 		return store.ProjectID(projectDir)
 	case "user":
-		userID, err := UserScopeIDForContext(context.Background())
+		userID, err := UserScopeIDForContext(ctx)
 		if err != nil {
 			return ""
 		}

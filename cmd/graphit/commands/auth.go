@@ -154,7 +154,7 @@ func registerProviderFlags(cmd *cobra.Command, o *providerOptions, add bool) {
 	cmd.Flags().StringVar(&o.stsRoleARN, "sts-role-arn", "", "Role ARN for AssumeRoleWithWebIdentity")
 	cmd.Flags().StringVar(&o.stsSessionName, "sts-session-name", "", "STS role session name")
 	cmd.Flags().Int32Var(&o.stsDuration, "sts-duration", 0, "STS credential duration in seconds")
-	cmd.Flags().BoolVar(&o.stsUseAccessToken, "sts-use-access-token", false, "Exchange the access token instead of the ID token")
+	cmd.Flags().BoolVar(&o.stsUseAccessToken, "sts-use-access-token", false, "Exchange the access token instead of the ID token (required for remote OIDC MCP storage)")
 	if !add {
 		cmd.Flags().BoolVar(&o.clearSTS, "clear-sts", false, "Remove STS exchange configuration")
 		cmd.Flags().BoolVar(&o.clearBroker, "clear-broker", false, "Remove broker configuration")
@@ -683,12 +683,6 @@ func runLogin(cmd *cobra.Command, o loginOptions) error {
 	}
 	if profile.RerankAPIKey == "" && provider.AI.Rerank.Mode == auth.ServiceDirect {
 		profile.RerankAPIKey, err = inputValue("rerank API key", true)
-		if err != nil {
-			return err
-		}
-	}
-	if provider.STS != nil {
-		profile.S3, err = (auth.AWSSTSExchanger{}).Exchange(cmd.Context(), provider, profile)
 		if err != nil {
 			return err
 		}
