@@ -171,10 +171,11 @@ and subject, and never grants access. File artifacts already installed for an ad
 separately under `~/.<brand>/artifacts/modules/`.
 
 AST and knowledge artifacts may use mutable `branch/<git-branch>` channels, including branch names
-with `/`, or compact `tag/<git-tag>` snapshots. On an empty local store, `graphit sync` can reuse the
-exact compatible Git commit or nearest published ancestor as a shallow LanceDB base: inherited data
-is read from S3 while new project changes stay in the local filesystem. LadybugDB/Icebug is rebuilt
-from source. The Hub changes only when `graphit hub submit` explicitly publishes a clean commit.
+with `/`, or compact `tag/<git-tag>` snapshots. On every `graphit sync`, Graphit looks for the
+exact compatible Git commit or nearest published ancestor. It retains a matching local overlay or
+shallow-clones an advanced LanceDB base and reindexes local changes: inherited data is read from S3
+while new project changes stay in the local filesystem. LadybugDB/Icebug is rebuilt from source.
+The Hub changes only when `graphit hub submit` explicitly publishes a clean commit.
 Projects outside Git continue to sync entirely locally and may publish a new `branch/...` name as a
 mutable snapshot without commit history. Adding S3 later does not replace an initialized local
 store; the first publication seeds an empty remote channel from that local state.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	agentAdapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/paths"
@@ -407,6 +408,16 @@ func (s *HubService) RecordPublish(
 	}
 	if lf == nil {
 		return fmt.Errorf("project not initialized — run '%s init' first", brand.BinName())
+	}
+	// A Git-backed AST/Knowledge branch publication must leave the checkout clean.
+	// The Hub branch history records the published commit and table versions; writing
+	// the project lockfile here would make the next artifact from the same commit
+	// fail the clean-worktree check. Keep the global publication record instead.
+	if (artType == TypeAST || artType == TypeKnowledge) && strings.HasPrefix(version, "branch/") {
+		if _, err := gitstate.InspectSnapshot(pp.ActiveProjectDir); err == nil {
+			s.recordPublishInGlobalLock(entryID, artType, version, lf.Project.ID, filepath.Dir(pp.LockFilePath))
+			return nil
+		}
 	}
 
 	if lf.Artifacts[artType] == nil {

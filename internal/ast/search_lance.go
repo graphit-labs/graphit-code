@@ -197,7 +197,7 @@ func (s *SearchIndex) VectorGeneration() string {
 // the caller does not have to know which — see searchConfigFor. That is what lets a query service
 // built the same way serve a local project and a Hub context.
 func OpenSearchIndex(ctx context.Context, storeDir string) (*SearchIndex, error) {
-	si, err := openLanceIndex(ctx, searchConfigFor(storeDir))
+	si, err := openLanceIndex(ctx, searchConfigFor(ctx, storeDir))
 	if err != nil {
 		return nil, err
 	}
@@ -990,8 +990,10 @@ func FileSourceAt(ctx context.Context, dbPath, relPath string) (string, bool) {
 	if dbPath == "" || relPath == "" {
 		return "", false
 	}
-	if info, err := os.Stat(LanceIndexPath(dbPath)); err != nil || !info.IsDir() {
-		return "", false
+	if searchMountURI(dbPath) == "" {
+		if info, err := os.Stat(LanceIndexPath(dbPath)); err != nil || !info.IsDir() {
+			return "", false
+		}
 	}
 	idx, err := OpenSearchIndex(ctx, dbPath)
 	if err != nil {
@@ -1159,11 +1161,15 @@ func searchMountURI(storeDir string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func searchConfigFor(storeDir string) lancestore.Config {
+func searchConfigFor(ctx context.Context, storeDir string) lancestore.Config {
 	if uri := searchMountURI(storeDir); uri != "" {
-		return lancestore.Config{URI: uri, S3: config.S3ConfigForURI(context.Background(), uri)}
+		return lancestore.Config{URI: uri, S3: config.S3ConfigForURI(ctx, uri)}
 	}
-	return lancestore.Config{URI: LanceIndexPath(storeDir)}
+	localURI := LanceIndexPath(storeDir)
+	if sourceURI := lancestore.ShallowSourceURI(localURI); sourceURI != "" {
+		return lancestore.Config{URI: localURI, S3: config.S3ConfigForURI(ctx, sourceURI)}
+	}
+	return lancestore.Config{URI: localURI}
 }
 
 // StoreEntityVectors writes a batch of freshly embedded entities back.

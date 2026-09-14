@@ -24,6 +24,8 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 	var server *httptest.Server
 	var nonce, challenge string
 	userinfoCalls := 0
+	var allowedAccess string
+	revoked := false
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/.well-known/graphit-broker":
@@ -56,7 +58,11 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 			}
 		case "/userinfo":
 			userinfoCalls++
-			http.Error(w, "userinfo must not be used for access-token verification", http.StatusInternalServerError)
+			if revoked || r.Header.Get("Authorization") != "Bearer "+allowedAccess {
+				http.Error(w, "invalid token", http.StatusUnauthorized)
+				return
+			}
+			writeJSON(t, w, map[string]any{"sub": "gb_sub_1"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -96,6 +102,7 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 	if !strings.HasPrefix(openedURL, server.URL+"/authorize?") || profile.Username != "alice" || profile.Subject != "gb_sub_1" || profile.Issuer != server.URL || profile.OIDC == nil || profile.OIDC.AccessToken == "" || profile.OIDC.RefreshToken != "refresh-1" {
 		t.Fatalf("opened=%q profile=%#v", openedURL, profile)
 	}
+	allowedAccess = profile.OIDC.AccessToken
 	refreshed, err := client.Refresh(context.Background(), resolved, profile)
 	if err != nil || refreshed.OIDC.AccessToken == "" || refreshed.OIDC.AccessToken == profile.OIDC.AccessToken || refreshed.OIDC.RefreshToken != "refresh-2" || refreshed.Subject != profile.Subject {
 		t.Fatalf("refreshed=%#v err=%v", refreshed, err)
@@ -105,6 +112,11 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 	if err != nil || identity.Issuer != server.URL || identity.Username != "alice" || identity.Subject != "gb_sub_1" {
 		t.Fatalf("verified broker identity=%#v err=%v", identity, err)
 	}
+	revoked = true
+	if _, err := verifier.VerifyAccessToken(context.Background(), provider, allowedAccess, ""); err == nil {
+		t.Fatal("revoked Broker access token was accepted")
+	}
+	revoked = false
 	invalid := []struct {
 		name   string
 		mutate func(map[string]any)
@@ -128,8 +140,8 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 	if _, err := verifier.VerifyAccessToken(context.Background(), provider, tamperBrokerJWT(profile.OIDC.AccessToken), ""); err == nil {
 		t.Fatal("Broker access token with tampered signature was accepted")
 	}
-	if userinfoCalls != 0 {
-		t.Fatalf("Broker access-token verification called userinfo %d times", userinfoCalls)
+	if userinfoCalls != 2 {
+		t.Fatalf("Broker access-token verification called userinfo %d times, want 2", userinfoCalls)
 	}
 }
 
@@ -230,7 +242,7 @@ func brokerDiscoveryForTest(issuer string) map[string]any {
 
 func oidcDiscoveryForBrokerTest(issuer string) map[string]any {
 	return map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token",
-		"jwks_uri":              issuer + "/jwks",
+		"jwks_uri": issuer + "/jwks", "userinfo_endpoint": issuer + "/userinfo",
 		"grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"}, "id_token_signing_alg_values_supported": []string{"EdDSA"}}
 }

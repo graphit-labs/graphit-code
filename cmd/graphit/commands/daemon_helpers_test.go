@@ -231,7 +231,7 @@ func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	}
 	if err := store.Login(auth.Profile{
 		Name: "alice", Provider: provider.Name, Issuer: "https://broker.example", Subject: "subject", Username: "alice",
-		OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)},
+		OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "id-token", ExpiresAt: time.Now().Add(-time.Hour)},
 	}); err != nil {
 		t.Fatal(err)
 	}

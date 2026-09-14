@@ -811,6 +811,13 @@ version-keyed store when `project_dir` is omitted.
 | `type` | string | | Artifact type (defaults to `rule`) |
 | `tags` | string | | Comma-separated tags |
 
+For AST or Knowledge Git branch publication, set `version` to `branch/<git-branch>` and use a clean,
+initialized checkout at `project_dir`. The `local_path` must exist on the MCP server host; a remote
+web client cannot send a client-side path through this tool. Run `graphit sync` or the corresponding
+index commands on that host first. The tool publishes the committed branch delta and records the
+commit without modifying the project's lockfile, allowing AST and Knowledge to publish from the
+same commit. `graphit sync` alone never publishes.
+
 ---
 
 ### `graphit_hub_link`

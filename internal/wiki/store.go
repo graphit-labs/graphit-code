@@ -63,7 +63,11 @@ func WikiIndexPath(wikiDir string) string { return filepath.Join(wikiDir, WikiIn
 
 // OpenWikiDB opens — creating if needed — the index of a wiki directory.
 func OpenWikiDB(ctx context.Context, wikiDir string) (*WikiDB, error) {
-	return OpenWikiDBAt(ctx, lancestore.Config{URI: WikiIndexPath(wikiDir)})
+	localURI := WikiIndexPath(wikiDir)
+	if sourceURI := lancestore.ShallowSourceURI(localURI); sourceURI != "" {
+		return OpenWikiDBAt(ctx, lancestore.Config{URI: localURI, S3: config.S3ConfigForURI(ctx, sourceURI)})
+	}
+	return OpenWikiDBAt(ctx, lancestore.Config{URI: localURI})
 }
 
 // OpenWikiDBAt opens an index by URI, which is how a PUBLISHED wiki on S3 is read: the engine

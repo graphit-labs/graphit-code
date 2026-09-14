@@ -31,13 +31,18 @@ type QueryService struct {
 }
 
 func NewQueryService(db GraphDB) *QueryService {
+	return NewQueryServiceWithContext(context.Background(), db)
+}
+
+// NewQueryServiceWithContext resolves mounted search credentials for the caller.
+func NewQueryServiceWithContext(ctx context.Context, db GraphDB) *QueryService {
 	qs := &QueryService{
 		db:            db,
 		lacksFulltext: db.BackendType() != "neo4j",
 	}
 	if lb, ok := db.(*LadybugBackend); ok {
 		qs.dbPath = lb.StoreDir()
-		if si, err := OpenSearchIndex(context.Background(), lb.StoreDir()); err == nil {
+		if si, err := OpenSearchIndex(ctx, lb.StoreDir()); err == nil {
 			qs.searchIndex = si
 		} else {
 			qs.searchUnavailable = err

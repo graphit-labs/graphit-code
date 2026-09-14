@@ -26,6 +26,25 @@ func ResolveActive(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	if bearer := RequestBrokerBearer(ctx); bearer != "" {
+		snapshot, err := store.Active()
+		if err != nil {
+			return Snapshot{}, err
+		}
+		if snapshot.Provider.Type == ProviderBroker {
+			// Keep broker calls and scoped S3 caches tied to the verified HTTP
+			// caller. Never refresh or persist the daemon's unrelated profile.
+			profile := snapshot.Profile
+			if profile.OIDC != nil {
+				session := *profile.OIDC
+				session.AccessToken = bearer
+				session.IDToken = ""
+				profile.OIDC = &session
+			}
+			snapshot.Profile = profile
+			return snapshot, nil
+		}
+	}
 	return (&SessionManager{Store: store, OIDC: NewOIDCClient(), STS: AWSSTSExchanger{}}).Active(ctx)
 }
 

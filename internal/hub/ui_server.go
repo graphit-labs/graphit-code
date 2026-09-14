@@ -626,7 +626,7 @@ func (s *UIServer) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	if err := s.svc.registry.PublishEntry(ctx, body.ID, body.Path, meta, body.Version); err != nil {
+	if err := s.svc.registry.PublishEntryFromProject(ctx, body.ID, body.Path, body.ProjectDir, meta, body.Version); err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}

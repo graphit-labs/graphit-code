@@ -110,6 +110,9 @@ type LadybugConfig struct {
 	IcebugDir string
 
 	ReadOnly bool
+	// RequestContext carries the MCP caller's broker identity while this handle is open.
+	// Scoped STS credentials are resolved and refreshed only in memory.
+	RequestContext context.Context
 }
 
 // LadybugConfigFor is the graph store of one project.
@@ -251,7 +254,7 @@ func (k *LadybugBackend) prepareRemoteAccessLocked() error {
 	if k.canonical == nil || !strings.HasPrefix(strings.ToLower(k.canonical.Storage), "s3://") {
 		return nil
 	}
-	cfg := config.S3ConfigForURI(context.Background(), k.canonical.Storage)
+	cfg := config.S3ConfigForURI(k.requestContext(), k.canonical.Storage)
 	if cfg.ResolutionError != nil {
 		return fmt.Errorf("resolve scoped S3 access for Icebug: %w", cfg.ResolutionError)
 	}
@@ -273,7 +276,7 @@ func (k *LadybugBackend) refreshRemoteAccessLocked() error {
 	if k.remoteS3.Refresh == nil || k.remoteS3.ExpiresAt.IsZero() || time.Until(k.remoteS3.ExpiresAt) > 2*time.Minute {
 		return nil
 	}
-	refreshed, err := k.remoteS3.Refresh(context.Background())
+	refreshed, err := k.remoteS3.Refresh(k.requestContext())
 	if err != nil {
 		return fmt.Errorf("renew scoped S3 access for Icebug: %w", err)
 	}
@@ -287,6 +290,13 @@ func (k *LadybugBackend) refreshRemoteAccessLocked() error {
 	}
 	k.remoteS3 = refreshed
 	return nil
+}
+
+func (k *LadybugBackend) requestContext() context.Context {
+	if k.cfg.RequestContext != nil {
+		return k.cfg.RequestContext
+	}
+	return context.Background()
 }
 
 func (k *LadybugBackend) loadCanonicalManifestLocked() error {

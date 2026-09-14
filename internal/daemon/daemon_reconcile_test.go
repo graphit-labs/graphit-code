@@ -234,6 +234,9 @@ func TestDaemon_ReconcileProjects_ParksInactiveProject(t *testing.T) {
 	if err := os.Chtimes(staleFile, old, old); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chtimes(projectDir, old, old); err != nil {
+		t.Fatal(err)
+	}
 
 	builderCalled := false
 	d := &Daemon{
@@ -342,6 +345,9 @@ func TestDaemon_ReconcileProjects_DemotesIdleSupervisor(t *testing.T) {
 	}
 	old := time.Now().Add(-2 * time.Hour)
 	if err := os.Chtimes(staleFile, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(projectDir, old, old); err != nil {
 		t.Fatal(err)
 	}
 

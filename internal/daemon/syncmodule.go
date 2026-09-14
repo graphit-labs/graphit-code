@@ -60,6 +60,10 @@ func (m *SyncModule) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("sync module: watch %s: %w", m.projectDir, err)
 	}
+	// A parked supervisor has no watcher. Reconcile on every start so changes
+	// (including deletions) made while it was parked cannot remain in the indexes.
+	slog.Info("daemon: reconciling indexes on watcher start", "project", m.projectDir)
+	m.handleBatch(ctx, fswatch.Batch{Rescan: true}, astIgnore, wikiIgnore)
 
 	for {
 		select {
@@ -196,7 +200,7 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 
 	if astWork {
 		if batch.Rescan {
-			slog.Warn("daemon: watcher lost events, running a full AST scan", "project", m.projectDir)
+			slog.Info("daemon: running full AST scan", "project", m.projectDir)
 			m.reindexAST(ctx, projectCfg, nil, nil)
 		} else {
 			m.reindexAST(ctx, projectCfg, targets.astChanged, targets.astRemoved)
@@ -270,7 +274,9 @@ func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.Con
 
 	wikiDir := store.KnowledgeProjectDir(m.projectDir)
 	kCfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
-	_, _ = knowledge.RunIndexPipeline(ctx, m.projectDir, wikiDir, kCfg)
+	if _, err := knowledge.RunIndexPipeline(ctx, m.projectDir, wikiDir, kCfg); err != nil {
+		slog.Error("daemon: Knowledge pipeline failed", "store", wikiDir, "error", err)
+	}
 }
 
 func projectRebuildLogger(projectDir string) (*slog.Logger, func()) {

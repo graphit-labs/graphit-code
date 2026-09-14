@@ -18,6 +18,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
+	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -668,6 +669,12 @@ func (m *RegistryManager) GetDefaultBaselines(_ context.Context) ([]Baseline, er
 }
 
 func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, localPath string, meta *Entry, version string) error {
+	return m.PublishEntryFromProject(ctx, entryID, localPath, "", meta, version)
+}
+
+// PublishEntryFromProject binds a branch snapshot to the publishing checkout,
+// even when the generated Lance store lives in the global runtime directory.
+func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, localPath, projectDir string, meta *Entry, version string) error {
 	if m.store == nil {
 		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
 	}
@@ -685,7 +692,11 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 	var snapshot gitstate.Snapshot
 	if branchLance {
 		var err error
-		snapshot, err = gitstate.InspectSnapshot(localPath)
+		gitDir := localPath
+		if projectDir != "" {
+			gitDir = projectDir
+		}
+		snapshot, err = gitstate.InspectSnapshot(gitDir)
 		if errors.Is(err, gitstate.ErrNotRepository) {
 			branchLance = false
 		} else if err != nil {
@@ -1061,6 +1072,31 @@ func prepareASTPublishVersion(ctx context.Context, srcDir, storageURI string, pr
 				old := string(raw)
 				rewritten := rewriteIcebugStorageURI(old, storageURI)
 				if err := os.WriteFile(dstPath, []byte(rewritten), 0o644); err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", err
+				}
+			} else if e.Name() == ladybug.IcebugManifestFile {
+				raw, err := os.ReadFile(srcPath)
+				if err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", err
+				}
+				var manifest map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &manifest); err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", fmt.Errorf("parse Icebug manifest: %w", err)
+				}
+				manifest["storage"], err = json.Marshal(storageURI)
+				if err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", err
+				}
+				raw, err = json.MarshalIndent(manifest, "", "  ")
+				if err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", err
+				}
+				if err := os.WriteFile(dstPath, raw, 0o644); err != nil {
 					_ = os.RemoveAll(tmpDir)
 					return "", err
 				}

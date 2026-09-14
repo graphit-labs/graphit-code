@@ -12,7 +12,36 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+func TestResolveActiveUsesInboundBrokerBearerWithoutRefreshingDaemonLogin(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	store, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := Provider{Name: "broker", Type: ProviderBroker, Broker: &BrokerConfig{Endpoint: "https://broker.invalid"},
+		AI: AIConfig{Embedding: AIServiceConfig{Mode: ServiceBroker}, Rerank: AIServiceConfig{Mode: ServiceBroker}}}
+	if err := store.AddProvider(provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Login(Profile{Name: "stored", Provider: "broker", Issuer: "https://broker.invalid", Subject: "stored-subject", Username: "stored",
+		OIDC: &OIDCSession{AccessToken: "expired-daemon-token", RefreshToken: "revoked-refresh", IDToken: "old-id-token", ExpiresAt: time.Now().Add(-time.Hour)}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"caller-one", "caller-two"} {
+		snapshot, err := ResolveActive(WithBrokerBearer(context.Background(), token))
+		if err != nil || snapshot.Profile.OIDC.AccessToken != token || snapshot.Profile.OIDC.IDToken != "" {
+			t.Fatalf("request snapshot for %q: %#v err=%v", token, snapshot.Profile.OIDC, err)
+		}
+	}
+	persisted, err := store.Active()
+	if err != nil || persisted.Profile.OIDC.AccessToken != "expired-daemon-token" {
+		t.Fatalf("daemon profile changed: %#v err=%v", persisted.Profile.OIDC, err)
+	}
+}
 
 func TestSessionManagerRefreshesAndPublishesBrokerOIDCProfile(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

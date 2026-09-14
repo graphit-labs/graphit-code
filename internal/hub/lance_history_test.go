@@ -59,6 +59,27 @@ func TestSelectLanceBaseUsesNearestCompatibleAncestor(t *testing.T) {
 	}
 }
 
+func TestSelectHydrationEntryUsesPublishedBranchAndExplicitPin(t *testing.T) {
+	lock := &Lockfile{Project: ProjectIdentity{ID: testProjectOne}}
+	entries := []*Entry{
+		{ID: "release", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"0.0.2"}},
+		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}},
+	}
+	if got, err := selectHydrationEntry(entries, lock, TypeAST, "branch/main"); err != nil || got != "code" {
+		t.Fatalf("unique branch selection = %q, %v", got, err)
+	}
+	entries = append(entries, &Entry{ID: "other", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}})
+	if _, err := selectHydrationEntry(entries, lock, TypeAST, "branch/main"); err == nil {
+		t.Fatal("ambiguous branch artifacts must require an explicit pin")
+	}
+	lock.Artifacts = map[ArtifactType]map[string]*LockfileArtifactMeta{
+		TypeAST: {"preferred": {Version: "branch/main", RemoteID: "code", ProjectID: testProjectOne}},
+	}
+	if got, err := selectHydrationEntry(entries, lock, TypeAST, "branch/main"); err != nil || got != "code" {
+		t.Fatalf("pinned branch selection = %q, %v", got, err)
+	}
+}
+
 func TestLanceFingerprintIgnoresProducerVersion(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	store, err := auth.Open()

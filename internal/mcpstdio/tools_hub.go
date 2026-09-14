@@ -324,7 +324,7 @@ func registerHubTools(server *mcp.Server) {
 				return rerr
 			}
 
-			if err := reg.PublishEntry(ctx, input.ID, localPath, meta, version); err != nil {
+			if err := reg.PublishEntryFromProject(ctx, input.ID, localPath, projectDir, meta, version); err != nil {
 				return err
 			}
 

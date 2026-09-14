@@ -3,6 +3,7 @@ package ast
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
@@ -44,6 +46,9 @@ type PipelineOptions struct {
 	Cluster          string
 	ClusterPathMap   map[string]string
 	ForceRebuild     bool
+	// SearchBaseCommit identifies a shallow-cloned Hub search index. Only paths
+	// differing from this Git commit are written to the local Lance overlay.
+	SearchBaseCommit string
 	// ReverseEdges controls whether the local bundle carries <TYPE>_REVERSE
 	// CSRs, mirroring hub.icebug.reverse_edges — the bundle is the published
 	// artifact, so the local build is what the config decides. The zero value
@@ -143,6 +148,9 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	}
 	t0 := time.Now()
 	abs, _ := filepath.Abs(rootPath)
+	if opts.SearchBaseCommit == "" && !opts.ForceRebuild {
+		opts.SearchBaseCommit = shallowSearchBase(abs, opts.CacheDir)
+	}
 	if opts.CacheDir != "" {
 		lockedCtx, lifecycleLock, err := storelifecycle.Acquire(ctx, opts.CacheDir)
 		if err != nil {
@@ -191,6 +199,14 @@ func repoRelativePaths(root string, paths []string) []string {
 }
 
 func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
+	var shallowChanged, shallowDeleted []string
+	if opts.SearchBaseCommit != "" && !opts.ForceRebuild {
+		var err error
+		shallowChanged, shallowDeleted, err = checkoutDeltaFromBase(abs, opts.SearchBaseCommit)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile shallow AST base: %w", err)
+		}
+	}
 	scoped := len(opts.ChangedPaths) > 0 || len(opts.DeletedPaths) > 0
 
 	discover := func() ([]string, error) {
@@ -401,7 +417,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 	}
 
-	if graphPresent && len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild {
+	if graphPresent && len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild && len(shallowChanged)+len(shallowDeleted) == 0 {
 
 		if storeDir != "" && !SearchIndexBuilt(ctx, storeDir) {
 			if opts.OnProgress != nil {
@@ -795,7 +811,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				} else {
 					idx.Logger = opts.Logger
 					tSearchBuild := time.Now()
-					if doIncremental {
+					if opts.SearchBaseCommit != "" && !opts.ForceRebuild {
+						if serr := idx.UpdateIncremental(ctx, jsonCache, shallowChanged, shallowDeleted, BuildEmbLookup(jsonCache, embCache)); serr != nil {
+							err = fmt.Errorf("search index shallow reconciliation: %w", serr)
+						}
+					} else if doIncremental {
 						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles, BuildEmbLookup(jsonCache, embCache)); serr != nil {
 							err = fmt.Errorf("search index incremental: %w", serr)
 						}
@@ -866,6 +886,70 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		WriteErrorFiles: writeErrorFiles,
 		EngineStats:     engineStats,
 	}, nil
+}
+
+// shallowSearchBase is intentionally read from the generated index directory:
+// every AST entry point, including the daemon watcher, must retain the same
+// remote-base/local-overlay behavior after a sync.
+func shallowSearchBase(projectDir, cacheDir string) string {
+	if cacheDir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(cacheDir, SearchBundleDir, ".graphit-base.json"))
+	if err != nil {
+		return ""
+	}
+	var marker struct {
+		Branch string `json:"branch"`
+		Base   struct {
+			Commit string `json:"commit"`
+		} `json:"base"`
+	}
+	if json.Unmarshal(data, &marker) != nil || marker.Base.Commit == "" {
+		return ""
+	}
+	snapshot, err := gitstate.InspectSnapshot(projectDir)
+	if err != nil || snapshot.BranchVersion() != marker.Branch {
+		return ""
+	}
+	for _, ancestor := range snapshot.Ancestors {
+		if ancestor == marker.Base.Commit {
+			return marker.Base.Commit
+		}
+	}
+	return ""
+}
+
+func checkoutDeltaFromBase(projectDir, baseCommit string) ([]string, []string, error) {
+	git, err := gitstate.DefaultErr()
+	if err != nil {
+		return nil, nil, err
+	}
+	tracked, err := git.RunOutput(projectDir, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", baseCommit, "--")
+	if err != nil {
+		return nil, nil, err
+	}
+	untracked, err := git.RunOutput(projectDir, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := make(map[string]bool)
+	var changed, deleted []string
+	for _, rel := range append(strings.Split(tracked, "\n"), strings.Split(untracked, "\n")...) {
+		rel = filepath.ToSlash(strings.TrimSpace(rel))
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		if _, err := os.Stat(filepath.Join(projectDir, filepath.FromSlash(rel))); err == nil {
+			changed = append(changed, rel)
+		} else if os.IsNotExist(err) {
+			deleted = append(deleted, rel)
+		} else {
+			return nil, nil, err
+		}
+	}
+	return changed, deleted, nil
 }
 
 // pruneVanished drops every cached shard whose file is no longer among the live

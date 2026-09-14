@@ -154,7 +154,12 @@ func astConfigForProject(projectDir, contextName string) ast.LadybugConfig {
 }
 
 func openASTDB(projectDir, contextName string) (ast.GraphDB, error) {
+	return openASTDBWithContext(context.Background(), projectDir, contextName)
+}
+
+func openASTDBWithContext(ctx context.Context, projectDir, contextName string) (ast.GraphDB, error) {
 	cfg := astConfigForProject(projectDir, contextName)
+	cfg.RequestContext = ctx
 
 	if _, err := os.Stat(cfg.IcebugDir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("no AST database found at %s — index first with: %s ast index", cfg.IcebugDir, brand.BinName())

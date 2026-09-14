@@ -105,15 +105,19 @@ advertised path.
 Broker provider setup rejects static credentials, anonymous mode, direct upstream OIDC flags and
 token exchange. The same Broker-issued access token is used for broker requests. A Graphit daemon
 using this provider validates inbound Bearer JWTs locally through the Broker's discovered
-issuer/audience/JWKS before binding their identity to request context.
+issuer/audience/JWKS and checks that token with the Broker's userinfo endpoint before binding its
+identity to request context. A remote MCP client therefore needs only its Broker access token:
+Graphit exchanges that caller's token for temporary STS credentials when it accesses a project or
+Hub scope. Those S3 credentials remain in the daemon's process memory, isolated by caller and
+scope; they are never sent to the MCP client or saved in the login profile.
 
 The saved profile's issuer is the Broker and its subject is the stable Broker `sub`, never the
 upstream IdP `sub`. Graphit verifies the signed ID token at login and validates signed Broker access
 JWTs locally through standard discovery/JWKS for HTTP MCP. Near expiry, it re-discovers the Broker,
 uses the ordinary OIDC refresh grant, requires a new rotated refresh token, and atomically replaces
 the saved `OIDCSession`. Reuse of an older refresh token is rejected by the Broker and revokes that
-token family. Broker-side revocation cannot invalidate an already issued JWT in this offline
-validator; its acceptance window ends at `exp`.
+token family. The daemon also checks userinfo for each inbound MCP access token, so a revoked token
+is rejected even before its JWT expiry.
 
 ## Local provider with a broker key
 

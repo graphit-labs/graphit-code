@@ -81,7 +81,6 @@ func newMemorySvcInternal(scope MemoryScope, scopeID string, store *MemoryStore)
 		store:   store,
 		baseCtx: context.Background(),
 	}
-	svc.tableURI = MemoryTableURI(svc.ScopePrefix(), TableDirFor(localScope(scope, scopeID)))
 	if store != nil {
 		store.Logger = svc.Logger
 	}
@@ -114,6 +113,9 @@ func localScope(scope MemoryScope, scopeID string) (string, string) {
 func (m *MemoryService) openTable(ctx context.Context) (*MemoryTable, error) {
 	uri := m.resolveTableURI()
 	if uri == "" {
+		if cfg := memoryS3Config(ctx, strings.Split(m.ScopePrefix(), "/")); cfg.ResolutionError != nil {
+			return nil, fmt.Errorf("resolving memory store: %w", cfg.ResolutionError)
+		}
 		return nil, fmt.Errorf("memory store not configured — run '%s setup' first", brand.BinName())
 	}
 	return OpenMemoryTable(ctx, uri)
@@ -126,7 +128,7 @@ func (m *MemoryService) resolveTableURI() string {
 	if m.scopeID == "" {
 		return ""
 	}
-	return MemoryTableURI(m.ScopePrefix(), TableDirFor(localScope(m.scope, m.scopeID)))
+	return MemoryTableURIWithContext(m.operationContext(), m.ScopePrefix(), TableDirFor(localScope(m.scope, m.scopeID)))
 }
 
 func (m *MemoryService) putMarkdown(ctx context.Context, tbl *MemoryTable, rel, content string) error {

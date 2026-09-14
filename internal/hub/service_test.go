@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -384,6 +385,47 @@ func TestHubService_RecordPublishInGlobalLock(t *testing.T) {
 	t.Parallel()
 	svc := &HubService{lockMgr: nil}
 	svc.recordPublishInGlobalLock("test", TypeRule, "1.0.0", "proj", "/dir")
+}
+
+func TestRecordPublishKeepsGitBranchCleanForASTAndKnowledge(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-b", "main")
+	git("config", "user.email", "ci@example.test")
+	git("config", "user.name", "CI")
+	lf := &Lockfile{
+		Project:   ProjectIdentity{ID: "test-id", Name: "Test"},
+		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
+	}
+	lockPath := filepath.Join(dir, brand.LockFileName())
+	if err := SaveLockfile(lockPath, lf); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".graphit/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", brand.LockFileName())
+	git("add", ".gitignore")
+	git("commit", "-m", "init")
+
+	svc := &HubService{}
+	for _, artType := range []ArtifactType{TypeAST, TypeKnowledge} {
+		if err := svc.RecordPublish(context.Background(), "graphit-"+string(artType), artType, "branch/main", "codex", dir); err != nil {
+			t.Fatal(err)
+		}
+		if status := git("status", "--porcelain"); status != "" {
+			t.Fatalf("%s publication dirtied the checkout: %s", artType, status)
+		}
+	}
 }
 
 func TestHubService_Install_ValidationErrors(t *testing.T) {

@@ -105,11 +105,13 @@ graphit sync [flags]
 - `--no-background`: Prevents spawning background tasks asynchronously. Both phases (sync and heavy indexing/processing) execute synchronously inside the terminal process.
 - `--heavy`: Runs only Phase 2 tasks (generating embeddings and memory consolidation).
 
-Before indexing, sync inspects Git when the current project is a repository. If S3 storage is available and
-the local LanceDB stores are empty, it selects the exact compatible commit or nearest published
-ancestor from the current `branch/...` lineage and creates filesystem-local shallow clones whose
-base fragments remain in S3. Reads can touch S3 on demand and subsequent writes remain local. A detached checkout can select its source
-lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than cloned.
+Before indexing, sync inspects Git when the current project is a repository. If S3 storage is
+available, every sync checks the current `branch/...` lineage for the exact compatible commit or
+nearest published ancestor. It retains the local overlay when that base is unchanged, or replaces
+the base with a filesystem-local shallow clone and reindexes local differences when the published
+base advances. Base fragments remain in S3; new writes remain local. A detached checkout can
+select its source lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than
+cloned. Sync never publishes a Hub commit.
 
 ### `update`
 Checks authorized per-project Hub entries for updates to installed artifacts, refreshes managed
@@ -338,7 +340,12 @@ a project-scoped installation.
   beginning with `tag/` is a compact release snapshot: each staged LanceDB table retains only its
   current version, and publication fails if superseded MVCC history cannot be removed. See
   [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the unattended
-  branch/tag workflow and retention constraints.
+  branch/tag workflow and retention constraints. For a Git branch, run `graphit sync --no-background`
+  after checking out a committed revision, then `graphit hub submit <ast-id> . --type ast --version
+  "branch/<name>"` and `graphit hub submit <knowledge-id> . --type knowledge --version
+  "branch/<name>"`. Branch publication leaves the project lockfile unchanged so both artifacts
+  can use the same clean commit. Changed LanceDB rows and changed non-Lance objects are published;
+  a changed non-Lance object is still uploaded in full.
 - `link <name> --path <project> --type <type>`: Record or materialize a local development link in
   the current initialized project. AST/Knowledge point to the sibling's compiled global store;
   adapter-native artifacts use the adapter's own destination.

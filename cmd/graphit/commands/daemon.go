@@ -336,9 +336,11 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	if !config.IsModuleDisabled("memory", nil, nil) {
 		if userID, userErr := memory.UserScopeID(); userErr == nil && userID != "" {
 			userMemoryURI := memory.TableURIFor("user", userID)
-			d.AddGlobalModule(daemon.NewMemoryMaintenanceModule(userMemoryURI, 15*time.Minute))
-			if sharedEmbedClient != nil {
-				d.AddGlobalModule(daemon.NewMemoryEmbeddingModule(userMemoryURI, sharedEmbedClient, 2*time.Minute))
+			if userMemoryURI != "" {
+				d.AddGlobalModule(daemon.NewMemoryMaintenanceModule(userMemoryURI, 15*time.Minute))
+				if sharedEmbedClient != nil {
+					d.AddGlobalModule(daemon.NewMemoryEmbeddingModule(userMemoryURI, sharedEmbedClient, 2*time.Minute))
+				}
 			}
 		} else if userErr != nil {
 			p.Warn("user memory maintenance is disabled: %v", userErr)
@@ -387,7 +389,14 @@ func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey str
 	if secretEqual(bearer, runtimeKey) {
 		return ctx, true
 	}
-	snapshot, err := auth.ResolveActive(ctx)
+	// An inbound bearer belongs to the caller, not to the daemon's own login.
+	// Loading the stored provider must not refresh an unrelated (possibly expired)
+	// daemon session before the caller's token can be verified.
+	store, err := auth.Open()
+	if err != nil {
+		return ctx, false
+	}
+	snapshot, err := store.Active()
 	if err != nil {
 		return ctx, false
 	}
@@ -472,9 +481,11 @@ func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbed
 	}
 	if !disableMemory && lf != nil && lf.Project.ID != "" {
 		projectMemoryURI := memory.TableURIFor("project", lf.Project.ID)
-		modules = append(modules, daemon.NewMemoryMaintenanceModule(projectMemoryURI, 15*time.Minute))
-		if !disableEmbedding && sharedEmbedClient != nil {
-			modules = append(modules, daemon.NewMemoryEmbeddingModule(projectMemoryURI, sharedEmbedClient, 2*time.Minute))
+		if projectMemoryURI != "" {
+			modules = append(modules, daemon.NewMemoryMaintenanceModule(projectMemoryURI, 15*time.Minute))
+			if !disableEmbedding && sharedEmbedClient != nil {
+				modules = append(modules, daemon.NewMemoryEmbeddingModule(projectMemoryURI, sharedEmbedClient, 2*time.Minute))
+			}
 		}
 	}
 	if !disableTask && lf != nil && lf.Project.ID != "" {

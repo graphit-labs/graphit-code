@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -355,9 +356,13 @@ func validateProjectObjectKey(projectID, key string) error {
 }
 
 func (s *S3Store) lanceConfig(uri string, writable bool) lancestore.Config {
+	return s.lanceConfigFor(context.Background(), uri, writable)
+}
+
+func (s *S3Store) lanceConfigFor(ctx context.Context, uri string, writable bool) lancestore.Config {
 	s3Config := s.cfg
 	if s.broker {
-		s3Config = config.S3ConfigForURI(context.Background(), uri)
+		s3Config = config.S3ConfigForURI(ctx, uri)
 	}
 	return lancestore.Config{URI: uri, S3: s3Config, Writable: writable}
 }
@@ -538,8 +543,14 @@ func (s *S3Store) PublishBranchFiles(ctx context.Context, artType ArtifactType, 
 			return err
 		}
 		key := s3store.JoinKey(prefix, rel)
-		if err := storage.objects.Put(ctx, key, data); err != nil {
-			return err
+		previous, readErr := storage.objects.Get(ctx, key)
+		if readErr != nil && !errors.Is(readErr, s3store.ErrNotFound) {
+			return readErr
+		}
+		if !bytes.Equal(previous, data) || errors.Is(readErr, s3store.ErrNotFound) {
+			if err := storage.objects.Put(ctx, key, data); err != nil {
+				return err
+			}
 		}
 		wanted[key] = true
 		return nil

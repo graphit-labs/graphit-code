@@ -15,8 +15,12 @@ import (
 // bucket exists every agent opens the S3 tables directly; there is no replica or
 // synchronization layer.
 func TableURI(projectID string, projectCfg config.ConfigMap) string {
+	return tableURIWithS3(projectID, projectCfg, config.ProjectS3Config(context.Background(), projectID))
+}
+
+func tableURIWithS3(projectID string, projectCfg config.ConfigMap, cfg config.S3Config) string {
 	prefix := config.ResolveTaskPrefix(nil, projectCfg)
-	if cfg := config.ProjectS3Config(context.Background(), projectID); cfg.Configured() {
+	if cfg.Configured() {
 		projectPrefix := hubaccess.ProjectTaskPrefix(projectID, prefix)
 		if projectPrefix == "" {
 			return ""

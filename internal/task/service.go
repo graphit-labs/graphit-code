@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -53,13 +55,8 @@ func Open(projectDir string) (*Service, error) {
 	if config.IsModuleDisabled("task", nil, projectCfg) {
 		return nil, ErrDisabled
 	}
-	uri := ""
-	if id != "" {
-		uri = TableURI(id, projectCfg)
-	}
 	return &Service{
-		projectID: id, projectDir: projectDir, uri: uri, projectConfig: projectCfg,
-		s3: config.ProjectS3Config(context.Background(), id), now: time.Now,
+		projectID: id, projectDir: projectDir, projectConfig: projectCfg, now: time.Now,
 		operationTimeout: config.ResolveTaskOperationTimeout(nil, projectCfg),
 		versionRetention: config.ResolveTaskVersionRetention(nil, projectCfg),
 	}, nil
@@ -73,6 +70,9 @@ func OpenAt(projectID, uri string) *Service {
 }
 
 func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
+	if err := s.ensureIdentity(ctx); err != nil {
+		return err
+	}
 	projectID, uri := s.identity()
 	if projectID == "" || uri == "" {
 		return fmt.Errorf("project is not initialized")
@@ -103,7 +103,7 @@ func (s *Service) withLockReconcile(ctx context.Context, actor string, reconcile
 }
 
 func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile bool, timeout time.Duration, fn func(*tables) error) error {
-	if err := s.ensureIdentity(); err != nil {
+	if err := s.ensureIdentity(ctx); err != nil {
 		return err
 	}
 	projectID, uri := s.identity()
@@ -158,7 +158,7 @@ func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile b
 	return fmt.Errorf("task scheduler is busy; retry the operation")
 }
 
-func (s *Service) ensureIdentity() error {
+func (s *Service) ensureIdentity(ctx context.Context) error {
 	s.identityMu.Lock()
 	defer s.identityMu.Unlock()
 	if s.projectID != "" && s.uri != "" {
@@ -172,8 +172,11 @@ func (s *Service) ensureIdentity() error {
 		return err
 	}
 	s.projectID = projectID
-	s.uri = TableURI(projectID, s.projectConfig)
-	s.s3 = config.ProjectS3Config(context.Background(), projectID)
+	s.s3 = config.ProjectS3Config(ctx, projectID)
+	if s.s3.ResolutionError != nil {
+		return s.s3.ResolutionError
+	}
+	s.uri = tableURIWithS3(projectID, s.projectConfig, s.s3)
 	if s.uri == "" {
 		return fmt.Errorf("task store URI is unavailable")
 	}
@@ -190,6 +193,17 @@ func (s *Service) authorizeRemote(ctx context.Context, projectID string) error {
 	if !s.s3.Configured() {
 		return nil
 	}
+	snapshot, err := auth.ResolveActive(ctx)
+	if err != nil {
+		return err
+	}
+	if snapshot.Provider.Type == auth.ProviderBroker {
+		registryStore, err := hub.NewS3Store(ctx, nil, s.projectConfig)
+		if err != nil {
+			return err
+		}
+		return registryStore.AuthorizeProject(ctx, projectID)
+	}
 	objects, err := s3store.New(ctx, s.s3)
 	if err != nil {
 		return err
@@ -198,6 +212,9 @@ func (s *Service) authorizeRemote(ctx context.Context, projectID string) error {
 }
 
 func (s *Service) Maintain(ctx context.Context) error {
+	if err := s.ensureIdentity(ctx); err != nil {
+		return err
+	}
 	projectID, _ := s.identity()
 	if projectID == "" {
 		return nil

@@ -198,7 +198,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		db, err := openASTDB(projectDir, input.Context)
+		db, err := openASTDBWithContext(ctx, projectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -241,7 +241,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		db, err := openASTDB(projectDir, input.Context)
+		db, err := openASTDBWithContext(ctx, projectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -387,7 +387,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		db, err := openASTDB(projectDir, input.Context)
+		db, err := openASTDBWithContext(ctx, projectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -429,7 +429,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		db, err := openASTDB(projectDir, "")
+		db, err := openASTDBWithContext(ctx, projectDir, "")
 		if err != nil {
 			return errResult(err)
 		}
@@ -536,7 +536,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		db, err := openASTDB(projectDir, input.Context)
+		db, err := openASTDBWithContext(ctx, projectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -562,7 +562,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		qs := ast.NewQueryService(db)
+		qs := ast.NewQueryServiceWithContext(ctx, db)
 		defer qs.Close()
 
 		switch mode {

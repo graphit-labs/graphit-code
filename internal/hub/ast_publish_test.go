@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 )
 
 // ICEBUG IS THE ONLY SHAPE an AST artifact takes, and this is what pins that.
@@ -77,6 +79,17 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 	}
 	if strings.Contains(ddl, staged) || strings.Contains(ddl, storeDir) {
 		t.Errorf("the published schema leaks a local path, so it would only mount here:\n%s", ddl)
+	}
+	manifestRaw, err := os.ReadFile(filepath.Join(ast.IcebugBundlePath(staged), ladybug.IcebugManifestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest ladybug.CanonicalManifest
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Storage != storageURI {
+		t.Errorf("published manifest storage = %q, want %q", manifest.Storage, storageURI)
 	}
 	if n := strings.Count(ddl, "CREATE "); n < 2 {
 		t.Errorf("the published schema has %d CREATE statements, want the node table and at "+

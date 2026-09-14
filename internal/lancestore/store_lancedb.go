@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -439,6 +440,116 @@ func (t *Table) ReplaceSnapshot(ctx context.Context, keyColumns []string, rows [
 		return merged.Version, nil
 	}
 	return t.CurrentVersion(ctx)
+}
+
+// ApplySnapshotDelta advances a table to the desired snapshot while writing
+// only inserted, changed, and deleted keys. Previous Lance versions remain
+// available to Git commit tags and shallow clones.
+func (t *Table) ApplySnapshotDelta(ctx context.Context, keyColumns []string, desired []Row) (int, error) {
+	if t.store.readOnly {
+		return 0, ErrReadOnly
+	}
+	if len(keyColumns) == 0 {
+		return 0, errors.New("lancestore: snapshot delta needs at least one key column")
+	}
+	for _, column := range keyColumns {
+		if _, ok := t.schema.Field(column); !ok {
+			return 0, fmt.Errorf("lancestore: %s has no key column %q", t.name, column)
+		}
+	}
+	current, err := t.Rows(ctx)
+	if err != nil {
+		return 0, err
+	}
+	keyOf := func(row Row) (string, error) {
+		var key strings.Builder
+		for _, column := range keyColumns {
+			value, ok := row[column].(string)
+			if !ok {
+				return "", fmt.Errorf("lancestore: snapshot key %q must be a string", column)
+			}
+			key.WriteString(fmt.Sprintf("%d:%s", len(value), value))
+		}
+		return key.String(), nil
+	}
+	currentByKey := make(map[string]Row, len(current))
+	for _, row := range current {
+		key, err := keyOf(row)
+		if err != nil {
+			return 0, err
+		}
+		if _, duplicate := currentByKey[key]; duplicate {
+			return 0, fmt.Errorf("lancestore: duplicate current key in %s", t.name)
+		}
+		currentByKey[key] = row
+	}
+	seen := make(map[string]bool, len(desired))
+	updates := make([]Row, 0)
+	for _, row := range desired {
+		key, err := keyOf(row)
+		if err != nil {
+			return 0, err
+		}
+		if seen[key] {
+			return 0, fmt.Errorf("lancestore: duplicate desired key in %s", t.name)
+		}
+		seen[key] = true
+		if before, found := currentByKey[key]; !found || !reflect.DeepEqual(before, row) {
+			updates = append(updates, row)
+		}
+	}
+	deletes := make([]Row, 0)
+	for key, row := range currentByKey {
+		if !seen[key] {
+			deletes = append(deletes, row)
+		}
+	}
+	if len(deletes) > 0 {
+		if len(keyColumns) == 1 {
+			keys := make([]string, 0, len(deletes))
+			for _, row := range deletes {
+				keys = append(keys, row[keyColumns[0]].(string))
+			}
+			if err := t.DeleteByKey(ctx, keyColumns[0], keys); err != nil {
+				return 0, err
+			}
+		} else {
+			for start := 0; start < len(deletes); start += deleteBatch {
+				end := min(start+deleteBatch, len(deletes))
+				filters := make([]string, 0, end-start)
+				for _, row := range deletes[start:end] {
+					terms := make([]string, 0, len(keyColumns))
+					for _, column := range keyColumns {
+						terms = append(terms, quoteIdent(column)+" = "+sqlQuote(row[column].(string)))
+					}
+					filters = append(filters, "("+strings.Join(terms, " AND ")+")")
+				}
+				if err := t.DeleteWhere(ctx, strings.Join(filters, " OR ")); err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+	for start := 0; start < len(updates); start += 8192 {
+		end := min(start+8192, len(updates))
+		rec, err := recordOf(t.schema, updates[start:end])
+		if err != nil {
+			return 0, err
+		}
+		what := fmt.Sprintf("applying %d changed rows to %s", end-start, t.name)
+		writeErr := withCommitRetry(ctx, what, func() error {
+			_, mergeErr := t.tbl.MergeInsert(keyColumns).
+				WhenMatchedUpdateAll(nil).
+				WhenNotMatchedInsertAll().
+				Execute(ctx, []arrow.Record{rec})
+			return mergeErr
+		}, func() error { return t.refreshToLatest(ctx) })
+		rec.Release()
+		if writeErr != nil {
+			return 0, fmt.Errorf("lancestore: %s: %w", what, writeErr)
+		}
+	}
+	return len(deletes) + len(updates), nil
 }
 
 // Rows returns the full current table snapshot in bounded pages.

@@ -454,7 +454,7 @@ func newHubSubmitCmd() *cobra.Command {
 			p.Running("Publishing %s@%s to hub...", entryID, version)
 			p.Step("Zipping artifact files")
 
-			if err := reg.PublishEntry(ctx, entryID, localPath, meta, version); err != nil {
+			if err := reg.PublishEntryFromProject(ctx, entryID, localPath, projectDir, meta, version); err != nil {
 				p.Error("Publish failed: %v", err)
 				return err
 			}

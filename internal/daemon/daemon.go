@@ -13,6 +13,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 )
 
 var ErrReplace = errors.New("daemon: replacement required")
@@ -293,8 +294,8 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 	}
 }
 
-// projectRecentlyActive reports whether dir has had a file touched (skipping
-// .git and the brand directory — see dream.LastModifiedTime) within window.
+// projectRecentlyActive includes directory mtimes so deleting the last changed
+// file can wake a parked project and reconcile its indexes.
 // A walk failure — an inaccessible or momentarily empty tree — defaults to
 // true, so a project is never parked on account of the probe itself failing.
 func (d *Daemon) projectRecentlyActive(dir string, window time.Duration) bool {
@@ -302,7 +303,38 @@ func (d *Daemon) projectRecentlyActive(dir string, window time.Duration) bool {
 	if err != nil {
 		return true
 	}
-	return time.Since(last) < window
+	if time.Since(last) < window {
+		return true
+	}
+	ic := ignorer.New(dir, dir, "", nil)
+	recent := false
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if path != dir {
+			if entry.Name() == ".git" || entry.Name() == brand.DotDir() {
+				return filepath.SkipDir
+			}
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr == nil && ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
+				return filepath.SkipDir
+			}
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return nil
+		}
+		if time.Since(info.ModTime()) < window {
+			recent = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return recent
 }
 
 func (d *Daemon) shutdown() {

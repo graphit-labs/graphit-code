@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,7 @@ func TestOpenDoesNotCreateIdentityUntilMutationNeedsTheStore(t *testing.T) {
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Fatalf("pure open created project identity: %v", err)
 	}
-	if err := service.ensureIdentity(); err != nil {
+	if err := service.ensureIdentity(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	lock, err := projectlock.Load(lockPath)

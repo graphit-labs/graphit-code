@@ -52,7 +52,10 @@ func BrokerOIDCProvider(ctx context.Context, provider Provider, client *http.Cli
 		!contains(standard.IDTokenSigningAlgorithmsSupported, "EdDSA") {
 		return Provider{}, errors.New("broker OIDC metadata lacks Authorization Code, refresh, PKCE S256, public-client, or EdDSA support")
 	}
-	for _, endpoint := range []string{standard.AuthorizationEndpoint, standard.TokenEndpoint, standard.JWKSURI} {
+	if standard.UserinfoEndpoint == "" {
+		return Provider{}, errors.New("broker OIDC metadata has no userinfo endpoint")
+	}
+	for _, endpoint := range []string{standard.AuthorizationEndpoint, standard.TokenEndpoint, standard.JWKSURI, standard.UserinfoEndpoint} {
 		if err := sameBrokerOrigin(provider.Broker.Endpoint, endpoint); err != nil {
 			return Provider{}, fmt.Errorf("broker OIDC endpoint: %w", err)
 		}
@@ -91,7 +94,39 @@ func (v *ProviderAccessTokenVerifier) VerifyAccessToken(ctx context.Context, pro
 		if err != nil {
 			return VerifiedIdentity{}, err
 		}
-		return client.VerifyAccessToken(ctx, resolved, raw, resolved.OIDC.MCPAudience)
+		identity, err := client.VerifyAccessToken(ctx, resolved, raw, resolved.OIDC.MCPAudience)
+		if err != nil {
+			return VerifiedIdentity{}, err
+		}
+		// The JWT signature and expiry do not reveal broker-side revocation.
+		// Ask the issuer to validate this exact bearer before admitting an MCP call.
+		standard, err := client.Discovery(ctx, resolved.OIDC.Issuer)
+		if err != nil {
+			return VerifiedIdentity{}, err
+		}
+		if standard.UserinfoEndpoint == "" || sameBrokerOrigin(provider.Broker.Endpoint, standard.UserinfoEndpoint) != nil {
+			return VerifiedIdentity{}, errors.New("broker userinfo endpoint is unavailable")
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, standard.UserinfoEndpoint, nil)
+		if err != nil {
+			return VerifiedIdentity{}, err
+		}
+		req.Header.Set("Authorization", "Bearer "+raw)
+		resp, err := client.client().Do(req)
+		if err != nil {
+			return VerifiedIdentity{}, fmt.Errorf("broker token validation: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return VerifiedIdentity{}, errors.New("broker rejected access token")
+		}
+		var userinfo struct {
+			Subject string `json:"sub"`
+		}
+		if err := decodeLimited(resp.Body, &userinfo); err != nil || userinfo.Subject != identity.Subject {
+			return VerifiedIdentity{}, errors.New("broker userinfo subject does not match access token")
+		}
+		return identity, nil
 	default:
 		return VerifiedIdentity{}, errors.New("provider does not verify remote access tokens")
 	}

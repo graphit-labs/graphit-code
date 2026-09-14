@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -29,7 +30,23 @@ import (
 const (
 	branchHistoryFile    = "graphit-history.json"
 	branchHistoryVersion = 1
+	localBaseFile        = ".graphit-base.json"
 )
+
+// HydrationResult reports the published Git base selected on this sync.
+// A non-empty AST commit lets the indexer reconcile only the checkout delta
+// while retaining the shallow-cloned search tables.
+type HydrationResult struct {
+	ASTBaseCommit       string
+	KnowledgeBaseCommit string
+}
+
+type localLanceBase struct {
+	EntryID   string      `json:"entry_id"`
+	Branch    string      `json:"branch"`
+	SourceURI string      `json:"source_uri"`
+	Base      lanceCommit `json:"base"`
+}
 
 type lanceTableRef struct {
 	Version uint64 `json:"version"`
@@ -179,12 +196,17 @@ func (m *RegistryManager) publishBranchLance(ctx context.Context, entryID, branc
 	}
 	localURI := publishedLanceStorePath(meta.Type, stagedRoot)
 	remoteURI := m.store.ArtifactURI(meta.Type, entryID, branchVersion, meta.ProjectID, publishedLanceStorePart(meta.Type))
-	local, err := lancestore.Open(ctx, m.store.lanceConfig(localURI, false))
+	localConfig := m.store.lanceConfigFor(ctx, localURI, false)
+	if sourceURI := lancestore.ShallowSourceURI(localURI); sourceURI != "" {
+		localConfig = m.store.lanceConfigFor(ctx, sourceURI, false)
+		localConfig.URI = localURI
+	}
+	local, err := lancestore.Open(ctx, localConfig)
 	if err != nil {
 		return lanceBranchHistory{}, fmt.Errorf("open local Lance snapshot: %w", err)
 	}
 	defer func() { _ = local.Close() }()
-	remote, err := lancestore.Open(ctx, m.store.lanceConfig(remoteURI, true))
+	remote, err := lancestore.Open(ctx, m.store.lanceConfigFor(ctx, remoteURI, true))
 	if err != nil {
 		return lanceBranchHistory{}, fmt.Errorf("open Hub Lance branch: %w", err)
 	}
@@ -229,14 +251,15 @@ func (m *RegistryManager) publishBranchLance(ctx context.Context, entryID, branc
 		if err != nil {
 			return lanceBranchHistory{}, err
 		}
-		if _, err := target.ReplaceSnapshot(ctx, keys, rows); err != nil {
-			return lanceBranchHistory{}, fmt.Errorf("publish table %s: %w", name, err)
+		changed, err := target.ApplySnapshotDelta(ctx, keys, rows)
+		if err != nil {
+			return lanceBranchHistory{}, fmt.Errorf("publish table %s delta: %w", name, err)
 		}
 		indexes := lanceTableIndexes(name, rows)
 		if err := target.EnsureIndexes(ctx, indexes...); err != nil {
 			return lanceBranchHistory{}, fmt.Errorf("index Hub table %s: %w", name, err)
 		}
-		if len(indexes) > 0 {
+		if changed > 0 && len(indexes) > 0 {
 			if err := target.FoldNewRowsIntoIndexes(ctx); err != nil {
 				return lanceBranchHistory{}, fmt.Errorf("update Hub indexes for %s: %w", name, err)
 			}
@@ -269,28 +292,42 @@ func validateLanceHistory(history lanceBranchHistory, artType ArtifactType, proj
 	return nil
 }
 
-// HydrateProjectLance shallow-clones the nearest compatible published ancestor into empty local stores.
+// HydrateProjectLance shallow-clones the nearest compatible published ancestor.
 func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg config.ConfigMap) error {
+	_, err := HydrateProjectLanceWithResult(ctx, projectDir, projectCfg)
+	return err
+}
+
+// HydrateProjectLanceWithResult checks the remote branch on every invocation.
+// When its compatible base changes, a fresh shallow clone replaces the previous
+// generated store; the caller then reconciles checkout changes into that base.
+func HydrateProjectLanceWithResult(ctx context.Context, projectDir string, projectCfg config.ConfigMap) (HydrationResult, error) {
+	var result HydrationResult
 	snapshot, err := gitstate.InspectSnapshot(projectDir)
 	if err != nil || snapshot.Branch == "" {
-		return nil
+		return result, nil
 	}
 	lock, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil || lock == nil || lock.Project.ID == "" {
-		return nil
+		return result, nil
 	}
 	s3, err := NewS3Store(ctx, nil, projectCfg)
 	if err != nil || !s3.Configured() {
-		return err
+		return result, err
 	}
 	published, err := authorizeHydrationProject(ctx, s3, lock.Project.ID)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if !published {
-		return nil
+		return result, nil
 	}
 	branchVersion := snapshot.BranchVersion()
+	registry := &RegistryManager{store: s3, entries: make(map[ArtifactType]map[string]*Entry)}
+	entries, err := registry.ListProjectEntries(ctx, lock.Project.ID)
+	if err != nil {
+		return result, fmt.Errorf("list published project artifacts for hydration: %w", err)
+	}
 	targets := []struct {
 		artType      ArtifactType
 		path         string
@@ -300,34 +337,102 @@ func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg conf
 		{TypeKnowledge, wiki.WikiIndexPath(store.KnowledgeProjectDir(projectDir)), store.KnowledgeProjectDir(projectDir)},
 	}
 	for _, target := range targets {
-		lockedCtx, lifecycleLock, lockErr := storelifecycle.Acquire(ctx, target.lifecycleDir)
-		if lockErr != nil {
-			return lockErr
+		entryID, entryErr := selectHydrationEntry(entries, lock, target.artType, branchVersion)
+		if entryErr != nil {
+			return result, entryErr
 		}
-		if initializedLanceStore(target.path) {
-			lifecycleLock.Release()
+		if entryID == "" {
 			continue
 		}
-		history, readErr := s3.readBranchHistory(lockedCtx, target.artType, "", branchVersion, lock.Project.ID)
+		lockedCtx, lifecycleLock, lockErr := storelifecycle.Acquire(ctx, target.lifecycleDir)
+		if lockErr != nil {
+			return result, lockErr
+		}
+		history, readErr := s3.readBranchHistory(lockedCtx, target.artType, entryID, branchVersion, lock.Project.ID)
 		if readErr != nil {
 			lifecycleLock.Release()
 			if errors.Is(readErr, s3store.ErrNotFound) {
 				continue
 			}
-			return readErr
+			return result, readErr
 		}
 		base, ok := selectLanceBase(history, snapshot.Ancestors, lanceFingerprint(target.artType))
 		if !ok {
 			lifecycleLock.Release()
 			continue
 		}
-		if err := hydrateLanceStore(lockedCtx, s3, target.artType, branchVersion, lock.Project.ID, target.path, base); err != nil {
-			lifecycleLock.Release()
-			return err
+		selected := localLanceBase{EntryID: entryID, Branch: branchVersion,
+			SourceURI: s3.ArtifactURI(target.artType, entryID, branchVersion, lock.Project.ID, publishedLanceStorePart(target.artType)), Base: base}
+		if !sameLocalLanceBase(target.path, selected) {
+			if err := hydrateLanceStore(lockedCtx, s3, branchVersion, target.path, base, selected); err != nil {
+				lifecycleLock.Release()
+				return result, err
+			}
+		}
+		if target.artType == TypeAST {
+			result.ASTBaseCommit = base.Commit
+		} else {
+			result.KnowledgeBaseCommit = base.Commit
 		}
 		lifecycleLock.Release()
 	}
-	return nil
+	return result, nil
+}
+
+func sameLocalLanceBase(path string, selected localLanceBase) bool {
+	if !initializedLanceStore(path) {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(path, localBaseFile))
+	if err != nil {
+		return false
+	}
+	var current localLanceBase
+	if json.Unmarshal(data, &current) != nil {
+		return false
+	}
+	return current.EntryID == selected.EntryID && current.Branch == selected.Branch && current.SourceURI == selected.SourceURI &&
+		current.Base.Commit == selected.Base.Commit && current.Base.Fingerprint == selected.Base.Fingerprint &&
+		reflect.DeepEqual(current.Base.Tables, selected.Base.Tables)
+}
+
+func selectHydrationEntry(entries []*Entry, lock *Lockfile, artType ArtifactType, branchVersion string) (string, error) {
+	var candidates []string
+	for _, entry := range entries {
+		if entry.Type != artType || entry.ProjectID != lock.Project.ID {
+			continue
+		}
+		for _, version := range entry.Versions {
+			if version == branchVersion {
+				candidates = append(candidates, entry.ID)
+				break
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	if installed := lock.Artifacts[artType]; installed != nil {
+		for name, meta := range installed {
+			if meta == nil || meta.Version != branchVersion || (meta.ProjectID != "" && meta.ProjectID != lock.Project.ID) {
+				continue
+			}
+			id := meta.RemoteID
+			if id == "" {
+				id = name
+			}
+			for _, candidate := range candidates {
+				if candidate == id {
+					return candidate, nil
+				}
+			}
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+	sort.Strings(candidates)
+	return "", fmt.Errorf("multiple %s artifacts publish %s for project %s (%s); pin one in the project lockfile", artType, branchVersion, lock.Project.ID, strings.Join(candidates, ", "))
 }
 
 func authorizeHydrationProject(ctx context.Context, s3 *S3Store, projectID string) (bool, error) {
@@ -351,7 +456,7 @@ func initializedLanceStore(path string) bool {
 	return false
 }
 
-func hydrateLanceStore(ctx context.Context, s3 *S3Store, artType ArtifactType, branchVersion, projectID, targetPath string, base lanceCommit) error {
+func hydrateLanceStore(ctx context.Context, s3 *S3Store, branchVersion, targetPath string, base lanceCommit, selected localLanceBase) error {
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return err
 	}
@@ -360,7 +465,10 @@ func hydrateLanceStore(ctx context.Context, s3 *S3Store, artType ArtifactType, b
 		return err
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
-	local, err := lancestore.Open(ctx, s3.lanceConfig(staging, true))
+	remoteStore := selected.SourceURI
+	localConfig := s3.lanceConfigFor(ctx, remoteStore, true)
+	localConfig.URI = staging
+	local, err := lancestore.Open(ctx, localConfig)
 	if err != nil {
 		return err
 	}
@@ -369,7 +477,6 @@ func hydrateLanceStore(ctx context.Context, s3 *S3Store, artType ArtifactType, b
 		tableNames = append(tableNames, name)
 	}
 	sort.Strings(tableNames)
-	remoteStore := s3.ArtifactURI(artType, "", branchVersion, projectID, publishedLanceStorePart(artType))
 	for _, name := range tableNames {
 		ref := base.Tables[name]
 		sourceURI := strings.TrimSuffix(remoteStore, "/") + "/" + name + ".lance"
@@ -381,11 +488,26 @@ func hydrateLanceStore(ctx context.Context, s3 *S3Store, artType ArtifactType, b
 	if err := local.Close(); err != nil {
 		return err
 	}
-	if initializedLanceStore(targetPath) {
-		return nil
-	}
-	if err := os.RemoveAll(targetPath); err != nil {
+	marker, err := json.Marshal(selected)
+	if err != nil {
 		return err
 	}
-	return os.Rename(staging, targetPath)
+	if err := os.WriteFile(filepath.Join(staging, localBaseFile), marker, 0o600); err != nil {
+		return err
+	}
+	backup := staging + ".previous"
+	if _, err := os.Stat(targetPath); err == nil {
+		if err := os.Rename(targetPath, backup); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(staging, targetPath); err != nil {
+		if _, statErr := os.Stat(backup); statErr == nil {
+			_ = os.Rename(backup, targetPath)
+		}
+		return err
+	}
+	return os.RemoveAll(backup)
 }

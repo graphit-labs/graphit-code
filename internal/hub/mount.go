@@ -3,7 +3,6 @@ package hub
 import (
 	"context"
 
-	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -41,16 +40,16 @@ func (s *S3Store) MountedWikiAt(ctx context.Context, artifactID, version, projec
 	if s == nil || !s.Configured() || version == "" {
 		return MountedWiki{}, false, nil
 	}
-	if err := hubaccess.AuthorizeProject(ctx, s, projectID); err != nil {
+	if err := s.AuthorizeProject(ctx, projectID); err != nil {
+		return MountedWiki{}, false, err
+	}
+	storage, err := s.projectStore(ctx, projectID)
+	if err != nil {
 		return MountedWiki{}, false, err
 	}
 	uri := s.ArtifactURI(TypeKnowledge, artifactID, version, projectID, wiki.WikiIndexDirName)
 	if uri == "" {
 		return MountedWiki{}, false, nil
-	}
-	storage, err := s.projectStore(ctx, projectID)
-	if err != nil {
-		return MountedWiki{}, false, err
 	}
 	return MountedWiki{
 		Config:     lancestore.Config{URI: uri, S3: storage.cfg},

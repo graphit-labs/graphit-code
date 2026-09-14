@@ -14,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -98,7 +99,11 @@ func sortWikiResults(results []wiki.WikiSearchResult) {
 }
 
 func searchWikiScope(ctx context.Context, projectDir, scope, mode, query string, vector []float32, topK int) ([]wiki.WikiSearchResult, error) {
-	db, err := openWikiForRead(ctx, projectDir, scope)
+	wikiScope, contextName := scope, ""
+	if strings.Contains(scope, "@") {
+		wikiScope, contextName = "knowledge", scope
+	}
+	db, err := openWikiForReadContext(ctx, projectDir, wikiScope, contextName)
 	if err != nil {
 		return nil, err
 	}
@@ -166,16 +171,26 @@ func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName str
 	if contextName == "" {
 		return nil, false, nil
 	}
+	rec, ok := store.LookupContext(projectDir, store.KindKnowledge, contextName)
+	if !ok || !rec.IsHub() {
+		if projectDir == "" {
+			return nil, true, fmt.Errorf("global knowledge context %q was not found among installed Hub artifacts", contextName)
+		}
+		return nil, false, nil
+	}
 	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig(projectDir))
 	if err != nil {
-		return nil, false, nil
+		return nil, true, fmt.Errorf("opening Hub storage for knowledge %s: %w", contextName, err)
 	}
-	mount, ok, err := st.MountedWikiFor(ctx, projectDir, contextName)
+	if !st.Configured() {
+		return nil, true, fmt.Errorf("Hub storage is not configured for knowledge %s", contextName)
+	}
+	mount, ok, err := st.MountedWikiAt(ctx, rec.ArtifactID, rec.Version, rec.ProjectID)
 	if err != nil {
-		return nil, false, err
+		return nil, true, err
 	}
 	if !ok {
-		return nil, false, nil
+		return nil, true, fmt.Errorf("Hub returned no mount for knowledge %s@%s", rec.ArtifactID, rec.Version)
 	}
 	db, err := wiki.OpenWikiDBAt(ctx, mount.Config)
 	if err != nil {
@@ -217,6 +232,7 @@ func registerWikiTools(server *mcp.Server) {
 		if len(wikis) == 0 && len(input.HubRefs) == 0 {
 			return errResult(fmt.Errorf("at least one knowledge wiki source or hub_ref is required"))
 		}
+		sources := append(append([]string(nil), wikis...), input.HubRefs...)
 		window, err := openPage(input.PageSize, input.Cursor, input.TopK, 20, struct {
 			Tool, ProjectDir, Query, Mode, SessionID string
 			Wikis, HubRefs                           []string
@@ -231,7 +247,7 @@ func registerWikiTools(server *mcp.Server) {
 		case "fts":
 			var allResults []wiki.WikiSearchResult
 			var skipped []string
-			for _, scope := range wikis {
+			for _, scope := range sources {
 				results, err := searchWikiScope(ctx, projectDir, scope, "fts", input.Query, nil, topK)
 				if err != nil {
 					skipped = append(skipped, err.Error())
@@ -266,7 +282,7 @@ func registerWikiTools(server *mcp.Server) {
 			}
 			var allResults []wiki.WikiSearchResult
 			var skipped []string
-			for _, scope := range wikis {
+			for _, scope := range sources {
 				results, err := searchWikiScope(ctx, projectDir, scope, "semantic", input.Query, queryVec, topK)
 				if err != nil {
 					skipped = append(skipped, err.Error())
@@ -303,7 +319,7 @@ func registerWikiTools(server *mcp.Server) {
 
 			var allResults []wiki.WikiSearchResult
 			var skipped []string
-			for _, scope := range wikis {
+			for _, scope := range sources {
 				searchMode := "fts"
 				if queryVec != nil {
 					searchMode = "hybrid"

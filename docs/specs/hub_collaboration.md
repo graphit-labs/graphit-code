@@ -187,12 +187,20 @@ changes. Branch publication preserves Lance history while mirroring only non-Lan
 writes to the same entry or version remain last-writer-wins and should be serialized by the publisher.
 
 A `branch/...` publication is a mutable, Git-addressed Lance lineage. The branch prefix remains
-stable; every clean Git commit advances its tables, receives a native `git-<sha>` tag per table, and
-is appended to the branch history manifest only after all tables and non-Lance files are durable.
-Sync may shallow-clone the exact commit or nearest compatible ancestor into an empty local
-filesystem store. Compatibility is semantic (artifact format plus embedding provider, model, and
-dimensions); the Graphit producer version is retained only for audit. Project writes remain local
-until the next explicit publication.
+stable; every clean Git commit compares the desired rows with the branch head and writes only
+inserted, changed, and deleted keys. An unchanged table keeps its current version; each table
+receives a native `git-<sha>` tag, and the commit is appended to the branch history manifest only
+after all tables and non-Lance files are durable.
+Non-Lance files are uploaded only when their content changes. A changed file is still stored as a
+whole S3 object, and Lance may rewrite fragments that contain changed rows; the diff guarantee is
+at the logical row/file level, not a byte-level patch of S3 objects.
+Every sync checks the remote branch and shallow-clones the exact commit or nearest compatible
+ancestor. If the compatible base changes, sync replaces the generated local index with a fresh
+clone and reconciles the checkout delta on top of it. If the base is unchanged, the local layer is
+retained. AST applies only files changed since the base commit to its cloned Lance tables, while
+Knowledge syncs changed wiki chunks in place. Compatibility is semantic (artifact format plus
+embedding provider, model, and dimensions); the Graphit producer version is retained only for
+audit. Project writes remain local until the next explicit publication.
 
 Outside Git, sync remains local and does not attempt branch hydration. A non-Git publisher may use a
 new `branch/...` name as a mutable exact snapshot, but it has no commit manifest or ancestor reuse.

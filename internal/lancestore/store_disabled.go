@@ -62,6 +62,9 @@ func (t *Table) Upsert(_ context.Context, _ string, _ []Row) error { return ErrN
 func (t *Table) ReplaceSnapshot(_ context.Context, _ []string, _ []Row) (uint64, error) {
 	return 0, ErrNotBuilt
 }
+func (t *Table) ApplySnapshotDelta(_ context.Context, _ []string, _ []Row) (int, error) {
+	return 0, ErrNotBuilt
+}
 func (t *Table) Rows(_ context.Context) ([]Row, error) { return nil, ErrNotBuilt }
 func (t *Table) Refresh(_ context.Context) error       { return ErrNotBuilt }
 func (t *Table) Merge(_ context.Context, _ MergeOptions, _ []Row) (MergeResult, error) {

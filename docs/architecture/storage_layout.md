@@ -180,9 +180,10 @@ Lance directory under a versioned object prefix and is opened there rather than 
 
 ### Git-aware local Lance overlays
 
-A local project's writable LanceDB URI remains a filesystem path. When `graphit sync` finds an empty
-local store, configured S3, and a compatible snapshot for the current Git branch, it can
-shallow-clone the exact commit or nearest published ancestor into that path. The local manifest
+A local project's writable LanceDB URI remains a filesystem path. With configured S3, every
+`graphit sync` checks for a compatible snapshot on the current Git branch. It retains a matching
+local base or shallow-clones the exact commit or nearest published ancestor into that path and
+reindexes local differences. The local manifest
 references inherited fragments in the branch's S3 dataset, while new parsing and embedding writes
 create fragments only in the local filesystem. This is native Lance shallow-clone behavior rather
 than an application-level union of two databases.

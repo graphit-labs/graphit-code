@@ -34,11 +34,17 @@ func resolveScopeID(scope string) string {
 // MemoryTableURI maps a validated logical scope to its authoritative store. Anonymous user memory
 // is always local, even when Hub S3 is configured.
 func MemoryTableURI(scopePath, localDir string) string {
+	return MemoryTableURIWithContext(context.Background(), scopePath, localDir)
+}
+
+// MemoryTableURIWithContext resolves broker-backed storage using the caller's
+// authenticated request, so the STS grant belongs to that caller and scope.
+func MemoryTableURIWithContext(ctx context.Context, scopePath, localDir string) string {
 	parts := strings.Split(strings.Trim(scopePath, "/"), "/")
 	if len(parts) != 3 || parts[0] != "memory" {
 		return ""
 	}
-	if cfg := memoryS3Config(context.Background(), parts); cfg.Configured() {
+	if cfg := memoryS3Config(ctx, parts); cfg.Configured() {
 		if cfg.ResolutionError != nil {
 			return ""
 		}
