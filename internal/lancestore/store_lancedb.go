@@ -468,7 +468,7 @@ func (t *Table) ApplySnapshotDelta(ctx context.Context, keyColumns []string, des
 			if !ok {
 				return "", fmt.Errorf("lancestore: snapshot key %q must be a string", column)
 			}
-			key.WriteString(fmt.Sprintf("%d:%s", len(value), value))
+			fmt.Fprintf(&key, "%d:%s", len(value), value)
 		}
 		return key.String(), nil
 	}

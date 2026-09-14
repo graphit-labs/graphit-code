@@ -127,10 +127,6 @@ func resolveWikiScopeDirContext(projectDir, wikiScope, contextName string) (stri
 	}
 }
 
-func openWikiForRead(ctx context.Context, projectDir, wikiScope string) (*wiki.WikiDB, error) {
-	return openWikiForReadContext(ctx, projectDir, wikiScope, "")
-}
-
 func openWikiForReadContext(ctx context.Context, projectDir, wikiScope, contextName string) (*wiki.WikiDB, error) {
 	if db, mounted, err := openMountedWiki(ctx, projectDir, wikiScope, contextName); mounted {
 		return db, err
@@ -183,14 +179,14 @@ func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName str
 		return nil, true, fmt.Errorf("opening Hub storage for knowledge %s: %w", contextName, err)
 	}
 	if !st.Configured() {
-		return nil, true, fmt.Errorf("Hub storage is not configured for knowledge %s", contextName)
+		return nil, true, fmt.Errorf("hub storage is not configured for knowledge %s", contextName)
 	}
 	mount, ok, err := st.MountedWikiAt(ctx, rec.ArtifactID, rec.Version, rec.ProjectID)
 	if err != nil {
 		return nil, true, err
 	}
 	if !ok {
-		return nil, true, fmt.Errorf("Hub returned no mount for knowledge %s@%s", rec.ArtifactID, rec.Version)
+		return nil, true, fmt.Errorf("hub returned no mount for knowledge %s@%s", rec.ArtifactID, rec.Version)
 	}
 	db, err := wiki.OpenWikiDBAt(ctx, mount.Config)
 	if err != nil {

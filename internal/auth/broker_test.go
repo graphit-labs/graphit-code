@@ -152,12 +152,6 @@ func (c S3Credentials) RedactedForTest() S3Credentials {
 	return c
 }
 
-type exchangerFunc func(context.Context, Provider, Profile) (S3Credentials, error)
-
-func (f exchangerFunc) Exchange(ctx context.Context, provider Provider, profile Profile) (S3Credentials, error) {
-	return f(ctx, provider, profile)
-}
-
 func serverURL(r *http.Request) string { return "http://" + r.Host }
 
 func TestProviderRejectsModelSelectionForLocalAndBrokerAI(t *testing.T) {
