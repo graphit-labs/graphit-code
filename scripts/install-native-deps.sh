@@ -77,7 +77,7 @@ fi
 mkdir -p "$(dirname "$archive")"
 if [ ! -f "$archive" ] || [ "$(hash_file "$archive")" != "$archive_sha" ]; then
   url="https://github.com/${NATIVE_BUNDLE_REPOSITORY}/releases/download/${release_tag}/${archive_name}"
-  echo "  → Downloading verified native dependencies for $platform…"
+  echo "  → Downloading verified native dependencies for ${platform}…"
   curl -fSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 "$url" -o "$archive.tmp"
   actual_sha=$(hash_file "$archive.tmp")
   if [ "$actual_sha" != "$archive_sha" ]; then
@@ -110,7 +110,7 @@ if [ "$ort_missing" = true ]; then
   mkdir -p "$ort_archive_dir"
   if [ ! -f "$ort_archive" ] || [ "$(hash_file "$ort_archive")" != "$ort_package_sha" ]; then
     ort_url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ort_package}"
-    echo "  → Downloading verified ONNX Runtime $ORT_VERSION package for $platform…"
+    echo "  → Downloading verified ONNX Runtime $ORT_VERSION package for ${platform}…"
     curl -fSL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 "$ort_url" -o "$ort_archive.tmp"
     actual_sha=$(hash_file "$ort_archive.tmp")
     if [ "$actual_sha" != "$ort_package_sha" ]; then
