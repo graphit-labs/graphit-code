@@ -165,6 +165,10 @@ describe('Memory Explorer', () => {
   it('does not remove a memory until the user confirms', async () => {
     const user = userEvent.setup()
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    vi.mocked(memoryApi.remove).mockImplementationOnce(async () => {
+      vi.mocked(memoryApi.list).mockResolvedValue({ ...catalog, total: 0, results: [] })
+      return { id: '01MEMORY', removed: true }
+    })
     renderExplorer()
     await screen.findByText('Authoritative metadata')
 
@@ -172,7 +176,7 @@ describe('Memory Explorer', () => {
     expect(memoryApi.remove).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(memoryApi.remove).toHaveBeenCalledWith('/project', 'project', '01MEMORY'))
-    expect(screen.getByTestId('location').textContent).toBe('/memory/explorer/project')
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/memory/explorer/project'))
     confirm.mockRestore()
   })
 })
