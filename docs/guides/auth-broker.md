@@ -28,7 +28,8 @@ Graphit login profile
 ```
 
 The broker source, Dockerfile and server-side configuration reference live in the companion
-`graphit-broker` repository. This page covers the Graphit client side.
+[`graphit-broker` repository](https://github.com/graphit-labs/graphit-broker). This page covers the
+Graphit client side.
 
 ## Broker administration control plane
 

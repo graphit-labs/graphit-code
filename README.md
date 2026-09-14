@@ -158,9 +158,9 @@ complete source of any core module skill with `graphit_module_skill`. Start from
 [remote agent skill](docs/examples/skills/graphit-remote/SKILL.md).
 
 For a broader enterprise or team ecosystem, the optional, separately deployed
-[Graphit Broker](docs/guides/auth-broker.md) complements the MCP server with centralized identity,
-access control, shared storage, and embedding/rerank services. It is not required for the local
-workflow or for a basic MCP server.
+[Graphit Broker](https://github.com/graphit-labs/graphit-broker) complements the MCP server with
+centralized identity, access control, shared storage, and embedding/rerank services. It is not
+required for the local workflow or for a basic MCP server.
 
 The MCP endpoint accepts the fresh runtime key shown in **System → Daemon**. A local provider may
 also define a static MCP key. With a direct OIDC or Broker-managed provider, each remote caller
