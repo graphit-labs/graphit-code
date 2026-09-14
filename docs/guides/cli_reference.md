@@ -181,7 +181,7 @@ Important provider option groups:
 |---|---|
 | Broker identity | `--type broker --broker-endpoint URL`; login contract is discovered from that Broker |
 | OIDC | `--issuer`, `--client-id`, `--client-secret`, `--token-auth-method`, `--scopes`, `--redirect-uri`, claim mappings, repeatable `--auth-param` |
-| Direct OIDC token for daemon MCP | `--mcp-audience`, `--mcp-resource` |
+| Direct OIDC token for daemon MCP | `--mcp-audience`, `--mcp-resource`, `--mcp-require-audience=true|false` (default `true`; `false` is an explicit compatibility exception) |
 | Broker | `--broker-endpoint`, `--broker-audience`, `--broker-resource`, `--broker-token-strategy relay|token-exchange`, `--broker-token-exchange-endpoint`, `--broker-allow-anonymous` |
 | Embedding | `--embedding-mode local|direct|broker|disabled`; local `--embedding-device auto|cpu|cuda|coreml` and `--embedding-device-id`; direct protocol/endpoint/model/dimensions |
 | Rerank | `--rerank-mode local|direct|broker|disabled`; local `--rerank-device auto|cpu|cuda|coreml` and `--rerank-device-id`; direct protocol/endpoint/model plus `--rerank-dimensions` for OpenAI/OpenAI-compatible/Google embedding-simulated rerank |

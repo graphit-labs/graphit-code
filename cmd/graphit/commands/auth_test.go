@@ -155,6 +155,37 @@ func TestBrokerAuthenticationProviderDiscoversLoginAndRejectsStaticIdentityFlags
 	}
 }
 
+func TestOIDCMCPAudiencePolicyFlags(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	t.Setenv("GRAPHIT_MODULES_DAEMON", "false")
+	base := []string{"--non-interactive", "provider", "add", "oidc", "--type", "oidc", "--issuer", "https://id.example", "--client-id", "mcp-client", "--username-claim", "sub", "--mcp-audience", "https://mcp.example/mcp", "--embedding-mode", "disabled", "--rerank-mode", "disabled"}
+	if out, err := executeCommand(base...); err != nil {
+		t.Fatalf("default provider add: %v\n%s", err, out)
+	}
+	store, err := auth.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Load()
+	if err != nil || !state.Providers["oidc"].OIDC.RequireMCPAudience() {
+		t.Fatalf("default audience policy: %v", err)
+	}
+	if out, err := executeCommand("--non-interactive", "provider", "update", "oidc", "--mcp-require-audience=false"); err != nil {
+		t.Fatalf("compatibility update: %v\n%s", err, out)
+	}
+	state, err = store.Load()
+	if err != nil || state.Providers["oidc"].OIDC.RequireMCPAudience() {
+		t.Fatalf("compatibility policy was not persisted: %v", err)
+	}
+	if out, err := executeCommand("--non-interactive", "provider", "update", "oidc", "--mcp-require-audience=true"); err != nil {
+		t.Fatalf("strict update: %v\n%s", err, out)
+	}
+	state, err = store.Load()
+	if err != nil || !state.Providers["oidc"].OIDC.RequireMCPAudience() {
+		t.Fatalf("strict policy was not restored: %v", err)
+	}
+}
+
 func TestProviderPersistsEmbeddingSimulatedRerankDimensions(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	t.Setenv("GRAPHIT_MODULES_DAEMON", "false")

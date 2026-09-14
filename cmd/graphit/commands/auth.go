@@ -27,6 +27,7 @@ type providerOptions struct {
 	usernameClaim, organizationClaim, teamsClaim                                   string
 	authParams                                                                     map[string]string
 	mcpAudience, mcpResource                                                       string
+	mcpRequireAudience                                                             bool
 	brokerEndpoint, brokerAudience, brokerResource, brokerTokenStrategy            string
 	brokerTokenExchangeEndpoint                                                    string
 	embeddingMode, embeddingProtocol, embeddingEndpoint, embeddingModel            string
@@ -70,6 +71,7 @@ func newProviderAddCmd() *cobra.Command {
 		if err := store.AddProvider(provider); err != nil {
 			return err
 		}
+		warnAudienceCompatibility(provider)
 		output.NewPrinter("").Success("Provider %s added", provider.Name)
 		return nil
 	}}
@@ -99,6 +101,7 @@ func newProviderUpdateCmd() *cobra.Command {
 		if err := store.UpdateProvider(provider); err != nil {
 			return err
 		}
+		warnAudienceCompatibility(provider)
 		output.NewPrinter("").Success("Provider %s updated; dependent profiles must log in again", provider.Name)
 		return nil
 	}}
@@ -120,6 +123,7 @@ func registerProviderFlags(cmd *cobra.Command, o *providerOptions, add bool) {
 	cmd.Flags().StringToStringVar(&o.authParams, "auth-param", nil, "Additional OIDC authorization parameter (key=value, repeatable)")
 	cmd.Flags().StringVar(&o.mcpAudience, "mcp-audience", "", "OIDC audience requested for the daemon MCP listener")
 	cmd.Flags().StringVar(&o.mcpResource, "mcp-resource", "", "OAuth resource requested for the daemon MCP listener")
+	cmd.Flags().BoolVar(&o.mcpRequireAudience, "mcp-require-audience", true, "Require the MCP audience in direct OIDC access tokens; false weakens token isolation (default true)")
 	cmd.Flags().StringVar(&o.brokerEndpoint, "broker-endpoint", "", "Graphit capability broker base URL (requires broker embedding and rerank modes)")
 	cmd.Flags().StringVar(&o.brokerAudience, "broker-audience", "", "OIDC audience requested for the broker")
 	cmd.Flags().StringVar(&o.brokerResource, "broker-resource", "", "OAuth resource requested for the broker")
@@ -157,6 +161,12 @@ func registerProviderFlags(cmd *cobra.Command, o *providerOptions, add bool) {
 	}
 }
 
+func warnAudienceCompatibility(provider auth.Provider) {
+	if provider.Type == auth.ProviderOIDC && !provider.OIDC.RequireMCPAudience() {
+		output.NewPrinter("").Warn("MCP audience validation is disabled: any valid access token for this OIDC client may be accepted by the MCP endpoint")
+	}
+}
+
 func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, o providerOptions, current *auth.Provider) (auth.Provider, error) {
 	var p auth.Provider
 	if current != nil {
@@ -174,8 +184,8 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 	}
 	switch p.Type {
 	case auth.ProviderLocal:
-		if cmd.Flags().Changed("mcp-audience") || cmd.Flags().Changed("mcp-resource") {
-			return p, errors.New("MCP audience and resource require an OIDC provider")
+		if cmd.Flags().Changed("mcp-audience") || cmd.Flags().Changed("mcp-resource") || cmd.Flags().Changed("mcp-require-audience") {
+			return p, errors.New("MCP audience, resource, and token policy flags require an OIDC provider")
 		}
 		if p.Local == nil {
 			p.Local = &auth.LocalConfig{}
@@ -200,6 +210,9 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 		setString("teams-claim", &p.OIDC.TeamsClaim, o.teamsClaim)
 		setString("mcp-audience", &p.OIDC.MCPAudience, o.mcpAudience)
 		setString("mcp-resource", &p.OIDC.MCPResource, o.mcpResource)
+		if cmd.Flags().Changed("mcp-require-audience") {
+			p.OIDC.MCPRequireAudience = &o.mcpRequireAudience
+		}
 		if current == nil || cmd.Flags().Changed("scopes") {
 			p.OIDC.Scopes = splitCSV(o.scopes)
 		}
@@ -227,8 +240,8 @@ func providerFromOptions(cmd *cobra.Command, reader *bufio.Reader, name string, 
 			p.OIDC.UsernameClaim = "preferred_username"
 		}
 	case auth.ProviderBroker:
-		if cmd.Flags().Changed("mcp-audience") || cmd.Flags().Changed("mcp-resource") {
-			return p, errors.New("broker providers validate daemon MCP tokens through Broker userinfo and do not accept MCP audience or resource flags")
+		if cmd.Flags().Changed("mcp-audience") || cmd.Flags().Changed("mcp-resource") || cmd.Flags().Changed("mcp-require-audience") {
+			return p, errors.New("broker providers validate daemon MCP tokens through Broker userinfo and do not accept MCP audience, resource, or token policy flags")
 		}
 		if cmd.Flags().Changed("issuer") || cmd.Flags().Changed("client-id") || cmd.Flags().Changed("client-secret") || cmd.Flags().Changed("token-auth-method") || cmd.Flags().Changed("scopes") || cmd.Flags().Changed("redirect-uri") || cmd.Flags().Changed("username-claim") || cmd.Flags().Changed("organization-claim") || cmd.Flags().Changed("teams-claim") || cmd.Flags().Changed("auth-param") {
 			return p, errors.New("broker providers discover login from the broker and do not accept upstream OIDC flags")

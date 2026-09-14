@@ -228,9 +228,22 @@ func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, r
 	if err != nil {
 		return VerifiedIdentity{}, err
 	}
-	claims, err := c.verifySignedToken(ctx, discovery, audience, raw, "", "access token")
+	requireAudience := provider.Type != ProviderOIDC || provider.Broker != nil || provider.OIDC.RequireMCPAudience()
+	claims, err := c.verifySignedToken(ctx, discovery, audience, raw, "", "access token", requireAudience)
 	if err != nil {
 		return VerifiedIdentity{}, fmt.Errorf("verify access token: %w", err)
+	}
+	if use, present := claims["token_use"]; present && use != "access" {
+		return VerifiedIdentity{}, errors.New("verified token is not an access token")
+	}
+	if !requireAudience {
+		if claims["token_use"] != "access" {
+			return VerifiedIdentity{}, errors.New("audience-free MCP token must declare token_use=access")
+		}
+		clientID, err := stringClaim(claims, "client_id", true)
+		if err != nil || clientID != provider.OIDC.ClientID {
+			return VerifiedIdentity{}, errors.New("audience-free MCP token has an invalid client_id")
+		}
 	}
 	if provider.Type == ProviderBroker {
 		clientID, err := stringClaim(claims, "client_id", true)
@@ -349,7 +362,7 @@ func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, di
 	if token.AccessToken == "" || token.IDToken == "" {
 		return Profile{}, errors.New("OIDC token response must include access_token and id_token")
 	}
-	claims, err := c.verifySignedToken(ctx, discovery, provider.OIDC.ClientID, token.IDToken, nonce, "ID token")
+	claims, err := c.verifySignedToken(ctx, discovery, provider.OIDC.ClientID, token.IDToken, nonce, "ID token", true)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -409,7 +422,7 @@ type jwkSet struct {
 }
 type jwk struct{ Kty, Kid, Alg, Use, N, E, Crv, X, Y string }
 
-func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscovery, clientID, raw, nonce, kind string) (map[string]any, error) {
+func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscovery, clientID, raw, nonce, kind string, requireAudience bool) (map[string]any, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid %s format", kind)
@@ -456,7 +469,8 @@ func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscov
 	if iss, _ := claims["iss"].(string); strings.TrimRight(iss, "/") != strings.TrimRight(discovery.Issuer, "/") {
 		return nil, fmt.Errorf("%s issuer does not match provider", kind)
 	}
-	if !audienceContains(claims["aud"], clientID) {
+	_, hasAudience := claims["aud"]
+	if (requireAudience || hasAudience) && !audienceContains(claims["aud"], clientID) {
 		return nil, fmt.Errorf("%s audience does not include the required audience", kind)
 	}
 	exp, ok := numberClaim(claims["exp"])

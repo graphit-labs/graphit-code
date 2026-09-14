@@ -231,6 +231,10 @@ daemon and deliberately uses the renewable access token of its active OIDC/Broke
 it again before every request; local/no-profile use falls back to a static local MCP key or the
 current runtime key. `oidc.mcp_audience` and `oidc.mcp_resource` configure only the direct OIDC token
 requested for this daemon listener, never a remote MCP endpoint.
+`oidc.mcp_require_audience` defaults to true even when absent from an older provider; setting it
+to false accepts an audience-free direct OIDC access token only after signature, issuer, expiry,
+`client_id`, and `token_use=access` verification, while still rejecting a different `aud`. This is
+a compatibility exception that weakens token isolation and does not apply to Broker providers.
 
 The UI listener does not authenticate users. CORS is not authorization. Keep both listeners on
 loopback unless a firewall, private network, or authenticated reverse proxy defines the remote

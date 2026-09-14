@@ -397,9 +397,86 @@ func TestVerifyAccessTokenValidatesAndMapsOnlySignedClaims(t *testing.T) {
 	if _, err := client.VerifyAccessToken(context.Background(), provider, token, "other-api"); err == nil || !strings.Contains(err.Error(), "audience") {
 		t.Fatalf("wrong audience was not rejected: %v", err)
 	}
+	clientOnly := signJWT(t, key, map[string]any{
+		"iss": server.URL, "sub": "subject-1", "client_id": "client", "token_use": "access",
+		"exp": now.Add(time.Hour).Unix(), "preferred_username": "alice",
+	})
+	if _, err := client.VerifyAccessToken(context.Background(), provider, clientOnly, "client"); err == nil || !strings.Contains(err.Error(), "audience") {
+		t.Fatalf("client_id without an MCP audience was accepted: %v", err)
+	}
+	idToken := signJWT(t, key, map[string]any{
+		"iss": server.URL, "sub": "subject-1", "aud": "graphit-mcp", "token_use": "id",
+		"exp": now.Add(time.Hour).Unix(), "preferred_username": "alice",
+	})
+	if _, err := client.VerifyAccessToken(context.Background(), provider, idToken, "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "not an access token") {
+		t.Fatalf("ID token was accepted as an MCP access token: %v", err)
+	}
 	future := signJWT(t, key, map[string]any{"iss": server.URL, "sub": "subject-1", "aud": "graphit-mcp", "exp": now.Add(time.Hour).Unix(), "nbf": now.Add(time.Minute).Unix(), "preferred_username": "alice"})
 	if _, err := client.VerifyAccessToken(context.Background(), provider, future, "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "not active") {
 		t.Fatalf("future token was not rejected: %v", err)
+	}
+}
+
+func TestOIDCMCPAudienceCompatibilityValidatesClientAndTokenType(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(2_000_000_000, 0)
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			writeJSON(t, w, map[string]any{"issuer": server.URL, "authorization_endpoint": server.URL + "/auth", "token_endpoint": server.URL + "/token", "jwks_uri": server.URL + "/jwks"})
+		case "/jwks":
+			writeJSON(t, w, map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "test", "alg": "RS256", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": "AQAB"}}})
+		}
+	}))
+	defer server.Close()
+	client := NewOIDCClient()
+	client.Now = func() time.Time { return now }
+	client.HTTP = server.Client()
+	falseValue := false
+	provider := Provider{Name: "legacy", Type: ProviderOIDC, OIDC: &OIDCConfig{
+		Issuer: server.URL, ClientID: "mcp-client", UsernameClaim: "sub", MCPAudience: "https://mcp.example/mcp",
+		MCPRequireAudience: &falseValue,
+	}}
+	if err := ValidateProvider(provider); err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]any{"iss": server.URL, "sub": "alice", "client_id": "mcp-client", "token_use": "access", "scope": "openid", "exp": now.Add(time.Hour).Unix()}
+	token := signJWT(t, key, base)
+	if _, err := client.VerifyAccessToken(context.Background(), provider, token, provider.OIDC.MCPAudience); err != nil {
+		t.Fatalf("dedicated-scope token was rejected: %v", err)
+	}
+	strict := provider
+	strict.OIDC = &OIDCConfig{Issuer: server.URL, ClientID: "mcp-client", UsernameClaim: "sub", MCPAudience: provider.OIDC.MCPAudience}
+	if _, err := client.VerifyAccessToken(context.Background(), strict, token, strict.OIDC.MCPAudience); err == nil || !strings.Contains(err.Error(), "audience") {
+		t.Fatalf("default strict mode accepted audience-free token: %v", err)
+	}
+	for _, tc := range []struct {
+		name, key string
+		value     any
+		want      string
+	}{
+		{"wrong client", "client_id", "other-client", "client_id"},
+		{"ID token", "token_use", "id", "access token"},
+		{"wrong audience", "aud", "https://other.example/api", "audience"},
+		{"expired", "exp", now.Add(-time.Minute).Unix(), "expired"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claims := cloneClaims(base)
+			claims[tc.key] = tc.value
+			_, err := client.VerifyAccessToken(context.Background(), provider, signJWT(t, key, claims), provider.OIDC.MCPAudience)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("unexpected verification result: %v", err)
+			}
+		})
+	}
+	missingAudience := provider
+	missingAudience.OIDC = &OIDCConfig{Issuer: server.URL, ClientID: "mcp-client", UsernameClaim: "sub", MCPRequireAudience: &falseValue}
+	if err := ValidateProvider(missingAudience); err == nil || !strings.Contains(err.Error(), "--mcp-audience") {
+		t.Fatalf("missing expected audience was accepted: %v", err)
 	}
 }
 

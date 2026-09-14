@@ -256,6 +256,29 @@ request context. Hub ACL resolution, Broker credential renewal, embeddings and r
 The active profile is configuration context; its token is never substituted for another HTTP
 caller. This keeps concurrent users isolated.
 
+By default, direct OIDC access tokens must contain the configured MCP audience in `aud`;
+`client_id` identifies the OAuth client, not the target API. With Cognito Managed login, request a
+resource-bound access token for the MCP resource so Cognito includes that audience.
+
+For an OIDC provider such as Cognito Hosted UI classic that cannot issue a resource-bound access
+token, an explicit compatibility setting accepts a signed, unexpired access token with no `aud`
+only when its `client_id` matches this provider and `token_use=access`. A token containing a
+different `aud` is still rejected. This setting does **not** require a custom scope:
+
+```bash
+graphit provider update corporate \
+  --mcp-audience https://graphit.example/mcp \
+  --mcp-require-audience=false
+```
+
+The default is `--mcp-require-audience=true`, including for existing providers. Disabling it is a
+security exception for direct OIDC only; Broker providers always validate their token audience.
+With no audience or dedicated scope, **any access token issued to this client can be replayed at
+the MCP endpoint**. Use a client ID dedicated to Graphit's MCP integration and limit access to the
+endpoint. This compatibility mode does not meet the current MCP requirement to validate that the
+token was issued specifically for the MCP resource. Prefer Managed login or a Broker-issued
+resource-bound token for remote MCP deployments.
+
 In relay mode, configure one shared API audience:
 
 ```bash

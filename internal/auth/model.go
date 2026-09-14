@@ -72,19 +72,25 @@ type LocalConfig struct {
 }
 
 type OIDCConfig struct {
-	Issuer            string            `json:"issuer"`
-	ClientID          string            `json:"client_id"`
-	ClientSecret      string            `json:"client_secret,omitempty"`
-	TokenAuthMethod   string            `json:"token_auth_method,omitempty"`
-	Scopes            []string          `json:"scopes,omitempty"`
-	RedirectURI       string            `json:"redirect_uri,omitempty"`
-	RedirectURIPath   string            `json:"redirect_uri_path,omitempty"`
-	UsernameClaim     string            `json:"username_claim,omitempty"`
-	OrganizationClaim string            `json:"organization_claim,omitempty"`
-	TeamsClaim        string            `json:"teams_claim,omitempty"`
-	MCPAudience       string            `json:"mcp_audience,omitempty"`
-	MCPResource       string            `json:"mcp_resource,omitempty"`
-	AuthParams        map[string]string `json:"auth_params,omitempty"`
+	Issuer             string            `json:"issuer"`
+	ClientID           string            `json:"client_id"`
+	ClientSecret       string            `json:"client_secret,omitempty"`
+	TokenAuthMethod    string            `json:"token_auth_method,omitempty"`
+	Scopes             []string          `json:"scopes,omitempty"`
+	RedirectURI        string            `json:"redirect_uri,omitempty"`
+	RedirectURIPath    string            `json:"redirect_uri_path,omitempty"`
+	UsernameClaim      string            `json:"username_claim,omitempty"`
+	OrganizationClaim  string            `json:"organization_claim,omitempty"`
+	TeamsClaim         string            `json:"teams_claim,omitempty"`
+	MCPAudience        string            `json:"mcp_audience,omitempty"`
+	MCPResource        string            `json:"mcp_resource,omitempty"`
+	MCPRequireAudience *bool             `json:"mcp_require_audience,omitempty"`
+	AuthParams         map[string]string `json:"auth_params,omitempty"`
+}
+
+// RequireMCPAudience defaults to true for existing provider configurations.
+func (c *OIDCConfig) RequireMCPAudience() bool {
+	return c == nil || c.MCPRequireAudience == nil || *c.MCPRequireAudience
 }
 
 // S3Config describes the stable object-store location. Authentication material
@@ -228,6 +234,14 @@ func ValidateProvider(p Provider) error {
 		}
 		if strings.TrimSpace(p.OIDC.UsernameClaim) == "" {
 			return errors.New("OIDC username claim is required")
+		}
+		if !p.OIDC.RequireMCPAudience() {
+			if p.Broker != nil {
+				return errors.New("MCP audience compatibility mode is supported only for direct OIDC without a broker")
+			}
+			if strings.TrimSpace(p.OIDC.MCPAudience) == "" {
+				return errors.New("MCP audience compatibility mode requires --mcp-audience to reject mismatched audiences")
+			}
 		}
 		if method := p.OIDC.TokenAuthMethod; method != "" && method != "none" && method != "client_secret_post" && method != "client_secret_basic" {
 			return fmt.Errorf("unsupported OIDC token auth method %q", method)
