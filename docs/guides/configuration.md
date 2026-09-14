@@ -115,7 +115,7 @@ are produced, not whether exact graph traversal or BM25 search exists.
 
 The active named provider selects `local`, `direct`, `broker`, or `disabled`. With no active
 profile, AI resolution uses the persisted provider named `local`, creating it with explicit local
-embedding/rerank and `auto`/`0` ONNX execution if absent. Identity remains anonymous; local init,
+embedding/rerank and `cpu`/`0` ONNX execution if absent. Identity remains anonymous; local init,
 AST, Knowledge, Memory, and Task remain available, while remote Hub is unavailable. Direct
 endpoint/model/dimensions are provider topology and the API key is a login secret. Local reads the
 `models.embedding.id` global key and obtains dimensions and semantics from that manifest. Broker
@@ -129,7 +129,7 @@ disabled, or omitted service modes are rejected. See [AI Models](ai_models.md) a
 
 Local execution is not a layered config key. Each provider service in `local` mode stores
 an `onnx` block with `device` and `device_id`. Provider add/update exposes independent embedding and
-rerank flags and, interactively, preselects the provider's current values or `auto`/`0`. `auto`
+rerank flags and, interactively, preselects the provider's current values or `cpu`/`0`. `auto`
 tries CoreML then CPU on macOS and CUDA then CPU on Linux/Windows. Explicit accelerators fail rather
 than falling back; CUDA IDs are zero-based, and CoreML is macOS-only with ID `0`. For local
 embeddings, `auto` also recovers from accelerator OOM/resource failures by repeating the request on
@@ -149,7 +149,7 @@ deterministic.
 | `models.rerank.id` | `bge-reranker-base` | Selects a built-in or operator-defined local rerank manifest under the global `models/` directory. It is independent from `search.rerank`, which still controls activation. |
 
 In non-interactive provider commands, `--embedding-device*` and `--rerank-device*` apply only to a
-corresponding local service. Omitted values preserve the provider's current value or use `auto`/`0`
+corresponding local service. Omitted values preserve the provider's current value or use `cpu`/`0`
 for a new local service. Direct, broker, and disabled services store no ONNX block and reject these
 flags. This rule follows service mode regardless of whether provider authentication is local,
 direct OIDC, or Broker-managed.

@@ -13,7 +13,7 @@ docker run -d --name graphit \
 ```
 
 The image runs `graphit setup --non-interactive` at build time for runtime, event, Agent, and CLI
-preferences. Setup also writes the non-secret default provider `local` with ONNX `auto`/`0`; it does
+preferences. Setup also writes the non-secret default provider `local` with ONNX `cpu`/`0`; it does
 not write an account profile, identity, MCP key, S3 location, or credential. A fresh persistent
 volume may hide the image-layer state, so the first no-profile AI resolution recreates `local`
 there. To override execution, update `local` in the persistent volume, or create and log in to a

@@ -26,7 +26,7 @@ type ONNXExecutionConfig struct {
 }
 
 func DefaultONNXExecutionConfig() ONNXExecutionConfig {
-	return ONNXExecutionConfig{Device: ONNXDeviceAuto, DeviceID: 0}
+	return ONNXExecutionConfig{Device: ONNXDeviceCPU, DeviceID: 0}
 }
 
 // DefaultLocalProvider is the persisted provider used whenever no account profile is active.

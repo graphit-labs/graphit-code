@@ -42,7 +42,7 @@ These commands initialize and maintain Graphit Code environments:
 ### `setup`
 Initializes the global directory, ensures the persisted default provider `local`, and collects
 event-privacy, agent-adapter, and agent-CLI preferences. The canonical provider has explicit local
-embedding/rerank services and ONNX `auto`/`0`, but no profile. Setup never configures account
+embedding/rerank services and ONNX `cpu`/`0`, but no profile. Setup never configures account
 identity, MCP, broker, S3, OIDC, claims, custom AI topology, or credentials.
 ```bash
 graphit setup
@@ -152,7 +152,7 @@ topology. Provider outputs redact an OIDC client secret.
 `provider list`, `provider show`, `provider update`, and `provider remove` manage it. Updates advance
 the provider revision and force dependent profiles to log in again. Removal requires confirmation;
 referenced providers additionally require `--cascade`. If `local` is removed while no profile is
-active, the next AI resolution recreates its canonical local/ONNX `auto`/`0` configuration. While
+active, the next AI resolution recreates its canonical local/ONNX `cpu`/`0` configuration. While
 another profile is active, that profile's provider wins and `local` remains absent.
 
 ### `login`, `logout`, and `account`
@@ -194,7 +194,7 @@ provider validation rejects any mixed, local, direct, disabled, or omitted AI mo
 is still controlled separately by `search.rerank`. Use `provider update NAME --clear-broker` to
 remove the broker block and set both AI modes to the desired non-broker values in the same update.
 Interactive add/update prompts for device and device ID only for local services, preselecting the
-provider's current values or `auto`/`0`. Non-interactive add/update may omit either value to preserve
+provider's current values or `cpu`/`0`. Non-interactive add/update may omit either value to preserve
 the current value or accept the new-service default. Device flags are rejected for direct, broker,
 and disabled services. The rule follows AI service mode for both local and OIDC auth providers.
 

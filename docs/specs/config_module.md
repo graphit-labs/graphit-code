@@ -163,7 +163,7 @@ authentication store. Authentication-related Hub/S3/MCP keys are not part of the
 configuration namespace and `graphit config` rejects them. Named providers and account profiles
 live in the restricted, atomically replaced `auth.json`. Local ONNX device/device ID also belongs
 to each provider AI service rather than layered model configuration; with no active profile, AI
-resolution ensures and uses the persisted `local` provider with `auto`/`0` defaults. See
+resolution ensures and uses the persisted `local` provider with `cpu`/`0` defaults. See
 [Authentication](../guides/authentication.md).
 
 ### Hub identity, access control, and cache

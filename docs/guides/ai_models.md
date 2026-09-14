@@ -22,7 +22,7 @@ local manifest selection belongs to global `models.*.id` keys, and account API o
 belong to `graphit login`.
 
 With no active profile, Graphit uses the real `local` provider from `auth.json`: local embedding and
-rerank backends, ONNX `auto`/`0`, and no broker. If absent, the AI resolver recreates it before use.
+rerank backends, ONNX `cpu`/`0`, and no broker. If absent, the AI resolver recreates it before use.
 Identity remains anonymous and reranking stays off until `search.rerank=true`. AST, Knowledge,
 Memory, Task, and `graphit init` remain available. Update `local` for non-default execution; create
 and activate another provider/profile for named identity or remote services.
@@ -318,8 +318,9 @@ graphit --non-interactive login \
 | `cuda` | Requires CUDA and prevents daemon startup/client initialization without falling back. `device_id` selects the zero-based GPU. |
 | `coreml` | Requires macOS and prevents daemon startup/client initialization without falling back. `device_id` must be `0`. |
 
-Both services default to `auto` and `device_id=0` on the persisted `local` provider used when no
-profile is active. An invalid device, negative ID, unsupported
+Both services default to `cpu` and `device_id=0` on a newly created `local` provider used when no
+profile is active. Existing providers retain their saved device selection, including `auto`; use
+`provider update local` to change it. An invalid device, negative ID, unsupported
 CoreML platform, missing provider, or incompatible model fails with an actionable initialization
 error. In `auto`, failure to register the preferred provider or create its model session retries the
 same manifest on CPU. During local embedding inference, accelerator OOM/resource exhaustion also
@@ -333,14 +334,14 @@ When a service mode is `local`, interactive `provider add` or `provider update` 
 values in brackets:
 
 ```text
-Enter embedding ONNX device (auto/cpu/cuda/coreml) [auto]:
+Enter embedding ONNX device (auto/cpu/cuda/coreml) [cpu]:
 Enter embedding ONNX device ID [0]:
-Enter rerank ONNX device (auto/cpu/cuda/coreml) [auto]:
+Enter rerank ONNX device (auto/cpu/cuda/coreml) [cpu]:
 Enter rerank ONNX device ID [0]:
 ```
 
 Pressing Enter keeps the value shown. The provider's current service value is preselected; a new
-local service starts at `auto` and `0`. Embedding and rerank are stored separately, so selecting
+local service starts at `cpu` and `0`. Embedding and rerank are stored separately, so selecting
 CUDA for one does not change the other. A service routed to `direct`, `broker`, or `disabled` has no
 ONNX block, its local-device questions are omitted, and local device flags are rejected.
 
@@ -355,7 +356,7 @@ graphit --non-interactive provider add workstation --type local \
 ```
 
 In non-interactive provider commands, omitted local device values preserve the current value or use
-`auto`/`0` for a new service. Values are normalized and checked by the same validator used when ONNX
+`cpu`/`0` for a new service. Values are normalized and checked by the same validator used when ONNX
 sessions are created. `auto` is not preflighted because its CPU fallback is resolved when the model
 session opens. Explicit `cuda` and `coreml` are preflighted when the daemon starts and fail closed if
 their provider cannot initialize.

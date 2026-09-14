@@ -59,7 +59,7 @@ anonymization plus Agent and coding-agent CLI preferences. It does not ask about
 
 Setup does not ask for account identity, MCP, S3, OIDC, claims, AI service topology, or credentials.
 The provider it creates is a real `auth.json` entry with explicit local embedding/rerank services
-and ONNX `auto` with device ID `0`; no profile is created. Whenever no profile is active, AI
+and ONNX `cpu` with device ID `0`; no profile is created. Whenever no profile is active, AI
 resolution uses this provider and recreates it if it was removed. Identity remains anonymous,
 remote Hub remains unavailable, and reranking stays disabled until explicitly enabled. `graphit
 init`, AST, Knowledge, Memory, and Task do not require an account profile.

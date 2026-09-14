@@ -47,7 +47,7 @@ func TestConfiguredONNXExecutionIsIndependentPerService(t *testing.T) {
 	}
 }
 
-func TestConfiguredONNXExecutionDefaultsToAutoDeviceZero(t *testing.T) {
+func TestConfiguredONNXExecutionDefaultsToCPUDeviceZero(t *testing.T) {
 	globalDir := t.TempDir()
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
 	store, err := auth.Open()
@@ -64,7 +64,7 @@ func TestConfiguredONNXExecutionDefaultsToAutoDeviceZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (ONNXExecutionConfig{Device: ONNXDeviceAuto, DeviceID: 0}) {
+	if got != (ONNXExecutionConfig{Device: ONNXDeviceCPU, DeviceID: 0}) {
 		t.Fatalf("execution = %#v", got)
 	}
 	state, err := store.Load()
@@ -116,6 +116,24 @@ func TestConfiguredONNXExecutionRejectsNonNumericDeviceID(t *testing.T) {
 	_, err := ParseONNXExecution("cuda", "gpu-zero")
 	if err == nil || !strings.Contains(err.Error(), "non-negative integer") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestParseONNXExecutionDefaultsToCPUAndPreservesExplicitAuto(t *testing.T) {
+	for _, tc := range []struct {
+		device string
+		want   ONNXDevice
+	}{
+		{"", ONNXDeviceCPU},
+		{"auto", ONNXDeviceAuto},
+	} {
+		got, err := ParseONNXExecution(tc.device, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != (ONNXExecutionConfig{Device: tc.want, DeviceID: 0}) {
+			t.Fatalf("device %q: execution = %#v", tc.device, got)
+		}
 	}
 }
 

@@ -95,7 +95,7 @@ func ConfiguredONNXExecution(task ModelTask) (ONNXExecutionConfig, error) {
 func ParseONNXExecution(device, deviceID string) (ONNXExecutionConfig, error) {
 	parsedDevice := ONNXDevice(strings.ToLower(strings.TrimSpace(device)))
 	if parsedDevice == "" {
-		parsedDevice = ONNXDeviceAuto
+		parsedDevice = ONNXDeviceCPU
 	}
 	parsedID := 0
 	if raw := strings.TrimSpace(deviceID); raw != "" {

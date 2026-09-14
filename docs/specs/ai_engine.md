@@ -25,7 +25,7 @@ profile (account secret/session)
 ```
 
 Setup ensures the canonical persisted provider `local` with explicit local embedding/rerank and
-ONNX `auto`/`0`; it does not prompt for AI topology or create a profile. It may provision a selected
+ONNX `cpu`/`0`; it does not prompt for AI topology or create a profile. It may provision a selected
 local bundle when its manifest uses the `setup` fetch policy. Provider add/update owns subsequent
 service topology and independent ONNX settings. With no active profile, AI resolution atomically
 ensures and uses `local`, recreating it if absent. A configured profile is resolved atomically and
@@ -93,7 +93,7 @@ fetch policy; custom downloads require integrity metadata and are published atom
 
 `AIServiceConfig.ONNX` selects execution independently of the manifest for each local provider
 service. Setup and no-profile resolution materialize a missing block on the default `local`
-provider as `auto`/`0`. `auto` tries CoreML then CPU on macOS and CUDA then CPU on Linux/Windows. Explicit
+provider as `cpu`/`0`. `auto` tries CoreML then CPU on macOS and CUDA then CPU on Linux/Windows. Explicit
 `cpu` registers no accelerator; explicit `cuda` or `coreml` has no fallback. CoreML is macOS-only
 and requires ID 0; CUDA IDs are zero-based. Provider registration and model-session creation are
 both inside the fallback attempt, so an acceleration failure cannot leave a partially configured
@@ -105,7 +105,7 @@ startup preflights explicitly selected local accelerator providers before exposi
 and CPU remain lazy because auto has the defined CPU fallback.
 
 Interactive provider add/update reads the provider's effective device/device ID for each local
-service and presents it as the selected answer; missing values become `auto`/`0`. The two selections
+service and presents it as the selected answer; missing values become `cpu`/`0`. The two selections
 are prompted and persisted independently. Non-interactive provider commands accept
 `--embedding-device`, `--embedding-device-id`, `--rerank-device`, and `--rerank-device-id`; omitted
 values preserve the current selection or use the default for a new local service. Provider parsing

@@ -108,7 +108,7 @@ graphit ui
 ```
 
 `graphit setup` prepares installation/runtime defaults and persists a real provider named `local`
-with local embedding/rerank and ONNX `auto`/`0`. It does not create a profile. With no active
+with local embedding/rerank and ONNX `cpu`/`0`. It does not create a profile. With no active
 profile, AI resolution uses that provider, recreating it if it was removed, while identity remains
 anonymous and remote Hub remains unavailable. `init`, AST, Knowledge, Memory, and Task still work.
 Inspect the default provider and log in only when a named identity is needed:

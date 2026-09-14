@@ -335,8 +335,8 @@ func TestProviderLocalONNXAppliesToOIDCAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := state.Providers["oidc-local"]
-	if provider.Type != auth.ProviderOIDC || provider.AI.Embedding.ONNX == nil || provider.AI.Embedding.ONNX.Device != auth.ONNXDeviceCPU {
-		t.Fatalf("OIDC local embedding configuration = %#v", provider)
+	if provider.Type != auth.ProviderOIDC || provider.AI.Embedding.ONNX == nil || provider.AI.Embedding.ONNX.Device != auth.ONNXDeviceCPU || provider.AI.Rerank.ONNX == nil || provider.AI.Rerank.ONNX.Device != auth.ONNXDeviceAuto {
+		t.Fatalf("OIDC local ONNX configuration = %#v", provider)
 	}
 }
 

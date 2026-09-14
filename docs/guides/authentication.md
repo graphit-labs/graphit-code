@@ -15,7 +15,7 @@ organization/teams, one standard OIDC session or static keys, and direct AI API 
 profile and activates it atomically.
 
 Setup creates a real provider named `local` with explicit local embedding and rerank services, ONNX
-`auto`/`0`, and no broker. It does not create a profile. Without an active profile, AI resolution
+`cpu`/`0`, and no broker. It does not create a profile. Without an active profile, AI resolution
 uses this persisted provider; if it is absent, the resolver recreates it before use. An active
 profile always wins and prevents this automatic recreation. Rerank activation remains off by
 default. `graphit init`, AST, Knowledge, Memory, and Task continue to work with anonymous local-only
@@ -48,7 +48,7 @@ uses the daemon's current runtime key; a local login may optionally set `--mcp-k
 stable inbound key instead.
 
 Interactive provider add/update prompts for `device` and `device_id` only on services whose mode is
-`local`, preselecting that provider's current value or `auto`/`0`. Embedding and rerank are stored
+`local`, preselecting that provider's current value or `cpu`/`0`. Embedding and rerank are stored
 independently. Non-interactive commands may omit a local value to preserve the current selection or
 accept the new-service default. Direct, broker, and disabled modes store no ONNX block and reject
 device flags. The service mode controls this behavior for both local and OIDC authentication types.

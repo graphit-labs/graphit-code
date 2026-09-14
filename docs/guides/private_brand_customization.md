@@ -133,7 +133,7 @@ strictly offline bundle; a custom manifest may instead provide HTTPS source URLs
 digests when controlled downloading is allowed. Select it with `models.embedding.id` or
 `models.rerank.id`. The manifest is hardware-neutral; select CPU/CUDA/CoreML through the `device`
 and `device_id` flags for each local service when adding/updating a provider. With no active
-profile, the persisted provider `local` uses `auto`/`0` and is recreated if absent. The first client validates the
+profile, the persisted provider `local` uses `cpu`/`0` and is recreated if absent. The first client validates the
 complete bundle and skips the network when every artifact is present. Also provide:
 
 - the application/launcher artifacts for every target platform;

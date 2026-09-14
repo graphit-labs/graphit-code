@@ -502,10 +502,10 @@ flags.
    index. Use `coreml` only on macOS. Explicit accelerators fail instead of falling back.
 3. Use `cpu` to disable acceleration for one service without changing the other.
 4. Rerun interactive `provider update NAME` to see the provider's current values in brackets;
-   pressing Enter keeps them. A new local service starts at `auto` and `0`.
+   pressing Enter keeps them. A new local service starts at `cpu` and `0`.
 5. With no active profile, inspect `graphit provider show local`. Setup or the next AI resolution
-   creates this real provider with `auto`/`0` if it is absent; use `provider update local` to force
-   CPU or select an accelerator.
+   creates this real provider with `cpu`/`0` if it is absent; use `provider update local` to select
+   `auto` or an accelerator explicitly.
 
 ### Model download fails
 
