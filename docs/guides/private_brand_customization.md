@@ -51,11 +51,11 @@ separate. See [Storage Layout](../architecture/storage_layout.md).
 
 ## Setting up private collaboration ecosystems
 
-Deploy Graphit Broker in front of a private AWS S3 bucket or an S3-compatible service such as
-MinIO. Configure bucket, region, endpoint, base prefix, permanent STS caller key, and assumable role
-only on the Broker; manage normalized resource grants through its administration UI/API and SQL
-database. Hub v2 uses logical keys rooted below immutable project ULIDs, while remote Memory and
-Task use their own authoritative LanceDB prefixes.
+Deploy [Graphit Broker](https://github.com/graphit-labs/graphit-broker) in front of a private AWS S3
+bucket or an S3-compatible service such as MinIO. Configure bucket, region, endpoint, base prefix,
+permanent STS caller key, and assumable role only on the Broker; manage normalized resource grants
+through its administration UI/API and SQL database. Hub v2 uses logical keys rooted below immutable
+project ULIDs, while remote Memory and Task use their own authoritative LanceDB prefixes.
 
 For a single-user or workload deployment, configure the branded equivalents of
 the active named account profile. A multi-user service should

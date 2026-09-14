@@ -1,7 +1,8 @@
 # Publishing Graphit artifacts from GitHub Actions
 
-Artifact publishing in CI requires an S3-enabled Graphit Broker and a remote embedding
-service. The runner must never receive S3 keys or topology. Setup owns runtime preferences, ensures
+Artifact publishing in CI requires an S3-enabled
+[Graphit Broker](https://github.com/graphit-labs/graphit-broker) and a remote embedding service. The
+runner must never receive S3 keys or topology. Setup owns runtime preferences, ensures
 the default `local` provider, and provisions models whose manifest selects `fetch_policy: setup`;
 provider configuration owns custom AI routing and local ONNX execution settings, and login happens
 in an ephemeral global directory.
