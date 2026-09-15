@@ -87,7 +87,7 @@ jobs:
         run: make ui-test
 
       - name: Upload LanceDB native library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-lancedb-native-linux-amd64
           path: .native
@@ -151,7 +151,7 @@ jobs:
           sha256sum graphit-linux-amd64.tar.gz > graphit-linux-amd64.sha256
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-amd64
           path: |
@@ -205,7 +205,7 @@ jobs:
           shasum -a 256 graphit-darwin-arm64.tar.gz > graphit-darwin-arm64.sha256
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: darwin-arm64
           path: |
@@ -278,7 +278,7 @@ jobs:
           sha256sum graphit-windows-amd64.tar.gz > graphit-windows-amd64.sha256
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-amd64
           path: |
