@@ -141,15 +141,15 @@ func registerKnowledgeTools(server *mcp.Server) {
 		wikiDir := resolveWikiDir("knowledge", projectDir, input.Context)
 		switch input.Format {
 		case "package":
-			if err := wiki.ExportPackage(ctx, wikiDir, absOutput); err != nil {
+			if err := knowledge.ExportPackage(ctx, wikiDir, absOutput); err != nil {
 				return errResult(err)
 			}
 		case "okf":
-			if _, err := wiki.ExportOKF(ctx, wikiDir, absOutput, "knowledge"); err != nil {
+			if _, err := knowledge.ExportOKF(ctx, wikiDir, absOutput, "knowledge"); err != nil {
 				return errResult(err)
 			}
 		case "obsidian":
-			if _, err := wiki.ExportObsidian(ctx, wikiDir, absOutput, "knowledge"); err != nil {
+			if _, err := knowledge.ExportObsidian(ctx, wikiDir, absOutput, "knowledge"); err != nil {
 				return errResult(err)
 			}
 		default:

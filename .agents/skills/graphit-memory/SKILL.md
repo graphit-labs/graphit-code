@@ -1,6 +1,6 @@
 ---
 name: graphit-memory
-description: Durable memory for preferences, corrections, decisions, constraints, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge; mandatory recall is performed by adapter hooks.
+description: 'Durable memory: preferences, corrections, decisions, constraints, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge; mandatory recall is performed by adapter hooks.'
 ---
 
 # Graphit Memory

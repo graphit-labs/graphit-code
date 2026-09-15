@@ -13,8 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ExportResult reports what an export produced.
-type ExportResult struct {
+// RenderResult reports what a Markdown rendering produced.
+type RenderResult struct {
 	OutputDir string `json:"output_dir"`
 	Pages     int    `json:"pages"`
 	HasLog    bool   `json:"has_log"`
@@ -65,12 +65,12 @@ type okfSourceRef struct {
 	Resource string `yaml:"resource"`
 }
 
-// ExportMarkdown renders a wiki's index into a directory of markdown pages.
+// RenderMarkdown renders a wiki's index into a directory of markdown pages.
 //
 // moduleTag names the producer in `generated.by` — "knowledge" or "memory" — because that is the
 // one fact about a page that is not in the index: the index does not record which generator
 // compiled it, and OKF §5.3 derives a trust tier from the actor.
-func ExportMarkdown(ctx context.Context, wikiDir, outDir, moduleTag string) (*ExportResult, error) {
+func RenderMarkdown(ctx context.Context, wikiDir, outDir, moduleTag string) (*RenderResult, error) {
 	if strings.TrimSpace(outDir) == "" {
 		return nil, fmt.Errorf("an output directory is required")
 	}
@@ -103,7 +103,7 @@ func ExportMarkdown(ctx context.Context, wikiDir, outDir, moduleTag string) (*Ex
 		return nil, fmt.Errorf("creating the output directory: %w", err)
 	}
 
-	result := &ExportResult{OutputDir: outDir}
+	result := &RenderResult{OutputDir: outDir}
 	actor := OKFActor(moduleTag)
 	for _, c := range chunks {
 		page, renderErr := renderPage(c, actor, edges[c.Slug], graph)

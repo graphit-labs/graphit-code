@@ -2413,7 +2413,7 @@ func runKnowledgeExport(format, contextName, projectDir, outputPath string) erro
 		}
 		outputPath = artifactpackage.EnsureExtension(outputPath, ".knowledge")
 		p.Running("Exporting importable Knowledge package…")
-		if err := wiki.ExportPackage(ctx, wikiDir, outputPath); err != nil {
+		if err := knowledge.ExportPackage(ctx, wikiDir, outputPath); err != nil {
 			return fmt.Errorf("export failed: %w", err)
 		}
 		p.Success("Exported to %s", outputPath)
@@ -2423,12 +2423,12 @@ func runKnowledgeExport(format, contextName, projectDir, outputPath string) erro
 			outputPath = brand.ProjectRuntimePath(abs, "knowledge", "export-"+format)
 		}
 		p.Running("Exporting Knowledge as %s…", format)
-		var result *wiki.ExportResult
+		var result *knowledge.ExportResult
 		var err error
 		if format == "okf" {
-			result, err = wiki.ExportOKF(ctx, wikiDir, outputPath, "knowledge")
+			result, err = knowledge.ExportOKF(ctx, wikiDir, outputPath, "knowledge")
 		} else {
-			result, err = wiki.ExportObsidian(ctx, wikiDir, outputPath, "knowledge")
+			result, err = knowledge.ExportObsidian(ctx, wikiDir, outputPath, "knowledge")
 		}
 		if err != nil {
 			return fmt.Errorf("export failed: %w", err)

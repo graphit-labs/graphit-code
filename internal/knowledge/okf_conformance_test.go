@@ -48,7 +48,7 @@ func TestExportedWikiConformsToOKF(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	if _, err := wiki.ExportMarkdown(context.Background(), wikiDir, out, "knowledge"); err != nil {
+	if _, err := ExportOKF(context.Background(), wikiDir, out, "knowledge"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -26,16 +26,16 @@ func exportChunk(slug, title string) WikiChunk {
 	}
 }
 
-func exportTo(t *testing.T, chunks []WikiChunk, xrefs map[string][]string, moduleTag string) (string, *ExportResult) {
+func renderTo(t *testing.T, chunks []WikiChunk, xrefs map[string][]string, moduleTag string) (string, *RenderResult) {
 	t.Helper()
 	wikiDir := t.TempDir()
 	if err := SyncDB(context.Background(), wikiDir, chunks, xrefs, nil); err != nil {
 		t.Fatalf("building the index: %v", err)
 	}
 	out := filepath.Join(t.TempDir(), "md")
-	result, err := ExportMarkdown(context.Background(), wikiDir, out, moduleTag)
+	result, err := RenderMarkdown(context.Background(), wikiDir, out, moduleTag)
 	if err != nil {
-		t.Fatalf("ExportMarkdown: %v", err)
+		t.Fatalf("RenderMarkdown: %v", err)
 	}
 	return out, result
 }
@@ -49,9 +49,9 @@ func readExported(t *testing.T, dir, name string) string {
 	return string(data)
 }
 
-func TestExportMarkdownWritesAPagePerChunkPlusTheIndex(t *testing.T) {
+func TestRenderMarkdownWritesAPagePerChunkPlusTheIndex(t *testing.T) {
 	t.Parallel()
-	out, result := exportTo(t,
+	out, result := renderTo(t,
 		[]WikiChunk{exportChunk("alpha", "Alpha"), exportChunk("beta", "Beta")},
 		map[string][]string{"alpha": {"beta"}}, "knowledge")
 
@@ -99,7 +99,7 @@ func TestExportedFrontmatterAlwaysParses(t *testing.T) {
 	hostile.StaleSince = "2026-01-02"
 	hostile.StaleReason = "the source changed: twice"
 
-	out, _ := exportTo(t, []WikiChunk{hostile}, nil, "knowledge")
+	out, _ := renderTo(t, []WikiChunk{hostile}, nil, "knowledge")
 	page := readExported(t, out, "hostile.md")
 
 	block, ok := FrontmatterBlock(page)
@@ -150,7 +150,7 @@ func TestExportedMemoryPageCarriesTheRevisionChain(t *testing.T) {
 	archived.Next = "01ENTITY.md"
 	archived.Created = "2026-07-01T00:00:00Z"
 
-	out, _ := exportTo(t, []WikiChunk{archived}, nil, "memory")
+	out, _ := renderTo(t, []WikiChunk{archived}, nil, "memory")
 	page := readExported(t, out, "Some_memory--r0001.md")
 
 	block, ok := FrontmatterBlock(page)
@@ -186,7 +186,7 @@ func TestExportedMemoryPageCarriesTheRevisionChain(t *testing.T) {
 	}
 }
 
-func TestExportMarkdownWritesTheLogFromTheSyncHistory(t *testing.T) {
+func TestRenderMarkdownWritesTheLogFromTheSyncHistory(t *testing.T) {
 	t.Parallel()
 	wikiDir := t.TempDir()
 	entry := &SyncLogEntry{
@@ -201,7 +201,7 @@ func TestExportMarkdownWritesTheLogFromTheSyncHistory(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "md")
-	result, err := ExportMarkdown(context.Background(), wikiDir, out, "knowledge")
+	result, err := RenderMarkdown(context.Background(), wikiDir, out, "knowledge")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,17 +224,17 @@ func TestExportMarkdownWritesTheLogFromTheSyncHistory(t *testing.T) {
 	}
 }
 
-func TestExportMarkdownRefusesAnEmptyWiki(t *testing.T) {
+func TestRenderMarkdownRefusesAnEmptyWiki(t *testing.T) {
 	t.Parallel()
-	if _, err := ExportMarkdown(context.Background(), t.TempDir(), filepath.Join(t.TempDir(), "md"), "knowledge"); err == nil {
+	if _, err := RenderMarkdown(context.Background(), t.TempDir(), filepath.Join(t.TempDir(), "md"), "knowledge"); err == nil {
 		t.Error("exporting a wiki with no pages must be an error, not an empty directory")
 	}
 }
 
-func TestExportMarkdownRequiresAnOutputDirectory(t *testing.T) {
+func TestRenderMarkdownRequiresAnOutputDirectory(t *testing.T) {
 	t.Parallel()
 	dir := indexedWiki(t, []WikiChunk{exportChunk("alpha", "Alpha")})
-	if _, err := ExportMarkdown(context.Background(), dir, "", "knowledge"); err == nil {
+	if _, err := RenderMarkdown(context.Background(), dir, "", "knowledge"); err == nil {
 		t.Error("an empty output directory must be refused")
 	}
 }
