@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -421,80 +422,55 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 
 			task := p.StartTask("Checking pending embeddings...")
 
-			cfg := ast.DefaultEmbeddingConfig()
-			cfg.RepoRoot, _ = os.Getwd()
-			cfg.ProjectDir = cfg.RepoRoot
+			repoRoot, _ := os.Getwd()
 			ladybugCfg := ast.DefaultLadybugConfig()
 			cacheDir := ladybugCfg.StoreDir
-
-			lockedCtx, lifecycleLock, lockErr := storelifecycle.Acquire(ctx, cacheDir)
-			if lockErr != nil {
-				task.Fail("Store lifecycle: %v", lockErr)
+			// An absent keyword index still needs its one-time rebuild. Keep this
+			// narrow: the embedding model must never run under the lifecycle lock.
+			task.Update("Checking search index...")
+			if err := rebuildEmbeddingSearchIndex(ctx, cacheDir, repoRoot); err != nil {
+				task.Fail("Search index rebuild: %v", err)
 				return nil
 			}
-			defer lifecycleLock.Release()
-			ctx = lockedCtx
-
-			parseCache, cacheErr := ast.NewShardCache(cacheDir)
-			if cacheErr != nil {
-				task.Fail("Parse cache: %v", cacheErr)
-				return nil
-			}
-			defer func() { _ = parseCache.Close() }()
-			parseCache.SetRoot(cfg.RepoRoot)
-			cfg.ParseCache = parseCache
-
-			idxPath := ladybugCfg.StoreDir
-			searchIdx, idxErr := ast.OpenSearchIndex(ctx, idxPath)
-			if idxErr != nil {
-				task.Fail("Search index: %v", idxErr)
-				return nil
-			}
-			defer func() { _ = searchIdx.Close() }()
-			cfg.Index = searchIdx
-
-			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
-				cfg.EmbCache = embCache
-				defer func() { _ = embCache.Close() }()
-			}
-
-			probe := ast.NewEmbedder(nil, cfg)
-			pending := probe.CountPending(ctx)
-			if pending == 0 {
-				if !ast.SearchIndexBuilt(ctx, idxPath) {
-					task.Update("Rebuilding search index...")
-					if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, ast.BuildEmbLookup(parseCache, cfg.EmbCache)); rbErr != nil {
-						p.StepWarn("Search index rebuild: %v", rbErr)
-					}
-				}
-				task.Update("Finalizing vector index...")
-				if err := searchIdx.FinalizeVectors(ctx); err != nil {
-					task.Fail("Vector index: %v", err)
-					return nil
-				}
-				task.Done("All entities and vector index up to date")
-				return nil
-			}
-
-			task.Update("Loading embedding model...")
-			embClient, err := ai.NewEmbeddingClientFromConfig()
-			if err != nil {
-				task.Fail("Embedding client: %v", err)
-				return nil
-			}
-
-			cfg.OnProgress = func(done, total int) {
-				task.Update("Embedding: %d / %d", done, total)
-			}
-			embedder := ast.NewEmbedder(embClient, cfg)
-			n, err := embedder.RunCycle(ctx)
+			n, deferred, err := ast.RunEmbeddingCycleOnce(ctx, cacheDir, repoRoot, ai.NewEmbeddingClientFromConfig, nil)
 			if err != nil {
 				task.Fail("Embedding cycle: %v", err)
 				return nil
 			}
-
-			task.Done("%d entities embedded", n)
+			if deferred {
+				task.Done("Embedding deferred while AST store is updating")
+			} else {
+				task.Done("%d entities embedded", n)
+			}
 			return nil
 		},
 	}
+}
+
+func rebuildEmbeddingSearchIndex(ctx context.Context, cacheDir, repoRoot string) error {
+	lockedCtx, guard, err := storelifecycle.Acquire(ctx, cacheDir)
+	if err != nil {
+		return err
+	}
+	defer guard.Release()
+	if ast.SearchIndexBuilt(lockedCtx, cacheDir) {
+		return nil
+	}
+	parse, err := ast.NewShardCache(cacheDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parse.Close() }()
+	parse.SetRoot(repoRoot)
+	emb, err := ast.NewShardEmbCache(cacheDir, parse)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = emb.Close() }()
+	index, err := ast.OpenSearchIndex(lockedCtx, cacheDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = index.Close() }()
+	return index.RebuildFromCache(lockedCtx, parse, ast.BuildEmbLookup(parse, emb))
 }

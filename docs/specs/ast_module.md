@@ -1185,11 +1185,13 @@ Triggered on every subsequent `graphit sync` or by the file watcher. Only proces
 
 **Every store mutation shares one lifecycle.** Full and incremental pipelines from CLI, MCP,
 `graphit sync`, and both watcher implementations hold a cross-process lock beside the AST store.
-Embedding holds the same lock while its parse cache, embedding cache, and search-index handles are
-open, then closes all three before releasing it. Reset and context-reset flows acquire the lock
-before deleting anything; Hub hydration and clean operations use it as well. Consequently a reset
-may wait for an active cycle, but a daemon or watcher never keeps a handle from the removed
-generation and the next embedding cycle opens the newly published store without a restart.
+Embedding snapshots pending rows while its parse cache, embedding cache, and search-index handles
+are open under that lock, then closes all three before model inference. It reacquires the lock for
+each batch to validate the generation and entity hashes before writing vectors, and for index
+finalization. Reset and context-reset flows acquire the lock before deleting anything; Hub
+hydration and clean operations use it as well. Consequently a reset waits for active store access,
+not the model inference, and inferred vectors from a removed generation are discarded. The next
+embedding cycle opens the newly published store without a restart.
 
 ### "Nothing changed" is checked against BOTH halves of the store
 
@@ -1526,6 +1528,11 @@ queried by LadybugDB and the search index is a LanceDB directory beside it; inst
 selected version and builds an in-memory catalog without copying the native stores locally. The graph must contain the canonical v3 `icebug.json` manifest,
 one node table per label, and the declared relationship member tables. A missing manifest or a
 different table shape is an unsupported artifact format.
+
+The local version-scoped mount cache has a cross-process build lock beside its directory.
+Uninstall cleanup takes that same lock before removing the cache; it skips cleanup while a
+builder holds it. Keeping the lock outside the removable directory prevents a new builder
+from locking a different inode after cleanup.
 
 The manifest is also the authoritative cardinality surface for interactive discovery. Each node
 table records its row total and per-language row histogram; relationship groups record their

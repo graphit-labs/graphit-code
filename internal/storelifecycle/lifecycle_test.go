@@ -34,6 +34,16 @@ func TestLockSurvivesTargetRemovalAndContextIsReentrant(t *testing.T) {
 	nested.Release()
 
 	held.Release()
+	otherCtx, other, err := TryAcquire(context.Background(), targetDir)
+	if err != nil {
+		t.Fatalf("other holder after release: %v", err)
+	}
+	_ = otherCtx
+	if _, stale, err := TryAcquire(ctx, targetDir); !errors.Is(err, ErrLocked) {
+		stale.Release()
+		t.Fatalf("released context bypassed current holder: %v", err)
+	}
+	other.Release()
 	_, reacquired, err := TryAcquire(context.Background(), targetDir)
 	if err != nil {
 		t.Fatalf("reacquire lifecycle lock: %v", err)

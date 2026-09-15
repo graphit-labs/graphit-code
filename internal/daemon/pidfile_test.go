@@ -140,10 +140,18 @@ func TestPIDFile_Remove(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	pf := &PIDFile{path: path}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	pf.Remove()
 
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("expected file to be removed, stat err: %v", err)
+	after, err := os.Stat(path)
+	if err != nil || !os.SameFile(before, after) {
+		t.Errorf("expected lock inode to remain, stat err: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || len(data) != 0 {
+		t.Errorf("expected cleared PID stamp, got %q, err: %v", data, err)
 	}
 }
 
@@ -181,16 +189,31 @@ func TestPIDFileRemovePreservesLockedInode(t *testing.T) {
 func TestPIDFile_IsAlive_CurrentProcess(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.pid")
-	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", os.Getpid())
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
 	pf := &PIDFile{path: path}
+	if err := pf.Acquire(); err != nil {
+		t.Fatal(err)
+	}
+	defer pf.Release()
 	pd := pf.IsAlive()
 	if pd == nil {
 		t.Error("IsAlive returned nil for current process PID — expected alive")
 	} else if pd.PID != os.Getpid() {
 		t.Errorf("expected PID %d, got %d", os.Getpid(), pd.PID)
+	}
+}
+
+func TestPIDFileIsAliveRejectsReusedPIDWithoutLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.pid")
+	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", os.Getpid())
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pf := &PIDFile{path: path}
+	if got := pf.IsAlive(); got != nil {
+		t.Fatalf("free lock with live but unrelated PID reported daemon: %+v", got)
+	}
+	if err := pf.Signal(syscall.Signal(0)); err == nil {
+		t.Fatal("Signal targeted a PID without a held daemon lock")
 	}
 }
 
@@ -207,8 +230,8 @@ func TestPIDFile_IsAlive_DeadProcess(t *testing.T) {
 	if pd != nil {
 		t.Errorf("IsAlive returned non-nil for dead PID %d", fakePID)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("IsAlive should remove stale pid file for dead process")
+	if data, err := os.ReadFile(path); err != nil || len(data) != 0 {
+		t.Errorf("IsAlive should clear stale PID stamp, got %q, err: %v", data, err)
 	}
 }
 
@@ -245,11 +268,11 @@ func TestPIDFile_Signal_NoFile(t *testing.T) {
 func TestPIDFile_Signal_CurrentProcess(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.pid")
-	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", os.Getpid())
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
 	pf := &PIDFile{path: path}
+	if err := pf.Acquire(); err != nil {
+		t.Fatal(err)
+	}
+	defer pf.Release()
 	err := pf.Signal(syscall.Signal(0))
 	if err != nil {
 		t.Errorf("expected no error for signal 0 to current process, got %v", err)

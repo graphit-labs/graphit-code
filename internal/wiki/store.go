@@ -1104,16 +1104,60 @@ func (w *WikiDB) PendingEmbeddings(ctx context.Context) ([]chunkRow, error) {
 	out := make([]chunkRow, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, chunkRow{
-			Slug:       str(h.Row["slug"]),
-			Title:      str(h.Row["title"]),
-			Summary:    str(h.Row["summary"]),
-			Body:       str(h.Row["body"]),
-			DocType:    str(h.Row["doc_type"]),
-			Breadcrumb: str(h.Row["breadcrumb"]),
-			WordCount:  int(i64(h.Row["word_count"])),
+			Slug:        str(h.Row["slug"]),
+			ContentHash: str(h.Row["content_hash"]),
+			Title:       str(h.Row["title"]),
+			Summary:     str(h.Row["summary"]),
+			Body:        str(h.Row["body"]),
+			DocType:     str(h.Row["doc_type"]),
+			Breadcrumb:  str(h.Row["breadcrumb"]),
+			WordCount:   int(i64(h.Row["word_count"])),
 		})
 	}
 	return out, nil
+}
+
+// setChunkVectorIfCurrent avoids attaching a vector inferred before a wiki
+// rebuild to a changed chunk with the same slug. The caller holds lifecycle
+// exclusion while this check and the upsert run.
+func (w *WikiDB) setChunkVectorIfCurrent(ctx context.Context, expected chunkRow, vec []float32) (bool, error) {
+	if w.Remote() {
+		return false, lancestore.ErrReadOnly
+	}
+	if err := w.ensureTables(ctx); err != nil {
+		return false, err
+	}
+	if want := ai.ResolveConfiguredEmbeddingDimensions(); len(vec) != want {
+		return false, fmt.Errorf("wiki embedding for %s has %d dimensions, want %d", expected.Slug, len(vec), want)
+	}
+	hits, err := w.chunks.Search(ctx, lancestore.Query{
+		Filter: fmt.Sprintf("slug = %s", lanceQuote(expected.Slug)), Limit: 1,
+	})
+	if err != nil {
+		return false, err
+	}
+	if len(hits) == 0 {
+		return false, nil
+	}
+	current := hits[0].Row
+	if current[lanceWikiVector] != nil ||
+		str(current["content_hash"]) != expected.ContentHash ||
+		str(current["title"]) != expected.Title ||
+		str(current["summary"]) != expected.Summary ||
+		str(current["body"]) != expected.Body ||
+		str(current["doc_type"]) != expected.DocType ||
+		str(current["breadcrumb"]) != expected.Breadcrumb {
+		return false, nil
+	}
+	row := lancestore.Row{}
+	for k, v := range current {
+		row[k] = v
+	}
+	row[lanceWikiVector] = vec
+	if err := w.chunks.Upsert(ctx, "slug", []lancestore.Row{row}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // SetChunkVector attaches an embedding to a chunk, keyed by slug.

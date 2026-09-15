@@ -137,10 +137,23 @@ waiting on.
 
 **Scope limit.** The heavy-work gate is per-process and only controls resource use. Store
 correctness across daemon, CLI, MCP, watcher, and hook processes uses separate lifecycle locks.
-AST and Knowledge pipelines hold the lock through full or incremental publication, and their
-embedding cycles hold it while store handles are open. Each lock lives beside its store, so a
+AST and Knowledge pipelines hold the lock through full or incremental publication. An AST
+embedding cycle snapshots pending text and closes its store handles before model inference; it
+reacquires the lifecycle lock only to validate the current generation and write each batch, then
+for vector-index finalization. A rebuild during inference invalidates the old batch, which is
+discarded instead of being written to the new store. Knowledge embedding also closes its store
+handles and releases the lock during model inference, then validates the chunk before publishing
+each batch. Each lock lives beside its store, so a
 destructive reset cannot unlink the coordination primitive. The broader `graphit sync` collision
 is additionally bounded by `.graphit/runtime/sync.lock` and the git-hook debounce.
+
+Lock acquisition follows one direction: the per-process heavy-work gate (when used),
+then the AST or Knowledge lifecycle lock, then AST vector publication, then the
+embeddings-status lock. A caller releases these in reverse order; it must not wait
+for a lifecycle lock while holding a vector or status lock. Autostart uses a separate
+`.spawn.lock` and waits at most ten seconds for a competing spawner before returning
+an error. These bounds prevent a live, stalled holder from creating an unending
+autostart wait; process termination releases the operating-system locks.
 
 ### 3. Global Modules
 Modules that run once per daemon (not per-project):

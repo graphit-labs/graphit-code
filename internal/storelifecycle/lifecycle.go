@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
@@ -17,18 +19,28 @@ const pollInterval = 50 * time.Millisecond
 var ErrLocked = lockfile.ErrLocked
 
 type heldPathsKey struct{}
+type heldLease struct{ active atomic.Bool }
 
 // Guard owns a lifecycle lock. Release is safe on a nil or no-op guard.
 type Guard struct {
-	lock *lockfile.Lock
+	lock  *lockfile.Lock
+	lease *heldLease
+	once  sync.Once
 }
 
 // Release gives up the lifecycle lock.
 func (g *Guard) Release() {
-	if g != nil && g.lock != nil {
-		g.lock.Release()
-		g.lock = nil
+	if g == nil {
+		return
 	}
+	g.once.Do(func() {
+		if g.lease != nil {
+			g.lease.active.Store(false)
+		}
+		if g.lock != nil {
+			g.lock.Release()
+		}
+	})
 }
 
 // LockPath returns a lock beside the target instead of inside it. A reset can remove
@@ -56,7 +68,9 @@ func TryAcquire(ctx context.Context, targetDir string) (context.Context, *Guard,
 	if err != nil {
 		return ctx, nil, err
 	}
-	return contextWithTarget(ctx, targetDir), &Guard{lock: lock}, nil
+	lease := &heldLease{}
+	lease.active.Store(true)
+	return contextWithTarget(ctx, targetDir, lease), &Guard{lock: lock, lease: lease}, nil
 }
 
 // Acquire waits for the lifecycle lock while honoring context cancellation.
@@ -80,17 +94,17 @@ func Acquire(ctx context.Context, targetDir string) (context.Context, *Guard, er
 }
 
 func contextOwns(ctx context.Context, targetDir string) bool {
-	held, _ := ctx.Value(heldPathsKey{}).(map[string]struct{})
-	_, ok := held[LockPath(targetDir)]
-	return ok
+	held, _ := ctx.Value(heldPathsKey{}).(map[string]*heldLease)
+	lease := held[LockPath(targetDir)]
+	return lease != nil && lease.active.Load()
 }
 
-func contextWithTarget(ctx context.Context, targetDir string) context.Context {
-	current, _ := ctx.Value(heldPathsKey{}).(map[string]struct{})
-	next := make(map[string]struct{}, len(current)+1)
-	for path := range current {
-		next[path] = struct{}{}
+func contextWithTarget(ctx context.Context, targetDir string, lease *heldLease) context.Context {
+	current, _ := ctx.Value(heldPathsKey{}).(map[string]*heldLease)
+	next := make(map[string]*heldLease, len(current)+1)
+	for path, existing := range current {
+		next[path] = existing
 	}
-	next[LockPath(targetDir)] = struct{}{}
+	next[LockPath(targetDir)] = lease
 	return context.WithValue(ctx, heldPathsKey{}, next)
 }

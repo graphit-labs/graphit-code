@@ -255,7 +255,8 @@ daemon already running (pid <N>, started <timestamp>)
 
 **Symptoms:** Daemon reports as running but the process does not exist, or commands hang.
 
-**Cause:** The daemon crashed without cleaning up its PID file.
+**Cause:** The daemon exited but left a PID stamp in its lock file. The stamp is diagnostic; the
+operating system releases the lock when the daemon process exits.
 
 **Solutions:**
 1. Check if the process is actually alive:
@@ -263,11 +264,7 @@ daemon already running (pid <N>, started <timestamp>)
    graphit daemon status
    # Look at the "running" field
    ```
-2. The PID file is stored at `~/.graphit/daemon/daemon.pid`. If the process does not exist, the daemon tools will detect it and allow a new start.
-3. Manual cleanup (last resort):
-   ```bash
-   rm ~/.graphit/daemon/daemon.pid
-   ```
+2. The PID file is stored at `~/.graphit/daemon/daemon.pid`. If the process does not exist, the daemon tools clear the stale stamp and allow a new start. Leave the file in place: removing a lock file while another process has it open can defeat singleton protection.
 
 ### Daemon crashes on startup
 
@@ -347,11 +344,12 @@ intervals, and removal.
    graphit ast index --reset
    ```
 
-AST indexing and embedding cycles share a cross-process lifecycle lock. This covers
-full indexing, incremental updates from the filesystem watcher, and `--reset`. A
-reset waits for an in-flight embedding cycle, rebuilds the store exclusively, and
-the daemon reopens the published store on its next embedding cycle. A manual daemon
-restart is not required.
+AST indexing and embedding share a cross-process lifecycle lock for store access.
+Full indexing, watcher updates, and `--reset` hold it while publishing; embedding
+releases it during model inference and reacquires it to validate and store each
+batch. A reset waits only for an active store operation, rebuilds exclusively,
+and invalidates vectors inferred from the old generation. The daemon opens the
+published store on its next cycle without a manual restart.
 
 ### Unsupported language
 

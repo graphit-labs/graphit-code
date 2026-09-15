@@ -2,7 +2,6 @@ package ast
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
-	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
@@ -133,6 +131,7 @@ type preparedRow struct {
 
 type entityRow struct {
 	UID       string
+	Hash      string
 	Label     string
 	Name      string
 	Docstring string
@@ -269,6 +268,7 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 			}
 			row := entityRow{
 				UID:       ent.UID,
+				Hash:      hash,
 				Label:     ent.Label,
 				Name:      ent.Name,
 				Docstring: ent.Docstring,
@@ -568,55 +568,7 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 }
 
 func runEmbeddingCycleIfReady(ctx context.Context, cacheDir, repoRoot string, client ai.EmbeddingClient, logger *slog.Logger) (int, bool, error) {
-	lockedCtx, lifecycleLock, err := storelifecycle.TryAcquire(ctx, cacheDir)
-	if errors.Is(err, storelifecycle.ErrLocked) {
-		return 0, true, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("lock AST store lifecycle: %w", err)
-	}
-	defer lifecycleLock.Release()
-
-	n, err := runEmbeddingCycle(lockedCtx, cacheDir, repoRoot, client, logger)
-	return n, false, err
-}
-
-// runEmbeddingCycle opens one coherent view of the parse cache, embedding cache, and
-// search index, then closes all of it before returning. Reopening on every daemon tick
-// is deliberate: a successful --reset replaces the complete store while the daemon
-// stays alive, and no handle or in-memory cache from the previous store may survive.
-func runEmbeddingCycle(ctx context.Context, cacheDir, repoRoot string, client ai.EmbeddingClient, logger *slog.Logger) (int, error) {
-	if cacheDir == "" {
-		return 0, nil
-	}
-
-	parseCache, err := NewShardCache(cacheDir)
-	if err != nil {
-		return 0, fmt.Errorf("open parse cache: %w", err)
-	}
-	parseCache.SetRoot(repoRoot)
-	defer func() { _ = parseCache.Close() }()
-
-	embCache, err := NewShardEmbCache(cacheDir, parseCache)
-	if err != nil {
-		return 0, fmt.Errorf("open embedding cache: %w", err)
-	}
-	defer func() { _ = embCache.Close() }()
-
-	idx, err := OpenSearchIndex(ctx, cacheDir)
-	if err != nil {
-		return 0, fmt.Errorf("open search index: %w", err)
-	}
-	defer func() { _ = idx.Close() }()
-
-	cfg := DefaultEmbeddingConfig()
-	cfg.RepoRoot = repoRoot
-	cfg.ProjectDir = repoRoot
-	cfg.ParseCache = parseCache
-	cfg.EmbCache = embCache
-	cfg.Index = idx
-
-	embedder := NewEmbedder(client, cfg)
-	embedder.Logger = logger
-	return embedder.RunCycle(ctx)
+	return runEmbeddingCycleOnce(ctx, cacheDir, repoRoot, func() (ai.EmbeddingClient, error) {
+		return client, nil
+	}, logger, true)
 }

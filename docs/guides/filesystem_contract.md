@@ -77,6 +77,7 @@ Important global paths include:
 | `memory.lock.json` | Registered external memory context mappings |
 | `hub/cache/<hub-fingerprint>/<subject-fingerprint>/` | Bounded, lazy, non-authoritative Hub metadata and discovery cache |
 | `daemon/daemon.pid` | Single-daemon lock and process metadata |
+| `daemon/daemon.pid.info` | Windows-only readable PID metadata while `daemon.pid` is byte-range locked |
 | `daemon/daemon.log` | Daemon log |
 | `daemon/mcp.port` | Actual MCP port, including an OS-selected port |
 | `auth.json` | Named providers, isolated account profiles, sessions, credentials, and active selection; atomic, mode `0600` |

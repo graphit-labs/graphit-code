@@ -42,7 +42,10 @@ func (pf *PIDFile) Acquire() error {
 
 	if err := flockExclusive(f); err != nil {
 		_ = f.Close()
-		return ErrAlreadyRunning
+		if flockContended(err) {
+			return ErrAlreadyRunning
+		}
+		return fmt.Errorf("locking pid file: %w", err)
 	}
 
 	if err := f.Truncate(0); err != nil {
@@ -62,6 +65,11 @@ func (pf *PIDFile) Acquire() error {
 		return fmt.Errorf("writing pid file: %w", err)
 	}
 	_ = f.Sync()
+	if err := writePIDMetadata(pf.path, content); err != nil {
+		flockRelease(f)
+		_ = f.Close()
+		return fmt.Errorf("writing pid metadata: %w", err)
+	}
 
 	pf.lockFD = f
 	return nil
@@ -69,6 +77,7 @@ func (pf *PIDFile) Acquire() error {
 
 func (pf *PIDFile) Release() {
 	if pf.lockFD != nil {
+		clearPIDMetadata(pf.path)
 		_ = pf.lockFD.Truncate(0)
 		flockRelease(pf.lockFD)
 		_ = pf.lockFD.Close()
@@ -93,7 +102,10 @@ func (pf *PIDFile) Write() error {
 		return err
 	}
 	_, err = f.WriteString(content)
-	return err
+	if err != nil {
+		return err
+	}
+	return writePIDMetadata(pf.path, content)
 }
 
 func (pf *PIDFile) Remove() {
@@ -106,11 +118,20 @@ func (pf *PIDFile) Remove() {
 		return
 	}
 	defer flockRelease(f)
-	_ = os.Remove(pf.path)
+	// Keep the lock inode stable. Unlinking it while another process has the old
+	// file open can split daemon exclusion between old and newly created files;
+	// Windows can also reject deletion of an open locked file.
+	_ = f.Truncate(0)
+	clearPIDMetadata(pf.path)
 }
 
 func (pf *PIDFile) Read() (*pidData, error) {
 	data, err := os.ReadFile(pf.path)
+	if err != nil {
+		if alt, altErr := readPIDMetadata(pf.path); altErr == nil {
+			data, err = alt, nil
+		}
+	}
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -133,24 +154,37 @@ func (pf *PIDFile) Read() (*pidData, error) {
 }
 
 func (pf *PIDFile) IsAlive() *pidData {
+	f, err := os.OpenFile(pf.path, os.O_RDWR, 0o600)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	if err := flockExclusive(f); err == nil {
+		// A free lock wins over any PID text (which can outlive a crash or be
+		// reused by an unrelated process). Clear it without unlinking the inode.
+		_ = f.Truncate(0)
+		clearPIDMetadata(pf.path)
+		flockRelease(f)
+		return nil
+	} else if !flockContended(err) {
+		return nil
+	}
 	pd, err := pf.Read()
 	if err != nil {
-		pf.Remove()
 		return nil
 	}
 	if pd == nil {
 		return nil
 	}
 	if !pidIsAlive(pd.PID) {
-		pf.Remove()
 		return nil
 	}
 	return pd
 }
 
 func (pf *PIDFile) Signal(sig os.Signal) error {
-	pd, err := pf.Read()
-	if err != nil || pd == nil {
+	pd := pf.IsAlive()
+	if pd == nil {
 		return fmt.Errorf("no daemon running (no pid file)")
 	}
 	proc, err := os.FindProcess(pd.PID)

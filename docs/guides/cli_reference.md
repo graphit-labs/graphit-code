@@ -105,6 +105,11 @@ graphit sync [flags]
 - `--no-background`: Prevents spawning background tasks asynchronously. Both phases (sync and heavy indexing/processing) execute synchronously inside the terminal process.
 - `--heavy`: Runs only Phase 2 tasks (generating embeddings and memory consolidation).
 
+The AST reindex in `init` and the normal `sync` phase takes the AST store lifecycle lock while
+publishing the graph. Background AST embedding releases that lock during model inference and
+reacquires it only for store reads, writes, and vector-index finalization, so slow inference does
+not by itself hold up a foreground reindex.
+
 Before indexing, sync inspects Git when the current project is a repository. If S3 storage is
 available, every sync checks the current `branch/...` lineage for the exact compatible commit or
 nearest published ancestor. It retains the local overlay when that base is unchanged, or replaces
@@ -398,7 +403,7 @@ graphit ast <subcommand> [flags]
 ```
 **Subcommands:**
 - `index [path...]`: Parses source code and builds the AST knowledge graph.
-  - `--reset`: Wipe the complete AST store before indexing. It waits for active embedding/index work; the daemon resumes from the rebuilt store without a restart.
+  - `--reset`: Wipe the complete AST store before indexing. It waits for active store access, but not AST model inference; the daemon resumes from the rebuilt store without a restart.
   - `--reindex`: Wipe only this repo's data before re-indexing.
   - `--cluster <name>`: Logical cluster tag for queries (fallback for unmatched paths).
   - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable). Paths are directory prefixes; most specific match wins.

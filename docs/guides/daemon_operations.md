@@ -54,8 +54,8 @@ graphit daemon restart
 
 `status` reports PID, start time, uptime, PID path, machine-wide scope, scheduler state, and the last
 ten lines of the **default** log. If the daemon was started with `--log`, inspect that file directly.
-`stop` sends `SIGTERM`, waits up to ten seconds, then sends `SIGKILL` and removes PID/MCP discovery
-files if graceful shutdown did not finish. `restart` performs that stop sequence, starts the daemon
+`stop` sends `SIGTERM`, waits up to ten seconds, then sends `SIGKILL`, clears the PID stamp, and
+removes MCP discovery files if graceful shutdown did not finish. `restart` performs that stop sequence, starts the daemon
 detached with default flags, waits until the new PID-file lock is ready, and then returns to the
 terminal.
 
@@ -253,9 +253,10 @@ parallel throughput. Database, embedding, and ANTLR-specific environment limits 
 as documented in [Configuration Reference](configuration.md#runtime-only-environment-controls).
 
 That CPU gate is complemented by cross-process lifecycle locks for the AST and Knowledge stores.
-CLI, MCP, watcher, and daemon indexers therefore cannot publish or reset a store while its
-embedding cycle has handles open. Full and incremental runs use the same path; after publication,
-the next embedding cycle opens the current store automatically.
+CLI, MCP, watcher, and daemon indexers therefore cannot publish or reset a store while an
+embedding cycle has handles open. AST and Knowledge embedding close them and release their locks
+during model inference, then validate current content before publishing each batch. Full and incremental runs
+use the same path; after publication, the next embedding cycle opens the current store automatically.
 
 Every project and global module is isolated behind panic recovery. An unexpected return or panic
 causes exponential restart waits of 2, 4, 8, 16, then at most 30 seconds. Ten consecutive failures
@@ -285,7 +286,8 @@ replacement. New or removed parser binaries do.
 | Path | Purpose | Mode/notes |
 |---|---|---|
 | `~/.graphit/daemon/daemon.pid` | PID, UTC start time, and singleton lock | `0600` |
-| `~/.graphit/daemon/.spawn.lock` | Serializes concurrent autostart attempts | `0600` |
+| `~/.graphit/daemon/daemon.pid.info` | Readable PID stamp on Windows, where an exclusive byte lock prevents reading `daemon.pid` through another handle | Windows only; cleared on shutdown |
+| `~/.graphit/daemon/.spawn.lock` | Serializes concurrent autostart attempts | `0600`; acquisition waits at most 10 seconds |
 | `~/.graphit/daemon/daemon.log` | Default global daemon log | Opened `0600`; spawned stderr appender may create `0644` |
 | `~/.graphit/daemon/embed.sock` | Local embedding proxy | Unix socket; removed on close |
 | `~/.graphit/daemon/mcp.port` | Selected MCP TCP port | Discovery metadata |

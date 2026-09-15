@@ -471,57 +471,26 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		var count int
+		var deferred bool
 		err = withProjectDir(projectDir, func() error {
-			embCfg := ast.DefaultEmbeddingConfig()
 			var ladybugCfg ast.LadybugConfig
+			var repoRoot string
 			if input.Context != "" {
 				ladybugCfg = ast.LadybugConfigForContextIn(projectDir, input.Context)
-				embCfg.RepoRoot = ast.ListImportedContextsIn(projectDir)[input.Context].SourcePath
+				repoRoot = ast.ListImportedContextsIn(projectDir)[input.Context].SourcePath
 			} else {
 				ladybugCfg = ast.LadybugConfigFor(projectDir)
-				embCfg.RepoRoot = projectDir
+				repoRoot = projectDir
 			}
-			cacheDir := ladybugCfg.StoreDir
-
-			lockedCtx, lifecycleLock, lockErr := storelifecycle.Acquire(ctx, cacheDir)
-			if lockErr != nil {
-				return lockErr
-			}
-			defer lifecycleLock.Release()
-			ctx = lockedCtx
-
-			parseCache, cacheErr := ast.NewShardCache(cacheDir)
-			if cacheErr != nil {
-				return cacheErr
-			}
-			defer func() { _ = parseCache.Close() }()
-			parseCache.SetRoot(embCfg.RepoRoot)
-			embCfg.ParseCache = parseCache
-
-			idx, idxErr := ast.OpenSearchIndex(ctx, cacheDir)
-			if idxErr != nil {
-				return idxErr
-			}
-			defer func() { _ = idx.Close() }()
-			embCfg.Index = idx
-
-			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
-				embCfg.EmbCache = embCache
-				defer func() { _ = embCache.Close() }()
-			}
-
-			embClient, err := ai.NewEmbeddingClientFromConfig()
-			if err != nil {
-				return err
-			}
-
-			embedder := ast.NewEmbedder(embClient, embCfg)
 			var rerr error
-			count, rerr = embedder.RunCycle(ctx)
+			count, deferred, rerr = ast.RunEmbeddingCycleOnce(ctx, ladybugCfg.StoreDir, repoRoot, ai.NewEmbeddingClientFromConfig, nil)
 			return rerr
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if deferred {
+			return textResult("Embedding deferred while the AST store is updating.")
 		}
 
 		return textResult(fmt.Sprintf("%d entities embedded successfully.", count))

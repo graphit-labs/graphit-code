@@ -161,9 +161,10 @@ schedule rather than on every sync.
 
 **Indexing and embedding share the store lifecycle.** Full, incremental, and reset index runs
 hold a cross-process lock beside the wiki directory for the whole update. An embedding cycle
-opens the table only while holding the same lock and closes it before releasing. A reset may
-therefore wait for an active batch, but it cannot delete a table from under that batch; the next
-cycle opens the newly published table without a daemon restart.
+snapshots pending chunks under that lock, closes the table, then runs model inference without the
+lock. It reacquires the lock for each batch and writes a vector only if the chunk's content still
+matches the snapshot. A reset waits for active table access, not model inference; stale vectors
+are discarded, and the next cycle opens the newly published table without a daemon restart.
 
 **Body is stored once.** Full-text indexes target `body` and `search_terms` separately. The latter
 contains title, slug, summary, breadcrumb, type, tags, and their grams, but never repeats the body.

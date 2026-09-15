@@ -185,6 +185,8 @@ jobs:
         run: go test -race -count=1 -timeout 10m ./internal/fswatch/... ./internal/ignorer/...
       - name: Store path resolution
         run: go test -race -count=1 -timeout 5m ./internal/store/...
+      - name: Cross-process lock semantics
+        run: go test -race -count=1 -timeout 5m ./internal/lockfile ./internal/storelifecycle ./internal/daemonctl
 
   security:
     name: Security Scan

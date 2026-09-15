@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,10 +25,13 @@ func (s *HubService) ensureASTStore(ctx context.Context, projectID, version stri
 		return "", fmt.Errorf("creating shared AST store dir: %w", err)
 	}
 
-	lock, lockErr := lockfile.Acquire(filepath.Join(storeDir, ".build.lock"), 2*time.Minute)
+	lock, lockErr := lockfile.Acquire(sharedASTBuildLockPath(storeDir), 2*time.Minute)
 	if lockErr == nil {
 		defer lock.Release()
 	} else {
+		if !errors.Is(lockErr, lockfile.ErrLocked) {
+			return "", fmt.Errorf("locking shared AST store for %s@%s: %w", projectID, version, lockErr)
+		}
 		// Waiting elapsed. Building anyway would corrupt whatever the holder is
 		// writing, so report rather than race — but a store that is already
 		// complete is still usable, which is the common case behind a long build.
@@ -139,9 +143,21 @@ func (s *HubService) cleanupSharedASTStore(meta *LockfileArtifactMeta) {
 		// directory somebody cares about.
 		return
 	}
+	// Use the same stable lock as the builder. In particular, never unlink an
+	// in-directory lock inode while a builder still holds an old handle to it.
+	lock, err := lockfile.TryAcquire(sharedASTBuildLockPath(storeDir))
+	if err != nil {
+		s.log().Warn("skipping shared AST store cleanup while build lock is unavailable", "dir", storeDir, "error", err)
+		return
+	}
+	defer lock.Release()
 	if err := os.RemoveAll(storeDir); err != nil {
 		s.log().Warn("removing shared AST store", "dir", storeDir, "error", err)
 		return
 	}
 	_ = os.Remove(filepath.Dir(storeDir))
+}
+
+func sharedASTBuildLockPath(storeDir string) string {
+	return filepath.Join(filepath.Dir(storeDir), "."+filepath.Base(storeDir)+".build.lock")
 }

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ var ErrLocked = errors.New("lockfile: held by another process")
 type Lock struct {
 	path string
 	f    *os.File
+	once sync.Once
 }
 
 // TryAcquire takes an exclusive lock on path without blocking, creating the file and
@@ -42,7 +44,10 @@ func TryAcquire(path string) (*Lock, error) {
 
 	if err := flockTry(f); err != nil {
 		_ = f.Close()
-		return nil, ErrLocked
+		if flockContended(err) {
+			return nil, ErrLocked
+		}
+		return nil, fmt.Errorf("lockfile: lock %s: %w", path, err)
 	}
 
 	// Best effort: an unwritable stamp costs a debugging hint, never the lock.
@@ -80,13 +85,17 @@ const pollInterval = 50 * time.Millisecond
 
 // Release drops the lock. Calling it more than once, or on a nil Lock, is a no-op.
 func (l *Lock) Release() {
-	if l == nil || l.f == nil {
+	if l == nil {
 		return
 	}
-	_ = l.f.Truncate(0)
-	flockRelease(l.f)
-	_ = l.f.Close()
-	l.f = nil
+	l.once.Do(func() {
+		if l.f == nil {
+			return
+		}
+		_ = l.f.Truncate(0)
+		flockRelease(l.f)
+		_ = l.f.Close()
+	})
 }
 
 // Path returns the file backing the lock.

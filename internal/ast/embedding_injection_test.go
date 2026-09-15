@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
@@ -195,6 +197,104 @@ func TestEmbeddingCycleReopensStoreAfterIncrementalAndReset(t *testing.T) {
 	}
 
 	assertEmbeddingLoopStoreCounts(t, storeDir, 1, 1)
+}
+
+type pausedEmbeddingClient struct {
+	recordingEmbClient
+	entered chan struct{}
+	resume  chan struct{}
+	once    sync.Once
+}
+
+func (c *pausedEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	c.once.Do(func() { close(c.entered) })
+	select {
+	case <-c.resume:
+		return c.recordingEmbClient.EmbedBatch(ctx, texts)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func waitForEmbeddingInference(t *testing.T, entered <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("embedding inference did not start")
+	}
+}
+
+func TestEmbeddingInferenceDoesNotHoldASTLifecycle(t *testing.T) {
+	projectDir := stageEmbedLabelsGrammar(t, "Function")
+	storeDir := filepath.Join(t.TempDir(), "store")
+	seedEmbeddingLoopStore(t, storeDir, "before.go", "Before")
+	client := &pausedEmbeddingClient{entered: make(chan struct{}), resume: make(chan struct{})}
+	type result struct {
+		n        int
+		deferred bool
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		n, deferred, err := runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+		done <- result{n, deferred, err}
+	}()
+	waitForEmbeddingInference(t, client.entered)
+	_, guard, err := storelifecycle.TryAcquire(context.Background(), storeDir)
+	if err != nil {
+		close(client.resume)
+		t.Fatalf("foreground AST work could not acquire lifecycle lock during inference: %v", err)
+	}
+	guard.Release()
+	close(client.resume)
+	select {
+	case r := <-done:
+		if r.err != nil || r.deferred || r.n != 1 {
+			t.Fatalf("embedding result = %+v, want one published vector", r)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("embedding cycle did not finish")
+	}
+	assertEmbeddingLoopStoreCounts(t, storeDir, 1, 1)
+}
+
+func TestEmbeddingInferenceDiscardsVectorsAfterReset(t *testing.T) {
+	projectDir := stageEmbedLabelsGrammar(t, "Function")
+	storeDir := filepath.Join(t.TempDir(), "store")
+	seedEmbeddingLoopStore(t, storeDir, "before.go", "Before")
+	client := &pausedEmbeddingClient{entered: make(chan struct{}), resume: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+		done <- err
+	}()
+	waitForEmbeddingInference(t, client.entered)
+	_, guard, err := storelifecycle.Acquire(context.Background(), storeDir)
+	if err != nil {
+		close(client.resume)
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(storeDir); err != nil {
+		guard.Release()
+		close(client.resume)
+		t.Fatal(err)
+	}
+	seedEmbeddingLoopStore(t, storeDir, "after.go", "After")
+	guard.Release()
+	close(client.resume)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("embedding after reset: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("embedding cycle did not finish after reset")
+	}
+	assertEmbeddingLoopStoreCounts(t, storeDir, 1, 0)
+	if _, err := os.Stat(filepath.Join(storeDir, "shards", "before.go"+shardEmbSuffix)); !os.IsNotExist(err) {
+		t.Fatalf("stale embedding shard after reset: %v", err)
+	}
 }
 
 func assertEmbeddingLoopStoreCounts(t *testing.T, storeDir string, wantEntities, wantVectors int64) {

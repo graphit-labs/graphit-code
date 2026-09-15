@@ -3,6 +3,7 @@
 package daemonctl
 
 import (
+	"errors"
 	"os"
 	"unsafe"
 
@@ -39,4 +40,8 @@ func flockExclusiveBlocking(f *os.File) error {
 		1, 0,
 		(*windows.Overlapped)(unsafe.Pointer(ol)),
 	)
+}
+
+func flockContended(err error) bool {
+	return errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_IO_PENDING)
 }

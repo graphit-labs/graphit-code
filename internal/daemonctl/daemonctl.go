@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
@@ -53,21 +54,18 @@ func EnsureRunning() (bool, error) {
 		return false, err
 	}
 
-	sf, lockErr := os.OpenFile(spawnLockPath(), os.O_CREATE|os.O_RDWR, 0o600)
-	if lockErr == nil {
-		if err := flockExclusiveBlocking(sf); err != nil {
-			_ = sf.Close()
-			sf = nil
-		}
+	// A live but stuck spawner must not make every subsequent caller wait forever.
+	spawnLock, err := lockfile.Acquire(spawnLockPath(), 2*daemonReadyTimeout)
+	if err != nil {
+		return false, fmt.Errorf("acquiring daemon spawn lock: %w", err)
 	}
-	if sf != nil {
-		defer func() {
-			flockProbeRelease(sf)
-			_ = sf.Close()
-		}()
-	}
+	defer spawnLock.Release()
 
-	if isDaemonLocked() {
+	locked, err := fileLockState(PIDFilePath())
+	if err != nil {
+		return false, fmt.Errorf("checking daemon lock: %w", err)
+	}
+	if locked {
 		return false, nil
 	}
 
@@ -93,26 +91,37 @@ func EnsureRunning() (bool, error) {
 	return true, nil
 }
 
-func isDaemonLocked() bool {
-	return fileLocked(PIDFilePath())
+func fileLocked(path string) bool {
+	locked, _ := fileLockState(path)
+	return locked
 }
 
-func fileLocked(path string) bool {
+func fileLockState(path string) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
 	defer f.Close()
 
 	if err := flockProbe(f); err != nil {
-		return true
+		if flockContended(err) {
+			return true, nil
+		}
+		return false, err
 	}
 	flockProbeRelease(f)
-	return false
+	return false, nil
 }
 
 func waitForFileLock(path string, timeout, poll time.Duration) error {
-	if fileLocked(path) {
+	locked, err := fileLockState(path)
+	if err != nil {
+		return err
+	}
+	if locked {
 		return nil
 	}
 	if timeout <= 0 {
@@ -128,7 +137,11 @@ func waitForFileLock(path string, timeout, poll time.Duration) error {
 	for {
 		select {
 		case <-ticker.C:
-			if fileLocked(path) {
+			locked, err := fileLockState(path)
+			if err != nil {
+				return err
+			}
+			if locked {
 				return nil
 			}
 		case <-timer.C:

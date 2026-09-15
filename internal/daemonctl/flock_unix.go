@@ -3,6 +3,7 @@
 package daemonctl
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -17,4 +18,8 @@ func flockProbeRelease(f *os.File) {
 
 func flockExclusiveBlocking(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+}
+
+func flockContended(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }

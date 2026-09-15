@@ -52,34 +52,22 @@ func fitVectorWidth(vec []float32, dim int) []float32 {
 }
 
 type chunkRow struct {
-	Slug       string
-	Title      string
-	Summary    string
-	Body       string
-	DocType    string
-	Breadcrumb string
-	WordCount  int
+	Slug        string
+	ContentHash string
+	Title       string
+	Summary     string
+	Body        string
+	DocType     string
+	Breadcrumb  string
+	WordCount   int
 }
 
 // RunCycle opens the wiki DB, finds chunks without embeddings, generates them,
 // and stores them. Returns the count of newly embedded chunks.
 func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error) {
-	lockedCtx, lifecycleLock, err := storelifecycle.Acquire(ctx, wikiDir)
+	pending, err := e.snapshotPending(ctx, wikiDir)
 	if err != nil {
-		return 0, fmt.Errorf("lock wiki store lifecycle: %w", err)
-	}
-	defer lifecycleLock.Release()
-	ctx = lockedCtx
-
-	db, err := OpenWikiDB(ctx, wikiDir)
-	if err != nil {
-		return 0, fmt.Errorf("open wiki db: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	pending, err := db.PendingEmbeddings(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("pending embeddings: %w", err)
+		return 0, err
 	}
 	if len(pending) == 0 {
 		return 0, nil
@@ -94,18 +82,16 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 		if ctx.Err() != nil {
 			return done, ctx.Err()
 		}
-
 		end := i + e.cfg.BatchSize
 		if end > len(pending) {
 			end = len(pending)
 		}
 		batch := pending[i:end]
-
 		texts := make([]string, len(batch))
 		for j, row := range batch {
 			texts[j] = e.buildEmbeddingText(row)
 		}
-
+		// No wiki handle or lifecycle lock survives model inference.
 		vectors, err := e.client.EmbedBatch(ctx, texts)
 		if err != nil {
 			return done, fmt.Errorf("embed batch: %w", err)
@@ -113,30 +99,66 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 		if len(vectors) != len(batch) {
 			return done, fmt.Errorf("expected %d vectors, got %d", len(batch), len(vectors))
 		}
-
-		for j, row := range batch {
-			vec := vectors[j]
-			if len(vec) == 0 {
-				continue
-			}
-			if dim := e.client.Dimensions(); len(vec) != dim {
-				vec = fitVectorWidth(vec, dim)
-			}
-
-			if err := db.SetChunkVector(ctx, row.Slug, vec); err != nil {
-				e.log().Warn("attach vector", "slug", row.Slug, "error", err)
-				continue
-			}
-			done++
+		n, err := e.publishBatch(ctx, wikiDir, batch, vectors)
+		done += n
+		if err != nil {
+			return done, err
 		}
-
 		if e.cfg.OnProgress != nil {
 			e.cfg.OnProgress(done, len(pending))
 		}
 	}
-
 	e.log().Info("wiki embedding cycle", "embedded", done)
+	return done, nil
+}
 
+func (e *WikiEmbedder) snapshotPending(ctx context.Context, wikiDir string) ([]chunkRow, error) {
+	lockedCtx, lifecycleLock, err := storelifecycle.Acquire(ctx, wikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("lock wiki store lifecycle: %w", err)
+	}
+	defer lifecycleLock.Release()
+	db, err := OpenWikiDB(lockedCtx, wikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("open wiki db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	pending, err := db.PendingEmbeddings(lockedCtx)
+	if err != nil {
+		return nil, fmt.Errorf("pending embeddings: %w", err)
+	}
+	return pending, nil
+}
+
+func (e *WikiEmbedder) publishBatch(ctx context.Context, wikiDir string, batch []chunkRow, vectors [][]float32) (int, error) {
+	lockedCtx, guard, err := storelifecycle.Acquire(ctx, wikiDir)
+	if err != nil {
+		return 0, fmt.Errorf("lock wiki store lifecycle: %w", err)
+	}
+	defer guard.Release()
+	db, err := OpenWikiDB(lockedCtx, wikiDir)
+	if err != nil {
+		return 0, fmt.Errorf("open wiki db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	done := 0
+	for i, row := range batch {
+		vec := vectors[i]
+		if len(vec) == 0 {
+			continue
+		}
+		if dim := e.client.Dimensions(); len(vec) != dim {
+			vec = fitVectorWidth(vec, dim)
+		}
+		stored, err := db.setChunkVectorIfCurrent(lockedCtx, row, vec)
+		if err != nil {
+			e.log().Warn("attach vector", "slug", row.Slug, "error", err)
+			continue
+		}
+		if stored {
+			done++
+		}
+	}
 	return done, nil
 }
 
