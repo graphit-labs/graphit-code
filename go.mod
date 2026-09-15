@@ -7,7 +7,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/apache/arrow-go/v18 v18.6.0
 	github.com/apache/arrow/go/v17 v17.0.0
-	github.com/aws/aws-sdk-go-v2 v1.43.7
+	github.com/aws/aws-sdk-go-v2 v1.46.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.38
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.7
@@ -69,7 +69,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/signin v1.5.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.33.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.38.7 // indirect
-	github.com/aws/smithy-go v1.27.8 // indirect
+	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
