@@ -270,6 +270,13 @@ The Graphit Observatory groups routes by intent:
 
 Always verify the active workspace before interpreting explorer data. The selected workspace is persisted between browser sessions.
 
+Hub Submit and Upload publish from the active project; the Global Registry is the discovery view,
+not a publication owner. To upload compiled code or documentation manually, first export an
+importable package: `graphit ast export --format package` creates `.ast`, and
+`graphit knowledge export --format package` creates `.knowledge`. Knowledge can instead be exported
+for people and tools with `--format okf` or `--format obsidian`; those directories are not accepted
+as native Hub uploads. Other file artifact types continue to use `.zip`.
+
 Light and dark modes share the same semantic hierarchy. On mobile, the global navigation becomes a drawer and explorer rails can be collapsed.
 
 ## Local and shared data

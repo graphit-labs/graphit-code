@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Plus, Trash2, Globe, Folder } from 'lucide-react'
+import { X, Plus, Trash2 } from 'lucide-react'
 import { cn, bumpPatch } from '@/lib/utils'
 import type { InstalledArtifact } from '@/api/hub'
 
@@ -24,7 +24,6 @@ export function SubmitModal({
   onSubmit,
   onClose,
 }: SubmitModalProps) {
-  const [scope, setScope] = useState<'global' | 'project'>('project')
   const [name, setName] = useState('')
   const [version, setVersion] = useState('1.0.0')
   const [description, setDescription] = useState('')
@@ -34,12 +33,9 @@ export function SubmitModal({
   const [loading, setLoading] = useState(false)
 
   const isUpdate = !!(artifact?.published)
-  const existingScope = (artifact as unknown as Record<string, unknown>)?.project_id ? 'project' : 'global'
-
   useEffect(() => {
     if (!open || !artifact) return
     queueMicrotask(() => {
-      setScope(isUpdate ? existingScope : 'project')
       setName(artifact.registry_name || artifact.local_id || '')
       setVersion(isUpdate ? bumpPatch(artifact.registry_version || '1.0.0') : '1.0.0')
       setDescription(artifact.registry_description || '')
@@ -65,7 +61,6 @@ export function SubmitModal({
         tags,
         author: author || undefined,
         path: artifact.path || undefined,
-        global: scope === 'global',
         dependencies: deps.filter((d) => d.id),
       })
     } finally {
@@ -100,35 +95,6 @@ export function SubmitModal({
             ? `Update "${artifact.local_id}" (${artifact.type}) in the registry.`
             : `Publish "${artifact.local_id}" (${artifact.type}) to the registry.`}
         </p>
-
-        {}
-        <div className="mb-4 relative z-10">
-          <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Scope</label>
-          <div className="flex gap-2.5">
-            <button
-              onClick={() => setScope('global')}
-              className={cn(
-                'flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 hover:scale-[1.01]',
-                scope === 'global'
-                  ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
-                  : 'bg-background/40 hover:bg-accent/45 border-border/40 text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Globe className="w-3.5 h-3.5" /> Global Registry
-            </button>
-            <button
-              onClick={() => setScope('project')}
-              className={cn(
-                'flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 flex items-center justify-center gap-1.5 hover:scale-[1.01]',
-                scope === 'project'
-                  ? 'bg-primary/10 text-primary border-primary/30 shadow-sm'
-                  : 'bg-background/40 hover:bg-accent/45 border-border/40 text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Folder className="w-3.5 h-3.5" /> Current Project
-            </button>
-          </div>
-        </div>
 
         <div className="grid grid-cols-2 gap-3 mb-3 relative z-10">
           <FormField label="Display Name">

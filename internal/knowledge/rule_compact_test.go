@@ -15,7 +15,7 @@ func TestKnowledgeSkillCompactContract(t *testing.T) {
 		"Task history supplements Knowledge", "If Task is disabled or its tools are unavailable, continue the Knowledge workflow",
 		"graphit_knowledge_search", "graphit_wiki_search", "graphit_wiki_browse", "graphit_wiki_xrefs", "graphit_wiki_log",
 		"graphit_wiki_source", "graphit_wiki_embed", "graphit_knowledge_list", "graphit_knowledge_lint", "graphit_knowledge_schema",
-		"graphit_knowledge_index", "graphit_knowledge_remove", "graphit_knowledge_sync",
+		"graphit_knowledge_index", "graphit_knowledge_export", "graphit_knowledge_remove", "graphit_knowledge_sync",
 		"graphit_cluster_projects",
 		"graphit_daemon_status", "graphit_sync",
 	} {
@@ -29,7 +29,7 @@ func TestKnowledgeSkillCompactContract(t *testing.T) {
 	if len(content) > 6500 {
 		t.Fatalf("Knowledge skill exceeded its token budget: %d bytes", len(content))
 	}
-	for _, obsolete := range []string{"graphit_knowledge_export", "graphit_knowledge_install", "graphit_daemon_stop"} {
+	for _, obsolete := range []string{"graphit_knowledge_install", "graphit_daemon_stop"} {
 		if strings.Contains(content, obsolete) {
 			t.Fatalf("Knowledge skill advertises unsupported or unrelated tool %q", obsolete)
 		}

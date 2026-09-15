@@ -109,9 +109,23 @@ func TestASTExportDefaultOutputUsesProjectRuntime(t *testing.T) {
 	if flag == nil {
 		t.Fatal("output flag is missing")
 	}
-	want := brand.ProjectRuntimePath(".", "ast", "export")
+	want := ""
 	if flag.DefValue != want {
 		t.Fatalf("output default = %q, want %q", flag.DefValue, want)
+	}
+	if format := cmd.Flags().Lookup("format"); format == nil || format.Usage != "Export format (obsidian, package)" {
+		t.Fatalf("unexpected AST export format flag: %#v", format)
+	}
+	if noSources := cmd.Flags().Lookup("no-sources"); noSources != nil {
+		t.Fatal("legacy --no-sources bundle flag is still registered")
+	}
+}
+
+func TestKnowledgeExportFormats(t *testing.T) {
+	cmd := newKnowledgeExportCmd()
+	format := cmd.Flags().Lookup("format")
+	if format == nil || format.Usage != "Export format (package, okf, obsidian)" {
+		t.Fatalf("unexpected Knowledge export format flag: %#v", format)
 	}
 }
 

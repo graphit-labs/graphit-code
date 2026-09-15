@@ -2,20 +2,23 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { showToast } from '@/hooks/useToast'
 import { hubApi } from '@/api/hub'
-import { CloudUpload, Plus, Trash2, Globe, FolderOpen, Wand2 } from 'lucide-react'
+import { CloudUpload, Plus, Trash2, Wand2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TYPES = ['rule', 'skill', 'agent', 'command', 'knowledge', 'ast', 'mcp', 'power', 'language', 'framework']
 
-type UploadScope = 'global' | 'project'
-
 interface Dep { type: string; id: string; version: string }
+
+function uploadExtension(type: string) {
+  if (type === 'ast') return '.ast'
+  if (type === 'knowledge') return '.knowledge'
+  return '.zip'
+}
 
 export default function UploadPage() {
   const { webMode, activeAgent, activeProjectDir } = useAppStore()
 
   const [file, setFile] = useState<File | null>(null)
-  const [scope, setScope] = useState<UploadScope>('project')
   const [artifactId, setArtifactId] = useState('')
   const [name, setName] = useState('')
   const [version, setVersion] = useState('1.0.0')
@@ -27,6 +30,7 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const acceptedExtension = uploadExtension(type)
 
   useEffect(() => {
     if (!webMode) {
@@ -38,13 +42,19 @@ export default function UploadPage() {
     e.preventDefault()
     setDragging(false)
     const f = e.dataTransfer.files[0]
-    if (f && f.name.endsWith('.zip')) setFile(f)
-    else showToast('Only .zip files are accepted', 'error')
-  }, [])
+    if (f && f.name.toLowerCase().endsWith(acceptedExtension)) setFile(f)
+    else showToast(`Artifact type ${type || 'selected'} requires a ${acceptedExtension} file`, 'error')
+  }, [acceptedExtension, type])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
-    if (f) setFile(f)
+    if (!f) return
+    if (!f.name.toLowerCase().endsWith(acceptedExtension)) {
+      showToast(`Artifact type ${type || 'selected'} requires a ${acceptedExtension} file`, 'error')
+      e.target.value = ''
+      return
+    }
+    setFile(f)
   }
 
   const addDep = () => setDeps((d) => [...d, { type: '', id: '', version: 'latest' }])
@@ -54,8 +64,8 @@ export default function UploadPage() {
 
   const handleSubmit = async () => {
     const isPower = type === 'power'
-    if (!isPower && !file) { showToast('Please select a .zip file', 'error'); return }
-    if (!artifactId && !type) { showToast('Artifact ID or type is required', 'error'); return }
+    if (!isPower && !file) { showToast(`Please select a ${acceptedExtension} file`, 'error'); return }
+    if (!artifactId || !type) { showToast('Artifact ID and type are required', 'error'); return }
     setLoading(true)
     try {
       const formData = new FormData()
@@ -67,7 +77,6 @@ export default function UploadPage() {
       formData.append('description', description)
       formData.append('tags', tags)
       formData.append('author', author)
-      formData.append('scope', scope)
       formData.append('agent', activeAgent)
       formData.append('dependencies', JSON.stringify(deps.filter((d) => d.id)))
       if (activeProjectDir) formData.append('project_dir', activeProjectDir)
@@ -101,7 +110,7 @@ export default function UploadPage() {
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Hub / publish</p>
           <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Upload Artifact</h1>
           <p className="text-[14px] text-muted-foreground mt-1 leading-relaxed">
-            Upload a <strong className="text-foreground font-semibold">.zip</strong> file to publish a new artifact or update an existing one. Choose scope below.
+            Import an exported <strong className="text-foreground font-semibold">.ast</strong> or <strong className="text-foreground font-semibold">.knowledge</strong> package, or upload a <strong className="text-foreground font-semibold">.zip</strong> for other artifact types. Publication belongs to the current project.
           </p>
         </div>
       </div>
@@ -133,37 +142,14 @@ export default function UploadPage() {
             <CloudUpload className="w-6 h-6 text-muted-foreground opacity-80" />
           </div>
           <p className="text-[14px] text-muted-foreground">
-            Drag & drop your <strong className="text-foreground font-semibold">.zip</strong> file here, or <span className="text-primary font-semibold hover:underline">browse files</span>
+            Drag & drop your <strong className="text-foreground font-semibold">{acceptedExtension}</strong> file here, or <span className="text-primary font-semibold hover:underline">browse files</span>
           </p>
           {file && (
             <p className="mt-4 text-xs font-semibold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 shadow-sm">
               Selected: {file.name}
             </p>
           )}
-          <input ref={fileRef} type="file" accept=".zip" onChange={handleFileSelect} className="hidden" />
-        </div>
-
-        {}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-2.5">Scope</label>
-          <div className="flex gap-3">
-            {(['global', 'project'] as UploadScope[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => setScope(s)}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-semibold border transition-all duration-200',
-                  scope === s
-                    ? 'bg-primary/10 text-primary border-primary/30 shadow-[0_2px_12px_rgba(0,0,0,0.02)]'
-                    : 'bg-background/40 hover:bg-accent/45 border-border/40 text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {s === 'global'
-                  ? <><Globe className="w-4 h-4" /> Global Registry</>
-                  : <><FolderOpen className="w-4 h-4" /> Current Project</>}
-              </button>
-            ))}
-          </div>
+          <input ref={fileRef} type="file" accept={acceptedExtension} onChange={handleFileSelect} className="hidden" />
         </div>
 
         {}
@@ -175,7 +161,7 @@ export default function UploadPage() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Type</label>
-              <select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>
+              <select value={type} onChange={(e) => { setType(e.target.value); setFile(null) }} className={inputCls}>
                 <option value="">— Select type —</option>
                 {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>

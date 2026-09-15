@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
@@ -64,6 +65,13 @@ type knowledgeListInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
+type knowledgeExportInput struct {
+	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Context    string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
+	Format     string `json:"format" jsonschema:"Export format: package, okf, or obsidian (required)"`
+	Output     string `json:"output" jsonschema:"Output file or directory path (required)"`
+}
+
 func registerKnowledgeTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "index"),
@@ -109,6 +117,45 @@ func registerKnowledgeTools(server *mcp.Server) {
 			return toonResult(result)
 		}
 		return jsonResult(result)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("knowledge", "export"),
+		Description: "Export Knowledge as an importable .knowledge package, Open Knowledge Format, or an Obsidian vault.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeExportInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		if input.Output == "" {
+			return errResult(fmt.Errorf("output is required"))
+		}
+		outputPath := input.Output
+		if input.Format == "package" {
+			outputPath = artifactpackage.EnsureExtension(outputPath, ".knowledge")
+		}
+		absOutput, err := filepath.Abs(outputPath)
+		if err != nil {
+			return errResult(err)
+		}
+		wikiDir := resolveWikiDir("knowledge", projectDir, input.Context)
+		switch input.Format {
+		case "package":
+			if err := wiki.ExportPackage(ctx, wikiDir, absOutput); err != nil {
+				return errResult(err)
+			}
+		case "okf":
+			if _, err := wiki.ExportOKF(ctx, wikiDir, absOutput, "knowledge"); err != nil {
+				return errResult(err)
+			}
+		case "obsidian":
+			if _, err := wiki.ExportObsidian(ctx, wikiDir, absOutput, "knowledge"); err != nil {
+				return errResult(err)
+			}
+		default:
+			return errResult(fmt.Errorf("unsupported format %q (use package, okf, or obsidian)", input.Format))
+		}
+		return textResult(fmt.Sprintf("Exported successfully to %s", absOutput))
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

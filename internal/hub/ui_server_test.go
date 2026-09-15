@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 )
 
 func newTestUIServer(t *testing.T) *UIServer {
@@ -224,6 +226,115 @@ func TestExtractZip(t *testing.T) {
 			t.Fatalf("extractZip failed: %v", err)
 		}
 	})
+
+	t.Run("rejects traversal", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		zipPath := filepath.Join(dir, "traversal.zip")
+		var buf bytes.Buffer
+		w := zip.NewWriter(&buf)
+		f, _ := w.Create("../outside.txt")
+		_, _ = f.Write([]byte("escape"))
+		_ = w.Close()
+		_ = os.WriteFile(zipPath, buf.Bytes(), 0o644)
+		if err := extractZip(zipPath, filepath.Join(dir, "extracted")); err == nil || !strings.Contains(err.Error(), "zip slip") {
+			t.Fatalf("traversal error = %v", err)
+		}
+	})
+
+	t.Run("rejects symbolic links", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		zipPath := filepath.Join(dir, "symlink.zip")
+		var buf bytes.Buffer
+		w := zip.NewWriter(&buf)
+		header := &zip.FileHeader{Name: "link"}
+		header.SetMode(os.ModeSymlink | 0o777)
+		f, _ := w.CreateHeader(header)
+		_, _ = f.Write([]byte("target"))
+		_ = w.Close()
+		_ = os.WriteFile(zipPath, buf.Bytes(), 0o644)
+		if err := extractZip(zipPath, filepath.Join(dir, "extracted")); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+			t.Fatalf("symlink error = %v", err)
+		}
+	})
+}
+
+func TestValidateUploadFilenameMatchesArtifactType(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		artifactType string
+		filename     string
+		wantErr      bool
+	}{
+		{"ast", "service.ast", false},
+		{"ast", "service.zip", true},
+		{"knowledge", "docs.knowledge", false},
+		{"knowledge", "docs.ast", true},
+		{"rule", "rules.zip", false},
+		{"rule", "rules.knowledge", true},
+	} {
+		err := validateUploadFilename(tc.artifactType, tc.filename)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("validateUploadFilename(%q, %q) error = %v, wantErr %v", tc.artifactType, tc.filename, err, tc.wantErr)
+		}
+	}
+}
+
+func TestValidateExtractedUploadChecksPackageEnvelopeAndNativeStore(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		artifactType string
+		member       string
+		files        map[string]string
+	}{
+		{
+			artifactType: "ast",
+			member:       "graph.icebug",
+			files: map[string]string{
+				"icebug.json":   `{"icebug_disk_version":"v1"}`,
+				"schema.cypher": "RETURN 1;",
+			},
+		},
+		{
+			artifactType: "knowledge",
+			member:       "index.lance",
+			files:        map[string]string{"marker": "native index"},
+		},
+	} {
+		tc := tc
+		t.Run(tc.artifactType, func(t *testing.T) {
+			source := filepath.Join(t.TempDir(), tc.member)
+			if err := os.MkdirAll(source, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for name, body := range tc.files {
+				if err := os.WriteFile(filepath.Join(source, name), []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			archive := filepath.Join(t.TempDir(), "upload."+tc.artifactType)
+			if err := artifactpackage.Write(archive, tc.artifactType, []artifactpackage.Member{{
+				SourcePath: source, PackagePath: tc.member, Required: true,
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			extracted := filepath.Join(t.TempDir(), "extracted")
+			if err := extractZip(archive, extracted); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateExtractedUpload(tc.artifactType, extracted); err != nil {
+				t.Fatalf("valid package rejected: %v", err)
+			}
+			otherType := "ast"
+			if tc.artifactType == "ast" {
+				otherType = "knowledge"
+			}
+			if err := validateExtractedUpload(otherType, extracted); err == nil {
+				t.Fatal("package type mismatch was accepted")
+			}
+		})
+	}
 }
 
 func TestIsAllowedOrigin(t *testing.T) {

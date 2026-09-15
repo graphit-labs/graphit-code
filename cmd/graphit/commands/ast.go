@@ -325,18 +325,16 @@ Examples:
 func newASTExportCmd() *cobra.Command {
 	var format string
 	var outputDir string
-	var noSources bool
 
 	cmd := &cobra.Command{
 		Use:   "export",
-		Short: "Export the AST knowledge graph (Obsidian vault or .ast bundle)",
+		Short: "Export the AST knowledge graph (Obsidian vault or importable .ast package)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runASTExport(format, outputDir, noSources)
+			return runASTExport(format, outputDir)
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "obsidian", "Export format (obsidian, bundle)")
-	cmd.Flags().StringVar(&outputDir, "output", brand.ProjectRuntimePath(".", "ast", "export"), "Output path")
-	cmd.Flags().BoolVar(&noSources, "no-sources", false, "Exclude file source content from bundle export")
+	cmd.Flags().StringVar(&format, "format", "obsidian", "Export format (obsidian, package)")
+	cmd.Flags().StringVar(&outputDir, "output", "", "Output path (format-specific default under the project runtime directory)")
 	return cmd
 }
 

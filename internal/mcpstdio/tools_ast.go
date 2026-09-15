@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -82,9 +83,8 @@ type astSourceInput struct {
 
 type astExportInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Format     string `json:"format" jsonschema:"Export format: obsidian or bundle (required)"`
-	Output     string `json:"output" jsonschema:"Output directory path where files will be exported (required)"`
-	NoSources  bool   `json:"no_sources,omitempty" jsonschema:"Do not include file source contents in bundle"`
+	Format     string `json:"format" jsonschema:"Export format: obsidian or package (required)"`
+	Output     string `json:"output" jsonschema:"Output file or directory path (required)"`
 }
 
 type astEmbedInput struct {
@@ -422,40 +422,42 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "export"),
-		Description: "Export the AST database to Obsidian markdown format or an archive bundle.",
+		Description: "Export the AST database to an Obsidian vault or an importable .ast package.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astExportInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
-
-		db, err := openASTDBWithContext(ctx, projectDir, "")
-		if err != nil {
-			return errResult(err)
+		if input.Output == "" {
+			return errResult(fmt.Errorf("output is required"))
 		}
-		defer func() { _ = db.Close() }()
 
-		absDir, err := filepath.Abs(input.Output)
+		outputPath := input.Output
+		if input.Format == "package" {
+			outputPath = artifactpackage.EnsureExtension(outputPath, ".ast")
+		}
+		absDir, err := filepath.Abs(outputPath)
 		if err != nil {
 			return errResult(err)
 		}
 
 		switch input.Format {
 		case "obsidian":
+			db, err := openASTDBWithContext(ctx, projectDir, "")
+			if err != nil {
+				return errResult(err)
+			}
+			defer func() { _ = db.Close() }()
 			exporter := ast.NewObsidianExporter(db, projectDir)
 			if err := exporter.Export(ctx, absDir); err != nil {
 				return errResult(err)
 			}
-		case "bundle":
-			opts := ast.BundleOptions{
-				StorePath: astConfigForProject(projectDir, "").StoreDir,
-				NoSources: input.NoSources,
-			}
-			if err := ast.ExportBundle(ctx, db, projectDir, absDir, opts, nil); err != nil {
+		case "package":
+			if err := ast.ExportPackage(astConfigForProject(projectDir, "").StoreDir, absDir); err != nil {
 				return errResult(err)
 			}
 		default:
-			return errResult(fmt.Errorf("unsupported format %q (use obsidian or bundle)", input.Format))
+			return errResult(fmt.Errorf("unsupported format %q (use obsidian or package)", input.Format))
 		}
 
 		return textResult(fmt.Sprintf("Exported successfully to %s", absDir))

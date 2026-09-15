@@ -81,7 +81,7 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/parsers/status", s.handleParsersStatus)
 
 	mux.HandleFunc("POST /api/export/obsidian", s.handleObsidianExport)
-	mux.HandleFunc("POST /api/export/bundle", s.handleExportBundle)
+	mux.HandleFunc("POST /api/export/package", s.handleExportPackage)
 
 	mux.HandleFunc("DELETE /api/context/{name}", s.handleDeleteContext)
 }
@@ -1155,11 +1155,10 @@ func (s *Server) handleRepoStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stats)
 }
 
-func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleExportPackage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RepoPath   string `json:"repo_path"`
 		OutputPath string `json:"output_path"`
-		NoSources  bool   `json:"no_sources"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, 400, "invalid request body")
@@ -1172,8 +1171,7 @@ func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
 		body.OutputPath = body.RepoPath + ".ast"
 	}
 
-	opts := BundleOptions{StorePath: s.storePathFor(body.RepoPath, ""), NoSources: body.NoSources}
-	if err := ExportBundle(r.Context(), s.db, body.RepoPath, body.OutputPath, opts, nil); err != nil {
+	if err := ExportPackage(s.storePathFor(body.RepoPath, ""), body.OutputPath); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}

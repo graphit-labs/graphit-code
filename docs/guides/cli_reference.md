@@ -432,10 +432,9 @@ graphit ast <subcommand> [flags]
 - `remove`: Wipe project AST or context.
   - `--context <name>`: Context name.
 - `sync`: Re-sync imported context from cache.
-- `export`: Export AST graph to Obsidian vault or `.ast` bundle.
-  - `--format <format>`: Format: `obsidian` or `bundle`.
-  - `--output <dir>`: Output path; defaults to `.graphit/runtime/ast/export/`.
-  - `--no-sources`: Exclude source code contents.
+- `export`: Export the AST graph as an Obsidian vault or an importable `.ast` package.
+  - `--format <format>`: Format: `obsidian` or `package`.
+  - `--output <path>`: Output path. The defaults are `.graphit/runtime/ast/export/` for Obsidian and `.graphit/runtime/ast/export.ast` for a package.
 - `list`: List all installed AST contexts.
 - `source <relative-path>`: Show stored source code for a file.
   - `--entity <name>`: Extract specific entity range.
@@ -480,7 +479,11 @@ graphit knowledge <subcommand> [flags]
 - `remove`: Clear knowledge graph or context.
   - `--context <name>`: Context name.
 - `sync`: Re-sync context.
-- `export`: Export wiki DB.
+- `export`: Export the compiled Knowledge index.
+  - `--format <format>`: `package` writes an importable `.knowledge` archive, `okf` writes Open Knowledge Format Markdown, and `obsidian` writes a navigable Markdown vault.
+  - `--output <path>`: Output file or directory; omitted output uses a format-specific project runtime path.
+  - `--context <name>`: Export an imported Knowledge context instead of the local project.
+  - `--project-dir <dir>`: Resolve the project from another directory.
 - `list`: List contexts.
 - `rule`: Manage knowledge rule.
 
@@ -579,6 +582,8 @@ graphit wiki <subcommand> [flags]
 - `sessions`: List or delete wiki sessions.
   - `--delete <id>`: Delete session ID.
 - `embed`: Generate or update vector embeddings for the project knowledge wiki.
+
+Export is owned by `graphit knowledge export`; `graphit wiki export` is not a command.
 
 ### `daemon`
 Controls background service lifecycle.

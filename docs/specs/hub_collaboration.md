@@ -57,6 +57,18 @@ payload exists. Name creation and rename use conditional writes; two clients can
 reserve the same normalized name. Renaming changes only the name index and project metadata and
 never moves the `v2/projects/<ULID>/` prefix.
 
+### Manual package import
+
+The Observatory Upload route does not compile AST or Knowledge input. It imports native, versioned
+packages exported by Graphit itself: `.ast` from `graphit ast export --format package` contains
+`graph.icebug/` and its available `search.lance/`; `.knowledge` from
+`graphit knowledge export --format package` contains `index.lance/`. Both are ZIP containers with a
+typed `graphit-package.json` envelope. Upload checks the filename extension against the selected
+artifact type, safely extracts the container, validates envelope format/version/type and required
+native store, and only then publishes it under the active project ULID. Other file artifact types
+continue to accept `.zip`. The Global Registry remains a catalogue; it is not an owner namespace
+selectable by Submit or Upload.
+
 ## Where installed artifacts live
 
 | Type | Local placement | Claim |

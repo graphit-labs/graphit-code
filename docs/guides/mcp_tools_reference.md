@@ -338,14 +338,13 @@ answer.
 
 ### `graphit_ast_export`
 
-**Description:** Export the AST database to Obsidian markdown format or an archive bundle.
+**Description:** Export the AST database to an Obsidian vault or an importable `.ast` package.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
-| `format` | string | ✅ | Export format: `obsidian` or `bundle` |
-| `output` | string | ✅ | Output directory path where files will be exported |
-| `no_sources` | boolean | | Do not include file source contents in bundle |
+| `format` | string | ✅ | Export format: `obsidian` or `package` |
+| `output` | string | ✅ | Output file or directory path; package output receives the `.ast` extension |
 
 ---
 
@@ -405,6 +404,19 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 | `top_k` | integer | | Maximum number of results (0 = no limit) |
 | `context` | string | | Named imported context to search |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
+
+---
+
+### `graphit_knowledge_export`
+
+**Description:** Export Knowledge as an importable `.knowledge` package, Open Knowledge Format, or an Obsidian vault.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `context` | string | | Named imported Knowledge context |
+| `format` | string | ✅ | Export format: `package`, `okf`, or `obsidian` |
+| `output` | string | ✅ | Output file or directory path; package output receives the `.knowledge` extension |
 
 ---
 

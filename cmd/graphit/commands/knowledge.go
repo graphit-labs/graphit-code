@@ -20,6 +20,7 @@ installed through the Hub and queried here.
 
 Commands:
   index    Index the project docs/ into the knowledge graph and wiki
+  export   Export an importable package, OKF, or Obsidian vault
   query    Query the knowledge graph (Cypher or AI natural language)
   remove   Remove the project knowledge graph or an imported context
   sync     Rebuild the local project wiki
@@ -28,6 +29,7 @@ Commands:
 
 Examples:
   ` + brand.BinName() + ` knowledge index --louvain
+  ` + brand.BinName() + ` knowledge export --format package
   ` + brand.BinName() + ` knowledge query "how does auth work?" --ai
   ` + brand.BinName() + ` hub install team-platform --type knowledge
   ` + brand.BinName() + ` knowledge remove --context team-platform
@@ -36,6 +38,7 @@ Examples:
 
 	cmd.AddCommand(
 		newKnowledgeIndexCmd(),
+		newKnowledgeExportCmd(),
 		newKnowledgeWatchCmd(),
 		newKnowledgeQueryCmd(),
 		newKnowledgeSearchCmd(),
@@ -47,6 +50,37 @@ Examples:
 		newModuleRuleCmd("knowledge"),
 	)
 
+	return cmd
+}
+
+func newKnowledgeExportCmd() *cobra.Command {
+	var (
+		format      string
+		contextName string
+		projectDir  string
+		outputPath  string
+	)
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export Knowledge as an importable package, OKF, or Obsidian vault",
+		Long: `Export the compiled Knowledge index in one of three formats:
+
+  package   Native, queryable .knowledge package accepted by Hub Upload
+  okf       Open Knowledge Format Markdown directory
+  obsidian  Navigable Obsidian Markdown vault
+
+Examples:
+  ` + brand.BinName() + ` knowledge export --format package
+  ` + brand.BinName() + ` knowledge export --format okf --output ./knowledge-okf
+  ` + brand.BinName() + ` knowledge export --format obsidian --output ./knowledge-vault`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runKnowledgeExport(format, contextName, projectDir, outputPath)
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "okf", "Export format (package, okf, obsidian)")
+	cmd.Flags().StringVar(&contextName, "context", "", "Imported knowledge context name")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "Project directory (defaults to the working directory)")
+	cmd.Flags().StringVar(&outputPath, "output", "", "Output file or directory (format-specific default under the project runtime directory)")
 	return cmd
 }
 

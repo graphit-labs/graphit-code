@@ -795,28 +795,28 @@ knowledge wiki not found
 
 **Symptoms:**
 ```
-hub not configured: ...
-project not initialised
+knowledge export: no index at ...
+knowledge export: the index at ... is empty
 ```
 
-**Cause:** Knowledge export publishes through the active provider's S3 store. A Broker with S3
-disabled validly omits `graphit-s3-credentials-v2`, so login works and ordinary storage is local,
-but remote export is unavailable. For export, the Broker must advertise the capability, authorize
-the principal, and issue a valid restricted STS session; direct providers must resolve their
-configured credentials.
+**Cause:** `graphit knowledge export` reads the compiled local Knowledge index (or the named
+installed context). The project or context has not been indexed yet, or its native `index.lance/`
+store is incomplete. Export does not publish directly and does not require Hub credentials.
 
 **Solutions:**
-1. Initialize the project if needed:
+1. Build or rebuild the local Knowledge index:
    ```bash
-   graphit init
+   graphit knowledge index
    ```
-2. Configure a named broker provider and login:
+2. For an installed context, verify its name and synchronize it before exporting:
    ```bash
-   graphit provider add company --type oidc --issuer https://id.example/realms/acme \
-     --client-id graphit-cli --broker-endpoint https://broker.example.com \
-     --embedding-mode broker --rerank-mode broker
-   graphit login --provider company --profile alice
+   graphit knowledge list
+   graphit knowledge sync --context <name>
+   graphit knowledge export --context <name> --format package
    ```
+3. Use `--format package` for the `.knowledge` file accepted by Hub Upload. The `okf` and
+   `obsidian` formats create Markdown directories for people and tools; they are not importable
+   native packages.
 
 ---
 

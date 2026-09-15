@@ -179,7 +179,7 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 | `graphit_ast_remove` | Remove an imported context or clear the main project graph. |
 | `graphit_ast_list` | List all imported AST contexts and their paths. |
 | `graphit_ast_source` | Retrieve source code with head/tail, line ranges, entity extraction, and pattern search with context lines. |
-| `graphit_ast_export` | Export the AST database in Obsidian markdown or archive bundle format. |
+| `graphit_ast_export` | Export the AST database as an Obsidian vault or importable `.ast` package. |
 | `graphit_ast_embed` | Run the embedding cycle to precompute/update semantic embeddings. |
 | `graphit_ast_search` | Hybrid search combining BM25 full-text and semantic vector search via Reciprocal Rank Fusion. Modes: `hybrid`, `fts`, `semantic`. |
 
@@ -188,6 +188,7 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 | Tool | Description |
 |---|---|
 | `graphit_knowledge_index` | Index docs/ into the knowledge graph and regenerate the wiki. |
+| `graphit_knowledge_export` | Export an importable `.knowledge` package, OKF, or an Obsidian vault. |
 | `graphit_knowledge_search` | BM25 keyword search across the knowledge wiki; returns ranked page titles for selective reading. |
 | `graphit_knowledge_schema` | Show the knowledge graph schema and wiki directory info. |
 | `graphit_knowledge_lint` | Audit the wiki for structural and staleness issues. |

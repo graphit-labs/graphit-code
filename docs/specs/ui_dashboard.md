@@ -179,6 +179,13 @@ The Hub routes present:
 - artifact details and version metadata;
 - install, update, uninstall, and publish actions where supported.
 
+Submit and Upload always publish under the active project's publisher ULID; there is no selectable
+global artifact-owner namespace. The Global Registry remains the discovery catalogue. Manual AST
+and Knowledge upload is an import operation: AST accepts only a `.ast` file produced by
+`graphit ast export --format package`, Knowledge accepts only a `.knowledge` file produced by
+`graphit knowledge export --format package`, and other file artifacts use `.zip`. The server
+validates the package envelope, version, declared type, and native store before publication.
+
 Remote operations depend on configured Hub storage, a trusted subject, and current project grants.
 The UI never fetches an all-project export implicitly. It distinguishes an empty authorized result
 from unavailable authentication, forbidden access, and a stale offline cache. Selecting a cached

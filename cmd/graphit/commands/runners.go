@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher"
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -982,42 +983,40 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 	return nil
 }
 
-func runASTExport(format, outputDir string, noSources bool) error {
+func runASTExport(format, outputPath string) error {
 	p := output.NewPrinter("")
-
-	db, err := newASTBackend()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-
 	repoPath, _ := os.Getwd()
-	absDir, _ := filepath.Abs(outputDir)
 
 	switch format {
 	case "obsidian":
+		if outputPath == "" {
+			outputPath = brand.ProjectRuntimePath(".", "ast", "export")
+		}
+		absDir, _ := filepath.Abs(outputPath)
+		db, err := newASTBackend()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
 		p.Info("Exporting Obsidian vault → %s", absDir)
 		exporter := ast.NewObsidianExporter(db, repoPath)
 		if err := exporter.Export(context.Background(), absDir); err != nil {
 			return err
 		}
 		p.Success("Exported to %s", absDir)
-	case "bundle":
-		p.Info("Exporting .ast bundle → %s", absDir)
-		opts := ast.BundleOptions{
-			StorePath: ast.DefaultLadybugConfig().StoreDir,
-			NoSources: noSources,
+	case "package":
+		if outputPath == "" {
+			outputPath = brand.ProjectRuntimePath(".", "ast", "export.ast")
 		}
-		if err := ast.ExportBundle(context.Background(), db, repoPath, absDir, opts, nil); err != nil {
+		outputPath = artifactpackage.EnsureExtension(outputPath, ".ast")
+		absPath, _ := filepath.Abs(outputPath)
+		p.Info("Exporting importable AST package → %s", absPath)
+		if err := ast.ExportPackage(ast.LadybugConfigFor(repoPath).StoreDir, absPath); err != nil {
 			return err
 		}
-		if noSources {
-			p.Success("Exported to %s (structure only, --no-sources)", absDir)
-		} else {
-			p.Success("Exported to %s (with sources)", absDir)
-		}
+		p.Success("Exported to %s", absPath)
 	default:
-		return fmt.Errorf("unsupported format %q (supported: obsidian, bundle)", format)
+		return fmt.Errorf("unsupported format %q (supported: obsidian, package)", format)
 	}
 	return nil
 }
@@ -2390,7 +2389,7 @@ func runWikiSource(page, contextName, projectDir string, req textslice.Request) 
 	return nil
 }
 
-func runWikiExport(contextName, projectDir, outDir string) error {
+func runKnowledgeExport(format, contextName, projectDir, outputPath string) error {
 	ctx := context.Background()
 	p := output.NewPrinter("")
 
@@ -2407,17 +2406,41 @@ func runWikiExport(contextName, projectDir, outDir string) error {
 	}
 	wikiDir := knowledgeWikiDir(contextName, abs)
 
-	p.Running("Exporting the knowledge wiki to Markdown…")
-	result, err := wiki.ExportMarkdown(ctx, wikiDir, outDir, "knowledge")
-	if err != nil {
-		return fmt.Errorf("export failed: %w", err)
+	switch format {
+	case "package":
+		if outputPath == "" {
+			outputPath = brand.ProjectRuntimePath(abs, "knowledge", "export.knowledge")
+		}
+		outputPath = artifactpackage.EnsureExtension(outputPath, ".knowledge")
+		p.Running("Exporting importable Knowledge package…")
+		if err := wiki.ExportPackage(ctx, wikiDir, outputPath); err != nil {
+			return fmt.Errorf("export failed: %w", err)
+		}
+		p.Success("Exported to %s", outputPath)
+		return nil
+	case "okf", "obsidian":
+		if outputPath == "" {
+			outputPath = brand.ProjectRuntimePath(abs, "knowledge", "export-"+format)
+		}
+		p.Running("Exporting Knowledge as %s…", format)
+		var result *wiki.ExportResult
+		var err error
+		if format == "okf" {
+			result, err = wiki.ExportOKF(ctx, wikiDir, outputPath, "knowledge")
+		} else {
+			result, err = wiki.ExportObsidian(ctx, wikiDir, outputPath, "knowledge")
+		}
+		if err != nil {
+			return fmt.Errorf("export failed: %w", err)
+		}
+		p.Success("Exported %d page(s) to %s", result.Pages, result.OutputDir)
+		if result.HasLog {
+			p.Step("log.md written from the sync history")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported format %q (supported: package, okf, obsidian)", format)
 	}
-
-	p.Success("Exported %d page(s) to %s", result.Pages, result.OutputDir)
-	if result.HasLog {
-		p.Step("log.md written from the sync history")
-	}
-	return nil
 }
 
 func runWikiBrowse(docType string, limit int, aiOptimized bool) error {

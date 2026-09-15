@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
+	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
@@ -18,7 +20,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
+
+const maxExtractedUploadSize int64 = 512 << 20
 
 func dirHasEntries(dir string) bool {
 	info, err := os.Stat(dir)
@@ -559,7 +564,6 @@ func (s *UIServer) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		Tags         string `json:"tags"`
 		Author       string `json:"author"`
 		Path         string `json:"path"`
-		Global       bool   `json:"global"`
 		ProjectDir   string `json:"project_dir"`
 		Dependencies []struct {
 			ID      string `json:"id"`
@@ -620,7 +624,7 @@ func (s *UIServer) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		meta.Author = &Author{Username: body.Author}
 	}
 
-	if body.Global || body.ProjectDir == "" {
+	if body.ProjectDir == "" {
 		writeJSONUI(w, map[string]any{"success": false, "error": "project_dir is required; Hub v2 has no global artifact namespace"})
 		return
 	}
@@ -707,6 +711,17 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if artType == "" {
 		artType = "rule"
 	}
+	recordDir := r.FormValue("project_dir")
+	if recordDir == "" {
+		writeJSONUI(w, map[string]any{"success": false, "error": "project_dir is required; Hub v2 publishes artifacts from a project"})
+		return
+	}
+	lockPath := filepath.Join(recordDir, brand.LockFileName())
+	lf, lockErr := LoadLockfile(lockPath)
+	if lockErr != nil || lf == nil || lf.Project.ID == "" {
+		writeJSONUI(w, map[string]any{"success": false, "error": "publishing requires an initialized project"})
+		return
+	}
 
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("upload"))
 	if err != nil {
@@ -726,6 +741,10 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if file != nil {
 		defer func() { _ = file.Close() }()
 
+		if err := validateUploadFilename(artType, header.Filename); err != nil {
+			writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+			return
+		}
 		safeFilename := filepath.Base(header.Filename)
 		if safeFilename == "." || safeFilename == ".." {
 			safeFilename = "upload"
@@ -743,14 +762,16 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = out.Close()
 
-		if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-			extractDir := filepath.Join(tmpDir, "extracted")
-			if err := extractZip(destPath, extractDir); err != nil {
-				writeJSONUI(w, map[string]any{"success": false, "error": "failed to extract zip: " + err.Error()})
-				return
-			}
-			tmpDir = extractDir
+		extractDir := filepath.Join(tmpDir, "extracted")
+		if err := extractZip(destPath, extractDir); err != nil {
+			writeJSONUI(w, map[string]any{"success": false, "error": "failed to extract upload: " + err.Error()})
+			return
 		}
+		if err := validateExtractedUpload(artType, extractDir); err != nil {
+			writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+			return
+		}
+		tmpDir = extractDir
 	}
 
 	var tagList []string
@@ -785,24 +806,10 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 		Description:  description,
 		Tags:         tagList,
 		Dependencies: deps,
+		ProjectID:    lf.Project.ID,
 	}
 	if author != "" {
 		meta.Author = &Author{Username: author}
-	}
-
-	scope := r.FormValue("scope")
-	isGlobal := scope == "global"
-	recordDir := r.FormValue("project_dir")
-
-	if !isGlobal {
-		if recordDir == "" {
-			writeJSONUI(w, map[string]any{"success": false, "error": "project_dir is required for project-scoped uploads"})
-			return
-		}
-		lockPath := filepath.Join(recordDir, brand.LockFileName())
-		if lf, err := LoadLockfile(lockPath); err == nil && lf != nil && lf.Project.ID != "" {
-			meta.ProjectID = lf.Project.ID
-		}
 	}
 
 	ctx := r.Context()
@@ -819,6 +826,43 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONUI(w, map[string]any{"success": true})
+}
+
+func validateUploadFilename(artifactType, filename string) error {
+	want := ".zip"
+	switch artifactType {
+	case string(TypeAST):
+		want = ".ast"
+	case string(TypeKnowledge):
+		want = ".knowledge"
+	}
+	if !strings.EqualFold(filepath.Ext(filename), want) {
+		return fmt.Errorf("artifact type %q requires a %s upload", artifactType, want)
+	}
+	return nil
+}
+
+func validateExtractedUpload(artifactType, root string) error {
+	switch artifactType {
+	case string(TypeAST):
+		if _, err := artifactpackage.Validate(root, "ast"); err != nil {
+			return fmt.Errorf("invalid AST package: %w", err)
+		}
+		if !ast.HasIcebugBundle(root) {
+			return fmt.Errorf("invalid AST package: missing %s", filepath.Join(ast.IcebugBundleDir, "icebug.json"))
+		}
+		if info, err := os.Stat(filepath.Join(root, ast.IcebugBundleDir, ast.IcebugSchemaFile)); err != nil || info.IsDir() {
+			return fmt.Errorf("invalid AST package: missing %s", filepath.Join(ast.IcebugBundleDir, ast.IcebugSchemaFile))
+		}
+	case string(TypeKnowledge):
+		if _, err := artifactpackage.Validate(root, "knowledge"); err != nil {
+			return fmt.Errorf("invalid Knowledge package: %w", err)
+		}
+		if info, err := os.Stat(wiki.WikiIndexPath(root)); err != nil || !info.IsDir() {
+			return fmt.Errorf("invalid Knowledge package: missing %s", wiki.WikiIndexDirName)
+		}
+	}
+	return nil
 }
 
 func CorsWrap(h http.Handler) http.Handler {
@@ -908,7 +952,15 @@ func extractZip(zipPath, destDir string) error {
 		return err
 	}
 
+	var extracted int64
 	for _, f := range r.File {
+		if f.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive contains a symbolic link: %s", f.Name)
+		}
+		if f.UncompressedSize64 > uint64(maxExtractedUploadSize) || extracted > maxExtractedUploadSize-int64(f.UncompressedSize64) {
+			return fmt.Errorf("archive expands beyond %d bytes", maxExtractedUploadSize)
+		}
+		extracted += int64(f.UncompressedSize64)
 
 		target := filepath.Join(destDir, f.Name)
 		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {

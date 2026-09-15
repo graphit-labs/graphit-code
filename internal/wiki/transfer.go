@@ -13,23 +13,23 @@ func StagePublishedIndex(ctx context.Context, wikiDir, stagingRoot string) (int6
 	src := WikiIndexPath(wikiDir)
 	info, err := os.Stat(src)
 	if err != nil || !info.IsDir() {
-		return 0, fmt.Errorf("wiki export: no index at %s", src)
+		return 0, fmt.Errorf("knowledge export: no index at %s", src)
 	}
 	// Opened and closed first, so a corrupt index fails here rather than on the consumer's first
 	// query. Nothing is written; this is a liveness check on what is about to be published.
 	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
-		return 0, fmt.Errorf("wiki export: the index does not open: %w", err)
+		return 0, fmt.Errorf("knowledge export: the index does not open: %w", err)
 	}
 	if !db.HasContent(ctx) {
 		_ = db.Close()
-		return 0, fmt.Errorf("wiki export: the index at %s is empty", src)
+		return 0, fmt.Errorf("knowledge export: the index at %s is empty", src)
 	}
 	_ = db.Close()
 
 	n, err := copyDirTree(src, WikiIndexPath(stagingRoot))
 	if err != nil {
-		return 0, fmt.Errorf("wiki export: %w", err)
+		return 0, fmt.Errorf("knowledge export: %w", err)
 	}
 	return n, nil
 }
