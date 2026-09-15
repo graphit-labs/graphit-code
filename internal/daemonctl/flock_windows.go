@@ -5,40 +5,42 @@ package daemonctl
 import (
 	"errors"
 	"os"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
+// DaemonPIDLockOffset is outside the PID stamp so status readers can inspect it.
+const DaemonPIDLockOffset = 1024
+
 func flockProbe(f *os.File) error {
-	ol := new(windows.Overlapped)
+	ol := &windows.Overlapped{Offset: DaemonPIDLockOffset}
 	return windows.LockFileEx(
 		windows.Handle(f.Fd()),
 		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 		0,
 		1, 0,
-		(*windows.Overlapped)(unsafe.Pointer(ol)),
+		ol,
 	)
 }
 
 func flockProbeRelease(f *os.File) {
-	ol := new(windows.Overlapped)
+	ol := &windows.Overlapped{Offset: DaemonPIDLockOffset}
 	_ = windows.UnlockFileEx(
 		windows.Handle(f.Fd()),
 		0,
 		1, 0,
-		(*windows.Overlapped)(unsafe.Pointer(ol)),
+		ol,
 	)
 }
 
 func flockExclusiveBlocking(f *os.File) error {
-	ol := new(windows.Overlapped)
+	ol := &windows.Overlapped{Offset: DaemonPIDLockOffset}
 	return windows.LockFileEx(
 		windows.Handle(f.Fd()),
 		windows.LOCKFILE_EXCLUSIVE_LOCK,
 		0,
 		1, 0,
-		(*windows.Overlapped)(unsafe.Pointer(ol)),
+		ol,
 	)
 }
 

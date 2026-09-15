@@ -99,7 +99,6 @@ Things worth knowing before you set it:
 │       └── cache-state.json            TTL, ETag/revision, size, and LRU state
 ├── daemon/
 │   ├── daemon.pid                      process metadata plus the single-daemon file lock
-│   ├── daemon.pid.info                 Windows-only readable PID metadata
 │   ├── daemon.log                      daemon output
 │   ├── mcp.port                        actual streamable HTTP MCP port
 │   ├── mcp.key                         active generated or configured bearer key (mode `0600`)

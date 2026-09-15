@@ -261,6 +261,9 @@ Allows you to explore the AST code database in 3D, chat with the wiki knowledge,
 graphit ui [--repo <path>]
 ```
 
+If the Hub registry cannot initialize, the UI still starts with local project and AST
+data. Remote Hub discovery and publishing remain unavailable until the Hub works again.
+
 The server binds to `ui.host` (`127.0.0.1` by default). Browser origins use the exact,
 comma-separated `ui.allowed_origins` policy; without an override, only same-origin and
 localhost loopback origins are accepted. The server has no authentication, so a reachable

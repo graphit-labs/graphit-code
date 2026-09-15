@@ -97,7 +97,7 @@ func fileLocked(path string) bool {
 }
 
 func fileLockState(path string) (bool, error) {
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil

@@ -656,7 +656,6 @@ func runUnifiedServe(repoPath string) error {
 	reg, err := hub.NewRegistryManager(ctx)
 	if err != nil {
 		p.StepWarn("Hub registry unavailable — running in offline mode")
-		reg, _ = hub.NewRegistryManager(ctx)
 	}
 	hubSvc := hub.NewHubService(reg)
 

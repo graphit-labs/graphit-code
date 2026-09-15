@@ -181,10 +181,13 @@ func (s *UIServer) handleRegistry(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	entryPage, err := s.svc.registry.ListEntriesPage(r.Context(), "", 100, r.URL.Query().Get("cursor"))
-	if err != nil {
-		writeJSONUI(w, map[string]any{"error": err.Error()})
-		return
+	entryPage := EntryPage{Entries: []*Entry{}}
+	if s.svc.registry.IsReady() {
+		entryPage, err = s.svc.registry.ListEntriesPage(r.Context(), "", 100, r.URL.Query().Get("cursor"))
+		if err != nil {
+			writeJSONUI(w, map[string]any{"error": err.Error()})
+			return
+		}
 	}
 	entries := entryPage.Entries
 	proj, _ := lock["project"].(map[string]any)
@@ -456,6 +459,10 @@ func (s *UIServer) handleGitAuthor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *UIServer) handleProjects(w http.ResponseWriter, r *http.Request) {
+	if !s.svc.registry.IsReady() {
+		writeJSONUI(w, ProjectPage{Projects: []*Project{}})
+		return
+	}
 	projects, err := s.svc.registry.DiscoverProjects(r.Context(), 100, r.URL.Query().Get("cursor"))
 	if err != nil {
 		writeJSONUI(w, map[string]any{"error": err.Error()})

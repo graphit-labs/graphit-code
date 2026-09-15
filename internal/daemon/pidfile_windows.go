@@ -5,8 +5,8 @@ package daemon
 import (
 	"errors"
 	"os"
-	"unsafe"
 
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"golang.org/x/sys/windows"
 )
 
@@ -25,34 +25,26 @@ func pidIsAlive(pid int) bool {
 }
 
 func flockExclusive(f *os.File) error {
-	ol := new(windows.Overlapped)
+	ol := &windows.Overlapped{Offset: daemonctl.DaemonPIDLockOffset}
 	return windows.LockFileEx(
 		windows.Handle(f.Fd()),
 		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 		0,
 		1, 0,
-		(*windows.Overlapped)(unsafe.Pointer(ol)),
+		ol,
 	)
 }
 
 func flockRelease(f *os.File) {
-	ol := new(windows.Overlapped)
+	ol := &windows.Overlapped{Offset: daemonctl.DaemonPIDLockOffset}
 	_ = windows.UnlockFileEx(
 		windows.Handle(f.Fd()),
 		0,
 		1, 0,
-		(*windows.Overlapped)(unsafe.Pointer(ol)),
+		ol,
 	)
 }
 
 func flockContended(err error) bool {
 	return errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_IO_PENDING)
 }
-
-// LockFileEx denies reads of byte zero through other handles, so publish the
-// diagnostic PID separately while keeping the old lock byte for compatibility.
-func writePIDMetadata(path, content string) error {
-	return os.WriteFile(path+".info", []byte(content), 0o600)
-}
-func readPIDMetadata(path string) ([]byte, error) { return os.ReadFile(path + ".info") }
-func clearPIDMetadata(path string)                { _ = os.Remove(path + ".info") }

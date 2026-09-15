@@ -24,6 +24,39 @@ func newTestUIServer(t *testing.T) *UIServer {
 	return s
 }
 
+func TestUIServerOfflineRegistryStillServesLocalData(t *testing.T) {
+	projectDir := t.TempDir()
+	svc := NewHubService(nil)
+	if svc.registry == nil || svc.registry.IsReady() {
+		t.Fatal("nil registry should create an offline service")
+	}
+	srv, err := NewUIServerOnPort(svc, "codex", 9999)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	srv.RegisterAPIRoutes(mux)
+
+	for _, route := range []string{
+		"/api/registry?project_dir=" + projectDir,
+		"/api/project-artifacts?project_dir=" + projectDir,
+		"/api/projects",
+	} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s: status %d", route, response.Code)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: invalid JSON: %v", route, err)
+		}
+		if _, ok := body["error"]; ok {
+			t.Fatalf("%s: unexpected error response: %s", route, response.Body.String())
+		}
+	}
+}
+
 func TestWriteJSONUI(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
@@ -369,7 +402,7 @@ func TestUIServer_Port(t *testing.T) {
 	}
 }
 
-func TestUIServerHandleProjectsDoesNotFallBackToInMemoryGlobalRegistry(t *testing.T) {
+func TestUIServerHandleProjectsOffline(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
 
@@ -379,8 +412,9 @@ func TestUIServerHandleProjectsDoesNotFallBackToInMemoryGlobalRegistry(t *testin
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] == nil {
-		t.Fatalf("expected unconfigured Hub error, got %#v", resp)
+	projects, ok := resp["projects"].([]any)
+	if !ok || len(projects) != 0 {
+		t.Fatalf("expected an empty offline project list, got %#v", resp)
 	}
 }
 
@@ -399,7 +433,7 @@ func TestUIServer_handleRegistry_NoProjectDir(t *testing.T) {
 	}
 }
 
-func TestUIServerHandleRegistryDoesNotFallBackToInMemoryGlobalRegistry(t *testing.T) {
+func TestUIServerHandleRegistryOffline(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
 	dir := t.TempDir()
@@ -410,8 +444,9 @@ func TestUIServerHandleRegistryDoesNotFallBackToInMemoryGlobalRegistry(t *testin
 
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["error"] == nil {
-		t.Fatalf("expected unconfigured Hub error, got %#v", resp)
+	entries, ok := resp["entries"].([]any)
+	if !ok || len(entries) != 0 {
+		t.Fatalf("expected an empty offline registry, got %#v", resp)
 	}
 }
 

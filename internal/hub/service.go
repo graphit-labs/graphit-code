@@ -51,6 +51,12 @@ func NewUntrackedHubService(registry *RegistryManager) *HubService {
 }
 
 func NewHubService(registry *RegistryManager) *HubService {
+	if registry == nil {
+		registry = &RegistryManager{
+			entries:  make(map[ArtifactType]map[string]*Entry),
+			projects: make(map[string]*Project),
+		}
+	}
 	var tracker *EventTracker
 	if registry.IsReady() {
 		tracker = NewEventTracker(registry.Store())

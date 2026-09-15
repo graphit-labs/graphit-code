@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 )
 
@@ -23,11 +24,12 @@ func TestHandleDaemonStatus_WithRunningDaemon(t *testing.T) {
 	if err := os.MkdirAll(daemonDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	myPID := os.Getpid()
-	pidContent := fmt.Sprintf("%d\n%s\n", myPID, time.Now().UTC().Format(time.RFC3339))
-	if err := os.WriteFile(filepath.Join(daemonDir, "daemon.pid"), []byte(pidContent), 0o600); err != nil {
+	pidFile := daemon.NewPIDFile()
+	if err := pidFile.Acquire(); err != nil {
 		t.Fatal(err)
 	}
+	defer pidFile.Release()
+	myPID := os.Getpid()
 
 	logContent := "line1\nline2\nline3\n"
 	if err := os.WriteFile(filepath.Join(daemonDir, "daemon.log"), []byte(logContent), 0o644); err != nil {

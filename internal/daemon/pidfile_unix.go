@@ -27,7 +27,3 @@ func flockRelease(f *os.File) {
 func flockContended(err error) bool {
 	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
-
-func writePIDMetadata(path, content string) error { return nil }
-func readPIDMetadata(path string) ([]byte, error) { return nil, os.ErrNotExist }
-func clearPIDMetadata(path string)                {}

@@ -65,11 +65,6 @@ func (pf *PIDFile) Acquire() error {
 		return fmt.Errorf("writing pid file: %w", err)
 	}
 	_ = f.Sync()
-	if err := writePIDMetadata(pf.path, content); err != nil {
-		flockRelease(f)
-		_ = f.Close()
-		return fmt.Errorf("writing pid metadata: %w", err)
-	}
 
 	pf.lockFD = f
 	return nil
@@ -77,7 +72,6 @@ func (pf *PIDFile) Acquire() error {
 
 func (pf *PIDFile) Release() {
 	if pf.lockFD != nil {
-		clearPIDMetadata(pf.path)
 		_ = pf.lockFD.Truncate(0)
 		flockRelease(pf.lockFD)
 		_ = pf.lockFD.Close()
@@ -105,7 +99,7 @@ func (pf *PIDFile) Write() error {
 	if err != nil {
 		return err
 	}
-	return writePIDMetadata(pf.path, content)
+	return nil
 }
 
 func (pf *PIDFile) Remove() {
@@ -122,16 +116,10 @@ func (pf *PIDFile) Remove() {
 	// file open can split daemon exclusion between old and newly created files;
 	// Windows can also reject deletion of an open locked file.
 	_ = f.Truncate(0)
-	clearPIDMetadata(pf.path)
 }
 
 func (pf *PIDFile) Read() (*pidData, error) {
 	data, err := os.ReadFile(pf.path)
-	if err != nil {
-		if alt, altErr := readPIDMetadata(pf.path); altErr == nil {
-			data, err = alt, nil
-		}
-	}
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -163,7 +151,6 @@ func (pf *PIDFile) IsAlive() *pidData {
 		// A free lock wins over any PID text (which can outlive a crash or be
 		// reused by an unrelated process). Clear it without unlinking the inode.
 		_ = f.Truncate(0)
-		clearPIDMetadata(pf.path)
 		flockRelease(f)
 		return nil
 	} else if !flockContended(err) {

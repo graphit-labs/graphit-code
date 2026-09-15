@@ -286,7 +286,6 @@ replacement. New or removed parser binaries do.
 | Path | Purpose | Mode/notes |
 |---|---|---|
 | `~/.graphit/daemon/daemon.pid` | PID, UTC start time, and singleton lock | `0600` |
-| `~/.graphit/daemon/daemon.pid.info` | Readable PID stamp on Windows, where an exclusive byte lock prevents reading `daemon.pid` through another handle | Windows only; cleared on shutdown |
 | `~/.graphit/daemon/.spawn.lock` | Serializes concurrent autostart attempts | `0600`; acquisition waits at most 10 seconds |
 | `~/.graphit/daemon/daemon.log` | Default global daemon log | Opened `0600`; spawned stderr appender may create `0644` |
 | `~/.graphit/daemon/embed.sock` | Local embedding proxy | Unix socket; removed on close |
