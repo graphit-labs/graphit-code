@@ -92,7 +92,7 @@ func TestPipelineKeepsShallowBaseAndIndexesOnlyCheckoutDelta(t *testing.T) {
 	}
 }
 
-func TestPipelineReconcilesBranchHeadWithoutLocalGitCommit(t *testing.T) {
+func TestPipelineReconcilesBranchHeadForNonGitProject(t *testing.T) {
 	ctx := context.Background()
 	source := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
 	for name, body := range map[string]string{
@@ -119,10 +119,6 @@ func TestPipelineReconcilesBranchHeadWithoutLocalGitCommit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	gitShallowTest(t, localRepo, "init", "-b", "main")
-	gitShallowTest(t, localRepo, "add", ".")
-	gitShallowTest(t, localRepo, "-c", "user.name=Graphit Test", "-c", "user.email=test@example.invalid", "commit", "-m", "independent")
-
 	cloneStore := filepath.Join(t.TempDir(), "clone-store")
 	base, err := lancestore.Open(ctx, lancestore.Config{URI: LanceIndexPath(sourceStore)})
 	if err != nil {

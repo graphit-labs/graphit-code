@@ -268,6 +268,34 @@ func TestGitCommitHydratesASTAndKnowledgeWithLocalOnlyOverlay(t *testing.T) {
 	for _, target := range targets {
 		assertHydrationRows(t, ctx, remote, hydrationTargetPath(unrelated, target.artType), map[string]string{"commit": next.Commit})
 	}
+
+	// A project without Git resolves its branch from the pinned artifacts and
+	// always shallow-clones that branch's latest compatible Lance snapshot.
+	nonGit := filepath.Join(t.TempDir(), "non-git")
+	if err := os.MkdirAll(nonGit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHydrationFixture(t, nonGit)
+	lock, err := LoadLockfile(filepath.Join(nonGit, brand.LockFileName()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		lock.Artifacts[target.artType] = map[string]*LockfileArtifactMeta{
+			target.id: {Version: "branch/main", RemoteID: target.id, ProjectID: testProjectOne},
+		}
+	}
+	if err := SaveLockfile(filepath.Join(nonGit, brand.LockFileName()), lock); err != nil {
+		t.Fatal(err)
+	}
+	seedHydrationAuth(t, filepath.Join(t.TempDir(), "non-git-global"), endpoint)
+	if result, err := HydrateProjectLanceWithResult(ctx, nonGit, nil); err != nil ||
+		result.ASTBaseCommit != next.Commit || result.KnowledgeBaseCommit != next.Commit {
+		t.Fatalf("non-Git branch-head hydration = %#v, %v", result, err)
+	}
+	for _, target := range targets {
+		assertHydrationRows(t, ctx, remote, hydrationTargetPath(nonGit, target.artType), map[string]string{"commit": next.Commit})
+	}
 }
 
 func hydrationTargetPath(projectDir string, artType ArtifactType) string {

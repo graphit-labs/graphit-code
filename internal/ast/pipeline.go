@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -910,6 +911,9 @@ func shallowSearchBase(projectDir, cacheDir string) string {
 		return ""
 	}
 	snapshot, err := gitstate.InspectSnapshot(projectDir)
+	if errors.Is(err, gitstate.ErrNotRepository) {
+		return marker.Base.Commit
+	}
 	if err != nil || snapshot.BranchVersion() != marker.Branch {
 		return ""
 	}

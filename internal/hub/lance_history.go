@@ -33,9 +33,9 @@ const (
 	localBaseFile        = ".graphit-base.json"
 )
 
-// HydrationResult reports the published Git base selected on this sync.
-// A non-empty AST commit lets the indexer reconcile only the checkout delta
-// while retaining the shallow-cloned search tables.
+// HydrationResult reports the published branch base selected on this sync.
+// Git projects can reconcile from an ancestor; non-Git projects overlay their
+// complete local tree on the branch head while retaining the shallow tables.
 type HydrationResult struct {
 	ASTBaseCommit        string
 	KnowledgeBaseCommit  string
@@ -325,7 +325,11 @@ func HydrateProjectLanceWithResult(ctx context.Context, projectDir string, proje
 func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg config.ConfigMap, types ...ArtifactType) (HydrationResult, error) {
 	var result HydrationResult
 	snapshot, err := gitstate.InspectSnapshot(projectDir)
-	if err != nil || snapshot.Branch == "" {
+	nonGit := errors.Is(err, gitstate.ErrNotRepository)
+	if err != nil && !nonGit {
+		return result, nil
+	}
+	if !nonGit && snapshot.Branch == "" {
 		return result, nil
 	}
 	lock, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
@@ -343,7 +347,6 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 	if !published {
 		return result, nil
 	}
-	branchVersion := snapshot.BranchVersion()
 	registry := &RegistryManager{store: s3, entries: make(map[ArtifactType]map[string]*Entry)}
 	entries, err := registry.ListProjectEntries(ctx, lock.Project.ID)
 	if err != nil {
@@ -368,7 +371,14 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 		if !requested {
 			continue
 		}
-		entryID, entryErr := selectHydrationEntry(entries, lock, target.artType, branchVersion)
+		branchVersion := snapshot.BranchVersion()
+		var entryID string
+		var entryErr error
+		if nonGit {
+			entryID, branchVersion, entryErr = selectNonGitHydrationEntry(entries, lock, target.artType)
+		} else {
+			entryID, entryErr = selectHydrationEntry(entries, lock, target.artType, branchVersion)
+		}
 		if entryErr != nil {
 			return result, entryErr
 		}
@@ -387,7 +397,11 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 			}
 			return result, readErr
 		}
-		base, ok := selectLanceBase(history, snapshot.Ancestors, lanceFingerprint(target.artType))
+		ancestry := snapshot.Ancestors
+		if nonGit {
+			ancestry = nil
+		}
+		base, ok := selectLanceBase(history, ancestry, lanceFingerprint(target.artType))
 		if !ok {
 			lifecycleLock.Release()
 			continue
@@ -413,6 +427,76 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 		lifecycleLock.Release()
 	}
 	return result, nil
+}
+
+type hydrationCandidate struct {
+	entryID string
+	version string
+}
+
+func selectNonGitHydrationEntry(entries []*Entry, lock *Lockfile, artType ArtifactType) (string, string, error) {
+	available := make(map[hydrationCandidate]bool)
+	for _, entry := range entries {
+		if entry.Type != artType || entry.ProjectID != lock.Project.ID {
+			continue
+		}
+		for _, version := range entry.Versions {
+			if strings.HasPrefix(version, "branch/") {
+				available[hydrationCandidate{entryID: entry.ID, version: version}] = true
+			}
+		}
+	}
+
+	var pinned []hydrationCandidate
+	for name, meta := range lock.Artifacts[artType] {
+		if meta == nil || !strings.HasPrefix(meta.Version, "branch/") ||
+			(meta.ProjectID != "" && meta.ProjectID != lock.Project.ID) {
+			continue
+		}
+		id := meta.RemoteID
+		if id == "" {
+			id = name
+		}
+		candidate := hydrationCandidate{entryID: id, version: meta.Version}
+		if available[candidate] {
+			pinned = append(pinned, candidate)
+		}
+	}
+	if len(pinned) > 0 {
+		return uniqueNonGitHydrationCandidate(artType, pinned, "project lockfile")
+	}
+
+	candidates := make([]hydrationCandidate, 0, len(available))
+	for candidate := range available {
+		candidates = append(candidates, candidate)
+	}
+	return uniqueNonGitHydrationCandidate(artType, candidates, "published project")
+}
+
+func uniqueNonGitHydrationCandidate(artType ArtifactType, candidates []hydrationCandidate, source string) (string, string, error) {
+	if len(candidates) == 0 {
+		return "", "", nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].version != candidates[j].version {
+			return candidates[i].version < candidates[j].version
+		}
+		return candidates[i].entryID < candidates[j].entryID
+	})
+	unique := candidates[:0]
+	for _, candidate := range candidates {
+		if len(unique) == 0 || candidate != unique[len(unique)-1] {
+			unique = append(unique, candidate)
+		}
+	}
+	if len(unique) == 1 {
+		return unique[0].entryID, unique[0].version, nil
+	}
+	labels := make([]string, 0, len(unique))
+	for _, candidate := range unique {
+		labels = append(labels, candidate.entryID+"@"+candidate.version)
+	}
+	return "", "", fmt.Errorf("non-Git project has multiple %s branch artifacts in the %s (%s); pin one branch artifact in the project lockfile", artType, source, strings.Join(labels, ", "))
 }
 
 func sameLocalLanceBase(path string, selected localLanceBase) bool {

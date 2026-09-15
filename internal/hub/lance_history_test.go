@@ -13,9 +13,34 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
-func TestHydrateProjectLanceSkipsNonGitProject(t *testing.T) {
+func TestHydrateProjectLanceAllowsUnregisteredNonGitProject(t *testing.T) {
 	if err := HydrateProjectLance(context.Background(), t.TempDir(), nil); err != nil {
 		t.Fatalf("hydrate non-Git project: %v", err)
+	}
+}
+
+func TestSelectNonGitHydrationEntryUsesPinnedBranch(t *testing.T) {
+	lock := &Lockfile{Project: ProjectIdentity{ID: testProjectOne}, Artifacts: map[ArtifactType]map[string]*LockfileArtifactMeta{
+		TypeAST: {"preferred": {Version: "branch/release", RemoteID: "code", ProjectID: testProjectOne}},
+	}}
+	entries := []*Entry{
+		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main", "branch/release"}},
+		{ID: "other", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}},
+	}
+	id, version, err := selectNonGitHydrationEntry(entries, lock, TypeAST)
+	if err != nil || id != "code" || version != "branch/release" {
+		t.Fatalf("selection = %q, %q, %v", id, version, err)
+	}
+}
+
+func TestSelectNonGitHydrationEntryRequiresPinWhenAmbiguous(t *testing.T) {
+	lock := &Lockfile{Project: ProjectIdentity{ID: testProjectOne}}
+	entries := []*Entry{
+		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}},
+		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/release"}},
+	}
+	if _, _, err := selectNonGitHydrationEntry(entries, lock, TypeAST); err == nil {
+		t.Fatal("ambiguous non-Git branches did not require a lockfile pin")
 	}
 }
 
