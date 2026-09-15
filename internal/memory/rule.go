@@ -7,7 +7,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
 )
 
-var memorySkillName = brand.SkillDirName("memory")
+var (
+	memorySkillName        = brand.SkillDirName("memory")
+	memorySkillDescription = "Durable memory for preferences, corrections, decisions, constraints, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge; mandatory recall is performed by adapter hooks."
+)
 
 func InstallSkill(projectDir, agentName string) error {
 	if projectDir == "" {
@@ -18,7 +21,7 @@ func InstallSkill(projectDir, agentName string) error {
 		}
 	}
 	skillContent := brand.ResolveModuleSkill("memory", RuleContent(nil))
-	frontmatter, err := agent.SkillFrontmatter(memorySkillName, "Durable memory: project and user preferences, corrections, decisions, constraints, and non-obvious knowledge; mandatory recall is performed by adapter hooks.")
+	frontmatter, err := agent.SkillFrontmatter(memorySkillName, memorySkillDescription)
 	if err != nil {
 		return err
 	}

@@ -45,6 +45,47 @@ nor authenticates a remote user. Every remote operation follows
 or mutation. Broker user-memory scope requires an S3 grant that applies to `*` or `global`; an
 exact project grant cannot open the user root.
 
+## Acquisition from user context
+
+A user statement is a memory-capture event when it provides project information the agent did not
+already know or standing guidance for how the agent should act. The user does not need to ask the
+agent to remember it or repeat it. The agent presumes that the statement is durable when it
+describes the project, its lifecycle or environment, policies, or conventions, or when knowing it
+would change planning, implementation, review, compatibility, migration, safety, or risk decisions
+in later work.
+
+The record preserves the user's rationale when it connects a project fact to an operating policy.
+For example, “the project is in development, so changes do not require backward compatibility or
+data migrations” captures both the lifecycle fact and the policy derived from it on the first
+occurrence. Project lifecycle or environment state uses the `fact` type; standing project guidance
+uses `decision` or `convention`. Project scope is the default for both. User scope is reserved for
+preferences that genuinely apply across projects. Standing context needed in every session is
+mandatory; important but conditional context is important without necessarily being mandatory.
+
+An instruction explicitly limited to the current task remains in Graphit Task instead of Memory.
+Transient task state, questions or speculation, and facts obvious from authoritative code or
+documentation are not written as current memory. If later user guidance contradicts a live memory,
+the agent updates the existing record and preserves its revision chain instead of creating a
+duplicate.
+
+## Acquisition from agent discoveries
+
+Analysis, implementation, debugging, and review can also produce memory without a user asking for
+it. The agent automatically creates or updates project memory when it confirms relevant non-obvious
+knowledge that is structural, reusable across tasks, or costly to rediscover. The operational test
+is whether another agent would plan or act better, or avoid material investigation, by knowing it.
+
+Positive cases include implicit invariants and contracts; sources of truth and generation flows;
+non-obvious dependencies, coupling, and structural relationships; recurring root causes and failure
+modes; confirmed decisions and trade-offs; surprising tool, infrastructure, or lifecycle behavior;
+and learned procedures. Project scope is the default. A discovery is mandatory only when every
+session needs it and important when its relevance is conditional.
+
+Graphit Task remains the complete record of the investigation. Memory supplements it with the
+durable reusable conclusion and never substitutes for the Task report. The agent does not capture
+trivial or directly obvious observations, transient progress, one-off results without future value,
+or unconfirmed hypotheses and speculation.
+
 There is no synchronization phase between a local projection and S3:
 
 - inserts and updates commit with `Upsert` on the record key;
