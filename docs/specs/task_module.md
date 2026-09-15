@@ -223,6 +223,64 @@ deterministic gate passes, or releases with a fully specified next step.
 The installed Task skill contains the operational detail. The mandate stays a compact router so
 its always-loaded token cost remains small.
 
+## Feature planning and backlog handoff
+
+When users plan features or a whole system, the agent offers to register and maintain the agreed
+work through Graphit Task tools during the conversation. At the end, it explicitly asks whether to
+register defined work outside the session whose registration is still undecided. Existing
+authorization permits incremental registration without repeated questions; a refusal is respected
+for those items. Registration does not authorize implementation of future features.
+
+The current planning/refinement task records the conversation's defined scope and remains separate
+from future delivery tasks. Each settled requirement, correction, decision, rationale and unresolved
+question is preserved immediately. Once registration is authorized, future tasks are created or
+revised as definitions settle, with a coverage map from requirements to task IDs and structured
+acceptance/test checks. Splitting or revising work must preserve that coverage. Unknown decisions are
+identified as open questions, not silently filled in. Material gaps require refinement before coding.
+
+Use the existing model to represent the plan:
+
+| Planning concept | Task representation |
+|---|---|
+| Whole system or feature | Delivery task, optionally typed `epic` or `feature`, with complete scope and checks. |
+| Independently executable part | Subtask through `parent_id`, with its own specification, acceptance criteria and tests. |
+| Prerequisite or cross-feature interdependency | Directed `depends_on` edge to a real task ID; create the referenced task first. |
+| Milestone | Task, optionally typed `milestone`, with observable exit criteria and validation checks; depend on required deliveries or group them as subtasks. |
+| Order of execution | Dependency graph; priority ranks work but does not establish prerequisites. |
+| Decision, uncertainty or scope change | Current specification plus typed comments and immutable revision history. |
+
+There is no separate milestone/calendar primitive. A milestone's checks must cover the integration
+contracts and relevant success, failure and boundary cases. Check hierarchy and ordering together:
+a descendant depending on an ancestor that waits for its descendants creates a completion deadlock,
+even though the individual parent and dependency graphs may each be acyclic.
+
+Every executable task must be self-contained enough for another agent to implement correctly and
+completely without the original conversation. Record agreed behavior, scope, interfaces, inputs and
+outputs, constraints, known code context, prerequisites and deliverables, expected test results and
+exact supporting task IDs/sources. Before coding, a resuming agent reads prerequisite records and
+linked planning requirements, reconciles any pending changes into the current specification/checks,
+and resolves material gaps. Tests remain pending until actually run; a defined feature or milestone
+is not a completed delivery.
+
+The planning workflow respects the existing ownership gates. Creating future tasks does not require
+claiming them. Revision and comments do require a live claim, claim requires completed dependencies,
+and an agent can own only one task at a time. To refine a ready backlog task, release planning,
+claim the target, revise against its current revision, release it to `open`, then resume planning.
+Never remove real dependencies or change actor identity to bypass these gates.
+
+For an already blocked task, preserve the complete change package and affected IDs in the claimed
+planning/refinement task. Where needed, make that refinement a prerequisite of the open target,
+without introducing a cycle. Refinement completes when its change package is verified; it must not
+wait for a target revision that its own unfinished dependency prevents. Once prerequisites complete,
+the implementing agent must read the package and reconcile the target before coding. Report that
+reconciliation as pending until applied, rather than claiming an unchanged snapshot is current.
+
+Before ending planning, read back tasks and relations through `graphit_task_get`/`graphit_task_list`.
+Verify every requirement has a destination, milestone exits and integration tests are specified,
+ordering and interdependencies are correct, open questions are explicit, and the handoff stands on
+its own. Report the recorded IDs, milestones, dependencies and unresolved refinement. Leave future
+deliveries `open` and unclaimed; complete only the planning work whose own checks have passed.
+
 ## Interfaces
 
 The CLI group is `graphit task`; its subcommands cover batch, create, list/ready, get, search, export, claim,

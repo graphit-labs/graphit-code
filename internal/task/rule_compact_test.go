@@ -45,7 +45,8 @@ func TestTaskSkillContentContract(t *testing.T) {
 			t.Fatalf("Task skill missing %q", want)
 		}
 	}
-	if len(content) > 12000 {
+	// Includes the feature-planning and backlog handoff workflow.
+	if len(content) > 15000 {
 		t.Fatalf("Task skill exceeded its token budget: %d bytes", len(content))
 	}
 	mandate := MandateTrigger()

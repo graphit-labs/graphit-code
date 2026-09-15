@@ -9,7 +9,7 @@ import (
 
 var skillName = brand.SkillDirName("task")
 
-const skillDescription = "Deterministic project work, including analysis-only tasks: exhaustive specifications, durable results, dependencies, claims, progress, handoff, completion, and prior-task search."
+const skillDescription = "Deterministic project work, including feature planning, backlog, milestones, and analysis-only tasks: exhaustive specifications, durable results, dependencies, claims, progress, handoff, completion, and prior-task search."
 
 func InstallSkill(projectDir, agentName string) error {
 	if projectDir == "" {
