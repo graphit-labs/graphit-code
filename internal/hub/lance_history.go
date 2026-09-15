@@ -80,7 +80,7 @@ func lanceFingerprint(artType ArtifactType) string {
 
 func lanceCommitTag(commit string) string { return "git-" + commit }
 
-func selectLanceBase(history lanceBranchHistory, ancestry []string, fingerprint string) (lanceCommit, bool) {
+func selectLanceBase(history lanceBranchHistory, ancestry []string, fingerprint string) (lanceCommit, error) {
 	byCommit := make(map[string]lanceCommit, len(history.Commits))
 	for _, commit := range history.Commits {
 		if commit.Fingerprint == fingerprint {
@@ -89,18 +89,24 @@ func selectLanceBase(history lanceBranchHistory, ancestry []string, fingerprint 
 	}
 	for _, ancestor := range ancestry {
 		if commit, ok := byCommit[ancestor]; ok {
-			return commit, true
+			return commit, nil
 		}
 	}
 	// A checkout may not contain the commit used by the published branch head
 	// (for example after a force-push). Reconcile its files over the newest
-	// compatible published snapshot instead of leaving an unrelated local base.
-	for _, commit := range history.Commits {
-		if commit.Fingerprint == fingerprint {
-			return commit, true
-		}
+	// published snapshot instead of leaving an unrelated local base.
+	return selectLanceHead(history, fingerprint)
+}
+
+func selectLanceHead(history lanceBranchHistory, fingerprint string) (lanceCommit, error) {
+	if len(history.Commits) == 0 {
+		return lanceCommit{}, errors.New("published Lance branch has no snapshots")
 	}
-	return lanceCommit{}, false
+	head := history.Commits[0]
+	if head.Fingerprint != fingerprint {
+		return lanceCommit{}, fmt.Errorf("published Lance branch head %s has fingerprint %q, want %q; republish the branch with the current index format", head.Commit, head.Fingerprint, fingerprint)
+	}
+	return head, nil
 }
 
 func (s *S3Store) branchHistoryKey(artType ArtifactType, id, branchVersion, projectID string) string {
@@ -302,7 +308,8 @@ func validateLanceHistory(history lanceBranchHistory, artType ArtifactType, proj
 	return nil
 }
 
-// HydrateProjectLance shallow-clones the nearest compatible published ancestor.
+// HydrateProjectLance shallow-clones the nearest compatible published ancestor,
+// or the exact published branch head when no ancestor is available.
 func HydrateProjectLance(ctx context.Context, projectDir string, projectCfg config.ConfigMap) error {
 	_, err := HydrateProjectLanceWithResult(ctx, projectDir, projectCfg)
 	return err
@@ -333,12 +340,18 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 		return result, nil
 	}
 	lock, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
-	if err != nil || lock == nil || lock.Project.ID == "" {
+	if err != nil {
+		return result, nil
+	}
+	if lock == nil || lock.Project.ID == "" {
 		return result, nil
 	}
 	s3, err := NewS3Store(ctx, nil, projectCfg)
-	if err != nil || !s3.Configured() {
+	if err != nil {
 		return result, err
+	}
+	if !s3.Configured() {
+		return result, nil
 	}
 	published, err := authorizeHydrationProject(ctx, s3, lock.Project.ID)
 	if err != nil {
@@ -375,7 +388,7 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 		var entryID string
 		var entryErr error
 		if nonGit {
-			entryID, branchVersion, entryErr = selectNonGitHydrationEntry(entries, lock, target.artType)
+			entryID, branchVersion, entryErr = selectNonGitLatestEntry(entries, lock.Project.ID, target.artType)
 		} else {
 			entryID, entryErr = selectHydrationEntry(entries, lock, target.artType, branchVersion)
 		}
@@ -389,22 +402,30 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 		if lockErr != nil {
 			return result, lockErr
 		}
-		history, readErr := s3.readBranchHistory(lockedCtx, target.artType, entryID, branchVersion, lock.Project.ID)
-		if readErr != nil {
-			lifecycleLock.Release()
-			if errors.Is(readErr, s3store.ErrNotFound) {
-				continue
-			}
-			return result, readErr
-		}
-		ancestry := snapshot.Ancestors
+		fingerprint := lanceFingerprint(target.artType)
+		var base lanceCommit
 		if nonGit {
-			ancestry = nil
-		}
-		base, ok := selectLanceBase(history, ancestry, lanceFingerprint(target.artType))
-		if !ok {
-			lifecycleLock.Release()
-			continue
+			var latestErr error
+			base, latestErr = readLatestLanceBase(lockedCtx, s3, target.artType, entryID, branchVersion, lock.Project.ID, fingerprint)
+			if latestErr != nil {
+				lifecycleLock.Release()
+				return result, fmt.Errorf("select latest %s %s: %w", target.artType, branchVersion, latestErr)
+			}
+		} else {
+			history, readErr := s3.readBranchHistory(lockedCtx, target.artType, entryID, branchVersion, lock.Project.ID)
+			if readErr != nil {
+				lifecycleLock.Release()
+				if errors.Is(readErr, s3store.ErrNotFound) {
+					return result, fmt.Errorf("published %s %s has no Lance branch history", target.artType, branchVersion)
+				}
+				return result, readErr
+			}
+			var selectErr error
+			base, selectErr = selectLanceBase(history, snapshot.Ancestors, fingerprint)
+			if selectErr != nil {
+				lifecycleLock.Release()
+				return result, fmt.Errorf("select %s base for %s: %w", branchVersion, target.artType, selectErr)
+			}
 		}
 		selected := localLanceBase{EntryID: entryID, Branch: branchVersion,
 			SourceURI: s3.ArtifactURI(target.artType, entryID, branchVersion, lock.Project.ID, publishedLanceStorePart(target.artType)), Base: base}
@@ -429,74 +450,88 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 	return result, nil
 }
 
-type hydrationCandidate struct {
-	entryID string
-	version string
-}
-
-func selectNonGitHydrationEntry(entries []*Entry, lock *Lockfile, artType ArtifactType) (string, string, error) {
-	available := make(map[hydrationCandidate]bool)
+func selectNonGitLatestEntry(entries []*Entry, projectID string, artType ArtifactType) (string, string, error) {
+	var candidates []*Entry
 	for _, entry := range entries {
-		if entry.Type != artType || entry.ProjectID != lock.Project.ID {
+		if entry.Type != artType || entry.ProjectID != projectID || !isReleaseTag(entry.Latest) {
 			continue
 		}
-		for _, version := range entry.Versions {
-			if strings.HasPrefix(version, "branch/") {
-				available[hydrationCandidate{entryID: entry.ID, version: version}] = true
-			}
-		}
+		candidates = append(candidates, entry)
 	}
-
-	var pinned []hydrationCandidate
-	for name, meta := range lock.Artifacts[artType] {
-		if meta == nil || !strings.HasPrefix(meta.Version, "branch/") ||
-			(meta.ProjectID != "" && meta.ProjectID != lock.Project.ID) {
-			continue
-		}
-		id := meta.RemoteID
-		if id == "" {
-			id = name
-		}
-		candidate := hydrationCandidate{entryID: id, version: meta.Version}
-		if available[candidate] {
-			pinned = append(pinned, candidate)
-		}
-	}
-	if len(pinned) > 0 {
-		return uniqueNonGitHydrationCandidate(artType, pinned, "project lockfile")
-	}
-
-	candidates := make([]hydrationCandidate, 0, len(available))
-	for candidate := range available {
-		candidates = append(candidates, candidate)
-	}
-	return uniqueNonGitHydrationCandidate(artType, candidates, "published project")
-}
-
-func uniqueNonGitHydrationCandidate(artType ArtifactType, candidates []hydrationCandidate, source string) (string, string, error) {
 	if len(candidates) == 0 {
 		return "", "", nil
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].version != candidates[j].version {
-			return candidates[i].version < candidates[j].version
-		}
-		return candidates[i].entryID < candidates[j].entryID
+		return candidates[i].ID < candidates[j].ID
 	})
-	unique := candidates[:0]
+	if len(candidates) == 1 {
+		return candidates[0].ID, candidates[0].Latest, nil
+	}
+	labels := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		if len(unique) == 0 || candidate != unique[len(unique)-1] {
-			unique = append(unique, candidate)
+		labels = append(labels, candidate.ID+"@"+candidate.Latest)
+	}
+	return "", "", fmt.Errorf("non-Git project %s has multiple %s artifacts with latest versions (%s)", projectID, artType, strings.Join(labels, ", "))
+}
+
+func readLatestLanceBase(ctx context.Context, s3 *S3Store, artType ArtifactType, entryID, latestVersion, projectID, fingerprint string) (lanceCommit, error) {
+	remoteURI := s3.ArtifactURI(artType, entryID, latestVersion, projectID, publishedLanceStorePart(artType))
+	remote, err := lancestore.Open(ctx, s3.lanceConfigFor(ctx, remoteURI, false))
+	if err != nil {
+		return lanceCommit{}, fmt.Errorf("open %s: %w", remoteURI, err)
+	}
+	defer func() { _ = remote.Close() }()
+	tableNames, err := publishedLanceTableNames(ctx, s3, artType, entryID, latestVersion, projectID)
+	if err != nil {
+		return lanceCommit{}, err
+	}
+	if len(tableNames) == 0 {
+		return lanceCommit{}, errors.New("latest publication has no Lance tables")
+	}
+	sort.Strings(tableNames)
+	base := lanceCommit{
+		Commit:      "latest:" + latestVersion,
+		Fingerprint: fingerprint,
+		Tables:      make(map[string]lanceTableRef, len(tableNames)),
+	}
+	for _, name := range tableNames {
+		table, err := remote.OpenTable(ctx, name)
+		if err != nil {
+			return lanceCommit{}, err
+		}
+		version, err := table.CurrentVersion(ctx)
+		if err != nil {
+			return lanceCommit{}, fmt.Errorf("read latest version of Lance table %s: %w", name, err)
+		}
+		base.Tables[name] = lanceTableRef{Version: version}
+	}
+	return base, nil
+}
+
+func publishedLanceTableNames(ctx context.Context, s3 *S3Store, artType ArtifactType, entryID, version, projectID string) ([]string, error) {
+	storage, err := s3.projectStore(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	prefix := s3store.JoinKey(ArtifactPrefix(artType, entryID, version, projectID), publishedLanceStorePart(artType))
+	objects, err := storage.objects.List(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]bool)
+	for _, object := range objects {
+		rel := strings.TrimPrefix(strings.TrimPrefix(object.Key, prefix), "/")
+		segment := strings.SplitN(rel, "/", 2)[0]
+		if strings.HasSuffix(segment, ".lance") {
+			names[strings.TrimSuffix(segment, ".lance")] = true
 		}
 	}
-	if len(unique) == 1 {
-		return unique[0].entryID, unique[0].version, nil
+	tableNames := make([]string, 0, len(names))
+	for name := range names {
+		tableNames = append(tableNames, name)
 	}
-	labels := make([]string, 0, len(unique))
-	for _, candidate := range unique {
-		labels = append(labels, candidate.entryID+"@"+candidate.version)
-	}
-	return "", "", fmt.Errorf("non-Git project has multiple %s branch artifacts in the %s (%s); pin one branch artifact in the project lockfile", artType, source, strings.Join(labels, ", "))
+	sort.Strings(tableNames)
+	return tableNames, nil
 }
 
 func sameLocalLanceBase(path string, selected localLanceBase) bool {

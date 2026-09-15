@@ -13,34 +13,40 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
-func TestHydrateProjectLanceAllowsUnregisteredNonGitProject(t *testing.T) {
+func TestHydrateProjectLanceAllowsFirstNonGitSyncWithoutPublication(t *testing.T) {
 	if err := HydrateProjectLance(context.Background(), t.TempDir(), nil); err != nil {
-		t.Fatalf("hydrate non-Git project: %v", err)
+		t.Fatalf("first non-Git sync without publication: %v", err)
 	}
 }
 
-func TestSelectNonGitHydrationEntryUsesPinnedBranch(t *testing.T) {
-	lock := &Lockfile{Project: ProjectIdentity{ID: testProjectOne}, Artifacts: map[ArtifactType]map[string]*LockfileArtifactMeta{
-		TypeAST: {"preferred": {Version: "branch/release", RemoteID: "code", ProjectID: testProjectOne}},
-	}}
+func TestSelectNonGitLatestEntryUsesRegistryAlias(t *testing.T) {
 	entries := []*Entry{
-		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main", "branch/release"}},
-		{ID: "other", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}},
+		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Latest: "1.0.0", Versions: []string{"1.0.0", "branch/main"}},
+		{ID: "without-latest", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/release"}},
+		{ID: "branch-is-not-latest", Type: TypeAST, ProjectID: testProjectOne, Latest: "branch/main"},
+		{ID: "other-project", Type: TypeAST, ProjectID: testProjectTwo, Latest: "2.0.0"},
 	}
-	id, version, err := selectNonGitHydrationEntry(entries, lock, TypeAST)
-	if err != nil || id != "code" || version != "branch/release" {
+	id, version, err := selectNonGitLatestEntry(entries, testProjectOne, TypeAST)
+	if err != nil || id != "code" || version != "1.0.0" {
 		t.Fatalf("selection = %q, %q, %v", id, version, err)
 	}
 }
 
-func TestSelectNonGitHydrationEntryRequiresPinWhenAmbiguous(t *testing.T) {
-	lock := &Lockfile{Project: ProjectIdentity{ID: testProjectOne}}
-	entries := []*Entry{
-		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}},
-		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/release"}},
+func TestSelectNonGitLatestEntryAllowsMissingLatest(t *testing.T) {
+	entries := []*Entry{{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Versions: []string{"branch/main"}}}
+	id, version, err := selectNonGitLatestEntry(entries, testProjectOne, TypeAST)
+	if err != nil || id != "" || version != "" {
+		t.Fatalf("missing latest selection = %q, %q, %v", id, version, err)
 	}
-	if _, _, err := selectNonGitHydrationEntry(entries, lock, TypeAST); err == nil {
-		t.Fatal("ambiguous non-Git branches did not require a lockfile pin")
+}
+
+func TestSelectNonGitLatestEntryRejectsAmbiguousRegistry(t *testing.T) {
+	entries := []*Entry{
+		{ID: "code", Type: TypeAST, ProjectID: testProjectOne, Latest: "1.0.0"},
+		{ID: "other", Type: TypeAST, ProjectID: testProjectOne, Latest: "2.0.0"},
+	}
+	if _, _, err := selectNonGitLatestEntry(entries, testProjectOne, TypeAST); err == nil {
+		t.Fatal("multiple latest AST artifacts did not fail")
 	}
 }
 
@@ -78,9 +84,9 @@ func TestSelectLanceBaseUsesNearestCompatibleAncestor(t *testing.T) {
 		{Commit: "parent", Fingerprint: "compatible"},
 		{Commit: "head", Fingerprint: "old-format"},
 	}}
-	got, ok := selectLanceBase(history, []string{"head", "parent", "root"}, "compatible")
-	if !ok || got.Commit != "parent" {
-		t.Fatalf("base = %#v, %v", got, ok)
+	got, err := selectLanceBase(history, []string{"head", "parent", "root"}, "compatible")
+	if err != nil || got.Commit != "parent" {
+		t.Fatalf("base = %#v, %v", got, err)
 	}
 }
 
@@ -89,12 +95,31 @@ func TestSelectLanceBaseFallsBackToPublishedBranchHead(t *testing.T) {
 		{Commit: "newest", Fingerprint: "compatible"},
 		{Commit: "older", Fingerprint: "compatible"},
 	}}
-	got, ok := selectLanceBase(history, []string{"local-head", "local-parent"}, "compatible")
-	if !ok || got.Commit != "newest" {
-		t.Fatalf("base = %#v, %v; want newest published branch commit", got, ok)
+	got, err := selectLanceBase(history, []string{"local-head", "local-parent"}, "compatible")
+	if err != nil || got.Commit != "newest" {
+		t.Fatalf("base = %#v, %v; want newest published branch commit", got, err)
 	}
-	if got, ok := selectLanceBase(history, []string{"local-head"}, "different-format"); ok {
+	if got, err := selectLanceBase(history, []string{"local-head"}, "different-format"); err == nil {
 		t.Fatalf("incompatible branch head selected: %#v", got)
+	}
+}
+
+func TestSelectLanceHeadDoesNotFallBackToOlderFormat(t *testing.T) {
+	history := lanceBranchHistory{Commits: []lanceCommit{
+		{Commit: "head", Fingerprint: "old-format"},
+		{Commit: "older", Fingerprint: "current-format"},
+	}}
+	if _, err := selectLanceHead(history, "current-format"); err == nil {
+		t.Fatal("non-Git selection fell back from an incompatible branch head")
+	}
+	if got, err := selectLanceHead(history, "old-format"); err != nil || got.Commit != "head" {
+		t.Fatalf("head = %#v, %v", got, err)
+	}
+}
+
+func TestSelectLanceHeadRejectsEmptyHistory(t *testing.T) {
+	if _, err := selectLanceHead(lanceBranchHistory{}, "current-format"); err == nil {
+		t.Fatal("empty branch history did not fail")
 	}
 }
 

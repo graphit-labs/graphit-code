@@ -786,7 +786,7 @@ func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, 
 		versions = append(versions, version)
 	}
 	meta.Versions = versions
-	meta.Latest = version
+	meta.Latest = publishedLatest(existing.Latest, version)
 
 	hashes := make(map[string]string)
 	for k, v := range existing.Hashes {
@@ -810,6 +810,13 @@ func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, 
 
 func publicationKeepsLatestOnly(version string) bool {
 	return strings.HasPrefix(version, "tag/")
+}
+
+func publishedLatest(current, version string) string {
+	if isReleaseTag(version) && (!isReleaseTag(current) || compareVersions(version, current) > 0) {
+		return version
+	}
+	return current
 }
 
 func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entryType ArtifactType) error {

@@ -18,6 +18,8 @@ type VersionConstraint struct {
 
 var sortableSemverRe = regexp.MustCompile(`^v?[0-9]+(?:\.[0-9]+){0,2}(?:[-+].*)?$`)
 
+func isReleaseTag(version string) bool { return sortableSemverRe.MatchString(version) }
+
 func ParseVersionConstraint(raw string) (*VersionConstraint, error) {
 	c := &VersionConstraint{Raw: raw, Major: -1, Minor: -1, Patch: -1}
 	if raw == "" || raw == "latest" {

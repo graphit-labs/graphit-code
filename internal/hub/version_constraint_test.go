@@ -276,6 +276,18 @@ func TestPublicationKeepsLatestOnlyForTagChannels(t *testing.T) {
 	}
 }
 
+func TestPublishedLatestAdvancesOnlyForTags(t *testing.T) {
+	current := "2.0.0"
+	for _, version := range []string{"branch/main", "branch/feature/search", "tag/v3", "1.9.0"} {
+		if got := publishedLatest(current, version); got != current {
+			t.Errorf("publishedLatest(%q, %q) = %q", current, version, got)
+		}
+	}
+	if got := publishedLatest(current, "2.1.0"); got != "2.1.0" {
+		t.Fatalf("tag did not advance latest: %q", got)
+	}
+}
+
 func TestResolveEntryVersionAcceptsNamedBranch(t *testing.T) {
 	t.Parallel()
 	entry := &Entry{

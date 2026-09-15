@@ -93,8 +93,11 @@ func TestGitCommitHydratesASTAndKnowledgeWithLocalOnlyOverlay(t *testing.T) {
 		if err := remote.writeBranchHistory(ctx, target.artType, target.id, "branch/main", testProjectOne, history); err != nil {
 			t.Fatal(err)
 		}
+		if err := remote.PublishArtifact(ctx, target.artType, target.id, "1.0.0", testProjectOne, stage); err != nil {
+			t.Fatal(err)
+		}
 		entry := entryFile{Version: hubManifestVersion, Entry: Entry{ID: target.id, Type: target.artType,
-			ProjectID: testProjectOne, Versions: []string{"branch/main"}}}
+			ProjectID: testProjectOne, Latest: "1.0.0", Versions: []string{"branch/main", "1.0.0"}}}
 		data, err := json.Marshal(entry)
 		if err != nil {
 			t.Fatal(err)
@@ -269,32 +272,21 @@ func TestGitCommitHydratesASTAndKnowledgeWithLocalOnlyOverlay(t *testing.T) {
 		assertHydrationRows(t, ctx, remote, hydrationTargetPath(unrelated, target.artType), map[string]string{"commit": next.Commit})
 	}
 
-	// A project without Git resolves its branch from the pinned artifacts and
-	// always shallow-clones that branch's latest compatible Lance snapshot.
+	// A project without Git ignores artifact versions in the lockfile and
+	// shallow-clones the tag addressed by each Registry latest alias. Advancing
+	// branch/main above must not affect this base.
 	nonGit := filepath.Join(t.TempDir(), "non-git")
 	if err := os.MkdirAll(nonGit, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeHydrationFixture(t, nonGit)
-	lock, err := LoadLockfile(filepath.Join(nonGit, brand.LockFileName()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, target := range targets {
-		lock.Artifacts[target.artType] = map[string]*LockfileArtifactMeta{
-			target.id: {Version: "branch/main", RemoteID: target.id, ProjectID: testProjectOne},
-		}
-	}
-	if err := SaveLockfile(filepath.Join(nonGit, brand.LockFileName()), lock); err != nil {
-		t.Fatal(err)
-	}
 	seedHydrationAuth(t, filepath.Join(t.TempDir(), "non-git-global"), endpoint)
 	if result, err := HydrateProjectLanceWithResult(ctx, nonGit, nil); err != nil ||
-		result.ASTBaseCommit != next.Commit || result.KnowledgeBaseCommit != next.Commit {
-		t.Fatalf("non-Git branch-head hydration = %#v, %v", result, err)
+		result.ASTBaseCommit != "latest:1.0.0" || result.KnowledgeBaseCommit != "latest:1.0.0" {
+		t.Fatalf("non-Git latest hydration = %#v, %v", result, err)
 	}
 	for _, target := range targets {
-		assertHydrationRows(t, ctx, remote, hydrationTargetPath(nonGit, target.artType), map[string]string{"commit": next.Commit})
+		assertHydrationRows(t, ctx, remote, hydrationTargetPath(nonGit, target.artType), map[string]string{"commit": snapshot.Commit})
 	}
 }
 
