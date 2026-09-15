@@ -203,8 +203,10 @@ outlive the task context.
 
 ## Agent contract
 
-The dynamic mandate always directs an enabled agent to Graphit Task instead of its host's native
-task/TODO/planning mechanism, including for analysis-only work. At session bootstrap, Memory and Task
+The dynamic mandate directs an enabled agent to Graphit Task for official work records and lifecycle,
+including for analysis-only work. Planning may use other tools, including the host's native planning
+mechanism; the resulting task definitions and state must be recorded through Graphit Task tools.
+At session bootstrap, Memory and Task
 instructions are composed independently: disabling one leaves the other intact, while enabling both
 delivers both search/read flows. Every project or imported Knowledge search also runs one focused
 related `task_search`, follows `next_cursor` until the relevant history is covered, and reads each selected
@@ -224,6 +226,11 @@ The installed Task skill contains the operational detail. The mandate stays a co
 its always-loaded token cost remains small.
 
 ## Feature planning and backlog handoff
+
+Planning may originate in any tool. Incorporate externally defined requirements, decisions,
+specifications, tests, subtasks, interdependencies and milestones into self-contained Graphit tasks.
+An external plan or link alone does not replace the official records. Reconcile later planning
+changes through the same Task workflow and read back the saved records to verify completeness.
 
 When users plan features or a whole system, the agent offers to register and maintain the agreed
 work through Graphit Task tools during the conversation. At the end, it explicitly asks whether to

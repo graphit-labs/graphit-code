@@ -1143,8 +1143,10 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 
 ## Task Tools
 
-Task tools coordinate all project work through shared LanceDB tables. Agents use them instead of
-native TODO/task mechanisms. The main contracts are:
+Task tools persist official project work records and coordinate their lifecycle through shared
+LanceDB tables. Planning may use other tools, including native planning, but the resulting task
+definitions and state must be recorded through Graphit Task tools. External plans do not replace
+self-contained specifications, checks, subtasks, dependencies and milestones in Task. The main contracts are:
 
 | Tools | Required state and result |
 |---|---|
