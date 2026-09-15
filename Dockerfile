@@ -3,23 +3,8 @@
 ARG BASE_IMAGE=debian:bookworm-slim
 FROM ${BASE_IMAGE}
 
-
-ARG GRAPHIT_VERSION=latest
-
-ARG UI_PORT=8080
-ARG MCP_PORT=8081
-
-ARG ANONYMIZE_EVENTS=false
-
-ARG APP_USER=graphit
-ARG APP_UID=10001
-
-
-ENV GRAPHIT_GLOBAL_DIR=/opt/graphit \
-    HOME=/home/${APP_USER}
-
-ENV UI_PORT=${UI_PORT} \
-    MCP_PORT=${MCP_PORT}
+ENV HOME=/home/graphit \
+    GRAPHIT_GLOBAL_DIR=/home/graphit/.graphit
 
 ENV GRAPHIT_MODULES_AGENT=false \
     GRAPHIT_MODULES_DREAM=false \
@@ -28,11 +13,11 @@ ENV GRAPHIT_MODULES_AGENT=false \
 ENV GRAPHIT_UI_HOST=0.0.0.0 \
     GRAPHIT_UI_ALLOWED_ORIGINS= \
     GRAPHIT_MCP_HOST=0.0.0.0 \
-    GRAPHIT_MCP_PORT=${MCP_PORT}
+    GRAPHIT_HUB_EVENTS_ANONYMIZE=false \
+    GRAPHIT_AGENT= \
+    GRAPHIT_CLI=
 
-ENV GRAPHIT_CLIENT_SECRET= \
-    GRAPHIT_AI_EMBEDDING_API_KEY= \
-    GRAPHIT_AI_RERANK_API_KEY=
+ENV GRAPHIT_CLIENT_SECRET=
 
 RUN <<'EOF' sh -eu
 apt-get update
@@ -48,49 +33,64 @@ apt-get install -y --no-install-recommends \
 rm -rf /var/lib/apt/lists/*
 EOF
 
-RUN useradd --uid "${APP_UID}" --create-home --shell /bin/bash "${APP_USER}"
+COPY --chmod=0755 .build/graphit-linux-amd64 /usr/local/bin/graphit
 
-COPY install.sh /tmp/install.sh
 RUN <<'EOF' sh -eu
-case "${GRAPHIT_VERSION:-latest}" in
-  latest|"") sh /tmp/install.sh --dir /usr/local/bin ;;
-  *)         sh /tmp/install.sh --dir /usr/local/bin --version "${GRAPHIT_VERSION}" ;;
-esac
-rm -f /tmp/install.sh
+groupadd --gid 10001 graphit
+useradd --uid 10001 --gid graphit --create-home --shell /bin/bash graphit
 mkdir -p "${GRAPHIT_GLOBAL_DIR}"
-chown -R "${APP_USER}:${APP_USER}" "${GRAPHIT_GLOBAL_DIR}"
+chown graphit:graphit "${GRAPHIT_GLOBAL_DIR}"
 EOF
 
-USER ${APP_USER}
-RUN <<'EOF' sh -eu
-if ! graphit setup --help 2>&1 | grep -q -- '--anonymize-events'; then
-  echo "" >&2
-  echo "This image needs a Graphit Code release whose 'setup' supports --anonymize-events and a flag per question." >&2
-  echo "The installed binary does not: $(graphit --version 2>/dev/null || echo 'version unknown')" >&2
-  echo "" >&2
-  echo "Pin a release that has them:  docker build --build-arg GRAPHIT_VERSION=<tag> ." >&2
+EXPOSE 8080 8081
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:8081/health" >/dev/null && \
+        case "${GRAPHIT_MODULES_DAEMON_UI}" in \
+          [Tt][Rr][Uu][Ee]) curl -fsS "http://127.0.0.1:8080/health" >/dev/null ;; \
+        esac
+
+VOLUME ["/home/graphit/.graphit"]
+
+COPY <<'SCRIPT' /usr/local/bin/graphit-entrypoint
+#!/bin/sh
+set -eu
+
+# Container listener ports are part of the image contract. Publish a different
+# host port with Docker's HOST:CONTAINER mapping instead of moving the listeners.
+GRAPHIT_UI_PORT=8080
+GRAPHIT_MCP_PORT=8081
+export GRAPHIT_UI_PORT GRAPHIT_MCP_PORT
+
+case "${GRAPHIT_GLOBAL_DIR}" in
+  /*) ;;
+  *)
+    echo "GRAPHIT_GLOBAL_DIR must be an absolute path." >&2
+    exit 1
+    ;;
+esac
+if [ "${GRAPHIT_GLOBAL_DIR}" = "/" ]; then
+  echo "GRAPHIT_GLOBAL_DIR must not be the filesystem root." >&2
   exit 1
 fi
 
-graphit setup \
-  --non-interactive \
-  --anonymize-events="${ANONYMIZE_EVENTS}" \
-  --agent "" \
-  --cli "" \
-  < /dev/null
+if ! mkdir -p "${GRAPHIT_GLOBAL_DIR}"; then
+  echo "Cannot create GRAPHIT_GLOBAL_DIR as user graphit (UID/GID 10001): ${GRAPHIT_GLOBAL_DIR}" >&2
+  exit 1
+fi
+if [ ! -r "${GRAPHIT_GLOBAL_DIR}" ] || [ ! -w "${GRAPHIT_GLOBAL_DIR}" ] || [ ! -x "${GRAPHIT_GLOBAL_DIR}" ]; then
+  echo "GRAPHIT_GLOBAL_DIR must be readable, writable, and traversable by user graphit (UID/GID 10001): ${GRAPHIT_GLOBAL_DIR}" >&2
+  exit 1
+fi
 
-graphit daemon stop || true
-EOF
-
-EXPOSE ${UI_PORT} ${MCP_PORT}
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS "http://127.0.0.1:${UI_PORT}/health" >/dev/null || exit 1
-
-VOLUME ["/opt/graphit"]
-
-COPY <<'SCRIPT' /usr/local/bin/graphit-entrypoint
-set -eu
+if [ ! -f "${GRAPHIT_GLOBAL_DIR}/config.json" ]; then
+  env GRAPHIT_MODULES_DAEMON=false graphit setup \
+    --non-interactive \
+    "--anonymize-events=${GRAPHIT_HUB_EVENTS_ANONYMIZE}" \
+    "--agent=${GRAPHIT_AGENT}" \
+    "--cli=${GRAPHIT_CLI}" \
+    < /dev/null
+fi
 
 if [ "$#" -eq 0 ]; then
   exec graphit daemon
@@ -103,9 +103,8 @@ esac
 exec "$@"
 SCRIPT
 
-USER root
 RUN chmod 0755 /usr/local/bin/graphit-entrypoint
-USER ${APP_USER}
 
-WORKDIR /opt/graphit
+WORKDIR /home/graphit/.graphit
+USER graphit
 ENTRYPOINT ["/usr/local/bin/graphit-entrypoint"]

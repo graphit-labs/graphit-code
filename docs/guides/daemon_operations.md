@@ -203,9 +203,9 @@ Clients try the socket and fall back to direct construction automatically.
 When `modules.memory=true` and a user identity exists, one machine-wide module maintains the user
 memory table every 15 minutes. It is independent of project parking.
 
-### Authenticated MCP HTTP endpoint
+### MCP HTTP endpoint and health
 
-The daemon always attempts to expose streamable HTTP MCP at `/mcp`:
+The daemon always attempts to expose authenticated streamable HTTP MCP at `/mcp`:
 
 - `mcp.host` defaults to `127.0.0.1`;
 - `mcp.port` defaults to `0`, so the OS chooses a free port;
@@ -216,7 +216,11 @@ The daemon always attempts to expose streamable HTTP MCP at `/mcp`:
 - with an active direct OIDC or Broker-managed provider, each caller's token is verified and
   propagated to broker calls without using another caller's profile token; direct OIDC may use
   relay or RFC 8693 exchange, while Broker tokens use the discovered audience and JWKS;
-- every request must send `Authorization: Bearer <key>`.
+- every `/mcp` request must send `Authorization: Bearer <key>`.
+
+The same listener exposes unauthenticated `GET /health`, which returns HTTP 200 and
+`{"status":"ok"}`. This is a liveness check for the MCP listener, not a deep check of stores,
+providers, or downstream services.
 
 In the Observatory, open **System → Daemon**. The page shows the current port and usable endpoint;
 its **MCP bearer key** button masks the value on screen and copies the complete key for the client

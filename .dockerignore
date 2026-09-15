@@ -1,9 +1,8 @@
-# The image installs the published release rather than building from source, so the only file
-# the build context needs is the installer. Everything else is excluded — which keeps the
-# context at a few kilobytes instead of shipping the whole checkout, coverage.out and .git to
-# the daemon on every build.
+# The image consumes the Linux binary produced by the CI/local build. Everything else is excluded,
+# keeping the build context small instead of shipping the checkout, coverage.out and .git.
 #
 # Ordering matters: the catch-all comes first, the exception after it.
 *
 
-!install.sh
+!.build/
+!.build/graphit-linux-amd64

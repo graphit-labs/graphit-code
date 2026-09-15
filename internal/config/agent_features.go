@@ -28,8 +28,8 @@ const AgentModule = "agent"
 // It answers from configuration only, and deliberately does not probe for the binary: a machine
 // where the CLI is temporarily missing should say so at the point of use, with the message that
 // names the fix, rather than have the UI silently reshape itself. This flag is the operator
-// saying "there is no agent here and there will not be one" — which is exactly the situation a
-// container image is in.
+// saying that no usable agent CLI is available in this deployment. A base container image may
+// choose that default while a derived image installs a CLI and enables the module.
 func AgentFeaturesEnabled(inlineCfg, projectCfg ConfigMap) bool {
 	return !IsModuleDisabled(AgentModule, inlineCfg, projectCfg)
 }

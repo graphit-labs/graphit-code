@@ -1,8 +1,12 @@
 package config
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 const DefaultUIHost = "127.0.0.1"
+const DefaultUIPort = 8080
 
 func ResolveUIHost(inlineCfg, projectCfg ConfigMap) string {
 	host := strings.TrimSpace(ResolveConfig("ui.host", inlineCfg, projectCfg))
@@ -10,6 +14,18 @@ func ResolveUIHost(inlineCfg, projectCfg ConfigMap) string {
 		return DefaultUIHost
 	}
 	return host
+}
+
+func ResolveUIPort(inlineCfg, projectCfg ConfigMap) int {
+	raw := strings.TrimSpace(ResolveConfig("ui.port", inlineCfg, projectCfg))
+	if raw == "" {
+		return DefaultUIPort
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return DefaultUIPort
+	}
+	return port
 }
 
 func ResolveUIAllowedOrigins(inlineCfg, projectCfg ConfigMap) []string {

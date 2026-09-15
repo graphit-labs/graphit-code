@@ -40,9 +40,10 @@ func NewUnifiedServer(
 
 	projectCfg := config.LoadProjectConfig(repoPath)
 	host := config.ResolveUIHost(nil, projectCfg)
+	startPort := config.ResolveUIPort(nil, projectCfg)
 	allowedOrigins := config.ResolveUIAllowedOrigins(nil, projectCfg)
 
-	port, err := netutil.FindFreePortOnHost(host, 8080)
+	port, err := netutil.FindFreePortOnHost(host, startPort)
 	if err != nil {
 		return nil, fmt.Errorf("no free port: %w", err)
 	}

@@ -10,10 +10,14 @@ import (
 func TestUIConfigDefaultsAndProjectPrecedence(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	t.Setenv(brand.EnvVar("UI_HOST"), "")
+	t.Setenv(brand.EnvVar("UI_PORT"), "")
 	t.Setenv(brand.EnvVar("UI_ALLOWED_ORIGINS"), "")
 
 	if got := ResolveUIHost(nil, nil); got != "127.0.0.1" {
 		t.Fatalf("default host = %q; want 127.0.0.1", got)
+	}
+	if got := ResolveUIPort(nil, nil); got != DefaultUIPort {
+		t.Fatalf("default port = %d; want %d", got, DefaultUIPort)
 	}
 	if err := SetGlobalConfigValue("ui.host", "192.0.2.1"); err != nil {
 		t.Fatalf("set global UI host: %v", err)
@@ -30,14 +34,29 @@ func TestUIConfigDefaultsAndProjectPrecedence(t *testing.T) {
 
 	project := ConfigMap{"ui": map[string]any{
 		"host":            "127.0.0.1",
+		"port":            "9090",
 		"allowed_origins": "https://one.test, https://two.test,https://one.test",
 	}}
 	if got := ResolveUIHost(nil, project); got != "127.0.0.1" {
 		t.Fatalf("project host = %q; want 127.0.0.1", got)
 	}
+	if got := ResolveUIPort(nil, project); got != 9090 {
+		t.Fatalf("project port = %d; want 9090", got)
+	}
 	wantOrigins := []string{"https://one.test", "https://two.test"}
 	if got := ResolveUIAllowedOrigins(nil, project); !reflect.DeepEqual(got, wantOrigins) {
 		t.Fatalf("origins = %#v; want %#v", got, wantOrigins)
+	}
+
+	t.Setenv(brand.EnvVar("UI_PORT"), "9091")
+	if got := ResolveUIPort(nil, project); got != 9091 {
+		t.Fatalf("environment port = %d; want 9091", got)
+	}
+	for _, invalid := range []string{"invalid", "0", "65536"} {
+		t.Setenv(brand.EnvVar("UI_PORT"), invalid)
+		if got := ResolveUIPort(nil, project); got != DefaultUIPort {
+			t.Errorf("invalid port %q = %d; want %d", invalid, got, DefaultUIPort)
+		}
 	}
 }
 

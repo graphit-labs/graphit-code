@@ -169,7 +169,7 @@
       <div class="section-heading reveal">
         <p class="kicker">Run it for the whole team</p>
         <h2>One server. Any AI agent, over MCP.</h2>
-        <p>The repository ships a Dockerfile that runs Graphit as a server: the daemon publishing an MCP endpoint and the Observatory. Your agent connects from wherever you work, brings its own model, and reads the code graphs, documentation and memory the server holds.</p>
+        <p>Release images are available from GHCR as <code>0.1.2</code>, <code>0.1</code>, <code>0</code>, and <code>latest</code> (without the Git tag's <code>v</code> prefix). The image runs Graphit as a server: the daemon publishes an MCP endpoint and the optional Observatory. Your agent connects from wherever you work, brings its own model, and reads the code graphs, documentation and memory the server holds.</p>
       </div>
       <div class="capability-grid">
         <article class="capability-card reveal"><span>ANY CLIENT</span><h3>Whatever speaks MCP</h3><p>Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot, Kiro, Qwen Code, Kimi Code, Deep Code, or your own client. An HTTP URL and a bearer token is the whole integration.</p></article>
@@ -178,11 +178,12 @@
       </div>
       <div class="command-panel is-active reveal" style="margin-top:1.4rem">
         <button class="copy-button" type="button">Copy</button>
-        <pre><code>docker build -t graphit-code .
+        <pre><code>VERSION=0.1.1
+docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 docker run -d --name graphit \
   -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
-  -v graphit-global:/opt/graphit \
-  graphit-code</code></pre>
+  -v graphit-global:/home/graphit/.graphit \
+  "ghcr.io/graphit-labs/graphit-code:${VERSION}"</code></pre>
       </div>
       <div class="trust-panel reveal" style="margin-top:1.4rem">
         <div>
@@ -234,12 +235,13 @@ graphit ui</code></pre>
         </div>
         <div class="command-panel" id="panel-docker" role="tabpanel" aria-labelledby="tab-docker" data-panel="docker" hidden>
           <button class="copy-button" type="button">Copy</button>
-          <pre><code>docker build -t graphit-code .
+          <pre><code>VERSION=0.1.1
+docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 docker run -d --name graphit \
   -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
-  -v graphit-global:/opt/graphit \
-  graphit-code
-docker exec graphit cat /opt/graphit/daemon/mcp.key</code></pre>
+  -v graphit-global:/home/graphit/.graphit \
+  "ghcr.io/graphit-labs/graphit-code:${VERSION}"
+docker exec graphit cat /home/graphit/.graphit/daemon/mcp.key</code></pre>
         </div>
         <div class="command-panel" id="panel-source" role="tabpanel" aria-labelledby="tab-source" data-panel="source" hidden>
           <button class="copy-button" type="button">Copy</button>

@@ -216,6 +216,7 @@ validation and noninteractive setup sequence.
 | Key | Default | Effect |
 |---|---|---|
 | `ui.host` | `127.0.0.1` | Interface used by `graphit ui` and daemon-hosted UI. The UI has no built-in authentication. |
+| `ui.port` | `8080` | First UI port to bind. Invalid values fall back to `8080`; the environment name is `GRAPHIT_UI_PORT`. |
 | `ui.allowed_origins` | same-origin and loopback origins | Comma-separated exact CORS allowlist. A configured list replaces the loopback defaults; `*` allows any browser origin. |
 | `mcp.host` | `127.0.0.1` | Interface for the daemon's streamable HTTP MCP listener. |
 | `mcp.port` | `0` | Fixed port, or `0` for an OS-assigned port written to the daemon runtime directory. Invalid values fall back to `0`. |
@@ -359,12 +360,58 @@ not participate in the configuration precedence chain.
 | Linux/macOS `install.sh` | `--dir <path>` | `$HOME/.local/bin` | Launcher destination. |
 | Linux/macOS `install.sh` | `--version <tag>` or `VERSION=<tag>` | latest release | Pins the release archive. The flag wins over the environment. |
 | Windows `install.ps1` | `-Dir <path>` or `GRAPHIT_INSTALL_DIR=<path>` | `%LOCALAPPDATA%\Programs\graphit` | Launcher destination. The parameter wins over the environment. |
-| Root `Dockerfile` | build argument `GRAPHIT_VERSION` | `latest` | Pins the Graphit release installed in the image. |
-| Root `Dockerfile` | build arguments `BASE_IMAGE`, `ANONYMIZE_EVENTS`, `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, `HTTP_PROXY`, `HTTPS_PROXY` | documented in the container guide | Selects the image base, event identifier privacy, and build-time embedding preparation/network. Credentials remain runtime inputs. |
+| Root `Dockerfile` | build argument `BASE_IMAGE` | `debian:bookworm-slim` | Selects the image base. The Dockerfile copies the CI-compatible binary from `.build/graphit-linux-amd64`. |
 
 The PowerShell installer currently always selects the latest release; use the release archive
 directly when Windows needs an exact version. See [Getting Started](getting_started.md) and
 [Running Graphit Code as a server in a container](container.md).
+
+## Container runtime defaults
+
+The release workflow strips the Git tag's `v` prefix when publishing to GHCR. For example,
+`v0.1.2` publishes `ghcr.io/graphit-labs/graphit-code` with tags `0.1.2`, `0.1`, `0`, and `latest`.
+The container exposes runtime settings as environment variables, so changing them does not require
+a new image. Its listener defaults are the fixed internal image ports: publish a different host
+port with Docker's `HOST:CONTAINER` mapping instead of changing the container side.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `GRAPHIT_GLOBAL_DIR` | `/home/graphit/.graphit` | Persistent global configuration, auth, providers, and daemon runtime files. |
+| `GRAPHIT_MODULES_AGENT` | `false` | Disables features that require an external Agent CLI in the base image. |
+| `GRAPHIT_MODULES_DREAM` | `false` | Keeps autonomous Dream work disabled. |
+| `GRAPHIT_MODULES_DAEMON_UI` | `true` | Makes the daemon serve the unified UI. |
+| `GRAPHIT_UI_HOST` | `0.0.0.0` | Makes the UI listener reachable through the container network. |
+| `GRAPHIT_UI_PORT` | `8080` | Reserved by the standard image for its fixed UI listener; the entrypoint replaces external overrides and the health check probes port 8080 only while daemon UI is enabled. |
+| `GRAPHIT_UI_ALLOWED_ORIGINS` | empty | Uses the normal same-origin and loopback CORS defaults. |
+| `GRAPHIT_MCP_HOST` | `0.0.0.0` | Makes the MCP listener reachable through the container network. |
+| `GRAPHIT_MCP_PORT` | `8081` | Reserved by the standard image for its fixed MCP listener; the entrypoint replaces external overrides and port 8081 is the mandatory health-check target. |
+| `GRAPHIT_HUB_EVENTS_ANONYMIZE` | `false` | First-start `--anonymize-events` answer and runtime override for Hub event identifier anonymization. |
+| `GRAPHIT_AGENT` | empty | First-start `--agent` answer and runtime override for `agent`; empty selects the documented default. |
+| `GRAPHIT_CLI` | empty | First-start `--cli` answer and runtime override for `cli`; empty selects the documented default. |
+| `GRAPHIT_CLIENT_SECRET` | empty | Leaves the installation salt unoverridden so Graphit can generate and persist it when required. |
+
+This table lists the defaults baked into the image; it is not an allowlist. Apart from the two
+listener-port variables reserved by the entrypoint, any supported Graphit
+configuration key may be injected even when its canonical `GRAPHIT_*` name is absent from the
+Dockerfile. The normal mapping replaces dots with underscores and uppercases the key—for example,
+`modules.sync` becomes `GRAPHIT_MODULES_SYNC`. Docker, Compose, and Kubernetes do not require the
+variable to have been declared in the image. A name without a corresponding Graphit configuration
+consumer is ignored; provider and AI credentials instead use the authentication store or their
+documented native environment variables.
+
+Except for `GRAPHIT_GLOBAL_DIR`, which must locate the configuration before it can be read, every
+`GRAPHIT_*` value declared by the image is an ordinary configuration environment variable. The
+entrypoint-only listener variables are the additional image-specific exception. On a
+new global volume, the entrypoint runs setup once before starting the daemon, always in
+non-interactive mode.
+The image declares `USER graphit` with UID/GID `10001`, so the entrypoint, setup, daemon, and
+explicit commands are non-root from process start. Bind mounts and custom global directories must
+be provisioned as readable, writable, and traversable by that UID/GID; the entrypoint validates
+access but cannot change ownership.
+The base image installs no Agent CLI and therefore sets `GRAPHIT_MODULES_AGENT=false`; see the
+[container guide](container.md#extend-the-image-with-an-agent-cli) for deriving an image that
+installs a CLI and overrides `modules.agent`, `agent`, and `cli`.
+See the [container](container.md) guide for the complete environment and lifecycle contract.
 
 ## Verify an effective setup
 

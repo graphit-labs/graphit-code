@@ -129,6 +129,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `client.secret` | Secret installation salt used only when Hub event identifiers are anonymized | generated ULID during setup; lazy fallback on first anonymized event |
 | `hub.icebug.reverse_edges` | Whether AST artifacts publish a separate reverse CSR for every relationship type. Only explicit `false` disables it. | `true` |
 | `ui.host` | Address on which the unified UI server listens | `127.0.0.1` |
+| `ui.port` | First port the unified UI server attempts to bind; invalid values fall back to 8080 | `8080` |
 | `ui.allowed_origins` | Comma-separated exact CORS origins; configured values replace the localhost default allowlist | localhost loopback origins |
 | `mcp.host` | Interface used by the daemon's authenticated HTTP MCP listener | `127.0.0.1` |
 | `mcp.port` | MCP port; `0` requests an OS-assigned port | `0` |
@@ -195,9 +196,10 @@ an API key, not an embedding model, but a binary the framework shells out to. It
 | Live search | `/api/live/*`, which is not registered at all when the module is off |
 
 Each of those reaches `ai.NewClientFromConfig`, which only ever returns a CLI resolved from `PATH`.
-There is no HTTP fallback behind it, so without a binary they cannot degrade — only fail. The flag is
-the operator saying "there is no agent here and there will not be one", which is exactly the position
-a container image is in.
+There is no HTTP fallback behind it, so without a binary they cannot degrade — only fail. The flag
+states that no usable Agent CLI is available in this deployment. The published base container image
+sets it off because it ships without an Agent CLI, while a derived image may install and authenticate
+one and override `modules.agent`, `agent`, and `cli` through the normal configuration system.
 
 It deliberately does **not** cover anything running on local ONNX embeddings or on the graph alone:
 `GET /api/search` (BM25 + vector hybrid), `GET /api/wiki/search` (BM25), and every Cypher, graph,
@@ -268,11 +270,12 @@ as every other key rather than a scheme of their own.
 The AI providers additionally accept their own native variables when the Graphit key is unset —
 `OPENAI_API_KEY`, `COHERE_API_KEY`, `VOYAGE_API_KEY`, `GOOGLE_API_KEY` / `GEMINI_API_KEY`.
 
-### Unified UI network access: `ui.host` and `ui.allowed_origins`
+### Unified UI network access: `ui.host`, `ui.port`, and `ui.allowed_origins`
 
-The unified UI server binds to `127.0.0.1` by default. `ui.host` can publish it on
-another interface or every IPv4 interface. Like every normal config key, a
-project value overrides a global value, and `GRAPHIT_UI_HOST` overrides both.
+The unified UI server binds to `127.0.0.1:8080` by default. `ui.host` can publish it on
+another interface or every IPv4 interface, while `ui.port` selects the first port it attempts to
+bind. Like every normal config key, a project value overrides a global value;
+`GRAPHIT_UI_HOST` and `GRAPHIT_UI_PORT` override both. An invalid `ui.port` falls back to 8080.
 
 `ui.allowed_origins` is a comma-separated list of exact browser origins. When the
 key is absent or empty, the secure default remains unchanged: empty/same-origin

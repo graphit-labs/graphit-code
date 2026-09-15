@@ -302,9 +302,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 
 		close(mcpReady)
 
-		mux := http.NewServeMux()
-		mux.Handle("/mcp", authHandler)
-		httpServer := &http.Server{Handler: mux}
+		httpServer := &http.Server{Handler: newDaemonMCPMux(authHandler)}
 		_ = httpServer.Serve(listener)
 	}()
 
@@ -371,6 +369,16 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		close(pidClaimed)
 		<-mcpReady
 	})
+}
+
+func newDaemonMCPMux(mcpHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpHandler)
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	return mux
 }
 
 func resolveDaemonMCPAPIKey() (string, error) {

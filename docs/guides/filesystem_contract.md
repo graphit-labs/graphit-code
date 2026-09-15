@@ -110,8 +110,8 @@ failed authorization refresh. Cached discovery may be displayed as explicitly st
 but it cannot authorize content or a remote mount. See
 [Hub Access Control](../specs/hub_access_control.md).
 
-In the supplied container, `GRAPHIT_GLOBAL_DIR=/opt/graphit`, so daemon files are under
-`/opt/graphit/daemon/`, not under a project `.graphit/runtime/` tree.
+In the supplied container, `GRAPHIT_GLOBAL_DIR=/home/graphit/.graphit`, so daemon files are under
+`/home/graphit/.graphit/daemon/`, not under a project `.graphit/runtime/` tree.
 
 The default Dream directory contains `<session-id>.md` reports, an optional
 `<session-id>.exhausted` deep-sleep marker, and `dream_last_seen.json`. When

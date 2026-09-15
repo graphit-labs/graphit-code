@@ -38,6 +38,32 @@ func TestDaemonHelpDocumentsWatchConfiguration(t *testing.T) {
 	}
 }
 
+func TestDaemonMCPMuxHealthAndMCPRoutes(t *testing.T) {
+	mcpCalled := false
+	handler := newDaemonMCPMux(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mcpCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	healthRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(healthRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if healthRecorder.Code != http.StatusOK {
+		t.Fatalf("health status = %d; want %d", healthRecorder.Code, http.StatusOK)
+	}
+	if got := strings.TrimSpace(healthRecorder.Body.String()); got != `{"status":"ok"}` {
+		t.Fatalf("health body = %q; want ok JSON", got)
+	}
+	if mcpCalled {
+		t.Fatal("health request reached MCP handler")
+	}
+
+	mcpRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+	if mcpRecorder.Code != http.StatusNoContent || !mcpCalled {
+		t.Fatalf("MCP route status = %d, called = %v; want 204 and delegation", mcpRecorder.Code, mcpCalled)
+	}
+}
+
 func TestDaemonRestartStartsInBackground(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 

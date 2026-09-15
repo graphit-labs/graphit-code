@@ -161,7 +161,9 @@ Modules that run once per daemon (not per-project):
 - **User `MemoryMaintenanceModule`**: exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
 - **Optional UI module**: hosts the Observatory when `modules.daemon_ui=true`.
 
-The daemon also owns a separate authenticated streamable HTTP MCP listener at `/mcp`.
+The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp` and an
+unauthenticated liveness probe at `GET /health`. The health route returns HTTP 200 with
+`{"status":"ok"}` when the listener is serving; it does not perform a deep store/provider check.
 `mcp.host` defaults to loopback and `mcp.port` defaults to an OS-assigned port; discovery
 metadata is written to `~/.graphit/daemon/mcp.port` and the mode-`0600` bearer secret to
 `~/.graphit/daemon/mcp.key`; each start creates a fresh runtime key. The active profile's static

@@ -132,8 +132,9 @@ Use the exact agent identifier supported by your environment; `graphit init --he
 
 The local workflow above does not require a server deployment. When external agents (including
 web-based agents) need to connect over MCP, you can run Graphit as a shared service instead.
-The root `Dockerfile` builds a server with the daemon as PID 1, publishing an **MCP endpoint** and
-the UI.
+Release tags publish a Linux amd64 server image to GHCR. A Git release `v0.1.2` publishes the Docker
+tags `0.1.2`, `0.1`, `0`, and `latest`—Docker tags do not include the `v` prefix. The image runs the
+daemon as PID 1 and publishes an **MCP endpoint** and the optional UI.
 
 Any MCP-capable AI agent can connect to it — Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot,
 Kiro, Qwen Code, Kimi Code, Deep Code, or your own client. The agent runs wherever the developer is
@@ -142,14 +143,42 @@ it reasons over. One container can serve a team without requiring each remote cl
 anything locally.
 
 ```bash
-docker build -t graphit-code .
+VERSION=0.1.1
+docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 
 docker run -d --name graphit \
   -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:8081:8081 \
-  -v graphit-global:/opt/graphit \
-  graphit-code
+  -v graphit-global:/home/graphit/.graphit \
+  "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 ```
+
+To build the image locally, first run `make build-linux VERSION=dev`, then
+`docker build -t graphit-code:dev .`; the Dockerfile copies that CI-compatible binary and performs
+no release download.
+
+On the first container start, the entrypoint runs setup in non-interactive mode in the mounted
+global directory before starting the daemon. Later starts reuse `config.json` from the volume.
+The image uses fixed internal ports `8080` for the UI and `8081` for MCP. To publish a different
+port, change only the host side of the mapping, for example `-p 127.0.0.1:9090:8080`; no Graphit
+port setting is required. The entrypoint keeps those internal listener ports fixed, including when
+same-named environment variables are supplied. Other runtime defaults, including
+`GRAPHIT_HUB_EVENTS_ANONYMIZE`, can be
+overridden with `docker run -e ...` without rebuilding the image. Any other supported Graphit
+configuration key can be passed by its canonical `GRAPHIT_*` name even when the Dockerfile does not
+declare it; the declarations in the image provide defaults, not an allowlist. The image declares
+the fixed non-root user `graphit` (UID/GID `10001`), including
+for the entrypoint, setup, daemon, and explicit commands. A bind mount or custom global directory
+must therefore already be writable by UID/GID `10001`; the container does not elevate privileges
+to repair ownership. First-start setup uses the canonical configuration
+environment variables `GRAPHIT_AGENT`, `GRAPHIT_CLI`, and `GRAPHIT_HUB_EVENTS_ANONYMIZE`; empty
+Agent/CLI values keep the documented defaults.
+
+The published base image intentionally installs no coding-agent CLI and sets
+`GRAPHIT_MODULES_AGENT=false`. A derived image may install and authenticate a supported CLI in
+`PATH`, then set `GRAPHIT_MODULES_AGENT=true`, `GRAPHIT_AGENT`, and `GRAPHIT_CLI` either in the
+image or at runtime. These are normal configuration overrides, not Docker-only settings. See the
+[container guide](docs/guides/container.md#extend-the-image-with-an-agent-cli) for an example.
 
 Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full active key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
 
