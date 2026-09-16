@@ -104,7 +104,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download LanceDB native library
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-lancedb-native-linux-amd64
           path: .native
@@ -215,10 +215,8 @@ jobs:
 
   publish-image:
     name: Publish Docker image (linux-amd64)
-    needs: [build-linux]
+    needs: [publish]
     runs-on: ubuntu-22.04
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -228,7 +226,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-amd64
           path: dist/
@@ -349,7 +347,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [build-linux, build-darwin, build-windows, publish-image]
+    needs: [build-linux, build-darwin, build-windows]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -360,8 +358,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
         with:
           path: dist/
 
@@ -389,6 +387,7 @@ jobs:
             CHANGES=$(git log --pretty=format:"- %s (%h)" 2>/dev/null | head -20 || echo "")
           fi
           {
+            echo "version=${TAG#v}"
             echo "changes<<EOF"
             echo "$CHANGES"
             echo "EOF"
@@ -417,7 +416,7 @@ jobs:
 
             ### Docker (Linux amd64)
             ```bash
-            docker pull ghcr.io/${{ github.repository }}:${{ needs.publish-image.outputs.version }}
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.changelog.outputs.version }}
             ```
 
             ### Manual download
