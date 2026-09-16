@@ -83,6 +83,16 @@ across modules instead of repeating discovery. Separate verified behavior from i
 
 ## Project-bound operations
 
+When the MCP server exposes initialized projects, a cluster result is also a managed Graphit
+target. Discover with the current project's `project_dir`, then use the selected returned `dir`
+as `project_dir` on that neighbor's AST/Knowledge/Memory/Task reads as needed. Read each needed
+target skill with `graphit_module_skill` and that path; respect `enabled` and target overrides.
+Use AST and wiki source tools even if a local filesystem happens to expose the neighbor. Do not
+switch to grep, glob or directory walks because it is outside the working directory. Keep the
+coordinating Task in its owning project and preserve evidence by logical identity/relative paths;
+read access does not itself authorize modifications. This branch requires a real server-resolved
+project and does not apply to artifact-only content.
+
 Do not call tools that require a real project for indexing, synchronization, project Task state, or
 project Memory when the server is artifact-only. User-scoped Memory remains valid because it belongs
 to the server user rather than to an invented checkout. If the requested operation truly needs a

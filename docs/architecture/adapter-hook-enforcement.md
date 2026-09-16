@@ -43,6 +43,12 @@ External agents can retrieve only global mandates through parameterless `graphit
 
 ### Invariant reinjection
 
+The invariant also covers neighboring projects found through cluster discovery: they remain
+Graphit-managed. The selected `dir` becomes `project_dir` for that target’s module reads, with
+skills reused per target/overrides. An external working directory does not justify native code
+discovery. Hub/AST explain the transition; Memory/Task/Knowledge preserve each lookup target
+while the coordinating task remains in its owning project.
+
 Full resident context is reserved for a real session or subagent start and reconstruction after compaction, except Kimi: its reliable context boundary is `UserPromptSubmit`, so it retains bootstrap delivery there without assuming `SessionStart` stdout was consumed. Other recurring prompt or invocation boundaries receive only `CoreInvariant`, the short Graphit-first priority reminder; they do not rebuild or repeat mandatory memory, mandates, rules, or the initial bootstrap. When an adapter has a compensable gap, only that adapter's format appends its specific instruction to the invariant or checkpoint. Post-action boundaries without a gap receive only `UnitCompletionReminder`. If a required Graphit MCP tool is unavailable in the current agent, the agent continues with its native tools. The only prohibited substitution is using the Graphit CLI as though it were MCP.
 
 Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. The hook only restores the router; the agent still classifies the domain and loads the corresponding skill only when the next action matches a trigger.

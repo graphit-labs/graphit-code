@@ -107,7 +107,22 @@ current project. Each entry contains:
 ## 📡 Cross-Project Query Delegation
 
 When an AI agent is invoked (e.g., inside Claude Code or Cursor), it can discover cluster projects by calling the `graphit_cluster_projects` tool.
-Once the agent has the absolute directory path of a project, it can delegate queries to it:
+Every returned project is managed by Graphit, including neighboring checkouts outside the agent's
+working directory. Use the selected returned `dir` as `project_dir` for that target's enabled module
+reads. Discovery starts in the current project; subsequent AST, Knowledge, Memory and Task lookups
+about the neighbor target the neighbor. Do not switch to native grep, glob or filesystem exploration
+simply because the code is in another project. Read only the needed module skill for the target,
+including its overrides and enabled state; reuse retained instructions and evidence per project.
+
+Memory facts/lessons and historical Task specifications/decisions are optional sources according to
+the question, not mandatory calls after every AST/Knowledge read. The coordinating Task remains
+in the project that owns the delivery, and inspecting a neighbor does not authorize mutations there.
+Persist logical project identity, revision and relative references in shared results; absolute paths
+belong only to live tool payloads and must be resolved again on another machine.
+
+The Hub skill's `references/discovery-cases.md` gives a complete origin-to-neighbor example,
+including source reads, selective historical recall and return to the coordinating task. Examples:
+
 
 ### 1. Cross-Project AST Queries
 The agent can query the AST of another project by setting the `project_dir` parameter in the AST tool call:

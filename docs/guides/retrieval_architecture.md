@@ -239,6 +239,18 @@ path as `project_dir` to the relevant module tools. Only if absent, discover it 
 do not invent a path for cluster discovery. Reuse a resolution already established in this context.
 Read the Hub skill before unresolved project discovery; a tool failure does not establish absence.
 
+Every cluster result is a Graphit-managed project, including a neighboring checkout. Discovery
+uses the current project's path; evidence reads then use the selected project's returned `dir` as
+`project_dir`. Use AST search/source/schema/query for its code, Knowledge search/wiki source for
+its documentation, and Memory/Task tools for its facts and prior work when needed. Being outside
+the agent's working directory is never a reason to switch to native grep, glob or repository walks.
+Read only the needed module skill for that target (including its overrides and enabled state),
+and keep schemas, evidence and project-scoped mandatory memories associated with their own target.
+The active coordinating Task stays in the delivery's owning project; looking up a neighbor's
+history does not transfer its claim or authorize mutations there. Save logical project identity,
+relative references and revision in shared findings; the next host resolves its own local root.
+The Hub skill's discovery reference provides complete payloads for this transition and return.
+
 When the answer needs an uninstalled Hub artifact, announce the preparation and install Knowledge
 for documentation or AST for implementation, then query the corresponding module. The user's question
 authorizes this necessary preparation; do not ask for redundant permission. Public technologies such

@@ -48,7 +48,7 @@ type Context struct {
 // compaction, for subagents, or at another model boundary. Procedures belong in
 // the just-in-time skills; this text only preserves routing and precedence.
 func CoreInvariant() string {
-	return "Graphit invariant: reapply module routing before every new/resumed action. Read only the matching skill before first use; reuse it while present, reload after compaction if lost. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume durable task state; throughout work, new questions trigger needed enabled Memory/Task recall. Reuse sufficient context. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root."
+	return "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume durable task state; new questions trigger needed enabled Memory/Task recall. Reuse sufficient context. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root."
 }
 
 func cursorLifecycleCompensation() string {

@@ -27,7 +27,7 @@ Languages, frameworks, paths, symbols and commands in examples are illustrative.
 
 ## Use the framework at the decision boundary
 
-Read needed skills before first use; reuse retained instructions: Knowledge for requirements/architecture; AST for definitions, callers, tests and source before deciding impact; Hub for unfamiliar ecosystem projects/artifacts; Memory for durable constraints/decisions. Known absolute path → `project_dir`; otherwise local cluster before Hub catalog. For Hub-only projects, the Hub skill routes announcing/installing needed Knowledge/AST then module queries; the question authorizes preparation. Only without a local checkout, omit `project_dir` and use resolved installed `id@version`. Public technology (e.g. React) needs no Hub lookup; use known knowledge/official docs, verifying current details. History explains prior work; verify current behavior with AST/Knowledge. Persist plan-changing evidence.
+Read needed target skills: Knowledge for contracts, AST for code/impact, Memory for constraints, Hub for discovery. Known/cluster-returned local `dir` → `project_dir` on that project's module reads, including Task history; keep execution records in the delivery's owning project. Neighbors remain Graphit-managed: no native grep/walk for discovery. Otherwise cluster before Hub. Hub-only: announce/install required Knowledge/AST via Hub, then query resolved `id@version` as `context` without `project_dir`; the question authorizes preparation. Public technologies need no Hub lookup; verify current/version details with official docs. Compare history against current AST/Knowledge and persist plan-changing evidence.
 
 ## Create and revise safely
 

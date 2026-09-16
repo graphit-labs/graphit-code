@@ -15,7 +15,14 @@ Call graphit_cluster_projects:
 
 ### Local branch
 
-Assume the result identifies XPTO with absolute dir /work/xpto. Read the Knowledge skill, then graphit_knowledge_search:
+Assume the result identifies XPTO with absolute dir /work/xpto. This is another Graphit-managed project, not an invitation to use local grep/Glob/read_file on a neighboring directory. Discovery used the portal's project_dir; reads about XPTO now use XPTO's returned dir. The working directory need not change. Never send a path such as ../xpto/src/... under the portal's project_dir.
+
+Read the Knowledge skill for the selected target with graphit_module_skill (or reuse it if already resolved for this target and overrides):
+~~~json
+{"project_dir":"/work/xpto","module":"knowledge"}
+~~~
+
+Respect its enabled configuration and instructions, then graphit_knowledge_search:
 ~~~json
 {"project_dir":"/work/xpto","query":"publication approval roles rejection","top_k":5,"ai_optimized":true}
 ~~~
@@ -25,7 +32,43 @@ Suppose the result returns slug Publication_Approval. Use graphit_wiki_source:
 {"project_dir":"/work/xpto","path":"Publication_Approval"}
 ~~~
 
-Read the contract and answer with its rules, exceptions and provenance. If implementation must be verified, load AST and query the same local project. A Hub copy may exist, but does not displace the selected checkout's identity. Do not turn the local project ID into an artifact context.
+Read the contract and answer with its rules, exceptions and provenance. A Hub copy may exist, but does not displace the selected checkout's identity. Do not turn the local project ID into an artifact context.
+
+#### Verify implementation in the neighbor
+
+If the question also asks how approval is enforced, read the target AST skill via graphit_module_skill with module ast and the same XPTO project_dir. Use graphit_ast_search instead of native grep:
+~~~json
+{"project_dir":"/work/xpto","query":"approve publication role","mode":"fts","top_k":5,"ai_optimized":true}
+~~~
+
+Suppose a selected hit returns src/approval.ts. Read it with graphit_ast_source:
+~~~json
+{"project_dir":"/work/xpto","path":"src/approval.ts","pattern":"approve","before":3,"after":8,"line_numbers":true}
+~~~
+
+The filename is illustrative; use the actual returned relative path, language and symbol. If callers/impact remain relevant, graphit_ast_schema and the AST skill's bounded queries also use XPTO's project_dir. Do not reuse portal's schema merely because both are local. A native file read justified for patching already-located code does not authorize a new broad discovery pass.
+
+#### Recall the neighbor's rationale only when needed
+
+If current code/docs do not explain why approval requires an editor, read the needed target Memory or Task skill. A Memory policy/lesson gap can use graphit_memory_search:
+~~~json
+{"project_dir":"/work/xpto","scope":"project","query":"approval editor policy rationale","exclude_mandatory":true,"top_k":5,"ai_optimized":true}
+~~~
+
+Apply the Memory skill's scope-change rule first: portal's mandatory project memories are not XPTO's; reuse user-scope context already loaded. Select a returned memory ID and read graphit_memory_source with XPTO's project_dir. If an ID is already known, skip search.
+
+If instead the missing evidence is an earlier investigation/implementation decision, use graphit_task_search:
+~~~json
+{"project_dir":"/work/xpto","query":"approval editor decision","top_k":5,"ai_optimized":true}
+~~~
+
+Read selected returned task IDs with graphit_task_get and the same XPTO project_dir. Do not mechanically call both stores, claim/reopen historical tasks or create work in XPTO just to inspect it. Compare recorded scope/revision with current AST/Knowledge; distinguish historical intent from delivered behavior.
+
+#### Return evidence to the owning task
+
+For this example the active delivery belongs to portal. Its progress/check/complete calls keep portal's project_dir and claim; changing the source being read never transfers that claim to XPTO. Save logical identity XPTO, relative paths/slugs, applicable revision and findings in that task, never /work/xpto. Reading the neighbor does not itself authorize code changes, indexing or other mutations there. If authorized implementation is required, define the owning work and normal lifecycle before it.
+
+When switching back to portal queries, restore portal's target and reuse its retained skills/evidence. The same rule applies to any enabled Graphit module that accepts project_dir. If a required module is disabled/unavailable, report that observed limitation and follow its recovery/fallback contract; being outside the current directory is not evidence of unavailability. An empty indexed search needs focused refinement, not an immediate filesystem walk.
 
 ### No local match: published-context branch
 

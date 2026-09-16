@@ -76,10 +76,10 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, trigg
 
 func mandatePreamble() string {
 	return strings.Join([]string{
-		"Graphit routes project work through the enabled modules below; each agent and subagent follows the same contract.",
-		"Match the current action; read its skill immediately before first use. Reuse loaded instructions for the same project/overrides; reload only needed skills after those change or compaction loses content. Never preload all skills.",
-		"Use Graphit MCP before native discovery in a matched domain. If a required tool is unavailable, use default native tools and record the limitation; never substitute the Graphit CLI for MCP.",
-		"Pass `ai_optimized: true` when supported. Start with narrow queries and compact results, read selected sources, and stop when evidence answers the question. Reuse fresh evidence; expand for concrete gaps.",
+		"Each agent and subagent follows the enabled Graphit modules below.",
+		"Match the current action; read its skill immediately before first use. Reuse loaded instructions for the same project/overrides; reload only needed skills after target/overrides change or compaction loses them. Never preload all skills.",
+		"Use Graphit MCP before native discovery, including cluster neighbors: their returned `dir` is `project_dir` for target module reads. If a required tool is unavailable, record the limitation and use default native tools; never substitute the Graphit CLI.",
+		"Pass `ai_optimized: true` when supported. Use narrow queries, compact results and selected sources; stop when evidence answers. Reuse fresh evidence; expand for concrete gaps.",
 		"Memory: facts/lessons; Task: prior analysis/decisions and work state; Knowledge: contracts; AST: code; Hub: cluster-first discovery. New questions at any stage trigger needed recall; reuse sufficient evidence.",
 		"`project_dir` is call-local. Persist project identity and relative paths in shared content, never a machine-specific checkout root; resolve it again on each host.",
 		"Hooks load mandatory memory and restore routing at lifecycle boundaries. After interruptions, corrections or handoff, resume from durable task state and revise affected plans before execution.",

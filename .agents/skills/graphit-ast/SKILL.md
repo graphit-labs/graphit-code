@@ -26,7 +26,7 @@ Choose the row for the question, not every row. AST does not edit files, execute
 
 ## Target and cheapest useful read
 
-Use a known or cluster-resolved local project's absolute path as `project_dir`. Resolve unfamiliar ecosystem projects through the Hub skill's cluster-first route. Only for a resolved globally installed artifact without a local checkout, omit `project_dir` and use its exact `id@version` as `context`; never replace a known local path with that identifier. Keep the target consistent. Use `graphit_ast_list` to resolve installed contexts. Other-project/imported source is read through AST, not by walking repositories or the global store.
+Cluster neighbors are Graphit-managed: use returned `dir` as `project_dir` on AST search/source/schema/query, with paths relative to that target. Never switch to native grep/Glob/walks because it is outside cwd. Read the target AST skill/overrides; cache schema/evidence per target. Resolve unknown projects through Hub's cluster-first route. Only an installed artifact without checkout uses `context: id@version` without `project_dir`; never replace a known local path. `graphit_ast_list` resolves installed contexts. Read other-project/imported source through AST.
 
 Known file → source directly. Unknown location → search with a focused query and `top_k: 5`: `fts` for identifier/text clues, `hybrid` for concepts. FTS is ranked indexed retrieval, not exact identifier equality or exhaustive repository regex. Verify hits in source; use a node query for exact names. Do not automatically pair search and query when one answers.
 

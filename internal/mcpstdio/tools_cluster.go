@@ -164,7 +164,7 @@ func registerClusterTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("cluster", "projects"),
-		Description: "List all projects in the same cluster as the current project (including itself). Optionally filter by a specific cluster label key.",
+		Description: "List Graphit-managed projects in the current project's cluster (including itself), optionally filtered by label. Use the selected returned dir as project_dir for that target's enabled AST, Knowledge, Memory, Task and other MCP tools. Read the needed target module skill; do not switch to native grep or file walks merely because the project is outside the working directory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterProjectsInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
