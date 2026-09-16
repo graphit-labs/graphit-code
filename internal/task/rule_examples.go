@@ -115,7 +115,7 @@ C1 tests absent and explicit false separately. C2/C3 prove inaccessible active a
 | U | Implement reader control | task | E | [P] | web/projects.tsx, web/projects-api.ts, component tests, docs/projects/listing.md |
 | V | Verify integrated reader journeys | task | E | [A,U] | web/e2e/projects-archive.spec.ts plus evidence |
 
-Every create uses the host-resolved project_dir only in its MCP envelope and ai_optimized=true; saved descriptions/checks use project identity and repository-relative references, never that checkout root; omit parent_id when the table says omitted. The table supplies type/relations and the packets below supply descriptions/checks. Create and claim P with its planning-only scope/checks; P has no delivery children. Create E, then A/U, then V using returned IDs. API and UI are parallel eligible after P completes because contracts and edit ownership agree. V is not eligible until both producers complete. E cannot complete before its children. No child depends on E. Do not claim E while trying to own A with the same agent.
+Every create uses the host-resolved project_dir only in its MCP envelope and ai_optimized=true; saved descriptions/checks use project identity and repository-relative references, never that checkout root; omit parent_id when the table says omitted. The table supplies type/relations and the packets below supply descriptions/checks. Create and claim P with its planning-only scope/checks; P has no delivery children. Create E, then batch A/U once fully specified, then create V using the returned producer IDs. API and UI are parallel eligible after P completes because contracts and edit ownership agree. V is not eligible until both producers complete. E cannot complete before its children. No child depends on E. Do not claim E while trying to own A with the same agent.
 
 ### P creation fields
 
@@ -135,80 +135,103 @@ These are checks of planning quality. Even when P passes, C1–C12 have not been
 - acceptance_criteria: '[E1] Readers must browse both modes with R1–R7 behavior and without access regression'; '[E2] R8 user/API guidance must match delivered behavior'
 - tests: '[ET1] Read completed A/U/V checks and reproduce V current-mode/access scenario using P fixtures; actual expected IDs/counts must hold'; '[ET2] Compare published-in-repository guide examples with verified API/UI behavior and record exact reviewed sections'
 
-### A creation packet — complete executable backend slice
+### A/U batch creation packet — preserve both complete specifications
 
-The following is YAML presentation of create arguments. Substitute returned IDs for E/P and the resolved project directory; labels [A1]/[AT1] remain part of check text and later bind to returned check IDs.
+The plan is settled and both packets are fully written. Assume creates already returned P=tsk-a101 and E=tsk-e101; E is open and P is still the claimed planning task. These are fictional returned values, not IDs to copy into real calls. Batch creation does not require P to be completed: A/U can exist blocked by it, while P records their final coverage.
+
+Use graphit_task_batch once for the two creates below instead of two separate creation calls. This is YAML presentation of one MCP payload; send the equivalent structured object. project_dir and ai_optimized belong to the envelope. Each operation retains its own complete description, acceptance_criteria, tests, parent, dependencies and stable idempotency_key. A/U here are correlation keys only, never references that Graphit substitutes into IDs.
 
 ~~~yaml
 project_dir: /example/catalog
-title: Implement archived-project listing contract
-type: task
-parent_id: E
-depends_on: [P]
-idempotency_key: archive-browsing-api
-description: |
-  ## Outcome and scope
-  Implement R1-R4 and the API half of R8 for J1/J2. Deliver the existing
-  GET /projects option without changing response fields, access rules,
-  archive/restore behavior or stored schema. No UI files are owned here.
-  ## Starting context
-  Read P Specification, Contracts, Decisions and fixture matrix C1-C8.
-  ListProjectsHandler in internal/http/projects.go performs authentication
-  and paging parsing. StrictOptionalBool in internal/http/query.go defines
-  absent=false and rejects empty/duplicate/non-lowercase booleans.
-  ListProjects in internal/projects/list.go currently applies membership
-  AND archived_at IS NULL before id ordering/pagination and matching count.
-  internal/http/projects_test.go tests request/errors; list_test.go tests
-  membership/counts. docs/api/projects.md describes the current endpoint.
-  ## Plan and contracts
-  Reuse StrictOptionalBool; pass IncludeArchived through the listing options.
-  Keep membership filtering in rows and count. Only omit archived_at IS NULL
-  when IncludeArchived=true; preserve filter-before-pagination and id order.
-  Preserve existing error/response envelopes and page bounds. Extend tests
-  with P fixture C1-C8 and existing paging-bound checks. Update API guide
-  request examples, accepted/default values, errors and count semantics.
-  Before editing, inspect callers/options through AST and confirm source
-  still matches P; reconcile material drift instead of copying a stale plan.
-  ## Verification and documentation
-  Run go test ./internal/http ./internal/projects. Assert exact C1-C8
-  outcomes, parser no-call cases and existing page validation regression.
-  Compare docs/api/projects.md examples to tested handler/query behavior;
-  record inspected symbols/sections and concrete outputs. No unresolved
-  decision remains in this example. A missing access/parser contract blocks
-  affected implementation, not an invitation to invent it.
-acceptance_criteria:
-  - '[A1] R1: absent/false must return only active and true both statuses.'
-  - '[A2] R2: items and total must retain membership isolation; no-session calls must remain 401.'
-  - '[A3] R3: empty, repeated and invalid booleans must return 400 INVALID_QUERY before repository work.'
-  - '[A4] R4: rows and total must apply identical access/status filtering before stable id paging; empty pages must retain the filtered total.'
-  - '[A5] R8: API guide defaults, request examples, errors and paging statements must match the delivered handler/repository contract.'
-tests:
-  - '[AT1] Seed P fixture; issue absent and false separately, then true as alice. Expect C1/C2 exact IDs and totals, excluding p02 and p04.'
-  - '[AT2] Seed P fixture; run C3/C4/C5 with page_size=1 and a no-membership reader. Expect [p03]/2, []/1 and []/0 respectively; existing page bounds must still pass.'
-  - '[AT3] As alice run every C6 input and inject C8 storage failure; without session run C7. Expect exact 400/500/401 envelopes; invalid-query/unauthenticated cases make zero repository calls.'
-  - '[AT4] Run go test ./internal/http ./internal/projects; compare docs/api/projects.md relevant sections to observed C1-C8 outputs. Record command/result and matched code/doc references.'
 ai_optimized: true
+operations:
+  - action: create
+    key: A
+    title: Implement archived-project listing contract
+    type: task
+    parent_id: tsk-e101
+    depends_on: [tsk-a101]
+    idempotency_key: archive-browsing-api
+    description: |
+      ## Outcome and scope
+      Implement R1-R4 and the API half of R8 for J1/J2. Deliver the existing
+      GET /projects option without changing response fields, access rules,
+      archive/restore behavior or stored schema. No UI files are owned here.
+      ## Starting context
+      Read tsk-a101 Specification, Contracts, Decisions and fixture matrix C1-C8.
+      ListProjectsHandler in internal/http/projects.go performs authentication
+      and paging parsing. StrictOptionalBool in internal/http/query.go defines
+      absent=false and rejects empty/duplicate/non-lowercase booleans.
+      ListProjects in internal/projects/list.go currently applies membership
+      AND archived_at IS NULL before id ordering/pagination and matching count.
+      internal/http/projects_test.go tests request/errors; list_test.go tests
+      membership/counts. docs/api/projects.md describes the current endpoint.
+      ## Plan and contracts
+      Reuse StrictOptionalBool; pass IncludeArchived through the listing options.
+      Keep membership filtering in rows and count. Only omit archived_at IS NULL
+      when IncludeArchived=true; preserve filter-before-pagination and id order.
+      Preserve existing error/response envelopes and page bounds. Extend tests
+      with tsk-a101 fixture C1-C8 and existing paging-bound checks. Update API guide
+      request examples, accepted/default values, errors and count semantics.
+      Before editing, inspect callers/options through AST and confirm source
+      still matches tsk-a101; reconcile material drift instead of copying a stale plan.
+      ## Verification and documentation
+      Run go test ./internal/http ./internal/projects. Assert exact C1-C8
+      outcomes, parser no-call cases and existing page validation regression.
+      Compare docs/api/projects.md examples to tested handler/query behavior;
+      record inspected symbols/sections and concrete outputs. No unresolved
+      decision remains in this example. A missing access/parser contract blocks
+      affected implementation, not an invitation to invent it.
+    acceptance_criteria:
+      - '[A1] R1: absent/false must return only active and true both statuses.'
+      - '[A2] R2: items and total must retain membership isolation; no-session calls must remain 401.'
+      - '[A3] R3: empty, repeated and invalid booleans must return 400 INVALID_QUERY before repository work.'
+      - '[A4] R4: rows and total must apply identical access/status filtering before stable id paging; empty pages must retain the filtered total.'
+      - '[A5] R8: API guide defaults, request examples, errors and paging statements must match the delivered handler/repository contract.'
+    tests:
+      - '[AT1] Seed tsk-a101 fixture; issue absent and false separately, then true as alice. Expect C1/C2 exact IDs and totals, excluding p02 and p04.'
+      - '[AT2] Seed tsk-a101 fixture; run C3/C4/C5 with page_size=1 and a no-membership reader. Expect [p03]/2, []/1 and []/0 respectively; existing page bounds must still pass.'
+      - '[AT3] As alice run every C6 input and inject C8 storage failure; without session run C7. Expect exact 400/500/401 envelopes; invalid-query/unauthenticated cases make zero repository calls.'
+      - '[AT4] Run go test ./internal/http ./internal/projects; compare docs/api/projects.md relevant sections to observed C1-C8 outputs. Record command/result and matched code/doc references.'
+  - action: create
+    key: U
+    title: Add accessible archive browsing control
+    type: task
+    parent_id: tsk-e101
+    depends_on: [tsk-a101]
+    idempotency_key: archive-browsing-ui
+    description: |
+      ## Outcome and scope
+      R5–R7 and user half of R8; J3 consumes the R1–R4 wire contract in tsk-a101. Add the reader control, request-state behavior, component tests and user guide. Do not edit backend files, shared parser or archive operations.
+      ## Starting context
+      read tsk-a101 Contracts, Decisions D3/D4 and fixtures C9–C12. web/projects-api.ts/listProjects owns typed arguments; web/projects.tsx/ProjectList owns page/list state. web/useLatestRequest.ts already guards response ordering. web/projects.test.tsx has mocked list transport and the existing error/Retry/translation patterns. docs/projects/listing.md documents reading projects. The provided package scripts run existing component tests; no new testing stack is needed.
+      ## Plan and contracts
+      add include_archived boolean to the client; keep it false on a new visit. Add the existing localized checkbox pattern labeled Show archived; each toggle resets page to 1 and preserves page_size. Feed both mode and page into the latest-request guard. Loading hides rows; success renders only the matching current request. Failure keeps chosen mode/page, shows localized error+Retry with no rows; Retry issues that same request. Preserve existing keyboard/focus semantics and avoid persistence. Update the user guide with default, archive toggle, access limitation, empty/error/retry behavior and no archive/restore action.
+      ## Verification and documentation
+      component mocks use tsk-a101 envelopes/fixtures, with deferred responses for ordering and rejected promises for failure. Run npm --prefix web test -- --run projects.test.tsx. Compare guide instructions against rendered labeled controls and states; record exact sections and evidence. API mock success is not integration proof; V must exercise the actual backend.
+    acceptance_criteria:
+      - '[U1] R5: initial mount must be unchecked; toggle on/off must send true/false, preserve page_size and reset page=1.'
+      - '[U2] R6: only the latest request may render; loading/failure must not show old rows; Retry must preserve selected mode/page.'
+      - '[U3] R7: the labeled control must be keyboard-operable and each new visit must reset it to unchecked.'
+      - '[U4] R8: the user guide must describe observable controls/states and their access/scope limits accurately.'
+    tests:
+      - '[UT1] Mount with page_size=2 and fixture C1; navigate to another page, toggle on then off. Inspect requests and results: C9, page=1 after each toggle, unchanged page_size.'
+      - '[UT2] Run deferred C10: resolve false before earlier true. Only [p01] remains. Run C11: reject true, assert error/no rows/current selection; Retry resolves [p01,p03]/2.'
+      - '[UT3] Focus checkbox by accessible label, press Space, leave and re-enter route: C12. Existing localization/focus tests remain passing.'
+      - '[UT4] Run npm --prefix web test -- --run projects.test.tsx; compare docs/projects/listing.md instructions to the exercised component states, recording code/doc references.'
 ~~~
 
-### U creation packet — complete executable UI slice
+#### Inspect every item and construct the next stage
 
-- title: Add accessible archive browsing control
-- idempotency_key: archive-browsing-ui; parent_id: E; depends_on: [P]; type: task
-- description:
-  - **Outcome and scope:** R5–R7 and user half of R8; J3 consumes the R1–R4 wire contract in P. Add the reader control, request-state behavior, component tests and user guide. Do not edit backend files, shared parser or archive operations.
-  - **Starting context:** read P Contracts, Decisions D3/D4 and fixtures C9–C12. web/projects-api.ts/listProjects owns typed arguments; web/projects.tsx/ProjectList owns page/list state. web/useLatestRequest.ts already guards response ordering. web/projects.test.tsx has mocked list transport and the existing error/Retry/translation patterns. docs/projects/listing.md documents reading projects. The provided package scripts run existing component tests; no new testing stack is needed.
-  - **Plan and contracts:** add include_archived boolean to the client; keep it false on a new visit. Add the existing localized checkbox pattern labeled Show archived; each toggle resets page to 1 and preserves page_size. Feed both mode and page into the latest-request guard. Loading hides rows; success renders only the matching current request. Failure keeps chosen mode/page, shows localized error+Retry with no rows; Retry issues that same request. Preserve existing keyboard/focus semantics and avoid persistence. Update the user guide with default, archive toggle, access limitation, empty/error/retry behavior and no archive/restore action.
-  - **Verification and documentation:** component mocks use P envelopes/fixtures, with deferred responses for ordering and rejected promises for failure. Run npm --prefix web test -- --run projects.test.tsx. Compare guide instructions against rendered labeled controls and states; record exact sections and evidence. API mock success is not integration proof; V must exercise the actual backend.
-- acceptance_criteria:
-  - '[U1] R5: initial mount must be unchecked; toggle on/off must send true/false, preserve page_size and reset page=1.'
-  - '[U2] R6: only the latest request may render; loading/failure must not show old rows; Retry must preserve selected mode/page.'
-  - '[U3] R7: the labeled control must be keyboard-operable and each new visit must reset it to unchecked.'
-  - '[U4] R8: the user guide must describe observable controls/states and their access/scope limits accurately.'
-- tests:
-  - '[UT1] Mount with page_size=2 and fixture C1; navigate to another page, toggle on then off. Inspect requests and results: C9, page=1 after each toggle, unchanged page_size.'
-  - '[UT2] Run deferred C10: resolve false before earlier true. Only [p01] remains. Run C11: reject true, assert error/no rows/current selection; Retry resolves [p01,p03]/2.'
-  - '[UT3] Focus checkbox by accessible label, press Space, leave and re-enter route: C12. Existing localization/focus tests remain passing.'
-  - '[UT4] Run npm --prefix web test -- --run projects.test.tsx; compare docs/projects/listing.md instructions to the exercised component states, recording code/doc references.'
+The response has succeeded/failed totals and ordered results with index, key, action, ok, id, value or error. A successful create exposes the returned task/checks in value. Match by index/key and save the real IDs and checks; do not decide success from transport status or aggregate count alone. Both successful creates remain open and unclaimed. Batch creation is not parallel implementation, and batch cannot grant multiple live claims to one agent.
+
+Suppose both succeed as A=tsk-a102 and U=tsk-a103. Read their saved definitions and then create V from its full packet below, using parent_id=tsk-e101 and depends_on=[tsk-a102,tsk-a103]. V needs the IDs returned by the A/U batch, so it belongs to the next call. Do not send depends_on=[A,U], key expressions or guessed IDs in the original batch. The same staging applies to a new parent, returned claim_token or revision. Independent work already referencing known IDs can share a batch even when its execution dependencies are incomplete.
+
+For a partial failure, suppose A is ok:true and U is ok:false with an error. Preserve A and its returned checks; correct only U's reported problem, then send the complete U create operation alone with the same idempotency_key. Do not resend known successes, invent a new key, claim failed work or create V before both producer identities are established. All items are attempted and successful writes are not rolled back. Even an error can follow an authoritative write before its projections finish; do not assume ok:false means nothing was created.
+
+If the response is lost or creation is uncertain, selectively retry uncertain creates using their original idempotency_key. An existing key returns the saved task; it does not apply a changed description or compare all new fields. Read the recovered record and reconcile changed scope through the normal claim/revise lifecycle, not a repeated create. Verify the response and saved packets before updating coverage or completing P. A failed/ambiguous creation never counts as a saved planning deliverable.
+
+For more than 100 operations, split by known-input stages and bounded groups of at most 100; use smaller groups if context or response size warrants. Never shorten specifications or merge distinct tasks to fit a batch. Other actions also support batch when their IDs/tokens/revisions are already known; per-item lifecycle checks still apply.
 
 ### V creation packet — complete integration and consistency slice
 

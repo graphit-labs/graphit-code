@@ -358,6 +358,21 @@ as their focused tools. A batch cannot be used to claim multiple live tasks for 
 `force_takeover` action retains exact-ID confirmation, current-revision fencing, reason, explicit
 per-operation replacement lease, and different-owner requirements.
 
+After specification and decomposition, agents should prefer `graphit_task_batch` to register
+multiple fully written tasks whose parent/dependency IDs are already known. Each `create` keeps
+its complete description, acceptance criteria, tests and stable idempotency key. Create parents
+first, then batch siblings, then create tasks that require the newly returned IDs. Existing
+prerequisites need not be completed for blocked tasks to be created. The optional `key` correlates
+results only; it is never interpolated into IDs, dependencies, tokens or revisions. The Task
+skill's worked-feature reference supplies two complete creation packets in a single payload.
+
+Inspect every `results[].ok` and preserve successful IDs/checks; there is no rollback on an item
+failure. Retry only failed or uncertain creates with their original `idempotency_key`, since an
+error can follow an authoritative write. An existing key returns the saved task without applying
+changed fields; reconcile specification changes through the normal read/claim/revise lifecycle.
+Bulk creation never claims tasks or changes their implementation readiness, and a large plan is
+split into bounded batches rather than compressed into generic task descriptions.
+
 `task_search` uses LanceDB full-text indexes over task specs/check evidence and comment bodies. It
 accepts `page_size` plus the opaque `cursor` returned as `next_cursor`; `top_k` remains the cap for
 the complete ranked result set. The cursor is bound to the query, project, page size, and cap, so a
