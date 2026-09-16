@@ -9,7 +9,7 @@ import (
 
 var skillName = brand.SkillDirName("task")
 
-const skillDescription = "Deterministic project work, including feature planning, backlog, milestones, and analysis-only tasks: exhaustive specifications, durable results, dependencies, claims, progress, handoff, completion, and prior-task search."
+const skillDescription = "Plan and execute project work with specifications, dependency-ordered tasks, acceptance evidence and resumable handoffs; use for features, fixes, analysis and backlog changes."
 
 func InstallSkill(projectDir, agentName string) error {
 	if projectDir == "" {
@@ -19,12 +19,12 @@ func InstallSkill(projectDir, agentName string) error {
 			return err
 		}
 	}
-	content := brand.ResolveModuleSkill("task", RuleContent())
+	content := brand.ResolveModuleSkillIn(projectDir, "task", RuleContent())
 	frontmatter, err := agent.SkillFrontmatter(skillName, skillDescription)
 	if err != nil {
 		return err
 	}
-	return agent.InstallManagedSkill(projectDir, agentName, skillName, frontmatter+content)
+	return agent.InstallManagedSkillWithReferences(projectDir, agentName, skillName, frontmatter+content, SkillReferences())
 }
 
 func RemoveSkill(projectDir, agentName string) error {
@@ -36,4 +36,14 @@ func RemoveSkill(projectDir, agentName string) error {
 		}
 	}
 	return agent.RemoveManagedSkill(projectDir, agentName, skillName)
+}
+
+// SkillReferences returns a fresh map so callers cannot mutate later installations.
+func SkillReferences() map[string]string {
+	return map[string]string{
+		"references/planning.md":       taskPlanningReference,
+		"references/worked-feature.md": taskWorkedExamples,
+		"references/worked-system.md":  taskWorkedSystem,
+		"references/execution.md":      taskExecutionReference,
+	}
 }

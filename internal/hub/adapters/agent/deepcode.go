@@ -174,8 +174,6 @@ func (a *DeepCodeAdapter) syncDeepCodeInstructions(projectDir string, installed 
 	block.WriteString("# Graphit lifecycle compatibility\n\n")
 	block.WriteString(sessionhook.Protocol())
 	block.WriteString("\n\n")
-	block.WriteString(sessionhook.CoreInvariant())
-	block.WriteString("\n\n")
 	block.WriteString(sessionhook.UnitCompletionReminder())
 	block.WriteString("\n\nDeep Code exposes only a completion `notify` callback. Apply the bootstrap and checkpoint instructions above at the corresponding semantic boundaries; the callback dispatches final sync.\n")
 

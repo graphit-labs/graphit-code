@@ -5,15 +5,67 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
+	"github.com/graphit-labs/graphit-code/internal/sessionhook"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 )
+
+// Instructions are an executable interface: routing to a misspelled or removed
+// tool forces guesses and extra calls, even when every generator still compiles.
+func TestCoreInstructionsReferenceRegisteredTools(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	t.Chdir(t.TempDir())
+	session := testMCPClient(t)
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered := make(map[string]bool, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		registered[tool.Name] = true
+	}
+	instructions := map[string]string{
+		"mandates":   sessioncontext.Mandates(),
+		"bootstrap":  sessionhook.Protocol(),
+		"checkpoint": sessionhook.UnitCompletionReminder(),
+		"ast":        ast.ASTRuleContent(),
+		"hub":        hub.HubRuleContent(),
+		"knowledge":  knowledge.KnowledgeRuleContent(nil, "docs"),
+		"memory":     memory.RuleContent(nil),
+		"task":       graphtask.RuleContent(),
+	}
+	for module, references := range map[string]map[string]string{
+		"ast": ast.SkillReferences(), "hub": hub.SkillReferences(),
+		"knowledge": knowledge.SkillReferences(), "memory": memory.SkillReferences(),
+		"task": graphtask.SkillReferences(),
+	} {
+		for path, content := range references {
+			instructions[module+"/"+path] = content
+		}
+	}
+	toolName := regexp.MustCompile("\\b" + regexp.QuoteMeta(brand.MCPToolName()) + "[a-z][a-z0-9_-]*\\b")
+	for surface, content := range instructions {
+		t.Run(surface, func(t *testing.T) {
+			for _, name := range toolName.FindAllString(content, -1) {
+				if !registered[name] {
+					t.Errorf("instruction routes to unregistered tool %q", name)
+				}
+			}
+		})
+	}
+}
 
 func TestMandatesToolDynamicallyResolvesGlobalConfigWithoutAProject(t *testing.T) {
 	globalDir := t.TempDir()
@@ -155,5 +207,58 @@ func TestModuleSkillToolRejectsUnknownModule(t *testing.T) {
 	text, ok := result.Content[0].(*mcp.TextContent)
 	if !ok || !strings.Contains(text.Text, "not a core skill") {
 		t.Fatalf("unexpected error content: %+v", result.Content)
+	}
+}
+
+func TestModuleSkillReferencesMatchInstalledResources(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	t.Chdir(t.TempDir())
+	session := testMCPClient(t)
+	for module, references := range map[string]map[string]string{
+		"ast": ast.SkillReferences(), "hub": hub.SkillReferences(),
+		"knowledge": knowledge.SkillReferences(), "memory": memory.SkillReferences(),
+		"task": graphtask.SkillReferences(),
+	} {
+		t.Run(module, func(t *testing.T) {
+			read := func(reference string) moduleSkillResult {
+				t.Helper()
+				result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+					Name: brand.MCPToolName("module", "skill"), Arguments: map[string]any{"module": module, "reference": reference},
+				})
+				if err != nil || result.IsError || len(result.Content) == 0 {
+					t.Fatalf("reading %s: %v, %+v", reference, err, result)
+				}
+				var got moduleSkillResult
+				if err := json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &got); err != nil {
+					t.Fatal(err)
+				}
+				return got
+			}
+			main := read("")
+			if len(main.References) != len(references) || len(references) == 0 {
+				t.Fatalf("reference discovery incomplete: %v", main.References)
+			}
+			for _, path := range main.References {
+				want, exists := references[path]
+				if !exists {
+					t.Fatalf("advertised unknown reference %s", path)
+				}
+				got := read(path)
+				if got.Reference != path || got.Content != want || len(got.References) != 0 || got.Module != module {
+					t.Fatalf("reference response differs from generator or loads other references: %s", path)
+				}
+				if strings.Contains(main.Content, want) {
+					t.Fatalf("main skill eagerly includes complete reference %s", path)
+				}
+			}
+			for _, path := range []string{"references/missing.md", "../../secret", "/etc/passwd"} {
+				result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+					Name: brand.MCPToolName("module", "skill"), Arguments: map[string]any{"module": module, "reference": path},
+				})
+				if err != nil || !result.IsError {
+					t.Fatalf("invalid reference was not rejected: %s, %v", path, err)
+				}
+			}
+		})
 	}
 }

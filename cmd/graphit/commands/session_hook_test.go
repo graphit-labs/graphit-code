@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/sessionhook"
+	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 )
 
 func TestSessionHookCommandRendersFormatPayload(t *testing.T) {
@@ -89,7 +93,7 @@ func TestSessionHookLoadsEnabledMandatesAndInstalledHubRulesDynamically(t *testi
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"GRAPHIT_SYSTEM_MANDATE", "graphit-memory", "graphit-knowledge", "graphit_knowledge_search", "Whenever Knowledge is searched", "also search related prior/current Graphit tasks", "graphit_memory_search", "graphit_memory_source", "graphit_task_search", "follow `next_cursor`", "graphit_task_get", "DYNAMIC HUB RULE"} {
+	for _, want := range []string{"GRAPHIT_SYSTEM_MANDATE", "graphit-memory", "graphit-knowledge", "graphit_knowledge_search", "graphit_memory_search", "graphit_memory_source", "graphit_task_search", "Follow `next_cursor` only while a relevant gap remains", "graphit_task_get", "DYNAMIC HUB RULE"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("dynamic hook context missing %q: %s", want, got)
 		}
@@ -316,5 +320,52 @@ func TestHookInputNeedsMandatoryOnlyOnFirstInvocation(t *testing.T) {
 	}
 	if !hookInputNeedsMandatory("cursor-subagent-task", nil) {
 		t.Fatal("Cursor subagent task injection must carry authoritative mandatory memory")
+	}
+}
+
+// Silent completion is used by Kiro, OpenCode and Deep Code. Its lack of model
+// output must not leave a stopped agent's task claimed until the lease expires.
+func TestSilentCompletionReleasesOnlyItsOwnTask(t *testing.T) {
+	if !lancestore.Available() {
+		t.Skip("requires the lancedb build tag")
+	}
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &hub.Lockfile{}); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := graphtask.Open(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, 2)
+	for _, session := range []string{"stopping-session", "working-session"} {
+		task, err := svc.Create(ctx, graphtask.CreateInput{
+			Title: session, Description: "Verify owner-specific silent lifecycle cleanup.",
+			AcceptanceCriteria: []string{"The stopped owner can hand off immediately"},
+			Tests:              []string{"Another owner's claim remains unchanged"}, IdempotencyKey: session,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Claim(ctx, task.ID, graphtask.AgentIDForSession(session), graphtask.DefaultLease); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, task.ID)
+	}
+	if err := runTaskSessionHook(ctx, projectDir, sessionhook.FormatNoOutput, []byte(`{"session_id":"stopping-session"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range ids {
+		detail, err := svc.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 && (detail.Task.Status != graphtask.StatusOpen || detail.Task.ClaimToken != "") {
+			t.Fatalf("stopped task remains claimed: %#v", detail.Task)
+		}
+		if i == 1 && (detail.Task.Status != graphtask.StatusInProgress || detail.Task.Owner != graphtask.AgentIDForSession("working-session")) {
+			t.Fatalf("another owner's task was changed: %#v", detail.Task)
+		}
 	}
 }

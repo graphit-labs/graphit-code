@@ -9,7 +9,7 @@ import (
 
 var (
 	memorySkillName        = brand.SkillDirName("memory")
-	memorySkillDescription = "Durable memory: preferences, corrections, decisions, constraints, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge; mandatory recall is performed by adapter hooks."
+	memorySkillDescription = "Memory: recall and preserve preferences, corrections, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge across tasks."
 )
 
 func InstallSkill(projectDir, agentName string) error {
@@ -20,12 +20,12 @@ func InstallSkill(projectDir, agentName string) error {
 			return err
 		}
 	}
-	skillContent := brand.ResolveModuleSkill("memory", RuleContent(nil))
+	skillContent := brand.ResolveModuleSkillIn(projectDir, "memory", RuleContent(nil))
 	frontmatter, err := agent.SkillFrontmatter(memorySkillName, memorySkillDescription)
 	if err != nil {
 		return err
 	}
-	return agent.InstallManagedSkill(projectDir, agentName, memorySkillName, frontmatter+skillContent)
+	return agent.InstallManagedSkillWithReferences(projectDir, agentName, memorySkillName, frontmatter+skillContent, SkillReferences())
 }
 
 func RemoveSkill(projectDir, agentName string) error {

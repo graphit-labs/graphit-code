@@ -29,12 +29,12 @@ func InstallSkill(projectDir, agentName string) error {
 		}
 	}
 	docsDir := resolveDocsDirFromProject(projectDir)
-	skillContent := brand.ResolveModuleSkill("knowledge", KnowledgeRuleContent(InstalledContextsIn(projectDir), docsDir))
-	frontmatter, err := agent.SkillFrontmatter(knowledgeSkillName, "Knowledge-first: project documentation, wiki retrieval, architecture, decisions, specifications, and provenance; use wiki tools before reading documentation files.")
+	skillContent := brand.ResolveModuleSkillIn(projectDir, "knowledge", KnowledgeRuleContent(InstalledContextsIn(projectDir), docsDir))
+	frontmatter, err := agent.SkillFrontmatter(knowledgeSkillName, "Knowledge: retrieve and maintain user/technical documentation by business domain; verify code/documentation consistency for every changed work unit using wiki and implementation evidence.")
 	if err != nil {
 		return err
 	}
-	return agent.InstallManagedSkill(projectDir, agentName, knowledgeSkillName, frontmatter+skillContent)
+	return agent.InstallManagedSkillWithReferences(projectDir, agentName, knowledgeSkillName, frontmatter+skillContent, SkillReferences())
 }
 
 func RemoveSkill(projectDir, agentName string) error {

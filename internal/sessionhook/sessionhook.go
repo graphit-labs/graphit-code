@@ -48,29 +48,29 @@ type Context struct {
 // compaction, for subagents, or at another model boundary. Procedures belong in
 // the just-in-time skills; this text only preserves routing and precedence.
 func CoreInvariant() string {
-	return "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP."
+	return "Graphit invariant: reapply module routing before every new/resumed action. Read only the matching skill before first use; reuse it while present, reload after compaction if lost. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume from durable task state. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root."
 }
 
 func cursorLifecycleCompensation() string {
-	return "Cursor-specific hook compensation: `beforeSubmitPrompt` cannot inject context, and Cursor Cloud may omit `sessionStart`; on every new or resumed prompt, reapply Graphit-first routing before acting. A reminder received only after a supported boundary governs subsequent actions, not the already-started first action. This is instruction fallback, not native hook enforcement."
+	return "Cursor-specific hook compensation: `beforeSubmitPrompt` cannot inject context; Cloud may omit `sessionStart`. Reapply Graphit routing before new/resumed work. Post-tool reminders govern subsequent actions; they cannot enforce the first action."
 }
 
 func antigravityLifecycleCompensation() string {
-	return "Antigravity-specific hook compensation: `PostToolUse` cannot inject context, so after each tool action independently apply the Graphit task checkpoint even if `PostInvocation` has not run yet. Antigravity exposes no subagent-start context hook; when delegating, include the complete Graphit protocol in the child prompt so its enabled Memory and Task bootstrap is preserved. This is instruction fallback, not native hook enforcement."
+	return "Antigravity-specific hook compensation: `PostToolUse` cannot inject context; apply checkpoints at completed work units without waiting for `PostInvocation`. No subagent-start hook: include the complete Graphit protocol and assigned task ids when delegating, preserving enabled Memory and Task bootstrap."
 }
 
 // UnitCompletionReminder is injected after the smallest objective work boundary
 // the host exposes. The hook cannot decide whether a semantic unit is complete,
 // so it asks the agent to make that judgment immediately instead of at turn end.
 func UnitCompletionReminder() string {
-	return "Graphit task checkpoint: if the action just finished the smallest independently reportable unit, call `" + brand.MCPToolName("task", "progress") + "` now with what landed and the exact next step. Do not write Markdown task state or defer the checkpoint until the end. " + DocumentationConsistencyReminder()
+	return "Graphit task checkpoint: on a completed work unit of a claimed task, call `" + brand.MCPToolName("task", "progress") + "` now with evidence and next step. Reads and task bookkeeping alone are not completed units. Keep task state in Graphit. " + DocumentationConsistencyReminder()
 }
 
 // DocumentationConsistencyReminder is delivered before the agent can decide
 // that a task is complete. Final stop hooks are too late for semantic review,
 // so adapters use this through their last context-capable checkpoint boundary.
 func DocumentationConsistencyReminder() string {
-	return "Before completing a task, verify bidirectional code-documentation consistency: when code, configuration, or behavior changed, identify and update every affected current documentation/Knowledge surface; when only documentation changed, compare it with the authoritative code or behavior and correct whichever side is stale. Record the concrete targets inspected and evidence in Graphit Task; unresolved divergence blocks completion."
+	return "Before completion, verify acceptance checks and affected code/documentation consistency in both directions; record inspected targets and evidence in Task. Resolve divergence before closing."
 }
 
 // SubagentProtocol is self-contained because subagents may start with neither
@@ -103,6 +103,9 @@ func protocolWithContext(context Context) string {
 	taskGet := brand.MCPToolName("task", "get")
 
 	lines := []string{routingContext(context.Instructions)}
+	if strings.TrimSpace(context.Instructions) == "" {
+		lines = append(lines, "If module routing was not injected, use `"+brand.MCPToolName("mandates")+"` once when available. Read matching installed skills first; fetch a missing skill with `"+brand.MCPToolName("module", "skill")+"`. Project instructions remain authoritative.")
+	}
 	if context.MemoryDisabled && context.TaskDisabled {
 		return strings.Join(lines, "\n")
 	}
@@ -114,18 +117,19 @@ func protocolWithContext(context Context) string {
 	}
 	if !context.MemoryDisabled {
 		if !context.MandatoryLoaded {
-			appendStep("Call `" + mandatoryTool + "` once and consume every result before acting.")
+			appendStep("If available, read `" + brand.SkillDirName("memory") + "`; call `" + mandatoryTool + "` with `ai_optimized: true` once per missing available scope (`project` for a resolved project, and `user`). Consume all standing context before acting.")
 		} else if strings.TrimSpace(context.Mandatory) == "" {
 			appendStep("The hook read the authoritative memory table; it contains no mandatory memories.")
 		} else {
 			appendStep("The hook read the authoritative memory table. Treat the following as standing context; do not call `" + mandatoryTool + "` again:\n" + strings.TrimSpace(context.Mandatory))
 		}
-		appendStep("For the current request, call `" + search + "` with `exclude_mandatory: true`, `ai_optimized: true`, and a focused query.")
-		appendStep("Memory search returns titles and ids. Read only the relevant result(s) with `" + memorySource + "` before acting.")
+		appendStep("Before a material plan or unresolved prior decision, read `" + brand.SkillDirName("memory") + "`; query `" + search + "` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, and the decision topic. Read selected ids with `" + memorySource + "`. Reuse recalled context until scope changes or a gap remains.")
 	}
 	if !context.TaskDisabled {
-		appendStep("Search prior and current Graphit tasks related to the current request with `" + taskSearch + "`, `ai_optimized: true`, and a focused query; follow `next_cursor` until the relevant task history is covered.")
-		appendStep("Task search returns task identifiers and compact metadata. Read every relevant result with `" + taskGet + "` before acting, and use its full specification, analytical results, progress, comments, evidence, and audit history as context.")
+		appendStep("Before project work, read `" + brand.SkillDirName("task") + "`; search `" + taskSearch + "` with `top_k: 5`, `ai_optimized: true`, focused on this request, or get an assigned id directly with `" + taskGet + "`. Read the chosen task, parent specification and relevant dependencies/precedents. Follow `next_cursor` only while a relevant gap remains. Reuse recalled context.")
+		if strings.TrimSpace(context.Instructions) == "" {
+			appendStep("For multi-step work, persist specification, acceptance criteria, plan and dependency-ordered tasks before execution. Resume from recorded progress/evidence; revise affected tasks when scope changes. A single umbrella task is not an executable project plan.")
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -212,7 +216,7 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 			},
 		})
 	case FormatCursorUnit:
-		return json.Marshal(map[string]any{"additional_context": UnitCompletionReminder() + "\n" + cursorLifecycleCompensation()})
+		return json.Marshal(map[string]any{"additional_context": UnitCompletionReminder() + " Reapply Graphit routing before the next action."})
 	case FormatPlainUnit:
 		return []byte(UnitCompletionReminder()), nil
 	case FormatPostInvocation:
@@ -263,7 +267,11 @@ func renderCursorSubagentTask(input []byte, context Context) ([]byte, error) {
 		if !ok || strings.TrimSpace(value) == "" {
 			continue
 		}
-		toolInput[field] = subagentProtocolWithContext(context) + "\n\nTask:\n" + value
+		protocol := subagentProtocolWithContext(context) + "\n\nTask:\n"
+		if strings.HasPrefix(value, protocol) {
+			return json.Marshal(map[string]any{"permission": "allow"})
+		}
+		toolInput[field] = protocol + value
 		return json.Marshal(map[string]any{"permission": "allow", "updated_input": toolInput})
 	}
 	return json.Marshal(map[string]any{"permission": "allow"})

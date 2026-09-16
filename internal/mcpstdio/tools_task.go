@@ -19,7 +19,7 @@ import (
 type taskCreateInput struct {
 	ProjectDir         string   `json:"project_dir" jsonschema:"Project directory (required)"`
 	Title              string   `json:"title" jsonschema:"Concise action-oriented plain-text title naming one outcome (required)"`
-	Description        string   `json:"description" jsonschema:"Self-contained Markdown specification: objective/value, context, in/out of scope, requirements or observable behavior, constraints/assumptions, interfaces/dependencies, risks/edge cases, and intended result (required; proportional detail)"`
+	Description        string   `json:"description" jsonschema:"Self-contained executable specification: goal, scope, requirement IDs/behavior, known sources, constraints, contracts, approach, dependencies, risks/unknowns and validation. Preserve execution-relevant detail without repeating history. Split multi-outcome work into related tasks before implementation (required)"`
 	AcceptanceCriteria []string `json:"acceptance_criteria" jsonschema:"One singular imperative Markdown statement per item: what the system must do or must not allow, with condition and observable expected result; at least one required"`
 	Tests              []string `json:"tests" jsonschema:"Behavior checks in Given-When-Then; other validations name method/command, target/conditions, and expected evidence/result; at least one Markdown item required"`
 	Type               string   `json:"type,omitempty" jsonschema:"Task type such as task, bug, feature, epic, or chore"`
@@ -173,7 +173,7 @@ type taskReviseInput struct {
 	ExpectedRevision      int64     `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
 	Reason                string    `json:"reason" jsonschema:"Markdown rationale for the specification change and its scope or verification impact (required)"`
 	Title                 *string   `json:"title,omitempty" jsonschema:"Replacement concise action-oriented plain-text title naming one outcome"`
-	Description           *string   `json:"description,omitempty" jsonschema:"Replacement self-contained Markdown specification with proportional objective, context, scope, requirements, constraints, interfaces, risks, and intended result"`
+	Description           *string   `json:"description,omitempty" jsonschema:"Replacement executable specification; preserve requirement coverage, known sources, contracts, approach, constraints, risks/unknowns and validation so another agent can continue without the conversation"`
 	Type                  *string   `json:"type,omitempty" jsonschema:"Replacement task type"`
 	Priority              *int      `json:"priority,omitempty" jsonschema:"Replacement priority 0 through 4"`
 	ParentID              *string   `json:"parent_id,omitempty" jsonschema:"Replacement parent task ID; empty clears the parent"`

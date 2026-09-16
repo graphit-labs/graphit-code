@@ -160,7 +160,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			if strings.Index(protocolContent, "graphit_memory_mandatory") >= strings.Index(protocolContent, "graphit_memory_search") {
 				t.Fatalf("mandatory recall must precede contextual search: %s", protocolContent)
 			}
-			for _, required := range []string{"graphit_task_search", "graphit_task_get", "follow `next_cursor`"} {
+			for _, required := range []string{"graphit_task_search", "graphit_task_get", "Follow `next_cursor` only while a relevant gap remains"} {
 				if !strings.Contains(protocolContent, required) {
 					t.Fatalf("%s bootstrap missing Task recall requirement %q: %s", tc.adapter, required, protocolContent)
 				}
@@ -182,7 +182,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				t.Fatalf("OpenCode plugin must load memory and inject at model/compaction boundaries: %s", configContent)
 			}
 			if tc.adapter == "opencode" {
-				for _, required := range []string{"bidirectional code-documentation consistency", "only documentation changed", "unresolved divergence blocks completion"} {
+				for _, required := range []string{"code/documentation consistency in both directions", "acceptance checks", "Resolve divergence before closing"} {
 					if !strings.Contains(configContent, required) {
 						t.Fatalf("OpenCode tool checkpoint missing documentation consistency requirement %q: %s", required, configContent)
 					}
@@ -246,7 +246,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				}
 			}
 			if tc.adapter == "kiro" {
-				for _, required := range []string{"UserPromptSubmit", "PostToolUse", "PostTaskExec", "Stop", "plain-unit", "no-output --sync", "smallest independently reportable unit"} {
+				for _, required := range []string{"UserPromptSubmit", "PostToolUse", "PostTaskExec", "Stop", "plain-unit", "no-output --sync", "completed work unit of a claimed task"} {
 					if !strings.Contains(configContent, required) {
 						t.Fatalf("Kiro lifecycle is incomplete; missing %q: %s", required, configContent)
 					}
@@ -263,7 +263,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				}
 			}
 			if tc.adapter == "opencode" {
-				for _, required := range []string{`"tool.execute.after"`, `event.type === "session.idle"`, `event.type === "session.deleted"`, `Bun.spawn([`, `subprocess.unref()`, `"no-output", "--sync"`, "smallest independently reportable unit"} {
+				for _, required := range []string{`"tool.execute.after"`, `event.type === "session.idle"`, `event.type === "session.deleted"`, `Bun.spawn([`, `subprocess.unref()`, `"no-output", "--sync"`, "completed work unit of a claimed task"} {
 					if !strings.Contains(configContent, required) {
 						t.Fatalf("OpenCode lifecycle is incomplete; missing %q: %s", required, configContent)
 					}

@@ -41,12 +41,12 @@ Operates on `index.lance/` stores locally or at a mounted Hub `s3://` URI:
 | `wiki_browse` | LanceDB catalog on `index.lance/` | Knowledge wikis only |
 | `task_search` | LanceDB BM25 | Authoritative project task specs/check evidence and typed comment bodies |
 
-Knowledge and Task are separate sources but a single agent retrieval workflow. Every project or imported
-Knowledge search is paired with one focused `graphit_task_search` for the same question when Task is
-enabled and available. Follow `next_cursor`, then read every relevant hit with `graphit_task_get`; Task
-search metadata alone is not the reusable record. Use the task specification, analytical outcomes,
-progress, comments, check evidence, next steps, and audit history alongside pages read with
-`graphit_wiki_source`. If Task is disabled or unavailable, continue the Knowledge search.
+Knowledge and Task complement each other. Reuse Task specifications and prior findings already
+retrieved for the current question. When implementation history or decisions are still needed, use a
+focused `graphit_task_search` and read selected hits with `graphit_task_get`; search metadata is not
+evidence. Follow `next_cursor` only while a concrete gap remains. Task outcomes and check evidence
+supplement authoritative pages read with `graphit_wiki_source`. If Task is disabled or unavailable,
+continue Knowledge retrieval without inventing project task state.
 
 ```
 ~/.graphit/wiki/knowledge/project/<project-id>/
@@ -55,8 +55,9 @@ progress, comments, check evidence, next steps, and audit history alongside page
 
 > There is no wiki inside a project. Every one of them lives once, in the global brand
 > directory, keyed by an id — see [Storage Layout](../architecture/storage_layout.md).
-> This is why every tool below takes `project_dir`: it is how a sibling project's wiki
-> is reached, and why no wiki is readable with a file tool.
+> Use the known or cluster-resolved absolute `project_dir` to reach a local project's wiki.
+> Without a local checkout, a resolved installed artifact can instead be addressed by qualified
+> `id@version` with `project_dir` omitted. Neither wiki is readable with a file tool.
 
 #### Hybrid ranking and semantic confidence
 
@@ -104,7 +105,8 @@ temporary multi-artifact workspace. These are CLI/UI workflows, not stdio MCP to
 | `graphit live` | CLI/UI | selected Hub artifacts in an ephemeral workspace | coding-agent session | Yes | artifact IDs and versions |
 
 > [!NOTE]
-> All tools that return structured data support `ai_optimized: true` to return token-efficient, pre-summarized output optimized for LLM consumption.
+> Pass `ai_optimized: true` where supported for compact structured results; source tools return
+> selected text directly. Search results identify sources to read, not synthesized evidence.
 
 Memory list and search surfaces always order logical memories by category first—`mandatory`,
 `important`, `normal`—and by descending `updated_at` inside each category. Search scores identify
@@ -125,31 +127,36 @@ Controls which authoritative memory scope is searched.
 | `"user"` | Personal cross-project memories | local or S3 `v2/users/<trusted-user-id>/memory/` table |
 
 ```jsonc
-// Phase 1: load every unconditional memory, with no query
-graphit_memory_mandatory(scope: "project")
+// Fallback only when hooks have not already supplied these scopes
+graphit_memory_mandatory(scope: "project", ai_optimized: true)
+graphit_memory_mandatory(scope: "user", ai_optimized: true)
 
 // Search project memories (default)
-graphit_memory_search(query: "auth flow", scope: "project", exclude_mandatory: true)
+graphit_memory_search(query: "auth flow", scope: "project", exclude_mandatory: true, top_k: 5, ai_optimized: true)
 
 // Search personal memories across all projects
-graphit_memory_search(query: "preferred patterns", scope: "user")
+graphit_memory_search(query: "preferred patterns", scope: "user", exclude_mandatory: true, top_k: 5, ai_optimized: true)
 ```
 
 ### Knowledge: `context` parameter
 
-Controls which knowledge wiki is searched. An empty context targets the local project wiki compiled from `docs/`. A named context targets a hub-imported knowledge artifact.
+Controls which knowledge wiki is searched. An empty context targets the local project wiki compiled from `docs/`.
+For a known local checkout, pass its absolute `project_dir`; an installed artifact can be selected by its resolved
+project alias. Only without a local checkout, omit `project_dir` and use a resolved globally installed qualified
+`id@version` as `context`. Do not guess project paths, aliases or artifact IDs.
 
 | Value | Description | Storage Path |
 |-------|-------------|-------------|
 | `""` (default) | Local project wiki from `docs/` | `~/.graphit/wiki/knowledge/project/<project-id>/` |
-| `"<name>"` | Installed Hub knowledge artifact | versioned `s3://` LanceDB mount |
+| `"<resolved-alias>"` with `project_dir` | Project-installed Hub knowledge artifact | versioned `s3://` LanceDB mount |
+| `"<qualified-id>@<version>"` without `project_dir` | Globally installed artifact, no local checkout | versioned `s3://` LanceDB mount |
 
 ```jsonc
 // Search local project knowledge
-graphit_knowledge_search(query: "deployment config", context: "")
+graphit_knowledge_search(project_dir: "<known-absolute-path>", query: "deployment config", top_k: 5, ai_optimized: true)
 
-// Search hub-imported knowledge (e.g., a framework's docs)
-graphit_knowledge_search(query: "middleware setup", context: "nextjs-docs")
+// Search an artifact already installed for this project
+graphit_knowledge_search(project_dir: "<known-absolute-path>", query: "middleware setup", context: "<resolved-alias>", top_k: 5, ai_optimized: true)
 ```
 
 ### Wiki: `wikis` and `hub_refs` parameters
@@ -170,13 +177,13 @@ The wiki module searches Knowledge sources only and supports simultaneous multi-
 
 ```jsonc
 // Semantic search across project docs
-graphit_wiki_search(query: "authentication flow", wikis: ["project"], mode: "semantic")
+graphit_wiki_search(project_dir: "<known-absolute-path>", query: "authentication flow", wikis: ["project"], mode: "semantic", top_k: 5, ai_optimized: true)
 
-// Include hub artifact in search
-graphit_wiki_search(query: "API reference", wikis: ["project"], hub_refs: ["express-docs@1.0"])
+// Include a resolved installed Hub artifact
+graphit_wiki_search(project_dir: "<known-absolute-path>", query: "API reference", wikis: ["project"], hub_refs: ["<qualified-id>@<version>"], top_k: 5, ai_optimized: true)
 
 // Get cross-references for project wiki
-graphit_wiki_xrefs(query: "authentication-flow", ai_optimized: true)
+graphit_wiki_xrefs(project_dir: "<known-absolute-path>", query: "authentication-flow", ai_optimized: true)
 ```
 
 ---
@@ -206,9 +213,23 @@ based on its scope:
 
 ---
 
-## 5. Hub Knowledge Context Lifecycle
+## 5. Project Resolution and Optional Hub Contexts
 
-Hub knowledge artifacts provide pre-built documentation for external libraries and frameworks. Here is the complete lifecycle:
+For a named unfamiliar ecosystem project, reuse its known local path or call
+`graphit_cluster_projects(project_dir: "<current-absolute-path>")` first. If found, pass its returned
+path as `project_dir` to the relevant module tools. Only if absent, discover it through
+`graphit_hub_projects` and inspect the relevant published artifacts. If no current project exists,
+do not invent a path for cluster discovery. Reuse a resolution already established in this context.
+Read the Hub skill before unresolved project discovery; a tool failure does not establish absence.
+
+When the answer needs an uninstalled Hub artifact, announce the preparation and install Knowledge
+for documentation or AST for implementation, then query the corresponding module. The user's question
+authorizes this necessary preparation; do not ask for redundant permission. Public technologies such
+as React, Next.js, languages and frameworks do not require Hub discovery: use known knowledge and
+official documentation, verifying current details. A published docs artifact is an optional source
+when relevant, not a prerequisite for using those technologies.
+
+The lifecycle below illustrates that optional artifact path; identifiers are placeholders from discovery.
 
 The transport first establishes a trusted subject and resolves global, authenticated, user, and
 team project grants; anonymous instead resolves global and `v2/anonymous/projects.json`. Every step below operates only
@@ -219,23 +240,27 @@ reads.
 ### Step 1: Discover Available Artifacts
 
 ```jsonc
-graphit_hub_list(type: "knowledge", limit: 20)
+graphit_hub_list(type: "knowledge", page_size: 20, ai_optimized: true)
 // Returns one authorized page plus an opaque continuation cursor
 ```
 
 ### Step 2: Inspect Artifact Details
 
 ```jsonc
-graphit_hub_show(id: "<project-ulid>/knowledge/nextjs-docs")
+graphit_hub_show(id: "<project-ulid>/knowledge/nextjs-docs", ai_optimized: true)
 // Returns metadata: description, version, size, contents summary
 ```
 
 ### Step 3: Install the Artifact
 
 ```jsonc
-graphit_hub_install(id: "<project-ulid>/knowledge/nextjs-docs")
+// Known local consumer project: retain its path
+graphit_hub_install(project_dir: "<known-absolute-path>", id: "<project-ulid>/knowledge/nextjs-docs@<version>", alias: "nextjs-docs", ai_optimized: true)
 
 // Records the selected version in graphit.lock.json. The index remains on S3.
+
+// Alternative only without a local checkout: install globally, without a project lock
+graphit_hub_install(id: "<project-ulid>/knowledge/nextjs-docs@<version>", ai_optimized: true)
 ```
 
 The wiki itself is shared: a second project installing the same artifact adds a claim and copies
@@ -247,14 +272,15 @@ authorization-backend failure.
 
 ### Step 4: Search the Installed Artifact
 
-Use the `context` parameter to target the installed artifact:
+Use the resolved `context` and preserve its project scope. Search titles identify a page; read the
+selected returned slug with `graphit_wiki_source` using the same `project_dir`/`context`:
 
 ```jsonc
-// BM25 keyword search
-graphit_knowledge_search(query: "middleware configuration", context: "nextjs-docs")
+// Artifact installed for a local consumer project
+graphit_knowledge_search(project_dir: "<known-absolute-path>", query: "middleware configuration", context: "nextjs-docs", top_k: 5, ai_optimized: true)
 
-// AI-synthesized answer from the installed context (CLI)
-graphit knowledge query "How do I set up middleware?" --context nextjs-docs
+// Globally installed context without a local checkout
+graphit_knowledge_search(query: "middleware configuration", context: "<project-ulid>/knowledge/nextjs-docs@<version>", top_k: 5, ai_optimized: true)
 ```
 
 ### Step 5: Alternative — Search via `wiki_search`
@@ -263,16 +289,20 @@ You can also include hub artifacts directly in `wiki_search` using `hub_refs`:
 
 ```jsonc
 graphit_wiki_search(
+  project_dir: "<known-absolute-path>",
   query: "middleware setup",
   wikis: ["project"],
-  hub_refs: ["nextjs-docs@1.0"]
+  hub_refs: ["<project-ulid>/knowledge/nextjs-docs@<version>"],
+  top_k: 5,
+  ai_optimized: true
 )
 ```
 
 This searches the project wiki **and** the hub artifact simultaneously.
 
 > [!TIP]
-> After installing a hub knowledge artifact, always search its wiki via MCP **before** writing integration code. The artifact contains API patterns, gotchas, and best practices that prevent common mistakes.
+> Reuse evidence already retrieved from an installed artifact. Search and read additional pages only
+> when the integration decision needs them; installing an artifact does not require querying it on every action.
 
 ---
 
@@ -280,9 +310,10 @@ This searches the project wiki **and** the hub artifact simultaneously.
 
 ### Decision Tree
 
-Every Knowledge branch below includes the paired `graphit_task_search` plus relevant `graphit_task_get`
-reads described above. The diagram names the primary Knowledge operation rather than repeating the pair
-on every branch.
+Reuse known Task context with these Knowledge operations. Add a focused `graphit_task_search` and
+selected `graphit_task_get` only for unresolved earlier work, decisions or plan context. CLI synthesis
+entries describe separate user workflows; agents use MCP rather than substituting the Graphit CLI.
+Project branches use the known or cluster-resolved absolute `project_dir` as illustrated above.
 
 ```
 What do you need?
@@ -309,8 +340,8 @@ What do you need?
 │  └─► graphit_wiki_xrefs(query: "...", ai_optimized: true)
 │
 ├─ Search hub-imported knowledge?
-│  ├─► graphit_knowledge_search(query: "...", context: "artifact-id")
-│  └─► graphit_wiki_search(query: "...", hub_refs: ["artifact-id@version"])
+│  ├─► graphit_knowledge_search(project_dir: "<known-path>", query: "...", context: "<resolved-alias>")
+│  └─► graphit_wiki_search(query: "...", hub_refs: ["<qualified-id>@<version>"])
 │
 └─ Check sync history?
    └─► graphit_wiki_log()
@@ -322,13 +353,56 @@ What do you need?
 |----------|------|--------------|
 | "Did I save a memory about X?" | `memory_search` | `scope` |
 | "Explain how X works from my notes" | `graphit memory query` | `--user` / `--context` |
-| "Find docs mentioning X" | `knowledge_search` + `task_search`/`task_get` | Knowledge `context`; same-question Task lookup |
-| "Explain X from the project docs" | `graphit knowledge query` + `task_search`/`task_get` | Knowledge `--context`; same-question Task lookup |
-| "Search docs and memory for X" | `wiki_search` + `task_search`/`task_get` plus `memory_search` | Pair the Knowledge lookup with same-question Task history; run Memory independently |
-| "Find semantically similar content" | `wiki_search` + `task_search`/`task_get` | Wiki `mode: "semantic"`; same-question Task lookup |
+| "Find docs mentioning X" | `knowledge_search` → `wiki_source` | Knowledge `context` and resolved `project_dir` |
+| "Explain X from the project docs" | `graphit knowledge query` (CLI workflow) | Knowledge `--context` |
+| "Search docs and memory for X" | `wiki_search` → `wiki_source`; `memory_search` → `memory_source` | Retrieve each required scope; reuse known Task context |
+| "Find semantically similar content" | `wiki_search` → `wiki_source` | Wiki `mode: "semantic"` |
 | "What docs exist?" | `wiki_browse` | `context` |
 | "What links to this page?" | `wiki_xrefs` | `query`, `context` |
-| "Search NextJS docs artifact" | `knowledge_search` + `task_search`/`task_get` | Knowledge `context: "nextjs-docs"`; current-project Task lookup |
+| "Search an installed Next.js docs artifact" | `knowledge_search` → `wiki_source` | Resolved local alias with `project_dir`, or global qualified context without a checkout |
 
 > [!TIP]
-> Always pass `ai_optimized: true` when calling from an agent context. This returns BM25-ranked, pre-summarized output that costs ~500 tokens versus grep scanning all files.
+> Pass `ai_optimized: true` where supported, begin with small `top_k` and read selected sources.
+> Expand retrieval only while the question has an unresolved evidence gap.
+
+## 7. Maintained Domain Documentation
+
+Knowledge maintains documentation that readers and consuming projects can use without the author's
+conversation. Organize it around business domains, audiences and journeys in the configured `docs_dir`
+and existing project structure. A whole-system documentation request begins with a domain/interaction
+inventory and coverage map: actor/journey → rule or contract → implementation evidence → page/section.
+A directory tree, page count or three general overview pages cannot demonstrate coverage of unrelated
+domains. Split or combine pages by reader needs, contractual boundaries and maintenance ownership.
+
+Provide navigable entry points from the documentation root to domain overviews and relevant user,
+technical and operational pages. User guides explain prerequisites, actions, observable outcomes and
+errors/recovery. Technical documentation describes interfaces appropriate to the product (CLI, API,
+library, grammar or UI), architecture boundaries, data/state rules, supported versions, source provenance
+and operations. Keep examples consistent and link shared facts to their authoritative definition.
+Empty scaffolds do not satisfy coverage; no fixed number of documents is required.
+
+The generated Knowledge skill preserves retrieval and work-unit invariants in `SKILL.md`. It loads
+`references/documentation-design.md` before designing/reorganizing a set or reviewing coverage, and
+`references/worked-domain.md` before substantive domain authoring. The latter demonstrates a complete
+illustrative set with navigation, user steps, integration/state contracts, operations and both drift
+directions. Its product, stack and rules are examples, not requirements for the consumer. References
+are installed beside the skill and can also be retrieved individually with `graphit_module_skill`
+using `module: "knowledge"` and the selected `reference`; retrieval-only sessions need not load them.
+
+For **every code work unit**, inspect and update affected user/technical documentation, examples and
+navigation in the same unit. For **every documentation work unit**, inspect the corresponding
+implementation and validate its claims. Authorized maintenance requires no additional permission.
+Record inspected code/page targets, applicable version, actual evidence and any no-impact rationale
+in Task before completing the unit. Review both directions: rule → source/test → page, and changed
+page → implementation and consumer expectations. A documentation-quality review does not establish
+that runtime tests passed.
+
+Resolve stale pages or authorized implementation defects. Preserve future specifications as explicitly
+proposed intent; keep current limitations truthful and unresolved implementation work in Task. Do not
+weaken an accepted requirement to match a bug or implement a new feature merely because an unsupported
+claim appeared in a draft. Report source inspection, executed checks and unavailable validation distinctly.
+
+To support other projects through Hub, include scope/version, prerequisites, vocabulary, public
+contracts, examples, operations and stable provenance. Use relative links and repository-relative source
+references, not the author's private checkout paths. Publication is a separate authorized Hub action;
+updating the authoritative documents does not automatically publish them or imply deployed behavior.

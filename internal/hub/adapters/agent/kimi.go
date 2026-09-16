@@ -154,6 +154,8 @@ func reconcileKimiHooks(path string) error {
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
+	// Kimi does not guarantee SessionStart stdout reaches the model. Keep the
+	// complete bootstrap on UserPromptSubmit, the reliable context boundary.
 	formats := map[string]string{
 		"SessionStart":     sessionhook.FormatSessionStart,
 		"SubagentStart":    sessionhook.FormatSubagentStart,

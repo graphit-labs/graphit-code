@@ -16,13 +16,13 @@ func TestProtocolPreservesOrderedMemoryAndTaskRecall(t *testing.T) {
 	if mandatory < 0 || memoryContextual < 0 || taskContextual < 0 || mandatory >= memoryContextual || memoryContextual >= taskContextual {
 		t.Fatalf("protocol does not order mandatory recall before contextual search:\n%s", protocol)
 	}
-	for _, want := range []string{"exclude_mandatory: true", "ai_optimized: true", "graphit_memory_source", "graphit_task_get", "follow `next_cursor`", "analytical results", "audit history"} {
+	for _, want := range []string{"exclude_mandatory: true", "ai_optimized: true", "graphit_memory_source", "graphit_task_get", "Follow `next_cursor` only while a relevant gap remains", "get an assigned id directly", "once per missing available scope", "`project` for a resolved project, and `user`", "top_k: 5", "parent specification", "dependency-ordered tasks before execution"} {
 		if !strings.Contains(protocol, want) {
 			t.Fatalf("protocol does not require contextual recall detail %q:\n%s", want, protocol)
 		}
 	}
-	if strings.Count(protocol, "ai_optimized: true") != 2 {
-		t.Fatalf("protocol must explicitly optimize both contextual searches:\n%s", protocol)
+	if strings.Count(protocol, "ai_optimized: true") != 4 {
+		t.Fatalf("protocol must optimize routing, fallback and both contextual searches:\n%s", protocol)
 	}
 }
 
@@ -49,7 +49,7 @@ func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 	if !strings.Contains(invariant, "tool is unavailable") || !strings.Contains(invariant, "default native tools") {
 		t.Fatalf("invariant does not preserve native fallback when Graphit is unavailable: %s", invariant)
 	}
-	if !strings.Contains(invariant, "Resuming") || !strings.Contains(invariant, "reapplies this priority before the next action") {
+	if !strings.Contains(invariant, "new/resumed action") || !strings.Contains(invariant, "reload after compaction if lost") {
 		t.Fatalf("invariant does not restore Graphit-first routing on resume: %s", invariant)
 	}
 }
@@ -58,7 +58,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 	t.Parallel()
 
 	reminder := UnitCompletionReminder()
-	for _, want := range []string{"smallest independently reportable unit", "graphit_task_progress", "Do not write Markdown task state", "defer", "bidirectional code-documentation consistency", "code, configuration, or behavior changed", "only documentation changed", "authoritative code or behavior", "concrete targets inspected", "unresolved divergence blocks completion"} {
+	for _, want := range []string{"completed work unit of a claimed task", "graphit_task_progress", "Reads and task bookkeeping alone are not completed units", "Keep task state in Graphit", "acceptance checks", "code/documentation consistency in both directions", "inspected targets and evidence", "Resolve divergence before closing"} {
 		if !strings.Contains(reminder, want) {
 			t.Fatalf("unit reminder missing %q: %s", want, reminder)
 		}
@@ -81,7 +81,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rendering %s checkpoint for %s: %v", tc.format, tc.agent, err)
 		}
-		for _, want := range []string{tc.want, "smallest independently reportable unit", "bidirectional code-documentation consistency", "unresolved divergence blocks completion"} {
+		for _, want := range []string{tc.want, "completed work unit of a claimed task", "code/documentation consistency in both directions", "Resolve divergence before closing"} {
 			if !strings.Contains(string(payload), want) {
 				t.Fatalf("%s did not carry %q through %s: %s", tc.agent, want, tc.format, payload)
 			}
@@ -138,9 +138,9 @@ func TestProtocolKeepsMemoryAndTaskRecallIndependent(t *testing.T) {
 		"exclude_mandatory: true",
 		"graphit_memory_source",
 		"graphit_task_search",
-		"follow `next_cursor`",
+		"Follow `next_cursor` only while a relevant gap remains",
 		"graphit_task_get",
-		"full specification, analytical results, progress, comments, evidence, and audit history",
+		"chosen task, parent specification and relevant dependencies/precedents",
 	} {
 		if !strings.Contains(both, want) {
 			t.Fatalf("complete bootstrap missing %q: %s", want, both)
@@ -156,7 +156,7 @@ func TestProtocolKeepsMemoryAndTaskRecallIndependent(t *testing.T) {
 	}
 
 	taskOnly := protocolWithContext(Context{MandatoryLoaded: true, MemoryDisabled: true})
-	for _, want := range []string{"graphit_task_search", "follow `next_cursor`", "graphit_task_get", "full specification, analytical results, progress, comments, evidence, and audit history"} {
+	for _, want := range []string{"graphit_task_search", "Follow `next_cursor` only while a relevant gap remains", "graphit_task_get", "chosen task, parent specification and relevant dependencies/precedents"} {
 		if !strings.Contains(taskOnly, want) {
 			t.Fatalf("Task-only bootstrap missing %q: %s", want, taskOnly)
 		}
@@ -256,10 +256,11 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, payload := range map[string][]byte{"sessionStart": cursorStart, "postToolUse": cursorUnit} {
-		if !strings.Contains(string(payload), "Cursor-specific hook compensation") || strings.Contains(string(payload), "Antigravity-specific") || len(payload) > 1800 {
-			t.Fatalf("Cursor %s compensation is missing, leaked, or too large (%d bytes): %s", name, len(payload), payload)
-		}
+	if !strings.Contains(string(cursorStart), "Cursor-specific hook compensation") || strings.Contains(string(cursorStart), "Antigravity-specific") {
+		t.Fatalf("Cursor bootstrap compensation is missing or leaked: %s", cursorStart)
+	}
+	if strings.Contains(string(cursorUnit), "specific hook compensation") || !strings.Contains(string(cursorUnit), "Reapply Graphit routing before the next action") || len(cursorUnit) > 550 {
+		t.Fatalf("Cursor checkpoint should reassert routing without repeating startup compensation (%d bytes): %s", len(cursorUnit), cursorUnit)
 	}
 	cursorChild, err := RenderWithContext(FormatCursorSubagentTask, []byte(`{"tool_input":{"prompt":"work"}}`), Context{MandatoryLoaded: true})
 	if err != nil {
@@ -349,5 +350,56 @@ func TestCursorSubagentTaskInjectsProtocolWithoutBlockingFallback(t *testing.T) 
 	fallbackPayload, err := Render(FormatCursorSubagentTask, []byte(`{"tool_name":"Task","tool_input":{}}`))
 	if err != nil || !strings.Contains(string(fallbackPayload), `"permission":"allow"`) {
 		t.Fatalf("Cursor must allow the native subagent path when protocol injection is impossible: %s, %v", fallbackPayload, err)
+	}
+}
+
+func TestRepeatedCheckpointsKeepACompactPayload(t *testing.T) {
+	t.Parallel()
+	context := Context{Mandatory: strings.Repeat("long memory ", 1000), MandatoryLoaded: true, Instructions: strings.Repeat("module routing ", 1000)}
+	for _, format := range []string{FormatPostToolUse, FormatAfterTool, FormatCursorUnit, FormatPlainUnit, FormatPostInvocation} {
+		payload, err := RenderWithContext(format, nil, context)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(payload) > 550 {
+			t.Fatalf("%s recurring checkpoint costs %d bytes, budget 550", format, len(payload))
+		}
+		if strings.Contains(string(payload), "long memory") || strings.Contains(string(payload), "module routing") {
+			t.Fatalf("%s repeats bootstrap state at every tool boundary", format)
+		}
+	}
+}
+
+func TestCursorSubagentProtocolIsNotPrependedTwice(t *testing.T) {
+	t.Parallel()
+	original := map[string]any{"tool_input": map[string]any{"prompt": "Inspect parser", "model": "configured-model"}}
+	input, _ := json.Marshal(original)
+	first, err := RenderWithMandatory(FormatCursorSubagentTask, input, "mandatory context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output struct {
+		UpdatedInput map[string]any `json:"updated_input"`
+	}
+	if err := json.Unmarshal(first, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.UpdatedInput["model"] != "configured-model" {
+		t.Fatal("injection changed unrelated subagent parameters")
+	}
+	input, _ = json.Marshal(map[string]any{"tool_input": output.UpdatedInput})
+	second, err := RenderWithMandatory(FormatCursorSubagentTask, input, "mandatory context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(second) != `{"permission":"allow"}` {
+		t.Fatalf("replayed Task call should preserve the already-injected prompt: %s", second)
+	}
+	fresh, err := RenderWithMandatory(FormatCursorSubagentTask, input, "changed mandatory context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(fresh), "changed mandatory context") {
+		t.Fatalf("deduplication hid a changed mandatory constraint: %s", fresh)
 	}
 }

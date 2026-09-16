@@ -12,7 +12,7 @@
     },
     {
       "action": {
-        "prompt": "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP.",
+        "prompt": "Graphit invariant: reapply module routing before every new/resumed action. Read only the matching skill before first use; reuse it while present, reload after compaction if lost. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume from durable task state. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root.",
         "type": "agent"
       },
       "description": "Reassert Graphit-first routing on every submitted or resumed turn.",
@@ -32,7 +32,7 @@
     },
     {
       "action": {
-        "prompt": "Graphit task checkpoint: if the action just finished the smallest independently reportable unit, call `graphit_task_progress` now with what landed and the exact next step. Do not write Markdown task state or defer the checkpoint until the end. Before completing a task, verify bidirectional code-documentation consistency: when code, configuration, or behavior changed, identify and update every affected current documentation/Knowledge surface; when only documentation changed, compare it with the authoritative code or behavior and correct whichever side is stale. Record the concrete targets inspected and evidence in Graphit Task; unresolved divergence blocks completion.",
+        "prompt": "Graphit task checkpoint: on a completed work unit of a claimed task, call `graphit_task_progress` now with evidence and next step. Reads and task bookkeeping alone are not completed units. Keep task state in Graphit. Before completion, verify acceptance checks and affected code/documentation consistency in both directions; record inspected targets and evidence in Task. Resolve divergence before closing.",
         "type": "agent"
       },
       "description": "Update task management as soon as a spec task completes.",

@@ -361,7 +361,7 @@ func registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("memory", "mandatory"),
 		Description: "Return every mandatory memory with full content, without search. " +
-			"Results are newest first. This is phase one of session-start recall and must run before contextual memory_search.",
+			"Use once per project/scope when the host hook has not already loaded them or reports fallback. Consume all mandatory entries before contextual recall; do not repeat a successful hook bootstrap.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryMandatoryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {

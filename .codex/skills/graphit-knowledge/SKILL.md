@@ -1,23 +1,42 @@
 ---
 name: graphit-knowledge
-description: 'Knowledge-first: project documentation, wiki retrieval, architecture, decisions, specifications, and provenance; use wiki tools before reading documentation files.'
+description: 'Knowledge: retrieve and maintain user/technical documentation by business domain; verify code/documentation consistency for every changed work unit using wiki and implementation evidence.'
 ---
 
 # Graphit Knowledge
 
-Use this skill for project documentation, architecture, decisions, specifications, provenance, or another project's wiki. Task lifecycle and backlog belong to Graphit Task; code structure belongs to Graphit AST; external systems must be resolved through Graphit Hub first.
+`project_dir` is a runtime MCP argument, not persisted project identity. In docs, Task, Memory and handoffs save project identity plus repository-relative paths; never copy a machine-specific checkout root. Resolve the local root again on each host.
 
-## Reading knowledge
+Knowledge maintains user/technical documentation by business domain and reader goal. Make it usable by someone or another project without this conversation. Task owns executable specifications/plans/results; AST proves code behavior; Memory holds durable constraints.
 
-1. Search with `graphit_knowledge_search` for the current project or `graphit_wiki_search` across selected wikis. Search returns titles, not evidence.
-2. When Graphit Task is enabled and its MCP tools are available, pair every Knowledge search with one focused `graphit_task_search` for the same question, pass `ai_optimized: true`, and follow `next_cursor` until the relevant history is covered. Read every relevant hit with `graphit_task_get` and use its specification, analytical result, progress, comments, check evidence, next step, and audit history. Task history supplements Knowledge and never replaces authoritative page reads. If Task is disabled or its tools are unavailable, continue the Knowledge workflow.
-3. Pick the smallest relevant page set and read it with `graphit_wiki_source`; use a pattern or line slice for long pages. Use `preview: true` only when titles cannot disambiguate.
-4. Use `graphit_wiki_xrefs` for provenance/relationships, `graphit_wiki_log` for change history, and `graphit_wiki_browse` or `graphit_knowledge_list` for catalogues.
+## Load detail at the decision boundary
 
-A different project's documentation is queried with its returned `project_dir`; never walk or grep its docs tree. A missing result is not proof that a page is absent—use the catalogue or refine once before concluding.
+Retrieval alone needs no reference. Before planning/reorganizing docs or reviewing domain coverage, read [documentation design](references/documentation-design.md). Before first substantive domain authoring, read [worked domain](references/worked-domain.md); adapt depth, not its stack/rules/file count. Narrow maintenance needs only the design reference's per-unit consistency section when guidance is missing. Reuse retained references. `DOCS_ROOT` means this project's `docs/` or its existing authoritative location.
+If local reference files are unavailable, use `graphit_module_skill` with `module: knowledge`, `reference: references/documentation-design.md` or `references/worked-domain.md`, and the known `project_dir` when available; request only the needed reference.
 
-## Maintenance
+## Retrieve enough evidence
 
-The daemon indexes `docs/` after writes. Use `graphit_knowledge_index` for explicit indexing options or a specific directory, `graphit_knowledge_sync` only for knowledge-only freshness, and `graphit_sync` when all module indexes must align. `graphit_knowledge_export` writes an importable package, OKF, or an Obsidian vault. Check `graphit_daemon_status` on stale or locked reads. `graphit_knowledge_lint` and `graphit_knowledge_schema` are diagnostic. `graphit_knowledge_remove` without a context clears the project wiki, so use it only when the task explicitly requires removal. `graphit_wiki_embed` repairs semantic coverage.
+1. Reuse a known slug with `graphit_wiki_source`; otherwise `graphit_knowledge_search` for the project/installed `context`, or `graphit_wiki_search` across selected `wikis`/`hub_refs`. Reuse known absolute `project_dir`; for unresolved ecosystem projects, read the Hub skill and use `graphit_cluster_projects` before the Hub catalog. Hub-only: announce/install needed Knowledge and query it; the question authorizes preparation. Only without a local checkout, omit `project_dir` and use resolved installed qualified `id@version`. Public technology (e.g. React) needs no Hub lookup; use known knowledge/official docs and verify current details.
+2. Use focused terms, `top_k: 5`, `ai_optimized: true`; `preview: true` only to disambiguate titles. Titles are not evidence. Read selected `graphit_wiki_source` pages with returned slug as `path`, preserving project/context. Slice long pages; expand for relevant surrounding rules.
+3. Reuse results; stop once sources answer the question. Follow `next_cursor` for unresolved coverage/exhaustive inventory only. A miss is not absence: refine once or use `graphit_wiki_browse` with relevant `doc_type`; `graphit_knowledge_list` is for an intended catalogue.
+4. Use `graphit_wiki_xrefs` with a shallow depth for unresolved provenance/relationships, or `graphit_wiki_log` for change history. Do not load either for every page.
 
-Tool index: `graphit_knowledge_search`, `graphit_knowledge_index`, `graphit_knowledge_export`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_task_search`, `graphit_task_get`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_sync`.
+Reuse known Task context. For a missing prior-work decision/plan, read the Task skill, use one focused `graphit_task_search` and selected `graphit_task_get`; do not pair every lookup with history. If Task is unavailable, continue and state the resulting uncertainty.
+
+## Design and write maintained documentation
+
+Map domains, actors/journeys, rules/contracts, implementation evidence and page targets in Task before writing. Extend existing navigation: root → domain → user/technical/operation pages as needed. File count/headings do not prove coverage; no empty skeletons or generic overview replacing unrelated domains.
+Write in `docs/` or the authoritative source, never the generated wiki/store. Users need prerequisites, steps, outcomes and errors/recovery; consumers need contracts, boundaries, data/state, source/version, operations and provenance. Link shared facts; keep examples consistent. Label proposed behavior, assumptions and unverified findings. Resolve scope in Task without inventing rules. Authorized docs maintenance needs no extra approval.
+
+## Verify both directions for every work unit
+
+For EVERY code work unit, inspect/update affected user/technical docs, examples and navigation in that unit. For EVERY doc work unit, inspect corresponding implementation with AST and validate its claims. Check rule → source/test → page and changed page → implementation/consumers; inspect affected references for contradictions. No-impact conclusions name inspected targets and rationale.
+Resolve drift: correct stale docs, fix authorized defects, or label future intent/current limitations and preserve unresolved work in Task. Never weaken a requirement to bless a bug or expand code scope to match a draft. Verify relevant commands/examples, links and outcomes. Distinguish documentation quality from implementation agreement, executed tests from inspection. Before unit completion record targets, version/scope, actual evidence, findings and next action in Task progress/checks. The references show review criteria and both drift directions.
+
+Other-project documentation is read only through its resolved wiki tools. If required MCP tools are unavailable or current-project text is unindexed, use focused native reads of current-project authoritative documents, state the fallback once and do not substitute the Graphit CLI.
+
+## Freshness and maintenance
+
+The daemon indexes `docs/` after writes. Use `graphit_knowledge_index` for missing coverage or a specific directory; `graphit_knowledge_sync` only when knowledge freshness is needed for a decision, or `graphit_sync` when multiple indexes must align. Do not duplicate the asynchronous completion hook. On stale/locked reads, check `graphit_daemon_status`; retry a transient failure once before reporting it.
+
+Use `graphit_knowledge_lint`/`graphit_knowledge_schema` for diagnostics, `graphit_wiki_embed` for missing semantic coverage, and `graphit_knowledge_export` for requested exports. `graphit_knowledge_remove` without `context` clears the project wiki; never reset to repair search. For reuse through Hub, make scope/version, prerequisites, supported contracts, navigation and provenance self-contained; use the Hub skill at publication/consumption boundaries. Documentation maintenance alone does not publish an artifact.

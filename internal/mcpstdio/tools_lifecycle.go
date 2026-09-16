@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,13 +44,16 @@ type mandatesInput struct{}
 type moduleSkillInput struct {
 	Module     string `json:"module" jsonschema:"Core module: task, memory, ast, hub, or knowledge (required)"`
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project directory whose skill override and configuration should be resolved. Omit on an artifact-only remote server."`
+	Reference  string `json:"reference,omitempty" jsonschema:"Optional exact reference path returned by this tool, such as references/planning.md. Reads only that framework reference; omit for the resolved skill and available reference names."`
 }
 
 type moduleSkillResult struct {
-	Module  string `json:"module"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Content string `json:"content"`
+	Module     string   `json:"module"`
+	Name       string   `json:"name"`
+	Enabled    bool     `json:"enabled"`
+	Content    string   `json:"content"`
+	Reference  string   `json:"reference,omitempty"`
+	References []string `json:"references,omitempty"`
 }
 
 type updateInput struct {
@@ -114,7 +118,7 @@ func registerLifecycleTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("module", "skill"),
-		Description: "Return the authoritative source of one core Graphit module skill. Call graphit_mandates first, then read the skill named by the matching mandate trigger. The source is resolved from the optional project override, global override, installed Hub override, or framework default without requiring a local agent filesystem.",
+		Description: "Read one core module skill immediately before its first matching action. Reuse loaded guidance for this scope. Without reference, returns the resolved skill and available framework reference names; set reference to load only the needed detailed guide/example. If no mandate was supplied, call graphit_mandates once. Resolves skill overrides without a local agent filesystem.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
@@ -130,28 +134,47 @@ func registerLifecycleTools(server *mcp.Server) {
 		}
 
 		var defaultContent string
+		var references map[string]string
 		switch module {
 		case "task":
 			defaultContent = graphtask.RuleContent()
+			references = graphtask.SkillReferences()
 		case "memory":
 			defaultContent = memory.RuleContent(nil)
+			references = memory.SkillReferences()
 		case "ast":
 			defaultContent = ast.ASTRuleContent()
+			references = ast.SkillReferences()
 		case "hub":
 			defaultContent = hub.HubRuleContent()
+			references = hub.SkillReferences()
 		case "knowledge":
 			docsDir := config.ResolveConfig("knowledge.docs_dir", nil, projectCfg)
 			defaultContent = knowledge.KnowledgeRuleContent(nil, docsDir)
+			references = knowledge.SkillReferences()
 		default:
 			return errResult(fmt.Errorf("module %q is not a core skill (want task, memory, ast, hub, or knowledge)", input.Module))
 		}
 
-		return jsonResult(moduleSkillResult{
+		result := moduleSkillResult{
 			Module:  module,
 			Name:    brand.SkillDirName(module),
 			Enabled: !config.IsModuleDisabled(module, nil, projectCfg),
-			Content: brand.ResolveModuleSkillIn(projectDir, module, defaultContent),
-		})
+		}
+		if input.Reference != "" {
+			content, ok := references[input.Reference]
+			if !ok {
+				return errResult(fmt.Errorf("unknown reference %q for %s; read the skill without reference for available names", input.Reference, module))
+			}
+			result.Reference, result.Content = input.Reference, content
+		} else {
+			result.Content = brand.ResolveModuleSkillIn(projectDir, module, defaultContent)
+			for path := range references {
+				result.References = append(result.References, path)
+			}
+			sort.Strings(result.References)
+		}
+		return jsonResult(result)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

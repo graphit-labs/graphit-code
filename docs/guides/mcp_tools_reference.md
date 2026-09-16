@@ -89,6 +89,11 @@ The tool does not resolve a project or read a lockfile. Each call uses the canon
 
 ### `graphit_module_skill`
 
+`project_dir` addresses the current server's real checkout for a call; it is not portable project
+identity. Shared documentation, task/memory content and handoffs use logical project identity,
+repository-relative paths or page slugs, and revision/version. Resolve the root anew on each host;
+do not save an engineer's expanded checkout path in those records.
+
 **Description:** Return the complete, authoritative instruction source for one core Graphit module.
 This gives remote agents the same module guidance as an Agent-managed local skill without requiring
 access to the agent's or server's filesystem.
@@ -97,10 +102,17 @@ access to the agent's or server's filesystem.
 |-----------|------|----------|-------------|
 | `module` | string | ✅ | `task`, `memory`, `ast`, `hub`, or `knowledge` |
 | `project_dir` | string | | Resolve a real project's skill override and configuration; omit on an artifact-only remote server |
+| `reference` | string | | Exact framework reference path returned by this tool, such as `references/planning.md`; omit for the main skill |
 
 The JSON result contains `module`, the managed skill `name`, its resolved `enabled` state, and the
 complete `content`. Resolution order is project override, global override, installed Hub override,
 then the framework default; the default-content placeholder is expanded when present.
+The main response also lists available framework `references` by path, without loading their
+contents. At the reading boundary named by the skill, call the same tool with that `reference`
+and the same module/project scope. The result contains only the selected reference in `content`
+and identifies it in `reference`. These bundled references are the same files generated for local
+adapters; arbitrary filesystem paths are rejected. Skill overrides still govern the main source;
+the reference selector addresses framework-bundled resources, not arbitrary override files.
 
 Call `graphit_mandates` first. When the current action matches a returned trigger, read that module
 with `graphit_module_skill` before using the module's tools. See the copy-ready
@@ -888,7 +900,7 @@ artifacts remain mounted and are read with `graphit_ast_source` or `graphit_wiki
 
 ---
 
-### `graphit_hub_type_path`
+### `graphit_hub_type-path`
 
 **Description:** Resolve the native Agent path where a physical skill, command, agent, or MCP
 artifact should be created. Hook-delivered rules intentionally have no physical Agent path.

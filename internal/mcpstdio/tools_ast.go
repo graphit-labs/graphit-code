@@ -106,7 +106,7 @@ type astSearchInput struct {
 func registerASTTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "index"),
-		Description: "Index files in the project to build the AST code graph database. Call this once at the end of a session in which you changed code, so the graph the next query reads is current.",
+		Description: "Build or repair the project's AST code graph when it is absent or explicit reindexing is needed. The daemon normally indexes edits; adapter stop hooks dispatch final sync. Do not duplicate that work after each edit or session.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astIndexInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {

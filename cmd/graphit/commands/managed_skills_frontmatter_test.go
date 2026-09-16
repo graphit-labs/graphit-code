@@ -98,6 +98,11 @@ func TestManagedSkillBodiesMatchAcrossAdapters(t *testing.T) {
 		"memory":    memory.InstallSkill,
 		"task":      graphtask.InstallSkill,
 	}
+	references := map[string]map[string]string{
+		"ast": ast.SkillReferences(), "hub": hub.SkillReferences(),
+		"knowledge": knowledge.SkillReferences(), "memory": memory.SkillReferences(),
+		"task": graphtask.SkillReferences(),
+	}
 
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -121,6 +126,15 @@ func TestManagedSkillBodiesMatchAcrossAdapters(t *testing.T) {
 					t.Fatalf("reading the %s skill for %s: %v", module, agentName, err)
 				}
 				_, body := splitFrontmatter(t, string(data))
+				for path, want := range references[module] {
+					if strings.TrimSpace(want) == "" || !strings.Contains(body, "]("+path+")") {
+						t.Fatalf("%s reference %s is empty or not linked from SKILL.md", module, path)
+					}
+					installed, err := os.ReadFile(filepath.Join(skillDir, filepath.FromSlash(path)))
+					if err != nil || string(installed) != want {
+						t.Fatalf("%s/%s reference %s differs from its generator: %v", agentName, module, path, err)
+					}
+				}
 				if canonical == "" {
 					canonical = body
 				} else if body != canonical {
@@ -142,6 +156,12 @@ func TestManagedSkillBodiesMatchAcrossAdapters(t *testing.T) {
 				if string(versioned) != string(data) {
 					t.Fatalf("the versioned %s skill for %s differs from its canonical generator", module, agentName)
 				}
+				for path, want := range references[module] {
+					versionedReference, err := os.ReadFile(filepath.Join(repoRoot, relativeSkillDir, filepath.FromSlash(path)))
+					if err != nil || string(versionedReference) != want {
+						t.Fatalf("the versioned %s reference %s for %s differs from its canonical generator: %v", module, path, agentName, err)
+					}
+				}
 			}
 			if versionedCopies == 0 {
 				t.Fatalf("no versioned %s skill copy was verified", module)
@@ -150,43 +170,48 @@ func TestManagedSkillBodiesMatchAcrossAdapters(t *testing.T) {
 	}
 }
 
-// Every managed description is prose with a colon in it — "Use when: ...",
-// "MANDATORY: ..." — which is exactly the shape a plain YAML scalar cannot hold.
-// Asserting the colon is still there keeps the test above honest: it is what
-// makes valid frontmatter evidence of correct quoting rather than of bland
-// content.
-func TestManagedSkillDescriptionsStillContainAColon(t *testing.T) {
-	descriptions := map[string]func(string, string) error{
-		"ast":       ast.InstallSkill,
-		"hub":       hub.InstallSkill,
-		"knowledge": knowledge.InstallSkill,
-		"memory":    memory.InstallSkill,
-		"task":      graphtask.InstallSkill,
+// Installing for another checkout must resolve that checkout's instructions,
+// not silently borrow overrides from the process working directory.
+func TestManagedSkillsResolveTargetProjectOverrides(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	callerDir := t.TempDir()
+	t.Chdir(callerDir)
+	generators := map[string]func(string, string) error{
+		"ast": ast.InstallSkill, "hub": hub.InstallSkill,
+		"knowledge": knowledge.InstallSkill, "memory": memory.InstallSkill,
+		"task": graphtask.InstallSkill,
 	}
-
-	for module, install := range descriptions {
-		t.Run(module, func(t *testing.T) {
-			projectDir := t.TempDir()
-			if err := install(projectDir, "kiro"); err != nil {
-				t.Fatalf("installing the %s skill: %v", module, err)
-			}
-
-			skillName := brand.SkillDirName(module)
-			skillDir := agent.GetSkillDir(agent.GetAdapter("kiro"), projectDir, skillName)
-			data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
-			if err != nil {
-				t.Fatalf("reading the installed skill: %v", err)
-			}
-
-			block, _ := splitFrontmatter(t, string(data))
-			var fields map[string]string
-			if err := yaml.Unmarshal([]byte(block), &fields); err != nil {
-				t.Fatalf("frontmatter is not valid YAML: %v", err)
-			}
-			if !strings.Contains(fields["description"], ": ") {
-				t.Errorf("the %s description no longer contains %q, so the frontmatter test above no longer proves quoting works: %q", module, ": ", fields["description"])
-			}
-		})
+	writeOverride := func(projectDir, module, body string) {
+		t.Helper()
+		rulesDir := filepath.Join(projectDir, brand.DotDir(), "rules")
+		if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rulesDir, module+"_skill.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for module, install := range generators {
+		writeOverride(callerDir, module, "WRONG CHECKOUT")
+		for _, agentName := range agent.SupportedAgents() {
+			t.Run(module+"/"+agentName, func(t *testing.T) {
+				projectDir := t.TempDir()
+				want := "# Target " + module + "\nProject-specific instructions.\n"
+				writeOverride(projectDir, module, want)
+				if err := install(projectDir, agentName); err != nil {
+					t.Fatal(err)
+				}
+				skillDir := agent.GetSkillDir(agent.GetAdapter(agentName), projectDir, brand.SkillDirName(module))
+				data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, body := splitFrontmatter(t, string(data))
+				if strings.TrimSpace(body) != strings.TrimSpace(want) {
+					t.Fatalf("installed skill did not use target project override: %s", body)
+				}
+			})
+		}
 	}
 }
 

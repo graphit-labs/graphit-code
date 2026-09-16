@@ -51,7 +51,7 @@ func mandateTag() string {
 func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, triggers, tools []string) string {
 	var b strings.Builder
 	b.WriteString("\n# " + heading + "\n")
-	b.WriteString("When the next action involves " + domain + ", read `" + skillName + "` once before that action and use its Graphit MCP tools.\n")
+	b.WriteString("Before " + domain + ", read `" + skillName + "` if its instructions are not in the current context; then use its Graphit MCP tools.\n")
 	if len(triggers) > 0 {
 		b.WriteString("Triggers:\n")
 		for _, trigger := range triggers {
@@ -76,13 +76,14 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, trigg
 
 func mandatePreamble() string {
 	return strings.Join([]string{
-		"Graphit is the project knowledge and code-navigation layer.",
-		"For each action, match only the current action against the module triggers below. If one matches, read that skill once in the session immediately before acting; do not preload unrelated skills or reread one already loaded.",
-		"Within a matched domain, prefer Graphit MCP over native search, file walking, web/model knowledge, or Agent memory. This applies to every agent and subagent. If the required Graphit tool is unavailable in the current agent, continue with that agent's default native tools. Do not substitute the Graphit CLI for MCP.",
-		"When a Graphit tool exposes `ai_optimized`, explicitly pass `true`; do not rely on its default.",
-		"Adapter hooks load mandatory memory and reassert this routing at supported lifecycle boundaries. They cannot classify semantic intent, so these triggers still apply after interruptions, corrections, compaction, handoff, and resumed work.",
-		"Whenever the smallest independently reportable unit finishes, update the active Graphit task immediately with what landed and what comes next; do not wait for the overall task to end or write Markdown task state.",
-		"The daemon indexes writes asynchronously. After the final task-management update, every agent or subagent completion must dispatch a full Graphit sync asynchronously through its adapter stop hook and must not wait for it. Do not sync after every edit.",
+		"Graphit routes project work through the enabled modules below; each agent and subagent follows the same contract.",
+		"Match the current action; read its skill immediately before first use. Reuse loaded instructions for the same project/overrides; reload only needed skills after those change or compaction loses content. Never preload all skills.",
+		"Use Graphit MCP before native discovery in a matched domain. If a required tool is unavailable, use default native tools and record the limitation; never substitute the Graphit CLI for MCP.",
+		"Pass `ai_optimized: true` when supported. Start with narrow queries and compact results, read selected sources, and stop when evidence answers the question. Reuse ids, sources and fresh results across modules; expand only to close a concrete gap.",
+		"Memory: constraints; Knowledge: contracts; AST: code; Hub: ecosystem/artifacts, cluster first; Task: plan/execution/handoff. Use only needed modules.",
+		"`project_dir` is call-local. Persist project identity and relative paths in shared content, never a machine-specific checkout root; resolve it again on each host.",
+		"Hooks load mandatory memory and restore routing at lifecycle boundaries. After interruptions, corrections or handoff, resume from durable task state and revise affected plans before execution.",
+		"Checkpoint each independently reportable work unit in the active Task with evidence and the next step. After the final task update, the adapter stop hook dispatches a full sync asynchronously; do not duplicate it, wait for it, or sync after every edit.",
 	}, "\n") + "\n"
 }
 

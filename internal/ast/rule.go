@@ -17,12 +17,12 @@ func InstallSkill(projectDir, agentName string) error {
 			return err
 		}
 	}
-	skillContent := brand.ResolveModuleSkill("ast", ASTRuleContent())
-	frontmatter, err := agent.SkillFrontmatter(astSkillName, "AST-first: code discovery and structural analysis for symbols, relationships, impact, source selection, and code from installed contexts; read this skill before native search.")
+	skillContent := brand.ResolveModuleSkillIn(projectDir, "ast", ASTRuleContent())
+	frontmatter, err := agent.SkillFrontmatter(astSkillName, "AST: replace local code search, file reads and symbol navigation with graph/source queries; inspect callers, metrics and change impact, including installed contexts.")
 	if err != nil {
 		return err
 	}
-	return agent.InstallManagedSkill(projectDir, agentName, astSkillName, frontmatter+skillContent)
+	return agent.InstallManagedSkillWithReferences(projectDir, agentName, astSkillName, frontmatter+skillContent, SkillReferences())
 }
 
 func RemoveSkill(projectDir, agentName string) error {

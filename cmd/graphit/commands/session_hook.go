@@ -80,7 +80,7 @@ func runTaskSessionHook(ctx context.Context, projectDir, format string, input []
 	switch strings.ToLower(format) {
 	case sessionhook.FormatStop, sessionhook.FormatCursorStop,
 		sessionhook.FormatAfterAgent, sessionhook.FormatAntigravityStop,
-		sessionhook.FormatSessionEnd:
+		sessionhook.FormatSessionEnd, sessionhook.FormatNoOutput:
 		return svc.ReleaseOwned(ctx, agent)
 	case sessionhook.FormatPostToolUse, sessionhook.FormatAfterTool,
 		sessionhook.FormatCursorUnit, sessionhook.FormatPlainUnit,

@@ -69,14 +69,14 @@ record instead of duplicating it.
 Creation requires all of the following:
 
 - a concise, action-oriented plain-text title that identifies one outcome;
-- an exhaustive, implementation-ready Markdown specification containing every relevant detail the
-  model has discovered. It states the objective and value, originating context and current state,
-  in-scope and out-of-scope boundaries, requirements or observable behavior, exact code paths and
-  symbols, callers and dependents, tests, data/control flow, interfaces and dependencies, constraints
-  and assumptions, alternatives and trade-offs, decisions and rationale, risks and failure modes,
-  uncertainty and open questions, validation evidence and expectations, and the intended result. It
-  distinguishes verified facts from reasoned inference and unresolved unknowns. Another agent must be
-  able to execute without repeating repository investigation merely to recover already-known context;
+- a self-contained Markdown execution packet in `description`: outcome and scope; exact relevant
+  requirements, constraints and deliverables; verified starting behavior, known paths/symbols and
+  their roles; prerequisite records and outputs; implementation steps, contracts and integration
+  points; relevant risks and verification setup/expected results. Shared detail is referenced by
+  exact Task ID and section, with essential local contracts retained in the leaf. Omit irrelevant
+  sections and repeated background, not known execution constraints. A new agent must be able to
+  implement and verify the outcome from this record and its explicit references without guessing
+  scope or rediscovering known decisions;
 - at least one singular acceptance criterion, written as an imperative statement of what the system
   **must** do or **must not** allow under an applicable condition, with a measurable or observable
   expected result;
@@ -92,25 +92,20 @@ independent unless an implementation choice is itself a constraint. Acceptance c
 required behavior rather than implementation procedure. Test checks include meaningful failure
 paths without duplicating equivalent scenarios.
 
-Descriptions, check text and evidence, progress and next steps, comments, reasons, and completion or
-release summaries support Markdown and preserve all relevant discoveries, reasoning, evidence, and
-implications appropriate to their purpose. Evidence identifies the exact command, source, observation,
-or artifact, conditions, and actual result. Progress includes completed facts, new discoveries, and
-their effect on scope or approach; a next step names the exact action, target, prerequisites, and
-completion condition. Comments retain decisions, problems, lessons, alternatives, rationale, impact,
-and references. Reasons state cause, evidence, impact, and the clearing condition or replacement.
-Release and completion summaries consolidate outcomes, residual risks, and follow-on implications.
-Vague phrases such as “analysis done” or “tests pass” are not substitutes for reusable task knowledge.
-IDs, titles, types, statuses, priorities, actors, and timestamps remain compact plain text.
+Descriptions, checks, evidence, progress, comments, reasons and handoffs support Markdown. Store
+knowledge once in its appropriate record; checkpoints add meaningful changes and reference saved
+context instead of repeating the whole specification. Evidence names the command, source,
+observation or artifact, relevant conditions and actual result. A next step names the action, target,
+prerequisite and completion condition. Comments retain consequential decisions, problems and lessons
+with rationale. Handoffs consolidate current state, evidence references, unresolved issues and the
+next action. “Analysis done” or “tests pass” without evidence is insufficient. Compactness removes
+repetition, not execution-relevant facts.
 
-An analytical task's accumulated record includes the question and scope, method and sources, inspected
-code locations and relationships, evidence and observations, consequential intermediate reasoning,
-alternatives and counterarguments, trade-offs, constraints and assumptions, risks and uncertainty,
-confirmed conclusions, rejected hypotheses, unanswered questions, and actionable implications. When
-later discovery reveals execution-relevant detail missing from the current description, the owner uses
-`task_revise` before delegation, handoff, or implementation. Progress history does not excuse an
-incomplete current specification. A qualifying cross-task conclusion may additionally enter Memory,
-but Memory never replaces the complete Task report.
+An analytical record preserves its question, method and sources, evidence, conclusions, decision
+rationale, uncertainty and actionable implications. Later execution-relevant discoveries enter the
+current description through `task_revise` before changed implementation, delegation or handoff;
+progress history does not substitute for a current specification. Reusable cross-task conclusions
+may also enter Memory without replacing the Task result.
 
 Acceptance criteria and tests are structured checks, not prose interpreted at completion time.
 Each starts as `pending` and must be recorded as `passed` with non-empty evidence. A failed check
@@ -203,27 +198,33 @@ outlive the task context.
 
 ## Agent contract
 
-The dynamic mandate directs an enabled agent to Graphit Task for official work records and lifecycle,
-including for analysis-only work. Planning may use other tools, including the host's native planning
-mechanism; the resulting task definitions and state must be recorded through Graphit Task tools.
-At session bootstrap, Memory and Task
-instructions are composed independently: disabling one leaves the other intact, while enabling both
-delivers both search/read flows. Every project or imported Knowledge search also runs one focused
-related `task_search`, follows `next_cursor` until the relevant history is covered, and reads each selected
-result with `task_get`. The agent uses the complete task specification, analytical results, progress,
-comments, check evidence, next steps, and audit history alongside authoritative Knowledge pages; neither
-store replaces the other. When Task is disabled or unavailable, Knowledge retrieval continues. Before
-material work the agent reads the target, creates or relates missing work, and atomically claims it.
-During work it records detailed analytical/implementation progress,
-useful comments, and concrete check evidence. At the last usable context-capable checkpoint before
-completion, the deterministic hook instructs it to perform the bidirectional code-documentation review,
-update stale current material, and block on unresolved divergence. The generic Task mandate and skill do
-not duplicate that hook-owned obligation; only an adapter without the required boundary carries the
-complete review in its own mandate or lifecycle compensation. The agent then completes only after every
-deterministic gate passes, or releases with a fully specified next step.
+The resident mandate routes project work, including analysis without file changes, to the Task
+skill immediately before the first relevant action. The skill supplies the specification, planning,
+decomposition, validation and lifecycle procedure. It is reused while available in context; other
+module skills load only at their relevant evidence-gathering boundary.
 
-The installed Task skill contains the operational detail. The mandate stays a compact router so
-its always-loaded token cost remains small.
+For known work, read its exact ID. For a new request or changed scope, run one focused history search
+and read selected authoritative records and prerequisite results. Reuse that history for the same
+question. Knowledge queries do not each trigger another Task sweep: Task history is consulted when
+prior implementation, rationale or active-plan context is needed. Page only while relevant context
+is missing or completeness is explicitly required; `top_k` caps the entire result window. Task and
+Knowledge sources retain their distinct authority. Disabled or unavailable Task tools do not block
+Knowledge retrieval or justify substituting the Graphit CLI for MCP.
+
+Before material investigation the agent creates or resumes a bounded planning/research unit and
+claims it. It uses AST to establish current implementation, Knowledge for documented intent, and
+relevant Task/Memory context before deciding the full delivery graph. Material uncertainty becomes
+explicit refinement; the initial task is not a generic container for immediate whole-project coding.
+Before implementation or delegating implementation it saves every executable unit's specification,
+plan, acceptance criteria, validations and relationships, then verifies readiness and coverage.
+
+Each completed code/configuration/behavior unit checks and updates its affected user and technical
+documentation; each documentation unit checks authoritative implementation and behavior. Record
+concrete sources, sections and comparison evidence, including a justified no-impact conclusion when
+appropriate. Resolve contradictions before closing the unit rather than postponing them to final
+integration. The shared checkpoint hook reinforces this invariant without duplicating adapter-specific
+compensation in the generic skill. Completion also requires the deterministic checks, descendants,
+dependencies and flags to permit it; otherwise release with current state and an executable next step.
 
 ## Feature planning and backlog handoff
 
@@ -232,18 +233,66 @@ specifications, tests, subtasks, interdependencies and milestones into self-cont
 An external plan or link alone does not replace the official records. Reconcile later planning
 changes through the same Task workflow and read back the saved records to verify completeness.
 
-When users plan features or a whole system, the agent offers to register and maintain the agreed
-work through Graphit Task tools during the conversation. At the end, it explicitly asks whether to
-register defined work outside the session whose registration is still undecided. Existing
-authorization permits incremental registration without repeated questions; a refusal is respected
-for those items. Registration does not authorize implementation of future features.
+An instruction to plan or implement project work authorizes recording that work in Task without a
+second registration question. A planning-only request does not authorize implementation. Respect
+explicit limits or refusal concerning future work outside the request.
 
-The current planning/refinement task records the conversation's defined scope and remains separate
-from future delivery tasks. Each settled requirement, correction, decision, rationale and unresolved
-question is preserved immediately. Once registration is authorized, future tasks are created or
-revised as definitions settle, with a coverage map from requirements to task IDs and structured
-acceptance/test checks. Splitting or revising work must preserve that coverage. Unknown decisions are
-identified as open questions, not silently filled in. Material gaps require refinement before coding.
+Start with a bounded investigation of the request and current state; resolve questions that change
+scope, correctness or contracts before finalizing the delivery map. Then, before implementation,
+persist these stages in Task:
+
+1. **Specification:** extract every requirement, correction, constraint and exclusion; assign stable
+   requirement IDs for multipart work; define prioritized journeys with rationale, observable success,
+   data and interface contracts, and relevant failure/boundary/recovery behavior. Distinguish facts,
+   supported assumptions and material unknowns without inventing business policies or numeric targets.
+2. **Plan:** ground affected paths/symbols, interfaces, data contracts, prerequisite outputs,
+   integration boundaries, sequence and validation strategy in current sources. Record consequential
+   choices with evidence, rationale and material rejected alternatives; include nonfunctional,
+   migration or rollout constraints when applicable. Identify code and documentation ownership and
+   fixture/action/expected-result validation for every unit.
+3. **Decomposition:** establish parent deliveries, prerequisite work, independently verifiable slices,
+   integration and finalization subtasks before coding. Multiple outcomes or dependencies cannot be
+   represented by one executable whole-project task. A small single-outcome fix can keep all stages
+   in one task. Split for separate ownership, validation or resumption, not for each tool call.
+4. **Readiness review:** read back definitions and relations, then maintain a coverage map from each
+   requirement ID to delivery task IDs and returned acceptance/test check IDs. Verify complete
+   coverage, meaningful outcomes, observable checks, consistent contracts, acyclic ordering and
+   execution packets usable without conversation history. Correct material gaps before affected code.
+
+The planning/refinement task remains separate from delivery completion. Its checks verify the saved
+specification, plan, coverage and handoff, not implementation success. Deliveries may depend on it.
+Later changes update specifications, coverage and checks; shared requirements/contracts remain in
+one planning record with explicit references from affected leaves. Creating tasks alone does not
+prove that the plan covers the request or that delivery is complete.
+
+The generated Task skill is a focused entrypoint with four selectively loaded references. Their
+canonical content lives in Go source and is installed alongside `SKILL.md` for every supported agent:
+
+| Reference | Exact loading boundary | Substance |
+|---|---|---|
+| `references/planning.md` | Before creating or materially revising a multi-outcome specification/plan | Evidence, journeys, ambiguity/refinement, requirements/contracts, grounded design, decomposition and readiness/coverage models. |
+| `references/worked-feature.md` | Before saving the first such backlog | Complete filled specification and plan, decisions/alternatives, data/error contracts, fixture matrix, every parent/leaf packet, legal dependency graph, check-ID traceability and handoff evidence. |
+| `references/worked-system.md` | Additionally, before saving a system or multiple-capability backlog | Filled umbrella/delivery/subtask hierarchy, discovery-driven decomposition, cross-delivery producer/consumer contracts, dependency ordering and final system acceptance. |
+| `references/execution.md` | Before implementing/resuming, reviewing completion or handing off | Semantic readiness, scope-change reconciliation, per-unit code/documentation checks, evidence and residual-work review, plus a full proportional single-task fix. |
+
+References are reused while retained, not eagerly embedded or reloaded for each action. Without
+local skill-file access, `graphit_module_skill` retrieves the requested reference by `module: task`
+and its exact `reference` name, retaining `project_dir` when known. Omitting `reference` returns the
+entrypoint and reference names rather than every body. Languages, paths, commands and example task
+counts are illustrative; use the user's language, real project contracts and returned task/check IDs.
+
+Discovery may change the number or order of tasks. Revise affected specifications, contracts,
+coverage, checks and dependency edges before affected implementation; preserve known results and
+clearly label reconciliation still pending for blocked tasks. A repeat review with no residual gap
+must not manufacture new work. Requirement-quality evidence is distinct from product verification,
+and post-release metrics cannot be passed with unit-test evidence.
+
+A completed or cancelled delivery cannot receive new children. If final review finds a defect in
+an already completed producer, create its corrective unit under the nearest still-open delivery
+ancestor, or a new corrective delivery when none remains open, and preserve producer/check
+provenance. Release a claimed review before adding the correction as its prerequisite; reconcile
+and recheck it after the correction completes. The correction must not depend on that review or
+its waiting ancestor. There is no general-purpose reopen operation.
 
 Use the existing model to represent the plan:
 
@@ -374,6 +423,7 @@ current layout efficient.
 | Schemas and projections | `internal/task/table.go` |
 | Hook identity and lifecycle maintenance | `internal/task/hook.go` |
 | Skill and mandate | `internal/task/rule.go`, `internal/task/rule_compact.go` |
+| Generated planning, worked feature, worked system and execution references | `internal/task/rule_planning.go`, `internal/task/rule_examples.go`, `internal/task/rule_system.go`, `internal/task/rule_execution.go` |
 | MCP interface | `internal/mcpstdio/tools_task.go` |
 | CLI interface | `cmd/graphit/commands/task.go` |
 | Observatory API and explorer | `internal/uiserver/task_handler.go`, `internal/ui/src/components/task/TaskExplorerPage.tsx` |

@@ -9,14 +9,41 @@ Use Graphit as the authoritative context and coordination layer when its MCP too
 
 ## Bootstrap
 
-Before the first Graphit action in a session, call `graphit_mandates` with no arguments. Match the
-current action against the returned module triggers. When a trigger matches, call
-`graphit_module_skill` with that module and read the complete `content` before using its tools. Do
-not pass `project_dir` to either call on an artifact-only server.
+If the host has not supplied Graphit mandates, call `graphit_mandates` once with no arguments.
+Match the next action against those triggers. Immediately before the first matching action, read
+that module through `graphit_module_skill`; reuse instructions still retained for this scope.
+Reload only when lost after compaction or when scope/overrides change. Do not preload other modules
+or pass `project_dir` on an artifact-only server.
 
 The core module names are `task`, `memory`, `ast`, `hub`, and `knowledge`. The returned `enabled`
 field reflects the server's resolved module configuration. If it is `false`, do not assume that
 module is available merely because its skill source was returned.
+
+## Load detailed examples at their named boundary
+
+The main skill response includes `references`, a list of exact resource paths. Follow the skill's
+reading trigger: planning a delivery, writing domain documentation, investigating code impact or
+handling an unfamiliar discovery/correction flow may need a detailed guide. Do not load every
+reference simply because it is listed. On an artifact-only server, for example:
+
+```json
+{"module":"task"}
+```
+
+When the returned Task skill calls for its planning reference, use the exact returned path:
+
+```json
+{"module":"task","reference":"references/planning.md"}
+```
+
+Both payloads call `graphit_module_skill`. The second response contains the selected reference in
+`content`, with its path in `reference`; it does not repeat the skill or load other examples.
+Keep `project_dir` on both calls only when addressing a real project resolved on the current server.
+It is a runtime argument: never save that server's checkout root in shared docs, tasks, memories or
+handoffs. Save project identity, relative paths/slugs and revision; resolve the root again per host. Read Graphit's built-in
+references through this tool, not as Hub artifacts or by opening server filesystem paths. Reuse
+them until lost or the relevant scope/instructions change. Skill overrides still determine the main
+instructions; the listed references are framework resources and do not override project guidance.
 
 ## Address remote content
 
@@ -32,12 +59,17 @@ makes results reproducible when the Hub's latest version changes.
 - Pass `id@version` in `hub_refs` when searching Hub knowledge with `graphit_wiki_search`.
 - Read AST source with `graphit_ast_source` and Knowledge source with `graphit_wiki_source`.
 - Read installed Hub `skill`, `rule`, `command`, or `agent` files with `graphit_hub_content`, using
-  `id: "id@version"`. Follow its `canonical_path`; use `path` for an individual file.
+  `id: "id@version"` and the selected artifact-relative `path` (for a skill, start at `SKILL.md`).
+  Omitting `path` returns every file; use that only when the whole artifact is required.
 - Read Graphit's own core module instructions with `graphit_module_skill`, not
   `graphit_hub_content`.
 
 Install a missing artifact globally by calling `graphit_hub_install` without `project_dir` and with
 an exact `id@version`. Do not silently upgrade it during the task.
+
+Pass `ai_optimized: true` where supported. Start with a narrow search; read selected sources before
+making claims and stop when the question is resolved. Reuse resolved IDs, versions and evidence
+across modules instead of repeating discovery. Separate verified behavior from inference or gaps.
 
 ## Project-bound operations
 

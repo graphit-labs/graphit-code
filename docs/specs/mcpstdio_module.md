@@ -157,7 +157,7 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 | Tool | Description |
 |---|---|
 | `graphit_mandates` | Resolve dynamic mandates from global config/rule overrides and framework defaults; takes no parameters and reads no lockfile. |
-| `graphit_module_skill` | Return the complete resolved Task, Memory, AST, Hub, or Knowledge skill source and its enabled state; `project_dir` is optional. |
+| `graphit_module_skill` | Return the resolved Task, Memory, AST, Hub, or Knowledge skill, enabled state and available framework reference names. Optional `reference` reads only that bundled guide/example; `project_dir` is optional. |
 | `graphit_init` | Complete project initialization: ensure the existing or newly created ULID, set up gitignore and adapters, and register in the global lock. |
 | `graphit_sync` | Full sync: reindex AST, rebuild knowledge wiki, maintain authoritative memory indexes, sync hub, install Agent rules. |
 | `graphit_update` | Update all installed hub artifacts to latest versions and refresh Agent rules. |
@@ -232,7 +232,7 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 | `graphit_hub_unlink` | Remove a linked artifact. |
 | `graphit_hub_content` | Read a Hub artifact's source content with bounded slicing. |
 | `graphit_hub_projects` | List one bounded page of Hub projects visible to the trusted subject; local ecosystem registration is a separate concern. |
-| `graphit_hub_type_path` | Resolve the conventional project path for an artifact type. |
+| `graphit_hub_type-path` | Resolve the conventional project path for an artifact type. |
 
 ### 6. Wiki Tools (`tools_wiki.go`)
 

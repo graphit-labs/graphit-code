@@ -8,7 +8,7 @@ import (
 func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 	t.Parallel()
 	content := mandatePreamble()
-	for _, want := range []string{"current action", "once in the session", "prefer Graphit MCP", "every agent and subagent", "default native tools", "exposes `ai_optimized`", "explicitly pass `true`", "interruptions", "compaction", "smallest independently reportable unit", "update the active Graphit task immediately", "After the final task-management update", "dispatch a full Graphit sync asynchronously", "must not wait for it", "Do not sync after every edit"} {
+	for _, want := range []string{"current action", "immediately before first use", "Reuse loaded instructions for the same project/overrides", "Graphit MCP before native", "agent and subagent", "default native tools", "ai_optimized: true", "interruptions", "compaction", "independently reportable work unit", "active Task", "After the final task update", "full sync asynchronously", "do not duplicate it, wait for it, or sync after every edit"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("preamble missing %q:\n%s", want, content)
 		}
@@ -21,7 +21,7 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 func TestModuleMandateTriggerRoutesWithoutDuplicatingSkill(t *testing.T) {
 	t.Parallel()
 	content := ModuleMandateTrigger("AST", "graphit-ast", "code discovery", "", []string{"locating code", "impact analysis"}, []string{"ast_search", "ast_query"})
-	for _, want := range []string{"read `graphit-ast` once", "locating code", "impact analysis", "graphit_ast_search", "skill routes the remaining tools"} {
+	for _, want := range []string{"read `graphit-ast` if its instructions are not in the current context", "locating code", "impact analysis", "graphit_ast_search", "skill routes the remaining tools"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("trigger missing %q:\n%s", want, content)
 		}
