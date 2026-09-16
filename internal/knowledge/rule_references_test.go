@@ -51,7 +51,7 @@ func TestKnowledgeReferenceInstallTracksProjectDocumentationRoot(t *testing.T) {
 // the prose happens to contain a list of desired quality words.
 func TestKnowledgeWorkedDomainNavigation(t *testing.T) {
 	pages := map[string]string{}
-	pagePattern := regexp.MustCompile("(?s)## Page: ([^\\n]+)\\n\\n~~~~markdown\\n(.*?)\\n~~~~")
+	pagePattern := regexp.MustCompile(`(?s)## Page: ([^\n]+)\n\n~~~~markdown\n(.*?)\n~~~~`)
 	for _, match := range pagePattern.FindAllStringSubmatch(knowledgeWorkedDomain, -1) {
 		pages[match[1]] = match[2]
 	}
