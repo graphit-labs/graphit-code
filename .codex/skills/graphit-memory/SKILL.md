@@ -1,6 +1,6 @@
 ---
 name: graphit-memory
-description: 'Memory: recall and preserve preferences, corrections, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge across tasks.'
+description: 'Memory: retrieve facts, decisions and lessons whenever questions arise; preserve durable guidance, corrections and confirmed discoveries across tasks.'
 ---
 
 # Graphit Memory
@@ -9,17 +9,17 @@ description: 'Memory: recall and preserve preferences, corrections, user-provide
 
 Preserve preferences, corrections, standing guidance, project facts and confirmed non-obvious knowledge that affect future work. Use Graphit, not native/model memory. Task holds investigation/progress; Knowledge holds maintained docs.
 
-## Recall once, then reuse
+## Recall whenever a question needs context
 
-Adapter hooks load mandatory project and user memories. Reuse that context; call `graphit_memory_mandatory` only if the hook reports fallback, mandatory context is absent, or project/scope changes. In fallback, call once per missing scope (`scope: project` and `scope: user` for a project session); the default fetch covers only project scope. Use only user scope on an artifact-only server, without inventing `project_dir`. Recover required context after compaction only when it is missing, not simply because a boundary occurred.
+Hooks load mandatory project/user memories. Reuse them; call `graphit_memory_mandatory` only if the hook reports fallback, mandatory context is absent, or project/scope changes. In fallback, call once per missing scope (`scope: project` and `scope: user` for a project session); the default fetch covers only project scope. Use only user scope on an artifact-only server, without inventing `project_dir`. After compaction recover only missing context.
 
-Before a material plan or when a new scope, earlier decision or blocker requires context, use `graphit_memory_search` with a focused query, `exclude_mandatory: true`, `top_k: 5` and `ai_optimized: true`. Results are titles and IDs; read selected entries with `graphit_memory_source`, normally one or two initially. Use `preview: true` only to disambiguate. Follow more hits/pages when an unresolved decision needs them; stop once the needed constraints are known. Reuse recalled entries across related searches. A superseded revision is historical: read its `current` entry before relying on it.
+At any stage—questions, exploration, implementation, debugging or review—when retained context cannot explain the system, a decision or a surprising result, use `graphit_memory_search` with a focused query, `exclude_mandatory: true`, `top_k: 5` and `ai_optimized: true`. Do not wait for a new session, plan or blocker. Known ID: read directly. Search returns titles/IDs; read selected entries with `graphit_memory_source`. Use `preview: true` to disambiguate; expand only for remaining gaps. Reuse sufficient context; a new question can need a new search in the same scope. Read a superseded entry's `current` version before relying on it.
 
 Use project scope and its known absolute `project_dir` by default; user scope is for cross-project preferences. Otherwise read the Hub skill and resolve the project with `graphit_cluster_projects` before Hub discovery; never guess paths or read stores as files. Installed AST/Knowledge contexts do not provide project memories. If expected context is missing, refine once; use `graphit_memory_list` for an intentional inventory or suspected empty store, not routine recall or post-write verification.
 
 ## Capture at the first durable finding
 
-Before a correction changes an existing subject, merging duplicates, or capturing a non-obvious discovery for the first time, read [capture and reconciliation cases](references/durable-context.md). It shows full content, preserved conditions and no-write cases; unchanged recall needs no reread. If the local resource is unavailable, call `graphit_module_skill` with `module: memory`, `reference: references/durable-context.md` and the known `project_dir` when available.
+For the first unfamiliar mid-work recall, correction, duplicate merge or durable discovery, read [recall and capture cases](references/durable-context.md); reuse thereafter. If the local resource is unavailable, call `graphit_module_skill` with `module: memory`, `reference: references/durable-context.md` and the known `project_dir` when available.
 
 Capture user facts about lifecycle/environment, policies, conventions or standing instructions even without “remember this”. Preserve its rationale and conditions when they affect future planning, compatibility, migration, review or risk. Also capture confirmed structural, reusable or costly discoveries: implicit contracts, sources of truth/generation flows, coupling, recurring failure modes, trade-offs and learned procedures. Capture now, not at repetition or task end.
 

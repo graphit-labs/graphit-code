@@ -9,7 +9,7 @@ import (
 
 var skillName = brand.SkillDirName("task")
 
-const skillDescription = "Plan and execute project work with specifications, dependency-ordered tasks, acceptance evidence and resumable handoffs; use for features, fixes, analysis and backlog changes."
+const skillDescription = "Task: plan and execute project work; retrieve prior specifications, investigations, decisions and validation evidence whenever questions arise."
 
 func InstallSkill(projectDir, agentName string) error {
 	if projectDir == "" {

@@ -11,6 +11,8 @@ func SkillReferences() map[string]string {
 		"references/durable-context.md": strings.NewReplacer(
 			"TOOL_SEARCH", brand.MCPToolName("memory_search"),
 			"TOOL_SOURCE", brand.MCPToolName("memory_source"),
+			"TOOL_TASK_SEARCH", brand.MCPToolName("task_search"),
+			"TOOL_TASK_GET", brand.MCPToolName("task_get"),
 			"TOOL_UPDATE", brand.MCPToolName("memory_update"),
 			"TOOL_INSERT", brand.MCPToolName("memory_insert"),
 			"TOOL_MANDATORY", brand.MCPToolName("memory_mark_mandatory"),
@@ -19,11 +21,28 @@ func SkillReferences() map[string]string {
 	}
 }
 
-const memoryDurableContext = `# Durable capture and reconciliation
+const memoryDurableContext = `# Recall, capture and reconciliation
 
-Read this before a correction changes an existing subject, merging duplicates or first capturing a reusable discovery. Sections: correction; no-write and first capture; duplicate preservation; uncertainty and scope.
+Read for the first unfamiliar mid-work recall, correction, duplicate merge or durable discovery; reuse thereafter. Sections: contextual recall; correction; no-write and first capture; duplicate preservation; uncertainty and scope.
 
 Examples are fictional and illustrative: substitute observed IDs, project paths, facts and source references. They do not prescribe a language, toolchain, host path or universal policy. A user correction's actual conditions take precedence over an example.
+
+## Case: a new question halfway through implementation
+
+The session is already active and its task is claimed. While reading a webhook handler, the agent finds a 48-hour replay guard and asks why that duration exists. Nothing is blocked and no new plan or session has started; this is still a recall trigger. The retained context explains the current edit but not this behavior's reason.
+
+1. Choose the missing knowledge: Memory may hold the known provider constraint; Task may hold the earlier investigation and rejected alternatives. A known relevant memory ID goes straight to TOOL_SOURCE. Otherwise one focused TOOL_SEARCH:
+~~~json
+{"project_dir":"/work/portal","query":"webhook replay 48 hour retention","exclude_mandatory":true,"top_k":5,"ai_optimized":true}
+~~~
+2. Suppose returned titles include a relevant replay-policy entry and an unrelated deployment entry. Read only the relevant returned ID with TOOL_SOURCE. Its content explains a provider retry window and references the task that established it. Do not infer this conclusion from the title.
+3. If that entry answers the question, stop recall. If the agent also needs the measured retry evidence or rejected alternatives, read the referenced task ID directly with TOOL_TASK_GET. If no ID is known, first use TOOL_TASK_SEARCH for the missing topic, then get the selected task. The Task skill governs that read. Reading historical work does not claim/reopen it or replace the current work task.
+4. Compare the recorded provider/version/date and prior test evidence with current AST source and Knowledge contract before treating the old reason as current truth. A past success or stated policy is evidence of that scope, not proof of today's behavior. Preserve a remaining contradiction explicitly instead of choosing whichever source is convenient.
+5. Record the finding and its effect in the current Task's meaningful checkpoint. Update Memory only for a new/corrected reusable conclusion; do not rewrite it just because it was read.
+
+The /work/portal path above exists only in the illustrative live MCP envelope. The saved conclusion cites project identity, relative handler path, source revision and returned task/memory IDs. No machine root belongs in the content.
+
+Later in the same session, a question about ordering rather than replay duration can need a new focused search even in the same module. The same replay question with sufficient retained evidence needs zero calls. Mandatory-memory bootstrap remains once per missing scope; contextual searches have no once-per-session limit.
 
 ## Case 1: preserve a correction without losing its boundaries
 

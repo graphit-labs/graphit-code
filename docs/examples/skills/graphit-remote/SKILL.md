@@ -19,6 +19,16 @@ The core module names are `task`, `memory`, `ast`, `hub`, and `knowledge`. The r
 field reflects the server's resolved module configuration. If it is `false`, do not assume that
 module is available merely because its skill source was returned.
 
+## Recall when questions arise during work
+
+At any stage, a question about system behavior, rationale or earlier work may need Memory facts
+and lessons or Task investigations, decisions and validation results. Read the matching module
+skill and retrieve only the missing topic: known ID directly to source/get, otherwise focused
+search followed by selected records. Do not wait for restart, a new plan or a blocker. Reuse
+sufficient context, and compare historical findings with current AST/Knowledge evidence.
+These rules do not make unavailable scopes available: an artifact-only server still has no
+project Task/Memory; use the supported sources and report a needed history gap.
+
 ## Load detailed examples at their named boundary
 
 The main skill response includes `references`, a list of exact resource paths. Follow the skill's

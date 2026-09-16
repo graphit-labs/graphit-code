@@ -6,6 +6,23 @@ This document explains how data flows through the retrieval pipeline, which tool
 
 ---
 
+## Contextual recall throughout the work
+
+Session hooks load standing memory; they do not limit later retrieval. During questions,
+exploration, coding, debugging, documentation or review, a new uncertainty about the system
+is a trigger to consult the relevant source before guessing or repeating an investigation.
+Memory supplies durable facts, decisions and lessons; Task supplies specifications, prior
+investigations, attempts, decisions and validation results. No new session, plan, scope change
+or blocker is required. A known ID goes straight to memory_source/task_get; otherwise use a
+focused search and read selected results. Reuse sufficient retained evidence and query only
+the missing topic, rather than calling both modules mechanically.
+
+For example, an unexpected retry guard found midway through implementation can prompt Memory
+recall of the provider constraint and Task retrieval of the experiment that established it.
+Compare their recorded scope/revision with current AST code and Knowledge contracts before
+claiming that the historical explanation still applies. A second resolved question needs no
+new call; a different question in the same session may need one.
+
 ## 1. Three-Tier Architecture
 
 The retrieval system is organized into three tiers of increasing sophistication:
@@ -20,7 +37,7 @@ Memory order—mandatory, important, normal—then newest first inside each grou
 - **Lightweight** — indexed table access without source-file scanning
 - **No AI** — engine-matched text retrieval with deterministic domain ordering
 - **Fast** — no source-file scan
-- **Best for** — unconditional session context followed by quick contextual lookup
+- **Best for** — standing session context plus focused lookup whenever a question needs it
 
 ```
 ~/.graphit/memory/                   authoritative tables in local-only mode

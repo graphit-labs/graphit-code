@@ -9,7 +9,7 @@ import (
 
 var (
 	memorySkillName        = brand.SkillDirName("memory")
-	memorySkillDescription = "Memory: recall and preserve preferences, corrections, user-provided project facts, standing guidance, and agent-discovered structural or non-obvious system knowledge across tasks."
+	memorySkillDescription = "Memory: retrieve facts, decisions and lessons whenever questions arise; preserve durable guidance, corrections and confirmed discoveries across tasks."
 )
 
 func InstallSkill(projectDir, agentName string) error {

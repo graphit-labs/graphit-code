@@ -32,7 +32,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"3. Reuse results; stop once sources answer the question. Follow `next_cursor` for unresolved coverage/exhaustive inventory only. A miss is not absence: refine once or use `" + brand.MCPToolName("wiki_browse") + "` with relevant `doc_type`; `" + brand.MCPToolName("knowledge_list") + "` is for an intended catalogue.",
 		"4. Use `" + brand.MCPToolName("wiki_xrefs") + "` with a shallow depth for unresolved provenance/relationships, or `" + brand.MCPToolName("wiki_log") + "` for change history. Do not load either for every page.",
 		"",
-		"Reuse known Task context. For a missing prior-work decision/plan, read the Task skill, use one focused `" + brand.MCPToolName("task_search") + "` and selected `" + brand.MCPToolName("task_get") + "`; do not pair every lookup with history. If Task is unavailable, continue and state the resulting uncertainty.",
+		"At any stage, new questions may need Memory facts/lessons or Task investigations/decisions/results. Reuse sufficient context; read its skill and retrieve the missing topic. For Task, known ID → `" + brand.MCPToolName("task_get") + "`; otherwise `" + brand.MCPToolName("task_search") + "` → selected records. Check history against current docs/code; do not query both stores mechanically. State gaps if a needed source is unavailable.",
 		"",
 		"## Design and write maintained documentation",
 		"",

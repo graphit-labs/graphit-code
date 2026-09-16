@@ -9,6 +9,19 @@ Read before claiming implementation, resuming another agent's work, evaluating c
 3. Claim the ready unit with the current agent identity and private returned claim_token. Confirm the description/check revision and edit boundaries. Do not delegate overlapping source/docs ownership or claim a parent and its child with one identity.
 4. Follow the agreed outcome, contract and validation plan. Adapt implementation mechanics when evidence warrants; revise scope/constraints/checks first if the intended result changes. Native TODOs may organize execution but do not replace saved Task state.
 
+## Mid-work questions use historical evidence
+
+Task is also a knowledge source during implementation, debugging, documentation and review. A question need not block progress or change scope to justify retrieval. Keep the current claim while reading prior work; completed records are read-only context, not tasks to reopen or claim.
+
+Example: halfway through implementing archive browsing, the agent understands the current filter but wonders why archived rows are excluded from the default totals. The current packet does not explain the historical reason. This is a new question in the same session/domain:
+
+1. Reuse a known relevant task ID with task_get. Otherwise call task_search with the current host's project_dir, query 'archived totals default visibility decision', top_k 5 and ai_optimized true; select by title, then task_get. Do not search the entire backlog or create another investigation task just to read a result within the current unit.
+2. Suppose the selected prior task records a deliberate default, its business reason and fixtures. Read description, relevant decisions, outcome/check evidence and any named prerequisite necessary to interpret that finding. An old open plan is intent, not an implemented result; a completed check establishes only its recorded scope/revision.
+3. If the remaining question concerns a standing constraint or learned integration caveat, read the Memory skill and retrieve that missing topic. Do not call Memory merely because Task was called, or Task after every Knowledge read. Both sources can be needed when the question spans their evidence.
+4. Verify applicability against current AST implementation/tests and Knowledge contract. Use the returned record IDs and relative paths in the current task's conclusion; never persist the host's project_dir. If the finding changes the planned behavior, apply the revision workflow below before that implementation.
+
+A later question about export ordering warrants another focused lookup if retained context cannot answer it. Repeating the same resolved totals question does not. Query at the moment knowledge is needed, not only at startup, handoff or formal planning.
+
 ## Scope changes and newly discovered work
 
 A new discovery is not permission to silently expand the implementation. Record what changed, evidence, affected requirement/task/check IDs and its effect on behavior, contracts, ordering or validation. Preserve completed evidence historically. If the request already authorizes the revised work, update it without a redundant approval request; ask only for genuinely unresolved user decisions or additional authorization.

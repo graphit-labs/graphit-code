@@ -48,7 +48,7 @@ type Context struct {
 // compaction, for subagents, or at another model boundary. Procedures belong in
 // the just-in-time skills; this text only preserves routing and precedence.
 func CoreInvariant() string {
-	return "Graphit invariant: reapply module routing before every new/resumed action. Read only the matching skill before first use; reuse it while present, reload after compaction if lost. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume from durable task state. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root."
+	return "Graphit invariant: reapply module routing before every new/resumed action. Read only the matching skill before first use; reuse it while present, reload after compaction if lost. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume durable task state; throughout work, new questions trigger needed enabled Memory/Task recall. Reuse sufficient context. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root."
 }
 
 func cursorLifecycleCompensation() string {
@@ -123,10 +123,10 @@ func protocolWithContext(context Context) string {
 		} else {
 			appendStep("The hook read the authoritative memory table. Treat the following as standing context; do not call `" + mandatoryTool + "` again:\n" + strings.TrimSpace(context.Mandatory))
 		}
-		appendStep("Before a material plan or unresolved prior decision, read `" + brand.SkillDirName("memory") + "`; query `" + search + "` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, and the decision topic. Read selected ids with `" + memorySource + "`. Reuse recalled context until scope changes or a gap remains.")
+		appendStep("Whenever a question about the system, rationale or learned behavior needs context, including during work, read `" + brand.SkillDirName("memory") + "`; query `" + search + "` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, and the decision topic. Read selected ids with `" + memorySource + "`. Reuse sufficient context; new questions can require recall in the same session and scope.")
 	}
 	if !context.TaskDisabled {
-		appendStep("Before project work, read `" + brand.SkillDirName("task") + "`; search `" + taskSearch + "` with `top_k: 5`, `ai_optimized: true`, focused on this request, or get an assigned id directly with `" + taskGet + "`. Read the chosen task, parent specification and relevant dependencies/precedents. Follow `next_cursor` only while a relevant gap remains. Reuse recalled context.")
+		appendStep("Before project work, read `" + brand.SkillDirName("task") + "`; search `" + taskSearch + "` with `top_k: 5`, `ai_optimized: true`, focused on this request, or get an assigned id directly with `" + taskGet + "`. Read the chosen task, parent specification and relevant dependencies/precedents. During work, new doubts also trigger focused search of prior investigations, decisions and evidence; do not wait for restart or a new plan. Follow `next_cursor` only while a relevant gap remains. Reuse recalled context.")
 		if strings.TrimSpace(context.Instructions) == "" {
 			appendStep("For multi-step work, persist specification, acceptance criteria, plan and dependency-ordered tasks before execution. Resume from recorded progress/evidence; revise affected tasks when scope changes. A single umbrella task is not an executable project plan.")
 		}

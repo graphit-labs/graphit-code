@@ -21,7 +21,7 @@ If local reference files are unavailable, use `graphit_module_skill` with `modul
 3. Reuse results; stop once sources answer the question. Follow `next_cursor` for unresolved coverage/exhaustive inventory only. A miss is not absence: refine once or use `graphit_wiki_browse` with relevant `doc_type`; `graphit_knowledge_list` is for an intended catalogue.
 4. Use `graphit_wiki_xrefs` with a shallow depth for unresolved provenance/relationships, or `graphit_wiki_log` for change history. Do not load either for every page.
 
-Reuse known Task context. For a missing prior-work decision/plan, read the Task skill, use one focused `graphit_task_search` and selected `graphit_task_get`; do not pair every lookup with history. If Task is unavailable, continue and state the resulting uncertainty.
+At any stage, new questions may need Memory facts/lessons or Task investigations/decisions/results. Reuse sufficient context; read its skill and retrieve the missing topic. For Task, known ID → `graphit_task_get`; otherwise `graphit_task_search` → selected records. Check history against current docs/code; do not query both stores mechanically. State gaps if a needed source is unavailable.
 
 ## Design and write maintained documentation
 

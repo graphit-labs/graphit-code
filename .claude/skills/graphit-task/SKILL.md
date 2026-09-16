@@ -1,6 +1,6 @@
 ---
 name: graphit-task
-description: Plan and execute project work with specifications, dependency-ordered tasks, acceptance evidence and resumable handoffs; use for features, fixes, analysis and backlog changes.
+description: 'Task: plan and execute project work; retrieve prior specifications, investigations, decisions and validation evidence whenever questions arise.'
 ---
 
 # Graphit Task
@@ -9,16 +9,16 @@ description: Plan and execute project work with specifications, dependency-order
 
 Task owns project specifications, plans, backlog, checks and lifecycle, including analysis without file changes. Native plans/documents may supplement Task records. Use available MCP tools; never edit tables or substitute the CLI.
 
-## Recover context once
+## Retrieve work and prior knowledge
 
-Read a known task with `graphit_task_get`; otherwise run one focused `graphit_task_search` for the request before creating work. Use `graphit_task_list` with `ready: true` for available work or `parent_id` for direct children. Read selected records and prerequisite results; resume matching work. Reuse history until scope changes or a gap remains, not after every Knowledge query.
+Read a known task with `graphit_task_get`; otherwise run one focused `graphit_task_search` for the request before creating work. Use `graphit_task_list` with `ready: true` for available work or `parent_id` for direct children. Read selected records/results; resume matching work. Throughout questions, exploration, coding, debugging and review, search prior investigations/decisions/results when a new doubt exceeds retained context. Do not wait for session start/resume or a blocker; reuse sufficient evidence.
 Pass `ai_optimized: true` where supported. Search discovers; `get`/filtered `list` establish state. Start with small `top_k`/`page_size`; follow `next_cursor` while context is missing or completeness required. Cursors retain the query and total `top_k` cap; raising that cap requires a new search. Avoid whole-backlog reads/exports for one question.
 
 ## Define work before implementation
 
 Start a claimed investigation/planning unit with the known request, scope and expected evidence. Investigate current behavior with AST, documented intent with Knowledge, and relevant decisions/history before deciding the complete delivery map. Resolve material questions first; keep unknowns as explicit refinement prerequisites, not invented defaults. The initial investigation task is not permission to execute a whole project as one task.
-Before creating or materially revising a multi-outcome specification/plan, read [references/planning.md](references/planning.md). Before saving the first such backlog, read [references/worked-feature.md](references/worked-feature.md): it demonstrates a complete specification, grounded plan, every executable leaf, contracts, fixtures, coverage and lawful claim sequence. Reuse these references while retained; do not load them for unrelated reads.
-For a whole system or multiple capabilities, also read [references/worked-system.md](references/worked-system.md) before saving its backlog: it demonstrates umbrella -> deliveries -> executable subtasks, discovery changing the map, cross-delivery contracts and final system acceptance.
+Before creating or materially revising a multi-outcome specification/plan, read [references/planning.md](references/planning.md). Before saving the first such backlog, read [references/worked-feature.md](references/worked-feature.md): it fills specification, plan, every leaf, contracts, fixtures, coverage and claim sequence. Reuse these references while retained; do not load them for unrelated reads.
+For a whole system or multiple capabilities, also read [references/worked-system.md](references/worked-system.md) before saving its backlog: it fills umbrella -> deliveries -> subtasks, discovery, shared contracts and system acceptance.
 Persist specification -> technical plan -> task/subtask graph -> readiness review before implementation or delegating implementation. Record journeys/priorities, measurable requirements, data/error/boundary contracts, decisions and unknowns. Determine the actual delivery units, prerequisites and compatible parallel work from that evidence; give EACH unit a complete description, acceptance_criteria and tests before its implementation begins. A large prompt needs a delivery hierarchy, not one generic task. A small single-outcome fix can keep all stages in one packet.
 Read back saved records. Map every requirement to returned task and check IDs, including integration and documentation evidence. Check omissions, contradictory contracts, stale context, unjustified tasks, unavailable validation and hierarchy/dependency deadlocks. Each leaf must let another agent act and verify using named records, without guessing intent. Planning checks verify the saved plan, never product behavior. Complete planning separately; leave future deliveries open and unclaimed. Planning authorization does not authorize implementation.
 Before implementing/resuming a leaf, reviewing completion or handing off, read [references/execution.md](references/execution.md). For a small fix, its filled one-task example is sufficient; do not load the full feature example just to repair one outcome. On discovery that changes scope, update affected descriptions/contracts, coverage, checks and ordering before affected implementation; preserve completed evidence and pending reconciliation explicitly.
@@ -27,7 +27,7 @@ Languages, frameworks, paths, symbols and commands in examples are illustrative.
 
 ## Use the framework at the decision boundary
 
-Read needed skills before first use; reuse retained instructions: Knowledge for requirements/architecture; AST for definitions, callers, tests and source before deciding impact; Hub for unfamiliar ecosystem projects/artifacts; Memory for durable constraints/decisions. Known absolute path → `project_dir`; otherwise local cluster before Hub catalog. For Hub-only projects, the Hub skill routes announcing/installing needed Knowledge/AST then module queries; the question authorizes preparation. Only without a local checkout, omit `project_dir` and use resolved installed `id@version`. Public technology (e.g. React) needs no Hub lookup; use known knowledge/official docs, verifying current details. Task history fills prior-work gaps. Persist evidence changing the plan; reuse results across subtasks.
+Read needed skills before first use; reuse retained instructions: Knowledge for requirements/architecture; AST for definitions, callers, tests and source before deciding impact; Hub for unfamiliar ecosystem projects/artifacts; Memory for durable constraints/decisions. Known absolute path → `project_dir`; otherwise local cluster before Hub catalog. For Hub-only projects, the Hub skill routes announcing/installing needed Knowledge/AST then module queries; the question authorizes preparation. Only without a local checkout, omit `project_dir` and use resolved installed `id@version`. Public technology (e.g. React) needs no Hub lookup; use known knowledge/official docs, verifying current details. History explains prior work; verify current behavior with AST/Knowledge. Persist plan-changing evidence.
 
 ## Create and revise safely
 
