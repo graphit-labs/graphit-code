@@ -139,8 +139,19 @@ issuer/audience/JWKS and uses
 that request identity for all broker calls. Direct OIDC may use relay or configured RFC 8693
 exchange. It never substitutes the service profile's token for an inbound user.
 
-The Observatory UI has no built-in authentication. CORS does not authenticate non-browser clients.
-Keep both ports on loopback/private networking or place an authenticated reverse proxy in front.
+A remote client that has no token yet discovers where to get one. An unauthenticated call to the
+MCP endpoint returns `401` with a `WWW-Authenticate: Bearer` challenge pointing at this server's
+OAuth 2.0 protected resource metadata (RFC 9728), which names the Broker as the authorization
+server. The client then registers with the Broker and runs Authorization Code with PKCE on its
+own, with no `graphit login` on this container. The daemon advertises this only when the Broker
+lists this deployment's public URL among its accepted MCP resources and the request arrives at
+that host; a freshly started container, whose provider is still `local`, announces nothing.
+
+A browser-based MCP client additionally needs its origin declared in `mcp.allowed_origins`
+(`GRAPHIT_MCP_ALLOWED_ORIGINS`), which is empty by default and then emits no CORS headers at all.
+An agent whose runtime connects server-side does not need it. The Observatory UI has no built-in
+authentication. CORS does not authenticate non-browser clients. Keep both ports on
+loopback/private networking or place an authenticated reverse proxy in front.
 
 ## Multiple accounts
 

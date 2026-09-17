@@ -208,6 +208,10 @@ type VerifiedIdentity struct {
 	Username     string
 	Organization string
 	Teams        []string
+	// ExpiresAt is the verified token's own expiry. Verification already rejects an
+	// expired token, so this is not a second gate: it is what a bearer middleware needs
+	// to report the session's remaining lifetime without parsing the token again.
+	ExpiresAt time.Time
 }
 
 type ExchangedAccessToken struct {
@@ -217,19 +221,25 @@ type ExchangedAccessToken struct {
 
 // VerifyAccessToken validates a JWT access token against provider discovery/JWKS and maps only
 // claims from that verified token. It is used by Streamable HTTP MCP before request context exists.
-func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, raw, audience string) (VerifiedIdentity, error) {
+func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, raw string, audiences []string) (VerifiedIdentity, error) {
 	if provider.OIDC == nil {
 		return VerifiedIdentity{}, errors.New("provider is not OIDC")
 	}
-	if strings.TrimSpace(raw) == "" || strings.TrimSpace(audience) == "" {
-		return VerifiedIdentity{}, errors.New("access token and MCP audience are required")
+	accepted := make([]string, 0, len(audiences))
+	for _, audience := range audiences {
+		if trimmed := strings.TrimSpace(audience); trimmed != "" {
+			accepted = append(accepted, trimmed)
+		}
+	}
+	if strings.TrimSpace(raw) == "" || len(accepted) == 0 {
+		return VerifiedIdentity{}, errors.New("access token and at least one accepted MCP audience are required")
 	}
 	discovery, err := c.Discovery(ctx, provider.OIDC.Issuer)
 	if err != nil {
 		return VerifiedIdentity{}, err
 	}
 	requireAudience := provider.Type != ProviderOIDC || provider.Broker != nil || provider.OIDC.RequireMCPAudience()
-	claims, err := c.verifySignedToken(ctx, discovery, audience, raw, "", "access token", requireAudience)
+	claims, err := c.verifySignedToken(ctx, discovery, accepted, raw, "", "access token", requireAudience)
 	if err != nil {
 		return VerifiedIdentity{}, fmt.Errorf("verify access token: %w", err)
 	}
@@ -245,16 +255,14 @@ func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, r
 			return VerifiedIdentity{}, errors.New("audience-free MCP token has an invalid client_id")
 		}
 	}
-	if provider.Type == ProviderBroker {
-		clientID, err := stringClaim(claims, "client_id", true)
-		if err != nil || clientID != provider.OIDC.ClientID {
-			return VerifiedIdentity{}, errors.New("verified broker access token has an invalid client_id")
-		}
-		scope, err := stringClaim(claims, "scope", true)
-		if err != nil || !contains(strings.Fields(scope), "graphit.use") {
-			return VerifiedIdentity{}, errors.New("verified broker access token is missing graphit.use scope")
-		}
-	}
+	// No product-specific scope is required here. What makes a token usable at this endpoint
+	// is that it was issued for it, which the audience check above establishes per RFC 8707.
+	// Requiring a scope on top of that would narrow which identity providers can serve the
+	// endpoint without adding a guarantee the audience does not already give.
+	//
+	// The client identifier is likewise not pinned to the one a broker advertises for the
+	// CLI: an MCP client registers with the authorization server for itself, so the server is
+	// what attests which clients exist.
 	username, err := stringClaim(claims, provider.OIDC.UsernameClaim, true)
 	if err != nil {
 		return VerifiedIdentity{}, err
@@ -272,7 +280,11 @@ func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, r
 	if subject == "" {
 		return VerifiedIdentity{}, errors.New("verified access token has no subject")
 	}
-	return VerifiedIdentity{Issuer: issuer, Subject: subject, Username: username, Organization: organization, Teams: teams}, nil
+	var expiresAt time.Time
+	if exp, ok := numberClaim(claims["exp"]); ok {
+		expiresAt = time.Unix(exp, 0)
+	}
+	return VerifiedIdentity{Issuer: issuer, Subject: subject, Username: username, Organization: organization, Teams: teams, ExpiresAt: expiresAt}, nil
 }
 
 // ExchangeAccessToken performs OAuth 2.0 Token Exchange (RFC 8693) for a broker-scoped token.
@@ -362,7 +374,7 @@ func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, di
 	if token.AccessToken == "" || token.IDToken == "" {
 		return Profile{}, errors.New("OIDC token response must include access_token and id_token")
 	}
-	claims, err := c.verifySignedToken(ctx, discovery, provider.OIDC.ClientID, token.IDToken, nonce, "ID token", true)
+	claims, err := c.verifySignedToken(ctx, discovery, []string{provider.OIDC.ClientID}, token.IDToken, nonce, "ID token", true)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -422,7 +434,7 @@ type jwkSet struct {
 }
 type jwk struct{ Kty, Kid, Alg, Use, N, E, Crv, X, Y string }
 
-func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscovery, clientID, raw, nonce, kind string, requireAudience bool) (map[string]any, error) {
+func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscovery, acceptedAudiences []string, raw, nonce, kind string, requireAudience bool) (map[string]any, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid %s format", kind)
@@ -470,7 +482,7 @@ func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscov
 		return nil, fmt.Errorf("%s issuer does not match provider", kind)
 	}
 	_, hasAudience := claims["aud"]
-	if (requireAudience || hasAudience) && !audienceContains(claims["aud"], clientID) {
+	if (requireAudience || hasAudience) && !audienceContainsAny(claims["aud"], acceptedAudiences) {
 		return nil, fmt.Errorf("%s audience does not include the required audience", kind)
 	}
 	exp, ok := numberClaim(claims["exp"])
@@ -644,13 +656,25 @@ func numberClaim(v any) (int64, bool) {
 	}
 	return 0, false
 }
-func audienceContains(v any, want string) bool {
+
+// audienceContainsAny reports whether the token's aud claim names any accepted audience.
+// A token may legitimately carry several audiences: RFC 8707 adds the requested resource
+// alongside whatever deployment-wide audience the authorization server mints.
+func audienceContainsAny(v any, accepted []string) bool {
+	match := func(candidate string) bool {
+		for _, want := range accepted {
+			if candidate == want {
+				return true
+			}
+		}
+		return false
+	}
 	switch a := v.(type) {
 	case string:
-		return a == want
+		return match(a)
 	case []any:
-		for _, v := range a {
-			if s, ok := v.(string); ok && s == want {
+		for _, value := range a {
+			if s, ok := value.(string); ok && match(s) {
 				return true
 			}
 		}

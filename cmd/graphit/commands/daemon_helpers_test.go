@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -39,11 +40,13 @@ func TestDaemonHelpDocumentsWatchConfiguration(t *testing.T) {
 }
 
 func TestDaemonMCPMuxHealthAndMCPRoutes(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+
 	mcpCalled := false
 	handler := newDaemonMCPMux(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		mcpCalled = true
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	}), daemonMCPMuxOptions{RuntimeKey: "runtime-key"})
 
 	healthRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(healthRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
@@ -57,8 +60,19 @@ func TestDaemonMCPMuxHealthAndMCPRoutes(t *testing.T) {
 		t.Fatal("health request reached MCP handler")
 	}
 
+	unauthorized := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated MCP status = %d; want %d", unauthorized.Code, http.StatusUnauthorized)
+	}
+	if mcpCalled {
+		t.Fatal("unauthenticated request reached MCP handler")
+	}
+
+	mcpRequest := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	mcpRequest.Header.Set("Authorization", "Bearer runtime-key")
 	mcpRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(mcpRecorder, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+	handler.ServeHTTP(mcpRecorder, mcpRequest)
 	if mcpRecorder.Code != http.StatusNoContent || !mcpCalled {
 		t.Fatalf("MCP route status = %d, called = %v; want 204 and delegation", mcpRecorder.Code, mcpCalled)
 	}
@@ -197,10 +211,10 @@ func TestResolveDaemonMCPAPIKey(t *testing.T) {
 	})
 }
 
-type daemonVerifierFunc func(context.Context, auth.Provider, string, string) (auth.VerifiedIdentity, error)
+type daemonVerifierFunc func(context.Context, auth.Provider, string, []string) (auth.VerifiedIdentity, error)
 
-func (f daemonVerifierFunc) VerifyAccessToken(ctx context.Context, provider auth.Provider, token, audience string) (auth.VerifiedIdentity, error) {
-	return f(ctx, provider, token, audience)
+func (f daemonVerifierFunc) VerifyAccessToken(ctx context.Context, provider auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
+	return f(ctx, provider, token, audiences)
 }
 
 func TestDaemonBearerAcceptsRuntimeAndVerifiedOIDCAccessTokens(t *testing.T) {
@@ -216,16 +230,16 @@ func TestDaemonBearerAcceptsRuntimeAndVerifiedOIDCAccessTokens(t *testing.T) {
 	if err := store.Login(auth.Profile{Name: "alice", Provider: "oidc", Issuer: "https://issuer.example", Subject: "subject", Username: "alice", OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
-	verifier := daemonVerifierFunc(func(_ context.Context, _ auth.Provider, token, audience string) (auth.VerifiedIdentity, error) {
-		if token != "user-token" || audience != "graphit-mcp" {
+	verifier := daemonVerifierFunc(func(_ context.Context, _ auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
+		if token != "user-token" || !slices.Contains(audiences, "graphit-mcp") {
 			return auth.VerifiedIdentity{}, errors.New("invalid token")
 		}
 		return auth.VerifiedIdentity{Issuer: "https://issuer.example", Subject: "other-subject", Username: "bob", Teams: []string{"platform"}}, nil
 	})
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier); !allowed {
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier, nil); !allowed {
 		t.Fatal("runtime key rejected")
 	}
-	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "user-token", "runtime-key", verifier)
+	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "user-token", "runtime-key", verifier, nil)
 	if !allowed || auth.RequestBrokerBearer(requestContext) != "user-token" {
 		t.Fatalf("verified OIDC bearer was not bound to request: allowed=%v token=%q", allowed, auth.RequestBrokerBearer(requestContext))
 	}
@@ -233,7 +247,7 @@ func TestDaemonBearerAcceptsRuntimeAndVerifiedOIDCAccessTokens(t *testing.T) {
 	if err != nil || subject.UserID != "bob" || len(subject.TeamIDs) != 1 || subject.TeamIDs[0] != "platform" {
 		t.Fatalf("trusted subject=%#v err=%v", subject, err)
 	}
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier); allowed {
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier, nil); allowed {
 		t.Fatal("wrong token accepted")
 	}
 }
@@ -261,16 +275,16 @@ func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	verifier := daemonVerifierFunc(func(_ context.Context, gotProvider auth.Provider, token, audience string) (auth.VerifiedIdentity, error) {
-		if gotProvider.Type != auth.ProviderBroker || token != "broker-token" || audience != "" {
+	verifier := daemonVerifierFunc(func(_ context.Context, gotProvider auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
+		if gotProvider.Type != auth.ProviderBroker || token != "broker-token" {
 			return auth.VerifiedIdentity{}, errors.New("invalid token")
 		}
 		return auth.VerifiedIdentity{Issuer: "https://broker.example", Subject: "caller", Username: "bob", Teams: []string{"platform"}}, nil
 	})
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier); !allowed {
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier, nil); !allowed {
 		t.Fatal("runtime key rejected")
 	}
-	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "broker-token", "runtime-key", verifier)
+	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "broker-token", "runtime-key", verifier, nil)
 	if !allowed || auth.RequestBrokerBearer(requestContext) != "broker-token" {
 		t.Fatalf("verified Broker bearer was not bound: allowed=%v token=%q", allowed, auth.RequestBrokerBearer(requestContext))
 	}
@@ -278,7 +292,7 @@ func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	if err != nil || subject.UserID != "bob" || len(subject.TeamIDs) != 1 || subject.TeamIDs[0] != "platform" {
 		t.Fatalf("trusted subject=%#v err=%v", subject, err)
 	}
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier); allowed {
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier, nil); allowed {
 		t.Fatal("invalid Broker token accepted")
 	}
 }
@@ -321,8 +335,8 @@ func TestConcurrentOIDCMCPRequestsKeepTheirBearerThroughBrokerResolution(t *test
 	if err := store.Login(auth.Profile{Name: "daemon", Provider: provider.Name, Issuer: "https://issuer.example", Subject: "daemon-subject", Username: "daemon", OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "synthetic-id-token", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
-	verifier := daemonVerifierFunc(func(_ context.Context, _ auth.Provider, token, audience string) (auth.VerifiedIdentity, error) {
-		if audience != "graphit-services" || (token != "alice-token" && token != "bob-token") {
+	verifier := daemonVerifierFunc(func(_ context.Context, _ auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
+		if !slices.Contains(audiences, "graphit-services") || (token != "alice-token" && token != "bob-token") {
 			return auth.VerifiedIdentity{}, errors.New("invalid synthetic token")
 		}
 		return auth.VerifiedIdentity{Issuer: "issuer", Subject: token, Username: strings.TrimSuffix(token, "-token")}, nil
@@ -338,7 +352,7 @@ func TestConcurrentOIDCMCPRequestsKeepTheirBearerThroughBrokerResolution(t *test
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, allowed := daemonBearerContextWithVerifier(context.Background(), token, "runtime-key", verifier)
+			ctx, allowed := daemonBearerContextWithVerifier(context.Background(), token, "runtime-key", verifier, nil)
 			if !allowed {
 				t.Errorf("%s was rejected by MCP authentication", token)
 				return

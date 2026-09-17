@@ -24,6 +24,14 @@ type BrokerDiscovery struct {
 		RedirectURIPath     string   `json:"redirect_uri_path"`
 		Audiences           []string `json:"audiences"`
 		AccessTokenAudience string   `json:"access_token_audience"`
+		// MCPResources lists the canonical URIs of the Graphit MCP endpoints this
+		// deployment's operator authorized as RFC 8707 resource indicators. The broker
+		// owns it because a broker provider carries no local OIDC configuration at all:
+		// a daemon learns which resource it is by finding itself in this list, and a URI
+		// that is absent from it is simply not a resource of this broker. Older brokers
+		// omit the field; that is a valid state, not an error, and it means the daemon
+		// advertises nothing.
+		MCPResources []string `json:"mcp_resources"`
 	} `json:"authentication"`
 	Services struct {
 		Embeddings *struct {

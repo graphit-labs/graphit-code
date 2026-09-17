@@ -227,14 +227,10 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			return mcpstdio.NewServer()
 		}, nil)
 
-		authHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			requestContext, authorized := daemonBearerContext(r.Context(), bearer, apiKey)
-			if bearer == "" || !authorized {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			mcpHandler.ServeHTTP(w, r.WithContext(requestContext))
+		mcpMux := newDaemonMCPMux(mcpHandler, daemonMCPMuxOptions{
+			RuntimeKey:     apiKey,
+			Resolver:       auth.NewProtectedResourceResolver(),
+			AllowedOrigins: config.ResolveMCPAllowedOrigins(nil, nil),
 		})
 
 		mcpHost := config.ResolveMCPHost(nil, nil)
@@ -302,7 +298,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 
 		close(mcpReady)
 
-		httpServer := &http.Server{Handler: newDaemonMCPMux(authHandler)}
+		httpServer := &http.Server{Handler: mcpMux}
 		_ = httpServer.Serve(listener)
 	}()
 
@@ -371,9 +367,35 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	})
 }
 
-func newDaemonMCPMux(mcpHandler http.Handler) http.Handler {
+// daemonMCPMuxOptions carries what the MCP listener needs beyond the protocol handler:
+// how to authenticate a caller, what to advertise to one that cannot yet authenticate,
+// and which browser origins may reach it.
+type daemonMCPMuxOptions struct {
+	RuntimeKey     string
+	Resolver       *auth.ProtectedResourceResolver
+	Verifier       daemonAccessTokenVerifier
+	AllowedOrigins []string
+}
+
+func newDaemonMCPMux(mcpHandler http.Handler, opts daemonMCPMuxOptions) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpHandler)
+	corsPolicy := newMCPCORS(opts.AllowedOrigins)
+
+	mux.Handle("/mcp", corsPolicy(&mcpBearerHandler{
+		next:       mcpHandler,
+		runtimeKey: opts.RuntimeKey,
+		resolver:   opts.Resolver,
+		verifier:   opts.Verifier,
+	}))
+
+	// RFC 9728 locates metadata under the well-known prefix, optionally suffixed with the
+	// resource's own path. Clients disagree on which one they request, so both answer.
+	metadata := mcpMetadataHandler(opts.Resolver)
+	mux.Handle("/.well-known/oauth-protected-resource", metadata)
+	mux.Handle("/.well-known/oauth-protected-resource/", metadata)
+
+	// Health stays unauthenticated: the container image's health check calls it, and it
+	// reveals nothing beyond the process being up.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -385,15 +407,18 @@ func resolveDaemonMCPAPIKey() (string, error) {
 	return mcpproxy.GenerateAPIKey()
 }
 
-func daemonBearerContext(ctx context.Context, bearer, runtimeKey string) (context.Context, bool) {
-	return daemonBearerContextWithVerifier(ctx, bearer, runtimeKey, auth.NewProviderAccessTokenVerifier())
+func daemonBearerContext(ctx context.Context, bearer, runtimeKey string, audiences []string) (context.Context, bool) {
+	return daemonBearerContextWithVerifier(ctx, bearer, runtimeKey, auth.NewProviderAccessTokenVerifier(), audiences)
 }
 
 type daemonAccessTokenVerifier interface {
-	VerifyAccessToken(context.Context, auth.Provider, string, string) (auth.VerifiedIdentity, error)
+	VerifyAccessToken(context.Context, auth.Provider, string, []string) (auth.VerifiedIdentity, error)
 }
 
-func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey string, verifier daemonAccessTokenVerifier) (context.Context, bool) {
+// acceptedAudiences carries the `aud` values this endpoint publishes as its own, resolved from
+// whatever the active provider advertises. It is additive: each provider type still contributes
+// the audience its own configuration defines.
+func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey string, verifier daemonAccessTokenVerifier, acceptedAudiences []string) (context.Context, bool) {
 	if secretEqual(bearer, runtimeKey) {
 		return ctx, true
 	}
@@ -414,11 +439,13 @@ func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey str
 	if snapshot.Provider.Type != auth.ProviderOIDC && snapshot.Provider.Type != auth.ProviderBroker {
 		return ctx, false
 	}
-	audience := ""
+	audiences := append([]string(nil), acceptedAudiences...)
 	if snapshot.Provider.OIDC != nil {
-		audience = snapshot.Provider.OIDC.MCPAudience
+		// A direct OIDC provider names its own audience; the resource it publishes arrives
+		// through acceptedAudiences.
+		audiences = append(audiences, snapshot.Provider.OIDC.MCPAudience)
 	}
-	identity, err := verifier.VerifyAccessToken(ctx, snapshot.Provider, bearer, audience)
+	identity, err := verifier.VerifyAccessToken(ctx, snapshot.Provider, bearer, audiences)
 	if err != nil {
 		return ctx, false
 	}

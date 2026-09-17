@@ -36,8 +36,11 @@ func BrokerOIDCProvider(ctx context.Context, provider Provider, client *http.Cli
 	if authentication.RedirectURIPath == "" || !strings.HasPrefix(authentication.RedirectURIPath, "/") || strings.ContainsAny(authentication.RedirectURIPath, "?#") {
 		return Provider{}, errors.New("broker advertises an invalid OIDC redirect path")
 	}
-	if !contains(authentication.Scopes, "openid") || !contains(authentication.Scopes, "graphit.use") {
-		return Provider{}, errors.New("broker OIDC scopes must include openid and graphit.use")
+	// Only openid is required, because OIDC Core requires it of any OpenID Provider. Graphit
+	// asks for no product-specific scope: a token's right to reach this endpoint comes from
+	// its audience, not from a scope name a given authorization server may not offer.
+	if !contains(authentication.Scopes, "openid") {
+		return Provider{}, errors.New("broker OIDC scopes must include openid")
 	}
 	if strings.TrimSpace(authentication.AccessTokenAudience) == "" || !contains(authentication.Audiences, authentication.AccessTokenAudience) {
 		return Provider{}, errors.New("broker OIDC access token audience is missing or inconsistent with advertised audiences")
@@ -81,20 +84,23 @@ func NewProviderAccessTokenVerifier() *ProviderAccessTokenVerifier {
 	return &ProviderAccessTokenVerifier{OIDC: NewOIDCClient()}
 }
 
-func (v *ProviderAccessTokenVerifier) VerifyAccessToken(ctx context.Context, provider Provider, raw, audience string) (VerifiedIdentity, error) {
+func (v *ProviderAccessTokenVerifier) VerifyAccessToken(ctx context.Context, provider Provider, raw string, audiences []string) (VerifiedIdentity, error) {
 	client := v.OIDC
 	if client == nil {
 		client = NewOIDCClient()
 	}
 	switch provider.Type {
 	case ProviderOIDC:
-		return client.VerifyAccessToken(ctx, provider, raw, audience)
+		return client.VerifyAccessToken(ctx, provider, raw, audiences)
 	case ProviderBroker:
 		resolved, err := BrokerOIDCProvider(ctx, provider, client.client())
 		if err != nil {
 			return VerifiedIdentity{}, err
 		}
-		identity, err := client.VerifyAccessToken(ctx, resolved, raw, resolved.OIDC.MCPAudience)
+		// The broker's own audience is always acceptable; the caller adds any resource the
+		// broker advertises for this endpoint.
+		accepted := append([]string{resolved.OIDC.MCPAudience}, audiences...)
+		identity, err := client.VerifyAccessToken(ctx, resolved, raw, accepted)
 		if err != nil {
 			return VerifiedIdentity{}, err
 		}

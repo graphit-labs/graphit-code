@@ -29,7 +29,13 @@ func ResolveUIPort(inlineCfg, projectCfg ConfigMap) int {
 }
 
 func ResolveUIAllowedOrigins(inlineCfg, projectCfg ConfigMap) []string {
-	raw := ResolveConfig("ui.allowed_origins", inlineCfg, projectCfg)
+	return splitAllowedOrigins(ResolveConfig("ui.allowed_origins", inlineCfg, projectCfg))
+}
+
+// splitAllowedOrigins parses the comma-separated origin list shared by every listener that
+// accepts one, so ui.allowed_origins and mcp.allowed_origins cannot drift in how they read
+// the same kind of value.
+func splitAllowedOrigins(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}

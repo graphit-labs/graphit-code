@@ -175,7 +175,7 @@ graphit provider add corporate --type oidc \
   --client-id graphit-cli \
   --token-auth-method none \
   --redirect-uri http://127.0.0.1:8765/callback \
-  --scopes openid,profile,offline_access,graphit.use \
+  --scopes openid,profile,offline_access \
   --username-claim preferred_username \
   --organization-claim organization.id \
   --teams-claim groups \
@@ -231,7 +231,7 @@ graphit account use alice-corporate
 Updating a provider increments its revision and invalidates dependent sessions:
 
 ```bash
-graphit provider update corporate --scopes openid,profile,offline_access,graphit.use
+graphit provider update corporate --scopes openid,profile,offline_access
 graphit login --profile alice-corporate --provider corporate
 ```
 
@@ -264,6 +264,37 @@ caller. This keeps concurrent users isolated.
 By default, direct OIDC access tokens must contain the configured MCP audience in `aud`;
 `client_id` identifies the OAuth client, not the target API. With Cognito Managed login, request a
 resource-bound access token for the MCP resource so Cognito includes that audience.
+
+A client that arrives with no token is told where to get one, the same way it is with a
+Broker-managed provider. An unauthenticated MCP request answers `401` with a
+`WWW-Authenticate: Bearer` challenge carrying `resource_metadata`, and that URL serves an OAuth
+2.0 protected resource metadata document (RFC 9728):
+
+```bash
+curl -i -X POST https://graphit.example/mcp
+# 401, WWW-Authenticate: Bearer resource_metadata="https://graphit.example/.well-known/oauth-protected-resource/mcp"
+
+curl https://graphit.example/.well-known/oauth-protected-resource/mcp
+# {"resource":"https://graphit.example/mcp",
+#  "authorization_servers":["https://id.example.com"],
+#  "scopes_supported":["openid","profile","email"]}
+```
+
+Those values come from this provider's own configuration — `oidc.issuer`, `oidc.scopes` and
+`oidc.mcp_resource` — because an operator set them on this daemon rather than discovering them.
+Both `oidc.mcp_resource` and `oidc.mcp_audience` are accepted in `aud`, so a client that follows
+RFC 8707 and asks for the resource is as valid as one that receives the configured audience.
+Configure `oidc.mcp_resource` to advertise anything at all: without it the endpoint has no
+canonical identifier to publish, so it answers `404` on the metadata path and omits the
+`WWW-Authenticate` header entirely, while bearer authentication keeps working for callers that
+already hold a token.
+
+The difference from a Broker-managed provider is what happens next. The Broker can register a
+client on demand, so a hosted agent completes the whole journey unattended. Whether a direct IdP
+offers that depends on the IdP: if its discovery document advertises a `registration_endpoint`
+(RFC 7591), the agent can register itself there; otherwise register the client by hand as in
+step 1 and configure the agent with that `client_id`. Graphit advertises the authorization server
+either way — what the IdP then allows is the IdP's decision, not Graphit's.
 
 For an OIDC provider such as Cognito Hosted UI classic that cannot issue a resource-bound access
 token, an explicit compatibility setting accepts a signed, unexpired access token with no `aud`
@@ -352,18 +383,24 @@ created on an empty database with the broker's `--bootstrap-admin` command.
 
 For a first-class `broker` provider, Graphit validates both discovery layers before opening the
 browser. The Graphit-specific document must advertise `type: openid_connect`, the exact Broker
-issuer, a public client ID, scopes containing `openid` and `graphit.use`, and an absolute loopback
-callback path, plus a non-empty `access_token_audience` contained in its advertised audiences.
+issuer, a public client ID, scopes containing `openid`, and an absolute loopback callback path,
+plus a non-empty `access_token_audience` contained in its advertised audiences. Only `openid` is
+required of the advertised scopes, because OIDC Core requires it of any provider; Graphit demands
+no product-specific scope.
 Standard discovery must advertise Authorization Code and refresh grants, PKCE `S256`, token
 authentication method `none`, and EdDSA ID-token signing. The authorization, token, and JWKS URLs
 must remain on the configured Broker origin. A
 cross-origin endpoint, mismatched issuer, missing capability, invalid callback path, or downgraded
 algorithm is rejected before login.
 
-The daemon validates Broker access JWTs offline. It checks signature, issuer, the discovered
-audience, expiry, Broker client ID, `graphit.use`, subject, username and optional identity claims.
-It does not call userinfo for each MCP request, so an already issued token remains valid there until
-`exp` even if it is revoked at the Broker in the meantime.
+The daemon checks a Broker access JWT's signature, issuer, the discovered audience, expiry,
+subject, username and optional identity claims, and then revalidates the exact bearer against the
+Broker's userinfo endpoint. That last step is what carries revocation through: a token revoked at
+the Broker is refused on the next MCP request rather than surviving until `exp`. It costs one
+request to the Broker per MCP call, which is the deliberate trade for timely revocation.
+
+A direct OIDC provider is verified offline instead, with no userinfo call, so revocation at that
+IdP does not reach MCP before `exp`.
 
 ## 7. Configure Broker STS issuance
 
@@ -459,6 +496,8 @@ falls back to a prompt.
 | Invalid client | Wrong public/confidential mode | Match `none`, `client_secret_post`, or `client_secret_basic` |
 | Signature/JWKS failure | Wrong issuer, key, algorithm, or stale metadata | Verify discovery/JWKS and supported RS/ES algorithm |
 | Audience failure | Token minted for another client/API | Align shared audiences for relay, or verify MCP subject and broker target audiences for exchange |
+| MCP `401` has no `WWW-Authenticate` header and the metadata path returns `404` | No `oidc.mcp_resource` is configured, so this endpoint has no canonical identifier to advertise | Set `--mcp-resource` to the MCP endpoint's public URL; bearer authentication keeps working meanwhile for callers that already hold a token |
+| Client cannot register itself at the advertised authorization server | The IdP does not offer RFC 7591 dynamic registration, or does not offer it to unauthenticated callers | Register the client by hand as in step 1 and configure the agent with that `client_id`; Graphit advertises the authorization server either way |
 | Token exchange failure | IdP/tenant/client does not permit RFC 8693, or target is wrong | Verify endpoint, client auth, grant permission, audience/resource and consent; no relay fallback occurs |
 | Username/teams missing | Claim not in ID token or wrong path | Add an ID-token mapper and update claim flags |
 | Refresh fails | No offline access, consent, or refresh token revoked | Enable refresh grant and log in again |

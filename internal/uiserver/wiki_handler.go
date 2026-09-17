@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/netutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -483,16 +484,10 @@ func corsJSON(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// isAllowedOrigin defers to the project's single origin rule, so ui.allowed_origins now
+// governs every UI surface instead of only the ones wired through internal/hub.
 func isAllowedOrigin(origin string) bool {
-	if origin == "" {
-		return true
-	}
-	return strings.HasPrefix(origin, "http://localhost:") ||
-		strings.HasPrefix(origin, "http://127.0.0.1:") ||
-		strings.HasPrefix(origin, "http://[::1]:") ||
-		origin == "http://localhost" ||
-		origin == "http://127.0.0.1" ||
-		origin == "http://[::1]"
+	return netutil.OriginAllowed(config.ResolveUIAllowedOrigins(nil, nil), origin)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

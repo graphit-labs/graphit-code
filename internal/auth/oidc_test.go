@@ -387,32 +387,32 @@ func TestVerifyAccessTokenValidatesAndMapsOnlySignedClaims(t *testing.T) {
 		"exp": now.Add(time.Hour).Unix(), "nbf": now.Add(-time.Minute).Unix(),
 		"preferred_username": "alice", "org": "acme", "groups": []string{"platform", "security"},
 	})
-	identity, err := client.VerifyAccessToken(context.Background(), provider, token, "graphit-mcp")
+	identity, err := client.VerifyAccessToken(context.Background(), provider, token, []string{"graphit-mcp"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if identity.Issuer != server.URL || identity.Subject != "subject-1" || identity.Username != "alice" || identity.Organization != "acme" || strings.Join(identity.Teams, ",") != "platform,security" {
 		t.Fatalf("identity=%#v", identity)
 	}
-	if _, err := client.VerifyAccessToken(context.Background(), provider, token, "other-api"); err == nil || !strings.Contains(err.Error(), "audience") {
+	if _, err := client.VerifyAccessToken(context.Background(), provider, token, []string{"other-api"}); err == nil || !strings.Contains(err.Error(), "audience") {
 		t.Fatalf("wrong audience was not rejected: %v", err)
 	}
 	clientOnly := signJWT(t, key, map[string]any{
 		"iss": server.URL, "sub": "subject-1", "client_id": "client", "token_use": "access",
 		"exp": now.Add(time.Hour).Unix(), "preferred_username": "alice",
 	})
-	if _, err := client.VerifyAccessToken(context.Background(), provider, clientOnly, "client"); err == nil || !strings.Contains(err.Error(), "audience") {
+	if _, err := client.VerifyAccessToken(context.Background(), provider, clientOnly, []string{"client"}); err == nil || !strings.Contains(err.Error(), "audience") {
 		t.Fatalf("client_id without an MCP audience was accepted: %v", err)
 	}
 	idToken := signJWT(t, key, map[string]any{
 		"iss": server.URL, "sub": "subject-1", "aud": "graphit-mcp", "token_use": "id",
 		"exp": now.Add(time.Hour).Unix(), "preferred_username": "alice",
 	})
-	if _, err := client.VerifyAccessToken(context.Background(), provider, idToken, "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "not an access token") {
+	if _, err := client.VerifyAccessToken(context.Background(), provider, idToken, []string{"graphit-mcp"}); err == nil || !strings.Contains(err.Error(), "not an access token") {
 		t.Fatalf("ID token was accepted as an MCP access token: %v", err)
 	}
 	future := signJWT(t, key, map[string]any{"iss": server.URL, "sub": "subject-1", "aud": "graphit-mcp", "exp": now.Add(time.Hour).Unix(), "nbf": now.Add(time.Minute).Unix(), "preferred_username": "alice"})
-	if _, err := client.VerifyAccessToken(context.Background(), provider, future, "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "not active") {
+	if _, err := client.VerifyAccessToken(context.Background(), provider, future, []string{"graphit-mcp"}); err == nil || !strings.Contains(err.Error(), "not active") {
 		t.Fatalf("future token was not rejected: %v", err)
 	}
 }
@@ -446,12 +446,12 @@ func TestOIDCMCPAudienceCompatibilityValidatesClientAndTokenType(t *testing.T) {
 	}
 	base := map[string]any{"iss": server.URL, "sub": "alice", "client_id": "mcp-client", "token_use": "access", "scope": "openid", "exp": now.Add(time.Hour).Unix()}
 	token := signJWT(t, key, base)
-	if _, err := client.VerifyAccessToken(context.Background(), provider, token, provider.OIDC.MCPAudience); err != nil {
+	if _, err := client.VerifyAccessToken(context.Background(), provider, token, []string{provider.OIDC.MCPAudience}); err != nil {
 		t.Fatalf("dedicated-scope token was rejected: %v", err)
 	}
 	strict := provider
 	strict.OIDC = &OIDCConfig{Issuer: server.URL, ClientID: "mcp-client", UsernameClaim: "sub", MCPAudience: provider.OIDC.MCPAudience}
-	if _, err := client.VerifyAccessToken(context.Background(), strict, token, strict.OIDC.MCPAudience); err == nil || !strings.Contains(err.Error(), "audience") {
+	if _, err := client.VerifyAccessToken(context.Background(), strict, token, []string{strict.OIDC.MCPAudience}); err == nil || !strings.Contains(err.Error(), "audience") {
 		t.Fatalf("default strict mode accepted audience-free token: %v", err)
 	}
 	for _, tc := range []struct {
@@ -467,7 +467,7 @@ func TestOIDCMCPAudienceCompatibilityValidatesClientAndTokenType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			claims := cloneClaims(base)
 			claims[tc.key] = tc.value
-			_, err := client.VerifyAccessToken(context.Background(), provider, signJWT(t, key, claims), provider.OIDC.MCPAudience)
+			_, err := client.VerifyAccessToken(context.Background(), provider, signJWT(t, key, claims), []string{provider.OIDC.MCPAudience})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("unexpected verification result: %v", err)
 			}

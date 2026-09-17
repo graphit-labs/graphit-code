@@ -112,6 +112,29 @@ Graphit exchanges that caller's token for temporary STS credentials when it acce
 Hub scope. Those S3 credentials remain in the daemon's process memory, isolated by caller and
 scope; they are never sent to the MCP client or saved in the login profile.
 
+A hosted agent obtains that token by itself, with nothing provisioned for it in advance and no
+`graphit login` on the machine running the daemon. Point the agent at the MCP URL and the standard
+discovery chain does the rest:
+
+1. Its first unauthenticated MCP request answers `401` with `WWW-Authenticate: Bearer` carrying
+   `resource_metadata`.
+2. That URL serves the OAuth 2.0 protected resource metadata (RFC 9728) naming the Broker as the
+   authorization server and this endpoint's canonical resource identifier.
+3. The Broker's `/.well-known/openid-configuration` names `registration_endpoint` when
+   `dynamic_registration` is enabled.
+4. The agent registers itself there (RFC 7591). The Broker only ever issues a **public** client, so
+   the response carries no `client_secret`.
+5. It then runs Authorization Code with PKCE S256, passing `resource` (RFC 8707) with the canonical
+   resource identifier it read in step 2. The person authenticates in the browser through whatever
+   the Broker is configured to use — an upstream IdP or a Broker local user; the MCP path is the
+   same either way, because the Broker is itself the OpenID Provider for this exchange.
+6. The resulting access token carries both the Broker audience and that resource in `aud`, and it
+   is accepted at the MCP endpoint.
+
+The client registered in step 4 lives in the Broker, not in any upstream IdP, and the token is
+signed by the Broker's own key. A client that skips `resource` — `graphit login` is one — receives
+only the Broker audience and is equally valid at the same endpoint.
+
 The saved profile's issuer is the Broker and its subject is the stable Broker `sub`, never the
 upstream IdP `sub`. Graphit verifies the signed ID token at login and validates signed Broker access
 JWTs locally through standard discovery/JWKS for HTTP MCP. Near expiry, it re-discovers the Broker,
@@ -119,6 +142,12 @@ uses the ordinary OIDC refresh grant, requires a new rotated refresh token, and 
 the saved `OIDCSession`. Reuse of an older refresh token is rejected by the Broker and revokes that
 token family. The daemon also checks userinfo for each inbound MCP access token, so a revoked token
 is rejected even before its JWT expiry.
+
+Explicit revocation follows the same path. Revoking a refresh token at the Broker ends the whole
+grant — that token, every access token minted from it, and any further renewal — so an MCP client
+holding one of those access tokens is refused on its next request. Revoking an access token ends
+only that token and leaves its refresh token working. Revoke the refresh token when someone's
+access has to stop.
 
 ## Local provider with a broker key
 
@@ -190,7 +219,7 @@ graphit provider add company --type oidc \
   --client-id graphit-cli \
   --token-auth-method none \
   --redirect-uri http://127.0.0.1:8765/callback \
-  --scopes openid,profile,offline_access,graphit.use \
+  --scopes openid,profile,offline_access \
   --username-claim preferred_username \
   --organization-claim organization.id \
   --teams-claim groups \
@@ -220,6 +249,24 @@ the configured claims before creating request context. Every broker call made by
 uses that request's bearer and identity—not the daemon's active account token and not a static
 credential. Concurrent users remain isolated. The broker validates the bearer independently and
 evaluates current SQL grants; Graphit-supplied identity fields never authorize the request.
+
+A token is accepted on the strength of its issuer, not on which client obtained it. Graphit does
+not require the `client_id` claim to match the client the Broker advertises for the CLI, because an
+MCP client registers with the Broker for itself and the Broker is what attests which clients exist.
+Everything else stays in force: EdDSA signature against the issuer's JWKS, `iss`, `exp`, `nbf`,
+`token_use`, an accepted audience, and revalidation against the Broker's userinfo endpoint with a
+matching `sub`.
+
+No product-specific scope is required either. A token's right to reach this endpoint comes from
+its audience, which the Broker binds per RFC 8707, so demanding a scope name on top would only
+narrow which authorization servers can serve the endpoint without adding a guarantee. Whatever
+scopes the Broker does advertise reach clients through the protected resource metadata document.
+
+The accepted audiences are the Broker's own `access_token_audience` and the canonical MCP resource
+the Broker advertises for this deployment, and nothing else. A client that follows RFC 8707 asks for
+that resource and receives it in `aud`; a client that asks for nothing receives the Broker audience.
+Both are legitimate for the same endpoint. With a direct OIDC provider the same rule applies to
+`oidc.mcp_audience` and `oidc.mcp_resource`.
 
 The caller owns renewal of an inbound MCP token. Refresh tokens in the active Graphit profile are
 used only for Graphit-initiated work; the daemon never swaps an expired inbound token for another
@@ -399,6 +446,13 @@ dependent profiles to log in again.
 | Broker login opens but callback fails | Check that the loopback listener path matches Broker discovery and that state/nonce were not changed by a proxy or browser extension. |
 | Broker refresh fails | Log in again; the Broker requires refresh rotation and rejects reuse of an older family member. |
 | 401 | Check access-token issuer/audience/expiry/scopes or static key. |
+| MCP answers 401 with no `WWW-Authenticate` challenge | The daemon has no authorization server to advertise. Confirm the active provider is the Broker one, that the Broker lists this deployment's URL in `mcp_resources`, and that the request arrives at that host. Bearer authentication keeps working for callers that already hold a token. |
+| dynamic registration returns 404 | The Broker has `dynamic_registration` disabled, so `/.well-known/openid-configuration` omits `registration_endpoint`. Enable it, or register the client by hand and configure the agent with that `client_id`. |
+| dynamic registration returns `invalid_client_metadata` | The request asked for something a registered client may not have. Registration requires `token_endpoint_auth_method: none`, grants within `authorization_code`/`refresh_token`, `response_types: ["code"]`, and scopes the Broker already supports. Each redirect URI must be absolute, with no fragment or embedded credentials, and either `https` on a non-loopback host or plain `http` on loopback — `https` on a loopback host is refused, as is `http` anywhere else. |
+| authorization returns `invalid_target` | The `resource` indicator is not in the Broker's `mcp_resources`, is relative, carries a fragment, or more than one was sent. It must be the exact canonical identifier from the protected resource metadata document. |
+| MCP rejects a token the Broker just issued | Compare `aud` against the accepted set: the Broker's `access_token_audience` and this deployment's canonical MCP resource. A token carrying neither is for some other resource. |
+| MCP rejects a token that worked a moment ago | The Broker's `access_ttl` is short, 10 minutes by default. Refresh instead of reusing, and check clock sync between the Broker and the daemon. |
+| browser MCP client blocked by CORS | Declare the agent's origin in `mcp.allowed_origins` (`GRAPHIT_MCP_ALLOWED_ORIGINS`), empty by default. The metadata document itself is readable by any origin; the configured policy applies to the MCP endpoint. |
 | 403 | Token is valid; inspect broker ACL principal/project/operation. |
 | token exchange fails | Verify IdP RFC 8693 support, token endpoint, client authentication, subject-token audience, requested broker audience/resource and consent; there is intentionally no relay fallback. |
 | MCP works but broker returns 401 | In relay mode, align accepted audiences; in exchange mode, verify that the broker accepts the exchanged audience. |

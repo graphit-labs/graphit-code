@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/netutil"
+
 	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -888,30 +890,11 @@ func CorsWrapWithAllowedOrigins(h http.Handler, allowedOrigins []string) http.Ha
 }
 
 func isAllowedOriginWithOverride(origin string, allowedOrigins []string) bool {
-	if origin == "" {
-		return true
-	}
-	if len(allowedOrigins) == 0 {
-		return isAllowedOrigin(origin)
-	}
-	for _, allowed := range allowedOrigins {
-		if allowed == "*" || origin == allowed {
-			return true
-		}
-	}
-	return false
+	return netutil.OriginAllowed(allowedOrigins, origin)
 }
 
 func isAllowedOrigin(origin string) bool {
-	if origin == "" {
-		return true
-	}
-	return strings.HasPrefix(origin, "http://localhost:") ||
-		strings.HasPrefix(origin, "http://127.0.0.1:") ||
-		strings.HasPrefix(origin, "http://[::1]:") ||
-		origin == "http://localhost" ||
-		origin == "http://127.0.0.1" ||
-		origin == "http://[::1]"
+	return netutil.OriginAllowed(nil, origin)
 }
 
 func writeJSONUI(w http.ResponseWriter, v any) {

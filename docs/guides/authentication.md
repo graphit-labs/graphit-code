@@ -147,7 +147,7 @@ graphit provider add corporate --type oidc \
   --client-id graphit-cli \
   --token-auth-method none \
   --redirect-uri http://127.0.0.1:8765/callback \
-  --scopes openid,profile,offline_access,graphit.use \
+  --scopes openid,profile,offline_access \
   --username-claim preferred_username \
   --organization-claim organization.id \
   --teams-claim groups \

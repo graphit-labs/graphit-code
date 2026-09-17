@@ -217,9 +217,10 @@ validation and noninteractive setup sequence.
 |---|---|---|
 | `ui.host` | `127.0.0.1` | Interface used by `graphit ui` and daemon-hosted UI. The UI has no built-in authentication. |
 | `ui.port` | `8080` | First UI port to bind. Invalid values fall back to `8080`; the environment name is `GRAPHIT_UI_PORT`. |
-| `ui.allowed_origins` | same-origin and loopback origins | Comma-separated exact CORS allowlist. A configured list replaces the loopback defaults; `*` allows any browser origin. |
+| `ui.allowed_origins` | plain-HTTP loopback origins | Comma-separated exact CORS allowlist covering **every** UI surface. A configured list replaces the loopback defaults; `*` allows any browser origin. |
 | `mcp.host` | `127.0.0.1` | Interface for the daemon's streamable HTTP MCP listener. |
 | `mcp.port` | `0` | Fixed port, or `0` for an OS-assigned port written to the daemon runtime directory. Invalid values fall back to `0`. |
+| `mcp.allowed_origins` | empty | Comma-separated exact CORS allowlist for the MCP endpoint; the environment name is `GRAPHIT_MCP_ALLOWED_ORIGINS`. Empty emits no CORS headers at all. Only a browser-based MCP client needs it; an agent whose runtime connects server-side is unaffected. |
 
 The daemon writes a fresh local runtime key to `~/.graphit/daemon/mcp.key` with mode `0600` on
 each start. Static MCP keys are local-provider credentials. With an active direct OIDC or
@@ -236,6 +237,27 @@ requested for this daemon listener, never a remote MCP endpoint.
 to false accepts an audience-free direct OIDC access token only after signature, issuer, expiry,
 `client_id`, and `token_use=access` verification, while still rejecting a different `aud`. This is
 a compatibility exception that weakens token isolation and does not apply to Broker providers.
+
+A client that holds no credential yet is told where to get one. An unauthenticated request to
+the MCP endpoint answers `401` with a `WWW-Authenticate: Bearer` challenge carrying
+`resource_metadata`, and that URL serves an OAuth 2.0 protected resource metadata document
+(RFC 9728) naming the authorization server, the supported scopes, and this endpoint's canonical
+resource identifier. With a Broker-managed provider every one of those values comes from Broker
+discovery — Graphit holds no local issuer, client, audience, or resource setting for that provider
+type. The daemon advertises only when the Broker lists this deployment's own URL among its
+accepted MCP resources and the request arrives at that host; otherwise it announces no
+authorization server rather than guessing one, and bearer authentication keeps working for
+callers that already hold a token. With a direct OIDC provider the same values come from
+`oidc.mcp_resource` and `oidc.mcp_audience` on this daemon, which an operator configured here
+rather than discovering, so they do not depend on the request host.
+
+When there is nothing to advertise — a `local` provider, or a Broker that does not list this
+deployment — the two surfaces stay consistent with each other: the `401` carries no
+`WWW-Authenticate` header at all, and the metadata path answers `404` rather than an empty
+or partial document. A client learns that this endpoint has no
+authorization server to point it at, instead of being sent somewhere that cannot issue a
+usable token. The metadata document itself is readable by any origin, because its whole
+purpose is discovery by a client that cannot authenticate yet.
 
 The UI listener does not authenticate users. CORS is not authorization. Keep both listeners on
 loopback unless a firewall, private network, or authenticated reverse proxy defines the remote

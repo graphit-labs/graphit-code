@@ -88,6 +88,7 @@ require (
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rs/cors v1.11.1 // indirect
 	github.com/schollz/progressbar/v2 v2.15.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect

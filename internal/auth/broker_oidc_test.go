@@ -108,15 +108,42 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 		t.Fatalf("refreshed=%#v err=%v", refreshed, err)
 	}
 	verifier := &ProviderAccessTokenVerifier{OIDC: client}
-	identity, err := verifier.VerifyAccessToken(context.Background(), provider, profile.OIDC.AccessToken, "")
+	identity, err := verifier.VerifyAccessToken(context.Background(), provider, profile.OIDC.AccessToken, nil)
 	if err != nil || identity.Issuer != server.URL || identity.Username != "alice" || identity.Subject != "gb_sub_1" {
 		t.Fatalf("verified broker identity=%#v err=%v", identity, err)
 	}
 	revoked = true
-	if _, err := verifier.VerifyAccessToken(context.Background(), provider, allowedAccess, ""); err == nil {
+	if _, err := verifier.VerifyAccessToken(context.Background(), provider, allowedAccess, nil); err == nil {
 		t.Fatal("revoked Broker access token was accepted")
 	}
 	revoked = false
+
+	// A client registered with the broker after this daemon started carries a client_id the
+	// daemon has never seen. The broker is what attests which clients exist, so such a token
+	// must be accepted on its own merits; every other check stays in force.
+	registeredClientClaims := brokerAccessClaimsForTest(server.URL, fixed, "registered-client")
+	registeredClientClaims["client_id"] = "dynamically-registered-client"
+	registeredToken := signJWT(t, key, registeredClientClaims)
+	allowedAccess = registeredToken
+	registeredIdentity, err := verifier.VerifyAccessToken(context.Background(), provider, registeredToken, nil)
+	if err != nil || registeredIdentity.Username != "alice" || registeredIdentity.Subject != "gb_sub_1" {
+		t.Fatalf("token from a registered client was refused: identity=%#v err=%v", registeredIdentity, err)
+	}
+	allowedAccess = profile.OIDC.AccessToken
+
+	// No product-specific scope is required: a token's reach is decided by its audience, so
+	// one carrying only standard OIDC scopes is as valid as any other. Demanding a scope name
+	// here would narrow which authorization servers can serve this endpoint.
+	plainScopeClaims := brokerAccessClaimsForTest(server.URL, fixed, "plain-scope")
+	plainScopeClaims["scope"] = "openid profile"
+	plainScopeToken := signJWT(t, key, plainScopeClaims)
+	allowedAccess = plainScopeToken
+	plainScopeIdentity, err := verifier.VerifyAccessToken(context.Background(), provider, plainScopeToken, nil)
+	if err != nil || plainScopeIdentity.Username != "alice" {
+		t.Fatalf("token without a product scope was refused: identity=%#v err=%v", plainScopeIdentity, err)
+	}
+	allowedAccess = profile.OIDC.AccessToken
+
 	invalid := []struct {
 		name   string
 		mutate func(map[string]any)
@@ -124,24 +151,25 @@ func TestBrokerLoginAndAccessTokenVerificationUseStandardOIDCAndJWKS(t *testing.
 		{name: "issuer", mutate: func(claims map[string]any) { claims["iss"] = "https://other.example" }},
 		{name: "audience", mutate: func(claims map[string]any) { claims["aud"] = "other-api" }},
 		{name: "expired", mutate: func(claims map[string]any) { claims["exp"] = fixed.Add(-time.Minute).Unix() }},
-		{name: "client", mutate: func(claims map[string]any) { claims["client_id"] = "other-client" }},
-		{name: "scope", mutate: func(claims map[string]any) { claims["scope"] = "openid profile" }},
 		{name: "username", mutate: func(claims map[string]any) { delete(claims, "preferred_username") }},
 	}
 	for _, test := range invalid {
 		t.Run("reject "+test.name, func(t *testing.T) {
 			claims := brokerAccessClaimsForTest(server.URL, fixed, "invalid-"+test.name)
 			test.mutate(claims)
-			if _, err := verifier.VerifyAccessToken(context.Background(), provider, signJWT(t, key, claims), "ignored-by-broker"); err == nil {
+			if _, err := verifier.VerifyAccessToken(context.Background(), provider, signJWT(t, key, claims), nil); err == nil {
 				t.Fatal("invalid Broker access token was accepted")
 			}
 		})
 	}
-	if _, err := verifier.VerifyAccessToken(context.Background(), provider, tamperBrokerJWT(profile.OIDC.AccessToken), ""); err == nil {
+	if _, err := verifier.VerifyAccessToken(context.Background(), provider, tamperBrokerJWT(profile.OIDC.AccessToken), nil); err == nil {
 		t.Fatal("Broker access token with tampered signature was accepted")
 	}
-	if userinfoCalls != 2 {
-		t.Fatalf("Broker access-token verification called userinfo %d times, want 2", userinfoCalls)
+	// One accepted token, one revoked check, one token from a registered client, and one
+	// carrying only standard OIDC scopes. The rejections above never reach userinfo because
+	// they fail JWT validation first.
+	if userinfoCalls != 4 {
+		t.Fatalf("Broker access-token verification called userinfo %d times, want 4", userinfoCalls)
 	}
 }
 
@@ -236,7 +264,7 @@ func brokerProviderForTest(endpoint string) Provider {
 func brokerDiscoveryForTest(issuer string) map[string]any {
 	return map[string]any{"version": "1", "issuer": issuer, "authentication": map[string]any{
 		"type": "openid_connect", "issuer": issuer, "client_id": "graphit-cli",
-		"scopes": []string{"openid", "profile", "email", "graphit.use", "offline_access"}, "redirect_uri_path": "/oauth/callback",
+		"scopes": []string{"openid", "profile", "email", "offline_access"}, "redirect_uri_path": "/oauth/callback",
 		"audiences": []string{"graphit-broker"}, "access_token_audience": "graphit-broker"}}
 }
 
@@ -250,7 +278,7 @@ func oidcDiscoveryForBrokerTest(issuer string) map[string]any {
 func brokerAccessClaimsForTest(issuer string, now time.Time, jwtID string) map[string]any {
 	return map[string]any{
 		"iss": issuer, "sub": "gb_sub_1", "aud": "graphit-broker", "exp": now.Add(time.Hour).Unix(), "iat": now.Unix(),
-		"jti": jwtID, "client_id": "graphit-cli", "scope": "openid profile email graphit.use offline_access",
+		"jti": jwtID, "client_id": "graphit-cli", "scope": "openid profile email offline_access",
 		"preferred_username": "alice", "organization": "acme", "groups": []string{"platform"},
 	}
 }

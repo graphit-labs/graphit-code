@@ -49,6 +49,17 @@ func ResolveMCPPort(inlineCfg, projectCfg ConfigMap) int {
 	return port
 }
 
+// ResolveMCPAllowedOrigins returns the browser origins allowed to call the daemon's MCP
+// endpoint, mirroring ui.allowed_origins for the other listener.
+//
+// Empty is the default and means no CORS headers at all, which is what the endpoint did
+// before this key existed. A browser-based MCP client is the only caller that needs it;
+// an agent whose runtime fetches server-side is unaffected either way. Declaring an origin
+// is therefore a deliberate act, never something a deployment inherits by accident.
+func ResolveMCPAllowedOrigins(inlineCfg, projectCfg ConfigMap) []string {
+	return splitAllowedOrigins(ResolveConfig("mcp.allowed_origins", inlineCfg, projectCfg))
+}
+
 // DaemonUIModule is the module name that makes the daemon serve the unified UI for as long as it
 // runs, as one of its supervised global modules.
 //
