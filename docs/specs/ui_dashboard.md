@@ -57,6 +57,7 @@ Semantic tokens define meaning across both themes. New features extend existing 
 - Keyboard focus remains visible.
 - Motion honors `prefers-reduced-motion`.
 - Loading and toast states communicate status without removing the underlying route context.
+- Selecting the catalogue row that is already selected keeps its detail rendered: the detail panel never toggles off, and a detail that failed to load is requested again.
 
 ## Workspace identity
 
@@ -65,6 +66,12 @@ the selected project directory under the `graphit-app-state` browser key. That l
 the remote Hub project directory. Hub discovery uses its own ACL-filtered cursor API.
 
 Every project-scoped request must use the active project directory or context. Because the selection survives browser sessions, explorer screens must display the active project clearly enough for a user to verify it before interpreting data.
+
+The project selection is reachable from every screen, not only from the navigation rail. Shell routes
+switch it through the sidebar workspace switcher; the full-screen explorers, which render outside the
+shell, expose the same switch in their own header through the shared project picker. Both write the
+single active project in the app store, so a switch made anywhere applies everywhere. The picker is
+absent only while no machine-local project has been loaded.
 
 Switching projects updates:
 

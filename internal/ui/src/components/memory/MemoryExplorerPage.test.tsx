@@ -69,7 +69,7 @@ function renderExplorer(path = '/memory/explorer/project/01MEMORY') {
 describe('Memory Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo' })
+    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(memoryApi.list).mockResolvedValue(catalog)
     vi.mocked(memoryApi.detail).mockResolvedValue(trace)
     vi.mocked(memoryApi.create).mockResolvedValue(trace)
@@ -178,5 +178,44 @@ describe('Memory Explorer', () => {
     await waitFor(() => expect(memoryApi.remove).toHaveBeenCalledWith('/project', 'project', '01MEMORY'))
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/memory/explorer/project'))
     confirm.mockRestore()
+  })
+
+  it('keeps the trace rendered when the selected memory row is clicked again', async () => {
+    const user = userEvent.setup()
+    renderExplorer()
+
+    expect(await screen.findByText('Authoritative metadata')).toBeTruthy()
+    const list = screen.getByLabelText('Memory catalogue')
+    const row = await within(list).findByText('Single authoritative store')
+    const loaded = vi.mocked(memoryApi.detail).mock.calls.length
+
+    await user.click(row)
+
+    expect(screen.getByText('Authoritative metadata')).toBeTruthy()
+    expect(screen.queryByText('Select a memory')).toBeNull()
+    expect(vi.mocked(memoryApi.detail).mock.calls.length).toBe(loaded)
+    expect(screen.getByTestId('location').textContent).toBe('/memory/explorer/project/01MEMORY')
+  })
+
+  it('switches the active project from the memory header', async () => {
+    const user = userEvent.setup()
+    useAppStore.setState({
+      projects: [
+        { id: 'p1', name: 'Demo', dir: '/project' },
+        { id: 'p2', name: 'Other', dir: '/other' },
+      ] as never,
+      projectsLoaded: true,
+    })
+    renderExplorer('/memory/explorer/project')
+
+    await screen.findByText('Single authoritative store')
+    await user.click(screen.getByRole('button', { name: 'Switch project' }))
+    const options = screen.getByRole('listbox', { name: 'Projects' })
+    await user.click(within(options).getByRole('option', { name: 'Other' }))
+
+    expect(useAppStore.getState().activeProjectDir).toBe('/other')
+    await waitFor(() => expect(memoryApi.list).toHaveBeenLastCalledWith({
+      projectDir: '/other', scope: 'project', query: undefined, type: 'all', tag: 'all', important: 'all', mandatory: 'all',
+    }))
   })
 })

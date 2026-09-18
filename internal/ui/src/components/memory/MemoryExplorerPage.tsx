@@ -9,6 +9,7 @@ import {
   memoryApi, sortMemoryCatalogItems, type MemoryCatalog, type MemoryCatalogItem, type MemoryScope,
   type MemoryTrace, type MemoryUpdate, type MemoryVersion, type MemoryWrite,
 } from '@/api/memory'
+import { ProjectPicker } from '@/components/layout/ProjectPicker'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { showToast } from '@/hooks/useToast'
@@ -156,6 +157,7 @@ export default function MemoryExplorerPage() {
   const catalogRequest = useRef(0)
   const detailRequest = useRef(0)
   const previousProject = useRef(activeProjectDir)
+  const detailTrace = trace && trace.memory_id === memoryId ? trace : null
 
   const loadCatalog = useCallback(async () => {
     const request = ++catalogRequest.current
@@ -175,13 +177,19 @@ export default function MemoryExplorerPage() {
   }, [activeProjectDir, important, mandatory, memoryId, navigate, projectName, query, scope, tag, type])
 
   useEffect(() => { const timer = window.setTimeout(() => { void loadCatalog() }, 180); return () => window.clearTimeout(timer) }, [loadCatalog])
-  useEffect(() => {
+  const loadTrace = useCallback((id: string) => {
     const request = ++detailRequest.current
-    if (!memoryId) return
-    memoryApi.detail(activeProjectDir || undefined, scope, memoryId)
+    memoryApi.detail(activeProjectDir || undefined, scope, id)
       .then(result => { if (request === detailRequest.current) setTrace(result) })
       .catch(() => { if (request === detailRequest.current) { setTrace(null); showToast('Failed to load memory trace', 'error') } })
-  }, [activeProjectDir, memoryId, scope])
+  }, [activeProjectDir, scope])
+  useEffect(() => {
+    if (!memoryId) {
+      detailRequest.current += 1
+      return
+    }
+    loadTrace(memoryId)
+  }, [loadTrace, memoryId])
   useEffect(() => {
     if (previousProject.current === activeProjectDir) return
     previousProject.current = activeProjectDir
@@ -189,15 +197,24 @@ export default function MemoryExplorerPage() {
     navigate(`/memory/explorer/${scope}`, { replace: true })
   }, [activeProjectDir, navigate, scope])
 
-  const selectMemory = (item: MemoryCatalogItem) => { setTrace(null); navigate(`/memory/explorer/${scope}/${encodeURIComponent(item.id)}`) }
+  // Clicking the already selected row navigates to the URL it is already on, so the trace
+  // effect cannot run: keep the rendered trace and only reload when nothing is shown, which
+  // recovers from a trace request that failed earlier.
+  const selectMemory = (item: MemoryCatalogItem) => {
+    if (item.id === memoryId) {
+      if (!detailTrace) loadTrace(item.id)
+      return
+    }
+    navigate(`/memory/explorer/${scope}/${encodeURIComponent(item.id)}`)
+  }
   const showList = () => { setTrace(null); navigate(`/memory/explorer/${scope}`) }
   const changeScope = (next: MemoryScope) => { setTrace(null); setQuery(''); setType('all'); setTag('all'); setImportant('all'); setMandatory('all'); navigate(`/memory/explorer/${next}`) }
 
   const save = async (value: MemoryWrite | MemoryUpdate) => {
     setSaving(true)
     try {
-      const result = form === 'edit' && trace?.current
-        ? await memoryApi.update(activeProjectDir || undefined, scope, trace.current.id, value as MemoryUpdate)
+      const result = form === 'edit' && detailTrace?.current
+        ? await memoryApi.update(activeProjectDir || undefined, scope, detailTrace.current.id, value as MemoryUpdate)
         : await memoryApi.create(activeProjectDir || undefined, scope, value as MemoryWrite)
       setTrace(result)
       setForm(null)
@@ -208,10 +225,10 @@ export default function MemoryExplorerPage() {
   }
 
   const remove = async () => {
-    if (!trace?.current) return
-    if (!window.confirm(`Remove “${trace.current.title}”? The current record will be removed and its final revision retained for traceability.`)) return
+    if (!detailTrace?.current) return
+    if (!window.confirm(`Remove “${detailTrace.current.title}”? The current record will be removed and its final revision retained for traceability.`)) return
     try {
-      await memoryApi.remove(activeProjectDir || undefined, scope, trace.current.id)
+      await memoryApi.remove(activeProjectDir || undefined, scope, detailTrace.current.id)
       setTrace(null)
       navigate(`/memory/explorer/${scope}`, { replace: true })
       await loadCatalog()
@@ -221,13 +238,13 @@ export default function MemoryExplorerPage() {
 
   return (
     <div className="explorer-frame flex h-screen overflow-hidden bg-background text-foreground">
-      <aside className={cn('w-full shrink-0 flex-col border-r border-border/40 bg-card/45 backdrop-blur-2xl md:flex md:w-[360px]', trace ? 'hidden' : 'flex')}>
-        <div className="border-b border-border/40 p-4"><button type="button" onClick={() => navigate('/hub/registry')} className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Observatory</button><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Memory / explorer</p><h1 className="mt-1 text-xl font-black tracking-tight">{scope === 'user' ? 'User memory' : projectName || 'Project memory'}</h1></div><div className="flex gap-1.5"><button type="button" onClick={() => setForm('create')} title="Create memory" className="rounded-xl bg-primary p-2 text-primary-foreground"><Plus className="h-4 w-4" /></button><button type="button" onClick={() => void loadCatalog()} title="Refresh memories" className="rounded-xl border border-border/40 bg-background/50 p-2 text-muted-foreground hover:text-foreground"><RefreshCw className="h-4 w-4" /></button></div></div><div className="mt-4 grid grid-cols-2 rounded-xl border border-border/40 bg-background/45 p-1"><button type="button" onClick={() => changeScope('project')} className={cn('rounded-lg px-3 py-2 text-xs font-bold', scope === 'project' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>Project</button><button type="button" onClick={() => changeScope('user')} className={cn('rounded-lg px-3 py-2 text-xs font-bold', scope === 'user' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>User</button></div><div className="relative mt-3"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search memories" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search title, content, tags…" className="w-full rounded-xl border border-border/40 bg-background/65 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-primary/50" /></div><div className="mt-3 grid grid-cols-2 gap-2"><select aria-label="Filter memory type" value={type} onChange={event => setType(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">All types</option>{catalog.types.map(value => <option key={value} value={value}>{value}</option>)}</select><select aria-label="Filter memory tag" value={tag} onChange={event => setTag(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">All tags</option>{catalog.tags.map(value => <option key={value} value={value}>{value}</option>)}</select><select aria-label="Filter importance" value={important} onChange={event => setImportant(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">Any importance</option><option value="true">Important</option><option value="false">Standard</option></select><select aria-label="Filter mandatory" value={mandatory} onChange={event => setMandatory(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">Any loading</option><option value="true">Mandatory</option><option value="false">On demand</option></select></div></div>
+      <aside className={cn('w-full shrink-0 flex-col border-r border-border/40 bg-card/45 backdrop-blur-2xl md:flex md:w-[360px]', detailTrace ? 'hidden' : 'flex')}>
+        <div className="border-b border-border/40 p-4"><button type="button" onClick={() => navigate('/hub/registry')} className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Observatory</button><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Memory / explorer</p><h1 className="mt-1 text-xl font-black tracking-tight">{scope === 'user' ? 'User memory' : projectName || 'Project memory'}</h1></div><div className="flex gap-1.5"><button type="button" onClick={() => setForm('create')} title="Create memory" className="rounded-xl bg-primary p-2 text-primary-foreground"><Plus className="h-4 w-4" /></button><button type="button" onClick={() => void loadCatalog()} title="Refresh memories" className="rounded-xl border border-border/40 bg-background/50 p-2 text-muted-foreground hover:text-foreground"><RefreshCw className="h-4 w-4" /></button></div></div><ProjectPicker className="mt-4" /><div className="mt-3 grid grid-cols-2 rounded-xl border border-border/40 bg-background/45 p-1"><button type="button" onClick={() => changeScope('project')} className={cn('rounded-lg px-3 py-2 text-xs font-bold', scope === 'project' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>Project</button><button type="button" onClick={() => changeScope('user')} className={cn('rounded-lg px-3 py-2 text-xs font-bold', scope === 'user' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>User</button></div><div className="relative mt-3"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search memories" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search title, content, tags…" className="w-full rounded-xl border border-border/40 bg-background/65 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-primary/50" /></div><div className="mt-3 grid grid-cols-2 gap-2"><select aria-label="Filter memory type" value={type} onChange={event => setType(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">All types</option>{catalog.types.map(value => <option key={value} value={value}>{value}</option>)}</select><select aria-label="Filter memory tag" value={tag} onChange={event => setTag(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">All tags</option>{catalog.tags.map(value => <option key={value} value={value}>{value}</option>)}</select><select aria-label="Filter importance" value={important} onChange={event => setImportant(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">Any importance</option><option value="true">Important</option><option value="false">Standard</option></select><select aria-label="Filter mandatory" value={mandatory} onChange={event => setMandatory(event.target.value)} className="min-w-0 rounded-lg border border-border/40 bg-background/65 px-2 py-2 text-xs"><option value="all">Any loading</option><option value="true">Mandatory</option><option value="false">On demand</option></select></div></div>
         <div className="flex items-center justify-between px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"><span>Current memories</span><span>{catalog.total}</span></div>
         <div aria-label="Memory catalogue" className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">{loading && <div className="flex justify-center py-10"><LoadingSpinner size="sm" /></div>}{!loading && catalog.results.map(item => <button key={item.id} type="button" onClick={() => selectMemory(item)} className={cn('w-full rounded-xl border px-3 py-3 text-left transition-colors', memoryId === item.id ? 'border-primary/35 bg-primary/10' : 'border-transparent hover:border-border/40 hover:bg-accent/35')}><div className="flex items-start justify-between gap-2"><p className="line-clamp-2 text-sm font-bold">{item.title}</p><MemoryFlags important={item.important} mandatory={item.mandatory} /></div>{item.snippet && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.snippet}</p>}<div className="mt-2 flex items-center gap-2"><TypeBadge type={item.type} /><span className="font-mono text-[9px] text-muted-foreground">rev {item.revision}</span><span className="ml-auto text-[9px] text-muted-foreground">{shortDate(item.updated_at)}</span></div></button>)}{!loading && catalog.results.length === 0 && <div className="px-5 py-12 text-center"><Brain className="mx-auto h-7 w-7 text-muted-foreground/40" /><p className="mt-3 text-sm font-bold">No memories match this view</p><p className="mt-1 text-xs text-muted-foreground">Adjust filters or capture a new durable memory.</p></div>}</div>
       </aside>
-      <main className={cn('min-w-0 flex-1 bg-background/95 md:block', trace ? 'block' : 'hidden')}>{trace ? <MemoryDetail key={trace.memory_id} trace={trace} onBack={showList} onEdit={() => setForm('edit')} onRemove={() => void remove()} /> : loading ? <div className="flex h-full items-center justify-center"><LoadingSpinner size="md" /></div> : <EmptyState icon={CheckCircle2} title="Select a memory" description="Choose a current memory to inspect its authoritative content and complete revision trace." />}</main>
-      {form && <MemoryForm key={`${form}-${trace?.current?.key ?? 'new'}`} initial={form === 'edit' ? trace?.current : undefined} saving={saving} onClose={() => setForm(null)} onSave={value => void save(value)} />}
+      <main className={cn('min-w-0 flex-1 bg-background/95 md:block', detailTrace ? 'block' : 'hidden')}>{detailTrace ? <MemoryDetail key={detailTrace.memory_id} trace={detailTrace} onBack={showList} onEdit={() => setForm('edit')} onRemove={() => void remove()} /> : loading ? <div className="flex h-full items-center justify-center"><LoadingSpinner size="md" /></div> : <EmptyState icon={CheckCircle2} title="Select a memory" description="Choose a current memory to inspect its authoritative content and complete revision trace." />}</main>
+      {form && <MemoryForm key={`${form}-${detailTrace?.current?.key ?? 'new'}`} initial={form === 'edit' ? detailTrace?.current : undefined} saving={saving} onClose={() => setForm(null)} onSave={value => void save(value)} />}
     </div>
   )
 }

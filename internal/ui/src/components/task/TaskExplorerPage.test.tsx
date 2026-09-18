@@ -73,7 +73,7 @@ function Location() {
 describe('Task Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo' })
+    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(taskApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondCatalogItem], next_cursor: '' }
       : { results: [firstCatalogItem], next_cursor: 'page-2' })
@@ -219,5 +219,89 @@ describe('Task Explorer', () => {
     expect(createObjectURL).toHaveBeenCalledOnce()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:task-export')
     click.mockRestore()
+  })
+
+  it('keeps the detail rendered when the selected task row is clicked again', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes>
+          <Route path="/task/explorer/:taskId?" element={<><TaskExplorerPage /><Location /></>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Specification')).toBeTruthy()
+    const taskList = screen.getByLabelText('Task catalogue')
+    const loaded = vi.mocked(taskApi.export).mock.calls.length
+
+    await user.click(within(taskList).getByText('First task'))
+
+    expect(screen.getByText('Specification')).toBeTruthy()
+    expect(screen.queryByText('Select a task')).toBeNull()
+    expect(vi.mocked(taskApi.export).mock.calls.length).toBe(loaded)
+    expect(screen.getByTestId('location').textContent).toBe('/task/explorer/tsk-aaaa')
+  })
+
+  it('retries the detail request when the selected task failed to load', async () => {
+    const user = userEvent.setup()
+    vi.mocked(taskApi.export).mockRejectedValueOnce(new Error('unavailable'))
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    const taskList = await screen.findByLabelText('Task catalogue')
+    await within(taskList).findByText('First task')
+    await waitFor(() => expect(taskApi.export).toHaveBeenCalledWith('/project', 'tsk-aaaa'))
+    expect(await screen.findByText('Select a task')).toBeTruthy()
+
+    await user.click(within(taskList).getByText('First task'))
+
+    expect(await screen.findByText('Specification')).toBeTruthy()
+    expect(vi.mocked(taskApi.export).mock.calls.filter(([, id]) => id === 'tsk-aaaa').length).toBe(2)
+  })
+
+  it('switches the active project from the explorer header', async () => {
+    const user = userEvent.setup()
+    useAppStore.setState({
+      projects: [
+        { id: 'p1', name: 'Demo', dir: '/project' },
+        { id: 'p2', name: 'Other', dir: '/other' },
+      ] as never,
+      projectsLoaded: true,
+    })
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('First task')
+    const picker = screen.getByRole('button', { name: 'Switch project' })
+    expect(picker.textContent).toContain('Demo')
+
+    await user.click(picker)
+    const options = screen.getByRole('listbox', { name: 'Projects' })
+    await user.click(within(options).getByRole('option', { name: 'Other' }))
+
+    expect(useAppStore.getState().activeProjectDir).toBe('/other')
+    await waitFor(() => expect(taskApi.list).toHaveBeenLastCalledWith({
+      projectDir: '/other', query: undefined, status: 'all', pageSize: 20, cursor: undefined,
+    }))
+    expect(screen.queryByRole('listbox', { name: 'Projects' })).toBeNull()
+  })
+
+  it('omits the project picker while no project is loaded', async () => {
+    useAppStore.setState({ projects: [], projectsLoaded: false })
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('First task')
+    expect(screen.queryByRole('button', { name: 'Switch project' })).toBeNull()
   })
 })

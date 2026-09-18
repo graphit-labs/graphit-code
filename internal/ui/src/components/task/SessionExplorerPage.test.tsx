@@ -70,7 +70,7 @@ function Location() {
 describe('Session Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo' })
+    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(sessionApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondSummary], next_cursor: '' }
       : { results: [firstSummary], next_cursor: 'page-2' })
@@ -145,6 +145,54 @@ describe('Session Explorer', () => {
 
     await waitFor(() => expect(sessionApi.list).toHaveBeenLastCalledWith({
       projectDir: '/project', query: 'archive', status: 'in_progress', active: true, pageSize: 20, cursor: undefined,
+    }))
+  })
+
+  it('keeps the detail rendered when the selected session row is clicked again', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/task/sessions']}>
+        <Routes>
+          <Route path="/task/sessions/:sessionId?" element={<><SessionExplorerPage /><Location /></>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Description')).toBeTruthy()
+    const sessionList = screen.getByLabelText('Session catalogue')
+    const loaded = vi.mocked(sessionApi.get).mock.calls.length
+
+    await user.click(within(sessionList).getByText('Archive export session'))
+
+    expect(screen.getByText('Description')).toBeTruthy()
+    expect(screen.queryByText('Select a session')).toBeNull()
+    expect(vi.mocked(sessionApi.get).mock.calls.length).toBe(loaded)
+    expect(screen.getByTestId('location').textContent).toBe('/task/sessions/ses-aaaa')
+  })
+
+  it('switches the active project from the sessions header', async () => {
+    const user = userEvent.setup()
+    useAppStore.setState({
+      projects: [
+        { id: 'p1', name: 'Demo', dir: '/project' },
+        { id: 'p2', name: 'Other', dir: '/other' },
+      ] as never,
+      projectsLoaded: true,
+    })
+    render(
+      <MemoryRouter initialEntries={['/task/sessions']}>
+        <Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Archive export session')
+    await user.click(screen.getByRole('button', { name: 'Switch project' }))
+    const options = screen.getByRole('listbox', { name: 'Projects' })
+    await user.click(within(options).getByRole('option', { name: 'Other' }))
+
+    expect(useAppStore.getState().activeProjectDir).toBe('/other')
+    await waitFor(() => expect(sessionApi.list).toHaveBeenLastCalledWith({
+      projectDir: '/other', query: undefined, status: 'all', active: false, pageSize: 20, cursor: undefined,
     }))
   })
 })

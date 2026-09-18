@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { cn, wikiLinkFriendlyName, agentFeaturesEnabled } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
+import { ProjectPicker } from '@/components/layout/ProjectPicker'
 
 const LS = {
   get<T>(key: string, fallback: T): T {
@@ -715,6 +716,8 @@ export default function WikiExplorerPage({ autoSelectProject }: WikiExplorerProp
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+          {!leftCollapsed && <ProjectPicker className="px-1" />}
+
           {!leftCollapsed && modules.length > 1 && (
             <div>
               <ModuleSelector modules={modules} selected={selectedModule} onSelect={m => {

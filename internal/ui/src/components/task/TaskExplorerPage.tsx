@@ -9,6 +9,7 @@ import {
 import { taskApi, type TaskCatalogItem, type TaskExportDocument, type TaskSpec } from '@/api/task'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { ProjectPicker } from '@/components/layout/ProjectPicker'
 import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
 import { showToast } from '@/hooks/useToast'
 import { cn } from '@/lib/utils'
@@ -321,22 +322,35 @@ export default function TaskExplorerPage() {
     navigate('/task/explorer', { replace: true })
   }, [activeProjectDir, navigate])
 
-  useEffect(() => {
+  const loadDetail = useCallback((id: string) => {
     const request = ++detailRequestRef.current
-    if (!selectedID) return
-    taskApi.export(activeProjectDir || undefined, selectedID)
+    taskApi.export(activeProjectDir || undefined, id)
       .then(document => {
         if (request === detailRequestRef.current) {
-          setDetailResult({ projectDir: activeProjectDir, selectedID, document })
+          setDetailResult({ projectDir: activeProjectDir, selectedID: id, document })
         }
       })
       .catch(() => { if (request === detailRequestRef.current) showToast('Failed to load task details', 'error') })
-  }, [activeProjectDir, selectedID])
+  }, [activeProjectDir])
 
+  useEffect(() => {
+    if (!selectedID) {
+      detailRequestRef.current += 1
+      return
+    }
+    loadDetail(selectedID)
+  }, [loadDetail, selectedID])
+
+  // Clicking the already selected row must keep its detail on screen. Selecting the same id
+  // does not change state, so the effect above cannot run: only reload when nothing is
+  // rendered, which recovers from a detail request that failed earlier.
   const selectTask = (id: string) => {
-    setDetailResult(null)
-    setSelectedID(id)
-    selectedIDRef.current = id
+    if (id === selectedID) {
+      if (!detail) loadDetail(id)
+    } else {
+      setSelectedID(id)
+      selectedIDRef.current = id
+    }
     navigate(`/task/explorer/${encodeURIComponent(id)}`, { replace: true })
   }
   const showTaskList = () => {
@@ -364,6 +378,7 @@ export default function TaskExplorerPage() {
         <div className="border-b border-border/40 p-4">
           <button type="button" onClick={() => navigate('/hub/registry')} className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Observatory</button>
           <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Task / explorer</p><h1 className="mt-1 text-xl font-black tracking-tight">{projectName || 'Project tasks'}</h1></div><button type="button" onClick={() => void loadCatalog()} title="Refresh tasks" className="rounded-xl border border-border/40 bg-background/50 p-2 text-muted-foreground hover:text-foreground"><RefreshCw className="h-4 w-4" /></button></div>
+          <ProjectPicker className="mt-3" />
           <TaskModeToggle mode="tasks" />
           <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search tasks" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search ID, title, spec…" className="w-full rounded-xl border border-border/40 bg-background/65 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-primary/50" /></div>
           <div className="mt-3 flex items-center gap-2"><StatusSelector value={status} onChange={setStatus} /><button type="button" aria-label="Export all tasks" onClick={() => void exportAll()} disabled={exporting} title="Export all tasks" className="rounded-xl border border-border/40 bg-background/65 p-2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-50"><Download className="h-4 w-4" /></button></div>

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
+import { ProjectPicker } from '@/components/layout/ProjectPicker'
 
 const LS = {
   get<T>(key: string, fallback: T): T {
@@ -327,6 +328,11 @@ export default function ExplorerPage() {
 
         {!leftCollapsed && (
           <>
+            {}
+            <div className="px-3 py-2 border-b border-border/30 shrink-0">
+              <ProjectPicker />
+            </div>
+
             {}
             <div className="flex px-3 py-2 border-b border-border/30 bg-accent/10 gap-1 shrink-0">
               {[
