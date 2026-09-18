@@ -41,7 +41,7 @@ type hubInstallInput struct {
 	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to install globally, with no project: the artifact lands in the shared version-keyed store and is addressed afterwards by its qualified id@version."`
 	ID          string `json:"id" jsonschema:"Artifact ID to install. Supports @version suffix for version pinning (required)"`
 	Type        string `json:"type,omitempty" jsonschema:"Artifact type"`
-	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, deepcode, etc.). Ignored for a global install."`
+	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.). Ignored for a global install."`
 	Alias       string `json:"alias,omitempty" jsonschema:"Alias to assign to installed artifact"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
@@ -104,7 +104,7 @@ type hubTypePathInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Type       string `json:"type" jsonschema:"Artifact type: skill, rule, command, agent, mcp (required)"`
 	Name       string `json:"name" jsonschema:"Artifact name (required)"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, deepcode, etc.)"`
+	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.)"`
 }
 
 func registerHubTools(server *mcp.Server) {

@@ -65,11 +65,9 @@ executables:
 | GitHub Copilot CLI | `copilot` | no verified create/capture/resume protocol |
 | Qwen Code | `qwen` | yes: Graphit supplies/captures the session ID and resumes with `--resume` |
 | Kimi Code | `kimi` | yes: the `session.resume_hint` ID is captured and resumed with `--session` |
-| Deep Code | `deepcode` | one-shot in Graphit: upstream resume exists, but structured initial-ID capture is not verified |
 
-The matrix contains twelve executable names for twelve products. `deepcode` is the Deep Code agent
-recommended by DeepSeek; `deepseek` is not a CLI alias. Graphit uses each CLI's
-non-interactive stdin/argument protocol. `ai.agent_args` is appended only to explicitly
+The matrix contains eleven executable names for eleven products. `deepseek` is not a CLI alias.
+Graphit uses each CLI's non-interactive stdin/argument protocol. `ai.agent_args` is appended only to explicitly
 agentic Live Search/Dream work; it is split on whitespace and is never evaluated by a shell.
 
 Saved Graphit chats keep both `agent_session_id` and `agent_cli`, so a later turn can resume only

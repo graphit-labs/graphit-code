@@ -210,7 +210,7 @@ func TestResolveAgentAndCLI(t *testing.T) {
 	if CLIForAgent("kiro") != "kiro-cli" {
 		t.Errorf("expected kiro-cli, got %q", CLIForAgent("kiro"))
 	}
-	for _, agent := range []string{"qwen", "kimi", "deepcode"} {
+	for _, agent := range []string{"qwen", "kimi"} {
 		if CLIForAgent(agent) != agent {
 			t.Errorf("expected %s, got %q", agent, CLIForAgent(agent))
 		}

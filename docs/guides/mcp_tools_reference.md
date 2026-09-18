@@ -128,7 +128,7 @@ identity only when none exists and otherwise preserving the existing ULID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | The directory of the project to initialize |
-| `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, `deepcode`, etc.) |
+| `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, etc.) |
 | `id` | string | | Initial ULID only when identity does not exist; a conflicting existing ULID is rejected |
 | `name` | string | | Initial or renamed human-readable discovery name; remote uniqueness is conditional |
 | `description` | string | | Project description |
@@ -787,7 +787,7 @@ version-keyed store when `project_dir` is omitted.
 | `project_dir` | string | | Project directory; omit to install globally on a projectless server |
 | `id` | string | ✅ | Artifact ID to install. Use an exact `id@version` for reproducible remote work |
 | `type` | string | | Artifact type |
-| `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, `deepcode`, etc.) |
+| `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, etc.) |
 | `alias` | string | | Alias to assign to installed artifact |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -1162,10 +1162,10 @@ self-contained specifications, checks, subtasks, dependencies and milestones in 
 
 | Tools | Required state and result |
 |---|---|
-| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments/spec revisions. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
+| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments/spec revisions. List/search accept `session_id`; search ranks within that session before limiting. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
 | `graphit_task_export` | Returns stable complete JSON for every project task, or an exact task ID and its recursive subtasks. The versioned normalized document contains task snapshots, dependency/check projection records, events, comments, and specification revisions in deterministic order; fencing tokens and scheduler-control rows remain private. |
 | `graphit_task_batch` | Runs 1-100 mutations sequentially in input order. Every item returns its index, optional key, action, task ID, `ok`, and either a value or explicit error; all normal lifecycle gates still apply. |
-| `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `parent_id`, dependencies, priority, type, and stable `idempotency_key`. |
+| `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `session_id`, `parent_id`, dependencies, priority, type, and stable `idempotency_key`. Agent tasks must resolve to a nonterminal session: explicit ID, parent association, or the caller’s active coordinator session. |
 | `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
 | `graphit_task_force_takeover` | Recovers an unexpired `in_progress` claim whose owner is confirmed unrecoverable; requires exact-ID confirmation, current revision, reason, different new owner, and replacement lease, then rotates the token and audits the ownership transition. |
 | `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_release` | Require task ID, current token, and agent identity; progress/release preserve an exact continuation step. |
@@ -1191,7 +1191,7 @@ self-contained specifications, checks, subtasks, dependencies and milestones in 
 
 The first call exports all project tasks. The second exports `tsk-abcd` and its recursive subtasks.
 Both return a JSON object containing `schema_version`, `project_id`, optional `task_id`, and the
-ordered `tasks`, `dependencies`, `checks`, `events`, `comments`, and `spec_revisions` arrays. Unlike
+ordered `tasks`, `dependencies`, `checks`, `events`, `comments`, and `spec_revisions` arrays. Schema version 2 also preserves the selected tasks’ sessions through `sessions`, `session_events`, `session_checkpoints`, and `session_spec_revisions`; an all-project export includes sessions without tasks. Unlike
 compact retrieval tools, export always returns the complete JSON document and has no
 `ai_optimized` parameter.
 
@@ -1202,6 +1202,39 @@ obsolete work immediately instead of leaving open/flagged garbage. See [Task Mod
 
 ---
 
+### Task Session Tools
+
+Sessions are durable request records inside the Task module, distinct from host conversation IDs.
+Each call requires `project_dir`; structured results support `ai_optimized` (default compact TOON).
+Mutation identity uses the same stable `agent_id`/host identity as task operations. A coordinator
+claim is independent of task worker claims. Read the [session guide](task-sessions.md) for complete
+narrative examples and the [session contract](../specs/task_sessions.md) for storage/lifecycle rules.
+
+| Tool suffix after `graphit_task_session_` | Required fields beyond `project_dir` and behavior |
+|---|---|
+| `create` | `title`, `description`, `strategy`; optional stable `idempotency_key`. Creates an open request, without claiming. |
+| `get` | `id`; returns `session`, `events`, `checkpoints`, `spec_revisions`, `tasks` (summaries), with tokens redacted. |
+| `list` | Optional `status`, `owner`, `active`, `page_size`, `cursor`; `active` selects open/in-progress. Returns `results`, `next_cursor`. |
+| `search` | `query`; optional `top_k` (default 20), `page_size`, `cursor`. Searches request, strategy and prior history, returning `results`, `next_cursor`. |
+| `claim` | `id`; optional positive `lease` (default 1h). Returns a private token for exclusive coordination. |
+| `revise` | `id`, `claim_token`, `expected_revision`, `reason`; replace supplied `title`, `description`, `strategy`, preserving immutable revisions. |
+| `checkpoint` | `id`, `claim_token`, descriptive `summary`, exact `next_step`; optional `problems`, `decisions`, `strategy` strings. Appends durable history. |
+| `heartbeat` | `id`, `claim_token`; renews coordination without inventing progress. |
+| `release` | `id`, `claim_token`, `summary`, `next_step`; open resumable request, no implicit task release. |
+| `complete` | `id`, `claim_token`, final `summary`; requires all associated tasks completed/cancelled. |
+| `cancel` | `id`, `claim_token`, `reason`; requires associated tasks terminal and never cancels them implicitly. |
+| `force_takeover` | `id`, `confirm_id`, `expected_revision`, `reason`, positive `lease`, different coordinator identity; audited token rotation. |
+
+Revise/checkpoint/heartbeat accept an optional renewed `lease`. Session statuses are exactly
+`open`, `in_progress`, `completed`, `cancelled`. Complete/cancel are explicit coordinator actions;
+no host Stop hook completes them. Claims and private tokens must never enter shared narratives.
+List/search page sizes default to 20, maximum 100. Follow only a cursor from the same project,
+query/filters, page size and cap. Session search is discovery; `get` is authoritative retrieval.
+
+Task batch `create` operations accept `session_id` and enforce the same agent association rule as
+single creation. Parents and children share a session, and existing associations cannot be moved.
+Keep complete per-task specs/checks and staged dependency IDs; sessions do not replace planning.
+
 ## Common Parameters
 
 Most tools accept the following common parameters:
@@ -1211,7 +1244,7 @@ Most tools accept the following common parameters:
 | `project_dir` | Real project directory for project-bound tools. Artifact-only remote clients omit it and use qualified Hub contexts; never invent a server path. |
 | `scope` | Used by Memory tools. Either `project` (default) or `user`. Controls which memory store is targeted. |
 | `context` | Used by the tools that declare it to select an imported or Hub context instead of the local project. Use `id@version` for remote Hub content. |
-| `agent` | Target agent adapter: `claude`, `codex`, `cursor`, `gemini`, `kiro`, `opencode`, `antigravity`, `qwen`, `kimi`, or `deepcode`. Affects native materialization. |
+| `agent` | Target agent adapter: `claude`, `codex`, `cursor`, `gemini`, `kiro`, `opencode`, `antigravity`, `qwen`, or `kimi`. Affects native materialization. |
 | `ai_optimized` | Offered by structured tools that support TOON. Omitted/`true` selects compact TOON; `false` selects verbose JSON. |
 
 ## Error Handling

@@ -14,7 +14,7 @@ type fakeTaskSearcher struct {
 	limits  []int
 }
 
-func (f *fakeTaskSearcher) Search(_ context.Context, _ string, limit int) ([]graphtask.SearchResult, error) {
+func (f *fakeTaskSearcher) SearchInSession(_ context.Context, _ string, limit int, _ string) ([]graphtask.SearchResult, error) {
 	f.limits = append(f.limits, limit)
 	if limit > len(f.results) {
 		limit = len(f.results)
@@ -67,6 +67,7 @@ func TestTaskSearchPaginationRejectsInvalidOrMismatchedCursor(t *testing.T) {
 	}
 	for name, in := range map[string]taskSearchInput{
 		"malformed": {ProjectDir: "/project", Query: "alpha", TopK: 2, PageSize: 1, Cursor: "not-a-cursor"},
+		"session":   {ProjectDir: "/project", SessionID: "ses-other", Query: "alpha", TopK: 2, PageSize: 1, Cursor: first.NextCursor},
 		"query":     {ProjectDir: "/project", Query: "beta", TopK: 2, PageSize: 1, Cursor: first.NextCursor},
 		"page size": {ProjectDir: "/project", Query: "alpha", TopK: 2, PageSize: 2, Cursor: first.NextCursor},
 		"top k":     {ProjectDir: "/project", Query: "alpha", TopK: 3, PageSize: 1, Cursor: first.NextCursor},

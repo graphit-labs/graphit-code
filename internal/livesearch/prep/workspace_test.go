@@ -374,7 +374,7 @@ func TestPrepareStopsWhenTheSessionIsCancelled(t *testing.T) {
 }
 
 func TestValidateAgentAcceptsWhatTheFrameworkSupportsAndRefusesTheRest(t *testing.T) {
-	for _, good := range []string{"claude", "claude-code", "CLAUDE", "cursor", "kiro", "codex", "opencode", "gemini", "antigravity", "qwen", "kimi", "deepcode"} {
+	for _, good := range []string{"claude", "claude-code", "CLAUDE", "cursor", "kiro", "codex", "opencode", "gemini", "antigravity", "qwen", "kimi"} {
 		if err := ValidateAgent(good); err != nil {
 			t.Fatalf("ValidateAgent(%q) refused a supported Agent: %v", good, err)
 		}

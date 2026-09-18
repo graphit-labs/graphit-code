@@ -15,7 +15,7 @@ func TestRequestedAgentAdaptersSyncUpdateRemoveCycle(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("GRAPHIT_GLOBAL_DIR", filepath.Join(home, ".graphit"))
 
-	for _, name := range []string{"qwen", "kimi", "deepcode"} {
+	for _, name := range []string{"qwen", "kimi"} {
 		t.Run(name, func(t *testing.T) {
 			project := t.TempDir()
 			sources := filepath.Join(project, "sources")
@@ -56,12 +56,6 @@ func TestRequestedAgentAdaptersSyncUpdateRemoveCycle(t *testing.T) {
 			if err := os.WriteFile(mcpPath, []byte(`{"mcpServers":{"user-server":{"command":"user"}},"userField":"keep"}`), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if name == "deepcode" {
-				if err := os.WriteFile(filepath.Join(project, ".deepcode", "AGENTS.md"), []byte("USER AGENTS\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-
 			pp := &paths.ProjectPaths{ActiveProjectDir: project}
 			for i := 0; i < 2; i++ {
 				if err := adapter.Sync(installed, pp, "cycle-project"); err != nil {
@@ -83,13 +77,6 @@ func TestRequestedAgentAdaptersSyncUpdateRemoveCycle(t *testing.T) {
 					t.Fatalf("Kimi commands must be explicitly unsupported: %v", err)
 				}
 				assertFileContains(t, filepath.Join(project, ".kimi-code", "agents", "project-agent.md"), "AGENT TOKEN")
-			case "deepcode":
-				if _, err := os.Stat(filepath.Join(project, ".deepcode", "commands")); !os.IsNotExist(err) {
-					t.Fatalf("Deep Code commands must be explicitly unsupported: %v", err)
-				}
-				assertFileContains(t, filepath.Join(project, ".deepcode", "AGENTS.md"), "RULE TOKEN")
-				assertFileContains(t, filepath.Join(project, ".deepcode", "AGENTS.md"), "AGENT TOKEN")
-				assertFileContains(t, filepath.Join(project, ".deepcode", "AGENTS.md"), "USER AGENTS")
 			}
 			assertFileContains(t, filepath.Join(project, base.cfg.RootDirName, "skills", "project-skill", "SKILL.md"), "SKILL TOKEN")
 
@@ -101,9 +88,6 @@ func TestRequestedAgentAdaptersSyncUpdateRemoveCycle(t *testing.T) {
 			mcp, _ = os.ReadFile(mcpPath)
 			if !strings.Contains(string(mcp), "user-server") || !strings.Contains(string(mcp), "userField") || strings.Contains(string(mcp), "hub-server") || strings.Contains(string(mcp), brand.MCPServerName("code-stdio")) {
 				t.Fatalf("%s selective MCP removal failed: %s", name, mcp)
-			}
-			if name == "deepcode" {
-				assertFileContains(t, filepath.Join(project, ".deepcode", "AGENTS.md"), "USER AGENTS")
 			}
 		})
 	}

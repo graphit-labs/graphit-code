@@ -164,6 +164,28 @@ func TestSessionHookOmitsTaskRecallButPreservesMemoryRecallWhenTaskModuleIsDisab
 	}
 }
 
+func TestDisabledTaskOmitsToolsAtRecurringCheckpoint(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &hub.Lockfile{
+		Config: map[string]any{"modules": map[string]any{"task": "false"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{sessionhook.FormatPlainUnit, sessionhook.FormatPostToolUse, sessionhook.FormatAfterTool, sessionhook.FormatCursorUnit, sessionhook.FormatPostInvocation} {
+		cmd := newSessionHookCmd()
+		cmd.SetArgs([]string{"--format", format, "--project-dir", projectDir})
+		cmd.SetIn(strings.NewReader(`{"sessionID":"native-session"}`))
+		var output bytes.Buffer
+		cmd.SetOut(&output)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(output.String(), "graphit_task_") {
+			t.Fatalf("disabled Task leaked into %s: %s", format, output.String())
+		}
+	}
+}
+
 func TestSessionHookLoadsProjectMandateOverrideFromNativeCWD(t *testing.T) {
 	projectDir := t.TempDir()
 	workingDir := filepath.Join(projectDir, "packages", "api")
@@ -323,7 +345,7 @@ func TestHookInputNeedsMandatoryOnlyOnFirstInvocation(t *testing.T) {
 	}
 }
 
-// Silent completion is used by Kiro, OpenCode and Deep Code. Its lack of model
+// Silent completion is used by Kiro and OpenCode. Its lack of model
 // output must not leave a stopped agent's task claimed until the lease expires.
 func TestSilentCompletionReleasesOnlyItsOwnTask(t *testing.T) {
 	if !lancestore.Available() {
@@ -367,5 +389,56 @@ func TestSilentCompletionReleasesOnlyItsOwnTask(t *testing.T) {
 		if i == 1 && (detail.Task.Status != graphtask.StatusInProgress || detail.Task.Owner != graphtask.AgentIDForSession("working-session")) {
 			t.Fatalf("another owner's task was changed: %#v", detail.Task)
 		}
+	}
+}
+
+func TestSessionHookStopReleasesOnlyOwnedSessionWithoutCompleting(t *testing.T) {
+	if !lancestore.Available() {
+		t.Skip("requires the lancedb build tag")
+	}
+	for _, format := range []string{sessionhook.FormatStop, sessionhook.FormatCursorStop, sessionhook.FormatAfterAgent, sessionhook.FormatAntigravityStop, sessionhook.FormatSessionEnd, sessionhook.FormatNoOutput} {
+		t.Run(format, func(t *testing.T) {
+			ctx := context.Background()
+			projectDir := t.TempDir()
+			if err := hub.SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &hub.Lockfile{}); err != nil {
+				t.Fatal(err)
+			}
+			svc, err := graphtask.Open(projectDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := []string{}
+			for _, host := range []string{"stopping-session", "working-session"} {
+				actor := graphtask.AgentIDForSession(host)
+				session, err := svc.SessionCreate(ctx, graphtask.SessionCreateInput{Title: host, Description: "Implement the requested workflow with verified acceptance.", Strategy: "Read contracts then execute and validate tasks.", IdempotencyKey: host, Actor: actor})
+				if err != nil {
+					t.Fatal(err)
+				}
+				session, err = svc.SessionClaim(ctx, session.ID, actor, graphtask.DefaultLease)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := svc.SessionCheckpoint(ctx, session.ID, session.ClaimToken, actor, graphtask.SessionCheckpointInput{Summary: "Contract discovery complete; implementation is pending.", NextStep: "Claim implementation task and verify acceptance."}, graphtask.DefaultLease); err != nil {
+					t.Fatal(err)
+				}
+				ids = append(ids, session.ID)
+			}
+			if err := runTaskSessionHook(ctx, projectDir, format, []byte(`{"sessionID":"stopping-session"}`)); err != nil {
+				t.Fatal(err)
+			}
+			for i, id := range ids {
+				detail, err := svc.SessionGet(ctx, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantStatus := graphtask.StatusInProgress
+				if i == 0 {
+					wantStatus = graphtask.StatusOpen
+				}
+				if detail.Session.Status != wantStatus || detail.Session.CompletedAt != "" || len(detail.Checkpoints) != 1 || detail.Session.NextStep != "Claim implementation task and verify acceptance." {
+					t.Fatalf("stop lost ownership isolation or handoff: %+v", detail.Session)
+				}
+			}
+		})
 	}
 }

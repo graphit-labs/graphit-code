@@ -45,6 +45,8 @@ func newSessionHookCmd() *cobra.Command {
 			context := sessionhook.Context{}
 			if includeMandatory || strings.EqualFold(format, sessionhook.FormatToolContext) {
 				context = sessioncontext.Build(projectDir, includeMandatory)
+			} else {
+				context = sessioncontext.ModuleContext(projectDir)
 			}
 			payload, err := sessionhook.RenderWithContext(format, input, context)
 			if err != nil {

@@ -113,7 +113,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 
 | Key | Description | Default |
 |---|---|---|
-| `agent` | Target agent adapter (`antigravity`, `cursor`, `claude`, `gemini`, `kiro`, `codex`, `opencode`, `qwen`, `kimi`, `deepcode`) | `opencode` |
+| `agent` | Target agent adapter (`antigravity`, `cursor`, `claude`, `gemini`, `kiro`, `codex`, `opencode`, `qwen`, `kimi`) | `opencode` |
 | `cli` | CLI tool command name | Derived from Agent |
 
 ### Nested Keys
@@ -736,10 +736,8 @@ The `CLIForAgent()` mapping:
 | `kiro` | `kiro-cli` |
 | `qwen` | `qwen` |
 | `kimi` | `kimi` |
-| `deepcode` | `deepcode` |
 
-`deepseek` is not an Agent/CLI alias; DeepSeek recommends the Deep Code agent, whose canonical name
-and executable are `deepcode`.
+`deepseek` is not an Agent/CLI alias.
 
 ### Effective default Agent and CLI chains
 

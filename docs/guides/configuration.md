@@ -97,10 +97,8 @@ and the S3 boundary. See also
 | `unit.id` | generated ULID | Local installation identity provisioned during setup for attribution and diagnostics. A lazy fallback covers non-CLI callers that bypass setup. It does not select user memory and is not trusted remote Hub identity. |
 
 Supported agent adapters are `antigravity`, `claude`, `codex`, `cursor`, `gemini`, `kiro`,
-`opencode`, `qwen`, `kimi`, and `deepcode`. The adapter owns the native MCP and lifecycle format.
-Most are project-scoped; Kimi hooks are global and reference-counted across Graphit projects, while
-Deep Code uses its project `AGENTS.md` plus the native completion `notify` callback because it has no
-general lifecycle-hook API.
+`opencode`, `qwen`, and `kimi`. The adapter owns the native MCP and lifecycle format.
+Most are project-scoped; Kimi hooks are global and reference-counted across Graphit projects.
 
 There is no Graphit chat-completion model key: the selected CLI owns its provider and model. See
 [AI Models, Providers, and Agent CLIs](ai_models.md) for the complete fallback order, prompt

@@ -24,6 +24,7 @@ type taskCreateInput struct {
 	Tests              []string `json:"tests" jsonschema:"Behavior checks in Given-When-Then; other validations name method/command, target/conditions, and expected evidence/result; at least one Markdown item required"`
 	Type               string   `json:"type,omitempty" jsonschema:"Task type such as task, bug, feature, epic, or chore"`
 	Priority           *int     `json:"priority,omitempty" jsonschema:"Priority 0 (critical) through 4 (lowest); default 2"`
+	SessionID          string   `json:"session_id,omitempty" jsonschema:"Logical Task session ID; inferred from parent or current coordinator when omitted; an agent task must belong to a session"`
 	ParentID           string   `json:"parent_id,omitempty" jsonschema:"Parent delivery task ID for a subtask; use for cleanup, validation, review, documentation, commit preparation, release checks, and similar finalization work"`
 	DependsOn          []string `json:"depends_on,omitempty" jsonschema:"Task IDs that must complete first"`
 	IdempotencyKey     string   `json:"idempotency_key,omitempty" jsonschema:"Stable caller key; defaults to the canonical title"`
@@ -43,6 +44,7 @@ type taskExportInput struct {
 }
 
 type taskListInput struct {
+	SessionID   string `json:"session_id,omitempty" jsonschema:"Only tasks associated with this logical Task session"`
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Status      string `json:"status,omitempty" jsonschema:"open, blocked, flagged, in_progress, completed, or cancelled"`
 	Owner       string `json:"owner,omitempty" jsonschema:"Filter by exact agent owner"`
@@ -52,6 +54,7 @@ type taskListInput struct {
 }
 
 type taskSearchInput struct {
+	SessionID   string `json:"session_id,omitempty" jsonschema:"Rank only tasks associated with this logical Task session"`
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Query       string `json:"query" jsonschema:"Keywords for LanceDB full-text search"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 20)"`
@@ -277,7 +280,7 @@ func taskResult(value any, optimized *bool) (*mcp.CallToolResult, any, error) {
 const defaultTaskSearchLimit = 20
 
 type taskSearcher interface {
-	Search(context.Context, string, int) ([]graphtask.SearchResult, error)
+	SearchInSession(context.Context, string, int, string) ([]graphtask.SearchResult, error)
 }
 
 func paginateTaskSearch(ctx context.Context, searcher taskSearcher, in taskSearchInput) (page.Page[graphtask.SearchResult], error) {
@@ -287,13 +290,13 @@ func paginateTaskSearch(ctx context.Context, searcher taskSearcher, in taskSearc
 	}
 	query := strings.TrimSpace(in.Query)
 	window, err := openPage(in.PageSize, in.Cursor, topK, defaultTaskSearchLimit, struct {
-		Tool, ProjectDir, Query string
-		TopK                    int
-	}{"task_search", in.ProjectDir, query, topK})
+		Tool, ProjectDir, Query, SessionID string
+		TopK                               int
+	}{"task_search", in.ProjectDir, query, in.SessionID, topK})
 	if err != nil {
 		return page.Page[graphtask.SearchResult]{}, err
 	}
-	results, err := searcher.Search(ctx, query, window.FetchLimit)
+	results, err := searcher.SearchInSession(ctx, query, window.FetchLimit, in.SessionID)
 	if err != nil {
 		return page.Page[graphtask.SearchResult]{}, err
 	}
@@ -308,12 +311,13 @@ func taskSearchResult(value page.Page[graphtask.SearchResult], optimized *bool) 
 }
 
 func registerTaskTools(server *mcp.Server) {
+	registerTaskSessionTools(server)
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "batch"), Description: "Run 1-100 task mutations in input order and return an explicit success or error for every item. Existing fencing and lifecycle checks apply to each item."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskBatchInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
-		value, err := svc.Batch(ctx, graphtask.BatchInput{Operations: in.Operations, Lease: in.Lease, Actor: taskActor(req, in.AgentID)})
+		value, err := svc.Batch(ctx, graphtask.BatchInput{RequireSession: true, Operations: in.Operations, Lease: in.Lease, Actor: taskActor(req, in.AgentID)})
 		if err != nil {
 			return errResult(err)
 		}
@@ -328,7 +332,7 @@ func registerTaskTools(server *mcp.Server) {
 		if in.Priority != nil {
 			priority = *in.Priority
 		}
-		created, err := svc.Create(ctx, graphtask.CreateInput{Title: in.Title, Description: in.Description, AcceptanceCriteria: in.AcceptanceCriteria, Tests: in.Tests, Type: in.Type, Priority: priority, ParentID: in.ParentID, DependsOn: in.DependsOn, IdempotencyKey: in.IdempotencyKey, Actor: taskActor(req, in.AgentID)})
+		created, err := svc.Create(ctx, graphtask.CreateInput{SessionID: in.SessionID, RequireSession: true, Title: in.Title, Description: in.Description, AcceptanceCriteria: in.AcceptanceCriteria, Tests: in.Tests, Type: in.Type, Priority: priority, ParentID: in.ParentID, DependsOn: in.DependsOn, IdempotencyKey: in.IdempotencyKey, Actor: taskActor(req, in.AgentID)})
 		if err != nil {
 			return errResult(err)
 		}
@@ -364,7 +368,7 @@ func registerTaskTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		value, err := svc.List(ctx, graphtask.ListOptions{Status: in.Status, Owner: in.Owner, ParentID: in.ParentID, Ready: in.Ready})
+		value, err := svc.List(ctx, graphtask.ListOptions{SessionID: in.SessionID, Status: in.Status, Owner: in.Owner, ParentID: in.ParentID, Ready: in.Ready})
 		if err != nil {
 			return errResult(err)
 		}

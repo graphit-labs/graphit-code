@@ -43,6 +43,44 @@ func TestProtocolKeepsEnabledRecallModuleIndependent(t *testing.T) {
 	}
 }
 
+func TestSessionLifecycleGuidanceSurvivesBootstrapAndResume(t *testing.T) {
+	for _, format := range []string{FormatSessionStart, FormatPlainContext, FormatAdditionalContext, FormatSubagentStart, FormatCursorSubagentTask} {
+		input := []byte(`{"tool_input":{"prompt":"Implement assigned task"}}`)
+		payload, err := RenderWithContext(format, input, Context{MandatoryLoaded: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"graphit_task_session_list", "graphit_task_session_search", "graphit_task_session_get", "graphit_task_session_create", "graphit_task_session_revise", "graphit_task_session_checkpoint", "graphit_task_session_complete", "detailed user request", "claim only their task", "Stop hooks never close sessions", "native host session IDs are not Graphit session IDs"} {
+			if !strings.Contains(string(payload), want) {
+				t.Fatalf("%s session lifecycle missing %q", format, want)
+			}
+		}
+	}
+	for _, format := range []string{FormatUserPrompt, FormatBeforeAgent, FormatFirstInvocation, FormatToolContext} {
+		payload, err := Render(format, []byte(`{"invocationNum":1}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"resume durable session/task state", "revise changed intent", "close delivered sessions explicitly"} {
+			if !strings.Contains(string(payload), want) {
+				t.Fatalf("%s loses session continuation %q", format, want)
+			}
+		}
+	}
+}
+
+func TestTaskDisabledOmitsSessionCheckpointTools(t *testing.T) {
+	for _, format := range []string{FormatSessionStart, FormatPlainContext, FormatSubagentStart, FormatPostToolUse, FormatAfterTool, FormatPlainUnit, FormatPostInvocation, FormatCursorUnit} {
+		payload, err := RenderWithContext(format, nil, Context{TaskDisabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(payload), "graphit_task_") {
+			t.Fatalf("%s instructs disabled Task operations: %s", format, payload)
+		}
+	}
+}
+
 func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 	t.Parallel()
 	invariant := CoreInvariant()
@@ -58,7 +96,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 	t.Parallel()
 
 	reminder := UnitCompletionReminder()
-	for _, want := range []string{"completed work unit of a claimed task", "graphit_task_progress", "Reads and task bookkeeping alone are not completed units", "Keep task state in Graphit", "acceptance checks", "code/documentation consistency in both directions", "inspected targets and evidence", "Resolve divergence before closing"} {
+	for _, want := range []string{"after meaningful work", "graphit_task_progress", "Reads/bookkeeping alone need none", "graphit_task_session_checkpoint", "coordinator", "problems, decisions, strategy, next step", "Revise changed intent", "close delivered sessions explicitly", "acceptance checks", "code/documentation consistency in both directions", "targets/evidence", "Resolve divergence before closing"} {
 		if !strings.Contains(reminder, want) {
 			t.Fatalf("unit reminder missing %q: %s", want, reminder)
 		}
@@ -81,7 +119,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rendering %s checkpoint for %s: %v", tc.format, tc.agent, err)
 		}
-		for _, want := range []string{tc.want, "completed work unit of a claimed task", "code/documentation consistency in both directions", "Resolve divergence before closing"} {
+		for _, want := range []string{tc.want, "after meaningful work", "code/documentation consistency in both directions", "Resolve divergence before closing"} {
 			if !strings.Contains(string(payload), want) {
 				t.Fatalf("%s did not carry %q through %s: %s", tc.agent, want, tc.format, payload)
 			}

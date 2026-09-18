@@ -103,11 +103,6 @@ var knownCLIs = map[string]cliSpec{
 		argArgs:     []string{"-p"},
 		sessionFlag: "--session",
 	},
-	"deepcode": {
-		mode:        inputArg,
-		argArgs:     []string{"-p"},
-		sessionFlag: "-r",
-	},
 }
 
 // removedCLIs prevents an explicitly configured legacy name from falling
@@ -188,7 +183,7 @@ func tryFallbackCLI(provider string, userCLI string) Client {
 	case "moonshot", "kimi":
 		defaultCandidates = []string{"kimi", "opencode", "cursor-agent", "kiro-cli", "copilot"}
 	case "deepseek":
-		defaultCandidates = []string{"deepcode", "opencode", "cursor-agent", "kiro-cli", "copilot"}
+		defaultCandidates = []string{"opencode", "cursor-agent", "kiro-cli", "copilot"}
 	case "anthropic":
 		defaultCandidates = []string{"claude", "kiro-cli", "cursor-agent", "opencode", "copilot"}
 	case "openai":
@@ -199,7 +194,7 @@ func tryFallbackCLI(provider string, userCLI string) Client {
 		defaultCandidates = []string{"kiro-cli", "cursor-agent", "opencode", "gemini", "copilot"}
 	default:
 
-		defaultCandidates = []string{"opencode", "agy", "gemini", "claude", "codex", "qwen", "kimi", "deepcode", "grok", "kiro-cli", "cursor-agent", "copilot"}
+		defaultCandidates = []string{"opencode", "agy", "gemini", "claude", "codex", "qwen", "kimi", "grok", "kiro-cli", "cursor-agent", "copilot"}
 	}
 
 	var candidates []string

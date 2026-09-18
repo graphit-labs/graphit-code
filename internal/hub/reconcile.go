@@ -138,7 +138,6 @@ func agentRootDir(agentName string) string {
 		"gemini":      ".gemini",
 		"qwen":        ".qwen",
 		"kimi":        ".kimi-code",
-		"deepcode":    ".deepcode",
 	}
 	return roots[agentName]
 }

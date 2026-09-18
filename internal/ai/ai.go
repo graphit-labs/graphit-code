@@ -38,5 +38,5 @@ func NewClientFromConfig() (Client, error) {
 		return cli, nil
 	}
 
-	return nil, errors.New("AI CLI not found, please install a supported CLI tool (e.g. gemini, claude, codex, qwen, kimi, deepcode)")
+	return nil, errors.New("AI CLI not found, please install a supported CLI tool (e.g. gemini, claude, codex, qwen, kimi)")
 }

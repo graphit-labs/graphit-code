@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
@@ -34,7 +33,6 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 		{"gemini", filepath.Join(".gemini", "settings.json"), `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-token"}]}]},"userSetting":true}`, sessionhook.FormatSessionStart, false},
 		{"qwen", filepath.Join(".qwen", "settings.json"), `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-token"}]}]},"userSetting":true}`, sessionhook.FormatSessionStart, false},
 		{"kimi", filepath.Join(".kimi-code", "config.toml"), "user_setting = \"user-token\"\n", sessionhook.FormatPlainContext, true},
-		{"deepcode", filepath.Join(".deepcode", "settings.json"), `{"userSetting":"user-token"}`, "", false},
 	}
 	if len(tests) != len(SupportedAgents()) {
 		t.Fatalf("adapter bootstrap matrix has %d entries, want one for each of %d supported Agents", len(tests), len(SupportedAgents()))
@@ -107,19 +105,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			}
 			configContent := string(second)
 			protocolContent := configContent
-			if tc.adapter == "deepcode" {
-				agents, err := os.ReadFile(filepath.Join(projectDir, ".deepcode", "AGENTS.md"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				script, err := os.ReadFile(filepath.Join(projectDir, filepath.FromSlash(NewDeepCodeAdapter().notifyScriptRelativePath())))
-				if err != nil {
-					t.Fatal(err)
-				}
-				protocolContent = string(agents)
-				configContent += "\n" + string(script) + "\n" + protocolContent
-			}
-			if tc.adapter != "deepcode" && strings.Contains(configContent, projectDir) {
+			if strings.Contains(configContent, projectDir) {
 				t.Fatalf("%s hook embeds the sync machine's checkout path: %s", tc.adapter, configContent)
 			}
 			if strings.Contains(configContent, "--project-dir") {
@@ -128,7 +114,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			if strings.Contains(configContent, launcherPath) {
 				t.Fatalf("%s hook embeds the sync machine's executable path: %s", tc.adapter, configContent)
 			}
-			if tc.adapter == "opencode" && !strings.Contains(configContent, `{ cwd: directory }`) {
+			if tc.adapter == "opencode" && !strings.Contains(configContent, `cwd: directory, stdin: nativeInput(sessionID)`) {
 				t.Fatalf("OpenCode must execute the hook from its runtime directory: %s", configContent)
 			}
 			if tc.adapter == "kiro" {
@@ -137,7 +123,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 					t.Fatal(err)
 				}
 				protocolContent = string(payload)
-			} else if tc.adapter != "opencode" && tc.adapter != "deepcode" {
+			} else if tc.adapter != "opencode" {
 				if strings.Count(configContent, "_session-hook --format "+tc.format) != 1 {
 					t.Fatalf("expected one managed command hook: %s", configContent)
 				}
@@ -163,6 +149,11 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			for _, required := range []string{"graphit_task_search", "graphit_task_get", "Follow `next_cursor` only while a relevant gap remains"} {
 				if !strings.Contains(protocolContent, required) {
 					t.Fatalf("%s bootstrap missing Task recall requirement %q: %s", tc.adapter, required, protocolContent)
+				}
+			}
+			for _, required := range []string{"graphit_task_session_list", "graphit_task_session_get", "graphit_task_session_create", "graphit_task_session_checkpoint", "graphit_task_session_revise", "graphit_task_session_complete", "claim only their task", "Stop hooks never close sessions"} {
+				if !strings.Contains(protocolContent, required) {
+					t.Fatalf("%s cannot deliver session lifecycle requirement %q", tc.adapter, required)
 				}
 			}
 			if tc.adapter == "cursor" || tc.adapter == "antigravity" {
@@ -224,20 +215,6 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 					t.Fatalf("%s must sync both subagent and main-agent completion: %s", tc.adapter, configContent)
 				}
 			}
-			if tc.adapter == "deepcode" {
-				for _, required := range []string{"\"notify\"", "graphit-notify", "no-output --sync", "Deep Code exposes only a completion"} {
-					if !strings.Contains(configContent, required) {
-						t.Fatalf("Deep Code lifecycle integration missing %q: %s", required, configContent)
-					}
-				}
-				if !strings.Contains(configContent, projectDir) {
-					t.Fatalf("Deep Code notify must use the native absolute script path: %s", configContent)
-				}
-				manifest, err := os.ReadFile(deepCodeNotifyManifestPath(projectDir))
-				if err != nil || !strings.Contains(string(manifest), projectDir) {
-					t.Fatalf("Deep Code notify ownership manifest = %q, %v", manifest, err)
-				}
-			}
 			if tc.adapter == "gemini" {
 				for _, required := range []string{"AfterTool", "after-tool", "AfterAgent", "after-agent --sync", "SessionEnd", "session-end --sync"} {
 					if !strings.Contains(configContent, required) {
@@ -246,7 +223,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				}
 			}
 			if tc.adapter == "kiro" {
-				for _, required := range []string{"UserPromptSubmit", "PostToolUse", "PostTaskExec", "Stop", "plain-unit", "no-output --sync", "completed work unit of a claimed task"} {
+				for _, required := range []string{"UserPromptSubmit", "PostToolUse", "PostTaskExec", "Stop", "plain-unit", "no-output --sync", "after meaningful work"} {
 					if !strings.Contains(configContent, required) {
 						t.Fatalf("Kiro lifecycle is incomplete; missing %q: %s", required, configContent)
 					}
@@ -263,7 +240,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				}
 			}
 			if tc.adapter == "opencode" {
-				for _, required := range []string{`"tool.execute.after"`, `event.type === "session.idle"`, `event.type === "session.deleted"`, `Bun.spawn([`, `subprocess.unref()`, `"no-output", "--sync"`, "completed work unit of a claimed task"} {
+				for _, required := range []string{`"tool.execute.after"`, `event.type === "session.idle"`, `event.type === "session.deleted"`, `Bun.spawn([`, `subprocess.unref()`, `"no-output", "--sync"`, "after meaningful work"} {
 					if !strings.Contains(configContent, required) {
 						t.Fatalf("OpenCode lifecycle is incomplete; missing %q: %s", required, configContent)
 					}
@@ -303,14 +280,6 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			}
 			if strings.Contains(string(remaining), "graphit_memory_mandatory") || strings.Contains(string(remaining), "_session-hook") {
 				t.Fatalf("managed hook remained after removal: %s", remaining)
-			}
-			if tc.adapter == "deepcode" {
-				if _, err := os.Stat(filepath.Join(projectDir, ".deepcode", "AGENTS.md")); !os.IsNotExist(err) {
-					t.Fatalf("managed Deep Code AGENTS block remained: %v", err)
-				}
-				if _, err := os.Stat(deepCodeNotifyManifestPath(projectDir)); !os.IsNotExist(err) {
-					t.Fatalf("Deep Code notify ownership manifest remained: %v", err)
-				}
 			}
 		})
 	}
@@ -363,61 +332,6 @@ func TestKimiGlobalHooksStayUntilLastProjectIsRemoved(t *testing.T) {
 	}
 	if data, err = os.ReadFile(config); err == nil && strings.Contains(string(data), "_session-hook") {
 		t.Fatalf("Kimi hook remained after last project: %s", data)
-	}
-}
-
-func TestDeepCodePreservesUserInstructionsAndRejectsNotifyCollision(t *testing.T) {
-	project := t.TempDir()
-	settings := filepath.Join(project, ".deepcode", "settings.json")
-	agents := filepath.Join(project, ".deepcode", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(settings, []byte(`{"notify":"user-notify","theme":"dark"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(agents, []byte("user instructions\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a := NewDeepCodeAdapter()
-	if err := a.Sync(nil, &paths.ProjectPaths{ActiveProjectDir: project}, "project"); err == nil || !strings.Contains(err.Error(), "will not overwrite") {
-		t.Fatalf("expected notify ownership conflict, got %v", err)
-	}
-	data, _ := os.ReadFile(settings)
-	if !strings.Contains(string(data), "user-notify") || !strings.Contains(string(data), "dark") {
-		t.Fatalf("user settings changed: %s", data)
-	}
-	data, _ = os.ReadFile(agents)
-	if string(data) != "user instructions\n" {
-		t.Fatalf("user AGENTS changed on conflict: %q", data)
-	}
-
-	if err := os.WriteFile(settings, []byte(`{"theme":"dark"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Sync(nil, &paths.ProjectPaths{ActiveProjectDir: project}, "project"); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Sync(nil, &paths.ProjectPaths{ActiveProjectDir: project}, "project"); err != nil {
-		t.Fatal(err)
-	}
-	data, _ = os.ReadFile(agents)
-	if strings.Count(string(data), brand.ManagedBlockMarker()+" START: deepcode") != 1 || !strings.Contains(string(data), "user instructions") {
-		t.Fatalf("managed block was not idempotent/preservative: %s", data)
-	}
-	if err := a.Remove(&paths.ProjectPaths{ActiveProjectDir: project}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.Remove(&paths.ProjectPaths{ActiveProjectDir: project}, nil); err != nil {
-		t.Fatal(err)
-	}
-	data, _ = os.ReadFile(agents)
-	if string(data) != "user instructions\n" {
-		t.Fatalf("user AGENTS not restored: %q", data)
-	}
-	data, _ = os.ReadFile(settings)
-	if !strings.Contains(string(data), "dark") || strings.Contains(string(data), "notify") {
-		t.Fatalf("selective notify removal failed: %s", data)
 	}
 }
 

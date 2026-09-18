@@ -11,6 +11,8 @@ Aliases P/S/D1/A/U/V/D2/B/C/W/G represent returned task IDs; check labels bind t
 
 Request: 'Build out our project portal so readers can browse archived projects and download project reports from the view. Keep current permissions. Investigate and save the full implementation plan before starting.'
 
+Find/create and claim the durable session before material planning as described in [session.md](session.md). Its description captures both capabilities and the user's planning-before-implementation boundary; its strategy starts with the investigation below. Assume the returned session ID is ses-a101. All P/S/D1/D2 and leaf Tasks share this session_id; S is a Task alias for the system delivery, not the session itself. Delegated workers receive this ID without sharing coordination ownership.
+
 Create and claim P for investigation with this known request, boundaries and planning-quality checks below. Do not start coding from this initial broad record. In P, gather the browsing evidence from the feature example and investigate the report consumer/producer boundary:
 
 | Evidence established through source, documentation or a user answer | Effect on the plan |
@@ -77,6 +79,8 @@ Q4 intentionally distinguishes an API empty-result contract from a UI convenienc
 
 ## Every record saved before implementation
 
+Every creation packet below includes session_id: ses-a101, including inherited feature packets and batch items; replace the illustrative ID with the actual session. A parent/child may not belong to different sessions. The session preserves the evolving whole demand while these Tasks retain complete execution contracts and check evidence.
+
 | Alias/type | parent_id | depends_on | Outcome/owned work |
 |---|---|---|---|
 | P task | omitted | [] | Investigate, specify and save complete system backlog |
@@ -115,7 +119,7 @@ P's revision occurs before checking its final scope; revised descriptions reset 
 
 ### D1/A/U/V packets — fully instantiate the browsing branch
 
-Use the feature example's complete E/A/U/V creation descriptions, acceptance_criteria and tests, including the actual source map, P fixture C1-C12, R1-R8 and docs responsibilities. Rename E→D1, set D1.parent_id=S and bind all P/E references to this system's P/D1 returned IDs. A/U/V retain their full packets and map labels A1-A5/AT1-AT4, U1-U4/UT1-UT4, V1-V2/VT1-VT2 to real check IDs. D1 retains E1/E2/ET1/ET2 labels from the filled feature packet. Its idempotency_key identifies this system's browsing delivery.
+Use the feature example's complete E/A/U/V creation descriptions, acceptance_criteria and tests, including source map, P fixture C1-C12, R1-R8 and docs responsibilities. Rename E→D1, set D1.parent_id=S and bind all P/E/session_id values to this system's returned P/D1/session IDs. A/U/V retain full packets and map A1-A5/AT1-AT4, U1-U4/UT1-UT4, V1-V2/VT1-VT2 to real check IDs. D1 retains E1/E2/ET1/ET2 labels; its idempotency_key identifies this system's browsing delivery.
 
 This is authoring reuse, not permission to save 'see example' as the leaf description. Persist the instantiated packets and shared spec in this backlog so a cold-start executor need not find this skill's example. A's output names the actual ListProjects/options signature and tests; U's output names current mode/page state and pending/error guard; these are B/C's explicit inputs. Verify C1-C12 still hold with the Q6 name fixture. Do not alter D1 acceptance merely because D2 adds a later sibling capability.
 
@@ -177,5 +181,7 @@ If G finds a report defect after D2 completed, D2 cannot accept a new child. Cre
 
 At execution, consume prerequisite results and reconcile each packet against current source before coding. If A changes its planned options type, B must use the actual supported signature and revise its description/checks if material; a progress note alone is insufficient. If C discovers requestDownload cannot preserve the specified errors, save the concrete contradiction and affected S3/S5/Q8 scope in refinement, then reconcile B/C/W before further affected work. Read [execution.md](execution.md) for claimed/blocked revision mechanics; never drop dependencies to acquire a claim.
 
-Checkpoint each meaningful unit with code and documentation evidence. A handoff from C must identify completed state wiring and current revision; actual passed/failed check IDs and test artifacts; precise unimplemented retry/guide steps; unchanged contract decisions; prerequisite result references; and the next target/action/expected result. Example next step: 'In web/projects.tsx, preserve rows/mode/page in the rejected report promise, add Q8 in projects.test.tsx, run the component suite, then reconcile docs/projects/reports.md failure/retry section; C2/CT1/CT3 remain pending until this passes.' Do not claim that example work happened or publish a claim token. Release with that handoff if stopping. Final completion follows returned current revisions/check IDs, active ownership, complete descendants/dependencies and absence of unresolved flags.
+Checkpoint each meaningful unit with code/documentation evidence. A handoff from C identifies current wiring/revision; actual passed/failed checks and artifacts; unimplemented retry/guide steps; decisions; prerequisite results; next action/expected result. Example: 'In web/projects.tsx, preserve rows/mode/page in the rejected report promise, add Q8 in projects.test.tsx, run the component suite, then reconcile docs/projects/reports.md failure/retry; C2/CT1/CT3 remain pending until this passes.' Do not claim the example happened or publish a token. Release the Task if stopping. The coordinator checkpoints system-wide effects/problems/decisions/strategy in the session and revises current intent if C changes an agreed contract.
+
+Planning completion preserves the graph without claiming implementation success. For a planning-only stop, checkpoint/release the session with pending delivery IDs; do not close while those Tasks remain open. To resume implementation, read current session intent/authorization, recent checkpoints and chosen Task/prerequisites; obtain separate coordinator/Task claims as needed. Once deliveries/integration and S complete, reconcile every current requirement and scope change, read all associated Task states and explicitly complete the session with final evidence. Closing S is necessary delivery evidence, but never substitutes for closing the session. Hooks cannot decide that transition.
 `

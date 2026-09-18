@@ -372,7 +372,7 @@ func TestSupportsStructuredStream(t *testing.T) {
 			t.Errorf("%s has a structured mode", bin)
 		}
 	}
-	for _, bin := range []string{"kiro-cli", "deepcode", "unknown"} {
+	for _, bin := range []string{"kiro-cli", "unknown"} {
 		if (&cliClient{binaryName: bin}).SupportsStructuredStream() {
 			t.Errorf("%s must not claim a structured mode it has no parser for", bin)
 		}

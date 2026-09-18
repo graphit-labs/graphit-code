@@ -28,7 +28,7 @@ import (
 
 type initInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"The directory of the project to initialize (required)"`
-	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, deepcode, etc.)"`
+	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.)"`
 	ID          string `json:"id,omitempty" jsonschema:"Project ID (ULID) override"`
 	Name        string `json:"name,omitempty" jsonschema:"Project name override"`
 	Description string `json:"description,omitempty" jsonschema:"Project description"`

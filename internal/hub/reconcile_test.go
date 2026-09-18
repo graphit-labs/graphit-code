@@ -143,7 +143,6 @@ func TestAgentRootDir(t *testing.T) {
 		{"gemini", ".gemini"},
 		{"qwen", ".qwen"},
 		{"kimi", ".kimi-code"},
-		{"deepcode", ".deepcode"},
 		{"unknown", ""},
 	}
 

@@ -84,7 +84,7 @@ func TestCompleteAllCLIBranches(t *testing.T) {
 		}
 	}
 
-	argBinaries := []string{"opencode", "qwen", "kimi", "deepcode"}
+	argBinaries := []string{"opencode", "qwen", "kimi"}
 	for _, bin := range argBinaries {
 		script := fmt.Sprintf("#!/bin/sh\necho \"%s ok\"\n", bin)
 		if err := os.WriteFile(filepath.Join(tempDir, bin), []byte(script), 0755); err != nil {
@@ -241,7 +241,7 @@ func TestCompleteArgInput(t *testing.T) {
 	tempDir := t.TempDir()
 	script := "#!/bin/sh\nfor arg; do last=$arg; done; echo \"arg: $last\"\n"
 
-	binaries := []string{"opencode", "qwen", "kimi", "deepcode"}
+	binaries := []string{"opencode", "qwen", "kimi"}
 	for _, bin := range binaries {
 		bp := filepath.Join(tempDir, bin)
 		if err := os.WriteFile(bp, []byte(script), 0755); err != nil {
@@ -279,7 +279,6 @@ func TestSupportsSession(t *testing.T) {
 		{"kiro-cli", false},
 		{"qwen", true},
 		{"kimi", true},
-		{"deepcode", false},
 		{"unknown", false},
 	}
 	for _, tt := range tests {
@@ -394,7 +393,7 @@ func TestTryFallbackCLI_AllProviders(t *testing.T) {
 		{"qwen", "qwen"},
 		{"moonshot", "kimi"},
 		{"kimi", "kimi"},
-		{"deepseek", "deepcode"},
+		{"deepseek", "opencode"},
 		{"anthropic", "claude"},
 		{"openai", "codex"},
 		{"xai", "grok"},

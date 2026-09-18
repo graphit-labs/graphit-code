@@ -54,15 +54,27 @@ func Build(projectDir string, includeMandatory bool) sessionhook.Context {
 		return sessionhook.Context{}
 	}
 	projectCfg := loadProjectConfig(projectDir)
-	context := sessionhook.Context{
-		Instructions:   loadInstructionContext(projectDir, projectCfg),
-		MemoryDisabled: config.IsModuleDisabled("memory", nil, projectCfg),
-		TaskDisabled:   config.IsModuleDisabled("task", nil, projectCfg),
-	}
+	context := moduleContext(projectCfg)
+	context.Instructions = loadInstructionContext(projectDir, projectCfg)
 	if includeMandatory && !context.MemoryDisabled {
 		context.Mandatory, context.MandatoryLoaded = loadMandatoryContext(projectDir)
 	}
 	return context
+}
+
+// ModuleContext reads only enabled-module switches at recurring hook boundaries.
+func ModuleContext(projectDir string) sessionhook.Context {
+	if projectDir == "" {
+		return sessionhook.Context{}
+	}
+	return moduleContext(loadProjectConfig(projectDir))
+}
+
+func moduleContext(projectCfg config.ConfigMap) sessionhook.Context {
+	return sessionhook.Context{
+		MemoryDisabled: config.IsModuleDisabled("memory", nil, projectCfg),
+		TaskDisabled:   config.IsModuleDisabled("task", nil, projectCfg),
+	}
 }
 
 func Mandates() string {

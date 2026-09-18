@@ -21,3 +21,20 @@ func TestAgentIDFromHookDoesNotGuessUnknownPayload(t *testing.T) {
 		t.Fatalf("AgentIDFromHook() = %q, want empty", got)
 	}
 }
+
+func TestAgentIDFromHookAcceptsNativeIDAliases(t *testing.T) {
+	for _, payload := range []string{
+		`{"sessionID":"native-session"}`,
+		`{"threadID":"native-session"}`,
+		`{"event":{"properties":{"sessionID":"native-session"}}}`,
+	} {
+		if got, want := AgentIDFromHook([]byte(payload)), AgentIDForSession("native-session"); got != want {
+			t.Fatalf("identity from %s = %q, want %q", payload, got, want)
+		}
+	}
+	for _, payload := range []string{`{"sessionID":null}`, `{"sessionID":" "}`, `{"info":{"id":"ambiguous"}}`, `{`} {
+		if got := AgentIDFromHook([]byte(payload)); got != "" {
+			t.Fatalf("unsafe identity inferred from %s: %q", payload, got)
+		}
+	}
+}

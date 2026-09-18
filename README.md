@@ -61,7 +61,7 @@ validation, persistence, and completion gates around whichever coding agent you 
   credentials per project/user/Hub scope while
   deny-by-default ACLs and IAM policy govern the remote prefixes.
 - **One framework, many assistants.** Native adapters support Codex, Claude Code, Cursor, Gemini CLI,
-  Kiro, OpenCode, Antigravity, Qwen Code, Kimi Code, and Deep Code; any MCP client can use the server endpoint.
+  Kiro, OpenCode, Antigravity, Qwen Code, and Kimi Code; any MCP client can use the server endpoint.
 - **One query, several retrieval modes.** BM25 full-text search, semantic vectors, hybrid reciprocal
   rank fusion, exact graph traversal, and source slicing serve different evidence needs.
 
@@ -137,7 +137,7 @@ tags `0.1.2`, `0.1`, `0`, and `latest`—Docker tags do not include the `v` pref
 daemon as PID 1 and publishes an **MCP endpoint** and the optional UI.
 
 Any MCP-capable AI agent can connect to it — Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot,
-Kiro, Qwen Code, Kimi Code, Deep Code, or your own client. The agent runs wherever the developer is
+Kiro, Qwen Code, Kimi Code, or your own client. The agent runs wherever the developer is
 and brings its own model; the server supplies published code graphs, documentation wikis, and memory
 it reasons over. One container can serve a team without requiring each remote client to index
 anything locally.

@@ -32,7 +32,7 @@ var DefaultKnowledgeIgnorePatterns = []string{
 	brand.DotDir() + "/",
 
 	".agents/", ".claude/", ".cursor/", ".kiro/", ".codex/", ".gemini/", ".opencode/",
-	".qwen/", ".kimi-code/", ".deepcode/",
+	".qwen/", ".kimi-code/",
 }
 
 func NewKnowledgeIgnoreChecker(rootPath string) *ignorer.IgnoreChecker {

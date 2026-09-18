@@ -89,7 +89,7 @@ overrides remain versionable. See
 graphit init --agent <agent_name> [flags]
 ```
 **Flags:**
-- `--agent <string>`: Targets a specific agent adapter: `antigravity`, `cursor`, `claude`, `gemini`, `kiro`, `codex`, `opencode`, `qwen`, `kimi`, or `deepcode`.
+- `--agent <string>`: Targets a specific agent adapter: `antigravity`, `cursor`, `claude`, `gemini`, `kiro`, `codex`, `opencode`, `qwen`, or `kimi`.
 - `--id <string>`: Sets the initial ULID only when identity does not exist; a conflicting existing
   ULID is rejected.
 - `--name <string>`: Sets or renames the human-readable discovery name; remote registration still
@@ -640,10 +640,10 @@ graphit task <subcommand> [flags]
 ```
 **Subcommands:**
 - `batch <file|->`: Run 1-100 ordered mutations from a JSON object with `operations` and optional default `lease`; `-` reads standard input. Every item reports success or an explicit error, and the command exits non-zero if any item fails.
-- `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask.
-- `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, or parent.
-- `get`, `search`: Retrieve authoritative history or search task/comment text.
-- `export [task-id]`: Print a stable complete JSON document for every project task, or one exact task and its recursive subtasks. The document contains task snapshots, dependency/check projections, events, comments, and specification revisions; private fencing tokens are never exported.
+- `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask, and `--session` associates a durable request. Manual standalone tasks may omit a session.
+- `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, parent, or `--session`.
+- `get`, `search`: Retrieve authoritative history or search task/comment text; `search --session` ranks only that session’s tasks.
+- `export [task-id]`: Print a stable complete JSON document for every project task, or one exact task and its recursive subtasks. Schema version 2 contains task snapshots, dependency/check projections, events, comments, specification revisions and the selected sessions with their event/checkpoint/specification history; an all-project export includes sessions without tasks. Private fencing tokens are never exported.
 - `claim`, `heartbeat`, `release`: Own or hand off work with a fenced lease.
 - `progress`, `comment`, `check`: Record checkpoints, typed context, and acceptance/test evidence.
 - `revise <task-id> <patch-file|->`: Apply a strict JSON specification patch with `--expected-revision`, `--reason`, and the current claim token.
@@ -674,6 +674,30 @@ hooks never shortens a longer active lease.
 Open, unclaimed tasks are the backlog; no Markdown task files are created. On a direction change,
 cancel or remove obsolete work immediately instead of leaving task garbage. See
 [Task Module](../specs/task_module.md).
+
+#### `task session`
+
+A durable session holds the complete user request, strategy, checkpoints and related tasks across
+agents. Its coordinator claim is independent of task claims. [Session guide](task-sessions.md)
+provides the creation, revision, handoff, failure recovery and completion workflow.
+
+| Subcommand | Inputs and result |
+|---|---|
+| `create <title>` | Required `--description`, `--strategy`; optional `--idempotency-key`, `--agent`. Creates an open request without claiming. |
+| `get <id>` / `show <id>` | Snapshot, ordered events/checkpoints/spec revisions and associated task summaries, without private tokens. |
+| `list` | Optional `--status`, `--owner`, `--active`; active selects open and in-progress requests. |
+| `search <query>` | Search request and history; `--limit` defaults to 20. |
+| `claim <id>` | Optional `--agent`, `--lease` (default 1h); returns the private coordinator token. |
+| `revise <id> <patch-file\|->` | Strict JSON fields `title`, `description`, `strategy`; requires `--expected-revision`, `--reason`, `--claim-token`. |
+| `checkpoint <id> <file\|->` | Strict JSON with required `summary`, `next_step` and optional `problems`, `decisions`, `strategy`; requires `--claim-token`. |
+| `heartbeat <id>` | Requires `--claim-token`; renews ownership without changing the narrative. |
+| `release <id>` | Requires `--claim-token`, `--summary`, `--next-step`; leaves the request open for continuation. |
+| `complete <id>` | Requires `--claim-token`, `--summary`; refuses nonterminal associated tasks. |
+| `cancel <id>` | Requires `--claim-token`, `--reason`; refuses nonterminal tasks without cancelling them automatically. |
+| `force-takeover <id>` | Requires `--confirm-id`, `--expected-revision`, `--reason`, `--lease`; use a different `--agent` for an unrecoverable coordinator. |
+
+Owner mutations accept `--agent`; revise/checkpoint/heartbeat also accept `--lease`. Session states
+are `open`, `in_progress`, `completed`, `cancelled`. Ending a host turn never completes a request.
 
 ### `cluster`
 Manages project grouping.

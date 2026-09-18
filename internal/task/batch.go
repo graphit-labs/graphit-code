@@ -11,12 +11,15 @@ import (
 const MaxBatchOperations = 100
 
 type BatchInput struct {
-	Operations []BatchOperation `json:"operations"`
-	Lease      string           `json:"lease,omitempty"`
-	Actor      string           `json:"-"`
+	RequireSession bool             `json:"-"`
+	Operations     []BatchOperation `json:"operations"`
+	Lease          string           `json:"lease,omitempty"`
+	Actor          string           `json:"-"`
 }
 
 type BatchOperation struct {
+	SessionID          string `json:"session_id,omitempty" jsonschema:"Create: durable session ID; inherited from parent or current coordinator when omitted"`
+	requireSession     bool
 	Key                string   `json:"key,omitempty" jsonschema:"Optional caller correlation key"`
 	Action             string   `json:"action" jsonschema:"create, claim, force_takeover, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, check_supersede, revise, comment, dependency_add, or dependency_remove"`
 	ID                 string   `json:"id,omitempty" jsonschema:"Task ID for every action except create"`
@@ -81,6 +84,7 @@ func (s *Service) Batch(ctx context.Context, in BatchInput) (BatchResult, error)
 
 	out := BatchResult{Results: make([]BatchItemResult, 0, len(in.Operations))}
 	for index, operation := range in.Operations {
+		operation.requireSession = in.RequireSession
 		item := BatchItemResult{Index: index, Key: operation.Key, Action: strings.ToLower(strings.TrimSpace(operation.Action)), ID: strings.TrimSpace(operation.ID)}
 		value, runErr := s.runBatchOperation(ctx, in.Actor, defaultLease, operation)
 		if runErr != nil {
@@ -118,7 +122,7 @@ func (s *Service) runBatchOperation(ctx context.Context, actor string, defaultLe
 	}
 	switch action {
 	case "create":
-		return s.Create(ctx, CreateInput{Title: operation.Title, Description: operation.Description, AcceptanceCriteria: operation.AcceptanceCriteria, Tests: operation.Tests, Type: operation.Type, Priority: priority, ParentID: operation.ParentID, DependsOn: operation.DependsOn, IdempotencyKey: operation.IdempotencyKey, Actor: actor})
+		return s.Create(ctx, CreateInput{SessionID: operation.SessionID, RequireSession: operation.requireSession, Title: operation.Title, Description: operation.Description, AcceptanceCriteria: operation.AcceptanceCriteria, Tests: operation.Tests, Type: operation.Type, Priority: priority, ParentID: operation.ParentID, DependsOn: operation.DependsOn, IdempotencyKey: operation.IdempotencyKey, Actor: actor})
 	case "claim":
 		return s.Claim(ctx, operation.ID, actor, lease)
 	case "force_takeover":

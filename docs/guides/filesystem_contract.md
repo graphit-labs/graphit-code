@@ -135,19 +135,11 @@ tracks and removes only managed entries.
 | OpenCode | `.opencode/` | `.opencode/plugins/graphit-memory-session-start.js` | `opencode.json` |
 | Qwen Code | `.qwen/` | `.qwen/settings.json` | `.qwen/settings.json` |
 | Kimi Code | `.kimi-code/` | `~/.kimi-code/config.toml` (shared, reference-counted) | `.kimi-code/mcp.json` |
-| Deep Code | `.deepcode/` | `.deepcode/AGENTS.md` plus `.deepcode/hooks/graphit-notify.*` | `.deepcode/settings.json` |
-
-Deep Code requires `notify` to be a full executable-script path, so `.deepcode/settings.json`
-contains the absolute path of the Graphit-owned dispatcher. The ownership manifest under
-`.graphit/runtime/cache/hooks/` lets update and removal distinguish that value from a user's
-callback.
 
 Within those roots, the normal destinations are `rules/`, `commands/`, `skills/<name>/SKILL.md`,
 and `agents/`; Kiro uses `steering/` for rules and `hooks/` for commands, Antigravity uses
 `workflows/` for commands, and OpenCode uses `agents/` for rules. Kimi has no project command
-directory. Deep Code supports project skills, but not project command/profile files; Graphit
-compiles installed Hub rules and agents into a marked, removable block in `.deepcode/AGENTS.md`.
-The adapter reference is the source of truth when an upstream client changes its layout.
+directory. The adapter reference is the source of truth when an upstream client changes its layout.
 
 ## Git and agent lifecycle hooks
 

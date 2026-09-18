@@ -857,7 +857,7 @@ func (s *Server) handleGenerateCypher(w http.ResponseWriter, r *http.Request) {
 	if s.aiClient == nil {
 		writeError(w, http.StatusServiceUnavailable,
 			"AI CLI not configured. Run:\n"+
-				"  "+brand.BinName()+" config --global ai.cli <gemini|claude|opencode|codex|cursor-agent|qwen|kimi|deepcode>\n"+
+				"  "+brand.BinName()+" config --global ai.cli <gemini|claude|opencode|codex|cursor-agent|qwen|kimi>\n"+
 				"Then make sure the CLI is installed and authenticated on your system.")
 		return
 	}

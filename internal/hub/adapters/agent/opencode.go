@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
@@ -189,61 +188,65 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 		return err
 	}
 
-	fallback := strconv.Quote(sessionhook.Protocol())
-	invariant := strconv.Quote(sessionhook.CoreInvariant())
-	unitReminder := strconv.Quote(sessionhook.UnitCompletionReminder())
-	executable := strconv.Quote(brand.BinName())
-	content := opencodeManagedMarker + "\n" +
-		"const initializedSessions = new Set()\n" +
-		"\n" +
-		"export const GraphitLifecycle = async ({ directory }) => {\n" +
-		"  const invariant = " + invariant + "\n" +
-		"  const loadBootstrap = () => {\n" +
-		"    let bootstrap = " + fallback + "\n" +
-		"    try {\n" +
-		"      const result = Bun.spawnSync([" + executable + ", \"_session-hook\", \"--format\", \"plain-context\"], { cwd: directory })\n" +
-		"      if (result.exitCode === 0) bootstrap = result.stdout.toString().trim() || bootstrap\n" +
-		"    } catch {}\n" +
-		"    return bootstrap\n" +
-		"  }\n" +
-		"  const dispatchFinalSync = () => {\n" +
-		"    try {\n" +
-		"      const subprocess = Bun.spawn([" + executable + ", \"_session-hook\", \"--format\", \"no-output\", \"--sync\"], { cwd: directory, stdout: \"ignore\", stderr: \"ignore\" })\n" +
-		"      subprocess.unref()\n" +
-		"    } catch {}\n" +
-		"  }\n" +
-		"  return {\n" +
-		"  event: async ({ event }) => {\n" +
-		"    if (event.type === \"session.idle\") dispatchFinalSync()\n" +
-		"    if (event.type === \"session.deleted\") {\n" +
-		"      dispatchFinalSync()\n" +
-		"      initializedSessions.delete(event.properties.info.id)\n" +
-		"    }\n" +
-		"  },\n" +
-		"  \"tool.execute.after\": async (_input, output) => {\n" +
-		"    const reminder = " + unitReminder + "\n" +
-		"    if (typeof output.output === \"string\" && !output.output.includes(reminder)) output.output += `\\n\\n${reminder}`\n" +
-		"  },\n" +
-		"  \"experimental.chat.system.transform\": async (input, output) => {\n" +
-		"    if (!input.sessionID) return\n" +
-		"    const context = initializedSessions.has(input.sessionID) ? invariant : loadBootstrap()\n" +
-		"    initializedSessions.add(input.sessionID)\n" +
-		"    if (output.system.length === 0) output.system.push(context)\n" +
-		"    else output.system.splice(0, 1, `${output.system[0]}\\n\\n${context}`)\n" +
-		"  },\n" +
-		"  \"experimental.session.compacting\": async (_input, output) => {\n" +
-		"    let compactContext = invariant\n" +
-		"    try {\n" +
-		"      const result = Bun.spawnSync([" + executable + ", \"_session-hook\", \"--format\", \"tool-context\"], { cwd: directory })\n" +
-		"      if (result.exitCode === 0) {\n" +
-		"        const parsed = JSON.parse(result.stdout.toString())\n" +
-		"        compactContext = parsed.additional_context || compactContext\n" +
-		"      }\n" +
-		"    } catch {}\n" +
-		"    output.context.push(compactContext)\n" +
-		"  },\n" +
-		"  }\n" +
-		"}\n"
+	content := fmt.Sprintf(`%s
+const initializedSessions = new Set()
+
+export const GraphitLifecycle = async ({ directory }) => {
+  const invariant = %q
+  const nativeInput = (sessionID) => new TextEncoder().encode(JSON.stringify({ cwd: directory, sessionID }))
+  const runHook = (format, sessionID) => Bun.spawnSync([%q, "_session-hook", "--format", format], { cwd: directory, stdin: nativeInput(sessionID) })
+  const loadBootstrap = (sessionID) => {
+    let bootstrap = %q
+    try {
+      const result = runHook("plain-context", sessionID)
+      if (result.exitCode === 0) bootstrap = result.stdout.toString().trim() || bootstrap
+    } catch {}
+    return bootstrap
+  }
+  const dispatchFinalSync = (sessionID) => {
+    try {
+      const subprocess = Bun.spawn([%q, "_session-hook", "--format", "no-output", "--sync"], { cwd: directory, stdin: nativeInput(sessionID), stdout: "ignore", stderr: "ignore" })
+      subprocess.unref()
+    } catch {}
+  }
+  return {
+    event: async ({ event }) => {
+      if (event.type === "session.idle") dispatchFinalSync(event.properties?.sessionID)
+      if (event.type === "session.deleted") {
+        const sessionID = event.properties?.info?.id
+        dispatchFinalSync(sessionID)
+        initializedSessions.delete(sessionID)
+      }
+    },
+    "tool.execute.after": async (input, output) => {
+      let reminder = %q
+      try {
+        const result = runHook("plain-unit", input.sessionID)
+        if (result.exitCode === 0) reminder = result.stdout.toString().trim()
+      } catch {}
+      if (reminder && typeof output.output === "string" && !output.output.includes(reminder)) output.output += "\n\n" + reminder
+    },
+    "experimental.chat.system.transform": async (input, output) => {
+      if (!input.sessionID) return
+      const context = initializedSessions.has(input.sessionID) ? invariant : loadBootstrap(input.sessionID)
+      initializedSessions.add(input.sessionID)
+      if (output.system.length === 0) output.system.push(context)
+      else output.system.splice(0, 1, output.system[0] + "\n\n" + context)
+    },
+    "experimental.session.compacting": async (input, output) => {
+      let compactContext = invariant
+      try {
+        const result = runHook("tool-context", input.sessionID)
+        if (result.exitCode === 0) {
+          const parsed = JSON.parse(result.stdout.toString())
+          compactContext = parsed.additional_context || compactContext
+        }
+      } catch {}
+      output.context.push(compactContext)
+    },
+  }
+}
+`, opencodeManagedMarker, sessionhook.CoreInvariant(), brand.BinName(), sessionhook.Protocol(), brand.BinName(), sessionhook.UnitCompletionReminder())
 	return writeFileAtomically(path, []byte(content), 0o644)
 }
 

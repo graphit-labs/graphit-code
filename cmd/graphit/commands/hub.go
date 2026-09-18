@@ -37,7 +37,7 @@ func newHubCmd() *cobra.Command {
 		PersistentPreRunE: requireSetupAndProject,
 	}
 
-	cmd.PersistentFlags().String("agent", "", "Target agent (antigravity, cursor, claude, gemini, kiro, codex, opencode, qwen, kimi, deepcode)")
+	cmd.PersistentFlags().String("agent", "", "Target agent (antigravity, cursor, claude, gemini, kiro, codex, opencode, qwen, kimi)")
 	_ = cmd.RegisterFlagCompletionFunc("agent", completionAgents())
 
 	cmd.AddCommand(

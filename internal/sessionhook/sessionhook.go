@@ -48,7 +48,7 @@ type Context struct {
 // compaction, for subagents, or at another model boundary. Procedures belong in
 // the just-in-time skills; this text only preserves routing and precedence.
 func CoreInvariant() string {
-	return "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume durable task state; new questions trigger needed enabled Memory/Task recall. Reuse sufficient context. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root."
+	return "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents; `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. With Task enabled, resume durable session/task state; revise changed intent before acting; close delivered sessions explicitly. New questions trigger needed Memory/Task recall; reuse evidence. `project_dir` is call-local; persist identity and relative paths, never checkout roots."
 }
 
 func cursorLifecycleCompensation() string {
@@ -63,14 +63,14 @@ func antigravityLifecycleCompensation() string {
 // the host exposes. The hook cannot decide whether a semantic unit is complete,
 // so it asks the agent to make that judgment immediately instead of at turn end.
 func UnitCompletionReminder() string {
-	return "Graphit task checkpoint: on a completed work unit of a claimed task, call `" + brand.MCPToolName("task", "progress") + "` now with evidence and next step. Reads and task bookkeeping alone are not completed units. Keep task state in Graphit. " + DocumentationConsistencyReminder()
+	return "Graphit task checkpoint (if enabled): after meaningful work use `" + brand.MCPToolName("task", "progress") + "`; coordinator: `" + brand.MCPToolName("task", "session", "checkpoint") + "` with evidence, problems, decisions, strategy, next step. Reads/bookkeeping alone need none. Revise changed intent; close delivered sessions explicitly. " + DocumentationConsistencyReminder()
 }
 
 // DocumentationConsistencyReminder is delivered before the agent can decide
 // that a task is complete. Final stop hooks are too late for semantic review,
 // so adapters use this through their last context-capable checkpoint boundary.
 func DocumentationConsistencyReminder() string {
-	return "Before completion, verify acceptance checks and affected code/documentation consistency in both directions; record inspected targets and evidence in Task. Resolve divergence before closing."
+	return "Verify acceptance checks and code/documentation consistency in both directions; record targets/evidence. Resolve divergence before closing."
 }
 
 // SubagentProtocol is self-contained because subagents may start with neither
@@ -126,6 +126,8 @@ func protocolWithContext(context Context) string {
 		appendStep("Whenever a question about the system, rationale or learned behavior needs context, including during work, read `" + brand.SkillDirName("memory") + "`; query `" + search + "` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, and the decision topic. Read selected ids with `" + memorySource + "`. Reuse sufficient context; new questions can require recall in the same session and scope.")
 	}
 	if !context.TaskDisabled {
+		appendStep("Read `" + brand.SkillDirName("task") + "` before session work. Use `" + brand.MCPToolName("task", "session", "list") + "` for active sessions and `" + brand.MCPToolName("task", "session", "search") + "` for relevant history; `" + brand.MCPToolName("task", "session", "get") + "` reads the chosen description, strategy, checkpoints and linked task IDs. Resume matching work; only if no match, `" + brand.MCPToolName("task", "session", "create") + "` records the detailed user request, scope, constraints and strategy, then claim coordination. Link all agent-created tasks to that durable session_id; native host session IDs are not Graphit session IDs. Delegated workers receive session_id and task IDs, read them, claim only their task and never take or close the coordinator's session.")
+		appendStep("At meaningful progress, problems or decisions the coordinator calls `" + brand.MCPToolName("task", "session", "checkpoint") + "` with evidence, rationale, strategy and exact next step. For added requests or changed direction, use `" + brand.MCPToolName("task", "session", "revise") + "` before affected work and reconcile its tasks. Before reporting delivery, explicitly `" + brand.MCPToolName("task", "session", "complete") + "` with a final summary after linked tasks are terminal; explain cancelled scope. Interrupted work needs a descriptive checkpoint and explicit release, not completion. Stop hooks never close sessions; absent or uncorrelated host identity cannot release ownership safely, so do not rely on them for handoff.")
 		appendStep("Before project work, read `" + brand.SkillDirName("task") + "`; search `" + taskSearch + "` with `top_k: 5`, `ai_optimized: true`, focused on this request, or get an assigned id directly with `" + taskGet + "`. Read the chosen task, parent specification and relevant dependencies/precedents. During work, new doubts also trigger focused search of prior investigations, decisions and evidence; do not wait for restart or a new plan. Follow `next_cursor` only while a relevant gap remains. Reuse recalled context.")
 		if strings.TrimSpace(context.Instructions) == "" {
 			appendStep("For multi-step work, persist specification, acceptance criteria, plan and dependency-ordered tasks before execution. Resume from recorded progress/evidence; revise affected tasks when scope changes. A single umbrella task is not an executable project plan.")
@@ -164,6 +166,10 @@ func RenderWithMandatory(format string, input []byte, mandatory ...string) ([]by
 // mandates. Repeated model boundaries receive only compact invariant/reminder
 // text so long-lived sessions do not accumulate the startup context.
 func RenderWithContext(format string, input []byte, context Context) ([]byte, error) {
+	reminder := UnitCompletionReminder()
+	if context.TaskDisabled {
+		reminder = ""
+	}
 	switch strings.ToLower(format) {
 	case FormatSessionStart:
 		return json.Marshal(map[string]any{
@@ -205,23 +211,23 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 		return json.Marshal(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":     "PostToolUse",
-				"additionalContext": UnitCompletionReminder(),
+				"additionalContext": reminder,
 			},
 		})
 	case FormatAfterTool:
 		return json.Marshal(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":     "AfterTool",
-				"additionalContext": UnitCompletionReminder(),
+				"additionalContext": reminder,
 			},
 		})
 	case FormatCursorUnit:
-		return json.Marshal(map[string]any{"additional_context": UnitCompletionReminder() + " Reapply Graphit routing before the next action."})
+		return json.Marshal(map[string]any{"additional_context": strings.TrimSpace(reminder + " Reapply Graphit routing before the next action.")})
 	case FormatPlainUnit:
-		return []byte(UnitCompletionReminder()), nil
+		return []byte(reminder), nil
 	case FormatPostInvocation:
 		return json.Marshal(map[string]any{
-			"injectSteps": []any{map[string]any{"ephemeralMessage": UnitCompletionReminder()}},
+			"injectSteps": []any{map[string]any{"ephemeralMessage": reminder}},
 		})
 	case FormatStop, FormatCursorStop, FormatAfterAgent, FormatSessionEnd:
 		return []byte(`{}`), nil

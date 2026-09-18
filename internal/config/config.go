@@ -383,8 +383,6 @@ func CLIForAgent(agent string) string {
 		return "qwen"
 	case "kimi":
 		return "kimi"
-	case "deepcode":
-		return "deepcode"
 	default:
 		return ""
 	}

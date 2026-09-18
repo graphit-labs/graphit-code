@@ -29,7 +29,6 @@ func TestGetAdapter(t *testing.T) {
 		{"gemini-code alias", "gemini-code", false},
 		{"qwen", "qwen", false},
 		{"kimi", "kimi", false},
-		{"deepcode", "deepcode", false},
 		{"deepseek is not an alias", "deepseek", true},
 		{"case insensitive", "CLAUDE", false},
 		{"unknown Agent", "vscode", true},
@@ -62,7 +61,6 @@ func TestSupportedAgents(t *testing.T) {
 		"gemini":      true,
 		"qwen":        true,
 		"kimi":        true,
-		"deepcode":    true,
 	}
 	for _, agent := range agents {
 		if !expected[agent] {
@@ -122,9 +120,6 @@ func TestArtifactTypePath(t *testing.T) {
 		{"qwen command", "qwen", "command", "cmd1", filepath.Join(".qwen", "commands", "cmd1.md"), false},
 		{"kimi skill", "kimi", "skill", "skill1", filepath.Join(".kimi-code", "skills", "skill1"), false},
 		{"kimi commands unsupported", "kimi", "command", "cmd1", "", true},
-		{"deepcode skill", "deepcode", "skill", "skill1", filepath.Join(".deepcode", "skills", "skill1"), false},
-		{"deepcode commands unsupported", "deepcode", "command", "cmd1", "", true},
-		{"deepcode individual agents unsupported", "deepcode", "agent", "agent1", "", true},
 		{"unknown Agent", "no-such-agent", "rule", "x", "", true},
 		{"unknown artType", "gemini", "mcp", "x", "", true},
 	}
@@ -279,7 +274,6 @@ func TestNewRequestedAgentAdapters(t *testing.T) {
 	tests := []struct{ name, root, skills string }{
 		{"qwen", ".qwen", "skills"},
 		{"kimi", ".kimi-code", "skills"},
-		{"deepcode", ".deepcode", "skills"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -358,7 +352,6 @@ func TestAdaptersInstallHubMCPAtTheNarrowestSupportedScope(t *testing.T) {
 		{name: "gemini", projectPath: filepath.Join(".gemini", "settings.json"), globalPath: filepath.Join(homeDir, ".gemini", "settings.json"), projectScoped: true},
 		{name: "qwen", projectPath: filepath.Join(".qwen", "settings.json"), globalPath: filepath.Join(homeDir, ".qwen", "settings.json"), projectScoped: true},
 		{name: "kimi", projectPath: filepath.Join(".kimi-code", "mcp.json"), globalPath: filepath.Join(homeDir, ".kimi-code", "mcp.json"), projectScoped: true},
-		{name: "deepcode", projectPath: filepath.Join(".deepcode", "settings.json"), globalPath: filepath.Join(homeDir, ".deepcode", "settings.json"), projectScoped: true},
 	}
 
 	for _, tc := range tests {

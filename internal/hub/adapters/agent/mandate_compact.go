@@ -80,10 +80,10 @@ func mandatePreamble() string {
 		"Match the current action; read its skill immediately before first use. Reuse loaded instructions for the same project/overrides; reload only needed skills after target/overrides change or compaction loses them. Never preload all skills.",
 		"Use Graphit MCP before native discovery, including cluster neighbors: their returned `dir` is `project_dir` for target module reads. If a required tool is unavailable, record the limitation and use default native tools; never substitute the Graphit CLI.",
 		"Pass `ai_optimized: true` when supported. Use narrow queries, compact results and selected sources; stop when evidence answers. Reuse fresh evidence; expand for concrete gaps.",
-		"Memory: facts/lessons; Task: prior analysis/decisions and work state; Knowledge: contracts; AST: code; Hub: cluster-first discovery. New questions at any stage trigger needed recall; reuse sufficient evidence.",
+		"Memory: facts/lessons; Task: sessions, analysis/decisions and work state; Knowledge: contracts; AST: code; Hub: cluster-first discovery. New questions at any stage trigger needed recall; reuse sufficient evidence.",
 		"`project_dir` is call-local. Persist project identity and relative paths in shared content, never a machine-specific checkout root; resolve it again on each host.",
-		"Hooks load mandatory memory and restore routing at lifecycle boundaries. After interruptions, corrections or handoff, resume from durable task state and revise affected plans before execution.",
-		"Checkpoint each independently reportable work unit in the active Task with evidence and the next step. After the final task update, the adapter stop hook dispatches a full sync asynchronously; do not duplicate it, wait for it, or sync after every edit.",
+		"Hooks load mandatory memory and restore routing at lifecycle boundaries. After interruptions, corrections or handoff, resume durable session/task state and revise changed requests before execution.",
+		"Checkpoint each independently reportable work unit in the active Task and session. Close delivered sessions explicitly. After the final task update, the adapter stop hook dispatches a full sync asynchronously; do not duplicate it, wait for it, or sync after every edit.",
 	}, "\n") + "\n"
 }
 

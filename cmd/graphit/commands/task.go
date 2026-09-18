@@ -20,7 +20,7 @@ func newTaskCmd() *cobra.Command {
 Open, unclaimed tasks are the backlog. Dependencies determine readiness. Agents
 must claim before work, checkpoint progress, and complete or release the claim.
 The returned claim token fences stopped or replaced agents from later writes.`}
-	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskForceTakeoverCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
+	cmd.AddCommand(newTaskSessionCmd(), newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskForceTakeoverCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
 	return cmd
 }
 
@@ -127,7 +127,7 @@ func decodeStrictTaskJSON(stdin io.Reader, source string, input any, label strin
 }
 
 func newTaskCreateCmd() *cobra.Command {
-	var description, kind, deps, key, actor, parentID string
+	var description, kind, deps, key, actor, parentID, sessionID string
 	var acceptance, tests []string
 	var priority int
 	cmd := &cobra.Command{Use: "create <title>", Short: "Create an open task", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -135,7 +135,7 @@ func newTaskCreateCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		v, err := svc.Create(context.Background(), graphtask.CreateInput{Title: args[0], Description: description, AcceptanceCriteria: acceptance, Tests: tests, Type: kind, Priority: priority, ParentID: parentID, DependsOn: splitTaskIDs(deps), IdempotencyKey: key, Actor: cliTaskActor(actor)})
+		v, err := svc.Create(context.Background(), graphtask.CreateInput{SessionID: sessionID, Title: args[0], Description: description, AcceptanceCriteria: acceptance, Tests: tests, Type: kind, Priority: priority, ParentID: parentID, DependsOn: splitTaskIDs(deps), IdempotencyKey: key, Actor: cliTaskActor(actor)})
 		if err != nil {
 			return err
 		}
@@ -150,6 +150,7 @@ func newTaskCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kind, "type", "task", "Task type")
 	cmd.Flags().IntVarP(&priority, "priority", "p", 2, "Priority 0-4")
 	cmd.Flags().StringVar(&deps, "depends-on", "", "Comma-separated blocking task IDs")
+	cmd.Flags().StringVar(&sessionID, "session", "", "Logical Task session ID; optional for manual standalone work")
 	cmd.Flags().StringVar(&parentID, "parent", "", "Parent delivery task ID for a subtask or finalization work")
 	cmd.Flags().StringVar(&key, "idempotency-key", "", "Stable caller key (defaults to canonical title)")
 	cmd.Flags().StringVar(&actor, "agent", "", "Agent identity (defaults to this Graphit unit)")
@@ -157,7 +158,7 @@ func newTaskCreateCmd() *cobra.Command {
 }
 
 func newTaskListCmd() *cobra.Command {
-	var status, owner, parentID string
+	var status, owner, parentID, sessionID string
 	var ready bool
 	cmd := &cobra.Command{Use: "list", Aliases: []string{"ready"}, Short: "List tasks or ready work", RunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.CalledAs() == "ready" {
@@ -167,7 +168,7 @@ func newTaskListCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		v, err := svc.List(context.Background(), graphtask.ListOptions{Status: status, Owner: owner, ParentID: parentID, Ready: ready})
+		v, err := svc.List(context.Background(), graphtask.ListOptions{SessionID: sessionID, Status: status, Owner: owner, ParentID: parentID, Ready: ready})
 		if err != nil {
 			return err
 		}
@@ -176,6 +177,7 @@ func newTaskListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Status filter, including derived blocked")
 	cmd.Flags().StringVar(&owner, "owner", "", "Exact owner filter")
 	cmd.Flags().StringVar(&parentID, "parent", "", "Only direct subtasks of this task ID")
+	cmd.Flags().StringVar(&sessionID, "session", "", "Only tasks associated with this logical Task session")
 	cmd.Flags().BoolVar(&ready, "ready", false, "Only dependency-ready open tasks")
 	return cmd
 }
@@ -213,18 +215,20 @@ func newTaskExportCmd() *cobra.Command {
 
 func newTaskSearchCmd() *cobra.Command {
 	var limit int
+	var sessionID string
 	cmd := &cobra.Command{Use: "search <query>", Short: "Search current and prior tasks", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := currentTaskService()
 		if err != nil {
 			return err
 		}
-		v, err := svc.Search(context.Background(), args[0], limit)
+		v, err := svc.SearchInSession(context.Background(), args[0], limit, sessionID)
 		if err != nil {
 			return err
 		}
 		return printTaskJSON(v)
 	}}
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum results")
+	cmd.Flags().StringVar(&sessionID, "session", "", "Rank only tasks associated with this logical Task session")
 	return cmd
 }
 

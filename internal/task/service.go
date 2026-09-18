@@ -293,6 +293,37 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 		if current, ok, err := t.getTaskByIdempotencyKey(ctx, key); err != nil {
 			return err
 		} else if ok {
+			// Retrying a key may recover a committed write, but must not bind
+			// work from a different logical session to the current demand.
+			if in.RequireSession && current.SessionID == "" {
+				return errors.New("existing task is unassociated; use a new idempotency key for session work")
+			}
+			requested := strings.TrimSpace(in.SessionID)
+			if requested == "" && in.ParentID != "" {
+				parent, found, err := t.getTask(ctx, in.ParentID)
+				if err != nil {
+					return err
+				}
+				if found {
+					requested = parent.SessionID
+				}
+			}
+			if requested == "" && in.ParentID == "" && strings.TrimSpace(in.Actor) != "" {
+				sessions, err := t.allSessions(ctx)
+				if err != nil {
+					return err
+				}
+				for _, session := range sessions {
+					if session.Status == StatusInProgress && session.Owner == in.Actor && session.LeaseExpiresAt > stamp(s.now().UTC()) {
+						requested = session.ID
+						break
+					}
+				}
+			}
+			if requested != "" && requested != current.SessionID {
+				return errors.New("task idempotency key belongs to a different session")
+			}
+			current.ClaimToken = ""
 			out = current
 			return nil
 		}
@@ -329,8 +360,12 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 				return fmt.Errorf("parent task %s is already %s", parentID, parent.Status)
 			}
 		}
+		sessionID, err := s.resolveTaskSession(ctx, t, in)
+		if err != nil {
+			return err
+		}
 		now := stamp(s.now().UTC())
-		out = Task{ID: id, ProjectID: s.projectID, ParentID: parentID, IdempotencyKey: key, Title: in.Title, Description: in.Description, Type: in.Type, Status: StatusOpen, Priority: in.Priority, DependsOn: deps, Checks: checks, CreatedAt: now, UpdatedAt: now, Revision: 1}
+		out = Task{SessionID: sessionID, ID: id, ProjectID: s.projectID, ParentID: parentID, IdempotencyKey: key, Title: in.Title, Description: in.Description, Type: in.Type, Status: StatusOpen, Priority: in.Priority, DependsOn: deps, Checks: checks, CreatedAt: now, UpdatedAt: now, Revision: 1}
 		out.LastEvent = newEvent(out, "created", in.Actor, "", StatusOpen, "task created", out.NextStep)
 		revision := newSpecRevision(Task{}, out, "created", in.Actor, "task created")
 		out.LastEvent.SpecRevision = &revision
@@ -414,6 +449,13 @@ func (s *Service) Revise(ctx context.Context, id, token, actor string, in Revise
 			}
 			if err := validateParentChange(next.ID, next.ParentID, all); err != nil {
 				return err
+			}
+			if next.ParentID != "" {
+				for _, parent := range all {
+					if parent.ID == next.ParentID && parent.SessionID != next.SessionID {
+						return errors.New("parent and child must belong to the same session")
+					}
+				}
 			}
 		}
 		if in.DependsOn != nil {
@@ -1246,6 +1288,34 @@ func (s *Service) Export(ctx context.Context, id string) (ExportDocument, error)
 			}
 		}
 
+		sessions, err := t.allSessions(ctx)
+		if err != nil {
+			return err
+		}
+		sessionIDs := map[string]bool{}
+		for _, v := range out.Tasks {
+			if v.SessionID != "" {
+				sessionIDs[v.SessionID] = true
+			}
+		}
+		out.Sessions = []Session{}
+		out.SessionEvents = []SessionEvent{}
+		out.SessionCheckpoints = []SessionCheckpointRecord{}
+		out.SessionSpecRevisions = []SessionSpecRevision{}
+		for _, session := range sessions {
+			if id != "" && !sessionIDs[session.ID] {
+				continue
+			}
+			detail, err := sessionDetailFromTables(ctx, t, session)
+			if err != nil {
+				return err
+			}
+			out.Sessions = append(out.Sessions, detail.Session)
+			out.SessionEvents = append(out.SessionEvents, detail.Events...)
+			out.SessionCheckpoints = append(out.SessionCheckpoints, detail.Checkpoints...)
+			out.SessionSpecRevisions = append(out.SessionSpecRevisions, detail.SpecRevisions...)
+		}
+
 		sort.Slice(out.Dependencies, func(i, j int) bool { return out.Dependencies[i].Key < out.Dependencies[j].Key })
 		sort.Slice(out.Checks, func(i, j int) bool {
 			if out.Checks[i].TaskID != out.Checks[j].TaskID {
@@ -1321,7 +1391,7 @@ func (s *Service) Catalog(ctx context.Context, opts CatalogOptions) ([]CatalogIt
 		sortCatalogTasks(selected)
 		for _, task := range selected {
 			out = append(out, CatalogItem{
-				ID: task.ID, Title: task.Title, Type: task.Type, Status: task.Status,
+				ID: task.ID, SessionID: task.SessionID, Title: task.Title, Type: task.Type, Status: task.Status,
 				Priority: task.Priority, Owner: task.Owner, Flagged: task.Flagged,
 				Ready: task.Ready, BlockedBy: task.BlockedBy, UpdatedAt: task.UpdatedAt,
 			})
@@ -1353,6 +1423,9 @@ func (s *Service) List(ctx context.Context, opts ListOptions) ([]Task, error) {
 					continue
 				}
 			}
+			if opts.SessionID != "" && v.SessionID != opts.SessionID {
+				continue
+			}
 			if opts.Owner != "" && v.Owner != opts.Owner {
 				continue
 			}
@@ -1371,6 +1444,10 @@ func (s *Service) List(ctx context.Context, opts ListOptions) ([]Task, error) {
 }
 
 func (s *Service) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	return s.SearchInSession(ctx, query, limit, "")
+}
+
+func (s *Service) SearchInSession(ctx context.Context, query string, limit int, sessionID string) ([]SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, errors.New("task search query is required")
@@ -1380,7 +1457,11 @@ func (s *Service) Search(ctx context.Context, query string, limit int) ([]Search
 	}
 	var out []SearchResult
 	err := s.withTables(ctx, func(t *tables) error {
-		hits, err := t.tasks.Search(ctx, lancestore.Query{Text: query, TextColumn: "search_text", Limit: limit})
+		filter := ""
+		if sessionID != "" {
+			filter = "session_id = " + quote(sessionID)
+		}
+		hits, err := t.tasks.Search(ctx, lancestore.Query{Text: query, TextColumn: "search_text", Filter: filter, Limit: limit})
 		if err != nil {
 			return err
 		}
@@ -1393,10 +1474,23 @@ func (s *Service) Search(ctx context.Context, query string, limit int) ([]Search
 		for _, hit := range hits {
 			v := taskFromRow(hit.Row)
 			decorate(&v, byID)
-			out = append(out, SearchResult{ID: v.ID, Title: v.Title, Status: v.Status, Priority: v.Priority, Ready: v.Ready, Flagged: v.Flagged, Score: hit.Score})
+			out = append(out, SearchResult{ID: v.ID, SessionID: v.SessionID, Title: v.Title, Status: v.Status, Priority: v.Priority, Ready: v.Ready, Flagged: v.Flagged, Score: hit.Score})
 			seen[v.ID] = true
 		}
-		commentHits, err := t.comments.Search(ctx, lancestore.Query{Text: query, TextColumn: "body", Limit: limit})
+		commentFilter := ""
+		if sessionID != "" {
+			ids := []string{}
+			for _, v := range all {
+				if v.SessionID == sessionID {
+					ids = append(ids, quote(v.ID))
+				}
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			commentFilter = "task_id IN (" + strings.Join(ids, ",") + ")"
+		}
+		commentHits, err := t.comments.Search(ctx, lancestore.Query{Text: query, TextColumn: "body", Filter: commentFilter, Limit: limit})
 		if err != nil {
 			return err
 		}
@@ -1410,7 +1504,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int) ([]Search
 				continue
 			}
 			decorate(&v, byID)
-			out = append(out, SearchResult{ID: v.ID, Title: v.Title, Status: v.Status, Priority: v.Priority, Ready: v.Ready, Flagged: v.Flagged, Score: hit.Score})
+			out = append(out, SearchResult{ID: v.ID, SessionID: v.SessionID, Title: v.Title, Status: v.Status, Priority: v.Priority, Ready: v.Ready, Flagged: v.Flagged, Score: hit.Score})
 			seen[id] = true
 		}
 		return nil
@@ -1966,7 +2060,7 @@ func sortChecks(checks []Check) {
 
 func taskSpec(v Task) TaskSpec {
 	return TaskSpec{
-		Title: v.Title, Description: v.Description, Type: v.Type, Priority: v.Priority, ParentID: v.ParentID,
+		Title: v.Title, Description: v.Description, Type: v.Type, Priority: v.Priority, ParentID: v.ParentID, SessionID: v.SessionID,
 		DependsOn: append([]string(nil), v.DependsOn...), Checks: append([]Check(nil), v.Checks...),
 	}
 }

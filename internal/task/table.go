@@ -25,14 +25,15 @@ const (
 )
 
 type tables struct {
-	store         *lancestore.Store
-	tasks         *lancestore.Table
-	dependencies  *lancestore.Table
-	events        *lancestore.Table
-	checks        *lancestore.Table
-	comments      *lancestore.Table
-	specRevisions *lancestore.Table
-	control       *lancestore.Table
+	store                                                         *lancestore.Store
+	tasks                                                         *lancestore.Table
+	dependencies                                                  *lancestore.Table
+	events                                                        *lancestore.Table
+	checks                                                        *lancestore.Table
+	comments                                                      *lancestore.Table
+	specRevisions                                                 *lancestore.Table
+	control                                                       *lancestore.Table
+	sessions, sessionEvents, sessionCheckpoints, sessionRevisions *lancestore.Table
 }
 
 type maintenanceResult struct {
@@ -55,7 +56,7 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, e
 			return nil, openErr
 		}
 		if !tbl.Schema().Equal(schema) {
-			return nil, fmt.Errorf("task table %s has an incompatible schema; migrate it with a current Graphit binary", name)
+			return nil, fmt.Errorf("task table %s has an incompatible schema; use a fresh store; automatic migration is not supported", name)
 		}
 		return tbl, nil
 	}
@@ -81,6 +82,20 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, e
 	if t.control, err = open(controlTableName, controlSchema()); err != nil {
 		return closeOnError(err)
 	}
+	for _, entry := range []struct {
+		name   string
+		schema lancestore.Schema
+		dest   **lancestore.Table
+	}{
+		{sessionsTableName, sessionSchema(), &t.sessions},
+		{sessionEventsTableName, sessionHistorySchema(), &t.sessionEvents},
+		{sessionCheckpointsTableName, sessionHistorySchema(), &t.sessionCheckpoints},
+		{sessionRevisionsTableName, sessionHistorySchema(), &t.sessionRevisions},
+	} {
+		if *entry.dest, err = open(entry.name, entry.schema); err != nil {
+			return closeOnError(err)
+		}
+	}
 	return t, nil
 }
 
@@ -88,6 +103,7 @@ func (t *tables) ensureIndexes(ctx context.Context) error {
 	if err := t.tasks.EnsureIndexes(ctx,
 		lancestore.Index{Column: "id", Kind: lancestore.IndexScalarBTree},
 		lancestore.Index{Column: "parent_id", Kind: lancestore.IndexScalarBTree},
+		lancestore.Index{Column: "session_id", Kind: lancestore.IndexScalarBTree},
 		lancestore.Index{Column: "status", Kind: lancestore.IndexScalarBitmap},
 		lancestore.Index{Column: "owner", Kind: lancestore.IndexScalarBTree},
 		lancestore.Index{Column: "search_text", Kind: lancestore.IndexInvertedText},
@@ -127,6 +143,20 @@ func (t *tables) ensureIndexes(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("indexing task specification revisions: %w", err)
 	}
+	if err := t.sessions.EnsureIndexes(ctx,
+		lancestore.Index{Column: "id", Kind: lancestore.IndexScalarBTree},
+		lancestore.Index{Column: "status", Kind: lancestore.IndexScalarBitmap},
+		lancestore.Index{Column: "owner", Kind: lancestore.IndexScalarBTree},
+		lancestore.Index{Column: "idempotency_key", Kind: lancestore.IndexScalarBTree},
+		lancestore.Index{Column: "search_text", Kind: lancestore.IndexInvertedText}); err != nil {
+		return err
+	}
+	for _, table := range []*lancestore.Table{t.sessionEvents, t.sessionCheckpoints, t.sessionRevisions} {
+		if err := table.EnsureIndexes(ctx, lancestore.Index{Column: "key", Kind: lancestore.IndexScalarBTree}, lancestore.Index{Column: "session_id", Kind: lancestore.IndexScalarBTree}, lancestore.Index{Column: "search_text", Kind: lancestore.IndexInvertedText}); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -138,7 +168,7 @@ func (t *tables) close() error {
 }
 
 func (t *tables) refresh(ctx context.Context) error {
-	for _, table := range []*lancestore.Table{t.tasks, t.dependencies, t.events, t.checks, t.comments, t.specRevisions, t.control} {
+	for _, table := range []*lancestore.Table{t.tasks, t.dependencies, t.events, t.checks, t.comments, t.specRevisions, t.control, t.sessions, t.sessionEvents, t.sessionCheckpoints, t.sessionRevisions} {
 		if err := table.Refresh(ctx); err != nil {
 			return err
 		}
@@ -158,6 +188,7 @@ func (t *tables) maintain(ctx context.Context, retention time.Duration) (mainten
 		{checksTableName, t.checks},
 		{commentsTableName, t.comments},
 		{specRevisionsTableName, t.specRevisions},
+		{sessionsTableName, t.sessions}, {sessionEventsTableName, t.sessionEvents}, {sessionCheckpointsTableName, t.sessionCheckpoints}, {sessionRevisionsTableName, t.sessionRevisions},
 	}
 	for _, entry := range indexed {
 		if err := entry.table.FoldNewRowsIntoIndexes(ctx); err != nil {
@@ -192,7 +223,7 @@ func (t *tables) maintain(ctx context.Context, retention time.Duration) (mainten
 func taskSchema() lancestore.Schema {
 	return lancestore.Schema{Fields: []lancestore.Field{
 		{Name: "id", Type: lancestore.FieldString}, {Name: "project_id", Type: lancestore.FieldString},
-		{Name: "parent_id", Type: lancestore.FieldString}, {Name: "idempotency_key", Type: lancestore.FieldString},
+		{Name: "parent_id", Type: lancestore.FieldString}, {Name: "session_id", Type: lancestore.FieldString}, {Name: "idempotency_key", Type: lancestore.FieldString},
 		{Name: "title", Type: lancestore.FieldString}, {Name: "description", Type: lancestore.FieldString},
 		{Name: "type", Type: lancestore.FieldString}, {Name: "status", Type: lancestore.FieldString},
 		{Name: "priority", Type: lancestore.FieldInt64}, {Name: "depends_on_json", Type: lancestore.FieldString},
@@ -275,7 +306,7 @@ func taskRow(v Task) lancestore.Row {
 	checks, _ := json.Marshal(v.Checks)
 	event, _ := json.Marshal(v.LastEvent)
 	comment, _ := json.Marshal(v.LastComment)
-	return lancestore.Row{"id": v.ID, "project_id": v.ProjectID, "parent_id": v.ParentID, "idempotency_key": v.IdempotencyKey,
+	return lancestore.Row{"id": v.ID, "project_id": v.ProjectID, "parent_id": v.ParentID, "session_id": v.SessionID, "idempotency_key": v.IdempotencyKey,
 		"title": v.Title, "description": v.Description,
 		"type": v.Type, "status": string(v.Status), "priority": int64(v.Priority), "depends_on_json": string(deps),
 		"checks_json": string(checks),
@@ -299,7 +330,7 @@ func taskSearchText(v Task) string {
 }
 
 func taskFromRow(r lancestore.Row) Task {
-	v := Task{ID: text(r, "id"), ProjectID: text(r, "project_id"), ParentID: text(r, "parent_id"), IdempotencyKey: text(r, "idempotency_key"),
+	v := Task{ID: text(r, "id"), ProjectID: text(r, "project_id"), ParentID: text(r, "parent_id"), SessionID: text(r, "session_id"), IdempotencyKey: text(r, "idempotency_key"),
 		Title: text(r, "title"), Description: text(r, "description"),
 		Type: text(r, "type"), Status: Status(text(r, "status")), Priority: int(number(r, "priority")), Flagged: boolValue(r, "flagged"), FlagReason: text(r, "flag_reason"), Owner: text(r, "owner"),
 		ClaimToken: text(r, "claim_token"), ClaimEpoch: number(r, "claim_epoch"), ClaimedAt: text(r, "claimed_at"),
@@ -402,7 +433,7 @@ func (t *tables) allTasks(ctx context.Context) ([]Task, error) {
 
 func (t *tables) catalogTasks(ctx context.Context) ([]Task, error) {
 	return t.tasksWithColumns(ctx, []string{
-		"id", "parent_id", "title", "description", "type", "status", "priority",
+		"id", "parent_id", "session_id", "title", "description", "type", "status", "priority",
 		"depends_on_json", "flagged", "flag_reason", "owner", "progress_summary",
 		"next_step", "created_at", "updated_at", "revision",
 	})

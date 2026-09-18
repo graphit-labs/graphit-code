@@ -333,7 +333,7 @@ func (h *WikiHandler) handleAISearch(w http.ResponseWriter, r *http.Request) {
 	if h.aiClient == nil {
 		writeJSON(w, AISearchResponse{
 			Error: "AI CLI not configured. Run:\n" +
-				"  " + brand.BinName() + " config --global ai.cli <gemini|claude|opencode|codex|cursor-agent|qwen|kimi|deepcode>\n" +
+				"  " + brand.BinName() + " config --global ai.cli <gemini|claude|opencode|codex|cursor-agent|qwen|kimi>\n" +
 				"Then make sure the CLI is installed and authenticated on your system.",
 		})
 		return

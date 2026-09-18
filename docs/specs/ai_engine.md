@@ -41,13 +41,12 @@ client cannot identify its CLI, when the CLI changed, or when the stored binding
 A completion error clears the in-memory native ID before another turn.
 
 The supported executable matrix is `claude`, `gemini`, `agy`, `grok`, `cursor-agent`, `codex`,
-`opencode`, `kiro-cli`, `copilot`, `qwen`, `kimi`, and `deepcode`. Session continuity is declared only for
+`opencode`, `kiro-cli`, `copilot`, `qwen`, and `kimi`. Session continuity is declared only for
 `claude`, `gemini`, `agy`, `codex`, `opencode`, `qwen`, and `kimi`, whose structured protocols provide a deterministic initial ID and a real resume
 operation. Other supported CLIs remain one-shot until both sides of that contract are verified;
 Graphit does not return an invented persistence ID for them.
 
-`deepcode` is the Deep Code agent executable recommended by DeepSeek. `deepseek` is a provider/model
-name and is deliberately not accepted as a CLI alias.
+`deepseek` is a provider/model name and is deliberately not accepted as a CLI alias.
 
 Persisted Graphit chat metadata stores the native `agent_session_id` beside `agent_cli`. Consumers
 that span HTTP requests resume through both values; in-process multi-step consumers retain one

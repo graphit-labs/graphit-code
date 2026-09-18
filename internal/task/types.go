@@ -23,6 +23,7 @@ func ValidStatus(v string) bool {
 // duplicated into query tables, but stay here so a single-row CAS contains
 // everything needed to decide whether the task may be claimed or resumed.
 type Task struct {
+	SessionID      string   `json:"session_id,omitempty"`
 	ID             string   `json:"id"`
 	ProjectID      string   `json:"project_id"`
 	ParentID       string   `json:"parent_id,omitempty"`
@@ -109,7 +110,7 @@ type Detail struct {
 	SpecRevisions []SpecRevision `json:"spec_revisions"`
 }
 
-const ExportSchemaVersion = 1
+const ExportSchemaVersion = 2
 
 type DependencyRecord struct {
 	Key       string `json:"key"`
@@ -133,18 +134,23 @@ type CheckRecord struct {
 // entity. Claim tokens and scheduler-control rows are intentionally private
 // because exposing either would bypass fencing.
 type ExportDocument struct {
-	SchemaVersion int                `json:"schema_version"`
-	ProjectID     string             `json:"project_id"`
-	TaskID        string             `json:"task_id,omitempty"`
-	Tasks         []Task             `json:"tasks"`
-	Dependencies  []DependencyRecord `json:"dependencies"`
-	Checks        []CheckRecord      `json:"checks"`
-	Events        []Event            `json:"events"`
-	Comments      []Comment          `json:"comments"`
-	SpecRevisions []SpecRevision     `json:"spec_revisions"`
+	Sessions             []Session                 `json:"sessions"`
+	SessionEvents        []SessionEvent            `json:"session_events"`
+	SessionCheckpoints   []SessionCheckpointRecord `json:"session_checkpoints"`
+	SessionSpecRevisions []SessionSpecRevision     `json:"session_spec_revisions"`
+	SchemaVersion        int                       `json:"schema_version"`
+	ProjectID            string                    `json:"project_id"`
+	TaskID               string                    `json:"task_id,omitempty"`
+	Tasks                []Task                    `json:"tasks"`
+	Dependencies         []DependencyRecord        `json:"dependencies"`
+	Checks               []CheckRecord             `json:"checks"`
+	Events               []Event                   `json:"events"`
+	Comments             []Comment                 `json:"comments"`
+	SpecRevisions        []SpecRevision            `json:"spec_revisions"`
 }
 
 type TaskSpec struct {
+	SessionID   string   `json:"session_id,omitempty"`
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	Type        string   `json:"type"`
@@ -168,6 +174,8 @@ type SpecRevision struct {
 }
 
 type CreateInput struct {
+	SessionID          string
+	RequireSession     bool
 	Title              string
 	Description        string
 	AcceptanceCriteria []string
@@ -208,10 +216,11 @@ type SupersedeCheckInput struct {
 }
 
 type ListOptions struct {
-	Status   string
-	Owner    string
-	ParentID string
-	Ready    bool
+	SessionID string
+	Status    string
+	Owner     string
+	ParentID  string
+	Ready     bool
 }
 
 type CatalogOptions struct {
@@ -220,6 +229,7 @@ type CatalogOptions struct {
 }
 
 type CatalogItem struct {
+	SessionID string   `json:"session_id,omitempty"`
 	ID        string   `json:"id"`
 	Title     string   `json:"title"`
 	Type      string   `json:"type"`
@@ -233,13 +243,14 @@ type CatalogItem struct {
 }
 
 type SearchResult struct {
-	ID       string  `json:"id"`
-	Title    string  `json:"title"`
-	Status   Status  `json:"status"`
-	Priority int     `json:"priority"`
-	Ready    bool    `json:"ready"`
-	Flagged  bool    `json:"flagged"`
-	Score    float64 `json:"score,omitempty"`
+	SessionID string  `json:"session_id,omitempty"`
+	ID        string  `json:"id"`
+	Title     string  `json:"title"`
+	Status    Status  `json:"status"`
+	Priority  int     `json:"priority"`
+	Ready     bool    `json:"ready"`
+	Flagged   bool    `json:"flagged"`
+	Score     float64 `json:"score,omitempty"`
 }
 
 type Removal struct {

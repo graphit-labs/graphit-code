@@ -35,15 +35,13 @@ func GetAdapter(agent string) Adapter {
 		return NewQwenAdapter()
 	case "kimi":
 		return NewKimiAdapter()
-	case "deepcode":
-		return NewDeepCodeAdapter()
 	default:
 		return nil
 	}
 }
 
 func SupportedAgents() []string {
-	return []string{"antigravity", "cursor", "claude", "kiro", "codex", "opencode", "gemini", "qwen", "kimi", "deepcode"}
+	return []string{"antigravity", "cursor", "claude", "kiro", "codex", "opencode", "gemini", "qwen", "kimi"}
 }
 
 // SkillFrontmatter builds the YAML frontmatter block that opens a managed

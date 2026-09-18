@@ -32,7 +32,7 @@ func AgentIDFromHook(input []byte) string {
 	if json.Unmarshal(input, &value) != nil {
 		return ""
 	}
-	keys := []string{"agent_id", "agentId", "session_id", "sessionId", "conversation_id", "conversationId", "thread_id", "threadId"}
+	keys := []string{"agent_id", "agentId", "session_id", "sessionId", "sessionID", "conversation_id", "conversationId", "thread_id", "threadId", "threadID"}
 	var find func(any, string) string
 	find = func(v any, wanted string) string {
 		switch x := v.(type) {
@@ -71,8 +71,8 @@ func AgentIDFromHook(input []byte) string {
 	return AgentIDForSession(session)
 }
 
-// Reconcile repairs projections and expires stale claims. It is safe to call at
-// every supported lifecycle boundary and is idempotent when nothing changed.
+// Reconcile repairs Task/Session projections and expires stale claims. It is
+// safe at every lifecycle boundary and idempotent when nothing changed.
 func (s *Service) Reconcile(ctx context.Context) error {
 	return s.withTables(ctx, func(t *tables) error {
 		if err := t.ensureIndexes(ctx); err != nil {
@@ -81,21 +81,27 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		if err := t.refresh(ctx); err != nil {
 			return err
 		}
-		return s.reconcileLocked(ctx, t, "hook")
+		if err := s.reconcileLocked(ctx, t, "hook"); err != nil {
+			return err
+		}
+		return s.reconcileSessionsLocked(ctx, t, "hook")
 	})
 }
 
-// HeartbeatOwned renews the one live claim belonging to an agent. It is used by
-// deterministic post-tool hooks; normal explicit progress still uses the
-// fencing token returned by Claim.
+// HeartbeatOwned renews the independent Task and coordinator Session claims of
+// one agent. Post-tool hooks never renew the coordinator for an unrelated worker;
+// explicit progress still requires the corresponding claim's fencing token.
 func (s *Service) HeartbeatOwned(ctx context.Context, actor string, lease time.Duration) error {
 	if actor == "" {
-		return s.withLockFast(ctx, "hook", func(*tables) error { return nil })
+		return s.Reconcile(ctx)
 	}
 	if lease <= 0 {
 		lease = DefaultLease
 	}
 	return s.withLockFast(ctx, actor, func(t *tables) error {
+		if _, err := s.heartbeatOwnedSessionsLocked(ctx, t, actor, lease); err != nil {
+			return err
+		}
 		all, err := t.allTasks(ctx)
 		if err != nil {
 			return err
@@ -120,13 +126,17 @@ func (s *Service) HeartbeatOwned(ctx context.Context, actor string, lease time.D
 	})
 }
 
-// ReleaseOwned makes a stopped agent's task immediately claimable while
-// preserving its last progress and next step for takeover.
+// ReleaseOwned makes a stopped agent's Task and coordinator Session claimable,
+// preserving descriptive checkpoints for takeover. A stop never completes work.
 func (s *Service) ReleaseOwned(ctx context.Context, actor string) error {
 	if actor == "" {
 		return s.Reconcile(ctx)
 	}
 	return s.withLockFast(ctx, actor, func(t *tables) error {
+		// A host stop is a lifecycle event, never a semantic checkpoint or completion.
+		if _, err := s.releaseOwnedSessionsLocked(ctx, t, actor, "", ""); err != nil {
+			return err
+		}
 		all, err := t.allTasks(ctx)
 		if err != nil {
 			return err

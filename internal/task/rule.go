@@ -9,7 +9,7 @@ import (
 
 var skillName = brand.SkillDirName("task")
 
-const skillDescription = "Task: plan and execute project work; retrieve prior specifications, investigations, decisions and validation evidence whenever questions arise."
+const skillDescription = "Task: preserve requests in durable sessions; plan, execute, checkpoint and hand off work; recall sessions, specifications, decisions and evidence whenever questions arise."
 
 func InstallSkill(projectDir, agentName string) error {
 	if projectDir == "" {
@@ -41,6 +41,7 @@ func RemoveSkill(projectDir, agentName string) error {
 // SkillReferences returns a fresh map so callers cannot mutate later installations.
 func SkillReferences() map[string]string {
 	return map[string]string{
+		"references/session.md":        taskSessionReference,
 		"references/planning.md":       taskPlanningReference,
 		"references/worked-feature.md": taskWorkedExamples,
 		"references/worked-system.md":  taskWorkedSystem,

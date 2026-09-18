@@ -2,8 +2,10 @@
 
 The Task module is Graphit's authoritative work-control plane for coding agents. It replaces
 repository Markdown task logs, backlog files, and host-native TODO/task state with shared LanceDB
-tables. Every agent working on the same project sees the same queue, claims, dependencies,
-subtasks, checks, comments, progress, and audit history.
+tables. Every agent working on the same project sees the same durable sessions, queue, claims,
+dependencies, subtasks, checks, comments, progress, and audit history. A session preserves the evolving
+user demand and strategy across Tasks, turns and agents; Tasks preserve executable specifications and
+verification. A host chat/session identifier is not a Graphit session identifier.
 
 Project work includes investigation, diagnosis, comparison, evaluation, research, impact analysis,
 and other analysis-only activity even when no source file changes. Those tasks use the same create,
@@ -51,6 +53,11 @@ fencing tokens remain independent barriers against stale writers.
 | `task_spec_revisions` | Immutable, queryable specification history with mutation kind, optional affected check ID, actor, reason, timestamp, source task revision, and before/after state. |
 | `task_control` | Scheduler lease plus resumable hard-removal intents used to serialize and recover cross-table mutations. |
 
+Session snapshots, checkpoints, events and specification revisions share this Task database and
+its project authorization/coordination boundaries. The indexed `tasks.session_id` relationship
+connects Tasks to their session. See [Task sessions](task_sessions.md) for the session tables and
+state invariants, and [Working with sessions](../guides/task-sessions.md) for MCP/CLI procedures.
+
 The task snapshot embeds the dependency/check lists and the last event/comment because it is the
 single CAS decision record. The other tables make those fields independently queryable. If a
 process stops after the snapshot commit but before a projection commit, the lifecycle reconciliation
@@ -65,6 +72,12 @@ deterministic namespaces. Repeating a create/comment request with the same key r
 record instead of duplicating it.
 
 ## Task specification
+
+Agent-created Tasks must belong to a nonterminal session. Supply `session_id` explicitly; creation
+can also resolve it from the parent Task or the actor's live coordinated session. MCP rejects a
+creation with no resolved session. Manual CLI creation outside an agent session may leave the field
+empty. Parents and children share the same session, a Task is not moved between sessions, and
+historical Tasks remain available as evidence without being reassigned to new work.
 
 Creation requires all of the following:
 
@@ -199,20 +212,28 @@ outlive the task context.
 ## Agent contract
 
 The resident mandate routes project work, including analysis without file changes, to the Task
-skill immediately before the first relevant action. The skill supplies the specification, planning,
-decomposition, validation and lifecycle procedure. It is reused while available in context; other
+skill immediately before the first relevant action. The skill supplies session coordination,
+specification, planning, decomposition, validation and lifecycle procedures. It is reused while available in context; other
 module skills load only at their relevant evidence-gathering boundary.
 
-For known work, read its exact ID. For a new request or changed scope, run one focused history search
-and read selected authoritative records and prerequisite results. Reuse that history for the same
+At the start of a demand, get the known session or search/list relevant `open`/`in_progress`
+sessions and read selected current descriptions, strategies, checkpoints and associated Tasks.
+Resume matching work rather than creating duplicate sessions. If none matches, create a detailed
+description of requested outcomes, scope, constraints, known context, unknowns and completion
+conditions, plus the initial strategy, then claim coordination. The coordinator's session claim
+is independent of Task claims. Delegated workers share `session_id`, claim their own Tasks and
+report their evidence without taking the coordinator's claim or receiving its private token.
+
+For known work, read its exact ID. For a new question or changed scope, run a focused session/Task
+history search and read selected authoritative records and prerequisite results. Reuse that history for the same
 question. Knowledge queries do not each trigger another Task sweep: Task history is consulted when
 prior implementation, rationale or active-plan context is needed. Page only while relevant context
 is missing or completeness is explicitly required; `top_k` caps the entire result window. Task and
 Knowledge sources retain their distinct authority. Disabled or unavailable Task tools do not block
 Knowledge retrieval or justify substituting the Graphit CLI for MCP.
 
-Before material investigation the agent creates or resumes a bounded planning/research unit and
-claims it. It uses AST to establish current implementation, Knowledge for documented intent, and
+Before material investigation the agent creates or resumes a bounded planning/research unit in
+the session and claims it. It uses AST to establish current implementation, Knowledge for documented intent, and
 relevant Task/Memory context before deciding the full delivery graph. Material uncertainty becomes
 explicit refinement; the initial task is not a generic container for immediate whole-project coding.
 Before implementation or delegating implementation it saves every executable unit's specification,
@@ -225,6 +246,26 @@ appropriate. Resolve contradictions before closing the unit rather than postponi
 integration. The shared checkpoint hook reinforces this invariant without duplicating adapter-specific
 compensation in the generic skill. Completion also requires the deterministic checks, descendants,
 dependencies and flags to permit it; otherwise release with current state and an executable next step.
+
+At meaningful outcomes the coordinator also appends a session checkpoint: progress and concrete
+evidence, encountered/resolved problems, decisions with rationale, current strategy and exact
+`next_step`. It references Task evidence instead of copying the complete task audit trail. New
+user instructions or discoveries that change intent/approach require `session_revise` with the
+current revision and reason, followed by reconciliation of affected Task specifications/checks
+before incompatible execution. Checkpoints alone do not replace the authoritative current intent.
+
+Before interruption or handoff, save the session's complete continuation and release coordination;
+release unfinished Task claims separately. Another agent can discover the open session, read its
+current scope and checkpoint, inspect selected Tasks and obtain its own claims after release/expiry.
+Do not create a new session simply because the agent, turn or host changed. Hooks route/recover state
+and remind checkpoint obligations; they never fabricate substantive progress or close the session.
+
+Delivery is final only after an explicit successful session completion. This requires terminal
+associated Tasks and a final summary; the agent additionally reconciles the current demand, actual
+validation and documentation evidence. Cancelled Tasks are not delivered requirements: their
+removal from scope needs a recorded reason. Finishing a Task, a planning phase, a turn, compaction
+or a Stop event is not session completion. For a planning-only request that saves future delivery
+Tasks, report planning complete and preserve/release the open session with implementation pending.
 
 ## Feature planning and backlog handoff
 
@@ -345,6 +386,17 @@ release, complete, cancel, and confirmed remove.
 The MCP tools expose the same operations as `graphit_task_*` and return compact TOON by default for
 read-heavy calls.
 
+Session tools are `graphit_task_session_create`, `get`, `list`, `search`, `claim`, `revise`,
+`checkpoint`, `heartbeat`, `release`, `complete`, `cancel` and `force_takeover`, with equivalent
+subcommands under `graphit task session`. `get` returns the session, events, checkpoints, immutable
+specification revisions and associated Task summaries; read selected full Tasks through `task_get`.
+List supports status/owner/active filters and pagination. Search retrieves current/historical
+session content with a bounded ranked result window. Task list/search filter by `session_id`.
+Create supplies detailed `description` and `strategy`; revision uses `expected_revision` and
+`reason`. Checkpoint and release require `summary` and `next_step`; complete requires a final
+summary. Session owner mutations use the independent session claim token. See the linked session
+specification for exact lifecycle/recovery conditions.
+
 `graphit_task_batch` and `graphit task batch <file|->` accept one to 100 mutations. The CLI input is
 a JSON object containing `operations` and an optional default `lease`; `-` reads the object from
 standard input. Each operation names an `action` and the same fields used by its single-task
@@ -360,7 +412,7 @@ per-operation replacement lease, and different-owner requirements.
 
 After specification and decomposition, agents should prefer `graphit_task_batch` to register
 multiple fully written tasks whose parent/dependency IDs are already known. Each `create` keeps
-its complete description, acceptance criteria, tests and stable idempotency key. Create parents
+its session association, complete description, acceptance criteria, tests and stable idempotency key. Create parents
 first, then batch siblings, then create tasks that require the newly returned IDs. Existing
 prerequisites need not be completed for blocked tasks to be created. The optional `key` correlates
 results only; it is never interpolated into IDs, dependencies, tokens or revisions. The Task
@@ -438,6 +490,7 @@ current layout efficient.
 | Schemas and projections | `internal/task/table.go` |
 | Hook identity and lifecycle maintenance | `internal/task/hook.go` |
 | Skill and mandate | `internal/task/rule.go`, `internal/task/rule_compact.go` |
+| Generated durable session lifecycle and worked handoff | `internal/task/rule_session.go` |
 | Generated planning, worked feature, worked system and execution references | `internal/task/rule_planning.go`, `internal/task/rule_examples.go`, `internal/task/rule_system.go`, `internal/task/rule_execution.go` |
 | MCP interface | `internal/mcpstdio/tools_task.go` |
 | CLI interface | `cmd/graphit/commands/task.go` |
