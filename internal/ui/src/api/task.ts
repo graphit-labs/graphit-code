@@ -19,6 +19,7 @@ export interface TaskCheck {
 export interface Task {
   id: string
   project_id: string
+  session_id?: string
   parent_id?: string
   idempotency_key: string
   title: string
@@ -128,6 +129,7 @@ export interface TaskExportDocument {
 
 export interface TaskCatalogItem {
   id: string
+  session_id?: string
   title: string
   type: string
   status: TaskStatus

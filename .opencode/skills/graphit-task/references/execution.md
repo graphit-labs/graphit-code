@@ -4,6 +4,8 @@ Read before claiming implementation, resuming another agent's work, evaluating c
 
 ## Starting an executable unit
 
+Read [session.md](session.md) before resuming coordination. Get the linked session's current intent/strategy and relevant checkpoint first; session_id travels with every delegated Task. Workers claim only their Task unless explicitly assuming released/expired coordination. They never share the coordinator's token or create a separate session for the same demand.
+
 1. Get the leaf, its parent specification and named prerequisite outcomes. Read current description, checks, progress/next_step and relevant decisions. Do not reread every unrelated audit event. A ready API status means dependencies are complete; also verify semantic readiness: the specification and contracts actually answer the questions the work needs.
 2. Match the saved plan against current code and docs with selected AST/Knowledge evidence. A repository-relative path is a locator, not proof that a contract is unchanged. Resolve project_dir on the current host for the call; never copy a previous host's absolute checkout root into descriptions, evidence or handoffs. Reuse existing authoritative evidence when still applicable; investigate only missing/stale context.
 3. Claim the ready unit with the current agent identity and private returned claim_token. Confirm the description/check revision and edit boundaries. Do not delegate overlapping source/docs ownership or claim a parent and its child with one identity.
@@ -28,7 +30,7 @@ A new discovery is not permission to silently expand the implementation. Record 
 
 Example: while planning an export, the existing importer accepts a different identifier format than the request assumes. Before generating implementation leaves, record the observed schema, resolve compatibility, and adjust the data contract and validation matrix. If discovered after the graph exists, add a bounded contract-refinement task, update coverage and affected prerequisites, and keep incompatible leaves from executing. Do not keep the old task body and hope a progress note will override it.
 
-Use task_revise with a live claim, latest expected_revision and reason. Changing description/title/type resets active checks; validate the revised scope before recording new passes. Check supersession retains old evidence and requires a reason/replacement when applicable. Do not silently reuse evidence for changed behavior.
+The coordinator first revises the session's current description/strategy with the new intent and reason; a checkpoint alone does not supersede stale intent. Then use task_revise with a live claim, latest expected_revision and reason. Direct revise appends add_acceptance_criteria/add_tests; supplied depends_on replaces the full dependency list. Batch revise uses acceptance_criteria/tests for those additions. Changing description/title/type resets active checks; validate the revised scope before recording new passes. Check supersession retains old evidence and requires a reason/replacement when applicable. Do not silently reuse evidence for changed behavior.
 
 Only ready work can be claimed and one live claim is allowed per agent. To revise another ready task, release current work with continuation, claim/revise/release the target, then resume. A blocked target cannot be claimed just to rewrite its description: preserve the complete correction package in a claimed refinement task, add its prerequisite edge to the open target if needed, and label reconciliation pending. Once prerequisites finish, the executor must apply that package to the target description/checks before coding. Avoid making refinement depend on the blocked implementation it is supposed to unblock.
 
@@ -57,13 +59,17 @@ At a meaningful completed unit, task_progress should preserve:
 - Decisions: consequential choice, rationale and impact; use a typed comment when useful across subsequent steps.
 - Next action: exact target, prerequisite and condition for finishing, not 'continue implementation'.
 
+The coordinator also records a session checkpoint for the cross-Task outcome: current progress, encountered/resolved problems, decisions with reasons, strategy and next_step, referencing the unit's evidence. A delegated worker reports through its own Task; the coordinator reads that result rather than inventing its execution. Reuse session/Task context throughout work and retrieve missing historical decisions when new questions arise, not only after interruption.
+
 For analysis-only tasks save the substantive report: question/scope, method and sources, evidence, findings, reasons for conclusions, uncertainty, alternatives where material and implications. Preserve a rejected hypothesis when it would prevent costly repetition. Promote reusable non-obvious conclusions to Memory; neither a memory nor a one-line completion replaces the Task result.
 
 ## Handoff and completion packet
 
 Release interrupted/blocked work with a packet that distinguishes completed, remaining and blocked work. Include task/parent/prerequisite IDs, current revision or changed-contract reference, modified artifacts, accepted decisions, actual validation, unrun/failed checks, exact next action and risks that change the approach. Do not expose claim_token in descriptions, comments, handoffs or user output; the next owner receives a new token by claiming.
 
-Complete only when active checks pass, dependencies and descendants are complete, flags are resolved and the code/documentation comparison is recorded. Summarize delivered requirements and evidence references, residual limitations and follow-on implications. Release is not completion; writing a complete plan does not prove delivery; a system parent stays open until its actual deliveries and integration gates finish.
+Complete the Task only when active checks pass, dependencies and descendants are complete, flags are resolved and the code/documentation comparison is recorded. Summarize delivered requirements and evidence references, residual limitations and follow-on implications. Release is not completion; writing a complete plan does not prove delivery; a system parent stays open until its actual deliveries and integration gates finish.
+
+Before stopping/handing off, the coordinator saves the session's latest intent, completed/pending/blocked work, decisions, evidence and exact continuation, then releases session coordination independently from Task claims. Stop, compaction and lease expiry never mean delivery completion. To finish the user's demand, inspect all associated Task states and reconcile the current session scope, including justified cancellations, then explicitly complete the session with a substantive final summary. Confirm the transition succeeded before declaring the session finished; a cancelled Task does not satisfy its former requirement unless that scope was explicitly removed.
 
 ## Filled small-fix example: normalize before the empty guard
 
@@ -71,6 +77,7 @@ The following fictional TypeScript paths and commands illustrate a single-outcom
 
 ~~~yaml
 project_dir: /example/catalog
+session_id: ses-a101
 title: Skip repository lookup for whitespace-only searches
 type: bug
 idempotency_key: search-whitespace-empty-guard
@@ -111,4 +118,4 @@ tests:
 ai_optimized: true
 ~~~
 
-This one packet contains specification, evidence, implementation plan, scope boundaries, acceptance and validation. It does not claim any test ran merely by defining it. If discovery instead reveals unrelated search ranking and authorization changes, stop treating it as this small repair and create the necessary delivery graph before implementation.
+This packet assumes an already created/claimed session with illustrative returned ID ses-a101 describing this whitespace repair. It contains specification, evidence, implementation plan, scope boundaries, acceptance and validation; it does not claim tests ran. After Task completion reconcile and explicitly close that session. If discovery instead reveals unrelated ranking and authorization changes, revise the session and create the necessary delivery graph before implementation.

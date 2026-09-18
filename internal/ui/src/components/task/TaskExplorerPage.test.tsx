@@ -24,7 +24,7 @@ vi.stubGlobal('matchMedia', vi.fn().mockImplementation(query => ({
 })))
 
 const first: Task = {
-  id: 'tsk-aaaa', project_id: 'project-1', idempotency_key: 'first', title: 'First task',
+  id: 'tsk-aaaa', project_id: 'project-1', session_id: 'ses-aaaa', idempotency_key: 'first', title: 'First task',
   description: '# Objective\n\nBuild the **first deterministic feature**.\n\n- Preserve audit history\n- Render rich fields', type: 'feature', status: 'in_progress',
   priority: 1, checks: [], flagged: false, owner: 'agent-a', claim_epoch: 1,
   progress_sequence: 1, comment_sequence: 1, progress_summary: '**Core** landed with `go test ./internal/task`.', next_step: 'Verify the **Task Explorer** UI.',
@@ -55,7 +55,7 @@ const completeExport: TaskExportDocument = {
 }
 
 const firstCatalogItem: TaskCatalogItem = {
-  id: first.id, title: first.title, type: first.type, status: first.status,
+  id: first.id, session_id: first.session_id, title: first.title, type: first.type, status: first.status,
   priority: first.priority, owner: first.owner, flagged: first.flagged,
   ready: first.ready, blocked_by: first.blocked_by, updated_at: first.updated_at,
 }
@@ -163,6 +163,40 @@ describe('Task Explorer', () => {
       projectDir: '/project', query: 'scheduler', status: 'blocked', pageSize: 20, cursor: undefined,
     }))
     expect(screen.queryByRole('listbox', { name: 'Task statuses' })).toBeNull()
+  })
+
+  it('shows a session chip for a task linked to a session and navigates to it', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes>
+          <Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} />
+          <Route path="/task/sessions/:sessionId" element={<Location />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('First task')
+    const sessionChips = screen.getAllByTitle('Open linked session')
+    expect(sessionChips.length).toBeGreaterThan(0)
+    await user.click(sessionChips[0])
+    expect(screen.getByTestId('location').textContent).toBe('/task/sessions/ses-aaaa')
+  })
+
+  it('switches to the sessions view via the mode toggle', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes>
+          <Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} />
+          <Route path="/task/sessions" element={<Location />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('First task')
+    await user.click(screen.getByRole('tab', { name: 'Sessions' }))
+    expect(screen.getByTestId('location').textContent).toBe('/task/sessions')
   })
 
   it('requests the complete all-task export only after explicit download', async () => {

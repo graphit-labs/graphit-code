@@ -19,6 +19,7 @@ const DaemonDashboard = lazy(() => import('./components/daemon/DaemonDashboard')
 const DreamDashboard = lazy(() => import('./components/dream/DreamDashboard'))
 const EcosystemDashboard = lazy(() => import('./components/system/EcosystemDashboard'))
 const TaskExplorerPage = lazy(() => import('./components/task/TaskExplorerPage'))
+const SessionExplorerPage = lazy(() => import('./components/task/SessionExplorerPage'))
 const MemoryExplorerPage = lazy(() => import('./components/memory/MemoryExplorerPage'))
 
 function Fallback() {
@@ -91,6 +92,8 @@ export default function App() {
           <Route path="/wiki/explorer" element={<WikiSearchResultsWrapper />} />
           <Route path="/task/explorer/:taskId" element={<TaskExplorerPage />} />
           <Route path="/task/explorer" element={<TaskExplorerPage />} />
+          <Route path="/task/sessions/:sessionId" element={<SessionExplorerPage />} />
+          <Route path="/task/sessions" element={<SessionExplorerPage />} />
 
           
           <Route

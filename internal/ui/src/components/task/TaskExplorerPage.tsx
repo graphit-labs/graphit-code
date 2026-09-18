@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, Circle, Clock3, Download,
-  Flag, GitBranch, MessageSquareText, RefreshCw, Search, ShieldCheck,
+  Flag, GitBranch, MessageSquareText, RefreshCw, Search, ShieldCheck, Workflow,
   XCircle,
 } from 'lucide-react'
 
@@ -13,6 +13,8 @@ import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
 import { showToast } from '@/hooks/useToast'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
+
+import { TaskModeToggle } from './TaskModeToggle'
 
 const statusStyle: Record<string, string> = {
   open: 'bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/20',
@@ -130,7 +132,32 @@ function SpecificationSnapshot({ label, spec }: { label: string; spec: TaskSpec 
   )
 }
 
-function TaskDetail({ document, onBack }: { document: TaskExportDocument; onBack: () => void }) {
+// Rendered as a span with role="button" rather than a real <button>: this chip must be
+// usable inside the task list row, which is itself a <button>, and nested buttons are
+// invalid HTML that breaks native click/keyboard handling.
+function SessionChip({ sessionId, onOpenSession }: { sessionId: string; onOpenSession: (id: string) => void }) {
+  const open = () => onOpenSession(sessionId)
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={event => { event.stopPropagation(); open() }}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          event.stopPropagation()
+          open()
+        }
+      }}
+      title="Open linked session"
+      className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
+    >
+      <Workflow className="h-3 w-3" /> Session
+    </span>
+  )
+}
+
+function TaskDetail({ document, onBack, onOpenSession }: { document: TaskExportDocument; onBack: () => void; onOpenSession: (id: string) => void }) {
   const task = document.tasks.find(item => item.id === document.task_id) ?? document.tasks[0]
   if (!task) return <EmptyState icon={AlertTriangle} title="Task not found" description="The exported task document is empty." />
 
@@ -151,6 +178,7 @@ function TaskDetail({ document, onBack }: { document: TaskExportDocument; onBack
               <StatusBadge status={task.status} />
               <span className="rounded-full border border-border/50 bg-accent/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">P{task.priority}</span>
               {task.flagged && <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300"><Flag className="h-3 w-3" /> Flagged</span>}
+              {task.session_id && <SessionChip sessionId={task.session_id} onOpenSession={onOpenSession} />}
             </div>
             <h1 className="text-2xl font-black tracking-tight text-foreground">{task.title}</h1>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{task.id} · rev {task.revision} · {task.type}</p>
@@ -317,6 +345,7 @@ export default function TaskExplorerPage() {
     setDetailResult(null)
     navigate('/task/explorer', { replace: true })
   }
+  const openSession = (id: string) => navigate(`/task/sessions/${encodeURIComponent(id)}`)
   const exportAll = async () => {
     setExporting(true)
     try {
@@ -335,19 +364,20 @@ export default function TaskExplorerPage() {
         <div className="border-b border-border/40 p-4">
           <button type="button" onClick={() => navigate('/hub/registry')} className="mb-4 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" /> Observatory</button>
           <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Task / explorer</p><h1 className="mt-1 text-xl font-black tracking-tight">{projectName || 'Project tasks'}</h1></div><button type="button" onClick={() => void loadCatalog()} title="Refresh tasks" className="rounded-xl border border-border/40 bg-background/50 p-2 text-muted-foreground hover:text-foreground"><RefreshCw className="h-4 w-4" /></button></div>
+          <TaskModeToggle mode="tasks" />
           <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input aria-label="Search tasks" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search ID, title, spec…" className="w-full rounded-xl border border-border/40 bg-background/65 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-primary/50" /></div>
           <div className="mt-3 flex items-center gap-2"><StatusSelector value={status} onChange={setStatus} /><button type="button" aria-label="Export all tasks" onClick={() => void exportAll()} disabled={exporting} title="Export all tasks" className="rounded-xl border border-border/40 bg-background/65 p-2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-50"><Download className="h-4 w-4" /></button></div>
         </div>
         <div className="flex items-center justify-between px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"><span>Tasks</span><span>{catalog.length}{nextCursor ? '+' : ''}</span></div>
         <div aria-label="Task catalogue" className="flex-1 space-y-1 overflow-y-auto px-2 pb-3">
           {loading && <div className="flex justify-center py-10"><LoadingSpinner size="sm" /></div>}
-          {!loading && catalog.map(task => <button key={task.id} type="button" onClick={() => selectTask(task.id)} className={cn('w-full rounded-xl border px-3 py-3 text-left transition-colors', selectedID === task.id ? 'border-primary/35 bg-primary/10' : 'border-transparent hover:border-border/40 hover:bg-accent/35')}><div className="flex items-start justify-between gap-2"><p className="line-clamp-2 text-sm font-bold text-foreground">{task.title}</p>{task.flagged ? <Flag className="h-3.5 w-3.5 shrink-0 text-rose-500" /> : task.blocked_by?.length ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" /> : null}</div><div className="mt-2 flex items-center gap-2"><StatusBadge status={task.status} /><span className="font-mono text-[10px] text-muted-foreground">{task.id}</span><span className="ml-auto text-[10px] font-bold text-muted-foreground">P{task.priority}</span></div></button>)}
+          {!loading && catalog.map(task => <button key={task.id} type="button" onClick={() => selectTask(task.id)} className={cn('w-full rounded-xl border px-3 py-3 text-left transition-colors', selectedID === task.id ? 'border-primary/35 bg-primary/10' : 'border-transparent hover:border-border/40 hover:bg-accent/35')}><div className="flex items-start justify-between gap-2"><p className="line-clamp-2 text-sm font-bold text-foreground">{task.title}</p>{task.flagged ? <Flag className="h-3.5 w-3.5 shrink-0 text-rose-500" /> : task.blocked_by?.length ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" /> : null}</div><div className="mt-2 flex items-center gap-2"><StatusBadge status={task.status} /><span className="font-mono text-[10px] text-muted-foreground">{task.id}</span>{task.session_id && <SessionChip sessionId={task.session_id} onOpenSession={openSession} />}<span className="ml-auto text-[10px] font-bold text-muted-foreground">P{task.priority}</span></div></button>)}
           {!loading && nextCursor && <button type="button" onClick={() => void loadCatalog(nextCursor, true)} disabled={loadingMore} className="mt-2 w-full rounded-xl border border-border/40 bg-background/45 px-3 py-2.5 text-xs font-bold text-muted-foreground transition-colors hover:bg-accent/45 hover:text-foreground disabled:cursor-wait disabled:opacity-50">{loadingMore ? 'Loading…' : 'Load more'}</button>}
           {!loading && catalog.length === 0 && <div className="px-4 py-10 text-center text-sm text-muted-foreground">No tasks match this view.</div>}
         </div>
       </aside>
       <main className={cn('min-w-0 flex-1 bg-background/95 md:block', detail ? 'block' : 'hidden')}>
-        {detail ? <TaskDetail document={detail} onBack={showTaskList} /> : loading ? <div className="flex h-full items-center justify-center"><LoadingSpinner size="md" /></div> : <EmptyState icon={ShieldCheck} title="Select a task" description="Choose a task to inspect its complete deterministic record." />}
+        {detail ? <TaskDetail document={detail} onBack={showTaskList} onOpenSession={openSession} /> : loading ? <div className="flex h-full items-center justify-center"><LoadingSpinner size="md" /></div> : <EmptyState icon={ShieldCheck} title="Select a task" description="Choose a task to inspect its complete deterministic record." />}
       </main>
     </div>
   )

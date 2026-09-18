@@ -66,6 +66,7 @@ func NewUnifiedServer(
 	wikiHandler.RegisterAPIRoutes(mux)
 	NewMemoryHandler(repoPath).RegisterAPIRoutes(mux)
 	NewTaskHandler(repoPath).RegisterAPIRoutes(mux)
+	NewSessionHandler(repoPath).RegisterAPIRoutes(mux)
 
 	agentFeatures := config.AgentFeaturesEnabled(nil, projectCfg)
 	var liveHandler *LiveHandler

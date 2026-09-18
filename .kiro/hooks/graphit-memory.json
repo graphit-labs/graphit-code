@@ -12,7 +12,7 @@
     },
     {
       "action": {
-        "prompt": "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents, with `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. Resume durable task state; new questions trigger needed enabled Memory/Task recall. Reuse sufficient context. `project_dir` is call-local; persist project identity and relative paths, never a machine-specific checkout root.",
+        "prompt": "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents; `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. With Task enabled, resume durable session/task state; revise changed intent before acting; close delivered sessions explicitly. New questions trigger needed Memory/Task recall; reuse evidence. `project_dir` is call-local; persist identity and relative paths, never checkout roots.",
         "type": "agent"
       },
       "description": "Reassert Graphit-first routing on every submitted or resumed turn.",
@@ -32,7 +32,7 @@
     },
     {
       "action": {
-        "prompt": "Graphit task checkpoint: on a completed work unit of a claimed task, call `graphit_task_progress` now with evidence and next step. Reads and task bookkeeping alone are not completed units. Keep task state in Graphit. Before completion, verify acceptance checks and affected code/documentation consistency in both directions; record inspected targets and evidence in Task. Resolve divergence before closing.",
+        "prompt": "Graphit task checkpoint (if enabled): after meaningful work use `graphit_task_progress`; coordinator: `graphit_task_session_checkpoint` with evidence, problems, decisions, strategy, next step. Reads/bookkeeping alone need none. Revise changed intent; close delivered sessions explicitly. Verify acceptance checks and code/documentation consistency in both directions; record targets/evidence. Resolve divergence before closing.",
         "type": "agent"
       },
       "description": "Update task management as soon as a spec task completes.",

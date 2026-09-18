@@ -4,6 +4,8 @@ Read before defining or materially changing a feature, system, multi-outcome ana
 
 ## 1. Establish the unit of intent
 
+Start from the matching durable session's current demand and strategy; read [session.md](session.md) before creating or resuming its coordination. Session intent is the overall request, not a replacement for complete Task specifications. A new planning Task, its deliveries and every leaf carry the same session_id. Update the session when discovery or the user changes that intent, then reconcile the affected Task packets before incompatible execution.
+
 Capture the requested outcome and why it matters, intended users/consumers, scope exclusions, supplied examples, constraints and available evidence. Preserve exact business rules and limits. Inventory each distinct requirement from a large prompt before compressing it; do not replace ten requested capabilities with 'build the system'. Identify what can deliver value independently and what is a shared prerequisite. A small fix needs a single execution packet; a feature may need a parent and slices; a system needs multiple deliveries, cross-delivery contracts and observable milestone exits.
 
 Separate three kinds of statement:
@@ -65,7 +67,7 @@ Once multiple task packets are fully specified, prefer task_batch creates with t
 
 Parallel eligibility needs both satisfied prerequisites and compatible ownership of files, generated outputs, shared environments and contracts. Record the reason in the plan. When two leaves touch the same interface or doc page, assign one owner, split sections only if safely coordinated, or serialize. Do not add unnecessary all-to-all dependencies that prevent useful work.
 
-Each create needs title, description, acceptance_criteria and tests. Types are labels; there are no dedicated spec/plan/milestone fields. Use a stable idempotency_key per logical work unit. Every task, including a planning task or parent, needs at least one acceptance criterion and one validation. A parent check is a product-level integration/release condition, not just 'children exist'.
+Each agent create needs session_id, title, description, acceptance_criteria and tests; batch items each carry the association too. The session must be nonterminal, and parent/child must share it. Types are labels; there are no dedicated spec/plan/milestone fields. Use a stable idempotency_key per logical work unit. Every task, including a planning task or parent, needs at least one acceptance criterion and one validation. A parent check is a product-level integration/release condition, not just 'children exist'.
 
 ### Leaf description model
 
@@ -85,4 +87,4 @@ Read back saved definitions and relations. Detect omissions, ambiguous terms, co
 
 A cold-start agent must identify the next action and prove completion from the leaf and named records, without reconstructing the conversation. 'Implement search; follow the plan; tests pass' fails this test. A useful task says which query contract changes, why current behavior fails, where it is implemented, how callers/docs are affected, and what exact cases prove it.
 
-Before finishing planning, revise the claimed planning description with final contracts and returned-ID coverage; the revision resets its checks, so record planning evidence afterward. Leave future delivery checks pending and work unclaimed. Follow the main skill's claim/revision rules for later corrections. Continue with [execution.md](execution.md) before implementation or handoff.
+Before finishing planning, revise the claimed planning description with final contracts and returned-ID coverage; the revision resets its checks, so record planning evidence afterward. The coordinator reconciles session description/strategy and checkpoints the saved graph, decisions, unresolved issues and next action. Leave future delivery checks pending and work unclaimed. Completing a planning Task does not close a session with implementation pending. For a planning-only request, future implementation Tasks stay open; hand off/release the session without calling the whole delivery complete. Follow the main skill's claim/revision rules for later corrections. Continue with [execution.md](execution.md) before implementation or handoff.

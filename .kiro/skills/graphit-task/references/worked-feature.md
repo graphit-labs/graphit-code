@@ -6,6 +6,8 @@ This is a fully filled example, not a universal project layout or a fixed number
 
 Example request: 'Readers need an option to see archived projects. Keep the current default and access rules. Plan the change and leave implementation for later.'
 
+Start by finding or creating the durable session as taught in [session.md](session.md). Assume it returned ses-a101 and its current description preserves this planning-only authorization, scope and strategy. Every P/E/A/U/V record below belongs to ses-a101. Session coordination is separate from the one Task claim per agent; a worker shares the session ID, never its coordinator's token.
+
 | Evidence | Observed fact | Planning consequence |
 |---|---|---|
 | User clarification | Include archived alongside active; no archive-only mode, remembered preference or archive/restore actions | Scope is read-only listing; unchecked on each new visit |
@@ -112,11 +114,12 @@ C1 tests absent and explicit false separately. C2/C3 prove inaccessible active a
 | U | Implement reader control | task | E | [P] | web/projects.tsx, web/projects-api.ts, component tests, docs/projects/listing.md |
 | V | Verify integrated reader journeys | task | E | [A,U] | web/e2e/projects-archive.spec.ts plus evidence |
 
-Every create uses the host-resolved project_dir only in its MCP envelope and ai_optimized=true; saved descriptions/checks use project identity and repository-relative references, never that checkout root; omit parent_id when the table says omitted. The table supplies type/relations and the packets below supply descriptions/checks. Create and claim P with its planning-only scope/checks; P has no delivery children. Create E, then batch A/U once fully specified, then create V using the returned producer IDs. API and UI are parallel eligible after P completes because contracts and edit ownership agree. V is not eligible until both producers complete. E cannot complete before its children. No child depends on E. Do not claim E while trying to own A with the same agent.
+Every create supplies session_id: ses-a101, uses the host-resolved project_dir only in its MCP envelope and ai_optimized=true; saved descriptions/checks use project identity and relative references, never that checkout root; omit parent_id where the table says omitted. The table supplies type/relations and the packets below descriptions/checks. Create and claim P with planning-only scope/checks; P has no delivery children. Create E, then batch A/U once specified, then V with returned producer IDs. API/UI are parallel eligible after P completes because contracts/ownership agree. V waits for both producers; E waits for its children. No child depends on E. Do not claim E while trying to own A with the same agent.
 
 ### P creation fields
 
 - title: Specify and register archive browsing
+- session_id: ses-a101
 - idempotency_key: archive-browsing-plan
 - description: the complete Specification, Implementation plan, task graph and coverage in this example, using real observations and returned IDs
 - acceptance_criteria: '[P1] Every R1–R8 must have an executable producer and observable validation'; '[P2] Contracts, blockers and edit ownership must permit a cold-start executor to act without guessing'
@@ -127,6 +130,7 @@ These are checks of planning quality. Even when P passes, C1–C12 have not been
 ### E creation fields
 
 - title: Deliver archive browsing
+- session_id: ses-a101
 - idempotency_key: archive-browsing-delivery
 - description: Deliver J1–J3 under R1–R8. Read P Specification and Contracts; A/U own implementation, V owns integrated evidence. Preserve existing default, membership isolation, envelope and pagination; no archive/restore or persisted preference. Completion requires producer and integration results plus guide consistency. No publish/deployment is authorized by this record.
 - acceptance_criteria: '[E1] Readers must browse both modes with R1–R7 behavior and without access regression'; '[E2] R8 user/API guidance must match delivered behavior'
@@ -134,7 +138,7 @@ These are checks of planning quality. Even when P passes, C1–C12 have not been
 
 ### A/U batch creation packet — preserve both complete specifications
 
-The plan is settled and both packets are fully written. Assume creates already returned P=tsk-a101 and E=tsk-e101; E is open and P is still the claimed planning task. These are fictional returned values, not IDs to copy into real calls. Batch creation does not require P to be completed: A/U can exist blocked by it, while P records their final coverage.
+The plan is settled and both packets are fully written. Assume creates returned session=ses-a101, P=tsk-a101 and E=tsk-e101; E is open and P still claimed for planning. These are fictional returned values, not IDs to copy into real calls. Batch creation does not require P completed: A/U can exist blocked by it while P records their coverage. The Task session_id belongs to each operation; it is not a batch-envelope field.
 
 Use graphit_task_batch once for the two creates below instead of two separate creation calls. This is YAML presentation of one MCP payload; send the equivalent structured object. project_dir and ai_optimized belong to the envelope. Each operation retains its own complete description, acceptance_criteria, tests, parent, dependencies and stable idempotency_key. A/U here are correlation keys only, never references that Graphit substitutes into IDs.
 
@@ -144,6 +148,7 @@ ai_optimized: true
 operations:
   - action: create
     key: A
+    session_id: ses-a101
     title: Implement archived-project listing contract
     type: task
     parent_id: tsk-e101
@@ -192,6 +197,7 @@ operations:
       - '[AT4] Run go test ./internal/http ./internal/projects; compare docs/api/projects.md relevant sections to observed C1-C8 outputs. Record command/result and matched code/doc references.'
   - action: create
     key: U
+    session_id: ses-a101
     title: Add accessible archive browsing control
     type: task
     parent_id: tsk-e101
@@ -233,6 +239,7 @@ For more than 100 operations, split by known-input stages and bounded groups of 
 ### V creation packet — complete integration and consistency slice
 
 - title: Verify archive browsing across API and UI
+- session_id: ses-a101
 - idempotency_key: archive-browsing-integration; parent_id: E; depends_on: [A,U]; type: task
 - description:
   - **Outcome and scope:** prove J1–J3/R1–R8 against combined producers. Own web/e2e/projects-archive.spec.ts and evidence; do not reimplement producer behavior or defer their documentation responsibilities to this task.
@@ -263,12 +270,14 @@ After creates, bind every alias above to actual task/check IDs returned by Graph
 
 ## Example of later handoff, not fabricated completion
 
+For the original planning-only request, finish P's coverage checks, checkpoint the session with the saved graph and implementation authorization boundary, and release coordination. E/A/U/V stay open/unclaimed; the session remains unfinished because linked delivery work remains. Tell the user planning is delivered and implementation is pending. Do not execute or cancel that backlog merely to close the session. On a later implementation request, resume/revise the same open session's authorization/strategy before claiming producers.
+
 The following illustrates the shape of a hypothetical A checkpoint; it is not a claim that these commands ran:
 
 - Result: handler/options/query/count implemented; C1–C7 and existing page-bound tests pass in the local fixture; docs/api/projects.md Query parameters/Error behavior updated and compared with those outputs.
 - Remaining: C8 failure-envelope regression is not yet run; A.AT3/AT4 and affected acceptance remain unresolved. No completion request is made.
 - Known decision: StrictOptionalBool rejects repeated values; no custom parser added. Source references remain P D3 plus internal/http/query.go.
 - Next step: inject the repository failure in internal/http/projects_test.go, verify existing 500 envelope/no partial items, rerun go test ./internal/http ./internal/projects, finish API-guide evidence and record remaining check IDs. No UI edits.
-- Handoff: progress/release carries this state and exact next action. The next owner gets A and named prerequisite P, claims with its own returned token, confirms source/description revision and reconciles any drift before continuing.
+- Handoff: Task progress/release carries this state. The coordinator checkpoints session-wide progress/problems/decisions/strategy with A/P references and releases coordination if stopping. A worker releases only its own Task. The next coordinator reads the session's current demand and checkpoint, gets A and prerequisite P, then claims released coordination and ready A with separate private tokens, confirms revisions and reconciles drift.
 
-Use actual commands, results, task/check IDs and artifacts in real evidence. Never paste this hypothetical pass status as an executed check.
+Use actual commands, results, IDs and artifacts in real evidence. Never paste these hypothetical pass statuses as executed checks. After eventual delivery, reconcile the session's current scope, complete all required Tasks, and call session_complete with final evidence; completing A or E alone does not close the session.
