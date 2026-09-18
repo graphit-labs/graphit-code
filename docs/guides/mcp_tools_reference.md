@@ -1092,13 +1092,30 @@ Tools for managing the global background daemon process.
 
 ---
 
-### `graphit_daemon_stop`
+### `graphit_daemon_start`
 
-**Description:** Stop the running global daemon process.
+**Description:** Start the global background daemon if it is not already running.
 
 _No parameters._
 
-Sends `SIGTERM` first and waits up to 10 seconds. Falls back to `SIGKILL` if the daemon does not stop gracefully.
+Idempotent: when a daemon is already up it reports that PID and leaves the process alone. It never
+signals a running daemon.
+
+---
+
+### `graphit_daemon_restart`
+
+**Description:** Restart the global background daemon.
+
+_No parameters._
+
+The stop-and-start is carried out by a separate, detached process, and the reply is written before
+that happens. The tool therefore returns immediately with the outgoing PID instead of waiting for a
+teardown it would not survive; read the replacement PID with `graphit_daemon_status`.
+
+There is no MCP tool that only stops the daemon. A tool that killed the daemon would be killing the
+process serving the call — the stdio entry point only relays to the daemon's own MCP server — so its
+reply could never be delivered. Use `graphit daemon stop` from the CLI, which runs in its own process.
 
 ---
 

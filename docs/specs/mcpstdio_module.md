@@ -264,7 +264,12 @@ tasks; deterministic ownership belongs to the Task module.
 | Tool | Description |
 |---|---|
 | `graphit_daemon_status` | Check daemon status: PID, uptime, scheduler status, last 10 log lines. |
-| `graphit_daemon_stop` | Stop the daemon: sends SIGTERM, waits 10s, falls back to SIGKILL. |
+| `graphit_daemon_start` | Start the daemon if it is not running; reports the PID and leaves a live daemon alone. |
+| `graphit_daemon_restart` | Hand the stop-and-start to a detached process and reply before it runs, returning the outgoing PID. |
+
+There is deliberately no stop tool. Every tool here executes inside the daemon, so a handler that
+stops it dies before writing its reply; stopping is a CLI operation (`graphit daemon stop`), which
+runs in a separate process.
 
 ### 9. Cluster Tools (`tools_cluster.go`)
 

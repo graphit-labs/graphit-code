@@ -48,6 +48,7 @@ This guide covers common issues you may encounter when using Graphit Code and ho
 - [AST Indexing Issues](#ast-indexing-issues)
 - [AI & Embedding Issues](#ai--embedding-issues)
 - [Memory Issues](#memory-issues)
+- [Task Issues](#task-issues)
 - [Knowledge Issues](#knowledge-issues)
 - [Hub Issues](#hub-issues)
 - [MCP Connection Issues](#mcp-connection-issues)
@@ -288,18 +289,24 @@ operating system releases the lock when the daemon process exits.
 
 **Cause:** The daemon has a maximum restart limit of **10 restarts**. If a module crashes within 60 seconds of starting, it counts toward the limit. After 10 fast failures, the module is disabled.
 
+A module is supervised per project, so this disables it for **that project only** and the rest of the
+daemon keeps working — which is why the symptom is usually "one project stopped being maintained"
+rather than an obviously broken daemon. The state lasts until the daemon is restarted; recreating
+whatever the module tripped over does not revive a supervisor that already gave up.
+
 **Solutions:**
-1. Check the daemon log for the failing module:
+1. Check the daemon log for the failing module, and note the project ID in the line prefix:
    ```bash
    tail -50 ~/.graphit/daemon/daemon.log
    ```
-2. Look for patterns like embedding model download failures or port conflicts.
-3. Stop the daemon, fix the underlying issue, then restart:
+   The last line for a dead module reads `FAILED — exceeded max restarts (10)`.
+2. Look for patterns like embedding model download failures, port conflicts, or a store this build
+   cannot open — see [Task store rejected as incompatible](#task-store-rejected-as-incompatible).
+3. Fix the underlying issue, then restart the daemon so the disabled supervisor is recreated:
    ```bash
-   graphit daemon stop
-   # Fix the issue...
-   graphit sync  # This will auto-start the daemon
+   graphit daemon restart
    ```
+   `graphit daemon stop` followed by any ordinary command also works, since those autostart the daemon.
 
 ### OS scheduler not configured
 
@@ -693,6 +700,55 @@ anonymous user memory is always local.
 a Broker provider whose discovery advertises `graphit-s3-credentials-v2`. Re-login if the provider
 revision changed, then inspect the redacted account state. Broker credential expiry is managed only
 in process memory and is intentionally absent from account output.
+
+---
+
+## Task Issues
+
+### Task store rejected as incompatible
+
+**Symptoms:**
+```
+task table tasks has an incompatible schema; use a fresh store; automatic migration is not supported
+```
+
+Every Task tool fails for that project with this message, and the daemon's `task_maintenance` module
+for it dies after the usual ten restarts.
+
+**Cause:** The store on disk was written by a build whose table layout this one cannot read as is.
+
+A store that merely predates a column — the common case after an upgrade — is **not** this error. It
+is migrated in place the first time it is opened: rows are preserved, the columns this build added are
+filled with their empty value, and the indexes are rebuilt. A store written before durable Task
+sessions, for instance, keeps its tasks and gets an empty `session_id` on each of them.
+
+The message above means the difference is **not** additive: a column was dropped, renamed, or changed
+type. Migrating that would mean deciding what to do with data the store cannot interpret, so it is
+refused instead. The refusal is non-destructive — nothing is dropped or rewritten.
+
+**Solutions:**
+
+1. Confirm which project is affected. The daemon log prefixes each line with the project ID:
+   ```bash
+   grep "incompatible schema" ~/.graphit/daemon/daemon.log
+   ```
+2. Check whether the store holds anything worth keeping before doing anything else. A task store that
+   was created but never used has no data files:
+   ```bash
+   ls ~/.graphit/task/tasks/<project-id>/tasks.lance/data 2>/dev/null | wc -l
+   ```
+3. If it is empty, move it aside and let the next open recreate it:
+   ```bash
+   mv ~/.graphit/task/tasks/<project-id> ~/.graphit/task/tasks/<project-id>.bak
+   graphit daemon restart
+   ```
+   Move rather than delete: the backup costs little and makes the step reversible.
+4. If it holds real task history, do not discard it. There is no repair command, and no automatic
+   migration exists for this case by design. Keep the store, and align the binary with it — run the
+   build that wrote it, or export the history before adopting a build that cannot read it.
+
+There is no `--reset` for the Task store, unlike the AST store: task history is authoritative and
+cannot be rebuilt from the repository.
 
 ---
 

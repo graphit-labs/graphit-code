@@ -163,8 +163,8 @@ func (s *Store) LoadedExtensions() ([]string, error) {
 
 // S3Credentials is what httpfs needs to reach a bucket.
 //
-// SAFETY: Secret is a live credential. It reaches the engine inside a statement, so no
-// caller may log the statements ConfigureS3 issues, and nothing here returns them.
+// SAFETY: SecretAccessKey and SessionToken are live credentials. They reach the engine inside
+// the statements S3ConfigStatements builds, so no caller may log those statements.
 type S3Credentials struct {
 	AccessKeyID     string
 	SecretAccessKey string
@@ -176,32 +176,6 @@ type S3Credentials struct {
 	// PathStyle addresses the bucket in the path rather than the host, which MinIO and most
 	// S3-compatible servers require.
 	PathStyle bool
-}
-
-func (s *Store) ConfigureS3(creds S3Credentials) error {
-	options := []struct {
-		key, value string
-	}{
-		{"s3_access_key_id", creds.AccessKeyID},
-		{"s3_secret_access_key", creds.SecretAccessKey},
-		{"s3_session_token", creds.SessionToken},
-		{"s3_region", creds.Region},
-		{"s3_endpoint", creds.Endpoint},
-	}
-	for _, o := range options {
-		if o.value == "" {
-			continue
-		}
-		if err := s.Exec(fmt.Sprintf("CALL %s='%s'", o.key, EscapeLiteral(o.value)), nil); err != nil {
-			return fmt.Errorf("setting %s: %w", o.key, err)
-		}
-	}
-	if creds.PathStyle {
-		if err := s.Exec("CALL s3_url_style='path'", nil); err != nil {
-			return fmt.Errorf("setting s3_url_style: %w", err)
-		}
-	}
-	return nil
 }
 
 // EnableRemoteCache turns on httpfs's local read cache, which keeps a re-read of the same

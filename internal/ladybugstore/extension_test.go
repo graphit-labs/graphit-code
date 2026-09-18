@@ -71,3 +71,37 @@ func TestValidateExtensionFileRejectsWhatAFailedDownloadLeaves(t *testing.T) {
 		t.Fatal("validateExtensionFile accepted a large file that is not a native library")
 	}
 }
+
+// The engine reaches a plain-HTTP endpoint only when it is told to, and a broker serving its own
+// storage over loopback is exactly that case: without s3_disable_ssl httpfs tries HTTPS against
+// it and the read fails.
+func TestS3ConfigStatementsCarryPathStyleAndPlainHTTP(t *testing.T) {
+	statements := S3ConfigStatements(S3Credentials{
+		AccessKeyID: "key", SecretAccessKey: "secret", SessionToken: "token",
+		Region: "us-east-1", Endpoint: "127.0.0.1:8080", PathStyle: true, DisableSSL: true,
+	})
+	joined := strings.Join(statements, "\n")
+	for _, want := range []string{
+		"CALL s3_access_key_id='key'",
+		"CALL s3_secret_access_key='secret'",
+		"CALL s3_session_token='token'",
+		"CALL s3_region='us-east-1'",
+		"CALL s3_endpoint='127.0.0.1:8080'",
+		"CALL s3_url_style='path'",
+		"CALL s3_disable_ssl=true",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %s in:\n%s", want, joined)
+		}
+	}
+
+	// An HTTPS bucket with no session token must not be told either of those.
+	plain := strings.Join(S3ConfigStatements(S3Credentials{
+		AccessKeyID: "key", SecretAccessKey: "secret", Region: "us-east-1",
+	}), "\n")
+	for _, unwanted := range []string{"s3_session_token", "s3_endpoint", "s3_url_style", "s3_disable_ssl"} {
+		if strings.Contains(plain, unwanted) {
+			t.Errorf("unexpected %s in:\n%s", unwanted, plain)
+		}
+	}
+}

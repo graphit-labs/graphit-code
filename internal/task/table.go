@@ -50,15 +50,25 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, e
 		return nil, fmt.Errorf("opening task store at %s: %w", uri, err)
 	}
 	closeOnError := func(err error) (*tables, error) { _ = st.Close(); return nil, err }
+	migrated := false
 	open := func(name string, schema lancestore.Schema) (*lancestore.Table, error) {
 		tbl, openErr := st.EnsureTable(ctx, name, schema)
 		if openErr != nil {
 			return nil, openErr
 		}
-		if !tbl.Schema().Equal(schema) {
+		switch classifySchemaDelta(tbl.Schema(), schema) {
+		case schemaSame:
+			return tbl, nil
+		case schemaAdditive:
+			grown, migrateErr := migrateTableAdditively(ctx, st, name, tbl, schema)
+			if migrateErr != nil {
+				return nil, migrateErr
+			}
+			migrated = true
+			return grown, nil
+		default:
 			return nil, fmt.Errorf("task table %s has an incompatible schema; use a fresh store; automatic migration is not supported", name)
 		}
-		return tbl, nil
 	}
 	t := &tables{store: st}
 	if t.tasks, err = open(tasksTableName, taskSchema()); err != nil {
@@ -96,7 +106,114 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, e
 			return closeOnError(err)
 		}
 	}
+	// A recreated table carries no indexes, and most read paths never reach ensureIndexes.
+	// Only a store that actually grew pays for rebuilding them.
+	if migrated {
+		if err = t.ensureIndexes(ctx); err != nil {
+			return closeOnError(fmt.Errorf("indexing migrated task tables: %w", err))
+		}
+	}
 	return t, nil
+}
+
+// schemaDelta says how a stored table relates to the schema this build expects.
+type schemaDelta int
+
+const (
+	schemaSame schemaDelta = iota
+	schemaAdditive
+	schemaIncompatible
+)
+
+// classifySchemaDelta separates a store that merely predates a new column from one this build
+// cannot honestly read. Additive means every stored field survives untouched, in the same
+// relative order, and the expected schema only inserts new columns around them — a task store
+// written before session_id is exactly that. A dropped, renamed or retyped column is not
+// additive: growing it would silently decide what to do with the user's data, so it stays
+// refused, which is the "reject or reset" policy stated in lancestore.Schema.Equal.
+func classifySchemaDelta(stored, expected lancestore.Schema) schemaDelta {
+	if stored.Equal(expected) {
+		return schemaSame
+	}
+	if len(stored.Fields) >= len(expected.Fields) {
+		return schemaIncompatible
+	}
+	// Field names are unique within a schema, so matching greedily in order is enough to
+	// decide whether the stored columns are a subsequence of the expected ones.
+	next := 0
+	for _, want := range expected.Fields {
+		if next < len(stored.Fields) && stored.Fields[next] == want {
+			next++
+		}
+	}
+	if next != len(stored.Fields) {
+		return schemaIncompatible
+	}
+	return schemaAdditive
+}
+
+// migrateTableAdditively grows a table into the expected schema while keeping its rows. Lance
+// exposes no column-add primitive here, so the rows are read into memory, the table is recreated
+// and the new columns are written as their type's empty value. That gap is not atomic: if the
+// recreation fails the rows exist only in this process, so the error says so instead of leaving
+// the operator to guess what the store still holds.
+func migrateTableAdditively(ctx context.Context, st *lancestore.Store, name string, tbl *lancestore.Table, expected lancestore.Schema) (*lancestore.Table, error) {
+	rows, err := tbl.Rows(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading task table %s before migrating its schema: %w", name, err)
+	}
+	if err := tbl.Close(); err != nil {
+		return nil, fmt.Errorf("closing task table %s before migrating its schema: %w", name, err)
+	}
+	if err := st.DropTable(ctx, name); err != nil {
+		return nil, fmt.Errorf("dropping task table %s while migrating its schema: %w", name, err)
+	}
+	grown, err := st.CreateTable(ctx, name, expected)
+	if err != nil {
+		return nil, fmt.Errorf("recreating task table %s while migrating its schema lost %d row(s): %w", name, len(rows), err)
+	}
+	if len(rows) == 0 {
+		return grown, nil
+	}
+	for _, row := range rows {
+		fillMissingFields(row, expected)
+	}
+	if err := grown.Append(ctx, rows); err != nil {
+		_ = grown.Close()
+		return nil, fmt.Errorf("restoring %d row(s) into migrated task table %s: %w", len(rows), name, err)
+	}
+	return grown, nil
+}
+
+func fillMissingFields(row lancestore.Row, schema lancestore.Schema) {
+	for _, field := range schema.Fields {
+		if _, ok := row[field.Name]; !ok {
+			row[field.Name] = emptyFieldValue(field)
+		}
+	}
+}
+
+// emptyFieldValue is what a row written before a column existed holds afterwards. For a task
+// carried over from a store without sessions that means an empty session_id, which the module
+// already treats as "no session".
+func emptyFieldValue(field lancestore.Field) any {
+	switch field.Type {
+	case lancestore.FieldInt64:
+		return int64(0)
+	case lancestore.FieldFloat64:
+		return float64(0)
+	case lancestore.FieldBool:
+		return false
+	case lancestore.FieldVector:
+		// A zero vector is a meaningful embedding and would pollute similarity search; a
+		// nullable column says "not computed yet" honestly.
+		if field.Nullable {
+			return nil
+		}
+		return make([]float32, field.Dim)
+	default:
+		return ""
+	}
 }
 
 func (t *tables) ensureIndexes(ctx context.Context) error {
