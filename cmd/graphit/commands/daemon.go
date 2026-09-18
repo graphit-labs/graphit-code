@@ -407,10 +407,6 @@ func resolveDaemonMCPAPIKey() (string, error) {
 	return mcpproxy.GenerateAPIKey()
 }
 
-func daemonBearerContext(ctx context.Context, bearer, runtimeKey string, audiences []string) (context.Context, bool) {
-	return daemonBearerContextWithVerifier(ctx, bearer, runtimeKey, auth.NewProviderAccessTokenVerifier(), audiences)
-}
-
 type daemonAccessTokenVerifier interface {
 	VerifyAccessToken(context.Context, auth.Provider, string, []string) (auth.VerifiedIdentity, error)
 }

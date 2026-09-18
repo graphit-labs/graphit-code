@@ -42,7 +42,7 @@ func newSessionHookCmd() *cobra.Command {
 				}
 			}
 			includeMandatory := hookInputNeedsMandatory(format, input)
-			context := sessionhook.Context{}
+			var context sessionhook.Context
 			if includeMandatory || strings.EqualFold(format, sessionhook.FormatToolContext) {
 				context = sessioncontext.Build(projectDir, includeMandatory)
 			} else {
