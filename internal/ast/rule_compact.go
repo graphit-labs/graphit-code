@@ -139,7 +139,7 @@ func MandateTrigger() string {
 	return agent.ModuleMandateTrigger(
 		"AST Code Exploration", astSkillName,
 		"locating/reading code or assessing structure/impact, including before native grep, glob, file reads or symbol navigation",
-		"Use AST first: known file → `"+brand.MCPToolName("ast_source")+"` (pattern, head/tail, range, entity); unknown location → `"+brand.MCPToolName("ast_search")+"`; symbols/callers/metrics/impact → `"+brand.MCPToolName("ast_schema")+"` once per target, then `"+brand.MCPToolName("ast_query")+"`. Cluster neighbors are also managed: pass their returned `dir` as `project_dir`, never switch to native grep/walk for being outside cwd. Read the needed target skill, source and dependents/tests; record evidence in the coordinating Task.",
+		"Use AST first: known file → `"+brand.MCPToolName("ast_source")+"` (pattern, head/tail, range, entity); unknown location → `"+brand.MCPToolName("ast_search")+"`; symbols/callers/metrics/impact → `"+brand.MCPToolName("ast_schema")+"` once per target, then `"+brand.MCPToolName("ast_query")+"`. Cluster neighbors are also managed: pass their returned `dir` as `project_dir`, never switch to native grep/walk for being outside cwd. Read the needed target skill, source and dependents/tests; record evidence in the coordinating Task. `"+brand.MCPToolName("ast_schema")+"`/`"+brand.MCPToolName("ast_query")+"` are the Cypher GRAPH; for a structured question over the indexed rows — every entity in a path, what is a dependency — use `"+brand.MCPToolName("ast_fts_schema")+"` then `"+brand.MCPToolName("ast_fts_query")+"`.",
 		nil, nil,
 	)
 }

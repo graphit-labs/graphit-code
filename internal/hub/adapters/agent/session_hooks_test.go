@@ -3,12 +3,157 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
+
+// The reminder's own text says reads and bookkeeping need none, so a matcher
+// that also fires on reads is the defect. A matcher that misses a real mutation
+// is worse: it silently drops the checkpoint prompt.
+func TestUnitReminderMatchersCoverMutationsAndSkipReads(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		matcher    string
+		mutating   []string
+		readOnly   []string
+		hostSource string
+	}{
+		"claude-style": {
+			matcher:    claudeStyleMutatingTools,
+			mutating:   []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "apply_patch"},
+			readOnly:   []string{"Read", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite"},
+			hostSource: "Claude Code, Codex and Qwen",
+		},
+		"kimi": {
+			matcher:  kimiMutatingTools,
+			mutating: []string{"WriteFile", "StrReplaceFile", "Edit", "Bash"},
+			readOnly: []string{"ReadFile", "Grep", "Glob"},
+		},
+		"gemini": {
+			matcher:  geminiMutatingTools,
+			mutating: []string{"write_file", "replace", "run_shell_command"},
+			readOnly: []string{"read_file", "list_directory", "search_file_content", "google_web_search"},
+		},
+		"kiro": {
+			matcher:  kiroMutatingTools,
+			mutating: []string{"write", "shell"},
+			readOnly: []string{"read", "web"},
+		},
+		"cursor": {
+			matcher:  cursorMutatingTools,
+			mutating: []string{"Write", "Delete", "Shell"},
+			readOnly: []string{"Read", "Grep"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pattern, err := regexp.Compile(tc.matcher)
+			if err != nil {
+				t.Fatalf("%s matcher is not a valid regex: %v", name, err)
+			}
+			for _, tool := range tc.mutating {
+				if !pattern.MatchString(tool) {
+					t.Errorf("%s matcher misses mutating tool %q, which drops its checkpoint reminder", name, tool)
+				}
+			}
+			for _, tool := range tc.readOnly {
+				if pattern.MatchString(tool) {
+					t.Errorf("%s matcher still fires on read-only tool %q", name, tool)
+				}
+			}
+		})
+	}
+}
+
+// Graphit's own MCP mutations are the checkpointing. Reminding an agent to
+// checkpoint right after it recorded progress is the noise this task removes.
+func TestUnitReminderMatchersIgnoreGraphitBookkeeping(t *testing.T) {
+	t.Parallel()
+
+	for name, matcher := range map[string]string{
+		"claude-style": claudeStyleMutatingTools,
+		"kimi":         kimiMutatingTools,
+		"gemini":       geminiMutatingTools,
+		"cursor":       cursorMutatingTools,
+	} {
+		pattern := regexp.MustCompile(matcher)
+		for _, tool := range []string{
+			"mcp__graphit-code-stdio-mcp__graphit_task_search",
+			"mcp__graphit-code-stdio-mcp__graphit_task_progress",
+			"mcp__graphit-code-stdio-mcp__graphit_memory_search",
+			"mcp__graphit-code-stdio-mcp__graphit_ast_source",
+		} {
+			if pattern.MatchString(tool) {
+				t.Errorf("%s matcher fires on Graphit bookkeeping tool %q", name, tool)
+			}
+		}
+	}
+}
+
+// The matcher has to survive into the file the host actually reads, and removal
+// has to keep finding the hook now that the group carries an extra key.
+func TestUnitReminderHookIsWrittenWithItsMatcherAndStillRemovable(t *testing.T) {
+	t.Setenv("GRAPHIT_LAUNCHER_PATH", "/opt/graphit/bin/graphit")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GRAPHIT_GLOBAL_DIR", filepath.Join(home, ".graphit"))
+
+	for _, tc := range []struct {
+		adapter string
+		path    string
+		matcher string
+		global  bool
+	}{
+		{adapter: "claude", path: filepath.Join(".claude", "settings.json"), matcher: claudeStyleMutatingTools},
+		{adapter: "codex", path: filepath.Join(".codex", "hooks.json"), matcher: claudeStyleMutatingTools},
+		{adapter: "qwen", path: filepath.Join(".qwen", "settings.json"), matcher: claudeStyleMutatingTools},
+		{adapter: "gemini", path: filepath.Join(".gemini", "settings.json"), matcher: geminiMutatingTools},
+		{adapter: "cursor", path: filepath.Join(".cursor", "hooks.json"), matcher: cursorMutatingTools},
+		{adapter: "kiro", path: filepath.Join(".kiro", "hooks", "graphit-memory.json"), matcher: kiroMutatingTools},
+		{adapter: "kimi", path: filepath.Join(".kimi-code", "config.toml"), matcher: kimiMutatingTools, global: true},
+	} {
+		t.Run(tc.adapter, func(t *testing.T) {
+			projectDir := t.TempDir()
+			targetRoot := projectDir
+			if tc.global {
+				targetRoot = home
+			}
+			target := filepath.Join(targetRoot, tc.path)
+
+			adapter := GetAdapter(tc.adapter)
+			pp := &paths.ProjectPaths{ActiveProjectDir: projectDir}
+			if err := adapter.Sync(map[string]map[string]string{}, pp, "matcher-test-project"); err != nil {
+				t.Fatal(err)
+			}
+			written, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(written), tc.matcher) {
+				t.Fatalf("%s did not record the mutating-tool matcher %q: %s", tc.adapter, tc.matcher, written)
+			}
+
+			if err := adapter.Remove(pp, map[string]map[string]string{}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.ReadFile(target)
+			if os.IsNotExist(err) {
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(after), tc.matcher) {
+				t.Fatalf("%s left the matched reminder hook behind: %s", tc.adapter, after)
+			}
+		})
+	}
+}
 
 func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 	const launcherPath = "/opt/graphit/bin/graphit"
@@ -32,7 +177,7 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 		{"opencode", filepath.Join(".opencode", "plugins", opencodeManagedHookFile), "", "", false},
 		{"gemini", filepath.Join(".gemini", "settings.json"), `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-token"}]}]},"userSetting":true}`, sessionhook.FormatSessionStart, false},
 		{"qwen", filepath.Join(".qwen", "settings.json"), `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"user-token"}]}]},"userSetting":true}`, sessionhook.FormatSessionStart, false},
-		{"kimi", filepath.Join(".kimi-code", "config.toml"), "user_setting = \"user-token\"\n", sessionhook.FormatPlainContext, true},
+		{"kimi", filepath.Join(".kimi-code", "config.toml"), "user_setting = \"user-token\"\n", sessionhook.FormatSessionPrompt, true},
 	}
 	if len(tests) != len(SupportedAgents()) {
 		t.Fatalf("adapter bootstrap matrix has %d entries, want one for each of %d supported Agents", len(tests), len(SupportedAgents()))
@@ -162,8 +307,8 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 						t.Fatalf("%s gap compensation missing %q: %s", tc.adapter, required, protocolContent)
 					}
 				}
-				if tc.adapter == "antigravity" && (!strings.Contains(protocolContent, "complete Graphit protocol") || !strings.Contains(protocolContent, "enabled Memory and Task bootstrap")) {
-					t.Fatalf("Antigravity subagent compensation does not preserve the complete enabled-module bootstrap: %s", protocolContent)
+				if tc.adapter == "antigravity" && (!strings.Contains(protocolContent, "role document installed under the agents directory") || !strings.Contains(protocolContent, "read that document yourself when you cannot delegate")) {
+					t.Fatalf("Antigravity subagent compensation does not point at the installed role document: %s", protocolContent)
 				}
 			}
 			if !strings.Contains(protocolContent, "default native tools") {
@@ -204,7 +349,10 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			if tc.adapter == "claude" || tc.adapter == "codex" || tc.adapter == "qwen" || tc.adapter == "kimi" {
 				promptFormat := "user-prompt"
 				if tc.adapter == "kimi" {
-					promptFormat = "plain-context"
+					// Kimi carries the bootstrap on the turn boundary because its
+					// session-start output never reaches the model, so it gets the
+					// session-scoped format instead of the bare invariant.
+					promptFormat = "session-prompt"
 				}
 				for _, required := range []string{"UserPromptSubmit", promptFormat, "PostToolUse", "post-tool-use", "SubagentStop", "Stop", "SessionEnd", "session-end --sync"} {
 					if !strings.Contains(configContent, required) {

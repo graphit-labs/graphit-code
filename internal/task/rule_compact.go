@@ -19,12 +19,14 @@ func RuleContent() string {
 		"## Start or resume the session",
 		"",
 		"Before creating/resuming a session, changing its scope, handing off or closing it, read [references/session.md](references/session.md). A session preserves one evolving demand across agents/turns; it is not a host chat ID or a Task. Known session → " + t("task", "session", "get") + "; otherwise " + t("task", "session", "list") + " for open/in_progress sessions or focused " + t("task", "session", "search") + ". Read matching intent, checkpoints and selected associated Tasks before resuming or creating work. Reuse sufficient evidence; retrieve sessions and Tasks again whenever new questions arise.",
+		"Finding an open session does not settle it: DECIDE by scope. The same evolving demand continues in its session across interruption, compaction and agent replacement; changed scope revises it; only a different demand gets its own.",
 		"With no matching session, " + t("task", "session", "create") + " saves a detailed description of the user's demand, scope/constraints, unknowns and strategy; then " + t("task", "session", "claim") + " takes coordination. Every agent-created Task must have this `session_id`, including planning and batch items. Delegate the ID and Task IDs; workers claim their Tasks without taking the coordinator's session claim. Session and Task claims are independent; keep both tokens private. Manual CLI Tasks may omit a session; agents must not bypass association.",
 		"When the request or approach changes, " + t("task", "session", "revise") + " updates current description/strategy with latest `expected_revision` and reason before affected execution; reconcile the Task graph too. At meaningful outcomes " + t("task", "session", "checkpoint") + " records progress/evidence, problems, decisions/rationale, strategy and exact next action, referencing Task detail. Hooks remind/recover; they cannot invent this content. Before stopping, preserve a handoff and release claims. Ending a turn/compaction is not completion. Only " + t("task", "session", "complete") + " closes delivered work after linked Tasks are terminal and final scope/evidence is reconciled; cancelled Tasks are not delivered requirements.",
 		"",
 		"## Retrieve work and prior knowledge",
 		"",
 		"Read a known Task with " + t("task", "get") + "; otherwise focused " + t("task", "search") + " before creating work. Use " + t("task", "list") + " with `session_id` for associated work, `ready: true` for available work or `parent_id` for children. Read selected records/results. Throughout exploration, coding and review, recall prior analysis/decisions when a new doubt exceeds retained context, not only at startup or a blocker.",
+		"For a question about records you can already name — the status of a set of ids, which checks are still pending — use " + t("task", "query") + ": one call filters by predicate and returns only the columns asked for, instead of fetching records to read one field. " + t("task", "schema") + " lists tables and columns before a first filter.",
 		"Pass `ai_optimized: true`. Search discovers; get/filtered list establish state. Use small `top_k`/`page_size`; follow `next_cursor` only for missing context/completeness. Cursors preserve the query/total cap; raising it needs a new search. Avoid whole-backlog exports for one question.",
 		"",
 		"## Define work before implementation",
@@ -57,12 +59,27 @@ func RuleContent() string {
 	}, "\n") + "\n"
 }
 
+// WorkerMandateTrigger is the Task routing a delegated performer needs. It is a
+// separate text because the coordinator's rule is written around owning a
+// session — creating one, claiming it, closing it — and handing that to a
+// performer is what made workers open a second session for work they had
+// already been given.
+func WorkerMandateTrigger() string {
+	return agent.ModuleMandateTrigger(
+		"Task", skillName,
+		"reading the work you were assigned, recording its progress, or recalling prior decisions and evidence",
+		"Read the session and Task ids the coordinator gave you; search only while a relevant gap remains. Claim at most your own Task, and never create, claim or close a coordination session. Record progress and findings against the Task you were given, with evidence and the exact next action. Recall prior Tasks whenever a new doubt exceeds what you were handed.",
+		nil,
+		[]string{"task_get", "task_search", "task_progress", "task_comment_add"},
+	)
+}
+
 func MandateTrigger() string {
 	return agent.ModuleMandateTrigger(
 		"Task", skillName,
 		"starting/resuming project work, planning, delegating/completing it, or answering questions and investigating system/history gaps at any stage",
-		"Find/read the matching open session and Tasks; otherwise create a detailed demand/strategy session and claim coordination. Read session.md before its lifecycle actions. Bind every agent-created Task to session_id; workers share it without taking coordination. Investigate before saving specification -> plan -> dependency-ordered Tasks with checks; batch planned packets with known IDs and inspect each result. Keep leaves usable without this conversation. Revise session intent/strategy and affected Tasks when scope changes. Checkpoint progress, problems, decisions, strategy and next action at meaningful outcomes. Recall sessions/Tasks whenever new doubts arise. Handoff preserves state and releases claims; a turn ending is not completion. Close the session explicitly only after linked Tasks are terminal and scope/evidence is reconciled; cancelled work is not delivered.",
+		"Read the open sessions and DECIDE by scope, not recency: the same evolving demand continues in its session across interruptions, changed scope revises that session and its affected Tasks, and only a different demand gets a new one. With no match, create a detailed demand/strategy session and claim coordination. Read session.md before its lifecycle actions. Bind every agent-created Task to session_id; workers share it without taking coordination. Investigate before saving specification -> plan -> dependency-ordered Tasks with checks; batch planned packets with known IDs and inspect each result. Keep leaves usable without this conversation. Checkpoint progress, problems, decisions, strategy and next action at meaningful outcomes. Recall sessions/Tasks whenever new doubts arise. Handoff preserves state and releases claims; a turn ending is not completion. Close the session explicitly only after linked Tasks are terminal and scope/evidence is reconciled; cancelled work is not delivered.",
 		nil,
-		[]string{"task_session_get", "task_session_list", "task_session_create", "task_session_claim", "task_get", "task_create"},
+		[]string{"task_session_get", "task_session_list", "task_session_create", "task_session_claim", "task_get", "task_query", "task_create"},
 	)
 }

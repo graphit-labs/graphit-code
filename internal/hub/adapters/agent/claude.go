@@ -60,7 +60,7 @@ func (a *ClaudeAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileGroupedCommandHook(path, "UserPromptSubmit", sessionhook.FormatUserPrompt); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "PostToolUse", sessionhook.FormatPostToolUse); err != nil {
+	if err := reconcileGroupedCommandHookMatched(path, "PostToolUse", claudeStyleMutatingTools, sessionhook.FormatPostToolUse); err != nil {
 		return err
 	}
 	if err := reconcileGroupedFinalSyncHook(path, "SubagentStop", sessionhook.FormatStop); err != nil {

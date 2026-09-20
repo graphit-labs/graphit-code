@@ -57,7 +57,7 @@ func (a *GeminiAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "AfterTool", sessionhook.FormatAfterTool); err != nil {
+	if err := reconcileGroupedCommandHookMatched(path, "AfterTool", geminiMutatingTools, sessionhook.FormatAfterTool); err != nil {
 		return err
 	}
 	if err := reconcileGroupedFinalSyncHook(path, "AfterAgent", sessionhook.FormatAfterAgent); err != nil {

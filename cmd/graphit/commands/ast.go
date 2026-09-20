@@ -9,6 +9,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
 	"github.com/spf13/cobra"
@@ -26,6 +27,8 @@ func newASTCmd() *cobra.Command {
 		newASTWatchCmd(),
 		newASTQueryCmd(),
 		newASTSchemaCmd(),
+		newASTFTSSchemaCmd(),
+		newASTFTSQueryCmd(),
 		newASTEmbedCmd(),
 		newASTInstallCmd(),
 		newASTRemoveCmd(),
@@ -198,6 +201,9 @@ func newASTSchemaCmd() *cobra.Command {
 		Long: `Print the comprehensive AST graph schema — node labels, properties, and relationships.
 
 Useful for AI agents and LLMs to understand the graph structure before writing Cypher queries.
+
+This describes the GRAPH, which is one of two stores. For the columns of the
+full-text tables, use ` + "`" + brand.BinName() + ` ast fts-schema` + "`" + ` instead.
 
 Examples:
   ` + brand.BinName() + ` ast schema
@@ -471,4 +477,74 @@ func rebuildEmbeddingSearchIndex(ctx context.Context, cacheDir, repoRoot string)
 	}
 	defer func() { _ = index.Close() }()
 	return index.RebuildFromCache(lockedCtx, parse, ast.BuildEmbLookup(parse, emb))
+}
+
+func newASTFTSSchemaCmd() *cobra.Command {
+	var contextName, table string
+	cmd := &cobra.Command{
+		Use:   "fts-schema",
+		Short: "Show the AST full-text tables, their columns and row counts",
+		Long: `Print the shape of the AST full-text index: both tables, every column with its
+type, and how many rows each holds. Read this before writing an ` + brand.BinName() + ` ast fts-query filter.
+
+This is the LanceDB side of the AST store. ` + brand.BinName() + ` ast schema describes the OTHER one,
+the Cypher graph; the two live side by side as search.lance and graph.icebug.
+
+The body and source columns are NOT source code: they hold BM25 documents this
+index synthesises — name variants, split identifiers and n-grams, with a NUL
+separator in the file case. They are refused in both the projection and the filter,
+because handing them back reads as corrupted source. Match against them with
+` + brand.BinName() + ` ast search --mode fts and read real code with ` + brand.BinName() + ` ast source.
+The embedding vector is never returned as numbers.
+
+Examples:
+  ` + brand.BinName() + ` ast fts-schema
+  ` + brand.BinName() + ` ast fts-schema --table entities`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTFTSSchema(cmd.Context(), contextName, table)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Describe an imported context by name")
+	cmd.Flags().StringVar(&table, "table", "", "Describe only this table")
+	return cmd
+}
+
+func newASTFTSQueryCmd() *cobra.Command {
+	var (
+		contextName string
+		table       string
+		filter      string
+		columns     []string
+		limit       int
+		offset      int
+	)
+	cmd := &cobra.Command{
+		Use:   "fts-query",
+		Short: "Filter rows of one AST full-text table and return only the columns asked for",
+		Long: `Ask a structured question about the indexed code.
+
+--filter is a Lance SQL predicate: a WHERE clause over the table's own columns. It is
+not SQL — there is no SELECT, JOIN, GROUP BY or aggregate, and the engine offers no
+ORDER BY, so rows come back in storage order.
+
+This is the LanceDB side. ` + brand.BinName() + ` ast query runs Cypher against the graph; ` + brand.BinName() + ` ast
+search ranks by relevance; ` + brand.BinName() + ` ast source reads code.
+
+Examples:
+  ` + brand.BinName() + ` ast fts-query --filter "path = 'internal/task/service.go'" --columns name,etype,line
+  ` + brand.BinName() + ` ast fts-query --filter "etype = 'Function' AND is_dep = false" --limit 50
+  ` + brand.BinName() + ` ast fts-query --table files --filter "name LIKE '%_test.go'" --columns path`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTFTSQuery(cmd.Context(), contextName, lancequery.Request{
+				Table: table, Filter: filter, Columns: columns, Limit: limit, Offset: offset,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Query an imported context by name")
+	cmd.Flags().StringVar(&table, "table", "entities", "Table to query: entities or files")
+	cmd.Flags().StringVar(&filter, "filter", "", "Lance SQL predicate; empty matches every row")
+	cmd.Flags().StringSliceVar(&columns, "columns", nil, "Columns to return; empty returns every compact column")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Rows to return (default 20); unlike the MCP tool this has no ceiling")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Rows to skip")
+	return cmd
 }

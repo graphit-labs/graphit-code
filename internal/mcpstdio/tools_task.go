@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
@@ -277,10 +278,102 @@ func taskResult(value any, optimized *bool) (*mcp.CallToolResult, any, error) {
 	return jsonResult(value)
 }
 
+type taskSchemaInput struct {
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Table       string `json:"table,omitempty" jsonschema:"Describe only this table; omit for every table"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+}
+
+type taskQueryInput struct {
+	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
+	Table       string   `json:"table" jsonschema:"Table to query, such as tasks, task_checks, task_comments or task_sessions; task_schema lists them (required)"`
+	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"id IN ('tsk-a','tsk-b')\" or \"status = 'completed' AND session_id = 'ses-x'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
+	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [id, status]. Omit for every compact column; long columns such as description and search_text, and the claim token, are excluded unless named, and the claim token is never returned at all."`
+	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+}
+
+func registerTaskInspectionTools(server *mcp.Server) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("task", "schema"),
+		Description: "Show the Task LanceDB tables: every column with its type, and the row count. " +
+			"Read this before writing a task_query filter.",
+	}, safeTool(func(ctx context.Context, _ *mcp.CallToolRequest, in taskSchemaInput) (*mcp.CallToolResult, any, error) {
+		svc, _, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		var only []string
+		if table := strings.TrimSpace(in.Table); table != "" {
+			only = []string{table}
+		}
+		value, err := svc.DescribeStore(ctx, only)
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceSchemaResult(value, in.AiOptimized)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("task", "query"),
+		Description: "Answer a structured question about known task records: filter rows by predicate and return only the columns asked for. " +
+			"Use this instead of reading whole records when the question is \"which of these, and what state\" — the status of a set of ids is one call. " +
+			"task_search ranks by relevance when the target is unknown; task_get returns one authoritative record in full. " +
+			"The filter is a WHERE clause, not SQL: no SELECT, JOIN, GROUP BY or ORDER BY, and results carry no ordering.",
+	}, safeTool(func(ctx context.Context, _ *mcp.CallToolRequest, in taskQueryInput) (*mcp.CallToolResult, any, error) {
+		svc, projectDir, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		value, err := paginateTaskQuery(ctx, svc, projectDir, in)
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceQueryResult(value, in.AiOptimized)
+	}))
+}
+
+// paginateTaskQuery binds every input that changes the result set, so a cursor minted for one
+// question cannot be replayed against another. Leaving the filter or the projection out of the
+// binding would let a cursor walk a different query's rows, which is worse than no paging.
+func paginateTaskQuery(
+	ctx context.Context, svc taskStoreQuerier, projectDir string, in taskQueryInput,
+) (page.Page[map[string]any], error) {
+	table := strings.TrimSpace(in.Table)
+	window, err := openPage(in.PageSize, in.Cursor, in.TopK, defaultTaskSearchLimit, struct {
+		Tool, ProjectDir, Table, Filter string
+		Columns                         []string
+		TopK                            int
+	}{"task_query", projectDir, table, in.Filter, in.Columns, in.TopK})
+	if err != nil {
+		return page.Page[map[string]any]{}, err
+	}
+	result, err := svc.QueryStore(ctx, lancequery.Request{
+		Table:   table,
+		Filter:  in.Filter,
+		Columns: in.Columns,
+		// FetchLimit is a PREFIX LENGTH measured from row zero, for a ranked source that
+		// cannot skip. LanceDB can skip, so the rows to take are the tail of that prefix.
+		// Passing FetchLimit straight through would re-read the earlier pages on every page.
+		Limit:  window.FetchLimit - window.Offset,
+		Offset: window.Offset,
+	})
+	if err != nil {
+		return page.Page[map[string]any]{}, err
+	}
+	return page.FinishFetched(window, result.Rows), nil
+}
+
 const defaultTaskSearchLimit = 20
 
 type taskSearcher interface {
 	SearchInSession(context.Context, string, int, string) ([]graphtask.SearchResult, error)
+}
+
+type taskStoreQuerier interface {
+	QueryStore(context.Context, lancequery.Request) (lancequery.Result, error)
 }
 
 func paginateTaskSearch(ctx context.Context, searcher taskSearcher, in taskSearchInput) (page.Page[graphtask.SearchResult], error) {
@@ -312,6 +405,7 @@ func taskSearchResult(value page.Page[graphtask.SearchResult], optimized *bool) 
 
 func registerTaskTools(server *mcp.Server) {
 	registerTaskSessionTools(server)
+	registerTaskInspectionTools(server)
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "batch"), Description: "Run 1-100 task mutations in input order and return an explicit success or error for every item. Existing fencing and lifecycle checks apply to each item."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskBatchInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {

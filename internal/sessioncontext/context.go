@@ -62,6 +62,22 @@ func Build(projectDir string, includeMandatory bool) sessionhook.Context {
 	return context
 }
 
+// BuildForRole returns the context for a delegated role. It differs from Build
+// in one way that matters: the router carries only the modules the role uses,
+// so a performer is never handed rules for tools its role will not touch.
+func BuildForRole(projectDir string, role sessionhook.Role) sessionhook.Context {
+	if projectDir == "" {
+		return sessionhook.Context{}
+	}
+	projectCfg := loadProjectConfig(projectDir)
+	context := moduleContext(projectCfg)
+	context.Instructions = loadMandateContextForRole(projectDir, projectCfg, role)
+	if !context.MemoryDisabled {
+		context.Mandatory, context.MandatoryLoaded = loadMandatoryContext(projectDir)
+	}
+	return context
+}
+
 // ModuleContext reads only enabled-module switches at recurring hook boundaries.
 func ModuleContext(projectDir string) sessionhook.Context {
 	if projectDir == "" {
@@ -106,6 +122,12 @@ func loadInstructionContext(projectDir string, projectCfg config.ConfigMap) stri
 }
 
 func loadMandateContext(projectDir string, projectCfg config.ConfigMap) string {
+	return loadMandateContextForRole(projectDir, projectCfg, sessionhook.Role{})
+}
+
+// loadMandateContextForRole filters the router by role. An empty role selects
+// every enabled module, which is what a coordinator needs.
+func loadMandateContextForRole(projectDir string, projectCfg config.ConfigMap, role sessionhook.Role) string {
 	triggers := map[string]string{}
 	for _, module := range []struct {
 		name    string
@@ -113,7 +135,13 @@ func loadMandateContext(projectDir string, projectCfg config.ConfigMap) string {
 		content func() string
 	}{
 		{name: "task", tag: "task_rule", content: func() string {
-			return brand.ResolveModuleRuleIn(projectDir, "task", graphtask.MandateTrigger())
+			// A performer gets the worker rule: the coordinator's is written around
+			// owning a session, and handing that to a delegate produces duplicates.
+			trigger := graphtask.MandateTrigger()
+			if role.Name != "" {
+				trigger = graphtask.WorkerMandateTrigger()
+			}
+			return brand.ResolveModuleRuleIn(projectDir, "task", trigger)
 		}},
 		{name: "memory", tag: "mem_rule", content: func() string {
 			return brand.ResolveModuleRuleIn(projectDir, "memory", memory.MandateTrigger())
@@ -128,9 +156,10 @@ func loadMandateContext(projectDir string, projectCfg config.ConfigMap) string {
 			return brand.ResolveModuleRuleIn(projectDir, "knowledge", knowledge.MandateTrigger())
 		}},
 	} {
-		if !config.IsModuleDisabled(module.name, nil, projectCfg) {
-			triggers[module.tag] = module.content()
+		if config.IsModuleDisabled(module.name, nil, projectCfg) || !role.Uses(module.name) {
+			continue
 		}
+		triggers[module.tag] = module.content()
 	}
 
 	return ideadapter.MandateContext(triggers)

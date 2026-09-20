@@ -138,6 +138,36 @@ func filterDirectCommandHooks(entries []any, format string) []any {
 	return remaining
 }
 
+// The unit-completion reminder asks the agent to checkpoint after doing work,
+// and its own text says reads and bookkeeping need none. Without a matcher the
+// host injects it after every call, so a read-heavy turn pays for it dozens of
+// times. These matchers narrow it to the tools that actually change something.
+//
+// They are per host on purpose: the vocabularies genuinely differ, and a name
+// that does not exist on a host silently turns the reminder off there. Each
+// alternation lists the names that host documents, plus neighbours' names that
+// are simply inert where they do not exist — omitting a real one loses a
+// checkpoint, while an extra one costs nothing.
+//
+// Graphit's own MCP mutations are deliberately absent: they ARE the
+// checkpointing, and reminding an agent to checkpoint right after it recorded
+// progress is noise.
+// Every pattern is anchored. Unanchored, "Write" also matches TodoWrite, which
+// is bookkeeping and exactly what this matcher exists to skip.
+const (
+	// Claude Code names; Codex and Qwen follow the same vocabulary, and Codex
+	// additionally reports file edits as apply_patch.
+	claudeStyleMutatingTools = `^(Edit|Write|MultiEdit|NotebookEdit|Bash|apply_patch)$`
+	// Kimi documents WriteFile and StrReplaceFile in its own matcher examples.
+	kimiMutatingTools = `^(Edit|Write|WriteFile|StrReplaceFile|Bash)$`
+	// Gemini uses snake_case built-ins.
+	geminiMutatingTools = `^(write_file|replace|edit|run_shell_command)$`
+	// Kiro matches tool categories as well as names.
+	kiroMutatingTools = `^(write|shell)$`
+	// Cursor matches tool types.
+	cursorMutatingTools = `^(Write|Delete|Shell)$`
+)
+
 func reconcileGroupedCommandHook(path, event, format string) error {
 	return reconcileGroupedCommandHookMatched(path, event, "", format)
 }

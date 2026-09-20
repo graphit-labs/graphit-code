@@ -423,7 +423,16 @@ graphit ast <subcommand> [flags]
   - `--hybrid`: Perform combined BM25 + semantic vector search (RRF).
   - `--top <int>`: Limit results count.
   - `--context <name>`: Query an imported context instead of project.
-- `schema`: Print the AST node properties and labels schema.
+- `schema`: Print the AST GRAPH node properties and labels schema, for writing Cypher.
+- `fts-schema`: Print the full-text tables (`entities`, `files`), their columns and row counts. A different store from the graph.
+  - `--table <name>`: Describe only this table.
+  - `--context <name>`: Context name.
+- `fts-query`: Filter rows of one full-text table by Lance predicate and return only the columns asked for.
+  - `--table <name>`: `entities` (default) or `files`.
+  - `--filter <predicate>`: WHERE clause, e.g. `etype = 'Function' AND is_dep = false`.
+  - `--columns <list>`: Columns to return. The `body` and `source` columns hold synthesised BM25 documents, not code, and are never returned.
+  - `--limit <int>` / `--offset <int>`: Rows to return and skip.
+  - `--context <name>`: Context name.
   - `--context <name>`: Context name.
 - `install <path> --context <name>`: Import external AST database into named context.
   - `--reset`: Wipe context before importing.
@@ -467,16 +476,24 @@ graphit knowledge <subcommand> [flags]
   - `--context <name>`: Re-index context.
 - `watch [path]`: Watch the project and incrementally recompile from the same scope. A `path` argument watches and indexes that directory wholesale.
   - `--louvain`: Detect community structures.
-- `query <text>`: Search the knowledge wiki.
+- `ask <text>`: Answer a question from the knowledge wiki using the configured AI.
   - `--context <name>`: Search context.
+- `query`: Filter rows of one index table by Lance predicate and return only the columns asked for.
+  - `--table <name>`: `chunks` (default), `xrefs`, `sync_log` or `meta`.
+  - `--filter <predicate>`: WHERE clause, e.g. `stale_since != ''`. Not SQL: no SELECT, JOIN, GROUP BY or ORDER BY.
+  - `--columns <list>`: Columns to return.
+  - `--limit <int>` / `--offset <int>`: Rows to return and skip.
+  - `--context <name>`: Query context.
 - `lint`: Audit wiki files for link defects.
   - `--fix`: Fix broken backlinks.
   - `--deep`: Enable AI contradiction audit.
   - `--stale-days <int>`: Age threshold.
   - `--context <name>`: Context name.
-- `schema`: Print knowledge graph schema.
+- `schema`: Print the index tables, their columns and row counts. The index is LanceDB, not a graph database.
+  - `--table <name>`: Describe only this table.
+  - `--context <name>`: Context name.
 - `install <name>`: Fetch knowledge context.
-- `remove`: Clear knowledge graph or context.
+- `remove`: Delete the project wiki index directory, or disconnect an imported context.
   - `--context <name>`: Context name.
 - `sync`: Re-sync context.
 - `export`: Export the compiled Knowledge index.
@@ -500,10 +517,16 @@ graphit memory <subcommand> [flags]
 - `watch`: Watch memory changes.
   - `--user`: Target user scope.
   - `--louvain`: Run clustering.
-- `query <question>`: Query memories using AI.
+- `ask <question>`: Answer a question from the memory table using the configured AI.
   - `--user`: Target user scope.
   - `--context <name>`: Context name.
-- `schema`: Show memory graph schema.
+- `query`: Filter memory records by Lance predicate and return only the columns asked for.
+  - `--filter <predicate>`: WHERE clause, e.g. `mandatory = true`. An `id` repeats across revisions, so add `superseded = false` for live records only.
+  - `--columns <list>`: Columns to return.
+  - `--limit <int>` / `--offset <int>`: Rows to return and skip.
+  - `--user`: Target user scope.
+- `schema`: Show the memory table's columns, types and record count, read from the table. Memory is a LanceDB table, not a graph.
+  - `--user`: Describe the user-scope table.
 - `install <project-id-or-name>`: Fetch external memory context.
 - `remove`: Remove a memory or disconnect an imported context.
   - `--context <name>`: Context name.
@@ -643,6 +666,14 @@ graphit task <subcommand> [flags]
 - `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask, and `--session` associates a durable request. Manual standalone tasks may omit a session.
 - `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, parent, or `--session`.
 - `get`, `search`: Retrieve authoritative history or search task/comment text; `search --session` ranks only that session’s tasks.
+- `schema`: Print the Task store's 11 LanceDB tables, their columns and row counts. Read it before writing a `query` filter.
+  - `--table <name>`: Describe only this table.
+- `query`: Filter rows of one table by Lance predicate and return only the columns asked for — the route for a question about records you can already name, such as the status of a set of ids.
+  - `--table <name>`: `tasks` (default); `schema` lists the rest.
+  - `--filter <predicate>`: WHERE clause, e.g. `id IN ('tsk-a','tsk-b')`. Not SQL: no SELECT, JOIN, GROUP BY or ORDER BY, and rows come back in storage order.
+  - `--columns <list>`: Columns to return, e.g. `id,status`.
+  - `--limit <int>` / `--offset <int>`: Rows to return and skip.
+  - The claim token is never returned and cannot be named in a filter.
 - `export [task-id]`: Print a stable complete JSON document for every project task, or one exact task and its recursive subtasks. Schema version 2 contains task snapshots, dependency/check projections, events, comments, specification revisions and the selected sessions with their event/checkpoint/specification history; an all-project export includes sessions without tasks. Private fencing tokens are never exported.
 - `claim`, `heartbeat`, `release`: Own or hand off work with a fenced lease.
 - `progress`, `comment`, `check`: Record checkpoints, typed context, and acceptance/test evidence.

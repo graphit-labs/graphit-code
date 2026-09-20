@@ -100,6 +100,9 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 		"description": "Checkpoint task management after the smallest completed work unit.",
 		"enabled":     true,
 		"trigger":     "PostToolUse",
+		// Kiro matches tool categories as well as names, so the reminder rides
+		// the write and shell categories instead of every tool call.
+		"matcher": kiroMutatingTools,
 		"action": map[string]any{
 			"type":    "command",
 			"command": sessionHookCommand(sessionhook.FormatPlainUnit),

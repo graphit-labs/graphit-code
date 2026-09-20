@@ -18,6 +18,7 @@ const (
 	FormatSubagentStart      = "subagent-start"
 	FormatCursorSubagentTask = "cursor-subagent-task"
 	FormatUserPrompt         = "user-prompt"
+	FormatSessionPrompt      = "session-prompt"
 	FormatPostToolUse        = "post-tool-use"
 	FormatAfterTool          = "after-tool"
 	FormatCursorUnit         = "cursor-unit"
@@ -42,6 +43,84 @@ type Context struct {
 	MemoryDisabled  bool
 	TaskDisabled    bool
 	Instructions    string
+	// BootstrapDelivered reports that this logical host session already received
+	// the full protocol. Only the caller can know it, because the decision needs
+	// project state the renderer deliberately does not reach for.
+	BootstrapDelivered bool
+}
+
+// Role is a delegated Graphit specialist. Modules select which mandate rules the
+// role carries, so a reader is never handed the whole router; Writes names the
+// modules it may mutate, and an empty Writes means read-only.
+//
+// The same definition serves two readers: the host spawns a subagent with this
+// role, or, where the host has no subagent, the main agent reads the role
+// document and performs it directly. Every string below is therefore addressed
+// to whoever performs the role, never to "the subagent".
+type Role struct {
+	Name    string
+	Summary string
+	Modules []string
+	Writes  []string
+	Output  string
+}
+
+var (
+	RoleScout = Role{
+		Name:    "scout",
+		Summary: "Recall and locate: answer questions from Memory, Task, Knowledge, AST and Hub without changing anything.",
+		Modules: []string{"memory", "task", "ast", "knowledge", "hub"},
+		Output:  "Answer with the conclusion plus identifiers another agent can reopen: record ids and `file:line`. Never paraphrase evidence you did not anchor.",
+	}
+	RoleTracker = Role{
+		Name:    "tracker",
+		Summary: "Assess impact: from changed files and the stated requirements, report what else is affected.",
+		Modules: []string{"ast", "knowledge", "task"},
+		Output:  "Answer with the affected dependents, tests and documentation as `file:line` or page, and name each divergence you found. Do not judge whether the delivery is acceptable: that needs requirement context the coordinator holds.",
+	}
+	RoleScribe = Role{
+		Name:    "scribe",
+		Summary: "Transcribe decided content into Task and Memory records with the right structure.",
+		Modules: []string{"task", "memory"},
+		Writes:  []string{"task", "memory"},
+		Output:  "Answer with the ids you wrote. Record what you were given; when it is incomplete, say so instead of inventing the missing part.",
+	}
+)
+
+func Roles() []Role { return []Role{RoleScout, RoleTracker, RoleScribe} }
+
+// RoleByName resolves a role by its stable name, with or without the branded
+// prefix the installed agent files carry. The second result is false for an
+// unknown name so callers fall back to the generic worker protocol rather than
+// inventing a role.
+func RoleByName(name string) (Role, bool) {
+	candidate := strings.TrimPrefix(strings.TrimSpace(name), brand.Brand+"-")
+	for _, role := range Roles() {
+		if strings.EqualFold(candidate, role.Name) {
+			return role, true
+		}
+	}
+	return Role{}, false
+}
+
+// RoleFileName is the installed document for a role. The mandate points the
+// main agent at this name when the host cannot spawn the role as a subagent.
+func (r Role) RoleFileName() string { return brand.Brand + "-" + r.Name + ".md" }
+
+func (r Role) readOnly() bool { return len(r.Writes) == 0 }
+
+// Uses reports whether the role carries a module's rules. The generic path
+// declares no modules and therefore carries whatever the project enabled.
+func (r Role) Uses(module string) bool {
+	if len(r.Modules) == 0 {
+		return true
+	}
+	for _, candidate := range r.Modules {
+		if candidate == module {
+			return true
+		}
+	}
+	return false
 }
 
 // CoreInvariant is intentionally small because adapters may reinject it after
@@ -56,7 +135,7 @@ func cursorLifecycleCompensation() string {
 }
 
 func antigravityLifecycleCompensation() string {
-	return "Antigravity-specific hook compensation: `PostToolUse` cannot inject context; apply checkpoints at completed work units without waiting for `PostInvocation`. No subagent-start hook: include the complete Graphit protocol and assigned task ids when delegating, preserving enabled Memory and Task bootstrap."
+	return "Antigravity-specific hook compensation: `PostToolUse` cannot inject context; apply checkpoints at completed work units without waiting for `PostInvocation`. No subagent-start hook: the role document installed under the agents directory carries the protocol, so pass the assigned session and task ids when delegating and read that document yourself when you cannot delegate."
 }
 
 // UnitCompletionReminder is injected after the smallest objective work boundary
@@ -73,14 +152,80 @@ func DocumentationConsistencyReminder() string {
 	return "Verify acceptance checks and code/documentation consistency in both directions; record targets/evidence. Resolve divergence before closing."
 }
 
-// SubagentProtocol is self-contained because subagents may start with neither
-// the parent's conversation nor its project instructions.
+// SubagentProtocol is self-contained because a delegated performer may start
+// with neither the parent's conversation nor its project instructions.
 func SubagentProtocol(mandatory ...string) string {
-	return SubagentProtocolMarker + "\n" + Protocol(mandatory...)
+	context := Context{}
+	if len(mandatory) > 0 {
+		context.Mandatory = mandatory[0]
+		context.MandatoryLoaded = true
+	}
+	return subagentProtocolWithContext(context)
 }
 
 func subagentProtocolWithContext(context Context) string {
-	return SubagentProtocolMarker + "\n" + protocolWithContext(context)
+	return RoleProtocol(Role{}, context)
+}
+
+// RoleProtocol renders what a delegated performer works from. It deliberately
+// omits every coordination step of the session bootstrap: the performer already
+// has the session and task ids, so telling it to open or claim a session would
+// only produce a duplicate one.
+func RoleProtocol(role Role, context Context) string {
+	marker := SubagentProtocolMarker
+	if role.Name != "" {
+		marker += " role=" + role.Name
+	}
+	return marker + "\n" + workerProtocol(role, context)
+}
+
+func workerProtocol(role Role, context Context) string {
+	mandatoryTool := brand.MCPToolName("memory", "mandatory")
+	lines := []string{routingContext(context.Instructions)}
+	if strings.TrimSpace(context.Instructions) == "" {
+		lines = append(lines, "If module routing was not injected, use `"+brand.MCPToolName("mandates")+"` once when available. Read matching installed skills first; fetch a missing skill with `"+brand.MCPToolName("module", "skill")+"`. Project instructions remain authoritative.")
+	}
+	if !context.MemoryDisabled && role.Uses("memory") {
+		switch {
+		case !context.MandatoryLoaded:
+			lines = append(lines, "Read `"+brand.SkillDirName("memory")+"` and call `"+mandatoryTool+"` once per available scope before acting.")
+		case strings.TrimSpace(context.Mandatory) != "":
+			lines = append(lines, "Standing context already read from the authoritative memory table; do not call `"+mandatoryTool+"` again:\n"+strings.TrimSpace(context.Mandatory))
+		}
+		lines = append(lines, "When a question about the system, rationale or learned behavior exceeds what you were given, read `"+brand.SkillDirName("memory")+"` and query `"+brand.MCPToolName("memory", "search")+"` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, then read the selected ids with `"+brand.MCPToolName("memory", "source")+"`.")
+	}
+	if !context.TaskDisabled && role.Uses("task") {
+		lines = append(lines, "Read the ids the coordinator gave you with `"+brand.MCPToolName("task", "get")+"`. Search `"+brand.MCPToolName("task", "search")+"` with `top_k: 5`, `ai_optimized: true` only while a relevant gap remains.")
+	}
+	lines = append(lines, delegatedContracts(role))
+	return strings.Join(lines, "\n")
+}
+
+// delegatedContracts separate a performer from a coordinator. They hold for
+// every role and for the generic path, because the failures they prevent — a
+// performer opening its own session, or closing work the coordinator still
+// owns — do not depend on which role is running.
+//
+// Nothing here claims the performer keeps running between instructions. On
+// every host studied the invocation ends and continuation comes from resuming
+// it, so the contract is about not declaring the work over, not about staying
+// alive.
+func delegatedContracts(role Role) string {
+	lines := []string{
+		"Delegated work contract:",
+		"- The coordinator owns the session. It hands you the `session_id` and the task ids you need. Claim at most your own task, and never create, claim or close a coordination session.",
+		"- Returning an answer is not finishing. Once the requested work is done, report it and stop there: do not complete or cancel a task, do not close a session, and do not release anything you were not asked to release. Leave your findings recorded so the next instruction continues from them. The coordinator decides when this work ends.",
+	}
+	if role.Name == "" {
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, "- You are performing the "+role.Name+" role. "+role.Summary, "- "+role.Output)
+	if role.readOnly() {
+		lines = append(lines, "- This role never writes. Read, conclude and report; when the answer requires a change, say so and leave the change to the coordinator.")
+	} else {
+		lines = append(lines, "- This role writes only to "+strings.Join(role.Writes, " and ")+", and only content the coordinator already decided. It never edits code.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Protocol is the context injected before the first model response. When
@@ -126,7 +271,7 @@ func protocolWithContext(context Context) string {
 		appendStep("Whenever a question about the system, rationale or learned behavior needs context, including during work, read `" + brand.SkillDirName("memory") + "`; query `" + search + "` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, and the decision topic. Read selected ids with `" + memorySource + "`. Reuse sufficient context; new questions can require recall in the same session and scope.")
 	}
 	if !context.TaskDisabled {
-		appendStep("Read `" + brand.SkillDirName("task") + "` before session work. Use `" + brand.MCPToolName("task", "session", "list") + "` for active sessions and `" + brand.MCPToolName("task", "session", "search") + "` for relevant history; `" + brand.MCPToolName("task", "session", "get") + "` reads the chosen description, strategy, checkpoints and linked task IDs. Resume matching work; only if no match, `" + brand.MCPToolName("task", "session", "create") + "` records the detailed user request, scope, constraints and strategy, then claim coordination. Link all agent-created tasks to that durable session_id; native host session IDs are not Graphit session IDs. Delegated workers receive session_id and task IDs, read them, claim only their task and never take or close the coordinator's session.")
+		appendStep("Read `" + brand.SkillDirName("task") + "` before session work. Use `" + brand.MCPToolName("task", "session", "list") + "` for active sessions and `" + brand.MCPToolName("task", "session", "search") + "` for relevant history; `" + brand.MCPToolName("task", "session", "get") + "` reads the chosen description, strategy, checkpoints and linked task IDs. Then decide between continuing one and opening a new one: an open session whose demand this request continues is the one to resume, even across interruption or compaction; changed scope revises it rather than starting a second; only a different demand justifies a new session. With no match, `" + brand.MCPToolName("task", "session", "create") + "` records the detailed user request, scope, constraints and strategy, then claim coordination. Link all agent-created tasks to that durable session_id; native host session IDs are not Graphit session IDs. Delegated workers receive session_id and task IDs, read them, claim only their task and never take or close the coordinator's session.")
 		appendStep("At meaningful progress, problems or decisions the coordinator calls `" + brand.MCPToolName("task", "session", "checkpoint") + "` with evidence, rationale, strategy and exact next step. For added requests or changed direction, use `" + brand.MCPToolName("task", "session", "revise") + "` before affected work and reconcile its tasks. Before reporting delivery, explicitly `" + brand.MCPToolName("task", "session", "complete") + "` with a final summary after linked tasks are terminal; explain cancelled scope. Interrupted work needs a descriptive checkpoint and explicit release, not completion. Stop hooks never close sessions; absent or uncorrelated host identity cannot release ownership safely, so do not rely on them for handoff.")
 		appendStep("Before project work, read `" + brand.SkillDirName("task") + "`; search `" + taskSearch + "` with `top_k: 5`, `ai_optimized: true`, focused on this request, or get an assigned id directly with `" + taskGet + "`. Read the chosen task, parent specification and relevant dependencies/precedents. During work, new doubts also trigger focused search of prior investigations, decisions and evidence; do not wait for restart or a new plan. Follow `next_cursor` only while a relevant gap remains. Reuse recalled context.")
 		if strings.TrimSpace(context.Instructions) == "" {
@@ -181,6 +326,15 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 	case FormatAdditionalContext:
 		return json.Marshal(map[string]any{"additional_context": protocolWithContext(context) + "\n" + cursorLifecycleCompensation()})
 	case FormatPlainContext:
+		return []byte(protocolWithContext(context)), nil
+	// FormatSessionPrompt serves a host whose session-start output never reaches
+	// the model, so the turn boundary has to carry the bootstrap. Repeating it
+	// every turn would cost the whole protocol per turn, so only the first prompt
+	// of a session pays it and the rest receive the compact invariant.
+	case FormatSessionPrompt:
+		if context.BootstrapDelivered {
+			return []byte(CoreInvariant()), nil
+		}
 		return []byte(protocolWithContext(context)), nil
 	case FormatBeforeAgent:
 		return json.Marshal(map[string]any{
@@ -268,12 +422,16 @@ func renderCursorSubagentTask(input []byte, context Context) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("decoding Cursor Task hook input: tool_input is missing")
 	}
+	role, _ := RoleByName(delegatedRoleName(toolInput))
 	for _, field := range []string{"prompt", "task", "description"} {
 		value, ok := toolInput[field].(string)
 		if !ok || strings.TrimSpace(value) == "" {
 			continue
 		}
-		protocol := subagentProtocolWithContext(context) + "\n\nTask:\n"
+		// The protocol now varies per role, so the prefix check has to compare the
+		// protocol of THIS role. A prompt already carrying another role's protocol
+		// is a different delegation and still needs its own.
+		protocol := RoleProtocol(role, context) + "\n\nTask:\n"
 		if strings.HasPrefix(value, protocol) {
 			return json.Marshal(map[string]any{"permission": "allow"})
 		}
@@ -281,4 +439,16 @@ func renderCursorSubagentTask(input []byte, context Context) ([]byte, error) {
 		return json.Marshal(map[string]any{"permission": "allow", "updated_input": toolInput})
 	}
 	return json.Marshal(map[string]any{"permission": "allow"})
+}
+
+// delegatedRoleName reads whichever field the host used to name the target
+// agent. An unknown or absent name resolves to the generic worker protocol
+// rather than to a guessed role.
+func delegatedRoleName(toolInput map[string]any) string {
+	for _, field := range []string{"subagent_type", "subagentType", "agent", "agent_type", "agentType", "subagent"} {
+		if value, ok := toolInput[field].(string); ok && strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

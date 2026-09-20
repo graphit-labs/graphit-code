@@ -1267,6 +1267,29 @@ func TestCodexAdapter_Remove(t *testing.T) {
 	}
 }
 
+// Rules and agents are distinct surfaces. Aliasing their directories is not
+// reachable today, because rule artifacts are never written to disk, but the
+// agent fallback in the sync loop targets RulesDir whenever AgentsDir is unset,
+// and then a rule and an agent of the same name resolve to one file.
+func TestNoAdapterAliasesRulesAndAgentsDirectories(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range SupportedAgents() {
+		adapter := GetAdapter(name)
+		base, ok := folderBase(adapter)
+		if !ok {
+			continue
+		}
+		rules, agents := base.cfg.RulesDir, base.cfg.AgentsDir
+		if rules == "" || agents == "" {
+			continue
+		}
+		if rules == agents {
+			t.Errorf("%s points rules and agents at %q; a same-named pair would collide", name, rules)
+		}
+	}
+}
+
 func TestOpenCodeAdapter_Sync(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

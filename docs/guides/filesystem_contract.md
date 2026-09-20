@@ -101,7 +101,10 @@ Graphit drops it rather than resuming under another CLI or project. The native t
 remains in the agent CLI's storage, not in Graphit's session directory.
 
 Do not commit global state or read compiled stores directly. Use Graphit tools so project identity,
-scope, version, remote storage, and pagination remain correct. The narrower `GRAPHIT_MODEL_CACHE`
+scope, version, remote storage, and pagination remain correct. When the question is about the shape
+or contents of a compiled store rather than its records, each module answers it: `*_schema` reports
+a store's tables and columns, and `*_query` filters rows of one by predicate — for Task, Memory,
+Knowledge, and the AST full-text index under `graphit_ast_fts_*`. The narrower `GRAPHIT_MODEL_CACHE`
 override can place model weights on a different volume without moving the other state.
 
 The Hub cache is isolated by both Hub and authenticated subject and may be deleted at any time. It
@@ -137,9 +140,24 @@ tracks and removes only managed entries.
 | Kimi Code | `.kimi-code/` | `~/.kimi-code/config.toml` (shared, reference-counted) | `.kimi-code/mcp.json` |
 
 Within those roots, the normal destinations are `rules/`, `commands/`, `skills/<name>/SKILL.md`,
-and `agents/`; Kiro uses `steering/` for rules and `hooks/` for commands, Antigravity uses
-`workflows/` for commands, and OpenCode uses `agents/` for rules. Kimi has no project command
-directory. The adapter reference is the source of truth when an upstream client changes its layout.
+and `agents/`; Kiro uses `steering/` for rules and `hooks/` for commands, and Antigravity uses
+`workflows/` for commands. Kimi has no project command directory. No adapter points its rule and
+agent directories at the same place: the two are distinct surfaces, and aliasing them would let an
+agent and a rule of the same name resolve to one file. The adapter reference is the source of truth
+when an upstream client changes its layout.
+
+Rule artifacts are never written into those rule directories. They are read from their installed Hub
+source and delivered through the context injected at lifecycle boundaries, so the directory exists
+only as the fallback destination for an agent on a host that declares no agents directory.
+
+The `agents/` directory holds two different things. Agents a team publishes arrive through the Hub
+like any other artifact. Alongside them, sync writes Graphit's own delegated roles — a scout for
+recall, a tracker for impact review, and a scribe for transcription — which are part of the tool
+rather than catalogue content, and are refreshed on every sync like the module skills. Each is
+rendered in the host's own format: markdown with frontmatter on most hosts, standalone TOML on Codex.
+A role can be overridden per project by placing `<role>_agent.md` under the Graphit rules directory,
+the same way module skills and rules are overridden. Removal deletes only files that still carry the
+managed marker, so a role rewritten by hand is left alone.
 
 ## Git and agent lifecycle hooks
 

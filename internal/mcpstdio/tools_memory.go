@@ -10,6 +10,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
@@ -106,7 +107,20 @@ type memoryIndexInput struct {
 }
 
 type memorySchemaInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type memoryQueryInput struct {
+	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	Scope       string   `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over the memory table's columns, for example \"mandatory = true\", \"type = 'lesson' AND superseded = false\" or \"updated_at > '2026-09-01'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row; memory_schema lists the columns. Note that a memory id repeats across its revisions: add superseded = false to count live records only."`
+	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [id, title, type]. Omit for every compact column; body is excluded unless named, and the embedding vector is never returned as numbers."`
+	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryRemoveInput struct {
@@ -526,10 +540,75 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("memory", "schema"),
-		Description: "Show the authoritative memory table schema.",
+		Name: brand.MCPToolName("memory", "schema"),
+		Description: "Show the authoritative memory table: every column with its type, and the record count. " +
+			"Read this before writing a memory_query filter. Memory is a LanceDB table, not a graph: there are no node labels and no Cypher.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySchemaInput) (*mcp.CallToolResult, any, error) {
-		return textResult("Memory Table Schema\nPrimary key: key\nCore columns: id, revision_id, superseded, title, body, type, tags_json, important, mandatory\nLifecycle columns: created_at, updated_at, revision, previous, next, updated_by\nScope columns: scope, scope_id, project_id\nVector column: embedding")
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		var value lancequery.Schema
+		err = withProjectDir(projectDir, func() error {
+			svc, svcErr := newMemorySvc(ctx, input.Scope == "user", projectDir)
+			if svcErr != nil {
+				return svcErr
+			}
+			defer func() { _ = svc.Close() }()
+			value, svcErr = svc.DescribeStore(ctx, nil)
+			return svcErr
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceSchemaResult(value, input.AiOptimized)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("memory", "query"),
+		Description: "Answer a structured question about memory records: filter rows by predicate and return only the columns asked for. " +
+			"Use it to count, group or list by a field — every mandatory record, everything of one type, what changed since a date. " +
+			"memory_search ranks by relevance when the subject is unknown; memory_source reads one record's text. " +
+			"The filter is a WHERE clause, not SQL: no SELECT, JOIN, GROUP BY or ORDER BY, and results carry no ordering.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryQueryInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		scope := "project"
+		if input.Scope == "user" {
+			scope = "user"
+		}
+		window, err := openPage(input.PageSize, input.Cursor, input.TopK, page.DefaultPageSize, struct {
+			Tool, ProjectDir, Scope, Filter string
+			Columns                         []string
+			TopK                            int
+		}{"memory_query", projectDir, scope, input.Filter, input.Columns, input.TopK})
+		if err != nil {
+			return errResult(err)
+		}
+		var rows []map[string]any
+		err = withProjectDir(projectDir, func() error {
+			svc, svcErr := newMemorySvc(ctx, input.Scope == "user", projectDir)
+			if svcErr != nil {
+				return svcErr
+			}
+			defer func() { _ = svc.Close() }()
+			result, svcErr := svc.QueryStore(ctx, lancequery.Request{
+				Filter:  input.Filter,
+				Columns: input.Columns,
+				// See paginateTaskQuery: FetchLimit counts from row zero, and this source
+				// skips, so the take is the tail of that prefix.
+				Limit:  window.FetchLimit - window.Offset,
+				Offset: window.Offset,
+			})
+			rows = result.Rows
+			return svcErr
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceQueryResult(page.FinishFetched(window, rows), input.AiOptimized)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

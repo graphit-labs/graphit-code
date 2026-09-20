@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/spf13/cobra"
 )
 
@@ -20,8 +21,11 @@ Scopes:
   user     Belongs to the user, cross-project (--user flag).
 
 Commands:
+  schema   Show the table's columns and record count
+  query    Filter records by predicate and project columns
+  search   Rank records by relevance with BM25
+  ask      Have the configured AI answer a question from matching records
   index    Refresh indexes on the authoritative memory table
-  query    Query memories using AI natural language
   install  Validate and prepare an external authoritative memory context
   remove   Forget local context state without deleting authoritative memory
   sync     Refresh indexes on an imported authoritative context
@@ -35,13 +39,15 @@ Examples:
   ` + brand.BinName() + ` memory insert "prefer functional style" --user
   ` + brand.BinName() + ` memory delete my-slug
   ` + brand.BinName() + ` memory list
-  ` + brand.BinName() + ` memory query "auth conventions" --ai
+  ` + brand.BinName() + ` memory query --filter "mandatory = true" --columns id,title
+  ` + brand.BinName() + ` memory ask "auth conventions we follow"
   ` + brand.BinName() + ` memory index`,
 	}
 
 	cmd.AddCommand(
 		newMemoryIndexCmd(),
 		newMemoryQueryCmd(),
+		newMemoryAskCmd(),
 		newMemorySchemaCmd(),
 		newMemoryInstallCmd(),
 		newMemoryRemoveCmd(),
@@ -90,43 +96,87 @@ Examples:
 }
 
 func newMemorySchemaCmd() *cobra.Command {
-	var context string
+	var userScope bool
 	cmd := &cobra.Command{
 		Use:   "schema",
-		Short: "Show the memory graph schema and node properties",
-		Long: `Print the memory graph schema — node labels, properties, and relationships.
-Useful for AI agents to understand the graph structure before writing Cypher queries.
+		Short: "Show the memory table, its columns and record count",
+		Long: `Print the shape of the authoritative memory table: every column with its type, and
+how many records the scope holds. Read this before writing a ` + brand.BinName() + ` memory query filter.
+
+Memory is a LanceDB table. There is no graph, no node label and no Cypher; the
+records, their revision history, the full-text indexes and the vectors all live in
+the same table. The body column is marked heavy — left out of a default projection
+for size — and the embedding vector is never returned as numbers.
 
 Examples:
   ` + brand.BinName() + ` memory schema
-  ` + brand.BinName() + ` memory schema --context team-shared-lib`,
+  ` + brand.BinName() + ` memory schema --user`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMemorySchema(context)
+			return runMemorySchema(cmd.Context(), userScope)
 		},
 	}
-	cmd.Flags().StringVar(&context, "context", "", "Show schema for an imported memory context")
+	cmd.Flags().BoolVar(&userScope, "user", false, "Describe the user-scope table instead of the project one")
 	return cmd
 }
 
 func newMemoryQueryCmd() *cobra.Command {
 	var (
 		userScope bool
+		filter    string
+		columns   []string
+		limit     int
+		offset    int
+	)
+	cmd := &cobra.Command{
+		Use:   "query",
+		Short: "Filter memory records by predicate and return only the columns asked for",
+		Long: `Ask a structured question about memory records.
+
+--filter is a Lance SQL predicate: a WHERE clause over the table's own columns. It is
+not SQL — there is no SELECT, JOIN, GROUP BY or aggregate, and the engine offers no
+ORDER BY, so rows come back in storage order.
+
+Use this to list or count by a field. Use ` + brand.BinName() + ` memory search to find records by
+relevance, and ` + brand.BinName() + ` memory ask to have an AI answer a question from them.
+
+Examples:
+  ` + brand.BinName() + ` memory query --filter "mandatory = true" --columns id,title
+  ` + brand.BinName() + ` memory query --filter "type = 'lesson' AND superseded = false"
+  ` + brand.BinName() + ` memory query --filter "updated_at > '2026-09-01'" --user`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMemoryTableQuery(cmd.Context(), userScope, lancequery.Request{
+				Filter: filter, Columns: columns, Limit: limit, Offset: offset,
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&userScope, "user", false, "Query user-scope memories")
+	cmd.Flags().StringVar(&filter, "filter", "", "Lance SQL predicate; empty matches every record")
+	cmd.Flags().StringSliceVar(&columns, "columns", nil, "Columns to return; empty returns every compact column")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Rows to return (default 20); unlike the MCP tool this has no ceiling")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Rows to skip")
+	return cmd
+}
+
+func newMemoryAskCmd() *cobra.Command {
+	var (
+		userScope bool
 		context   string
 	)
 	cmd := &cobra.Command{
-		Use:   "query <question>",
-		Short: "Search the authoritative memory table using AI",
+		Use:   "ask <question>",
+		Short: "Answer a question from the authoritative memory table using AI",
 		Long: `Search the authoritative memory table and synthesize an answer from matching records.
 
-The records, revision history, full-text indexes and vectors live in the same LanceDB table.
+This consults the configured AI CLI. For a structured question answered from the
+table itself, without an AI, use ` + brand.BinName() + ` memory query.
 
 With --user: searches user-scope memories instead of project scope.
 With --context: searches an imported external memory context.
 
 Examples:
-  ` + brand.BinName() + ` memory query "auth conventions we follow"
-  ` + brand.BinName() + ` memory query "postgres usage" --user
-  ` + brand.BinName() + ` memory query "auth patterns" --context team-api`,
+  ` + brand.BinName() + ` memory ask "auth conventions we follow"
+  ` + brand.BinName() + ` memory ask "postgres usage" --user
+  ` + brand.BinName() + ` memory ask "auth patterns" --context team-api`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMemoryQuery(args[0], userScope, context)
@@ -158,9 +208,11 @@ func newMemoryRemoveCmd() *cobra.Command {
 	var context string
 	cmd := &cobra.Command{
 		Use:   "remove",
-		Short: "Remove the project memory graph or an imported context",
-		Long: `Without --context: clears the project memory graph (source files kept).
-With --context <name>: removes the named imported memory context from this project.
+		Short: "Disconnect an imported memory context",
+		Long: `With --context <name>: removes the named imported memory context from this project.
+
+Without --context this does nothing: Memory keeps no derived local store to clear, and
+the authoritative table is left untouched. Use ` + brand.BinName() + ` memory delete to remove a record.
 
 Examples:
   ` + brand.BinName() + ` memory remove

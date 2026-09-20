@@ -44,9 +44,11 @@ func TestProtocolKeepsEnabledRecallModuleIndependent(t *testing.T) {
 }
 
 func TestSessionLifecycleGuidanceSurvivesBootstrapAndResume(t *testing.T) {
-	for _, format := range []string{FormatSessionStart, FormatPlainContext, FormatAdditionalContext, FormatSubagentStart, FormatCursorSubagentTask} {
-		input := []byte(`{"tool_input":{"prompt":"Implement assigned task"}}`)
-		payload, err := RenderWithContext(format, input, Context{MandatoryLoaded: true})
+	// Only a coordinator opens, revises and closes a session. Delegated formats
+	// are asserted separately below: handing them this guidance is what made a
+	// worker open a second session for work it had already been given.
+	for _, format := range []string{FormatSessionStart, FormatPlainContext, FormatAdditionalContext, FormatSessionPrompt} {
+		payload, err := RenderWithContext(format, nil, Context{MandatoryLoaded: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,6 +68,130 @@ func TestSessionLifecycleGuidanceSurvivesBootstrapAndResume(t *testing.T) {
 				t.Fatalf("%s loses session continuation %q", format, want)
 			}
 		}
+	}
+}
+
+// A delegated performer already holds the session and task ids. Telling it to
+// open or claim a session is what produced duplicate sessions.
+func TestDelegatedProtocolNeverInstructsSessionOwnership(t *testing.T) {
+	t.Parallel()
+
+	payloads := map[string]string{}
+	for _, format := range []string{FormatSubagentStart, FormatCursorSubagentTask} {
+		out, err := RenderWithContext(format, []byte(`{"tool_input":{"prompt":"Do the assigned work"}}`), Context{MandatoryLoaded: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		payloads[format] = string(out)
+	}
+	for _, role := range append(Roles(), Role{}) {
+		name := role.Name
+		if name == "" {
+			name = "generic"
+		}
+		payloads["role:"+name] = RoleProtocol(role, Context{MandatoryLoaded: true})
+	}
+
+	for label, payload := range payloads {
+		for _, forbidden := range []string{"graphit_task_session_create", "graphit_task_session_claim", "graphit_task_session_complete", "graphit_task_session_checkpoint"} {
+			if strings.Contains(payload, forbidden) {
+				t.Fatalf("%s must not instruct session ownership, found %q", label, forbidden)
+			}
+		}
+		for _, want := range []string{"never create, claim or close a coordination session", "Returning an answer is not finishing", "The coordinator decides when this work ends"} {
+			if !strings.Contains(payload, want) {
+				t.Fatalf("%s missing delegated contract %q", label, want)
+			}
+		}
+	}
+}
+
+// The same document is read by a subagent and, where the host has none, by the
+// main agent. Wording that assumes either origin, or that assumes the performer
+// keeps running between instructions, breaks one of the two readers.
+func TestRoleProtocolReadsForEitherPerformer(t *testing.T) {
+	t.Parallel()
+
+	for _, role := range Roles() {
+		protocol := RoleProtocol(role, Context{MandatoryLoaded: true})
+		for _, forbidden := range []string{"the subagent", "The subagent", "stay alive", "remain running", "wait for the next instruction", "keep waiting"} {
+			if strings.Contains(protocol, forbidden) {
+				t.Fatalf("role %s uses %q, which presumes an origin or a live process", role.Name, forbidden)
+			}
+		}
+		if !strings.Contains(protocol, "You are performing the "+role.Name+" role") {
+			t.Fatalf("role %s does not address its performer", role.Name)
+		}
+	}
+}
+
+func TestRoleProtocolCarriesOnlyItsOwnModulesAndPosture(t *testing.T) {
+	t.Parallel()
+
+	scout := RoleProtocol(RoleScout, Context{MandatoryLoaded: true})
+	scribe := RoleProtocol(RoleScribe, Context{MandatoryLoaded: true})
+
+	if !strings.Contains(scout, "This role never writes") {
+		t.Fatalf("scout must be declared read-only: %s", scout)
+	}
+	if !strings.Contains(scout, "`file:line`") {
+		t.Fatalf("scout must demand verifiable identifiers: %s", scout)
+	}
+	if strings.Contains(scribe, "This role never writes") {
+		t.Fatal("scribe writes and must not be declared read-only")
+	}
+	if !strings.Contains(scribe, "writes only to task and memory") {
+		t.Fatalf("scribe must bound its writes: %s", scribe)
+	}
+
+	// The tracker does not use Memory, so its protocol must not route memory
+	// recall; the scout does.
+	tracker := RoleProtocol(RoleTracker, Context{MandatoryLoaded: true})
+	if strings.Contains(tracker, "graphit_memory_search") {
+		t.Fatalf("tracker does not use Memory and must not route it: %s", tracker)
+	}
+	if !strings.Contains(scout, "graphit_memory_search") {
+		t.Fatalf("scout uses Memory and must route it: %s", scout)
+	}
+}
+
+func TestCursorDelegationPrefixesThePerformingRole(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`{"tool_input":{"subagent_type":"graphit-scout","prompt":"Where is the reminder registered?"}}`)
+	first, err := RenderWithContext(FormatCursorSubagentTask, input, Context{MandatoryLoaded: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(first), SubagentProtocolMarker+" role=scout") {
+		t.Fatalf("Cursor delegation lost the role marker: %s", first)
+	}
+
+	prefixed := RoleProtocol(RoleScout, Context{MandatoryLoaded: true}) + "\n\nTask:\nWhere is the reminder registered?"
+	repeat, err := json.Marshal(map[string]any{"tool_input": map[string]any{"subagent_type": "graphit-scout", "prompt": prefixed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := RenderWithContext(FormatCursorSubagentTask, repeat, Context{MandatoryLoaded: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(again), "updated_input") {
+		t.Fatalf("the same role must not be prefixed twice: %s", again)
+	}
+
+	// A prompt already carrying one role's protocol is a different delegation
+	// when the target role changes, and still needs that role's own protocol.
+	switched, err := json.Marshal(map[string]any{"tool_input": map[string]any{"subagent_type": "graphit-scribe", "prompt": prefixed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := RenderWithContext(FormatCursorSubagentTask, switched, Context{MandatoryLoaded: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(other), SubagentProtocolMarker+" role=scribe") {
+		t.Fatalf("a different role must receive its own protocol: %s", other)
 	}
 }
 
@@ -315,7 +441,10 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(payload), "Antigravity-specific hook compensation") || !strings.Contains(string(payload), "complete Graphit protocol") || !strings.Contains(string(payload), "enabled Memory and Task bootstrap") || strings.Contains(string(payload), "Cursor-specific") {
+		// Antigravity has no subagent-start hook, so the compensation has to say
+		// where the protocol does come from: the installed role document, which
+		// the agent can also read itself when it cannot delegate at all.
+		if !strings.Contains(string(payload), "Antigravity-specific hook compensation") || !strings.Contains(string(payload), "role document installed under the agents directory") || !strings.Contains(string(payload), "read that document yourself when you cannot delegate") || strings.Contains(string(payload), "Cursor-specific") {
 			t.Fatalf("Antigravity compensation is missing or leaked: %s", payload)
 		}
 		if strings.Contains(invocation, `:1`) && len(payload) > 1200 {
@@ -341,6 +470,29 @@ func TestRenderAntigravityBootstrapsFirstAndReassertsInvariantLater(t *testing.T
 	}
 	if !strings.Contains(string(later), "Graphit invariant") || strings.Contains(string(later), "graphit_memory_mandatory") {
 		t.Fatalf("later invocation must inject only the compact invariant: %s", later)
+	}
+}
+
+func TestRenderSessionPromptBootstrapsOnceThenStaysCompact(t *testing.T) {
+	t.Parallel()
+
+	first, err := RenderWithContext(FormatSessionPrompt, nil, Context{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(first), "Graphit session bootstrap:") {
+		t.Fatalf("the first prompt of a session must carry the bootstrap: %s", first)
+	}
+
+	later, err := RenderWithContext(FormatSessionPrompt, nil, Context{BootstrapDelivered: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(later), "Graphit invariant") {
+		t.Fatalf("later prompts still need the routing invariant: %s", later)
+	}
+	if strings.Contains(string(later), "Graphit session bootstrap:") {
+		t.Fatalf("the bootstrap must not repeat on every turn: %s", later)
 	}
 }
 

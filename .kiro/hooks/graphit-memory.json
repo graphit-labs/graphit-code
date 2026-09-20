@@ -27,6 +27,7 @@
       },
       "description": "Checkpoint task management after the smallest completed work unit.",
       "enabled": true,
+      "matcher": "^(write|shell)$",
       "name": "graphit-task-checkpoint",
       "trigger": "PostToolUse"
     },

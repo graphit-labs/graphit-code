@@ -2,13 +2,16 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
@@ -41,13 +44,18 @@ func newSessionHookCmd() *cobra.Command {
 					return err
 				}
 			}
-			includeMandatory := hookInputNeedsMandatory(format, input)
+			bootstrapDelivered := false
+			if strings.EqualFold(format, sessionhook.FormatSessionPrompt) {
+				bootstrapDelivered = markSessionBootstrapDelivered(projectDir, input)
+			}
+			includeMandatory := hookInputNeedsMandatory(format, input) && !bootstrapDelivered
 			var context sessionhook.Context
 			if includeMandatory || strings.EqualFold(format, sessionhook.FormatToolContext) {
 				context = sessioncontext.Build(projectDir, includeMandatory)
 			} else {
 				context = sessioncontext.ModuleContext(projectDir)
 			}
+			context.BootstrapDelivered = bootstrapDelivered
 			payload, err := sessionhook.RenderWithContext(format, input, context)
 			if err != nil {
 				return err
@@ -164,11 +172,44 @@ func hookInputNeedsMandatory(format string, input []byte) bool {
 		return json.Unmarshal(input, &event) == nil && event.InvocationNum != nil && *event.InvocationNum == 0
 	case sessionhook.FormatSessionStart, sessionhook.FormatAdditionalContext,
 		sessionhook.FormatPlainContext, sessionhook.FormatSubagentStart,
-		sessionhook.FormatCursorSubagentTask:
+		sessionhook.FormatCursorSubagentTask, sessionhook.FormatSessionPrompt:
 		return true
 	default:
 		return false
 	}
+}
+
+// markSessionBootstrapDelivered reports whether this host session already
+// received the full protocol, marking it when it had not. Every failure answers
+// false on purpose: repeating the bootstrap only costs tokens, while wrongly
+// skipping it would leave the agent with no routing at all.
+func markSessionBootstrapDelivered(projectDir string, input []byte) bool {
+	if projectDir == "" {
+		return false
+	}
+	var event struct {
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(input, &event) != nil {
+		return false
+	}
+	// The identifier reaches us from the host, so it never becomes a path
+	// element itself; the digest keeps a hostile or exotic value contained.
+	id := strings.TrimSpace(event.SessionID)
+	if id == "" {
+		return false
+	}
+	marker := brand.ProjectRuntimePath(projectDir, "cache", "session-bootstrap", fmt.Sprintf("%x", sha256.Sum256([]byte(id))))
+	if _, err := os.Stat(marker); err == nil {
+		return true
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return false
+	}
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		return false
+	}
+	return false
 }
 
 func readSessionHookInput(input io.Reader, format string) ([]byte, error) {

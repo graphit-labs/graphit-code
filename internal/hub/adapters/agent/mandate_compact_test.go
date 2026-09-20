@@ -13,7 +13,18 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 			t.Fatalf("preamble missing %q:\n%s", want, content)
 		}
 	}
-	if len(content) > 1600 {
+	// A delegation rule that only says "delegate" breaks on a host with no
+	// subagent, and one that omits what stays behind invites a delegate to close
+	// work it does not own. Both halves are required, not stylistic.
+	for _, want := range []string{"Delegate recall", "where your host cannot run them", "perform it yourself", "reports back without closing anything", "never delegated"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("preamble missing delegation guidance %q:\n%s", want, content)
+		}
+	}
+	// The cap rose from 1600 with the delegation rule. It costs ~370 bytes once
+	// per session and moves recall and impact review out of this window
+	// entirely, which is worth far more than it spends.
+	if len(content) > 2000 {
 		t.Fatalf("resident preamble is too large: %d bytes", len(content))
 	}
 }

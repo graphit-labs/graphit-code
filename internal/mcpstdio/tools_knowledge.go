@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
@@ -39,8 +41,22 @@ type knowledgeSearchInput struct {
 }
 
 type knowledgeSchemaInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context"`
+	Table       string `json:"table,omitempty" jsonschema:"Describe only this table; omit for every table"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type knowledgeQueryInput struct {
+	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	Context     string   `json:"context,omitempty" jsonschema:"Named imported context to query"`
+	Table       string   `json:"table" jsonschema:"Table to query: chunks for pages, xrefs for the links between them, sync_log for index history, meta for index metadata; knowledge_schema lists them (required)"`
+	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"stale_since != ''\", \"doc_type = 'guide'\" or, on xrefs, \"target_slug = 'storage-layout'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
+	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [slug, title, stale_since]. Omit for every compact column; the page body, its summary and the search terms are excluded unless named, and the embedding vector is never returned as numbers."`
+	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeLintInput struct {
@@ -75,7 +91,7 @@ type knowledgeExportInput struct {
 func registerKnowledgeTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "index"),
-		Description: "Index the documentation tree (knowledge.docs_dir, default docs/) plus the project's root README into the knowledge graph and regenerate the wiki. Pass path to index a specific directory wholesale instead.",
+		Description: "Index the documentation tree (knowledge.docs_dir, default docs/) plus the project's root README into the knowledge index and regenerate the wiki. Pass path to index a specific directory wholesale instead.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeIndexInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -202,17 +218,77 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("knowledge", "schema"),
-		Description: "Show the knowledge graph schema and node properties.",
+		Name: brand.MCPToolName("knowledge", "schema"),
+		Description: "Show the knowledge index tables: every column with its type, and the row count. " +
+			"Read this before writing a knowledge_query filter. The index is LanceDB, not a graph database: " +
+			"pages live in chunks, the links between them in xrefs.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSchemaInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
+		var only []string
+		if table := strings.TrimSpace(input.Table); table != "" {
+			only = []string{table}
+		}
+		var value lancequery.Schema
+		err = withProjectDir(projectDir, func() error {
+			db, oerr := openWikiForReadContext(ctx, projectDir, "knowledge", input.Context)
+			if oerr != nil {
+				return oerr
+			}
+			defer func() { _ = db.Close() }()
+			value, oerr = db.DescribeStore(ctx, only)
+			return oerr
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceSchemaResult(value, input.AiOptimized)
+	}))
 
-		wikiDir := resolveWikiDir("knowledge", projectDir, input.Context)
-		schemaText := fmt.Sprintf("KNOWLEDGE Wiki\nWiki directory: %s\nArchitecture: file-based wiki (no graph database)", wikiDir)
-		return textResult(schemaText)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("knowledge", "query"),
+		Description: "Answer a structured question about the knowledge index: filter rows by predicate and return only the columns asked for. " +
+			"Use it for questions a ranked search cannot answer — which pages are stale, what a page's doc_type is, " +
+			"and, over the xrefs table, which pages link to a given slug. " +
+			"knowledge_search ranks pages by relevance; wiki_source reads one page's text. " +
+			"The filter is a WHERE clause, not SQL: no SELECT, JOIN, GROUP BY or ORDER BY, and results carry no ordering.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeQueryInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		table := strings.TrimSpace(input.Table)
+		window, err := openPage(input.PageSize, input.Cursor, input.TopK, page.DefaultPageSize, struct {
+			Tool, ProjectDir, Context, Table, Filter string
+			Columns                                  []string
+			TopK                                     int
+		}{"knowledge_query", projectDir, input.Context, table, input.Filter, input.Columns, input.TopK})
+		if err != nil {
+			return errResult(err)
+		}
+		var rows []map[string]any
+		err = withProjectDir(projectDir, func() error {
+			db, oerr := openWikiForReadContext(ctx, projectDir, "knowledge", input.Context)
+			if oerr != nil {
+				return oerr
+			}
+			defer func() { _ = db.Close() }()
+			result, oerr := db.QueryStore(ctx, lancequery.Request{
+				Table:   table,
+				Filter:  input.Filter,
+				Columns: input.Columns,
+				Limit:   window.FetchLimit - window.Offset,
+				Offset:  window.Offset,
+			})
+			rows = result.Rows
+			return oerr
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceQueryResult(page.FinishFetched(window, rows), input.AiOptimized)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -250,7 +326,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "remove"),
-		Description: "Remove the project knowledge graph or an imported context.",
+		Description: "Remove the project knowledge index or an imported context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeRemoveInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {

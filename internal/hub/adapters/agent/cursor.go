@@ -57,7 +57,7 @@ func (a *CursorAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileDirectCommandHookMatched(path, "preToolUse", "Task", sessionhook.FormatCursorSubagentTask); err != nil {
 		return err
 	}
-	if err := reconcileDirectCommandHook(path, "postToolUse", sessionhook.FormatCursorUnit); err != nil {
+	if err := reconcileDirectCommandHookMatched(path, "postToolUse", cursorMutatingTools, sessionhook.FormatCursorUnit); err != nil {
 		return err
 	}
 	if err := reconcileDirectFinalSyncHook(path, "subagentStop", sessionhook.FormatCursorStop); err != nil {

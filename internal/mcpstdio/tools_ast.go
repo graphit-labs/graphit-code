@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -38,6 +40,25 @@ type astQueryInput struct {
 	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); independent of any LIMIT in the Cypher query"`
 	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type astFTSSchemaInput struct {
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to describe a globally installed artifact, naming it in context as id@version."`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context"`
+	Table       string `json:"table,omitempty" jsonschema:"Describe only this table; omit for both"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type astFTSQueryInput struct {
+	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	Context     string   `json:"context,omitempty" jsonschema:"Named imported context to query"`
+	Table       string   `json:"table" jsonschema:"Table to query: entities for indexed symbols, files for indexed files; ast_fts_schema lists their columns (required)"`
+	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"path = 'internal/task/service.go'\", \"etype = 'Function' AND is_dep = false\" or \"name LIKE 'Open%'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
+	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [name, etype, path, line]. Omit for every compact column. The body and source columns are never returned and cannot be filtered on: they hold synthesised BM25 documents, not code — use ast_search in fts mode to match against them and ast_source to read real code. The embedding vector is never returned as numbers either."`
+	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSchemaInput struct {
@@ -233,8 +254,12 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("ast", "schema"),
-		Description: "Return the AST graph database schema: node labels, properties, and relationship types. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
+		Name: brand.MCPToolName("ast", "schema"),
+		Description: "Return the AST GRAPH schema: node labels, properties, and relationship types, for writing Cypher with " +
+			brand.MCPToolName("ast", "query") + ". " +
+			"The graph is one of two stores: for the columns of the full-text tables, use " +
+			brand.MCPToolName("ast", "fts", "schema") + " instead. " +
+			"Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSchemaInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
@@ -253,6 +278,74 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		return textResult(schemaText)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("ast", "fts", "schema"),
+		Description: "Show the AST full-text tables: every column with its type, and the row count. " +
+			"Read this before writing an " + brand.MCPToolName("ast", "fts", "query") + " filter. " +
+			"These are LanceDB tables, a different store from the Cypher graph that " +
+			brand.MCPToolName("ast", "schema") + " describes.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astFTSSchemaInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		index, err := openASTSearchIndex(ctx, projectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		defer func() { _ = index.Close() }()
+
+		var only []string
+		if table := strings.TrimSpace(input.Table); table != "" {
+			only = []string{table}
+		}
+		value, err := index.DescribeStore(ctx, only)
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceSchemaResult(value, input.AiOptimized)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("ast", "fts", "query"),
+		Description: "Answer a structured question about the indexed code: filter rows by predicate and return only the columns asked for. " +
+			"Use it for questions ranking cannot answer — every entity in a file, how many of a kind exist, what is project code and what is a dependency. " +
+			brand.MCPToolName("ast", "search") + " ranks by relevance; " + brand.MCPToolName("ast", "source") + " reads code. " +
+			"This is the LanceDB side; " + brand.MCPToolName("ast", "query") + " is Cypher over the graph. " +
+			"The filter is a WHERE clause, not SQL: no SELECT, JOIN, GROUP BY or ORDER BY, and results carry no ordering.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astFTSQueryInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		table := strings.TrimSpace(input.Table)
+		window, err := openPage(input.PageSize, input.Cursor, input.TopK, page.DefaultPageSize, struct {
+			Tool, ProjectDir, Context, Table, Filter string
+			Columns                                  []string
+			TopK                                     int
+		}{"ast_fts_query", projectDir, input.Context, table, input.Filter, input.Columns, input.TopK})
+		if err != nil {
+			return errResult(err)
+		}
+		index, err := openASTSearchIndex(ctx, projectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		defer func() { _ = index.Close() }()
+
+		result, err := index.QueryStore(ctx, lancequery.Request{
+			Table:   table,
+			Filter:  input.Filter,
+			Columns: input.Columns,
+			Limit:   window.FetchLimit - window.Offset,
+			Offset:  window.Offset,
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		return lanceQueryResult(page.FinishFetched(window, result.Rows), input.AiOptimized)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -580,4 +673,22 @@ func registerASTTools(server *mcp.Server) {
 			return jsonResult(paged)
 		}
 	}))
+}
+
+// openASTSearchIndex resolves the LanceDB full-text index of a project or an imported context.
+//
+// It mirrors openASTDBWithContext, which resolves the Cypher graph, and the two land in
+// different places: the graph is graph.icebug, the index is search.lance, both under the same
+// store directory. Passing the store directory rather than the index path is deliberate —
+// OpenSearchIndex appends search.lance itself, and opening the parent as a store would make
+// LanceDB report the index as if it were a table called `search`.
+func openASTSearchIndex(ctx context.Context, projectDir, contextName string) (*ast.SearchIndex, error) {
+	storeDir := store.ASTProjectDir(projectDir)
+	if strings.TrimSpace(contextName) != "" {
+		storeDir = store.ASTContextDirIn(projectDir, contextName)
+	}
+	if storeDir == "" {
+		return nil, fmt.Errorf("no AST store for %s — it has not been indexed yet", projectDir)
+	}
+	return ast.OpenSearchIndex(ctx, storeDir)
 }

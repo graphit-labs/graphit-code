@@ -174,7 +174,9 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 |---|---|
 | `graphit_ast_index` | Index project files into the AST code graph database. Supports workers, reset, reindex, cluster labels, and no-source mode. |
 | `graphit_ast_query` | Execute a Cypher query against the AST graph. Supports `ai_optimized` output formatting and named contexts. |
-| `graphit_ast_schema` | Return graph schema: node labels, properties, and relationship types. |
+| `graphit_ast_fts_query` | Filter rows of one AST full-text table (`entities`, `files`) by Lance predicate and project columns. The LanceDB half of the AST store, distinct from the Cypher graph above. |
+| `graphit_ast_schema` | Return GRAPH schema: node labels, properties, and relationship types. |
+| `graphit_ast_fts_schema` | Return the full-text tables' columns, types and row counts. |
 | `graphit_ast_install` | Import another local repository as a named AST context. |
 | `graphit_ast_remove` | Remove an imported context or clear the main project graph. |
 | `graphit_ast_list` | List all imported AST contexts and their paths. |
@@ -187,10 +189,11 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 
 | Tool | Description |
 |---|---|
-| `graphit_knowledge_index` | Index docs/ into the knowledge graph and regenerate the wiki. |
+| `graphit_knowledge_index` | Index docs/ into the knowledge index and regenerate the wiki. |
 | `graphit_knowledge_export` | Export an importable `.knowledge` package, OKF, or an Obsidian vault. |
 | `graphit_knowledge_search` | BM25 keyword search across the knowledge wiki; returns ranked page titles for selective reading. |
-| `graphit_knowledge_schema` | Show the knowledge graph schema and wiki directory info. |
+| `graphit_knowledge_schema` | Show the knowledge index tables (`chunks`, `xrefs`, `sync_log`, `meta`), their columns and row counts. The index is LanceDB, not a graph database. |
+| `graphit_knowledge_query` | Filter rows of one knowledge index table by Lance predicate and project columns. |
 | `graphit_knowledge_lint` | Audit the wiki for structural and staleness issues. |
 | `graphit_knowledge_remove` | Remove an imported context or clear local knowledge. |
 | `graphit_knowledge_sync` | Rebuild the local project wiki from docs. |
@@ -213,7 +216,8 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 | `graphit_memory_promote` | Promote a memory to important status. |
 | `graphit_memory_demote` | Demote a memory from important status. |
 | `graphit_memory_index` | Refresh the authoritative memory table's own lexical and vector indexes. |
-| `graphit_memory_schema` | Show the memory graph schema. |
+| `graphit_memory_schema` | Show the authoritative memory table's columns, types and record count, read from the table. Memory is a LanceDB table, not a graph. |
+| `graphit_memory_query` | Filter memory records by Lance predicate and project columns. |
 | `graphit_memory_remove` | Remove a memory context sync connection. |
 | `graphit_memory_sync` | Sync memories from an external context. |
 
@@ -285,6 +289,7 @@ runs in a separate process.
 | Tool | Description |
 |---|---|
 | `graphit_task_search`, `graphit_task_get`, `graphit_task_list` | Discover and retrieve current/prior work, audit history, checks, comments, dependencies, and subtasks. |
+| `graphit_task_schema`, `graphit_task_query` | Describe the Task LanceDB tables, then filter rows of one by Lance predicate and project columns. The claim token is redacted in both directions. |
 | `graphit_task_export` | Export a versioned, normalized complete JSON document for all tasks or one exact task and its recursive subtasks. |
 | `graphit_task_batch` | Run up to 100 ordered mutations with an explicit result for every item while reusing the normal lifecycle gates. |
 | `graphit_task_create` | Idempotently create a robust task specification in shared LanceDB tables. |

@@ -154,24 +154,33 @@ func reconcileKimiHooks(path string) error {
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
-	// Kimi does not guarantee SessionStart stdout reaches the model. Keep the
-	// complete bootstrap on UserPromptSubmit, the reliable context boundary.
+	// Kimi does not guarantee SessionStart stdout reaches the model, so the
+	// bootstrap has to ride UserPromptSubmit, the reliable context boundary.
+	// FormatSessionPrompt keeps that compensation for the first prompt of a
+	// session and downgrades the following turns to the compact invariant, so a
+	// long conversation stops re-paying the whole protocol on every turn.
 	formats := map[string]string{
 		"SessionStart":     sessionhook.FormatSessionStart,
 		"SubagentStart":    sessionhook.FormatSubagentStart,
-		"UserPromptSubmit": sessionhook.FormatPlainContext,
+		"UserPromptSubmit": sessionhook.FormatSessionPrompt,
 		"PostToolUse":      sessionhook.FormatPostToolUse,
 		"SubagentStop":     sessionhook.FormatStop,
 		"Stop":             sessionhook.FormatStop,
 		"SessionEnd":       sessionhook.FormatSessionEnd,
 	}
+	// Kimi's hook entries accept a regex matcher alongside event and command.
+	matchers := map[string]string{"PostToolUse": kimiMutatingTools}
 	for event, format := range formats {
 		hooks = filterKimiHook(hooks, event, format)
 		command := sessionHookCommand(format)
 		if event == "SubagentStop" || event == "Stop" || event == "SessionEnd" {
 			command = finalSyncHookCommand(format)
 		}
-		hooks = append(hooks, map[string]any{"event": event, "command": command, "timeout": int64(30)})
+		entry := map[string]any{"event": event, "command": command, "timeout": int64(30)}
+		if matcher := matchers[event]; matcher != "" {
+			entry["matcher"] = matcher
+		}
+		hooks = append(hooks, entry)
 	}
 	sort.SliceStable(hooks, func(i, j int) bool { return fmt.Sprint(hooks[i]["event"]) < fmt.Sprint(hooks[j]["event"]) })
 	root["hooks"] = hooks
@@ -189,7 +198,7 @@ func removeKimiHooks(path string) error {
 	}
 	for event, format := range map[string]string{
 		"SessionStart": sessionhook.FormatSessionStart, "SubagentStart": sessionhook.FormatSubagentStart,
-		"UserPromptSubmit": sessionhook.FormatPlainContext, "PostToolUse": sessionhook.FormatPostToolUse,
+		"UserPromptSubmit": sessionhook.FormatSessionPrompt, "PostToolUse": sessionhook.FormatPostToolUse,
 		"SubagentStop": sessionhook.FormatStop, "Stop": sessionhook.FormatStop,
 		"SessionEnd": sessionhook.FormatSessionEnd,
 	} {

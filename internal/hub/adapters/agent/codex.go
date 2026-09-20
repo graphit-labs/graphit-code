@@ -27,8 +27,11 @@ func NewCodexAdapter() *CodexAdapter {
 		FileTypes: map[string]FileMode{
 			"rule":    {Mode: "file", Ext: "md"},
 			"command": {Mode: "file", Ext: "md"},
-			"agent":   {Mode: "file", Ext: "md"},
-			"skill":   {Mode: "folder", Ext: ""},
+			// Codex reads standalone TOML from .codex/agents/, not markdown with
+			// frontmatter: name, description and developer_instructions are keys,
+			// and the instructions are a field rather than the document body.
+			"agent": {Mode: "file", Ext: "toml"},
+			"skill": {Mode: "folder", Ext: ""},
 		},
 	})
 	return &CodexAdapter{base}
@@ -152,7 +155,7 @@ func (a *CodexAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileGroupedCommandHook(path, "UserPromptSubmit", sessionhook.FormatUserPrompt); err != nil {
 		return err
 	}
-	if err := reconcileGroupedCommandHook(path, "PostToolUse", sessionhook.FormatPostToolUse); err != nil {
+	if err := reconcileGroupedCommandHookMatched(path, "PostToolUse", claudeStyleMutatingTools, sessionhook.FormatPostToolUse); err != nil {
 		return err
 	}
 	if err := reconcileGroupedFinalSyncHook(path, "SubagentStop", sessionhook.FormatStop); err != nil {

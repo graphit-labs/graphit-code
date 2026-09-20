@@ -15,6 +15,7 @@ import (
 const (
 	opencodeManagedHookFile = "graphit-memory-session-start.js"
 	opencodeManagedMarker   = "// Managed by Graphit: deterministic session-start memory protocol"
+	opencodeRulesDir        = "rules"
 )
 
 type OpenCodeAdapter struct {
@@ -23,8 +24,17 @@ type OpenCodeAdapter struct {
 
 func NewOpenCodeAdapter() *OpenCodeAdapter {
 	base := NewFolderBasedAdapter(FolderConfig{
-		RootDirName:   ".opencode",
-		RulesDir:      "agents",
+		RootDirName: ".opencode",
+		// Rules and agents are distinct surfaces and must not alias one directory.
+		// Nothing writes here today, because rule artifacts reach the model through
+		// the injected context rather than as files, but the agent fallback in the
+		// sync loop targets RulesDir whenever AgentsDir is unset: aliasing the two
+		// would silently overwrite an agent with a rule of the same name.
+		// OpenCode does load `.opencode/rules/*.md` when opencode.json lists the
+		// glob under `instructions`; that route is deliberately not used, since the
+		// managed plugin already injects rules at session start and a second path
+		// would duplicate them in the model's context.
+		RulesDir:      opencodeRulesDir,
 		CommandsDir:   "commands",
 		SkillsDir:     "skills",
 		AgentsDir:     "agents",

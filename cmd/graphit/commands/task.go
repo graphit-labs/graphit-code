@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/spf13/cobra"
@@ -20,7 +22,7 @@ func newTaskCmd() *cobra.Command {
 Open, unclaimed tasks are the backlog. Dependencies determine readiness. Agents
 must claim before work, checkpoint progress, and complete or release the claim.
 The returned claim token fences stopped or replaced agents from later writes.`}
-	cmd.AddCommand(newTaskSessionCmd(), newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskForceTakeoverCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
+	cmd.AddCommand(newTaskSessionCmd(), newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskSchemaCmd(), newTaskQueryCmd(), newTaskExportCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskForceTakeoverCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskReviseCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
 	return cmd
 }
 
@@ -193,6 +195,92 @@ func newTaskGetCmd() *cobra.Command {
 		}
 		return printTaskJSON(v)
 	}}
+}
+
+func newTaskSchemaCmd() *cobra.Command {
+	var table string
+	cmd := &cobra.Command{
+		Use:   "schema",
+		Short: "Show the Task LanceDB tables, their columns and row counts",
+		Long: `Print the shape of the authoritative Task store: every table, every column with its
+type, and how many rows each holds. Read this before writing a ` + brand.BinName() + ` task query filter.
+
+The claim token is marked redacted: it is never returned by a query and cannot be
+named in one. Long columns such as description and search_text are marked heavy —
+left out of a default projection for size, returned when asked for by name.
+
+Examples:
+  ` + brand.BinName() + ` task schema
+  ` + brand.BinName() + ` task schema --table tasks`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := currentTaskService()
+			if err != nil {
+				return err
+			}
+			var only []string
+			if t := strings.TrimSpace(table); t != "" {
+				only = []string{t}
+			}
+			value, err := svc.DescribeStore(cmd.Context(), only)
+			if err != nil {
+				return err
+			}
+			return printTaskJSON(value)
+		},
+	}
+	cmd.Flags().StringVar(&table, "table", "", "Describe only this table")
+	return cmd
+}
+
+func newTaskQueryCmd() *cobra.Command {
+	var (
+		table   string
+		filter  string
+		columns []string
+		limit   int
+		offset  int
+	)
+	cmd := &cobra.Command{
+		Use:   "query",
+		Short: "Filter rows of one Task table and return only the columns asked for",
+		Long: `Ask a structured question about known task records.
+
+--filter is a Lance SQL predicate: a WHERE clause over the table's own columns. It is
+not SQL — there is no SELECT, JOIN, GROUP BY or aggregate, and the engine offers no
+ORDER BY, so rows come back in storage order with no ranking. When order matters,
+filter on a key range instead of paging blindly.
+
+Use this when the question is "which of these, and in what state". Use ` + brand.BinName() + ` task
+search to find records by relevance, and ` + brand.BinName() + ` task get to read one in full.
+
+Examples:
+  ` + brand.BinName() + ` task query --table tasks --filter "id IN ('tsk-a','tsk-b')" --columns id,status
+  ` + brand.BinName() + ` task query --table tasks --filter "status = 'open' AND flagged = true"
+  ` + brand.BinName() + ` task query --table task_checks --filter "task_id = 'tsk-a' AND status = 'pending'"`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := currentTaskService()
+			if err != nil {
+				return err
+			}
+			value, err := svc.QueryStore(cmd.Context(), lancequery.Request{
+				Table:   strings.TrimSpace(table),
+				Filter:  filter,
+				Columns: columns,
+				Limit:   limit,
+				Offset:  offset,
+			})
+			if err != nil {
+				return err
+			}
+			return printTaskJSON(value)
+		},
+	}
+	cmd.Flags().StringVar(&table, "table", "tasks", "Table to query; task schema lists them")
+	cmd.Flags().StringVar(&filter, "filter", "", "Lance SQL predicate; empty matches every row")
+	cmd.Flags().StringSliceVar(&columns, "columns", nil, "Columns to return; empty returns every compact column")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Rows to return (default 20); unlike the MCP tool this has no ceiling")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Rows to skip")
+	return cmd
 }
 
 func newTaskExportCmd() *cobra.Command {

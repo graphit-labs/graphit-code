@@ -507,6 +507,10 @@ func (a *FolderBasedAdapter) getTypeDir(artType string) string {
 	return ""
 }
 
+// typeDirs drives directory creation at sync and empty-directory cleanup at
+// removal. RulesDir is deliberately absent: rule artifacts are never written to
+// disk (see the rule case in the sync loop), so creating the directory would
+// only leave an empty one behind on every host.
 func (a *FolderBasedAdapter) typeDirs() []string {
 	return []string{a.cfg.CommandsDir, a.cfg.SkillsDir, a.cfg.AgentsDir}
 }

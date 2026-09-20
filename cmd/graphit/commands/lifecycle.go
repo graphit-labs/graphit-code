@@ -27,6 +27,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/subagent"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/updater"
 	"github.com/graphit-labs/graphit-code/internal/version"
@@ -50,6 +51,11 @@ func installAllModuleSkills(p *output.Printer, wd, agentName string) {
 			p.StepWarn("%s skill: %v", r.name, err)
 		}
 	}
+	// The delegated roles are a native surface like the skills above, refreshed
+	// by the same sync rather than installed from the Hub.
+	if err := subagent.InstallRoles(wd, agentName); err != nil {
+		p.StepWarn("delegated roles: %v", err)
+	}
 }
 
 func removeAllModuleSkills(p *output.Printer, wd, agent string) {
@@ -66,6 +72,9 @@ func removeAllModuleSkills(p *output.Printer, wd, agent string) {
 		if err := r.removeSkill(wd, agent); err != nil {
 			p.StepWarn("%s skill cleanup: %v", r.name, err)
 		}
+	}
+	if err := subagent.RemoveRoles(wd, agent); err != nil {
+		p.StepWarn("delegated roles cleanup: %v", err)
 	}
 	removeRetiredImprovementsGuidance(p, wd, agent)
 }

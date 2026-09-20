@@ -182,32 +182,39 @@ func ResolveModuleSkill(module, defaultContent string) string {
 }
 
 func ResolveModuleSkillIn(projectDir, module, defaultContent string) string {
-	placeholder := defaultSkillPlaceholder()
-	fileName := module + "_skill.md"
+	return resolveOverride(projectDir, module+"_skill.md", defaultSkillPlaceholder(), defaultContent)
+}
 
+func defaultRoleBodyPlaceholder() string {
+	return "{{_" + strings.ToUpper(Brand) + "_DEFAULT_ROLE_CONTENT_}}"
+}
+
+// ResolveRoleBodyIn lets a project or operator rewrite one delegated role's
+// document without losing sync, the same way module skills and rules can be
+// overridden. The placeholder lets an override wrap the shipped text instead of
+// having to restate it.
+func ResolveRoleBodyIn(projectDir, role, defaultContent string) string {
+	return resolveOverride(projectDir, role+"_agent.md", defaultRoleBodyPlaceholder(), defaultContent)
+}
+
+// resolveOverride reads the first override that exists, nearest scope first:
+// the project, then the operator's global rules, then an installed Hub rule.
+func resolveOverride(projectDir, fileName, placeholder, defaultContent string) string {
+	candidates := make([]string, 0, 3)
 	if projectDir != "" {
-		projectPath := filepath.Join(projectDir, DotDir(), "rules", fileName)
-		if data, err := os.ReadFile(projectPath); err == nil {
+		candidates = append(candidates, filepath.Join(projectDir, DotDir(), "rules", fileName))
+	}
+	if rulesDir := GlobalRulesDir(); rulesDir != "" {
+		candidates = append(candidates, filepath.Join(rulesDir, fileName))
+	}
+	if hubDir := HubRulesDir(); hubDir != "" {
+		candidates = append(candidates, filepath.Join(hubDir, fileName))
+	}
+	for _, candidate := range candidates {
+		if data, err := os.ReadFile(candidate); err == nil {
 			return strings.ReplaceAll(string(data), placeholder, defaultContent)
 		}
 	}
-
-	rulesDir := GlobalRulesDir()
-	if rulesDir != "" {
-		globalPath := filepath.Join(rulesDir, fileName)
-		if data, err := os.ReadFile(globalPath); err == nil {
-			return strings.ReplaceAll(string(data), placeholder, defaultContent)
-		}
-	}
-
-	hubDir := HubRulesDir()
-	if hubDir != "" {
-		hubPath := filepath.Join(hubDir, fileName)
-		if data, err := os.ReadFile(hubPath); err == nil {
-			return strings.ReplaceAll(string(data), placeholder, defaultContent)
-		}
-	}
-
 	return defaultContent
 }
 

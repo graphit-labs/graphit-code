@@ -469,10 +469,12 @@ by passing a different `project_dir`.
 | What you want | Tool |
 |---|---|
 | source text of any indexed file, in any project or context | `graphit_ast_source` |
-| the graph | `graphit_ast_query`, `graphit_ast_search`, `graphit_ast_schema` |
+| the AST graph, in Cypher | `graphit_ast_query`, `graphit_ast_schema` |
+| the AST full-text tables, by relevance or by predicate | `graphit_ast_search`, `graphit_ast_fts_query`, `graphit_ast_fts_schema` |
 | a wiki page's content | `graphit_wiki_source` |
-| the knowledge-wiki index | `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_knowledge_search` |
-| an authoritative memory table | `graphit_memory_search`, `graphit_memory_source`, `graphit_memory_list`, `graphit_memory_mandatory` |
+| the knowledge-wiki index | `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_knowledge_search`, `graphit_knowledge_query`, `graphit_knowledge_schema` |
+| an authoritative memory table | `graphit_memory_search`, `graphit_memory_source`, `graphit_memory_list`, `graphit_memory_mandatory`, `graphit_memory_query`, `graphit_memory_schema` |
+| the Task tables | `graphit_task_get`, `graphit_task_search`, `graphit_task_query`, `graphit_task_schema` |
 
 Every one of them takes `project_dir`, which is what makes a sibling project's store
 reachable: it is a parameter, not an ambient working directory. Correspondingly,

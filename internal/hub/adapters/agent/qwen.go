@@ -46,23 +46,23 @@ func (a *QwenAdapter) syncSessionStartHook(projectDir string) error {
 		return err
 	}
 	steps := []struct {
-		event, format string
-		final         bool
+		event, matcher, format string
+		final                  bool
 	}{
-		{"SessionStart", sessionhook.FormatSessionStart, false},
-		{"SubagentStart", sessionhook.FormatSubagentStart, false},
-		{"UserPromptSubmit", sessionhook.FormatUserPrompt, false},
-		{"PostToolUse", sessionhook.FormatPostToolUse, false},
-		{"SubagentStop", sessionhook.FormatStop, true},
-		{"Stop", sessionhook.FormatStop, true},
-		{"SessionEnd", sessionhook.FormatSessionEnd, true},
+		{"SessionStart", "", sessionhook.FormatSessionStart, false},
+		{"SubagentStart", "", sessionhook.FormatSubagentStart, false},
+		{"UserPromptSubmit", "", sessionhook.FormatUserPrompt, false},
+		{"PostToolUse", claudeStyleMutatingTools, sessionhook.FormatPostToolUse, false},
+		{"SubagentStop", "", sessionhook.FormatStop, true},
+		{"Stop", "", sessionhook.FormatStop, true},
+		{"SessionEnd", "", sessionhook.FormatSessionEnd, true},
 	}
 	for _, step := range steps {
 		if step.final {
 			if err := reconcileGroupedFinalSyncHook(path, step.event, step.format); err != nil {
 				return err
 			}
-		} else if err := reconcileGroupedCommandHook(path, step.event, step.format); err != nil {
+		} else if err := reconcileGroupedCommandHookMatched(path, step.event, step.matcher, step.format); err != nil {
 			return err
 		}
 	}

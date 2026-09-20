@@ -168,7 +168,15 @@ comparison with authoritative implementation or behavior and correction of which
 The task records the concrete targets inspected and comparison evidence. An unresolved divergence is
 flagged and blocks completion rather than being silently deferred. The shared completion/checkpoint
 reminder carries this obligation on every supported context-capable agent boundary; an adapter that
-lacks such a boundary must carry it in its adapter-specific mandate or compensation.
+lacks such a boundary must carry it in its adapter-specific mandate or compensation. That boundary is
+scoped to tools that change something: a host whose hook format accepts a matcher registers one, so
+the reminder no longer fires after a read or a search, and never after Graphit's own bookkeeping
+calls, which are the checkpointing rather than work that needs one.
+
+A delegated performer is not held to the coordinator half of this module. It receives its session and
+task ids, claims at most its own task, and never creates, claims or closes a coordination session; a
+separate worker mandate rule routes reading assigned work and recording progress. Returning an answer
+is not finishing: the performer reports and stops, and the coordinator decides when the work ends.
 
 Full reconciliation runs at session boundaries. It repairs projections, expires leases, and reopens
 any completed snapshot that violates flag/check/subtask invariants. Explicit operations repair the

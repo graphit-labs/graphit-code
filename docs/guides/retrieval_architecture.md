@@ -90,7 +90,7 @@ can drown exact lexical matches. This threshold is a relevance gate, not a fusio
 
 ### Tier 3: AI Synthesis
 
-**Surfaces:** `graphit knowledge query`, `graphit memory query`, Observatory AI search, and
+**Surfaces:** `graphit knowledge ask`, `graphit memory ask`, Observatory AI search, and
 `graphit live`
 
 Uses a locally installed coding-agent CLI to synthesize answers from retrieved wiki pages or a
@@ -117,13 +117,38 @@ temporary multi-artifact workspace. These are CLI/UI workflows, not stdio MCP to
 | `graphit_memory_source` | memory | current or historical row | LanceDB key lookup | No | `scope`, `path` |
 | `graphit_memory_mandatory` | memory | authoritative live memory table | LanceDB filter, no ranking | No | `scope` (project or user) |
 | `graphit_task_search` | task | current/prior task specs and comments | LanceDB BM25 | No | project identity |
-| `graphit knowledge query` | CLI | project or imported knowledge wiki | agent CLI + retrieved pages | Yes | `--context` |
-| `graphit memory query` | CLI | project/user/imported authoritative memory table | agent CLI + retrieved records | Yes | `--user`, `--context` |
+| `graphit_task_query` | task | any Task table | LanceDB predicate + projection | No | `table`, `filter`, `columns` |
+| `graphit_memory_query` | memory | authoritative memory table | LanceDB predicate + projection | No | `scope`, `filter`, `columns` |
+| `graphit_knowledge_query` | knowledge | index tables, including `xrefs` | LanceDB predicate + projection | No | `table`, `filter`, `columns` |
+| `graphit_ast_fts_query` | ast | `entities` and `files` | LanceDB predicate + projection | No | `table`, `filter`, `columns` |
+| `graphit knowledge ask` | CLI | project or imported knowledge wiki | agent CLI + retrieved pages | Yes | `--context` |
+| `graphit memory ask` | CLI | project/user/imported authoritative memory table | agent CLI + retrieved records | Yes | `--user`, `--context` |
 | `graphit live` | CLI/UI | selected Hub artifacts in an ephemeral workspace | coding-agent session | Yes | artifact IDs and versions |
 
 > [!NOTE]
 > Pass `ai_optimized: true` where supported for compact structured results; source tools return
 > selected text directly. Search results identify sources to read, not synthesized evidence.
+
+The four `*_query` surfaces answer a different shape of question from the searches above them.
+A search ranks by relevance when the target is unknown; a query filters a table by predicate and
+projects a few columns when the records are already nameable — the status of a set of ids, which
+pages are stale, what links to a slug. They are **not SQL**: the filter is a WHERE clause, and the
+engine offers no SELECT, JOIN, GROUP BY or ORDER BY. Rows come back in storage order, which is not
+guaranteed stable across compaction, so filter on a key range when order matters. Each `*_query`
+has a `*_schema` companion that lists the tables and columns to filter on.
+
+A `*_schema` answer names the store it read (`store`) and flags the columns that behave specially.
+A `redacted` column is refused in both the projection and the filter, so a credential cannot be
+read back or guessed one predicate at a time; a `heavy` column stays out of the default projection
+and is returned when named, so a listing does not pay for prose; a `vector` column is never read
+at all and comes back as `<vector dim=N; values not returned>`, which keeps an embedding off the
+wire rather than merely out of the answer. `remote: true` marks a store reached over S3 instead of
+the local filesystem, and **only Task and Memory can report it** — `internal/task/paths.go` and
+`internal/memory/paths.go` are the only two places that build an `s3store.URI`. Knowledge and AST
+index locally under the global directory even when the account profile configures S3, and reach
+the Hub as published artifacts rather than as live tables, so their schema answers never carry the
+field. Reading it as "this module has no remote store" is correct; reading it as "S3 is not
+configured" is not.
 
 Memory list and search surfaces always order logical memories by category first—`mandatory`,
 `important`, `normal`—and by descending `updated_at` inside each category. Search scores identify
@@ -351,13 +376,13 @@ What do you need?
 │  └─► graphit_memory_search(query: "...", scope: "project")
 │
 ├─ AI-synthesized answer from memories?
-│  └─► graphit memory query "..." [--user | --context <name>]
+│  └─► graphit memory ask "..." [--user | --context <name>]
 │
 ├─ Quick keyword search in project docs?
 │  └─► graphit_knowledge_search(query: "...", ai_optimized: true)
 │
 ├─ AI-synthesized answer from project docs?
-│  └─► graphit knowledge query "..." [--context <name>]
+│  └─► graphit knowledge ask "..." [--context <name>]
 │
 ├─ Semantic (vector) search?
 │  └─► graphit_wiki_search(query: "...", wikis: ["project"], mode: "semantic")
@@ -381,9 +406,12 @@ What do you need?
 | Scenario | Tool | Key Parameter |
 |----------|------|--------------|
 | "Did I save a memory about X?" | `memory_search` | `scope` |
-| "Explain how X works from my notes" | `graphit memory query` | `--user` / `--context` |
+| "Are these five tasks done?" | `task_query` | `table: tasks`, `filter: id IN (...)`, `columns: [id, status]` |
+| "Which docs pages are stale?" | `knowledge_query` | `table: chunks`, `filter: stale_since != ''` |
+| "Every entity in this file" | `ast_fts_query` | `table: entities`, `filter: path = '...'` |
+| "Explain how X works from my notes" | `graphit memory ask` | `--user` / `--context` |
 | "Find docs mentioning X" | `knowledge_search` → `wiki_source` | Knowledge `context` and resolved `project_dir` |
-| "Explain X from the project docs" | `graphit knowledge query` (CLI workflow) | Knowledge `--context` |
+| "Explain X from the project docs" | `graphit knowledge ask` (CLI workflow) | Knowledge `--context` |
 | "Search docs and memory for X" | `wiki_search` → `wiki_source`; `memory_search` → `memory_source` | Retrieve each required scope; reuse known Task context |
 | "Find semantically similar content" | `wiki_search` → `wiki_source` | Wiki `mode: "semantic"` |
 | "What docs exist?" | `wiki_browse` | `context` |

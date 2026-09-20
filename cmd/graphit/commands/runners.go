@@ -27,6 +27,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -1858,14 +1859,35 @@ func runMemoryRemoveContext(contextName string) error {
 	return nil
 }
 
-func runMemorySchema(contextName string) error {
-	p := output.NewPrinter("")
-	p.Header("Memory Table Schema")
-	p.Info("Primary key: key (live: <id>; revision: <id>/<revision-id>)")
-	p.Info("Core columns: id, revision_id, superseded, title, body, type, tags_json")
-	p.Info("Lifecycle columns: created_at, updated_at, revision, previous, next, updated_by")
-	p.Info("Scope columns: scope, scope_id, project_id; vector column: embedding")
-	return nil
+// runMemorySchema reads the table rather than describing it from memory.
+//
+// It used to print seven hand-written lines, and they had already drifted: the list omitted
+// content_hash, which memoryTableSchema declares. A schema command whose answer is a literal
+// is a second source of truth that nothing keeps in step.
+func runMemorySchema(ctx context.Context, userScope bool) error {
+	svc, _, err := newMemorySvc(userScope)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = svc.Close() }()
+	schema, err := svc.DescribeStore(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return printJSON(schema)
+}
+
+func runMemoryTableQuery(ctx context.Context, userScope bool, req lancequery.Request) error {
+	svc, _, err := newMemorySvc(userScope)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = svc.Close() }()
+	result, err := svc.QueryStore(ctx, req)
+	if err != nil {
+		return err
+	}
+	return printJSON(result)
 }
 
 func runMemorySync(contextName string) error {
@@ -2115,12 +2137,40 @@ func runKnowledgeWatch(root string, scope knowledge.WikiScope, useLouvain bool) 
 	})
 }
 
-func runKnowledgeSchema(contextName string) error {
-	p := output.NewPrinter("")
-	p.Header("KNOWLEDGE Wiki")
-	p.Info("Wiki directory: %s", knowledge.WikiDir())
-	p.Info("Architecture: file-based wiki (no graph database)")
-	return nil
+// runKnowledgeSchema describes the index instead of denying that a graph exists.
+//
+// It used to print three lines: a header, the wiki directory, and "Architecture: file-based
+// wiki (no graph database)". That last line answered a question nobody asked while leaving the
+// real one — what columns can I filter on — unanswered. The index has four LanceDB tables, and
+// this now reports them.
+func runKnowledgeSchema(ctx context.Context, contextName, table string) error {
+	db, _, err := openKnowledgeForRead(ctx, contextName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	var only []string
+	if t := strings.TrimSpace(table); t != "" {
+		only = []string{t}
+	}
+	schema, err := db.DescribeStore(ctx, only)
+	if err != nil {
+		return err
+	}
+	return printJSON(schema)
+}
+
+func runKnowledgeTableQuery(ctx context.Context, contextName string, req lancequery.Request) error {
+	db, _, err := openKnowledgeForRead(ctx, contextName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	result, err := db.QueryStore(ctx, req)
+	if err != nil {
+		return err
+	}
+	return printJSON(result)
 }
 
 func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string, continueSession bool, topK int, mode string, aiOptimized bool) error {
@@ -2661,4 +2711,53 @@ func runWikiEmbed() error {
 	}
 
 	return nil
+}
+
+// openASTSearchIndexForCLI resolves the LanceDB full-text index, the sibling of the Cypher
+// graph. The store directory is passed, not the index path: OpenSearchIndex appends
+// search.lance itself, and opening the parent as a store would make LanceDB report the index
+// as if it were a table named `search`.
+func openASTSearchIndexForCLI(ctx context.Context, contextName string) (*ast.SearchIndex, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	storeDir := store.ASTProjectDir(wd)
+	if strings.TrimSpace(contextName) != "" {
+		storeDir = store.ASTContextDirIn(wd, contextName)
+	}
+	if storeDir == "" {
+		return nil, fmt.Errorf("no AST store for %s — run '%s ast index' first", wd, brand.BinName())
+	}
+	return ast.OpenSearchIndex(ctx, storeDir)
+}
+
+func runASTFTSSchema(ctx context.Context, contextName, table string) error {
+	index, err := openASTSearchIndexForCLI(ctx, contextName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = index.Close() }()
+	var only []string
+	if t := strings.TrimSpace(table); t != "" {
+		only = []string{t}
+	}
+	schema, err := index.DescribeStore(ctx, only)
+	if err != nil {
+		return err
+	}
+	return printJSON(schema)
+}
+
+func runASTFTSQuery(ctx context.Context, contextName string, req lancequery.Request) error {
+	index, err := openASTSearchIndexForCLI(ctx, contextName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = index.Close() }()
+	result, err := index.QueryStore(ctx, req)
+	if err != nil {
+		return err
+	}
+	return printJSON(result)
 }

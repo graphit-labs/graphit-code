@@ -259,7 +259,11 @@ Tools for building, querying, and managing the AST code graph database.
 
 ### `graphit_ast_query`
 
-**Description:** Execute a Cypher query against the AST code graph database.
+**Description:** Execute a Cypher query against the AST code **graph** database.
+
+The AST store has two halves. This is the graph, where Cypher runs with `MATCH`, aggregation
+and `ORDER BY`. The other half is the LanceDB full-text index, reached with
+`graphit_ast_fts_query`, which filters rows by predicate and has none of those.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -274,12 +278,57 @@ Tools for building, querying, and managing the AST code graph database.
 
 ### `graphit_ast_schema`
 
-**Description:** Return the AST graph database schema: node labels, properties, and relationship types.
+**Description:** Return the AST **graph** database schema: node labels, properties, and relationship types.
+
+For the columns of the full-text tables instead, use `graphit_ast_fts_schema`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `context` | string | | Named imported context |
+
+---
+
+### `graphit_ast_fts_schema`
+
+**Description:** Show the AST full-text tables: every column with its type, and the row count.
+
+These are LanceDB tables — `entities` for indexed symbols and `files` for indexed files — and a
+different store from the Cypher graph that `graphit_ast_schema` describes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | | Project directory; omit to describe a globally installed artifact named in `context` |
+| `context` | string | | Named imported context |
+| `table` | string | | Describe only this table |
+| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
+
+---
+
+### `graphit_ast_fts_query`
+
+**Description:** Filter rows of one AST full-text table and return only the columns asked for.
+
+Answers questions ranking cannot: every entity in a file, how many of a kind exist, what is
+project code and what is a dependency. `graphit_ast_search` ranks by relevance;
+`graphit_ast_source` reads code.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | | Project directory; omit to query a globally installed artifact named in `context` |
+| `table` | string | ✅ | `entities` or `files` |
+| `filter` | string | | Lance SQL predicate, e.g. `etype = 'Function' AND is_dep = false`. Omit to match every row |
+| `columns` | string[] | | Columns to return; omit for every compact column |
+| `top_k` | integer | | Total row cap across pages (0 = no cap) |
+| `page_size` | integer | | Rows per page (default 20, max 100) |
+| `cursor` | string | | Opaque `next_cursor` from the preceding page of this exact query |
+| `context` | string | | Named imported context |
+| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
+
+> **The `body` and `source` columns are not source code.** They hold BM25 documents the index
+> synthesises — name variants, split identifiers and n-grams, with a NUL separator in the file
+> case — so both are refused in the projection and in the filter. Match against them with
+> `graphit_ast_search` in `fts` mode; read real code with `graphit_ast_source`.
 
 ---
 
@@ -388,11 +437,11 @@ answer.
 
 ## Knowledge Tools
 
-Tools for indexing, querying, and managing the project documentation knowledge graph.
+Tools for indexing, querying, and managing the project documentation knowledge index.
 
 ### `graphit_knowledge_index`
 
-**Description:** Index `docs/` into the knowledge graph and regenerate the wiki.
+**Description:** Index `docs/` into the knowledge index and regenerate the wiki.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -434,12 +483,42 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 
 ### `graphit_knowledge_schema`
 
-**Description:** Show the knowledge graph schema and node properties.
+**Description:** Show the knowledge index tables: every column with its type, and the row count.
+
+The index is LanceDB, not a graph database. Pages live in `chunks`, the links between them in
+`xrefs`, the index history in `sync_log` and its own metadata in `meta`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `context` | string | | Named imported context |
+| `table` | string | | Describe only this table |
+| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
+
+---
+
+### `graphit_knowledge_query`
+
+**Description:** Filter rows of one knowledge index table and return only the columns asked for.
+
+Answers questions a ranked search cannot: which pages are stale, what a page's `doc_type` is,
+and — over `xrefs` — which pages link to a given slug. `graphit_knowledge_search` ranks pages;
+`graphit_wiki_source` reads one.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | | Project directory; omit to query a globally installed artifact named in `context` |
+| `table` | string | ✅ | `chunks`, `xrefs`, `sync_log` or `meta` |
+| `filter` | string | | Lance SQL predicate, e.g. `stale_since != ''`. Omit to match every row |
+| `columns` | string[] | | Columns to return; omit for every compact column |
+| `top_k` | integer | | Total row cap across pages (0 = no cap) |
+| `page_size` | integer | | Rows per page (default 20, max 100) |
+| `cursor` | string | | Opaque `next_cursor` from the preceding page of this exact query |
+| `context` | string | | Named imported context |
+| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
+
+A page's `body`, `summary` and `search_terms` are excluded from a default projection for size and
+returned when named; the embedding vector is never returned as numbers.
 
 ---
 
@@ -460,7 +539,7 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 
 ### `graphit_knowledge_remove`
 
-**Description:** Remove the project knowledge graph or an imported context.
+**Description:** Remove the project knowledge index or an imported context.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -696,13 +775,43 @@ independent states.
 
 ### `graphit_memory_schema`
 
-**Description:** Show the authoritative memory table schema.
+**Description:** Show the authoritative memory table: every column with its type, and the record count.
+
+Memory is a LanceDB table, not a graph: there are no node labels and no Cypher. The records,
+their revision history, the full-text indexes and the vectors live in the same table.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
+| `project_dir` | string | | Project directory; omit for the global scope, which serves user memory |
+| `scope` | string | | Scope: `project` (default) or `user` |
+| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
 
-**Returns:** Text describing the primary key, record metadata, revision-chain, scope, and embedding columns.
+**Returns:** The table's columns read from the table itself, each with type, nullability, vector
+width where applicable, and whether this layer withholds it from a default projection.
+
+---
+
+### `graphit_memory_query`
+
+**Description:** Filter memory records by predicate and return only the columns asked for.
+
+Use it to count, group or list by a field — every mandatory record, everything of one type, what
+changed since a date. `graphit_memory_search` ranks by relevance; `graphit_memory_source` reads
+one record's text.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | | Project directory; omit for the global scope |
+| `scope` | string | | Scope: `project` (default) or `user` |
+| `filter` | string | | Lance SQL predicate, e.g. `mandatory = true`. Omit to match every row |
+| `columns` | string[] | | Columns to return; omit for every compact column |
+| `top_k` | integer | | Total row cap across pages (0 = no cap) |
+| `page_size` | integer | | Rows per page (default 20, max 100) |
+| `cursor` | string | | Opaque `next_cursor` from the preceding page of this exact query |
+| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
+
+> **An `id` repeats across its revisions.** The table holds superseded versions beside live ones,
+> so counting by `id` without `superseded = false` counts a record once per revision it has.
 
 ---
 
@@ -1180,6 +1289,7 @@ self-contained specifications, checks, subtasks, dependencies and milestones in 
 | Tools | Required state and result |
 |---|---|
 | `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments/spec revisions. List/search accept `session_id`; search ranks within that session before limiting. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
+| `graphit_task_schema`, `graphit_task_query` | Describe the Task LanceDB tables, then filter rows of one by predicate and return only the columns asked for. This is the route for a question about records you can already name — the status of a set of ids, which checks are still pending — rather than fetching whole records to read one field. `query` accepts `page_size`, `cursor` and `top_k` and returns `next_cursor`. The claim token is never returned and cannot be named in a filter. |
 | `graphit_task_export` | Returns stable complete JSON for every project task, or an exact task ID and its recursive subtasks. The versioned normalized document contains task snapshots, dependency/check projection records, events, comments, and specification revisions in deterministic order; fencing tokens and scheduler-control rows remain private. |
 | `graphit_task_batch` | Runs 1-100 mutations sequentially in input order. Every item returns its index, optional key, action, task ID, `ok`, and either a value or explicit error; all normal lifecycle gates still apply. |
 | `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `session_id`, `parent_id`, dependencies, priority, type, and stable `idempotency_key`. Agent tasks must resolve to a nonterminal session: explicit ID, parent association, or the caller’s active coordinator session. |

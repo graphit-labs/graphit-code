@@ -168,8 +168,11 @@ project is removed. Project MCP, skills, and agents remain under `.kimi-code/`.
 
 **Verify.** Inspect the global TOML for Graphit `SessionStart`, `SubagentStart`,
 `UserPromptSubmit`, `PostToolUse`, `SubagentStop`, `Stop`, and `SessionEnd` entries. The
-`UserPromptSubmit` entry supplies the full bootstrap because Kimi does not guarantee that
-`SessionStart` output is added to model context. Confirm
+`UserPromptSubmit` entry carries the bootstrap because Kimi does not guarantee that `SessionStart`
+output is added to model context; it supplies the full protocol on the first prompt of a session and
+only the compact invariant afterwards, so a long conversation does not re-pay it every turn. The
+`PostToolUse` entry carries a `matcher` restricting the reminder to tools that change something.
+Confirm
 `.kimi-code/mcp.json` contains the Graphit server. Removing one of several Kimi projects must not
 remove the shared hooks; removing the last one must preserve unrelated TOML fields and hooks.
 

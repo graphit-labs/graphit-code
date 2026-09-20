@@ -5,6 +5,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/spf13/cobra"
 )
 
@@ -19,10 +20,13 @@ Indexes docs/ into a navigable knowledge wiki. Versioned external contexts are
 installed through the Hub and queried here.
 
 Commands:
-  index    Index the project docs/ into the knowledge graph and wiki
+  index    Index the project docs/ into the knowledge index and wiki
   export   Export an importable package, OKF, or Obsidian vault
-  query    Query the knowledge graph (Cypher or AI natural language)
-  remove   Remove the project knowledge graph or an imported context
+  schema   Show the index tables, their columns and row counts
+  query    Filter rows of one index table and project columns
+  search   Rank pages by relevance with BM25
+  ask      Have the configured AI answer a question from the wiki
+  remove   Remove the project knowledge index or an imported context
   sync     Rebuild the local project wiki
   list     List all installed knowledge contexts
   rule     Customize the global knowledge agent rule
@@ -30,7 +34,8 @@ Commands:
 Examples:
   ` + brand.BinName() + ` knowledge index --louvain
   ` + brand.BinName() + ` knowledge export --format package
-  ` + brand.BinName() + ` knowledge query "how does auth work?" --ai
+  ` + brand.BinName() + ` knowledge query --filter "stale_since != ''"
+  ` + brand.BinName() + ` knowledge ask "how does auth work?"
   ` + brand.BinName() + ` hub install team-platform --type knowledge
   ` + brand.BinName() + ` knowledge remove --context team-platform
   ` + brand.BinName() + ` knowledge list`,
@@ -40,7 +45,8 @@ Examples:
 		newKnowledgeIndexCmd(),
 		newKnowledgeExportCmd(),
 		newKnowledgeWatchCmd(),
-		newKnowledgeQueryCmd(),
+		newKnowledgeTableQueryCmd(),
+		newKnowledgeAskCmd(),
 		newKnowledgeSearchCmd(),
 		newKnowledgeLintCmd(),
 		newKnowledgeSchemaCmd(),
@@ -92,8 +98,8 @@ func newKnowledgeIndexCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "index [path]",
-		Short: "Index the docs tree into the knowledge graph and regenerate the wiki",
-		Long: `Scan the documentation tree and build a persistent knowledge graph wiki.
+		Short: "Index the docs tree into the knowledge index and regenerate the wiki",
+		Long: `Scan the documentation tree and build a persistent knowledge wiki.
 
 Without a path, this indexes knowledge.docs_dir (default: docs/) plus the
 project's root README. Override the tree with --config knowledge.docs_dir=<dir>,
@@ -127,22 +133,25 @@ Examples:
 	return cmd
 }
 
-func newKnowledgeQueryCmd() *cobra.Command {
+func newKnowledgeAskCmd() *cobra.Command {
 	var context string
 	cmd := &cobra.Command{
-		Use:   "query <text>",
-		Short: "Search the knowledge wiki using AI",
+		Use:   "ask <text>",
+		Short: "Answer a question from the knowledge wiki using AI",
 		Long: `Search the knowledge wiki using the AI consultation cycle.
 
 The wiki module presents index.md to the AI, then cycles through page
-requests until the AI has enough context to answer the query. No Cypher
-or raw graph access is needed — only the generated wiki is used.
+requests until the AI has enough context to answer it. Only the generated
+wiki is used; the index itself is reached with ` + brand.BinName() + ` knowledge query.
+
+For a structured question answered from the index itself, without an AI, use
+` + brand.BinName() + ` knowledge query.
 
 With --context: searches an imported context instead of the project wiki.
 
 Examples:
-  ` + brand.BinName() + ` knowledge query "how does authentication work?"
-  ` + brand.BinName() + ` knowledge query "auth patterns" --context team-platform`,
+  ` + brand.BinName() + ` knowledge ask "how does authentication work?"
+  ` + brand.BinName() + ` knowledge ask "auth patterns" --context team-platform`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runKnowledgeQuery(args[0], context)
@@ -160,7 +169,8 @@ func newKnowledgeSearchCmd() *cobra.Command {
 		Long: `Search the knowledge wiki using FTS5 + BM25 keyword ranking.
 
 Returns ranked results without AI — fast, local, and deterministic.
-Use 'query' for AI-powered deep consultation.
+Use 'ask' for AI-powered deep consultation, and 'query' to filter index rows
+by predicate when you already know what you are looking for.
 
 With --context: searches an imported context instead of the project wiki.
 
@@ -180,8 +190,8 @@ func newKnowledgeRemoveCmd() *cobra.Command {
 	var context string
 	cmd := &cobra.Command{
 		Use:   "remove",
-		Short: "Remove the project knowledge graph or an imported context",
-		Long: `Without --context: clears the project knowledge graph (source files kept).
+		Short: "Remove the project knowledge index or an imported context",
+		Long: `Without --context: deletes the project wiki index directory (source docs kept).
 With --context <name>: removes the named imported context from this project.
 
 Examples:
@@ -248,21 +258,69 @@ Examples:
 }
 
 func newKnowledgeSchemaCmd() *cobra.Command {
-	var context string
+	var context, table string
 	cmd := &cobra.Command{
 		Use:   "schema",
-		Short: "Show the knowledge graph schema and node properties",
-		Long: `Print the knowledge graph schema — node labels, properties, and relationships.
-Useful for AI agents to understand the graph structure before writing Cypher queries.
+		Short: "Show the knowledge index tables, their columns and row counts",
+		Long: `Print the shape of the knowledge index: every table, every column with its type, and
+how many rows each holds. Read this before writing a ` + brand.BinName() + ` knowledge query filter.
+
+The index is LanceDB, not a graph database. Pages live in chunks; the links between
+them live in xrefs; sync_log holds the index history and meta its own metadata. A
+page's body, summary and search terms are marked heavy — left out of a default
+projection for size — and the embedding vector is never returned as numbers.
 
 Examples:
   ` + brand.BinName() + ` knowledge schema
+  ` + brand.BinName() + ` knowledge schema --table xrefs
   ` + brand.BinName() + ` knowledge schema --context team-platform`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runKnowledgeSchema(context)
+			return runKnowledgeSchema(cmd.Context(), context, table)
 		},
 	}
 	cmd.Flags().StringVar(&context, "context", "", "Show schema for an imported context")
+	cmd.Flags().StringVar(&table, "table", "", "Describe only this table")
+	return cmd
+}
+
+func newKnowledgeTableQueryCmd() *cobra.Command {
+	var (
+		context string
+		table   string
+		filter  string
+		columns []string
+		limit   int
+		offset  int
+	)
+	cmd := &cobra.Command{
+		Use:   "query",
+		Short: "Filter rows of one knowledge index table and return only the columns asked for",
+		Long: `Ask a structured question about the knowledge index.
+
+--filter is a Lance SQL predicate: a WHERE clause over the table's own columns. It is
+not SQL — there is no SELECT, JOIN, GROUP BY or aggregate, and the engine offers no
+ORDER BY, so rows come back in storage order.
+
+This answers questions a ranked search cannot: which pages are stale, what links to a
+given page. Use ` + brand.BinName() + ` knowledge search to find pages by relevance, ` + brand.BinName() + ` wiki source to
+read one, and ` + brand.BinName() + ` knowledge ask to have an AI answer from them.
+
+Examples:
+  ` + brand.BinName() + ` knowledge query --filter "stale_since != ''" --columns slug,title,stale_reason
+  ` + brand.BinName() + ` knowledge query --table xrefs --filter "target_slug = 'storage-layout'"
+  ` + brand.BinName() + ` knowledge query --filter "doc_type = 'guide'" --columns slug,title`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runKnowledgeTableQuery(cmd.Context(), context, lancequery.Request{
+				Table: table, Filter: filter, Columns: columns, Limit: limit, Offset: offset,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&context, "context", "", "Query an imported context by name")
+	cmd.Flags().StringVar(&table, "table", "chunks", "Table to query; knowledge schema lists them")
+	cmd.Flags().StringVar(&filter, "filter", "", "Lance SQL predicate; empty matches every row")
+	cmd.Flags().StringSliceVar(&columns, "columns", nil, "Columns to return; empty returns every compact column")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Rows to return (default 20); unlike the MCP tool this has no ceiling")
+	cmd.Flags().IntVar(&offset, "offset", 0, "Rows to skip")
 	return cmd
 }
 
