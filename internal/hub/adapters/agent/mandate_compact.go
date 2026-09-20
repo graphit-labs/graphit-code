@@ -84,10 +84,14 @@ func mandatePreamble() string {
 		"`project_dir` is call-local. Persist project identity and relative paths in shared content, never a machine-specific checkout root; resolve it again on each host.",
 		"Hooks load mandatory memory and restore routing at lifecycle boundaries. After interruptions, corrections or handoff, resume durable session/task state and revise changed requests before execution.",
 		"Checkpoint each independently reportable work unit in the active Task and session. Close delivered sessions explicitly. After the final task update, the adapter stop hook dispatches a full sync asynchronously; do not duplicate it, wait for it, or sync after every edit.",
+		// You own every delegate you open, including dismissing it. The rule is
+		// written for the normal case — a host that runs subagents — because
+		// writing it for the exception is what leaves delegates stranded.
+		//
 		// The fallback clause is what makes this safe on a host with no subagent:
 		// the role document is installed either way, so the work still happens,
 		// just in this window. Without it the rule would simply fail there.
-		"Delegate recall to `" + brand.Brand + "-scout`, impact review to `" + brand.Brand + "-tracker` and record transcription to `" + brand.Brand + "-scribe`; where your host cannot run them, read that role's document under its agents directory and perform it yourself. A delegate reports back without closing anything and is resumed for follow-ups; judging acceptance, checkpointing and session lifecycle are never delegated.",
+		"Delegate recall to `" + brand.Brand + "-scout`, impact review to `" + brand.Brand + "-tracker` and transcription to `" + brand.Brand + "-scribe`. A delegate stays open: it reports without closing anything and waits. Send later questions to the one that owns them — unclear state, an expectation that did not hold, a why — rather than investigating yourself; dismiss it explicitly when done, or it waits forever. Acceptance, checkpointing and session lifecycle are never delegated. Exception: where your host cannot run them, read that role's agents-directory document and perform it yourself.",
 	}, "\n") + "\n"
 }
 

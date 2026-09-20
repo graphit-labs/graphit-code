@@ -16,7 +16,20 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 	// A delegation rule that only says "delegate" breaks on a host with no
 	// subagent, and one that omits what stays behind invites a delegate to close
 	// work it does not own. Both halves are required, not stylistic.
-	for _, want := range []string{"Delegate recall", "where your host cannot run them", "perform it yourself", "reports back without closing anything", "never delegated"} {
+	//
+	// The coordinator half of the lifecycle is required for the same reason. A
+	// delegate stays alive until dismissed, so a coordinator that is not told to
+	// dismiss it leaves it waiting forever, and one that is not told to reuse it
+	// opens a second delegate for a follow-up the first is still holding context
+	// for.
+	//
+	// Naming what a later question looks like is load-bearing too. "Send
+	// follow-ups" reads as the planned next step, and the doubts that actually
+	// arise mid-work do not feel like follow-ups: a state the coordinator is
+	// unsure of, an expectation that did not hold, a why. Left unnamed, those go
+	// to the coordinator's own investigation, which is the delegation the rule
+	// exists to cause.
+	for _, want := range []string{"Delegate recall", "where your host cannot run them", "perform it yourself", "reports without closing anything", "stays open", "Send later questions to the one that owns them", "an expectation that did not hold", "rather than investigating yourself", "dismiss it explicitly", "never delegated"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("preamble missing delegation guidance %q:\n%s", want, content)
 		}
@@ -24,7 +37,30 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 	// The cap rose from 1600 with the delegation rule. It costs ~370 bytes once
 	// per session and moves recall and impact review out of this window
 	// entirely, which is worth far more than it spends.
-	if len(content) > 2000 {
+	//
+	// RAISED FROM 2000 TO 2200, in two steps in one session, for the coordinator
+	// half of the delegate lifecycle. A delegate now stays alive until dismissed,
+	// which makes three coordinator behaviours load-bearing rather than tidy:
+	// reuse the open delegate, route later doubts to it, and dismiss it
+	// explicitly. Omit any one and the rule produces the leak it exists to
+	// prevent — a delegate waiting forever, a second one opened while the first
+	// holds the context, or a coordinator quietly investigating for itself.
+	//
+	// The line was compressed at every step rather than only at the end: "a
+	// delegate you open stays open" lost its redundant half, "instead of opening
+	// another" went once "the one that owns them" made it redundant, "Judging
+	// acceptance" became "Acceptance", "record transcription" became
+	// "transcription", "why something behaves as it does" became "a why", and
+	// the exception's "document in its agents directory" became
+	// "agents-directory document". The last 40 bytes were not shaved, because
+	// what remained was the enumeration of doubts, and that enumeration is the
+	// working part: unnamed, those doubts do not read as follow-ups at all.
+	//
+	// Two raises in one session is a smell, and this is the ceiling. The next
+	// addition to delegation belongs in the role documents, which are read on
+	// demand per delegate, not in this preamble, which every agent pays for once
+	// per session whether it delegates or not.
+	if len(content) > 2200 {
 		t.Fatalf("resident preamble is too large: %d bytes", len(content))
 	}
 }

@@ -98,7 +98,7 @@ func TestDelegatedProtocolNeverInstructsSessionOwnership(t *testing.T) {
 				t.Fatalf("%s must not instruct session ownership, found %q", label, forbidden)
 			}
 		}
-		for _, want := range []string{"never create, claim or close a coordination session", "Returning an answer is not finishing", "The coordinator decides when this work ends"} {
+		for _, want := range []string{"never create, claim or close a coordination session", "Returning an answer is not finishing", "The coordinator decides when this work ends", "Stay alive and wait for the next instruction", "Never end yourself", "End whatever you started, before you go", "dismiss it explicitly once you do not"} {
 			if !strings.Contains(payload, want) {
 				t.Fatalf("%s missing delegated contract %q", label, want)
 			}
@@ -107,17 +107,23 @@ func TestDelegatedProtocolNeverInstructsSessionOwnership(t *testing.T) {
 }
 
 // The same document is read by a subagent and, where the host has none, by the
-// main agent. Wording that assumes either origin, or that assumes the performer
-// keeps running between instructions, breaks one of the two readers.
+// main agent. It is written for the first: a delegate that does not stay alive
+// waiting is a delegate that ends itself, so the live-process wording is now
+// required rather than forbidden. The second reader is served by an explicit
+// exception clause, not by weakening the rule — an earlier revision did the
+// latter and left the contract binding on neither reader.
 func TestRoleProtocolReadsForEitherPerformer(t *testing.T) {
 	t.Parallel()
 
 	for _, role := range Roles() {
 		protocol := RoleProtocol(role, Context{MandatoryLoaded: true})
-		for _, forbidden := range []string{"the subagent", "The subagent", "stay alive", "remain running", "wait for the next instruction", "keep waiting"} {
+		for _, forbidden := range []string{"the subagent", "The subagent"} {
 			if strings.Contains(protocol, forbidden) {
-				t.Fatalf("role %s uses %q, which presumes an origin or a live process", role.Name, forbidden)
+				t.Fatalf("role %s uses %q, which presumes an origin", role.Name, forbidden)
 			}
+		}
+		if !strings.Contains(protocol, "Exception: where the host cannot run agents separately") {
+			t.Fatalf("role %s must carry the no-subagent exception, or the main agent performing it is told to wait for itself", role.Name)
 		}
 		if !strings.Contains(protocol, "You are performing the "+role.Name+" role") {
 			t.Fatalf("role %s does not address its performer", role.Name)
