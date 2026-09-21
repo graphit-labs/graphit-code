@@ -108,10 +108,30 @@ jobs:
           path: .native
 
       - name: Set up Go
+        id: go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Locate Go cache directories
+        id: go-cache-paths
+        run: |
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Keep the full-suite cache separate from small jobs sharing setup-go's
+      # immutable key. New commits restore the previous complete build and save
+      # their additions; -count=1 still executes every test.
+      - name: Cache full-suite Go dependencies and build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.modules }}
+            ${{ steps.go-cache-paths.outputs.build }}
+          key: go-test-full-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'native-deps.env') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-full-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'native-deps.env') }}-
 
       - name: Restore verified native bundle
         uses: actions/cache@v4

@@ -1503,6 +1503,18 @@ CI and release runners set `GRAPHIT_HEAVY_TEST_ISOLATED=1` to assert their exist
 the same internal full tier. `make test-race`, `make ci` and `make check` still require that assertion.
 The flag is an assertion, not a sandbox, and must only be set inside an authorized hard boundary.
 
+The CI `Tests` job owns a separate Go module/build cache. Its key includes the runner image,
+architecture, Go version, dependency/native recipe hashes and commit; a new commit restores the
+previous matching full-suite snapshot and saves its additions. Do not share this key with smaller
+jobs: an exact immutable cache hit prevents replacing a small snapshot with the completed build.
+The suite retains `-count=1`, so cached compilation never substitutes for executing the tests.
+
+A cold native/coverage build can take substantial time before the first package result. The
+`go test -timeout` limit applies to each test binary, not compilation or the total serial suite.
+The local cgroup deadline does not apply when CI asserts its existing isolation. Diagnose a slow
+run using timestamped preparation, compilation and package results; elapsed time or the last
+printed package alone does not prove that a test is stuck.
+
 **What the silence was costing.** These gates were reporting success without running:
 
 | gate | measured the first time it ran |
