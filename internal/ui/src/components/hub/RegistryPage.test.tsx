@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { hubApi } from "@/api/hub";
 import { useAppStore } from "@/store/appStore";
 import RegistryPage from "./RegistryPage";
+vi.mock("@/hooks/useTheme", () => ({ useTheme: () => ({ theme: "light" }) }));
 vi.mock("@/api/hub", () => ({
   hubApi: { getRegistry: vi.fn(), getGitAuthor: vi.fn(), install: vi.fn() },
 }));
@@ -76,4 +77,15 @@ it("ignores old registry metadata after a project switch", async () => {
   );
   expect(screen.queryByRole("button", { name: /Stale guide/ })).toBeNull();
   expect(useAppStore.getState().activeAgent).toBe("codex");
+});
+
+
+it('renders Markdown catalogue descriptions outside the record selection button',async()=>{
+  vi.mocked(hubApi.getRegistry).mockResolvedValue({...data,entries:[{...entry,description:'**Reusable context**\n\n- Uses `contracts`\n- [Read guide](https://example.test/guide)'}]} as any);
+  render(<RegistryPage/>);
+  expect((await screen.findByText('Reusable context')).tagName).toBe('STRONG');
+  const code=screen.getByText('contracts');expect(code.tagName).toBe('CODE');expect(code.closest('li')).toBeTruthy();
+  const link=screen.getByRole('link',{name:'Read guide'});
+  expect(link.getAttribute('href')).toBe('https://example.test/guide');expect(link.closest('button')).toBeNull();
+  expect(hubApi.install).not.toHaveBeenCalled();
 });

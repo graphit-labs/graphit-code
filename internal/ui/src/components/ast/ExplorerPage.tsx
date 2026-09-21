@@ -17,6 +17,7 @@ import { TabularResults } from "./TabularResults";
 import { NodeTree } from "./NodeTree";
 import { useAppStore } from "@/store/appStore";
 import {
+  WorkBadge,
   WorkPage,
   WorkHeader,
   WorkSection,
@@ -457,7 +458,7 @@ export default function ExplorerPage() {
         }
       />
       <div className="investigation-scope">
-        <span className="status-pill">AST</span>
+        <WorkBadge>AST</WorkBadge>
         <code>{context || "Project index"}</code>
         <span>
           {schema.nodes.reduce((n, s) => n + s.count, 0).toLocaleString()}{" "}
@@ -571,7 +572,7 @@ export default function ExplorerPage() {
                         {selected.line ? ":" + selected.line : ""}
                       </code>
                     </div>
-                    <span className="status-pill">Indexed evidence</span>
+                    <WorkBadge>Indexed evidence</WorkBadge>
                   </header>
                   <WorkTabs
                     value={relation}

@@ -4,7 +4,9 @@ package agentstream
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,6 +14,8 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
+
+const maxRequestBytes = 1 << 20 // Prompts and context identifiers, not document contents.
 
 type response struct {
 	header http.Header
@@ -45,6 +49,24 @@ func Serve(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc) {
 		http.Error(w, "streaming unavailable", 500)
 		return
 	}
+	// Read before any write/Flush: net/http may close unread HTTP/1 request
+	// bodies when response headers are sent. Keep this bounded and leave the
+	// original JSON handler responsible for validating its own payload.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+	if err != nil {
+		status, message := http.StatusBadRequest, "Could not read agent request body"
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			status, message = http.StatusRequestEntityTooLarge, "Agent request body exceeds 1 MiB"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+		return
+	}
+	_ = r.Body.Close()
+	r = r.Clone(r.Context())
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")

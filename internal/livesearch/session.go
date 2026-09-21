@@ -97,7 +97,7 @@ type Meta struct {
 
 // Options describes a session to create.
 type Options struct {
-	// Agent selects which agent CLI conventions the ephemeral project is set up for.
+	// Agent selects both the workspace adapter and the CLI used for every turn.
 	Agent string
 	// Title is a human label, usually the first question.
 	Title string
@@ -207,8 +207,9 @@ type Manager struct {
 	prepare PrepareFunc
 	reclaim ReclaimFunc
 
-	mu       sync.Mutex
-	sessions map[string]*Session
+	mu            sync.Mutex
+	sessions      map[string]*Session
+	clientFactory func(string) (ai.StreamClient, error)
 }
 
 // DefaultRoot is where sessions live: ~/.graphit/sessions/<id>/.
@@ -224,22 +225,12 @@ func DefaultRoot() string {
 	return filepath.Join(g, "sessions")
 }
 
-// NewManagerFromConfig builds a manager using the agent CLI from the user's
-// configuration.
-//
-// A CLI that cannot stream leaves the manager without a client, and sessions then
-// refuse turns with a clear message instead of appearing to run one. That is why the
-// error from building the client is dropped rather than returned: not having a usable
-// agent is a reason a turn fails, not a reason a session cannot be created and
-// inspected.
+// NewManagerFromConfig resolves the selected agent separately for each session.
+// A missing CLI fails before preparation, without substituting another agent.
 func NewManagerFromConfig(root string, prepare PrepareFunc) *Manager {
-	var stream ai.StreamClient
-	if client, err := ai.NewClientFromConfig(); err == nil {
-		if sc, ok := client.(ai.StreamClient); ok {
-			stream = sc
-		}
-	}
-	return NewManager(root, stream, prepare)
+	m := NewManager(root, nil, prepare)
+	m.clientFactory = ai.NewClientForAgent
+	return m
 }
 
 // NewManager builds a manager. An empty root means DefaultRoot.
@@ -267,6 +258,14 @@ func (m *Manager) Create(opts Options) (*Session, error) {
 	if m.root == "" {
 		return nil, errors.New("cannot resolve the sessions directory")
 	}
+	client := m.client
+	if m.clientFactory != nil {
+		var err error
+		client, err = m.clientFactory(opts.Agent)
+		if err != nil {
+			return nil, err
+		}
+	}
 	id := newSessionID()
 	dir := filepath.Join(m.root, id)
 	if err := os.MkdirAll(filepath.Join(dir, workspaceDirName), 0o755); err != nil {
@@ -287,7 +286,7 @@ func (m *Manager) Create(opts Options) (*Session, error) {
 	s := &Session{
 		id:            id,
 		dir:           dir,
-		client:        m.client,
+		client:        client,
 		prepare:       m.prepare,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -685,12 +684,13 @@ func (s *Session) runTurn(ctx context.Context, cancel context.CancelFunc, cliSes
 	defer cancel()
 
 	req := ai.StreamRequest{
-		SystemPrompt:   systemPrompt,
-		UserPrompt:     prompt,
-		SessionID:      cliSessionID,
-		PersistSession: true,
-		WorkDir:        s.WorkspaceDir(),
-		AllowTools:     true,
+		SystemPrompt:         systemPrompt,
+		UserPrompt:           prompt,
+		SessionID:            cliSessionID,
+		PersistSession:       true,
+		WorkDir:              s.WorkspaceDir(),
+		AllowNonGitWorkspace: true,
+		AllowTools:           true,
 	}
 
 	res, err := s.client.CompleteStream(ctx, req, func(ev ai.Event) {

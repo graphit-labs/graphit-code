@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -715,5 +717,73 @@ func TestAnUnknownSessionIsStillNotFoundOnDisk(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("an unknown session returned %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestLiveMissingSelectedCLIReportsExecutableBeforePreparation(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	root := filepath.Join(t.TempDir(), "not-created")
+	prepared := false
+	mgr := livesearch.NewManagerFromConfig(root, func(context.Context, *livesearch.Session, func(string)) error {
+		prepared = true
+		return nil
+	})
+	t.Cleanup(mgr.CloseAll)
+	mux := http.NewServeMux()
+	NewLiveHandler(mgr).RegisterAPIRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/api/live/sessions", "application/json", strings.NewReader(`{"agent":"codex","prompt":"investigate"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(string(body), `CLI "codex" on PATH`) {
+		t.Fatalf("missing actionable error: status=%d body=%s", resp.StatusCode, body)
+	}
+	if prepared {
+		t.Fatal("prepared workspace without selected CLI")
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("created workspace without selected CLI")
+	}
+}
+
+func TestLiveStreamCarriesMatchingToolIDs(t *testing.T) {
+	client := &fakeStreamClient{stream: func(_ context.Context, _ ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
+		emit(ai.Event{Kind: ai.EventToolUse, Tool: "read", ToolCallID: "call-42", Detail: "input", SessionID: "private-session"})
+		emit(ai.Event{Kind: ai.EventToolResult, ToolCallID: "call-42", Detail: "output", SessionID: "private-session"})
+		return &ai.StreamResult{}, nil
+	}}
+	srv, mgr := newLiveTestServer(t, client, nil)
+	session, err := mgr.Create(livesearch.Options{Agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for session.State() != livesearch.StateReady {
+		if time.Now().After(deadline) {
+			t.Fatal("preparation did not complete")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	_, events, closeStream := openStream(t, srv.URL+"/api/live/sessions/"+session.ID()+"/stream", nil)
+	defer closeStream()
+	if err := session.Send("read source"); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"tool_use", "tool_result"} {
+		event := awaitKind(t, events, kind)
+		var body livesearch.Event
+		if err := json.Unmarshal([]byte(event.data), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.ToolCallID != "call-42" || strings.Contains(event.data, "private-session") {
+			t.Fatalf("incorrect public correlation: %s", event.data)
+		}
 	}
 }

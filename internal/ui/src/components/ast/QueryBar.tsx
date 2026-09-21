@@ -1,4 +1,4 @@
-import { AgentExecution, appendProgress } from "@/components/shared/AgentExecution";
+import { AgentExecution, appendProgress, type ExecutionOutcome } from "@/components/shared/AgentExecution";
 import type { AgentProgress } from "@/api/agentStream";
 import { useState, useRef, useEffect } from "react";
 import { astApi } from "@/api/ast";
@@ -40,8 +40,9 @@ export function QueryBar({
   const generation = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState<AgentProgress[]>([]);
+  const [outcome, setOutcome] = useState<ExecutionOutcome>("idle");
   useEffect(() => {
-    setGenerating(false); setLoading(false); setProgress([]); setError("");
+    setGenerating(false); setLoading(false); setProgress([]); setOutcome("idle"); setError("");
     return () => { generation.current++; abort.current?.abort(); };
   }, [projectDir, contextId, activeAgent]);
   const execute = async () => {
@@ -67,7 +68,7 @@ export function QueryBar({
     if (!prompt.trim()) return;
     const id = ++generation.current;
     abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
-    setProgress([]);
+    setProgress([]); setOutcome("idle");
     setGenerating(true);
     setError("");
     try {
@@ -84,16 +85,16 @@ export function QueryBar({
         );
       setQuery(result.cypher);
       setMode("cypher");
-      setGenerated(true);
+      setGenerated(true); setOutcome("completed");
     } catch (e) {
-      if (id === generation.current) setError((e as Error).message);
+      if (id === generation.current) { setError((e as Error).message); setOutcome("failed"); }
     } finally {
       if (id === generation.current) setGenerating(false);
     }
   };
   return (
     <div className="work-form">
-      <AgentExecution events={progress} running={generating} onCancel={() => { abort.current?.abort(); generation.current++; setGenerating(false); setError("Generation stopped."); }} />
+      <AgentExecution events={progress} running={generating} outcome={outcome} onCancel={() => { abort.current?.abort(); generation.current++; setGenerating(false); setOutcome("cancelled"); setError("Generation stopped."); }} />
       <WorkTabs
         value={mode}
         onChange={setMode}

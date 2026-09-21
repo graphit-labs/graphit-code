@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { ArrowRight, Search } from "lucide-react";
+import type { HTMLAttributes, ReactNode } from "react";
+import { ArrowRight, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import "./engineering.css";
 
@@ -166,43 +166,77 @@ export function RecordLink({
   );
 }
 export function WorkTabs({
-  value,
-  onChange,
-  items,
-  label,
+  value, onChange, items, label, idPrefix, onClose, closableIds = [],
 }: {
   value: string;
   onChange: (id: string) => void;
   items: Array<[string, string]>;
   label: string;
+  idPrefix?: string;
+  onClose?: (id: string) => void;
+  closableIds?: string[];
 }) {
-  return (
-    <div className="work-tabs" role="tablist" aria-label={label}>
-      {items.map(([id, title], index) => (
-        <button
-          key={id}
-          role="tab"
-          aria-selected={value === id}
-          tabIndex={value === id ? 0 : -1}
-          onClick={() => onChange(id)}
-          onKeyDown={(e) => {
-            let next = index;
-            if (e.key === "ArrowRight") next = (index + 1) % items.length;
-            else if (e.key === "ArrowLeft")
-              next = (index + items.length - 1) % items.length;
-            else if (e.key === "Home") next = 0;
-            else if (e.key === "End") next = items.length - 1;
-            else return;
-            e.preventDefault();
-            onChange(items[next][0]);
-            (
-              e.currentTarget.parentElement?.children[next] as HTMLElement
-            )?.focus();
-          }}
-        >
-          {title}
+  return <div className="work-tabs" role="tablist" aria-label={label}>
+    {items.map(([id, title], index) => {
+      const closable = !!onClose && closableIds.includes(id);
+      const tab = <button
+        key={id}
+        type="button"
+        role="tab"
+        id={idPrefix ? `${idPrefix}-tab-${id}` : undefined}
+        aria-controls={idPrefix ? `${idPrefix}-panel-${id}` : undefined}
+        aria-selected={value === id}
+        title={title}
+        tabIndex={value === id ? 0 : -1}
+        onClick={() => onChange(id)}
+        onKeyDown={(e) => {
+          let next = index;
+          if (e.key === "ArrowRight") next = (index + 1) % items.length;
+          else if (e.key === "ArrowLeft") next = (index + items.length - 1) % items.length;
+          else if (e.key === "Home") next = 0;
+          else if (e.key === "End") next = items.length - 1;
+          else return;
+          e.preventDefault();
+          onChange(items[next][0]);
+          e.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+        }}
+      >{title}</button>;
+      return closable ? <div key={id} role="presentation" className="work-tab-closable" data-selected={value === id}>
+        {tab}
+        <button type="button" className="work-tab-close" aria-label={`Close tab ${title}`} title={`Close ${title}`} onClick={() => onClose?.(id)}>
+          <X size={14} aria-hidden="true" />
         </button>
-      ))}
-    </div>
+      </div> : tab;
+    })}
+  </div>;
+}
+
+export type BadgeTone = "neutral" | "info" | "warning" | "success" | "danger";
+
+/** Metadata is neutral; color is reserved for a domain state or priority. */
+export function WorkBadge({
+  tone = "neutral",
+  className,
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & { tone?: BadgeTone }) {
+  return <span {...props} className={cn("work-badge", className)} data-tone={tone} />;
+}
+
+export function WorkStatusBadge({ status }: { status: string }) {
+  const tones: Record<string, BadgeTone> = {
+    in_progress: "info",
+    running: "info",
+    preparing: "info",
+    completed: "success",
+    passed: "success",
+    ready: "success",
+    failed: "danger",
+    error: "danger",
+    blocked: "warning",
+  };
+  return (
+    <WorkBadge tone={tones[status] ?? "neutral"} data-status={status}>
+      {status.replace(/_/g, " ")}
+    </WorkBadge>
   );
 }

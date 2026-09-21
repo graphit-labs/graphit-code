@@ -54,6 +54,74 @@ that span HTTP requests resume through both values; in-process multi-step consum
 external CLI and are separate from Graphit chat IDs, Live Search workspace IDs, provider profiles,
 and MCP host-session identity.
 
+## Live CLI execution boundary
+
+`ai.NewClientForAgent` resolves only `config.CLIForAgent(agent)` on `PATH`, with the corresponding
+configured agent arguments. Unsupported agents and missing executables return errors without
+automatic fallback. `livesearch.NewManagerFromConfig` resolves that client per session before
+workspace creation or adapter preparation; the session retains it across turns. `NewManager`
+continues to accept an injected client for embedded callers and tests. General completion's
+configuration-based resolution is unchanged.
+
+`StreamRequest.AllowNonGitWorkspace` defaults to false and requires an explicit `WorkDir` when
+enabled. Live enables it for every turn in its prepared workspace. Only the Codex adapter translates
+it into `--skip-git-repo-check`, for both initial and resumed execution, independently of `AllowTools`.
+It does not replace the working directory, trust another directory, or alter sandbox/approval
+settings. `AllowTools` selects the prompt and configured agent arguments; the external CLI remains
+responsible for enforcing permissions. Other adapters receive no Codex-specific flag.
+
+## Tool activity correlation
+
+Public agent progress and Live events carry optional `tool_call_id`, copied from the native tool
+identity. It is independent of event sequence numbers and the private agent session ID. Live
+preserves this field in its event log, replay and SSE; older events without it remain valid.
+Tool input/output payloads are preserved within the stream reader’s existing line-size limit;
+compact diagnostic display limits belong to the UI, not the protocol parsers.
+Consumers group input and result only within the same turn. They must not merge concurrent calls
+merely because the tool names match.
+
+| CLI protocol | Correlation source | Result handling |
+| --- | --- | --- |
+| Claude | `tool_use.id` / `tool_result.tool_use_id` | Message content blocks retain input and output |
+| Codex | `command_execution` item `id` | Started/completed items share the ID |
+| Gemini | `tool_id` | `parameters` is input; `output` is the result, which need not repeat the tool name |
+| OpenCode | `part.callID` | A `tool_use` snapshot with completed/error state includes both input and result |
+| Qwen | Claude-compatible block IDs | User message tool-result blocks are activity, not assistant answer text |
+| Kimi | `tool_calls[].id` / `tool_call_id` | Assistant function calls and tool-role responses share the ID |
+| Antigravity | Present `step_index`, normalized as `agy-step:N` | ACTIVE/DONE describe the same step; absent index remains absent |
+
+These adapters follow the native contracts documented by [Claude](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls),
+[Codex](https://github.com/openai/codex/blob/main/sdk/typescript/src/items.ts),
+[Gemini](https://github.com/google-gemini/gemini-cli/blob/main/packages/cli/src/__snapshots__/nonInteractiveCli.test.ts.snap),
+[OpenCode](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/cli/cmd/run.ts),
+[Qwen](https://github.com/QwenLM/qwen-code/blob/main/packages/cli/src/nonInteractive/io/BaseJsonOutputAdapter.ts),
+[Kimi](https://moonshotai.github.io/kimi-cli/en/customization/print-mode.html), and
+[Antigravity](https://www.antigravity.google/docs/cli/headless/#tool-calls-in-the-stream).
+Unsupported or unidentified calls remain uncorrelated; no synthetic session-based ID is used.
+
+## Assistant text boundaries
+
+Public `EventText` chunks concatenate to exactly `StreamResult.Text`. Structured CLI
+adapters normalize confirmed independent messages into paragraphs before emitting or
+accumulating text. The adapter adds only the missing line breaks at a boundary; it
+does not trim source text or insert spaces between arbitrary deltas. Live persists
+these normalized chunks, so new-run replay and live output have identical spacing.
+
+Codex completed `agent_message` items, OpenCode completed text parts, and Qwen/Kimi
+assistant messages start independent text. Multiple content blocks in one Qwen/Kimi
+message remain contiguous. Claude reads the nested `stream_event.event` envelope:
+`message_start` marks a pending boundary, and `content_block_delta.delta.text` supplies
+the text. Empty/tool-only messages do not add blank output; the boundary applies to
+the next nonempty text. Complete Claude assistant snapshots remain suppressed because
+partial-message streaming already supplied their text. Legacy flat Claude deltas are
+still accepted. See the [Claude streaming contract](https://code.claude.com/docs/en/agent-sdk/streaming-output).
+
+Gemini message chunks, Antigravity `text_delta`, and unstructured stdout remain exact
+concatenations. The internal boundary marker is not part of the public event schema.
+Consumers must not guess boundaries from punctuation, tool activity, or event timing.
+Previously persisted chunks without boundaries cannot be safely repaired by a viewer;
+the normalization applies to new executions, including new turns in existing sessions.
+
 ## Service modes
 
 `auth.AIServiceConfig.Mode` is one of:

@@ -42,6 +42,7 @@ export interface LiveEvent {
   kind: LiveEventKind
   text?: string
   tool?: string
+  tool_call_id?: string
   detail?: string
   state?: LiveState
   at: string

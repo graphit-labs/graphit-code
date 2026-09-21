@@ -18,7 +18,8 @@ type streamSpec struct {
 	args            []string
 	capturesSession bool
 	// parse turns one line of structured output into events. It returns the events
-	// to emit, the assistant text to accumulate, and any session ID learned.
+	// to emit, the raw assistant text represented by those events, and any session
+	// ID learned. readStructured accumulates the normalized EventText payloads.
 	//
 	// A line it does not recognise must be ignored rather than reported: these
 	// formats gain event types between releases, and a stream that errors on an
@@ -94,6 +95,13 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 		emit(ev)
 	}
 
+	if req.AllowNonGitWorkspace && strings.TrimSpace(req.WorkDir) == "" {
+		err := fmt.Errorf("a non-Git workspace requires an explicit working directory")
+		send(Event{Kind: EventError, Text: err.Error()})
+		send(Event{Kind: EventDone})
+		return nil, err
+	}
+
 	spec := specForBinary(c.binaryName)
 	stream, structured := streamSpecFor(c.binaryName)
 
@@ -125,6 +133,9 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 		}
 		if structured {
 			args = append(args, stream.args...)
+		}
+		if req.AllowNonGitWorkspace {
+			args = append(args, "--skip-git-repo-check")
 		}
 		if req.AllowTools {
 			args = append(args, c.agentArgs...)
@@ -250,7 +261,7 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 	wg.Wait()
 	runErr := cmd.Wait()
 
-	result.Text = strings.TrimSpace(textBuf.String())
+	result.Text = textBuf.String()
 
 	if runErr != nil {
 		err := fmt.Errorf("CLI %q failed: %w (stderr: %s)",
@@ -310,6 +321,7 @@ func readStructured(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLine)
 
 	parsedAny := false
+	pendingTextStart := false
 	var unparsed []string
 
 	for scanner.Scan() {
@@ -327,13 +339,23 @@ func readStructured(
 			continue
 		}
 		parsedAny = true
-		if text != "" {
-			textBuf.WriteString(text)
-		}
 		if sid != "" {
 			*sessionID = sid
 		}
 		for _, ev := range events {
+			if ev.Kind == EventText {
+				pendingTextStart = pendingTextStart || ev.textStart
+				if ev.Text == "" {
+					continue
+				}
+				if pendingTextStart && textBuf.Len() > 0 {
+					ev.Text = textParagraphSeparator(textBuf.String(), ev.Text) + ev.Text
+				}
+				pendingTextStart = false
+				ev.textStart = false
+				// The final result and streamed/replayed answer use identical text.
+				textBuf.WriteString(ev.Text)
+			}
 			send(ev)
 		}
 	}
@@ -349,26 +371,64 @@ func readStructured(
 	return false
 }
 
+// Add only missing line breaks at a confirmed message boundary. Never trim the
+// source or insert whitespace between arbitrary tokens or content blocks.
+func textParagraphSeparator(previous, next string) string {
+	breaks := 0
+	for i := len(previous) - 1; i >= 0 && (previous[i] == '\n' || previous[i] == '\r'); i-- {
+		if previous[i] == '\n' {
+			breaks++
+		}
+	}
+	for i := 0; i < len(next) && (next[i] == '\n' || next[i] == '\r'); i++ {
+		if next[i] == '\n' {
+			breaks++
+		}
+	}
+	if breaks >= 2 {
+		return ""
+	}
+	return strings.Repeat("\n", 2-breaks)
+}
+
+func startTextMessage(events []Event) []Event {
+	for i := range events {
+		if events[i].Kind == EventText {
+			events[i].textStart = true
+			break
+		}
+	}
+	return events
+}
+
+type claudeTextDelta struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 type claudeStreamLine struct {
 	Type      string `json:"type"`
 	Subtype   string `json:"subtype"`
 	SessionID string `json:"session_id"`
 	Message   struct {
 		Content []struct {
-			Type  string          `json:"type"`
-			Text  string          `json:"text"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
+			Type      string          `json:"type"`
+			ID        string          `json:"id"`
+			ToolUseID string          `json:"tool_use_id"`
+			Text      string          `json:"text"`
+			Name      string          `json:"name"`
+			Input     json.RawMessage `json:"input"`
 			// tool_result blocks carry content that is either a string or an array
 			// of blocks, so it stays raw and is rendered by renderToolPayload.
 			Content json.RawMessage `json:"content"`
 		} `json:"content"`
 	} `json:"message"`
 	// Partial-message deltas, emitted with --include-partial-messages.
-	Delta struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"delta"`
+	Delta claudeTextDelta `json:"delta"`
+	Event *struct {
+		Type  string          `json:"type"`
+		Delta claudeTextDelta `json:"delta"`
+	} `json:"event"`
 	Result string `json:"result"`
 }
 
@@ -390,8 +450,15 @@ func parseClaudeStreamLine(line []byte) ([]Event, string, string) {
 		return nil, "", l.SessionID
 
 	case "stream_event":
-		if l.Delta.Type == "text_delta" && l.Delta.Text != "" {
-			return []Event{{Kind: EventText, Text: l.Delta.Text}}, l.Delta.Text, l.SessionID
+		delta := l.Delta // Retain the legacy flat envelope for compatibility.
+		if l.Event != nil {
+			if l.Event.Type == "message_start" {
+				return []Event{{Kind: EventText, textStart: true}}, "", l.SessionID
+			}
+			delta = l.Event.Delta
+		}
+		if delta.Type == "text_delta" && delta.Text != "" {
+			return []Event{{Kind: EventText, Text: delta.Text}}, delta.Text, l.SessionID
 		}
 		return nil, "", l.SessionID
 
@@ -409,9 +476,10 @@ func parseClaudeStreamLine(line []byte) ([]Event, string, string) {
 				}
 			case "tool_use":
 				events = append(events, Event{
-					Kind:   EventToolUse,
-					Tool:   block.Name,
-					Detail: renderToolPayload(block.Input),
+					Kind:       EventToolUse,
+					Tool:       block.Name,
+					ToolCallID: block.ID,
+					Detail:     renderToolPayload(block.Input),
 				})
 			}
 		}
@@ -421,8 +489,9 @@ func parseClaudeStreamLine(line []byte) ([]Event, string, string) {
 		for _, block := range l.Message.Content {
 			if block.Type == "tool_result" {
 				events = append(events, Event{
-					Kind:   EventToolResult,
-					Detail: renderToolPayload(block.Content),
+					Kind:       EventToolResult,
+					ToolCallID: block.ToolUseID,
+					Detail:     renderToolPayload(block.Content),
 				})
 			}
 		}
@@ -439,12 +508,16 @@ func parseClaudeStreamLine(line []byte) ([]Event, string, string) {
 }
 
 type geminiStreamLine struct {
-	Type      string `json:"type"`
-	SessionID string `json:"session_id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Message   string `json:"message"`
-	ToolName  string `json:"tool_name"`
+	Type       string          `json:"type"`
+	SessionID  string          `json:"session_id"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	Message    string          `json:"message"`
+	ToolName   string          `json:"tool_name"`
+	ToolID     string          `json:"tool_id"`
+	Parameters json.RawMessage `json:"parameters"`
+	Output     json.RawMessage `json:"output"`
+	Error      json.RawMessage `json:"error"`
 }
 
 func parseGeminiStreamLine(line []byte) ([]Event, string, string) {
@@ -460,9 +533,9 @@ func parseGeminiStreamLine(line []byte) ([]Event, string, string) {
 			return []Event{{Kind: EventText, Text: l.Content}}, l.Content, l.SessionID
 		}
 	case "tool_use":
-		return []Event{{Kind: EventToolUse, Tool: l.ToolName}}, "", l.SessionID
+		return []Event{{Kind: EventToolUse, Tool: l.ToolName, ToolCallID: l.ToolID, Detail: renderToolPayload(l.Parameters)}}, "", l.SessionID
 	case "tool_result":
-		return []Event{{Kind: EventToolResult, Tool: l.ToolName, Detail: l.Content}}, "", l.SessionID
+		return []Event{{Kind: EventToolResult, Tool: l.ToolName, ToolCallID: l.ToolID, Detail: toolOutput(firstNonEmpty(renderToolPayload(l.Output), l.Content), renderToolPayload(l.Error))}}, "", l.SessionID
 	case "error":
 		return []Event{{Kind: EventError, Text: l.Message}}, "", l.SessionID
 	}
@@ -475,6 +548,8 @@ type agyStreamLine struct {
 	StepUpdate     struct {
 		ConversationID string          `json:"conversation_id"`
 		StepType       string          `json:"step_type"`
+		StepIndex      *int            `json:"step_index"`
+		State          string          `json:"state"`
 		ToolName       string          `json:"tool_name"`
 		TextDelta      string          `json:"text_delta"`
 		ToolInfo       json.RawMessage `json:"tool_info"`
@@ -505,8 +580,26 @@ func parseAgyStreamLine(line []byte) ([]Event, string, string) {
 		if l.StepUpdate.TextDelta != "" {
 			return []Event{{Kind: EventText, Text: l.StepUpdate.TextDelta}}, l.StepUpdate.TextDelta, sessionID
 		}
-		if l.StepUpdate.StepType == "tool" {
-			return []Event{{Kind: EventToolUse, Tool: l.StepUpdate.ToolName, Detail: renderToolPayload(l.StepUpdate.ToolInfo)}}, "", sessionID
+		if strings.EqualFold(l.StepUpdate.StepType, "tool") {
+			callID := ""
+			if l.StepUpdate.StepIndex != nil {
+				callID = fmt.Sprintf("agy-step:%d", *l.StepUpdate.StepIndex)
+			}
+			var info struct {
+				Parameters json.RawMessage `json:"parameters"`
+				Output     json.RawMessage `json:"output"`
+				Error      json.RawMessage `json:"error"`
+			}
+			_ = json.Unmarshal(l.StepUpdate.ToolInfo, &info)
+			input := renderToolPayload(info.Parameters)
+			if len(info.Parameters) == 0 && len(info.Output) == 0 && len(info.Error) == 0 {
+				input = renderToolPayload(l.StepUpdate.ToolInfo)
+			}
+			use := Event{Kind: EventToolUse, Tool: l.StepUpdate.ToolName, ToolCallID: callID, Detail: input}
+			if strings.EqualFold(l.StepUpdate.State, "DONE") {
+				return []Event{use, {Kind: EventToolResult, Tool: l.StepUpdate.ToolName, ToolCallID: callID, Detail: toolOutput(renderToolPayload(info.Output), renderToolPayload(info.Error))}}, "", sessionID
+			}
+			return []Event{use}, "", sessionID
 		}
 	case "result":
 		if l.Result.Status != "" && l.Result.Status != "SUCCESS" {
@@ -522,6 +615,7 @@ type codexStreamLine struct {
 	Message  string `json:"message"`
 	Item     struct {
 		Type             string `json:"type"`
+		ID               string `json:"id"`
 		Text             string `json:"text"`
 		Command          string `json:"command"`
 		AggregatedOutput string `json:"aggregated_output"`
@@ -541,16 +635,16 @@ func parseCodexStreamLine(line []byte) ([]Event, string, string) {
 		return nil, "", l.ThreadID
 	case "item.started":
 		if l.Item.Type == "command_execution" {
-			return []Event{{Kind: EventToolUse, Tool: "command", Detail: l.Item.Command}}, "", l.ThreadID
+			return []Event{{Kind: EventToolUse, Tool: "command", ToolCallID: l.Item.ID, Detail: l.Item.Command}}, "", l.ThreadID
 		}
 	case "item.completed":
 		switch l.Item.Type {
 		case "agent_message":
 			if l.Item.Text != "" {
-				return []Event{{Kind: EventText, Text: l.Item.Text}}, l.Item.Text, l.ThreadID
+				return []Event{{Kind: EventText, Text: l.Item.Text, textStart: true}}, l.Item.Text, l.ThreadID
 			}
 		case "command_execution":
-			return []Event{{Kind: EventToolResult, Tool: "command", Detail: l.Item.AggregatedOutput}}, "", l.ThreadID
+			return []Event{{Kind: EventToolResult, Tool: "command", ToolCallID: l.Item.ID, Detail: l.Item.AggregatedOutput}}, "", l.ThreadID
 		}
 	case "turn.failed", "error":
 		message := l.Error.Message
@@ -567,12 +661,15 @@ type openCodeStreamLine struct {
 	SessionID string `json:"sessionID"`
 	Text      string `json:"text"`
 	Part      struct {
-		Type  string `json:"type"`
-		Text  string `json:"text"`
-		Tool  string `json:"tool"`
-		State struct {
-			Output string `json:"output"`
-			Error  string `json:"error"`
+		Type   string `json:"type"`
+		Text   string `json:"text"`
+		Tool   string `json:"tool"`
+		CallID string `json:"callID"`
+		State  struct {
+			Output string          `json:"output"`
+			Status string          `json:"status"`
+			Input  json.RawMessage `json:"input"`
+			Error  string          `json:"error"`
 		} `json:"state"`
 	} `json:"part"`
 }
@@ -589,14 +686,18 @@ func parseOpenCodeStreamLine(line []byte) ([]Event, string, string) {
 	switch l.Type {
 	case "text":
 		if text != "" {
-			return []Event{{Kind: EventText, Text: text}}, text, l.SessionID
+			return []Event{{Kind: EventText, Text: text, textStart: true}}, text, l.SessionID
 		}
 	case "reasoning":
 		return []Event{{Kind: EventThinking, Text: text}}, "", l.SessionID
 	case "tool_use":
-		return []Event{{Kind: EventToolUse, Tool: l.Part.Tool}}, "", l.SessionID
+		use := Event{Kind: EventToolUse, Tool: l.Part.Tool, ToolCallID: l.Part.CallID, Detail: renderToolPayload(l.Part.State.Input)}
+		if l.Part.State.Status == "completed" || l.Part.State.Status == "error" {
+			return []Event{use, {Kind: EventToolResult, Tool: l.Part.Tool, ToolCallID: l.Part.CallID, Detail: toolOutput(l.Part.State.Output, l.Part.State.Error)}}, "", l.SessionID
+		}
+		return []Event{use}, "", l.SessionID
 	case "tool_result":
-		return []Event{{Kind: EventToolResult, Tool: l.Part.Tool, Detail: l.Part.State.Output}}, "", l.SessionID
+		return []Event{{Kind: EventToolResult, Tool: l.Part.Tool, ToolCallID: l.Part.CallID, Detail: toolOutput(l.Part.State.Output, l.Part.State.Error)}}, "", l.SessionID
 	case "error":
 		message := l.Part.State.Error
 		if message == "" {
@@ -636,7 +737,17 @@ func parseQwenStreamLine(line []byte) ([]Event, string, string) {
 	}
 	if l.Type == "assistant" || l.Type == "message" && role == "assistant" || role == "assistant" {
 		events, text := parseContentEvents(content)
-		return events, text, l.SessionID
+		return startTextMessage(events), text, l.SessionID
+	}
+	if l.Type == "user" || role == "user" {
+		events, _ := parseContentEvents(content)
+		results := make([]Event, 0, len(events))
+		for _, event := range events {
+			if event.Kind == EventToolResult {
+				results = append(results, event)
+			}
+		}
+		return results, "", l.SessionID
 	}
 	if l.Type == "tool_use" {
 		name := l.ToolName
@@ -662,7 +773,15 @@ type kimiStreamLine struct {
 		SessionID2 string `json:"sessionId"`
 		ID         string `json:"id"`
 	} `json:"data"`
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	ToolCallID string `json:"tool_call_id"`
+	ToolCalls  []struct {
+		ID       string `json:"id"`
+		Function struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"function"`
+	} `json:"tool_calls"`
 }
 
 func parseKimiStreamLine(line []byte) ([]Event, string, string) {
@@ -676,10 +795,13 @@ func parseKimiStreamLine(line []byte) ([]Event, string, string) {
 	}
 	if l.Role == "assistant" {
 		events, text := parseContentEvents(l.Content)
-		return events, text, sessionID
+		for _, call := range l.ToolCalls {
+			events = append(events, Event{Kind: EventToolUse, Tool: call.Function.Name, ToolCallID: call.ID, Detail: renderToolPayload(call.Function.Arguments)})
+		}
+		return startTextMessage(events), text, sessionID
 	}
 	if l.Role == "tool" {
-		return []Event{{Kind: EventToolResult, Tool: l.Name, Detail: renderToolPayload(l.Content)}}, "", sessionID
+		return []Event{{Kind: EventToolResult, Tool: l.Name, ToolCallID: l.ToolCallID, Detail: renderToolPayload(l.Content)}}, "", sessionID
 	}
 	return nil, "", sessionID
 }
@@ -696,10 +818,13 @@ func parseContentEvents(raw json.RawMessage) ([]Event, string) {
 		return []Event{{Kind: EventText, Text: plain}}, plain
 	}
 	var blocks []struct {
-		Type  string          `json:"type"`
-		Text  string          `json:"text"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
+		Type      string          `json:"type"`
+		ID        string          `json:"id"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+		Text      string          `json:"text"`
+		Name      string          `json:"name"`
+		Input     json.RawMessage `json:"input"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
 		return nil, ""
@@ -717,8 +842,10 @@ func parseContentEvents(raw json.RawMessage) ([]Event, string) {
 			if block.Text != "" {
 				events = append(events, Event{Kind: EventThinking, Text: block.Text})
 			}
+		case "tool_result":
+			events = append(events, Event{Kind: EventToolResult, ToolCallID: block.ToolUseID, Detail: renderToolPayload(block.Content)})
 		case "tool_use", "tool_call":
-			events = append(events, Event{Kind: EventToolUse, Tool: block.Name, Detail: renderToolPayload(block.Input)})
+			events = append(events, Event{Kind: EventToolUse, Tool: block.Name, ToolCallID: block.ID, Detail: renderToolPayload(block.Input)})
 		}
 	}
 	return events, text.String()
@@ -735,8 +862,15 @@ func firstNonEmpty(values ...string) string {
 
 const hasPartialDeltas = true
 
+func toolOutput(output, failure string) string {
+	if failure == "" {
+		return output
+	}
+	return strings.TrimSpace(output + "\nError: " + failure)
+}
+
 func renderToolPayload(raw json.RawMessage) string {
-	if len(raw) == 0 {
+	if len(raw) == 0 || string(raw) == "null" {
 		return ""
 	}
 	s := strings.TrimSpace(string(raw))
@@ -746,9 +880,5 @@ func renderToolPayload(raw json.RawMessage) string {
 		s = asString
 	}
 
-	const max = 2000
-	if len(s) > max {
-		return s[:max] + "… (truncated)"
-	}
 	return s
 }

@@ -49,7 +49,7 @@ graphit config --global ai.cli claude
 graphit config --global ai.agent_args.claude "--permission-mode acceptEdits"
 ```
 
-Resolution tries the explicit CLI, the agent-mapped CLI, then these supported products and
+General completion resolution tries the explicit CLI, the agent-mapped CLI, then these supported products and
 executables:
 
 | Product | Executable | Native session continuity |
@@ -69,6 +69,26 @@ executables:
 The matrix contains eleven executable names for eleven products. `deepseek` is not a CLI alias.
 Graphit uses each CLI's non-interactive stdin/argument protocol. `ai.agent_args` is appended only to explicitly
 agentic Live Search/Dream work; it is split on whitespace and is never evaluated by a shell.
+
+Live Search binds execution to the agent selected in the workspace header. Its nine workspace
+adapters are Claude, Gemini, Antigravity, Cursor, Codex, OpenCode, Kiro, Qwen, and Kimi; Grok and
+Copilot are completion integrations without a Live workspace adapter. Live resolves only the
+selected agent's executable, before creating or preparing the investigation. It never substitutes
+the global CLI or another installed agent. If that executable is missing, install it on the
+server's `PATH` and authenticate it before retrying.
+
+Live runs every turn in its prepared temporary workspace, which deliberately has no Git repository.
+For Codex, Graphit supplies `--skip-git-repo-check` to both `exec` and `exec resume` in that workspace.
+This permits a non-Git working directory; it does not change sandbox settings or grant tool
+permissions. Other CLIs retain their own options and trust policies. Authentication, workspace
+trust, approvals, and model access must be configured for the chosen CLI's non-interactive mode;
+Graphit surfaces its diagnostic output when execution fails. Use a CLI version supporting the
+invocation and session flags in its installed help.
+
+The adapter tests cover invocation arguments, prompt delivery, working directory, environment,
+output and failure propagation with local subprocess fixtures. They do not certify authenticated
+inference, account permissions, or every upstream version. A CLI accepting an option in `--help`
+also does not by itself prove its stdin semantics; provider integration testing remains separate.
 
 Saved Graphit chats keep both `agent_session_id` and `agent_cli`, so a later turn can resume only
 the matching native agent under the same project directory. Live Search, wiki retries, memory

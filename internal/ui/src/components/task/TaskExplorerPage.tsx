@@ -2,6 +2,8 @@ import { StyledSelect } from "@/components/shared/StyledSelect";
 import { RecordReferences } from "@/components/shared/RecordReferences";
 import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
 import {
+  WorkBadge,
+  WorkStatusBadge,
   WorkPage,
   WorkHeader,
   WorkSection,
@@ -47,30 +49,7 @@ import { useAppStore } from "@/store/appStore";
 
 import { TaskModeToggle } from "./TaskModeToggle";
 
-const statusStyle: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/20",
-  in_progress:
-    "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20",
-  completed:
-    "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-  cancelled:
-    "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
-};
-
-const statusLabel = (status: string) => status.replace("_", " ");
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={cn(
-        "status-pill",
-        statusStyle[status] ?? "bg-accent text-muted-foreground border-border",
-      )}
-    >
-      {statusLabel(status)}
-    </span>
-  );
-}
+const statusLabel = (status: string) => status.replace(/_/g, " ");
 
 function shortDate(value?: string) {
   if (!value) return "—";
@@ -167,7 +146,7 @@ function SessionChip({
 }) {
   const open = () => onOpenSession(sessionId);
   return (
-    <span
+    <WorkBadge
       role="button"
       tabIndex={0}
       onClick={(event) => {
@@ -182,10 +161,10 @@ function SessionChip({
         }
       }}
       title="Open linked session"
-      className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary transition-colors hover:bg-primary/20"
+      tone="info"
     >
-      <Workflow className="h-3 w-3" /> Session
-    </span>
+      <Workflow aria-hidden="true" /> Session
+    </WorkBadge>
   );
 }
 
@@ -222,7 +201,7 @@ function TaskDetail({
       <header className="dossier-header">
         <div>
           <div className="dossier-status">
-            <StatusBadge status={task.status} />
+            <WorkStatusBadge status={task.status} />
             <span>Priority {task.priority}</span>
             {task.flagged && <span>Flagged</span>}
             {task.session_id && (
@@ -278,10 +257,10 @@ function TaskDetail({
             title="Checks"
             description="Completion is supported by recorded checks and their evidence."
             actions={
-              <span className="status-pill">
+              <WorkBadge>
                 {checks.filter((c) => c.active && c.status === "passed").length}{" "}
                 / {checks.filter((c) => c.active).length} active checks passed
-              </span>
+              </WorkBadge>
             }
           >
             <ul className="evidence-list">
@@ -638,7 +617,7 @@ export default function TaskExplorerPage() {
                   </small>
                 </td>
                 <td>
-                  <StatusBadge status={task.status} />
+                  <WorkStatusBadge status={task.status} />
                 </td>
                 <td>{task.owner || "Unclaimed"}</td>
                 <td>P{task.priority}</td>

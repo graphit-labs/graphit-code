@@ -1,7 +1,9 @@
+import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import { useState } from "react";
 import type { RegistryEntry, InstalledArtifact } from "@/api/hub";
 import {
+  WorkBadge,
   WorkSection,
   WorkNotice,
   FactList,
@@ -46,6 +48,7 @@ export function ArtifactCard({
   const [version, setVersion] = useState("");
   const isRegistry = variant === "registry";
   const name = isRegistry ? entry?.name : art?.registry_name || art?.local_id;
+  const description = isRegistry ? entry?.description : art?.registry_description;
   const type = isRegistry ? entry?.type : art?.type;
   const managed =
     isRegistry &&
@@ -55,13 +58,9 @@ export function ArtifactCard({
   return (
     <article className="artifact-inspector">
       <header>
-        <span className="status-pill">{type}</span>
+        <WorkBadge>{type}</WorkBadge>
         <h2>{name}</h2>
-        <p>
-          {isRegistry
-            ? entry?.description
-            : art?.registry_description || "No description available."}
-        </p>
+        {description ? <div className="markdown-preview"><MarkdownContent content={description} /></div> : <p>No description available.</p>}
       </header>
       <WorkSection title="Identity & origin">
         <FactList
@@ -82,9 +81,9 @@ export function ArtifactCard({
       </WorkSection>
       <div className="work-actions mb-6">
         {(isRegistry ? entry?.tags : art?.registry_tags)?.map((t) => (
-          <span className="status-pill" key={t}>
+          <WorkBadge key={t}>
             {t}
-          </span>
+          </WorkBadge>
         ))}
       </div>
       {clusterLabels &&

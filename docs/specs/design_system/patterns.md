@@ -105,6 +105,14 @@ Use compact badges for domain state, accompanied by text. Map positive/attention
 
 Success feedback must correspond to a confirmed operation. A toast is transient feedback, not a durable audit record. Important errors or decisions need a persistent place in the screen. Existing Code `components/shared/Toast.tsx` and Broker message regions are local implementations; review announcement behavior when extending them.
 
+### Metadata badges
+
+Use `WorkBadge` from `EngineeringUI` for types, tags, policy flags and compact metadata. Project artifacts is the visual reference: a discreet rectangle with a 4px radius, 11px medium-weight text, normal casing, a thin border and a subtle surface. Do not introduce rounded pills, uppercase tracking, miniature bold text or a separate color palette per feature. Wrap badge groups when space is limited; keep labels readable.
+
+The default `neutral` tone is for types and tags. Use `info` for active work and policy (including Mandatory), `warning` for attention or priority (including Important), `success` for confirmed success, and `danger` for failure. All tones use theme tokens in light and dark mode. Mandatory is a startup policy, not a successful outcome. Keep a text label alongside any decorative icon.
+
+`WorkStatusBadge` shares the same primitive: open/cancelled and unknown states remain neutral; in progress/running/preparing use info; completed/passed/ready use success; failed/error use danger; blocked uses warning. A session navigation chip keeps keyboard activation and visible focus. Badges do not replace actionable controls. Configurable graph category colors remain data encodings, outside this status palette.
+
 ### Tabs and progressive disclosure
 
 Tabs switch peer views within one context; links navigate to a different destination. Keep names specific enough to predict the panel. The site audience/install implementation uses `aria-selected`, `aria-controls`, roving tabindex and arrow/Home/End navigation. Maintain the pairing between each tab and its panel.
@@ -204,8 +212,36 @@ Domain selects inside modals keep ownership of their portaled menu: the first Es
 
 Task and session prose, memory bodies and Knowledge documents share the Markdown renderer. Keep identifiers, titles, dates and statuses literal. Search snippets preserve meaningful newlines and Unicode and use a compact presentation of the same renderer. Place rich previews outside the record-opening button so links and code controls remain independently usable. Knowledge previews receive the same document navigation callback as the full viewer; other domains do not infer persisted relationships from text. Editing, raw views, copying and exports retain source Markdown.
 
+Artifact and project descriptions are authored prose and support Markdown. Render them consistently in catalogues, inspectors and publication reviews using `MarkdownContent`; use a `.markdown-preview` wrapper for compact contexts. Keep form textareas and submitted payloads as the unmodified source. Never place the rich body inside a record-selection button, and do not turn a description into an inferred wiki scope or persisted entity relationship.
+
+| Content | Presentation contract | Surfaces |
+| --- | --- | --- |
+| Task and session specifications, progress, checks/evidence, comments and history | Shared Markdown renderer | Record dossiers, revisions, Workspace Now |
+| Memory bodies, historical revisions and snippets | Shared Markdown renderer; compact snippets outside selection controls | Project and personal memory |
+| Knowledge documents, search snippets and AI synthesis | Wiki viewer with document navigation; explicit raw view retains source | Knowledge and installed contexts |
+| Live final answers and cited documents | Wiki viewer scoped to the investigation | Agent output and source tabs |
+| Dream report body | Wiki viewer | Dream report reader |
+| Artifact descriptions | Shared Markdown renderer, including publication preview | Hub catalogue, registry/project/imported inspectors, Upload and Submit reviews |
+| Project descriptions | Shared Markdown renderer | Workspace context and ecosystem inspector |
+| Titles, identifiers, statuses, tags, dates, commands, Cypher, source files, query rows, JSON and YAML | Literal or structured/code view | All domains, including Broker administration |
+| CLI progress, public thinking fragments, stdout/stderr and opaque tool input/output | Literal diagnostics; no document or Markdown chunk contract is implied | Execution details and activity |
+
+Use the producer's content contract, not a syntax-detection heuristic, to choose a viewer. New Markdown-producing fields must join this map and reuse the existing renderer. Preserve raw/edit/copy/export actions; a renderer does not repair malformed source prose.
+
+Author specifications and evidence as readable source: retain spaces between words, use paragraphs and headings for distinct requirements, lists for parallel conditions, and code formatting for identifiers or commands. The renderer preserves the authored meaning; it must not invent structure or reconstruct words from compressed prose. When a record looks malformed, compare its persisted source with the rendered DOM before changing the shared component.
+
 ### Agent execution and source reading
 
-Knowledge answers, Live investigations and AI Cypher drafts use the same collapsible execution panel. Display the CLI's public progress, tool activity, stdout diagnostics and stderr incrementally; this is observable execution, not a promise to expose hidden model reasoning. Retain up to 300 recent events and 12,000 characters per diagnostic in the panel. Keep the complete answer in the document viewer. Waiting, failure, cancellation and completion are distinct states. Knowledge and Cypher offer Stop generation; changing scope aborts the request and invalidates stale output. Live uses its session cancellation action and continues a run across a disconnected subscriber.
+Knowledge answers, Live investigations and AI Cypher drafts use the same execution component. Lead with one current status, replacing the preceding label as preparation or tool activity advances. Preparation/status messages keep their explicit text (for example, “Creating ephemeral project” then “Installing the Framework’s skills”). Thinking may arrive in fragments: show “Processing” and retain that public text in the details. Animate three trailing dots only while running; disable animation for `prefers-reduced-motion`. Announce label changes with a polite, atomic status region, excluding the decorative dots.
+
+Keep execution details collapsed by default. Show public progress, tool activity, stdout diagnostics and stderr there; this is observable execution, not a promise to expose hidden model reasoning. Empty events never create “Working” rows. The compact panel retains up to 300 recent events and 12,000 characters per diagnostic; Live’s Execution activity keeps its full available log. Transport and persistence must not truncate tool payloads for presentation. Keep the complete answer in the document viewer. Callers supply actual completion, failure and cancellation outcomes; stopping a spinner alone does not prove success. Knowledge and Cypher offer Stop generation; changing scope aborts the request and invalidates stale output. Live uses its session cancellation action and continues a run across a disconnected subscriber.
+
+In Execution activity, each tool call and its result share one timeline item with separate Input and Result disclosures. Group by native `tool_call_id` within a turn; repeated snapshots update the same item. Same-name concurrent calls and reused IDs in different turns remain separate. An empty result is still a received result. Label missing calls/results honestly. For legacy logs without IDs, pair only a named result with exactly one pending unidentified call of the same name in the complete turn; leave ambiguous matches separate. Never infer legacy pairs from a truncated buffer or use an event sequence/session ID as a call identity.
 
 Render Knowledge and Live answers with the wiki Markdown viewer. A Live citation opens a source reader inside the investigation, with the installed context and artifact version visible. Resolve only sources installed in that investigation; ambiguous unqualified slugs require an explicit source choice. Missing or no-longer-authorized sources show an error instead of substituting a document from the current project.
+
+Independent assistant messages remain separate paragraphs in Agent output. The stream adapter supplies paragraph boundaries where the CLI protocol identifies a new message; fragments within that message concatenate unchanged. The viewer must not insert a paragraph per network chunk or infer boundaries from punctuation. Persist the same normalized text used during streaming so replay keeps the layout. Older logs without boundary information retain their original text.
+
+In Live, source readers are tabs beside Agent output and Execution activity, never modal overlays. Citation labels show the page name without the artifact qualifier; preserve explicit author labels and the complete destination. Keep context, artifact and version in the reader, with the full citation available on hover. Reuse a tab for the same resolved context and page; identical titles in different contexts remain distinct. Nested links open another source tab within the originating context. Each source tab has a visible × close button beside its title, including inactive and loading tabs; fixed answer/activity tabs have no close action. Use sibling buttons for selection and closing, never nested buttons, with an accessible close label and visible keyboard focus. Closing the active source returns to the answer; closing an inactive source preserves selection. Restore focus to the selected tab, abort its pending request and ignore late responses. Loading, source choice, errors and retry stay inside the reader.
+
+Keep answer, activity and open reader panels mounted when switching evidence tabs, with independent scroll positions. Streaming updates must not pull a reader back to the answer. Abort closed readers and all outstanding source requests on investigation changes; late responses must not reopen tabs. Long tab titles truncate with a full-title tooltip, and the tab row scrolls horizontally on narrow screens. Preserve the shared keyboard tab navigation and visible focus treatment.

@@ -1,6 +1,7 @@
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
 import {
+  WorkStatusBadge,
   WorkPage,
   WorkHeader,
   WorkSection,
@@ -11,7 +12,9 @@ import {
   FactList,
 } from "@/components/shared/EngineeringUI";
 import { LiveAnswer } from "./LiveAnswer";
-import { AgentExecution } from "@/components/shared/AgentExecution";
+import { LiveEvidence } from "./LiveEvidence";
+import { ExecutionActivity } from "@/components/shared/ExecutionActivity";
+import { AgentExecution, executionEventLabel } from "@/components/shared/AgentExecution";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -54,7 +57,8 @@ import { cn } from "@/lib/utils";
 interface Turn {
   question?: string;
   answer: string;
-  activity: Array<{ seq: number; label: string; detail?: string }>;
+  activity: LiveEvent[];
+  currentEvent?: LiveEvent;
   errors: string[];
   done: boolean;
 }
@@ -87,20 +91,16 @@ export function transcriptFromEvents(events: LiveEvent[]): Turn[] {
       }
       case "text":
         current().answer += ev.text ?? "";
+        if (ev.text?.trim()) current().currentEvent = ev;
         break;
       case "prep":
-        current().activity.push({ seq: ev.seq, label: ev.text ?? "" });
-        break;
       case "thinking":
       case "stdout":
       case "stderr":
       case "tool_result":
       case "tool_use":
-        current().activity.push({
-          seq: ev.seq,
-          label: ev.tool ? `${ev.kind} · ${ev.tool}` : ev.kind,
-          detail: ev.text || ev.detail,
-        });
+        current().activity.push(ev);
+        if (executionEventLabel(ev)) current().currentEvent = ev;
         break;
       case "error":
         current().errors.push(ev.text ?? "");
@@ -116,42 +116,6 @@ export function transcriptFromEvents(events: LiveEvent[]): Turn[] {
 }
 
 type LiveState = LiveSession["state"];
-
-function stateTone(state: LiveState | undefined): string {
-  switch (state) {
-    case "ready":
-      return "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
-    case "running":
-      return "text-primary bg-primary/10 border-primary/30";
-    case "preparing":
-      return "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30";
-    case "failed":
-      return "text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/30";
-    default:
-      return "text-muted-foreground bg-muted/40 border-border/40";
-  }
-}
-
-function typeBadgeStyle(type: string): string {
-  switch (type.toLowerCase()) {
-    case "knowledge":
-      return "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30";
-    case "skill":
-      return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30";
-    case "agent":
-      return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
-    case "rule":
-      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30";
-    case "ast":
-      return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30";
-    case "mcp":
-      return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30";
-    case "command":
-      return "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30";
-    default:
-      return "bg-muted/50 text-muted-foreground border-border/40";
-  }
-}
 
 export default function LiveSearchPage() {
   const { activeProjectDir, activeAgent, projectsLoaded, loadProjects } =
@@ -239,7 +203,7 @@ export default function LiveSearchPage() {
   const turns = useMemo(() => transcriptFromEvents(events), [events]);
 
   useEffect(() => {
-    transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (workspace === "run" && evidence === "output") transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns]);
 
   const types = useMemo(() => {
@@ -565,7 +529,7 @@ export default function LiveSearchPage() {
           <>
             <div className="runtime-strip">
               <strong>{session.title || "Live session"}</strong>
-              <span className="status-pill">{session.state}</span>
+              <WorkStatusBadge status={session.state} />
               <code>{session.id}</code>
               {session.state === "running" && (
                 <button
@@ -583,52 +547,19 @@ export default function LiveSearchPage() {
             )}
             <div className="live-run-layout">
               <section className="work-panel">
-                <WorkTabs
-                  label="Run evidence"
-                  value={evidence}
-                  onChange={setEvidence}
-                  items={[
-                    ["output", "Agent output"],
-                    ["activity", "Execution activity"],
-                  ]}
-                />
-                {evidence === "activity" ? (
-                  <div className="work-timeline">
-                    {events
-                      .filter((e) => !["text", "prompt"].includes(e.kind))
-                      .map((e) => (
-                        <article key={e.seq}>
-                          <small>
-                            Event {e.seq} · {e.kind}
-                          </small>
-                          <h3>{e.tool || e.state || e.kind}</h3>
-                          {e.text && (
-                            <p className="text-xs whitespace-pre-wrap">
-                              {e.text}
-                            </p>
-                          )}
-                          {e.detail && (
-                            <pre className="work-code">
-                              {typeof e.detail === "string"
-                                ? e.detail
-                                : JSON.stringify(e.detail, null, 2)}
-                            </pre>
-                          )}
-                        </article>
-                      ))}
-                  </div>
-                ) : (
-                  <div className="live-transcript">
+                <LiveEvidence key={session.id} sessionId={session.id} value={evidence} onChange={setEvidence}
+                  activity={<ExecutionActivity events={events} allowLegacyPairing />}
+                  output={onLink => (<div className="live-transcript">
                     {turns.map((t, i) => (
                       <article key={i}>
                         <header>
                           <small>Request {i + 1}</small>
                           <h3>{t.question || "Agent preparation"}</h3>
                         </header>
-                        <AgentExecution events={t.activity.map(a => ({ kind: a.label, text: a.detail }))} running={!t.done && busy} />
+                        <AgentExecution events={t.activity} currentEvent={t.currentEvent} running={!t.done && busy} outcome={t.errors.includes("cancelled") ? "cancelled" : t.errors.length ? "failed" : t.done ? "completed" : "idle"} />
                         {t.answer && (
                           <div className="agent-answer">
-                            <LiveAnswer sessionId={session.id} content={t.answer} />
+                            <LiveAnswer content={t.answer} onLink={onLink} />
                           </div>
                         )}
                         {t.errors.map((e, j) => (
@@ -638,9 +569,9 @@ export default function LiveSearchPage() {
                         ))}
                         <small className="text-muted-foreground">
                           {t.done
-                            ? "Turn complete"
+                            ? t.errors.includes("cancelled") ? "Turn stopped" : t.errors.length ? "Turn failed" : "Turn complete"
                             : busy
-                              ? "Working…"
+                              ? ""
                               : "Waiting"}
                         </small>
                       </article>
@@ -659,8 +590,8 @@ export default function LiveSearchPage() {
                       </WorkEmpty>
                     )}
                     <div ref={transcriptEnd} />
-                  </div>
-                )}
+                  </div>)}
+                />
                 <div className="live-composer">{promptEditor}</div>
               </section>
               <aside>

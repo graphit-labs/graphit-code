@@ -2,6 +2,7 @@ import { StyledSelect } from "@/components/shared/StyledSelect";
 import { RecordReferences } from "@/components/shared/RecordReferences";
 import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
 import {
+  WorkStatusBadge,
   WorkPage,
   WorkHeader,
   WorkSection,
@@ -39,31 +40,6 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/appStore";
 
 import { TaskModeToggle } from "./TaskModeToggle";
-
-const statusStyle: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/20",
-  in_progress:
-    "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20",
-  completed:
-    "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-  cancelled:
-    "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
-};
-
-const statusLabel = (status: string) => status.replace("_", " ");
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={cn(
-        "status-pill",
-        statusStyle[status] ?? "bg-accent text-muted-foreground border-border",
-      )}
-    >
-      {statusLabel(status)}
-    </span>
-  );
-}
 
 function shortDate(value?: string) {
   if (!value) return "—";
@@ -136,7 +112,7 @@ function SessionDetailView({
       <header className="dossier-header">
         <div>
           <div className="dossier-status">
-            <StatusBadge status={session.status} />
+            <WorkStatusBadge status={session.status} />
             <small>
               <code>{session.id}</code> / revision {session.revision}
             </small>
@@ -185,7 +161,7 @@ function SessionDetailView({
                 meta={task.id}
                 onClick={() => onOpenTask(task.id)}
               >
-                <StatusBadge status={task.status} />
+                <WorkStatusBadge status={task.status} />
               </RecordLink>
             ))}
             {!detail.tasks.length && (
@@ -521,7 +497,7 @@ export default function SessionExplorerPage() {
                   </small>
                 </td>
                 <td>
-                  <StatusBadge status={session.status} />
+                  <WorkStatusBadge status={session.status} />
                 </td>
                 <td>{session.owner || "Unclaimed"}</td>
                 <td>{shortDate(session.updated_at)}</td>

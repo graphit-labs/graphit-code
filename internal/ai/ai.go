@@ -3,6 +3,9 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 )
@@ -39,4 +42,20 @@ func NewClientFromConfig() (Client, error) {
 	}
 
 	return nil, errors.New("AI CLI not found, please install a supported CLI tool (e.g. gemini, claude, codex, qwen, kimi)")
+}
+
+// NewClientForAgent binds an explicit agent selection to its own executable.
+// Unlike automatic completion discovery, Live Search must not silently execute
+// a different CLI from the adapter used to prepare the investigation.
+func NewClientForAgent(agent string) (StreamClient, error) {
+	agent = strings.ToLower(strings.TrimSpace(agent))
+	binary := config.CLIForAgent(agent)
+	if binary == "" {
+		return nil, fmt.Errorf("agent %q has no supported Live Search CLI", agent)
+	}
+	path, err := exec.LookPath(binary)
+	if err != nil {
+		return nil, fmt.Errorf("agent %q requires CLI %q on PATH; install and authenticate that CLI: %w", agent, binary, err)
+	}
+	return &cliClient{executablePath: path, binaryName: binary, agentArgs: agentArgsFromConfig(binary)}, nil
 }

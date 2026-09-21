@@ -12,9 +12,9 @@ export function ToastContainer() {
   }
 
   const colors = {
-    success: 'border-emerald-400/50 text-emerald-100',
-    error: 'border-red-400/50 text-red-200',
-    info: 'border-cyan-300/50 text-cyan-100',
+    success: 'border-success/30 text-success',
+    error: 'border-destructive/30 text-destructive',
+    info: 'border-info/30 text-info',
   }
 
   return (
@@ -23,7 +23,7 @@ export function ToastContainer() {
         <div
           key={toast.id}
           className={cn(
-            'pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-lg bg-[#142449] backdrop-blur-xl border text-sm font-semibold',
+            'pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-lg bg-popover border text-sm font-medium',
             'shadow-2xl max-w-sm animate-slide-in-right',
             colors[toast.type],
           )}

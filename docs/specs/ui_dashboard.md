@@ -187,7 +187,7 @@ Successful responses use this versioned envelope:
 
 The registry starts with a filterable catalogue and a selected artifact dossier: inspect identity, publisher, version, origin and dependencies before choosing an installation action. Project artifacts separates Owned, Installed and Linked origins, each with its applicable maintenance actions. Switching project or agent closes scoped dialogs and discards responses from the previous workspace.
 
-Publication is a three-step workspace: Package → Metadata & dependencies → Review & publish. Existing artifacts use a focused metadata/review dialog. Review preserves the complete submission contract; explicit publication remains the only write step. Dialogs isolate background controls, trap keyboard focus, close on Escape and restore focus.
+Publication is a three-step workspace: Package → Metadata & dependencies → Review & publish. Existing artifacts use a focused metadata/review dialog. Artifact descriptions support Markdown in the catalogue, inspector and both publication review flows. Review uses the shared renderer while editing and submission retain the exact authored source. Review preserves the complete submission contract; explicit publication remains the only write step. Dialogs isolate background controls, trap keyboard focus, close on Escape and restore focus.
 
 The Hub routes present:
 
@@ -272,7 +272,7 @@ The shared [design system](design_system.md) defines the current visual identity
 
 ### Incremental agent responses
 
-Knowledge AI search and AST AI generation accept `Accept: text/event-stream` on their existing POST endpoints. Ordinary JSON callers remain compatible. SSE emits `progress` with normalized public CLI events, then `final` with the existing response object or `error`, and `done`. Native CLI session IDs remain server-side for streaming clients. Request cancellation terminates the underlying CLI through the existing conversation context. Cypher generation produces only an editable draft; execution still requires Run query.
+Knowledge AI search and AST AI generation accept `Accept: text/event-stream` on their existing POST endpoints. The server reads the complete JSON request before flushing any SSE headers or events, including on HTTP/1.1 connections. Stream requests are limited to 1 MiB; unreadable bodies return HTTP 400 and oversized bodies HTTP 413 as JSON errors before the agent starts. The UI displays that error message. Ordinary JSON callers remain compatible. SSE emits `progress` with normalized public CLI events, then `final` with the existing response object or `error`, and `done`. Native CLI session IDs remain server-side for streaming clients. Request cancellation terminates the underlying CLI through the existing conversation context. Cypher generation produces only an editable draft; execution still requires Run query.
 
 Live keeps its existing replayable SSE protocol: subscriber disconnect does not cancel the session. Its execution panel includes thinking, stdout diagnostics, stderr and tool results. `GET /api/live/sessions/{id}/knowledge/page?page=slug&context=name` opens an existing source from the retained investigation workspace. A qualified `context:slug` can select a source; an ambiguous unqualified slug returns a candidates object for explicit selection. Unknown sessions, missing pages and removed sources do not fall back to another workspace. Published sources are reopened through the authorized Hub mount. The endpoint neither installs artifacts nor creates a missing workspace.
 

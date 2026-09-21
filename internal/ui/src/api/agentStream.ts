@@ -1,9 +1,16 @@
 import { openAPIStream } from './client';
-export interface AgentProgress { kind: string; text?: string; tool?: string; detail?: string; at?: string }
+export interface AgentProgress { kind: string; text?: string; tool?: string; tool_call_id?: string; detail?: string; at?: string }
 export interface StreamOptions { signal?: AbortSignal; onProgress?: (event: AgentProgress) => void }
 
 export async function readAgentStream<T>(response: Response, onProgress?: StreamOptions['onProgress']): Promise<T> {
-  if (!response.ok) throw new Error(`Agent request failed (HTTP ${response.status})`);
+  if (!response.ok) {
+    let message = `Agent request failed (HTTP ${response.status})`;
+    try {
+      const body = await response.json();
+      if (typeof body.error === 'string' && body.error) message = body.error;
+    } catch { /* Keep the HTTP status when a proxy returns a non-JSON error. */ }
+    throw new Error(message);
+  }
   if (!response.headers.get('content-type')?.includes('text/event-stream')) {
     const result = await response.json();
     if (result.error) throw new Error(result.error);

@@ -2,6 +2,7 @@ import { RecordReferences } from "@/components/shared/RecordReferences";
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
 import {
+  WorkBadge,
   WorkPage,
   WorkHeader,
   WorkSection,
@@ -60,18 +61,6 @@ const memoryTypes = [
   "skill",
 ];
 
-const typeStyle: Record<string, string> = {
-  fact: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  decision:
-    "border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-  convention:
-    "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  correction:
-    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  tension: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-  skill: "border-cyan-500/20 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-};
-
 function shortDate(value?: string) {
   if (!value) return "—";
   const date = new Date(value);
@@ -79,45 +68,14 @@ function shortDate(value?: string) {
 }
 
 function TypeBadge({ type }: { type: string }) {
-  return (
-    <span
-      className={cn(
-        "rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider",
-        typeStyle[type] ?? "border-border bg-accent text-muted-foreground",
-      )}
-    >
-      {type || "untyped"}
-    </span>
-  );
+  return <WorkBadge>{type || "untyped"}</WorkBadge>;
 }
 
-function MemoryFlags({
-  important,
-  mandatory,
-}: {
-  important: boolean;
-  mandatory: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {important && (
-        <span
-          title="Important"
-          className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300"
-        >
-          <Flag className="h-2.5 w-2.5" /> Important
-        </span>
-      )}
-      {mandatory && (
-        <span
-          title="Mandatory at session start"
-          className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300"
-        >
-          <ShieldCheck className="h-2.5 w-2.5" /> Mandatory
-        </span>
-      )}
-    </div>
-  );
+function MemoryFlags({ important, mandatory }: { important: boolean; mandatory: boolean }) {
+  return <div className="flex flex-wrap items-center gap-1.5">
+    {important && <WorkBadge tone="warning" title="Important"><Flag aria-hidden="true" />Important</WorkBadge>}
+    {mandatory && <WorkBadge tone="info" title="Mandatory at session start"><ShieldCheck aria-hidden="true" />Mandatory</WorkBadge>}
+  </div>;
 }
 
 function Meta({
@@ -349,7 +307,7 @@ function MemoryDetail({
         <div>
           <div className="dossier-status">
             <TypeBadge type={selected.type} />
-            <span className="status-pill">{selected.status}</span>
+            <WorkBadge>{selected.status}</WorkBadge>
             <MemoryFlags
               important={selected.important}
               mandatory={selected.mandatory}
@@ -408,9 +366,9 @@ function MemoryDetail({
             <WorkSection title="Classification">
               <div className="work-actions">
                 {selected.tags.map((t) => (
-                  <span className="status-pill" key={t}>
+                  <WorkBadge key={t}>
                     {t}
-                  </span>
+                  </WorkBadge>
                 ))}
               </div>
             </WorkSection>

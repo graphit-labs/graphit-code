@@ -470,13 +470,10 @@ func TestRenderToolPayload(t *testing.T) {
 		t.Errorf("empty payload = %q", got)
 	}
 
-	long := json.RawMessage(`"` + strings.Repeat("x", 3000) + `"`)
-	got := renderToolPayload(long)
-	if len(got) > 2100 {
-		t.Errorf("payload not truncated: %d chars", len(got))
-	}
-	if !strings.Contains(got, "truncated") {
-		t.Error("truncation must be stated")
+	want := strings.Repeat("ação", 3000) + " end"
+	raw, _ := json.Marshal(want)
+	if got := renderToolPayload(raw); got != want {
+		t.Errorf("payload was shortened: got %d bytes, want %d", len(got), len(want))
 	}
 }
 

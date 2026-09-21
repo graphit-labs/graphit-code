@@ -1,3 +1,4 @@
+import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import { useEffect, useState, useId } from "react";
 import { ModalPortal } from "@/components/shared/ModalPortal";
@@ -143,6 +144,7 @@ export function SubmitModal({
                   <span>Description</span>
                   <textarea
                     rows={3}
+                    placeholder="Purpose, scope and expected use. Markdown supported."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                   />
@@ -222,7 +224,8 @@ export function SubmitModal({
                     ["Tags", tags],
                   ]}
                 />
-                <p>{description || "No description provided."}</p>
+                <h3>Description</h3>
+                {description ? <div className="markdown-preview"><MarkdownContent content={description} /></div> : <p>No description provided.</p>}
                 <h3>Dependencies</h3>
                 {deps
                   .filter((d) => d.id)

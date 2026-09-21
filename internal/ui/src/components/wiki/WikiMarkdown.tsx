@@ -100,7 +100,7 @@ function CodeCopyButton({ code }: { code: string }) {
     >
       {copied ? (
         <>
-          <Check className="w-3.5 h-3.5 text-emerald-500" />
+          <Check className="w-3.5 h-3.5 text-success" />
           Copied!
         </>
       ) : (
@@ -116,6 +116,13 @@ function CodeCopyButton({ code }: { code: string }) {
 export interface WikiMarkdownProps {
   content: string;
   onLink?: (page: string) => void;
+  compactWikiLinks?: boolean;
+}
+
+/** Shorten context-qualified citation labels without changing their targets. */
+export function compactWikiLabel(target: string): string {
+  const page = /^(?!ADR:)[^\s:]+[:/](.+)$/.exec(target)?.[1] || target;
+  return wikiLinkFriendlyName(page);
 }
 
 export interface MarkdownContentProps extends WikiMarkdownProps {
@@ -126,6 +133,7 @@ export function MarkdownContent({
   content,
   onLink,
   wikiLinks = false,
+  compactWikiLinks = false,
 }: MarkdownContentProps) {
   const processed = useMemo(
     () => (wikiLinks ? preprocessWikiLinks(content) : content),
@@ -172,8 +180,12 @@ export function MarkdownContent({
             if (href && wikiLinks) {
               const page = wikiPageTarget(href);
               if (page !== null) {
+                const label = compactWikiLinks && typeof children === "string" &&
+                  (children === page || children === wikiLinkFriendlyName(page))
+                  ? compactWikiLabel(page) : children;
                 return (
                   <button
+                    title={compactWikiLinks ? page : undefined}
                     onClick={() => onLink && onLink(page)}
                     className={
                       onLink
@@ -182,7 +194,7 @@ export function MarkdownContent({
                     }
                     type="button"
                   >
-                    {children}
+                    {label}
                   </button>
                 );
               }
@@ -394,6 +406,6 @@ export function MarkdownContent({
   );
 }
 
-export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
-  return <MarkdownContent content={content} onLink={onLink} wikiLinks />;
+export function WikiMarkdown(props: WikiMarkdownProps) {
+  return <MarkdownContent {...props} wikiLinks />;
 }

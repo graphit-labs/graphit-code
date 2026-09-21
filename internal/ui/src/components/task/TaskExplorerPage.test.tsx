@@ -27,7 +27,7 @@ vi.stubGlobal('matchMedia', vi.fn().mockImplementation(query => ({
 
 const first: Task = {
   id: 'tsk-aaaa', project_id: 'project-1', session_id: 'ses-aaaa', idempotency_key: 'first', title: 'First task',
-  description: '# Objective\n\nBuild the **first deterministic feature**.\n\n- Preserve audit history\n- Render rich fields', type: 'feature', status: 'in_progress',
+  description: '# Objective\n\nBuild the **first deterministic feature**.\n\n- Preserve audit history\n- Render rich fields\n\nRun `go test` and inspect [the contract](https://example.com/contract).', type: 'feature', status: 'in_progress',
   priority: 1, checks: [], flagged: false, owner: 'agent-a', claim_epoch: 1,
   progress_sequence: 1, comment_sequence: 1, progress_summary: '**Core** landed with `go test ./internal/task`.', next_step: 'Verify the **Task Explorer** UI.',
   created_at: '2026-09-04T10:00:00Z', updated_at: '2026-09-04T11:00:00Z', revision: 4,
@@ -113,6 +113,9 @@ describe('Task Explorer', () => {
     const specification = screen.getByRole('heading', { name: 'Specification' }).closest('section')
     expect(specification).not.toBeNull()
     expect(within(specification!).queryByText(/# Objective/)).toBeNull()
+    expect(within(specification!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Preserve audit history', 'Render rich fields'])
+    expect(within(specification!).getByText('go test').tagName).toBe('CODE')
+    expect(within(specification!).getByRole('link', { name: 'the contract' }).getAttribute('href')).toBe('https://example.com/contract')
     expect(taskApi.list).toHaveBeenCalledWith({ projectDir: '/project', query: undefined, status: 'all', pageSize: 20, cursor: undefined })
     expect(taskApi.export).toHaveBeenCalledWith('/project', 'tsk-aaaa')
     expect(taskApi.export).not.toHaveBeenCalledWith('/project')

@@ -58,6 +58,8 @@ type Event struct {
 	Text string `json:"text,omitempty"`
 	// Tool is the tool name for tool_use and tool_result.
 	Tool string `json:"tool,omitempty"`
+	// ToolCallID preserves the native call identity across streaming and replay.
+	ToolCallID string `json:"tool_call_id,omitempty"`
 	// Detail carries a tool's input or output, already rendered for display.
 	Detail string `json:"detail,omitempty"`
 	// State is set on state events.
@@ -95,11 +97,12 @@ func eventFromAI(ev ai.Event) (Event, bool) {
 		return Event{}, false
 	}
 	return Event{
-		Kind:   k,
-		Text:   ev.Text,
-		Tool:   ev.Tool,
-		Detail: ev.Detail,
-		At:     ev.At,
+		Kind:       k,
+		Text:       ev.Text,
+		Tool:       ev.Tool,
+		ToolCallID: ev.ToolCallID,
+		Detail:     ev.Detail,
+		At:         ev.At,
 	}, true
 }
 

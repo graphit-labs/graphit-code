@@ -1,3 +1,4 @@
+import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
 import {
@@ -342,7 +343,7 @@ function RegistryWorkspace() {
                       >
                         {e.name}
                       </button>
-                      <small>{e.description}</small>
+                      {e.description && <div className="markdown-preview"><MarkdownContent content={e.description} /></div>}
                     </td>
                     <td>{e.type}</td>
                     <td>{e.latest}</td>

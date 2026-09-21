@@ -489,6 +489,11 @@ func TestTheCLISessionIDIsCarriedIntoTheNextTurn(t *testing.T) {
 		}
 		waitFor(t, "ready", func() bool { return s.State() == StateReady && rec.count() == want })
 	}
+	for i := 0; i < 2; i++ {
+		if got := rec.at(i); !got.AllowNonGitWorkspace || got.WorkDir != s.WorkspaceDir() {
+			t.Fatalf("turn %d workspace contract: %+v", i, got)
+		}
+	}
 	if got := rec.at(0).SessionID; got != "" {
 		t.Fatalf("the first turn should start a new conversation, got %q", got)
 	}
@@ -675,5 +680,49 @@ func TestSubscribeToAClosedSessionReplaysWithoutHanging(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("subscribing to a closed session hung waiting for events that cannot come")
+	}
+}
+
+func TestSessionBindsSelectedClientBeforePreparation(t *testing.T) {
+	m := newTestManager(t, nil, nil)
+	var selected []string
+	m.clientFactory = func(agent string) (ai.StreamClient, error) {
+		selected = append(selected, agent)
+		return &fakeClient{stream: func(_ context.Context, req ai.StreamRequest, _ ai.EventFunc) (*ai.StreamResult, error) {
+			return &ai.StreamResult{Text: agent}, nil
+		}}, nil
+	}
+	first, err := m.Create(Options{Agent: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.Create(Options{Agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.client == second.client || strings.Join(selected, ",") != "claude,codex" {
+		t.Fatalf("selection not session-bound: %v", selected)
+	}
+	for _, s := range []*Session{first, second} {
+		res, err := s.client.CompleteStream(context.Background(), ai.StreamRequest{}, nil)
+		if err != nil || res.Text != s.meta.Agent {
+			t.Fatalf("executed wrong agent: %+v %v", res, err)
+		}
+	}
+}
+
+func TestUnavailableSelectedClientDoesNotCreateWorkspace(t *testing.T) {
+	prepared := false
+	root := filepath.Join(t.TempDir(), "not-created")
+	m := NewManager(root, echoClient(), func(context.Context, *Session, func(string)) error { prepared = true; return nil })
+	m.clientFactory = func(string) (ai.StreamClient, error) { return nil, errors.New("selected CLI missing") }
+	if _, err := m.Create(Options{Agent: "codex"}); err == nil || !strings.Contains(err.Error(), "selected CLI missing") {
+		t.Fatalf("wrong error %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatal("workspace was created before validation")
+	}
+	if prepared {
+		t.Fatal("prepared with the wrong CLI")
 	}
 }

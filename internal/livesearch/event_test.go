@@ -116,6 +116,30 @@ func TestReplayIsBoundedAtBothEnds(t *testing.T) {
 	}
 }
 
+func TestAssistantParagraphsSurviveTranslationAndReplay(t *testing.T) {
+	l := openTestLog(t)
+	chunks := []string{"Vou consultar as fontes.", "\n\nEstou usando **Know", "ledge** e [[context:Guide]]."}
+	for _, text := range chunks {
+		ev, ok := eventFromAI(ai.Event{Kind: ai.EventText, Text: text})
+		if !ok {
+			t.Fatal("text was dropped")
+		}
+		if _, err := l.append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var answer strings.Builder
+	for i, ev := range collect(t, l, 0, 0) {
+		if ev.Text != chunks[i] {
+			t.Fatalf("chunk changed: %q != %q", ev.Text, chunks[i])
+		}
+		answer.WriteString(ev.Text)
+	}
+	if got, want := answer.String(), strings.Join(chunks, ""); got != want {
+		t.Fatalf("replayed answer=%q want=%q", got, want)
+	}
+}
+
 func TestReplayStopsEarlyOnRequestWithoutReportingFailure(t *testing.T) {
 	l := openTestLog(t)
 	for i := 0; i < 10; i++ {
@@ -182,12 +206,15 @@ func TestReplayOnAMissingLogIsNotAnError(t *testing.T) {
 func TestALargeToolResultSurvivesTheRoundTrip(t *testing.T) {
 	l := openTestLog(t)
 	big := strings.Repeat("x", 1<<20)
-	if _, err := l.append(Event{Kind: KindToolResult, Tool: "graphit_ast_query", Detail: big}); err != nil {
+	if _, err := l.append(Event{Kind: KindToolResult, Tool: "graphit_ast_query", ToolCallID: "call-42", Detail: big}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 	got := collect(t, l, 0, 0)
 	if len(got) != 1 {
 		t.Fatalf("replay yielded %d events, want 1", len(got))
+	}
+	if got[0].ToolCallID != "call-42" {
+		t.Fatal("tool correlation lost on replay")
 	}
 	if len(got[0].Detail) != len(big) {
 		t.Fatalf("the payload came back %d bytes, want %d", len(got[0].Detail), len(big))
@@ -253,7 +280,7 @@ func TestEventFromAIMapsWhatSubscribersNeedAndDropsPlumbing(t *testing.T) {
 		{ai.EventKind("something-a-future-release-invented"), "", false},
 	}
 	for _, c := range cases {
-		got, ok := eventFromAI(ai.Event{Kind: c.in, Text: "t", Tool: "u", Detail: "d"})
+		got, ok := eventFromAI(ai.Event{Kind: c.in, Text: "t", Tool: "u", ToolCallID: "call-7", Detail: "d"})
 		if ok != c.ok {
 			t.Fatalf("%s: published=%v, want %v", c.in, ok, c.ok)
 		}
@@ -263,7 +290,7 @@ func TestEventFromAIMapsWhatSubscribersNeedAndDropsPlumbing(t *testing.T) {
 		if got.Kind != c.want {
 			t.Fatalf("%s mapped to %q, want %q", c.in, got.Kind, c.want)
 		}
-		if got.Text != "t" || got.Tool != "u" || got.Detail != "d" {
+		if got.Text != "t" || got.Tool != "u" || got.Detail != "d" || got.ToolCallID != "call-7" {
 			t.Fatalf("%s lost its payload: %+v", c.in, got)
 		}
 	}

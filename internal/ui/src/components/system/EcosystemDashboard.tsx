@@ -1,3 +1,4 @@
+import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import {
   WorkPage,
@@ -297,13 +298,8 @@ export default function EcosystemDashboard() {
           <aside className="work-panel">
             {inspected ? (
               <>
-                <WorkSection
-                  title={inspected.name}
-                  description={
-                    inspected.description ||
-                    "A registered local engineering context."
-                  }
-                >
+                <WorkSection title={inspected.name}>
+                  {inspected.description ? <div className="markdown-preview"><MarkdownContent content={inspected.description} /></div> : <p>A registered local engineering context.</p>}
                   <FactList
                     items={[
                       ["Project ID", inspected.id],

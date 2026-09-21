@@ -1,3 +1,4 @@
+import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { WorkspaceNow } from "./WorkspaceNow";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -125,9 +126,9 @@ export default function WorkspacePage() {
         </section>
         <aside>
           <WorkSection title="Project context">
+            {active?.description && <div className="markdown-preview"><MarkdownContent content={active.description} /></div>}
             <FactList
               items={[
-                ["Description", active?.description],
                 ["Directory", active?.dir],
                 ["Project ID", active?.id],
                 [

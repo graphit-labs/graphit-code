@@ -1,4 +1,4 @@
-import { AgentExecution, appendProgress } from "@/components/shared/AgentExecution";
+import { AgentExecution, appendProgress, type ExecutionOutcome } from "@/components/shared/AgentExecution";
 import type { AgentProgress } from "@/api/agentStream";
 import { RecordReferences } from "@/components/shared/RecordReferences";
 import { StyledSelect } from "@/components/shared/StyledSelect";
@@ -29,6 +29,7 @@ import { agentFeaturesEnabled, wikiLinkFriendlyName } from "@/lib/utils";
 import { useAppStore } from "@/store/appStore";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import {
+  WorkBadge,
   WorkPage,
   WorkHeader,
   WorkSection,
@@ -247,6 +248,7 @@ export default function WikiExplorerPage({
     [type, setType] = useState("all"),
     [results, setResults] = useState<SearchResult[]>([]);
   const [progress, setProgress] = useState<AgentProgress[]>([]);
+  const [outcome, setOutcome] = useState<ExecutionOutcome>("idle");
   const searchAbort = useRef<AbortController | null>(null);
   const [answer, setAnswer] = useState<AISearchResponse | null>(null),
     [error, setError] = useState("");
@@ -294,7 +296,7 @@ export default function WikiExplorerPage({
   }, []);
   const loadModule = useCallback(async (m: WikiModule, reset = true) => {
     searchAbort.current?.abort();
-    setProgress([]);
+    setProgress([]); setOutcome("idle");
     const id = ++moduleRequest.current;
     pageRequest.current++;
     searchRequest.current++;
@@ -333,7 +335,7 @@ export default function WikiExplorerPage({
     moduleRequest.current++;
     pageRequest.current++;
     searchRequest.current++;
-    searchAbort.current?.abort(); setProgress([]); setSearching(false);
+    searchAbort.current?.abort(); setProgress([]); setOutcome("idle"); setSearching(false);
     cache.current = {};
     setModules([]);
     setModule(null);
@@ -510,7 +512,7 @@ export default function WikiExplorerPage({
     const id = ++searchRequest.current;
     searchAbort.current?.abort();
     const controller = new AbortController(); searchAbort.current = controller;
-    setProgress([]);
+    setProgress([]); setOutcome("idle");
     setSearching(true);
     setError("");
     setView("results");
@@ -525,7 +527,7 @@ export default function WikiExplorerPage({
           { signal: controller.signal, onProgress: event => { if (id === searchRequest.current && !controller.signal.aborted) setProgress(items => appendProgress(items, event)); } },
         );
         if (id === searchRequest.current) {
-          setAnswer(r);
+          setAnswer(r); setOutcome(r.error ? "failed" : "completed");
           if (r.error) setError(r.error);
         }
       } else {
@@ -533,7 +535,7 @@ export default function WikiExplorerPage({
         if (id === searchRequest.current) setResults(r || []);
       }
     } catch (e) {
-      if (id === searchRequest.current && !controller.signal.aborted) setError((e as Error).message);
+      if (id === searchRequest.current && !controller.signal.aborted) { setError((e as Error).message); setOutcome("failed"); }
     } finally {
       if (id === searchRequest.current) setSearching(false);
     }
@@ -843,7 +845,7 @@ export default function WikiExplorerPage({
                   >
                     Next document
                   </button>
-                  <span className="status-pill">{page.type}</span>
+                  <WorkBadge>{page.type}</WorkBadge>
                 </div>
                 <h2 ref={readingTitle} tabIndex={-1}>
                   {page.title}
@@ -934,7 +936,7 @@ export default function WikiExplorerPage({
           )}
         </>
       )}
-      {view === "results" && searchMode === "ai" && <AgentExecution events={progress} running={searching} onCancel={() => { searchAbort.current?.abort(); searchRequest.current++; setSearching(false); setError("Generation stopped."); }} />}
+      {view === "results" && searchMode === "ai" && <AgentExecution events={progress} running={searching} outcome={outcome} onCancel={() => { searchAbort.current?.abort(); searchRequest.current++; setSearching(false); setOutcome("cancelled"); setError("Generation stopped."); }} />}
       {view === "results" &&
         (searching ? (
           <LoadingSpinner

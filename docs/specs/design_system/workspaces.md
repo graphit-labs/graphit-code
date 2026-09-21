@@ -27,7 +27,7 @@ Source of route truth: [App.tsx](../../../internal/ui/src/App.tsx). Source paths
 | `/hub/registry` | What reusable context can I trust and install? Filtered registry → artifact inspector | Type/publisher/search; identity/version/origin/dependencies; install with optional or required alias, remove and publish when applicable; authorization gates | `hub/RegistryPage.tsx`, `ArtifactCard.tsx` |
 | `/hub/local` | What context does this project own or consume? Owned/Installed/Linked catalogues → origin-specific inspector | Publish/update/unpublish own artifacts; update/remove installations; unlink local context; metadata/dependency review before publication | `hub/ProjectArtifactsPage.tsx`, `hub/modals/SubmitModal.tsx` |
 | `/hub/upload` | What contract am I publishing for reuse? Package → Metadata & dependencies → Review & publish | Type-specific package extension; virtual power packages; identity, version, author, tags, dependencies; selected project/agent and explicit final submit | `hub/UploadPage.tsx` |
-| `/live` | What evidence boundary should an agent investigate? Prepare context → Run & evidence → Recent sessions | Compatible artifact selection, brief, start/follow-up/cancel; streamed output/activity; reconnect/dedup; reopen/remove sessions; ephemeral scope | `live/LiveSearchPage.tsx` |
+| `/live` | What evidence boundary should an agent investigate? Prepare context → Run & evidence → Recent sessions | Compatible artifact selection, brief, start/follow-up/cancel; streamed output/activity and source tabs with concise citations; reconnect/dedup; reopen/remove sessions; ephemeral scope | `live/LiveSearchPage.tsx`, `live/LiveEvidence.tsx` |
 | `/system/ecosystem` | Which local project is relevant and how is it connected? Searchable directory → project/cluster dossier | All/Same Cluster filters; inspect/copy path; label add/remove; registration removal confirmation | `system/EcosystemDashboard.tsx` |
 | `/system/daemon` | Is the background service available and how do I connect? Runtime band → logs and process details → agent connection and control | Poll/refresh; actual endpoint/key fields; copy where available; explicit stop confirmation and restart guidance | `daemon/DaemonDashboard.tsx` |
 | `/system/dream` | What did autonomous maintenance produce? Conditions → report directory → report reading | Scoped polling/refresh, report filter and content, links to recorded work; no invented quality metric | `dream/DreamDashboard.tsx` |
@@ -165,6 +165,12 @@ The initial Now tab shows active sessions and tasks plus recently maintained pro
 Now refreshes every five seconds while mounted, shares its loader with the header refresh, deduplicates in-flight requests and aborts/ignores responses after a project or agent change or navigation. Keep the previous snapshot visible while updating; identify stale data after a failed refresh and retry automatically. Individual source errors remain visible without hiding successful sections. Each section shows at most the latest 20 records, sorted before limiting, with its total and links to the full record. Preserve the timestamp precision supplied by the source: old date-only Knowledge values remain dates.
 
 ### Live source selection
+
+The header's selected agent determines both the prepared workspace adapter and the executable
+used throughout the Live session. A missing CLI fails before workspace preparation and identifies
+the required executable; do not silently substitute another installed agent. Every turn uses the
+same managed investigation directory. Codex's explicit non-Git workspace option preserves this
+directory without changing its sandbox or approval policy; see [AI engine](../ai_engine.md).
 
 Live's evidence picker combines artifacts from the active registered project instance with all authorized pages of the Hub catalogue. Search matches identity, name, description, tags and project information; source and type filters refine that set. Origin stays visible beside each artifact and selected item. Identical names from a project and the Hub are distinct selections. A source failure leaves successful sources usable and shows the failed source explicitly. Project/agent changes clear selections and invalidate old catalogue responses; header refresh reconciles selections with the refreshed catalogue.
 

@@ -1,3 +1,4 @@
+import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import {
   WorkPage,
@@ -317,7 +318,7 @@ function PublicationWorkspace() {
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Purpose, scope and expected use"
+                    placeholder="Purpose, scope and expected use. Markdown supported."
                   />
                 </label>
                 <div className="work-two-columns">
@@ -416,7 +417,6 @@ function PublicationWorkspace() {
                     "Package",
                     type === "power" ? "Virtual package" : file?.name,
                   ],
-                  ["Description", description],
                   ["Tags", tags],
                   ["Author", author],
                   [
@@ -428,6 +428,8 @@ function PublicationWorkspace() {
                   ],
                 ]}
               />
+              <h3>Description</h3>
+              {description ? <div className="markdown-preview"><MarkdownContent content={description} /></div> : <p>No description provided.</p>}
               <div className="work-actions mt-6">
                 <button
                   className="work-button"

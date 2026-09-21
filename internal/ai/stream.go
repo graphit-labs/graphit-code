@@ -10,7 +10,7 @@ type EventKind string
 
 const (
 	// EventText is a chunk of the assistant's answer. Chunks concatenate to the
-	// full text; no chunk is a complete unit of anything.
+	// full text, including paragraph separators normalized by structured adapters.
 	EventText EventKind = "text"
 	// EventThinking is reasoning the CLI chose to surface separately from the answer.
 	EventThinking EventKind = "thinking"
@@ -38,8 +38,13 @@ type Event struct {
 	Kind EventKind `json:"kind"`
 	// Text carries the payload for text, thinking, stderr and error events.
 	Text string `json:"text,omitempty"`
+	// textStart is parser-only: a confirmed new assistant message/complete text
+	// part. readStructured consumes it before emitting public events.
+	textStart bool
 	// Tool is the tool name for tool_use and tool_result events.
 	Tool string `json:"tool,omitempty"`
+	// ToolCallID correlates native tool calls and results; never a session ID.
+	ToolCallID string `json:"tool_call_id,omitempty"`
 	// Detail carries a tool's input or output, already rendered for display.
 	Detail string `json:"detail,omitempty"`
 	// SessionID is set on session events.
@@ -65,6 +70,12 @@ type StreamRequest struct {
 	// which for a server means "whichever project it was started in" — the wrong
 	// project, silently, with a plausible answer.
 	WorkDir string
+
+	// AllowNonGitWorkspace opts a caller-owned workspace into execution without
+	// a Git repository. It requires an explicit WorkDir and does not authorize
+	// tool use, bypass approvals, or change the CLI's sandbox. Live Search uses
+	// it because its prepared investigation directory deliberately has no Git.
+	AllowNonGitWorkspace bool
 
 	// AllowTools lets the agent use its tools instead of only describing what it
 	// would do. It selects a different preamble; see agenticPreamble for why this
