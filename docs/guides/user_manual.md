@@ -100,8 +100,8 @@ That on-the-fly catalog makes local and published contexts portable without a se
 deployment.
 
 The Code investigation workspace separates **Find & inspect**, **Query lab** and **Relationship map**.
-The map loads a bounded sample and organizes it by directory, file, language or configured cluster.
-Select a boundary, follow incoming or outgoing relationships, then choose **Inspect source & impact**.
+Search and Run query open their results in Relationship map. The map organizes returned entities by directory, file, language or configured cluster; it loads a sample only when no explicit request is active. Scalar and mixed query values remain available in Query rows, and Query lab retains the editable draft.
+Select a boundary and an entity. Its Incoming/Outgoing neighborhood is queried from the index, including neighbors outside the result. Follow a neighbor or use **Back** without changing the original catalogue. **Load more relationships** continues large neighborhoods; failures remain visible with retry. Choose **Inspect source & impact** to read the implementation and investigate potential impact.
 Clusters are configured path groups, not inferred communities. Counts describe the loaded result;
 missing sample edges do not prove that a dependency is absent.
 

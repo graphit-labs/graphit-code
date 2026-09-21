@@ -6,9 +6,9 @@ import {
   astApi,
   type GraphNode,
   type GraphEdge,
-  type CodeSearchResult,
   type SchemaResponse,
 } from "@/api/ast";
+import { loadNeighborhood, type Neighborhood, type NeighborhoodLoader } from "./neighborhood";
 import { RelationshipExplorer } from "./RelationshipExplorer";
 import { QueryBar } from "./QueryBar";
 import { CodePanel } from "./CodePanel";
@@ -38,8 +38,6 @@ export default function ExplorerPage() {
   const projectDir = activeProjectDir || undefined;
   const [view, setView] = useState("investigate");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<CodeSearchResult[]>([]);
-  const [searched, setSearched] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<GraphNode | null>(null);
@@ -50,6 +48,13 @@ export default function ExplorerPage() {
     provenance: string;
   } | null>(null);
   const [sourceLoading, setSourceLoading] = useState(false);
+  const inspection = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (selected && inspection.current) {
+      inspection.current.focus({ preventScroll: true });
+      inspection.current.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    }
+  }, [selected]);
   const [relation, setRelation] = useState("source");
   const [edgeType, setEdgeType] = useState("CALLS");
   const [targetType, setTargetType] = useState("");
@@ -70,9 +75,11 @@ export default function ExplorerPage() {
     rows: unknown[][];
   } | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
-  const [queryRan, setQueryRan] = useState(false);
-  const searchRequest = useRef(0),
-    sourceRequest = useRef(0),
+  const [refreshingGraph, setRefreshingGraph] = useState(false);
+  const [resultOrigin, setResultOrigin] = useState("");
+  const [resultKind, setResultKind] = useState<"sample" | "search" | "query">("sample");
+  const [resultVersion, setResultVersion] = useState(0);
+  const sourceRequest = useRef(0),
     relationRequest = useRef(0),
     graphRequest = useRef(0);
   const lastSearch = useRef("");
@@ -84,16 +91,16 @@ export default function ExplorerPage() {
   const [dataScope, setDataScope] = useState(currentScope);
   if (dataScope !== currentScope) {
     setDataScope(currentScope);
-    setResults([]);
-    setSearched(false);
     setSelected(null);
     setSource(null);
     setRelated([]);
     setNodes([]);
     setLinks([]);
     setTabular(null);
-    setQueryRan(false);
+    setResultOrigin("");
+    setResultKind("sample");
     setQueryLoading(false);
+    setRefreshingGraph(false);
     setQuery("");
     setError("");
     setSearching(false);
@@ -109,7 +116,6 @@ export default function ExplorerPage() {
     });
   }
   useEffect(() => {
-    searchRequest.current++;
     sourceRequest.current++;
     relationRequest.current++;
     graphRequest.current++;
@@ -129,21 +135,45 @@ export default function ExplorerPage() {
       active = false;
     };
   }, [context, projectDir]);
-  const search = async (text = query.trim()) => {
+  const exploreNeighborhood: NeighborhoodLoader = useCallback(
+    (node: GraphNode, previous?: Neighborhood, signal?: AbortSignal) => loadNeighborhood(node, schema, context, projectDir, previous, signal),
+    [schema, context, projectDir],
+  );
+  const beginResult = (origin: string, kind: "sample" | "search" | "query" = "sample") => {
+    setResultKind(kind);
+    setRefreshingGraph(false);
+    setView("map");
+    setResultOrigin(origin);
+    setResultVersion(version => version + 1);
+    setNodes([]); setLinks([]); setTabular(null);
+    setSelected(null); setSource(null); setRelated([]);
+    sourceRequest.current++; relationRequest.current++;
+    setSourceLoading(false); setRelationLoading(false);
+    setError("");
+  };
+  const search = async (text = query.trim(), present = true) => {
     if (!text) return;
     lastSearch.current = text;
-    const id = ++searchRequest.current;
+    lastGraphQuery.current = null;
+    const id = ++graphRequest.current;
+    const startedScope = currentScope;
+    if (present) beginResult("Search results · " + text, "search");
+    setQueryLoading(false);
     setSearching(true);
     setError("");
-    setSearched(true);
-    setResults([]);
     try {
       const rows = await astApi.search(text, context, projectDir);
-      if (id === searchRequest.current) setResults(rows || []);
+      if (id !== graphRequest.current || scope.current !== startedScope) return;
+      setNodes((rows || []).map((r, index) => ({
+        id: JSON.stringify([r.Type, r.Path, r.Line, r.Name]),
+        name: r.Name, label: r.Type, type: r.Type, file: r.Path, line: r.Line,
+        properties: { search_rank: index + 1, docstring: r.Docstring, search_type: r.SearchType, relevance_score: r.RelevanceScore },
+      })));
+      setLinks([]); setTabular(null);
     } catch (e) {
-      if (id === searchRequest.current) setError((e as Error).message);
+      if (id === graphRequest.current && scope.current === startedScope) setError((e as Error).message);
     } finally {
-      if (id === searchRequest.current) setSearching(false);
+      if (id === graphRequest.current && scope.current === startedScope) setSearching(false);
     }
   };
   const openFile = useCallback(
@@ -181,7 +211,7 @@ export default function ExplorerPage() {
       setRelated([]);
       setSelected(node);
       setRelation("source");
-      setView("investigate");
+      setView("map");
       if (node.file) void openFile(node.file, node.line);
       else {
         sourceRequest.current++;
@@ -191,15 +221,6 @@ export default function ExplorerPage() {
     },
     [openFile],
   );
-  const selectResult = (r: CodeSearchResult) =>
-    choose({
-      id: r.Path + ":" + r.Line + ":" + r.Name,
-      name: r.Name,
-      label: r.Type,
-      type: r.Type,
-      file: r.Path,
-      line: r.Line,
-    });
   const targetTypes = (kind: string, edge: string) => {
     const endpoints = (schema.relationship_endpoints || []).filter(
       (e) => e.type === (kind === "impact" ? "CALLS" : edge),
@@ -373,6 +394,9 @@ export default function ExplorerPage() {
     }
   };
   const sample = async () => {
+    beginResult("Index sample");
+    lastSearch.current = "";
+    setSearching(false);
     lastGraphQuery.current = {};
     const id = ++graphRequest.current;
     setQueryLoading(true);
@@ -393,7 +417,7 @@ export default function ExplorerPage() {
   useEffect(() => {
     if (view !== "map" || !projectDir || initialSample.current === currentScope) return;
     initialSample.current = currentScope;
-    if (!lastGraphQuery.current) void sample();
+    if (!lastGraphQuery.current && !lastSearch.current) void sample();
   }, [view, currentScope, projectDir]);
   usePageRefresh(async () => {
     const startedScope = currentScope;
@@ -404,16 +428,26 @@ export default function ExplorerPage() {
     };
     const graph = async () => {
       if (!lastGraphQuery.current) return;
-      const request = graphRequest.current;
-      const data = await astApi.getGraph({ context, project_dir: projectDir, ...lastGraphQuery.current });
-      if (request !== graphRequest.current || scope.current !== startedScope) return;
-      setNodes(data.nodes || []);
-      setLinks(data.links || []);
-      setTabular(data.tabular || null);
+      const request = ++graphRequest.current;
+      const isCurrent = () => request === graphRequest.current && scope.current === startedScope;
+      setQueryLoading(true);
+      setRefreshingGraph(true);
+      try {
+        const data = await astApi.getGraph({ context, project_dir: projectDir, ...lastGraphQuery.current });
+        if (!isCurrent()) return;
+        setError("");
+        setNodes(data.nodes || []);
+        setLinks(data.links || []);
+        setTabular(data.tabular || null);
+      } catch (e) {
+        if (isCurrent()) { setError((e as Error).message); throw e; }
+      } finally {
+        if (isCurrent()) { setQueryLoading(false); setRefreshingGraph(false); }
+      }
     };
     await refreshAll([
       metadata(), graph(),
-      lastSearch.current ? search(lastSearch.current) : Promise.resolve(),
+      lastSearch.current ? search(lastSearch.current, false) : Promise.resolve(),
       source ? openFile(source.path, source.line) : Promise.resolve(),
       selected && relation !== "source" ? investigate(relation, edgeType, targetType) : Promise.resolve(),
     ]);
@@ -479,60 +513,100 @@ export default function ExplorerPage() {
             </button>
             <small>Up to 20 matches · selected context</small>
           </form>
-          <div className="investigation-layout">
-            <section
-              aria-label="Code search results"
-              className="investigation-results"
+          <WorkNotice title="Explore results in Relationship map">
+            Search functions, types and files across the selected index. Results open in
+            Relationship map, where you can inspect source and query relationships.
+          </WorkNotice>
+        </>
+      )}
+      <div hidden={view !== "query"}>
+          <div className="query-lab-layout">
+            <WorkSection
+              title="A reproducible question"
+              description="Run a read-only Cypher query. AI can draft it; you review and execute it."
             >
-              <h2>{searched ? "Search results" : "Start with a question"}</h2>
-              {searching ? (
-                <LoadingSpinner label="Searching index…" />
-              ) : (
-                results.map((r, i) => (
-                  <RecordLink
-                    key={r.Path + ":" + r.Line + ":" + i}
-                    title={r.Name}
-                    selected={
-                      selected?.name === r.Name &&
-                      selected?.file === r.Path &&
-                      selected?.line === r.Line
-                    }
-                    meta={
-                      <>
-                        {r.Type} · {r.Path}:{r.Line}
-                        <br />
-                        {r.Docstring || r.SearchType}
-                      </>
-                    }
-                    onClick={() => selectResult(r)}
-                  />
-                ))
-              )}
-              {!searching && searched && !results.length && (
-                <WorkEmpty title="No indexed matches">
-                  Try a symbol name or a shorter phrase, or choose another
-                  context.
-                </WorkEmpty>
-              )}
-              {!searched && (
-                <div className="investigation-guide">
-                  <p>Search functions, types and files across the index.</p>
-                  <ol>
-                    <li>Locate the implementation.</li>
-                    <li>Inspect the indexed source.</li>
-                    <li>Follow incoming or outgoing relationships.</li>
-                    <li>Review potential impact before changing code.</li>
-                  </ol>
-                  <button
-                    className="work-button"
-                    onClick={() => setView("query")}
-                  >
-                    Explore with Cypher
-                  </button>
-                </div>
-              )}
-            </section>
+              <QueryBar
+                key={currentScope}
+                contextId={context}
+                projectDir={projectDir}
+                loading={queryLoading && !refreshingGraph}
+                setLoading={setQueryLoading}
+                onQueryStart={(executedQuery) => {
+                  const request = ++graphRequest.current;
+                  const startedScope = currentScope;
+                  lastSearch.current = "";
+                  lastGraphQuery.current = { cypher_query: executedQuery };
+                  setSearching(false);
+                  beginResult("Cypher query result", "query");
+                  return () => request === graphRequest.current && scope.current === startedScope;
+                }}
+                onQueryError={setError}
+                onQueryResult={(value, executedQuery) => {
+                  graphRequest.current++;
+                  setQueryLoading(false);
+                  lastGraphQuery.current = { cypher_query: executedQuery };
+                  const r = value as {
+                    nodes?: GraphNode[];
+                    links?: GraphEdge[];
+                    tabular?: { columns: string[]; rows: unknown[][] };
+                  };
+                  setNodes(r.nodes || []);
+                  setLinks(r.links || []);
+                  setTabular(r.tabular || null);
+                  setView("map");
+                }}
+              />
+            </WorkSection>
+            <aside className="work-panel">
+              <h2>Available vocabulary</h2>
+              <FactList
+                items={schema.nodes.map((n) => [
+                  n.label,
+                  n.count.toLocaleString(),
+                ])}
+              />
+              <p className="text-xs mt-4">
+                {schema.edges.map((e) => e.type).join(" · ") ||
+                  "No relationship types indexed."}
+              </p>
+            </aside>
+          </div>
+      </div>
+      <div hidden={view !== "map"}>
+        <div className="map-workspace">
+          <div className="relationship-intro">
+            <p>Choose a boundary. Follow a relationship. Inspect the implementation.</p>
+          <button
+            className="work-button"
+            disabled={queryLoading || searching}
+            onClick={() => void sample()}
+          >
+            {queryLoading ? "Loading…" : "Load index sample"}
+          </button>
+          </div>
+          <div role="status" aria-live="polite">
+            {searching ? <LoadingSpinner label="Searching index…" /> : queryLoading ? <LoadingSpinner label="Loading indexed relationships…" /> : !error && resultOrigin && <p>{resultOrigin} · {nodes.length} entities{tabular ? ` · ${tabular.rows.length} result rows` : ""}</p>}
+          </div>
+          {!queryLoading && !searching && !error && !nodes.length && !tabular && resultKind === "search" && <WorkEmpty title="No indexed matches">Try a symbol name or a shorter phrase in Find & inspect.</WorkEmpty>}
+          {(nodes.length > 0 || (!tabular && resultKind !== "search")) &&
+          <RelationshipExplorer
+            key={currentScope + ":" + resultVersion}
+            nodes={nodes}
+            links={links}
+            loading={queryLoading || searching}
+            error={Boolean(error)}
+            onInspect={choose}
+            loadNeighborhood={exploreNeighborhood}
+          />}
+          {!queryLoading && !searching && !error && tabular && <details className="work-panel" open={!nodes.length}>
+            <summary>Query rows · {tabular.rows.length}</summary>
+            <p>Returned values are preserved as a table. Scalar values do not imply graph relationships.</p>
+            <div className="query-table"><TabularResults columns={tabular.columns} rows={tabular.rows} onClose={() => setTabular(null)} /></div>
+          </details>}
+          {selected && (
             <section
+              ref={inspection}
+              tabIndex={-1}
               className="investigation-document"
               aria-label="Symbol investigation"
             >
@@ -547,7 +621,7 @@ export default function ExplorerPage() {
                         {selected.line ? ":" + selected.line : ""}
                       </code>
                     </div>
-                    <WorkBadge>Indexed evidence</WorkBadge>
+                    <button className="work-button" onClick={() => { setSelected(null); setSource(null); sourceRequest.current++; relationRequest.current++; }}>Close inspection</button>
                   </header>
                   <WorkTabs
                     value={relation}
@@ -685,117 +759,7 @@ export default function ExplorerPage() {
                 </WorkEmpty>
               )}
             </section>
-          </div>
-        </>
-      )}
-      {view === "query" && (
-        <>
-          <div className="query-lab-layout">
-            <WorkSection
-              title="A reproducible question"
-              description="Run a read-only Cypher query. AI can draft it; you review and execute it."
-            >
-              <QueryBar
-                key={currentScope}
-                contextId={context}
-                projectDir={projectDir}
-                loading={queryLoading}
-                setLoading={setQueryLoading}
-                onQueryStart={() => {
-                  const request = ++graphRequest.current;
-                  return () => request === graphRequest.current;
-                }}
-                onQueryResult={(value, executedQuery) => {
-                  graphRequest.current++;
-                  setQueryLoading(false);
-                  lastGraphQuery.current = { cypher_query: executedQuery };
-                  const r = value as {
-                    nodes?: GraphNode[];
-                    links?: GraphEdge[];
-                    tabular?: { columns: string[]; rows: unknown[][] };
-                  };
-                  setNodes(r.nodes || []);
-                  setLinks(r.links || []);
-                  setTabular(r.tabular || null);
-                  setQueryRan(true);
-                }}
-              />
-            </WorkSection>
-            <aside className="work-panel">
-              <h2>Available vocabulary</h2>
-              <FactList
-                items={schema.nodes.map((n) => [
-                  n.label,
-                  n.count.toLocaleString(),
-                ])}
-              />
-              <p className="text-xs mt-4">
-                {schema.edges.map((e) => e.type).join(" · ") ||
-                  "No relationship types indexed."}
-              </p>
-            </aside>
-          </div>
-          {queryRan && (
-            <WorkSection
-              title="Query result"
-              actions={
-                nodes.length ? (
-                  <button
-                    className="work-button"
-                    onClick={() => setView("map")}
-                  >
-                    View map
-                  </button>
-                ) : undefined
-              }
-            >
-              {tabular ? (
-                <div className="query-table">
-                  <TabularResults
-                    columns={tabular.columns}
-                    rows={tabular.rows}
-                    onClose={() => setTabular(null)}
-                  />
-                </div>
-              ) : nodes.length ? (
-                nodes.map((n) => (
-                  <RecordLink
-                    key={n.id}
-                    title={n.name || n.id}
-                    meta={n.label + " · " + (n.file || "")}
-                    onClick={() => choose(n)}
-                  />
-                ))
-              ) : (
-                <WorkEmpty title="No rows returned">
-                  Refine the query or check the selected context.
-                </WorkEmpty>
-              )}
-            </WorkSection>
           )}
-        </>
-      )}
-      <div hidden={view !== "map"}>
-        <div className="map-workspace">
-          <div className="relationship-intro">
-            <p>Choose a boundary. Follow a relationship. Inspect the implementation.</p>
-          <button
-            className="work-button"
-            disabled={queryLoading}
-            onClick={() => void sample()}
-          >
-            {queryLoading ? "Loading…" : "Load index sample"}
-          </button>
-          </div>
-          {queryLoading && <LoadingSpinner label="Loading indexed relationships…" />}
-          <RelationshipExplorer
-            key={currentScope}
-            nodes={nodes}
-            links={links}
-            loading={queryLoading}
-            error={Boolean(error)}
-            onInspect={choose}
-          />
         </div>
       </div>
     </WorkPage>

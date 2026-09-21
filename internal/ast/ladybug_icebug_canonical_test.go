@@ -4,12 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 )
 
-func buildCanonicalFixture(t *testing.T) (mounted *LadybugBackend) {
+func buildCanonicalFixture(t *testing.T, extraCalls ...cachedCall) (mounted *LadybugBackend) {
 	t.Helper()
 	names := []string{"a", "b", "c", "d", "e", "f"}
 	var ents []cachedEntity
@@ -20,6 +21,7 @@ func buildCanonicalFixture(t *testing.T) (mounted *LadybugBackend) {
 	for i := 0; i+1 < len(names); i++ {
 		calls = append(calls, cachedCall{CallerUID: "fn_" + names[i], CalleeUID: "fn_" + names[i+1], SourceType: "Function", Path: "f.go", Line: 1, Lang: "go"})
 	}
+	calls = append(calls, extraCalls...)
 	entry := &parseCacheEntry{RelPath: "f.go", Language: "go", Entities: ents, Calls: calls}
 	ctx := context.Background()
 	_ = ctx
@@ -154,5 +156,28 @@ func TestCanonicalMembersExpandSmallestFirst(t *testing.T) {
 	out := canonicalUIDMembers(m, g, false, false)
 	if len(out) != 3 || out[0].Table != "small" || out[1].Table != "mid" || out[2].Table != "big" {
 		t.Fatalf("expansion order = %+v, want small,mid,big", out)
+	}
+}
+
+func TestMountedCanonicalDirectNeighborhoodIncludesSelfAndKeyset(t *testing.T) {
+	mounted := buildCanonicalFixture(t, cachedCall{CallerUID: "fn_b", CalleeUID: "fn_b", SourceType: "Function", Path: "f.go", Line: 1, Lang: "go"})
+	for _, tc := range []struct {
+		name, predicate, limit string
+		want                   []string
+	}{
+		{"direct", "", "101", []string{"fn_b", "fn_c"}},
+		{"first", "", "1", []string{"fn_b"}},
+		{"next", " AND n.uid > 'fn_b'", "101", []string{"fn_c"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := "MATCH (anchor:Function)-[:CALLS]->(n:Function) WHERE anchor.uid = 'fn_b'" + tc.predicate + " RETURN DISTINCT n.uid AS identity, n.name AS name ORDER BY identity LIMIT " + tc.limit
+			result, err := mounted.Query(context.Background(), q, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := recordStrings(result, "identity"); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
 	}
 }

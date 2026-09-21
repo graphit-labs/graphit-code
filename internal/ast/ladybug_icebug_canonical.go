@@ -114,7 +114,9 @@ func (k *LadybugBackend) tryCanonicalBoundedTraversal(
 					return nil, true, qerr
 				}
 				for _, uid := range uidValues(records) {
-					if _, seen := visitedDepth[uid]; !seen {
+					// Direct neighbors include self-loops and other selected anchors.
+					// Keep visited-node pruning for multi-hop reachability.
+					if _, seen := visitedDepth[uid]; !seen || (plan.minHops == 1 && plan.maxHops == 1) {
 						visitedDepth[uid] = hop
 						next[uid] = true
 					}

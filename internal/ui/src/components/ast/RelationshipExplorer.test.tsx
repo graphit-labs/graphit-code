@@ -1,8 +1,9 @@
 import "@/test/contextControls";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { GraphNode } from "@/api/ast";
+import type { Neighborhood, NeighborhoodLoader } from "./neighborhood";
 import { RelationshipExplorer } from "./RelationshipExplorer";
 import { boundaries, groupGraph, observedGraph } from "./relationshipModel";
 
@@ -71,4 +72,49 @@ it("does not transfer selection when a refreshed result reuses a renderer ID for
   rerender(<RelationshipExplorer nodes={replacement} links={links} onInspect={vi.fn()} />);
   expect(screen.queryByRole("heading", { name: "DeleteOrder" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Inspect source & impact" })).toBeNull();
+});
+
+const neighborhoodFor = (anchor: GraphNode, neighbor = nodes[1]): Neighborhood => ({ anchor, nodes: [anchor, neighbor], links: [{ source: anchor.id, target: neighbor.id, type: "CALLS" }], partitions: [] });
+it("loads neighbors outside the result, follows them and returns without changing the catalogue", async () => {
+  const user = userEvent.setup();
+  const loader = vi.fn<NeighborhoodLoader>().mockImplementation(async node => neighborhoodFor(node, node.id === "b" ? nodes[2] : nodes[1]));
+  render(<RelationshipExplorer nodes={[nodes[0]]} links={[]} onInspect={vi.fn()} loadNeighborhood={loader} />);
+  await user.click(screen.getByRole("button", { name: /^CreateOrder orders/ }));
+  await user.click(await screen.findByRole("button", { name: /^ReserveStock inventory/ }));
+  expect(await screen.findByRole("button", { name: /^Checkout web/ })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "ReserveStock" })).toBeTruthy();
+  const catalogue = screen.getByRole("complementary", { name: "Result boundaries" });
+  expect(within(catalogue).getByRole("button", { name: /^orders 1 entities/ })).toBeTruthy();
+  expect(within(catalogue).queryByText("inventory")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(loader).toHaveBeenCalledTimes(3));
+  expect(screen.getByRole("heading", { name: "CreateOrder" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "All boundaries" }));
+  expect(screen.getByRole("button", { name: /^CreateOrder orders/ })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^ReserveStock inventory/ })).toBeNull();
+});
+it("does not replace a newer selection with late neighborhood results", async () => {
+  const user = userEvent.setup();
+  let finish!: (n: Neighborhood) => void;
+  const loader = vi.fn<NeighborhoodLoader>().mockImplementationOnce(() => new Promise(r => { finish = r; })).mockImplementation(async node => neighborhoodFor(node, nodes[2]));
+  render(<RelationshipExplorer nodes={[nodes[0], nodes[1]]} links={[]} onInspect={vi.fn()} loadNeighborhood={loader} />);
+  await user.click(screen.getByRole("button", { name: /^orders 1 entities/ }));
+  await user.click(screen.getByRole("button", { name: /^CreateOrder orders/ }));
+  expect(screen.getByText("Loading indexed neighborhood…")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: /^inventory 1 entities/ }));
+  await user.click(screen.getByRole("button", { name: /^ReserveStock inventory/ }));
+  await screen.findByRole("button", { name: /^Checkout web/ });
+  await act(async () => finish(neighborhoodFor(nodes[0])));
+  expect(screen.getByRole("heading", { name: "ReserveStock" })).toBeTruthy();
+  expect(loader.mock.calls[0][2]?.aborted).toBe(true);
+});
+it("reports failed neighborhood lookup and retries without an empty-success message", async () => {
+  const user = userEvent.setup();
+  const loader = vi.fn<NeighborhoodLoader>().mockRejectedValueOnce(new Error("Index unavailable")).mockResolvedValue(neighborhoodFor(nodes[0]));
+  render(<RelationshipExplorer nodes={[nodes[0]]} links={[]} onInspect={vi.fn()} loadNeighborhood={loader} />);
+  await user.click(screen.getByRole("button", { name: /^CreateOrder orders/ }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Index unavailable");
+  expect(screen.queryByText(/No incoming relationships found/)).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Retry neighborhood" }));
+  expect(await screen.findByRole("button", { name: /^ReserveStock inventory/ })).toBeTruthy();
 });

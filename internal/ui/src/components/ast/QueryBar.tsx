@@ -10,7 +10,8 @@ interface QueryBarProps {
   contextId?: string;
   projectDir?: string;
   onQueryResult: (result: unknown, executedQuery: string) => void;
-  onQueryStart?: () => () => boolean;
+  onQueryStart?: (query: string) => () => boolean;
+  onQueryError?: (error: string) => void;
   loading: boolean;
   setLoading: (value: boolean) => void;
   collapsed?: boolean;
@@ -27,6 +28,7 @@ export function QueryBar({
   projectDir,
   onQueryResult,
   onQueryStart,
+  onQueryError,
   loading,
   setLoading,
 }: QueryBarProps) {
@@ -56,7 +58,7 @@ export function QueryBar({
   const execute = async () => {
     if (!query.trim()) return;
     const id = ++generation.current;
-    const isCurrent = onQueryStart?.() ?? (() => true);
+    const isCurrent = onQueryStart?.(query.trim()) ?? (() => true);
     setLoading(true);
     setError("");
     try {
@@ -67,7 +69,7 @@ export function QueryBar({
       });
       if (id === generation.current && isCurrent()) onQueryResult(result, query.trim());
     } catch (e) {
-      if (id === generation.current) setError((e as Error).message);
+      if (id === generation.current && isCurrent()) { if (onQueryError) onQueryError((e as Error).message); else setError((e as Error).message); }
     } finally {
       if (id === generation.current && isCurrent()) setLoading(false);
     }

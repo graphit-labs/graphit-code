@@ -130,6 +130,7 @@ export const astApi = {
   },
   getGraph: (params: {
     context?: string;
+    signal?: AbortSignal;
     cypher_query?: string;
     repo_path?: string;
     project_dir?: string;
@@ -139,7 +140,9 @@ export const astApi = {
     if (params.cypher_query) qs.set("cypher_query", params.cypher_query);
     if (params.repo_path) qs.set("repo_path", params.repo_path);
     if (params.project_dir) qs.set("project_dir", params.project_dir);
-    return api.get<GraphResponse>(`/api/graph?${qs}`);
+    return params.signal
+      ? api.get<GraphResponse>(`/api/graph?${qs}`, { signal: params.signal })
+      : api.get<GraphResponse>(`/api/graph?${qs}`);
   },
   getFile: (path: string, context?: string, projectDir?: string) => {
     const qs = new URLSearchParams({ path });

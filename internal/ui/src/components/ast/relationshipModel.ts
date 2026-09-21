@@ -11,7 +11,7 @@ export function groupOf(n: GraphNode, grouping: Grouping): string {
   if (grouping === "file") return file;
   return file.includes("/") ? file.slice(0, file.lastIndexOf("/")) : "Project root";
 }
-export const byName = (a: GraphNode, b: GraphNode) => a.name.localeCompare(b.name) || (a.file || "").localeCompare(b.file || "") || a.id.localeCompare(b.id);
+export const byName = (a: GraphNode, b: GraphNode) => (Number(a.properties?.search_rank || 0) - Number(b.properties?.search_rank || 0)) || a.name.localeCompare(b.name) || (a.file || "").localeCompare(b.file || "") || a.id.localeCompare(b.id);
 
 /** Count observed triples, not query row multiplicity. The API has no edge ID. */
 export function observedGraph(nodes: GraphNode[], links: GraphEdge[]) {

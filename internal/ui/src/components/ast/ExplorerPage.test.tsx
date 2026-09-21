@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import "@/test/contextControls";
 import { WorkspaceRefreshProvider } from "@/components/layout/WorkspaceRefresh";
 import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors";
@@ -18,7 +19,6 @@ vi.mock("@/api/ast", () => ({
     generateCypher: vi.fn(),
   },
 }));
-vi.mock("./GraphCanvas", () => ({ GraphCanvas: () => null }));
 vi.mock("./CodePanel", () => ({
   CodePanel: ({ content }: { content: string }) => <pre>{content}</pre>,
 }));
@@ -73,10 +73,12 @@ it("searches the full scoped index without loading a sample, then reads indexed 
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
   await user.click(screen.getByRole("button", { name: "Search index" }));
   await user.click(
-    await screen.findByRole("button", { name: /validate Function/ }),
+    await screen.findByRole("button", { name: /validate src\/check.ts/ }),
   );
+  await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
+  expect(screen.getByRole("tab", { name: "Relationship map" })).toHaveAttribute("aria-selected", "true");
   expect(astApi.search).toHaveBeenCalledWith("validate", "library", "/project");
-  expect(astApi.getGraph).not.toHaveBeenCalled();
+  expect(astApi.getGraph).toHaveBeenCalledWith(expect.objectContaining({ cypher_query: expect.stringContaining("RETURN n LIMIT 2") }));
   expect(await screen.findByText("export function validate() {}")).toBeTruthy();
   expect(astApi.getFile).toHaveBeenCalledWith(
     "src/check.ts",
@@ -141,8 +143,9 @@ it("refuses to merge relationships from ambiguous indexed symbols", async () => 
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
   await user.click(screen.getByRole("button", { name: "Search index" }));
   await user.click(
-    await screen.findByRole("button", { name: /validate Function/ }),
+    await screen.findByRole("button", { name: /validate src\/check.ts/ }),
   );
+  await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
   vi.mocked(astApi.getGraph).mockResolvedValue({
     ...empty,
     nodes: [
@@ -152,7 +155,7 @@ it("refuses to merge relationships from ambiguous indexed symbols", async () => 
   });
   await user.click(screen.getByRole("tab", { name: "Incoming" }));
   expect(await screen.findByText(/Multiple indexed symbols/)).toBeTruthy();
-  expect(astApi.getGraph).toHaveBeenCalledTimes(1);
+  expect(astApi.getGraph).toHaveBeenCalledTimes(2);
 });
 
 it("traces file imports using path identity and Module-only properties", async () => {
@@ -183,8 +186,9 @@ it("traces file imports using path identity and Module-only properties", async (
   await user.type(screen.getByLabelText("Search indexed code"), "check");
   await user.click(screen.getByRole("button", { name: "Search index" }));
   await user.click(
-    await screen.findByRole("button", { name: /check.ts File/ }),
+    await screen.findByRole("button", { name: /check.ts src\/check.ts/ }),
   );
+  await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
   await user.click(screen.getByRole("tab", { name: "Outgoing" }));
   await user.click(screen.getByLabelText("Relationship type"));
   await user.click(screen.getByRole("option", { name: "IMPORTS" }));
@@ -203,8 +207,9 @@ it("never uses renderer IDs as persistent symbol identity", async () => {
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
   await user.click(screen.getByRole("button", { name: "Search index" }));
   await user.click(
-    await screen.findByRole("button", { name: /validate Function/ }),
+    await screen.findByRole("button", { name: /validate src\/check.ts/ }),
   );
+  await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
   vi.mocked(astApi.getGraph).mockResolvedValue({
     ...empty,
     nodes: [
@@ -213,7 +218,7 @@ it("never uses renderer IDs as persistent symbol identity", async () => {
   });
   await user.click(screen.getByRole("tab", { name: "Incoming" }));
   expect(await screen.findByText(/Renderer IDs cannot/)).toBeTruthy();
-  expect(astApi.getGraph).toHaveBeenCalledTimes(1);
+  expect(astApi.getGraph).toHaveBeenCalledTimes(2);
 });
 
 it("keeps a newer explicit query when an older graph refresh resolves last", async () => {
@@ -225,6 +230,7 @@ it("keeps a newer explicit query when an older graph refresh resolves last", asy
   let finish!: (value: any) => void;
   vi.mocked(astApi.getGraph).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   await user.click(screen.getByRole("button", { name: "Refresh" }));
+  await user.click(screen.getByRole("tab", { name: "Query lab" }));
   await user.clear(editor); await user.type(editor, "MATCH (n) RETURN n LIMIT 2");
   vi.mocked(astApi.getGraph).mockResolvedValueOnce({ ...empty, tabular: { columns: ["name"], rows: [["New result"]] } });
   await user.click(screen.getByRole("button", { name: "Run query" }));
@@ -251,6 +257,136 @@ it('renders returned scalar and mixed query rows in the result viewer', async ()
   await user.click(screen.getByRole('tab', { name: 'Query lab' }));
   await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n:Function) RETURN n, n.name AS name LIMIT 2');
   await user.click(screen.getByRole('button', { name: 'Run query' }));
+  expect(screen.getByRole('tab', { name: 'Relationship map' })).toHaveAttribute('aria-selected', 'true');
+  await user.click(screen.getByText('Query rows · 1'));
   await screen.findByRole('cell', { name: 'Create' });
   expect(screen.getByText('1 result rows')).toBeTruthy();
+});
+
+it('opens the map while Cypher runs, exposes errors there and preserves the draft', async () => {
+  let reject!: (error: Error) => void;
+  vi.mocked(astApi.getGraph).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  const user = setup();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n) RETURN n');
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  expect(screen.getByRole('tab', { name: 'Relationship map' })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByText('Loading indexed relationships…')).toBeTruthy();
+  await act(async () => reject(new Error('Query requires a typed relationship')));
+  expect(screen.getByText('Query requires a typed relationship')).toBeTruthy();
+  expect(screen.queryByText('No graph entities in this result')).toBeNull();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  expect(screen.getByLabelText('Cypher query')).toHaveValue('MATCH (n) RETURN n');
+  expect(astApi.getGraph).toHaveBeenCalledTimes(1);
+});
+
+it('keeps scalar and empty Cypher results in the map without loading a sample', async () => {
+  vi.mocked(astApi.getGraph).mockResolvedValueOnce({ ...empty, tabular: { columns: ['count'], rows: [[42]] } });
+  const user = setup();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n) RETURN count(n)');
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  expect(await screen.findByRole('cell', { name: '42' })).toBeTruthy();
+  expect(screen.queryByText('No graph entities in this result')).toBeNull();
+  expect(astApi.getGraph).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  vi.mocked(astApi.getGraph).mockResolvedValueOnce({ ...empty, tabular: { columns: ['name'], rows: [] } });
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  expect(await screen.findByText('Query rows · 0')).toBeTruthy();
+  expect(screen.getByRole('tab', { name: 'Relationship map' })).toHaveAttribute('aria-selected', 'true');
+  expect(astApi.getGraph).toHaveBeenCalledTimes(2);
+});
+
+it('shows empty searches and failures in the map without replacing them with a sample', async () => {
+  vi.mocked(astApi.search).mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('Search unavailable'));
+  const user = setup();
+  await user.type(screen.getByLabelText('Search indexed code'), 'missing');
+  await user.click(screen.getByRole('button', { name: 'Search index' }));
+  expect(await screen.findByText('No indexed matches')).toBeTruthy();
+  await user.click(screen.getByRole('tab', { name: 'Find & inspect' }));
+  await user.click(screen.getByRole('button', { name: 'Search index' }));
+  expect(await screen.findByText('Search unavailable')).toBeTruthy();
+  expect(screen.queryByText('No indexed matches')).toBeNull();
+  expect(astApi.getGraph).not.toHaveBeenCalled();
+});
+
+it('refreshes only the active search and does not replay an earlier Cypher query', async () => {
+  const user = setup();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n) RETURN n');
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  await user.click(screen.getByRole('tab', { name: 'Find & inspect' }));
+  await user.type(screen.getByLabelText('Search indexed code'), 'validate');
+  await user.click(screen.getByRole('button', { name: 'Search index' }));
+  await user.click(screen.getByRole('button', { name: 'Refresh' }));
+  await waitFor(() => expect(astApi.search).toHaveBeenCalledTimes(2));
+  expect(astApi.getGraph).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('tab', { name: 'Relationship map' })).toHaveAttribute('aria-selected', 'true');
+});
+
+it('keeps a newer search when an older Cypher request finishes last', async () => {
+  let finish!: (result: any) => void;
+  vi.mocked(astApi.getGraph).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const user = setup();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n) RETURN n');
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  await user.click(screen.getByRole('tab', { name: 'Find & inspect' }));
+  await user.type(screen.getByLabelText('Search indexed code'), 'validate');
+  await user.click(screen.getByRole('button', { name: 'Search index' }));
+  await act(async () => finish({ ...empty, nodes: [{ id: 'stale', name: 'Stale query', label: 'Function', type: 'Function' }] }));
+  expect(screen.queryByRole('button', { name: /Stale query/ })).toBeNull();
+  expect(screen.getByRole('button', { name: /validate src\/check.ts/ })).toBeTruthy();
+});
+
+it('clears a query failure after a successful header refresh and reveals returned rows', async () => {
+  vi.mocked(astApi.getGraph).mockRejectedValueOnce(new Error('Temporary outage'))
+    .mockResolvedValueOnce({ ...empty, tabular: { columns: ['count'], rows: [[42]] } });
+  const user = setup();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n) RETURN count(n)');
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  expect(await screen.findByText('Temporary outage')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Refresh' }));
+  expect(await screen.findByRole('cell', { name: '42' })).toBeTruthy();
+  expect(screen.queryByText('Temporary outage')).toBeNull();
+});
+
+it('lets header refresh supersede an older pending Cypher execution', async () => {
+  let finish!: (result: any) => void;
+  vi.mocked(astApi.getGraph).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+    .mockResolvedValueOnce({ ...empty, tabular: { columns: ['name'], rows: [['Fresh refresh']] } });
+  const user = setup();
+  await user.click(screen.getByRole('tab', { name: 'Query lab' }));
+  await user.type(screen.getByLabelText('Cypher query'), 'MATCH (n) RETURN n.name');
+  await user.click(screen.getByRole('button', { name: 'Run query' }));
+  await user.click(screen.getByRole('button', { name: 'Refresh' }));
+  expect(await screen.findByRole('cell', { name: 'Fresh refresh' })).toBeTruthy();
+  await act(async () => finish({ ...empty, tabular: { columns: ['name'], rows: [['Stale original']] } }));
+  expect(screen.queryByText('Stale original')).toBeNull();
+  expect(screen.getByRole('cell', { name: 'Fresh refresh' })).toBeTruthy();
+  expect(screen.queryByText('Loading indexed relationships…')).toBeNull();
+});
+
+it("queries an independent scoped neighborhood from a search selection and refreshes both without replacing the catalogue", async () => {
+  const anchor = { id: "render:1", name: "validate", label: "Function", type: "Function", file: "src/check.ts", line: 12, properties: { uid: "validate-uid" } };
+  vi.mocked(astApi.getGraph).mockImplementation(async ({ cypher_query: q }) => q?.includes("RETURN n LIMIT 2") ? { ...empty, nodes: [anchor] } : {
+    ...empty, tabular: { columns: ["identity", "name", "path", "line_number"], rows: q?.startsWith("MATCH (anchor:") ? [["external-uid", "Ship", "delivery/ship.ts", 7]] : [] },
+  });
+  const user = setup();
+  await user.type(screen.getByLabelText("Search indexed code"), "validate");
+  await user.click(screen.getByRole("button", { name: "Search index" }));
+  await user.click(await screen.findByRole("button", { name: /validate src\/check.ts/ }));
+  expect(await screen.findByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeTruthy();
+  expect(screen.getByText("Search results · validate · 1 entities")).toBeTruthy();
+  expect(astApi.getGraph).toHaveBeenCalledTimes(3);
+  await user.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(astApi.getGraph).toHaveBeenCalledTimes(6));
+  await waitFor(() => expect(screen.queryByText("Loading indexed neighborhood…")).toBeNull());
+  expect(astApi.search).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("heading", { name: "validate" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeTruthy();
+  for (const [args] of vi.mocked(astApi.getGraph).mock.calls) expect(args).toMatchObject({ context: "library", project_dir: "/project" });
+  act(() => useAppStore.setState({ activeProjectDir: "/new" }));
+  expect(screen.queryByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeNull();
 });
