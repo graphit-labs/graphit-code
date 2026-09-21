@@ -1,5 +1,7 @@
 package task
 
+import "github.com/graphit-labs/graphit-code/internal/relations"
+
 import "time"
 
 type Status string
@@ -23,20 +25,21 @@ func ValidStatus(v string) bool {
 // duplicated into query tables, but stay here so a single-row CAS contains
 // everything needed to decide whether the task may be claimed or resumed.
 type Task struct {
-	SessionID      string   `json:"session_id,omitempty"`
-	ID             string   `json:"id"`
-	ProjectID      string   `json:"project_id"`
-	ParentID       string   `json:"parent_id,omitempty"`
-	IdempotencyKey string   `json:"idempotency_key"`
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	Type           string   `json:"type"`
-	Status         Status   `json:"status"`
-	Priority       int      `json:"priority"`
-	DependsOn      []string `json:"depends_on,omitempty"`
-	Checks         []Check  `json:"checks"`
-	Flagged        bool     `json:"flagged"`
-	FlagReason     string   `json:"flag_reason,omitempty"`
+	References     *[]relations.Ref `json:"references,omitempty"`
+	SessionID      string           `json:"session_id,omitempty"`
+	ID             string           `json:"id"`
+	ProjectID      string           `json:"project_id"`
+	ParentID       string           `json:"parent_id,omitempty"`
+	IdempotencyKey string           `json:"idempotency_key"`
+	Title          string           `json:"title"`
+	Description    string           `json:"description"`
+	Type           string           `json:"type"`
+	Status         Status           `json:"status"`
+	Priority       int              `json:"priority"`
+	DependsOn      []string         `json:"depends_on,omitempty"`
+	Checks         []Check          `json:"checks"`
+	Flagged        bool             `json:"flagged"`
+	FlagReason     string           `json:"flag_reason,omitempty"`
 
 	Owner          string `json:"owner,omitempty"`
 	ClaimToken     string `json:"claim_token,omitempty"`
@@ -89,18 +92,19 @@ type Comment struct {
 }
 
 type Event struct {
-	Key          string        `json:"key"`
-	TaskID       string        `json:"task_id"`
-	Sequence     int64         `json:"sequence"`
-	Type         string        `json:"type"`
-	Actor        string        `json:"actor"`
-	At           string        `json:"at"`
-	FromStatus   Status        `json:"from_status,omitempty"`
-	ToStatus     Status        `json:"to_status,omitempty"`
-	Summary      string        `json:"summary,omitempty"`
-	NextStep     string        `json:"next_step,omitempty"`
-	Revision     int64         `json:"revision"`
-	SpecRevision *SpecRevision `json:"spec_revision,omitempty"`
+	References   *[]relations.Ref `json:"references,omitempty"`
+	Key          string           `json:"key"`
+	TaskID       string           `json:"task_id"`
+	Sequence     int64            `json:"sequence"`
+	Type         string           `json:"type"`
+	Actor        string           `json:"actor"`
+	At           string           `json:"at"`
+	FromStatus   Status           `json:"from_status,omitempty"`
+	ToStatus     Status           `json:"to_status,omitempty"`
+	Summary      string           `json:"summary,omitempty"`
+	NextStep     string           `json:"next_step,omitempty"`
+	Revision     int64            `json:"revision"`
+	SpecRevision *SpecRevision    `json:"spec_revision,omitempty"`
 }
 
 type Detail struct {

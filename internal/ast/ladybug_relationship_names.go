@@ -20,13 +20,27 @@ type nodeTypeStat struct {
 	Count int64
 }
 
+type schemaNodeType struct {
+	Label            string   `json:"label"`
+	IdentityProperty string   `json:"identity_property"`
+	Properties       []string `json:"properties"`
+}
+
+type schemaRelationshipEndpoint struct {
+	Type string `json:"type"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 type canonicalStats struct {
-	NodeCount         int64
-	EdgeCount         int64
-	Nodes             []nodeTypeStat
-	Relationships     []relationshipTypeStat
-	Langs             []SchemaLangGroup
-	LangStatsComplete bool
+	NodeTypes             []schemaNodeType
+	RelationshipEndpoints []schemaRelationshipEndpoint
+	NodeCount             int64
+	EdgeCount             int64
+	Nodes                 []nodeTypeStat
+	Relationships         []relationshipTypeStat
+	Langs                 []SchemaLangGroup
+	LangStatsComplete     bool
 }
 
 type relationshipTypeNamer interface {
@@ -221,11 +235,22 @@ func (k *LadybugBackend) canonicalGraphStats() (canonicalStats, bool) {
 }
 
 func canonicalStatsFromManifest(man *ladybug.CanonicalManifest) canonicalStats {
-	stats := canonicalStats{LangStatsComplete: true}
+	stats := canonicalStats{LangStatsComplete: true, NodeTypes: []schemaNodeType{}, RelationshipEndpoints: []schemaRelationshipEndpoint{}}
+	endpoints := map[schemaRelationshipEndpoint]bool{}
 	langLabels := map[string][]SchemaLabelCount{}
 	langTotals := map[string]int{}
 
 	for _, table := range man.NodeTables {
+		properties := make([]string, 0, len(table.Columns))
+		for _, column := range table.Columns {
+			properties = append(properties, column.Name)
+		}
+		identity := table.PrimaryKey
+		if identity == "" && len(properties) > 0 {
+			identity = properties[0]
+		}
+		sort.Strings(properties)
+		stats.NodeTypes = append(stats.NodeTypes, schemaNodeType{Label: table.Label, IdentityProperty: identity, Properties: properties})
 		stats.NodeCount += table.Rows
 		stats.Nodes = append(stats.Nodes, nodeTypeStat{Label: table.Label, Count: table.Rows})
 
@@ -251,9 +276,26 @@ func canonicalStatsFromManifest(man *ladybug.CanonicalManifest) canonicalStats {
 		var count int64
 		for _, member := range group.Members {
 			count += member.Rows
+			if group.Type != "" && member.From != "" && member.To != "" {
+				endpoints[schemaRelationshipEndpoint{Type: group.Type, From: member.From, To: member.To}] = true
+			}
 		}
 		stats.Relationships = append(stats.Relationships, relationshipTypeStat{Type: group.Type, Count: count})
 	}
+	for endpoint := range endpoints {
+		stats.RelationshipEndpoints = append(stats.RelationshipEndpoints, endpoint)
+	}
+	sort.Slice(stats.NodeTypes, func(i, j int) bool { return stats.NodeTypes[i].Label < stats.NodeTypes[j].Label })
+	sort.Slice(stats.RelationshipEndpoints, func(i, j int) bool {
+		a, b := stats.RelationshipEndpoints[i], stats.RelationshipEndpoints[j]
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		if a.From != b.From {
+			return a.From < b.From
+		}
+		return a.To < b.To
+	})
 	stats.EdgeCount = man.EdgeCount
 	sort.Slice(stats.Relationships, func(i, j int) bool {
 		if stats.Relationships[i].Count == stats.Relationships[j].Count {

@@ -3,6 +3,8 @@ package memory
 import (
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/relations"
+
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
 )
@@ -15,6 +17,10 @@ func RuleContent(contexts []string) string {
 		"`project_dir` is a runtime MCP argument, not persisted project identity. In docs, Task, Memory and handoffs save project identity plus repository-relative paths; never copy a machine-specific checkout root. Resolve the local root again on each host.",
 		"",
 		"Preserve preferences, corrections, standing guidance, project facts and confirmed non-obvious knowledge that affect future work. Use Graphit, not native/model memory. Task holds investigation/progress; Knowledge holds maintained docs.",
+		"",
+		relations.AgentContract,
+		relations.AgentExample,
+		relations.QueryContract(brand.MCPToolName("references", "query"), brand.MCPToolName("references", "reconcile")),
 		"",
 		"## Recall whenever a question needs context",
 		"",
@@ -48,7 +54,7 @@ func MandateTrigger() string {
 	return agent.ModuleMandateTrigger(
 		"Memory", memorySkillName,
 		"answering a question or resolving a knowledge gap at any stage of work, or capturing durable guidance, corrections or discoveries",
-		"Reuse sufficient context from hooks/prior reads; new doubts about the system, rationale or learned behavior trigger recall during work, not only session start/resume. For missing context: `"+brand.MCPToolName("memory_search")+"` (`exclude_mandatory: true`) → selected `"+brand.MCPToolName("memory_source")+"`. At the first durable finding, preserve scope/rationale with `"+brand.MCPToolName("memory_update")+"` for an existing subject or `"+brand.MCPToolName("memory_insert")+"` for a new one; skip unchanged duplicates. Keep task-local progress in Task. Never discard unique or critical constraints to save tokens. To count or list by a field rather than by relevance — every mandatory record, everything of one type — use `"+brand.MCPToolName("memory_query")+"` with a predicate; an `id` repeats across its revisions, so add `superseded = false` to reach live records only.",
+		relations.AgentMandate+" "+"Reuse sufficient context from hooks/prior reads; new doubts about the system, rationale or learned behavior trigger recall during work, not only session start/resume. For missing context: `"+brand.MCPToolName("memory_search")+"` (`exclude_mandatory: true`) → selected `"+brand.MCPToolName("memory_source")+"`. At the first durable finding, preserve scope/rationale with `"+brand.MCPToolName("memory_update")+"` for an existing subject or `"+brand.MCPToolName("memory_insert")+"` for a new one; skip unchanged duplicates. Keep task-local progress in Task. Never discard unique or critical constraints to save tokens. To count or list by a field rather than by relevance — every mandatory record, everything of one type — use `"+brand.MCPToolName("memory_query")+"` with a predicate; an `id` repeats across its revisions, so add `superseded = false` to reach live records only.",
 		nil, nil,
 	)
 }

@@ -85,17 +85,34 @@ func installArtifacts(ctx context.Context, ws, agentName string, artifacts []liv
 	if len(artifacts) == 0 {
 		return nil
 	}
-
-	progress(fmt.Sprintf("fetching %s from the hub", countNoun(len(artifacts), "artifact")))
-	svc, err := newInstaller(ctx)
-	if err != nil {
+	if err := validateSelectedVersions(agentName, artifacts); err != nil {
 		return err
 	}
+
+	var svc artifactInstaller
 
 	var installed int
 	for _, a := range artifacts {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if err := validateArtifactSource(a); err != nil {
+			return err
+		}
+		if a.Source == "project" {
+			if err := prepareProjectArtifact(ctx, ws, agentName, a, progress); err != nil {
+				return err
+			}
+			installed++
+			continue
+		}
+		if svc == nil {
+			progress(fmt.Sprintf("fetching %s from the hub", countNoun(len(artifacts), "artifact")))
+			var err error
+			svc, err = newInstaller(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		entryID := a.ID
 		if a.Version != "" {

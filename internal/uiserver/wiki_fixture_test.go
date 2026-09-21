@@ -23,6 +23,9 @@ func indexPage(t *testing.T, dir, name, content string) error {
 
 func indexChunk(t *testing.T, dir string, c wiki.WikiChunk) error {
 	t.Helper()
+	if dir == "" {
+		t.Fatal("wiki fixture requires an explicit store directory")
+	}
 	ctx := context.Background()
 
 	existing := []wiki.WikiChunk{}

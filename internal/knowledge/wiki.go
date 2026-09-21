@@ -190,8 +190,11 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 
 	var docs []knowledgeDoc
 	for _, src := range sources {
-		updatedAt := time.Unix(0, src.mtime).UTC().Format("2006-01-02")
+		updatedAt := time.Unix(0, src.mtime).UTC().Format(time.RFC3339Nano)
 		content := string(src.data)
+		if _, err := wiki.FrontmatterReferences(content); err != nil {
+			return nil, fmt.Errorf("document %s: %w", src.relPath, err)
+		}
 
 		doc := knowledgeDoc{
 			title:       wiki.ExtractTitle(content, src.relPath),
@@ -258,7 +261,7 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 	if wiki.FastPathCheck(ctx, wikiDir, fastEntries) {
-		return result, nil
+		return result, wiki.EnsureReferences(ctx, wikiDir)
 	}
 
 	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
@@ -313,7 +316,7 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 
 	nothingChanged := result.ArticlesWritten == 0 && len(deleted) == 0
 	if nothingChanged && wiki.IndexHasContent(ctx, wikiDir) {
-		return result, nil
+		return result, wiki.EnsureReferences(ctx, wikiDir)
 	}
 
 	graph := wiki.BuildCrossRefGraphFromRefs(knowledgePageEdges(docs, docSlugs))

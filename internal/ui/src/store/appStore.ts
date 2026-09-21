@@ -21,6 +21,7 @@ interface AppState {
   activeProjectDir: string
   projectName: string
   projectsLoaded: boolean
+  projectsError: string
   supportedAgents: string[]
 
   setTypeFilter: (v: string) => void
@@ -59,6 +60,7 @@ export const useAppStore = create<AppState>()(
       activeProjectDir: '',
       projectName: window.__PROJECT_NAME__ ?? '',
       projectsLoaded: false,
+      projectsError: '',
       supportedAgents: [],
 
       isGlobalLoading: false,
@@ -84,6 +86,7 @@ export const useAppStore = create<AppState>()(
       }),
 
       loadProjects: async () => {
+        set({ projectsError: '' })
         try {
           const data = await hubApi.getGlobalProjects()
           const projects = data.projects ?? []
@@ -120,7 +123,7 @@ export const useAppStore = create<AppState>()(
             projectsLoaded: true,
           })
         } catch {
-          set({ projectsLoaded: true })
+          set({ projectsLoaded: true, projectsError: 'Could not refresh available projects and agents. Check the connection and try again.' })
         }
       },
 

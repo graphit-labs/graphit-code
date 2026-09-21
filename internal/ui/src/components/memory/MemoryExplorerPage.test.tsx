@@ -1,3 +1,5 @@
+import "@/test/contextControls"
+import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors"
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -59,6 +61,7 @@ function Location() { return <output data-testid="location">{useLocation().pathn
 function renderExplorer(path = '/memory/explorer/project/01MEMORY') {
   return render(
     <MemoryRouter initialEntries={[path]}>
+        <header><WorkspaceSelectors /></header>
       <Routes>
         <Route path="/memory/explorer/:scopeId/:memoryId?" element={<><MemoryExplorerPage /><Location /></>} />
       </Routes>
@@ -97,16 +100,30 @@ describe('Memory Explorer', () => {
     expect(screen.getAllByText('superseded').length).toBeGreaterThan(0)
   })
 
+  it('renders rich snippets outside the record selection button', async () => {
+    vi.mocked(memoryApi.list).mockResolvedValue({ ...catalog, results: [{ ...catalog.results[0], snippet: '**Evidence** with `code`\n\n- First item\n- [Source](https://example.com/source)' }] })
+    renderExplorer('/memory/explorer/project')
+    const source = await screen.findByRole('link', { name: 'Source' })
+    expect(source.closest('button')).toBeNull()
+    expect(screen.getByText('Evidence').tagName).toBe('STRONG')
+    expect(screen.getByText('code').tagName).toBe('CODE')
+    expect(screen.getByText('First item').tagName).toBe('LI')
+  })
+
   it('sends domain filters to the dedicated memory catalogue API', async () => {
     const user = userEvent.setup()
     renderExplorer('/memory/explorer/project')
     await screen.findByText('Single authoritative store')
 
     await user.type(screen.getByLabelText('Search memories'), 'LanceDB')
-    await user.selectOptions(screen.getByLabelText('Filter memory type'), 'decision')
-    await user.selectOptions(screen.getByLabelText('Filter memory tag'), 'architecture')
-    await user.selectOptions(screen.getByLabelText('Filter importance'), 'true')
-    await user.selectOptions(screen.getByLabelText('Filter mandatory'), 'false')
+    await user.click(screen.getByLabelText('Filter memory type'))
+    await user.click(screen.getByRole('option', { name: 'decision' }))
+    await user.click(screen.getByLabelText('Filter memory tag'))
+    await user.click(screen.getByRole('option', { name: 'architecture' }))
+    await user.click(screen.getByLabelText('Filter importance'))
+    await user.click(screen.getByRole('option', { name: 'Important' }))
+    await user.click(screen.getByLabelText('Filter mandatory'))
+    await user.click(screen.getByRole('option', { name: 'Not mandatory' }))
 
     await waitFor(() => expect(memoryApi.list).toHaveBeenLastCalledWith({
       projectDir: '/project', scope: 'project', query: 'LanceDB', type: 'decision', tag: 'architecture', important: 'true', mandatory: 'false',
@@ -130,7 +147,7 @@ describe('Memory Explorer', () => {
 
     const catalogue = screen.getByLabelText('Memory catalogue')
     await within(catalogue).findByText('Mandatory new')
-    const titles = within(catalogue).getAllByRole('button').map(button => button.querySelector('p')?.textContent)
+    const titles = within(catalogue).getAllByRole('button').map(button => button.textContent)
     expect(titles).toEqual(['Mandatory new', 'Mandatory old', 'Important new', 'Important old', 'Normal newest'])
   })
 
@@ -142,7 +159,8 @@ describe('Memory Explorer', () => {
     await user.click(screen.getByTitle('Create memory'))
     await user.type(screen.getByLabelText('Memory title'), 'New durable fact')
     await user.type(screen.getByLabelText('Memory content'), 'Remember this behavior.')
-    await user.selectOptions(screen.getByLabelText('Memory type'), 'fact')
+    await user.click(screen.getByLabelText('Memory type'))
+    await user.click(screen.getByRole('option', { name: 'fact' }))
     await user.type(screen.getByLabelText('Memory tags'), 'runtime, trace')
     const createForm = screen.getByRole('dialog', { name: 'Create memory' })
     await user.click(within(createForm).getByRole('button', { name: 'Create memory' }))
@@ -197,7 +215,7 @@ describe('Memory Explorer', () => {
     expect(screen.getByTestId('location').textContent).toBe('/memory/explorer/project/01MEMORY')
   })
 
-  it('switches the active project from the memory header', async () => {
+  it('switches the active project from the shared header', async () => {
     const user = userEvent.setup()
     useAppStore.setState({
       projects: [
@@ -209,13 +227,29 @@ describe('Memory Explorer', () => {
     renderExplorer('/memory/explorer/project')
 
     await screen.findByText('Single authoritative store')
-    await user.click(screen.getByRole('button', { name: 'Switch project' }))
-    const options = screen.getByRole('listbox', { name: 'Projects' })
-    await user.click(within(options).getByRole('option', { name: 'Other' }))
+    await user.click(screen.getByRole('combobox', { name: 'Project' }))
+    await user.click(screen.getByRole('option', { name: 'Other' }))
 
     expect(useAppStore.getState().activeProjectDir).toBe('/other')
     await waitFor(() => expect(memoryApi.list).toHaveBeenLastCalledWith({
       projectDir: '/other', scope: 'project', query: undefined, type: 'all', tag: 'all', important: 'all', mandatory: 'all',
     }))
   })
+})
+
+it('shows one empty state without asking to select a missing memory', async () => {
+  useAppStore.setState({ activeProjectDir: '/project' })
+  vi.mocked(memoryApi.list).mockResolvedValue({ ...catalog, total: 0, results: [] })
+  renderExplorer('/memory/explorer/project')
+  await screen.findByText('No memories match this view')
+  expect(screen.queryByText('Select a memory')).toBeNull()
+})
+
+it('omits only a body heading that repeats the record title', async () => {
+  useAppStore.setState({ activeProjectDir: '/project' })
+  vi.mocked(memoryApi.list).mockResolvedValue(catalog)
+  vi.mocked(memoryApi.detail).mockResolvedValue({ ...trace, current: { ...trace.current!, body: '# Single authoritative store\n\nUnique guidance.' } })
+  renderExplorer()
+  await screen.findByText('Unique guidance.')
+  expect(screen.getAllByRole('heading', { name: 'Single authoritative store' })).toHaveLength(1)
 })

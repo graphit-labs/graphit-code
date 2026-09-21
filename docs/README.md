@@ -5,7 +5,7 @@ maintained documentation, persistent memory, deterministic shared tasks, reusabl
 artifacts, and bounded live agent runs. This hub routes developers, operators, and coding agents to
 current guidance without mixing it with historical implementation records.
 
-![Graphit Knowledge Explorer showing this project's architecture](site/assets/observatory-knowledge-explorer.jpg)
+The current visual reference is the [Graphit design system](specs/design_system.md).
 
 ## Choose your path
 
@@ -32,6 +32,7 @@ current guidance without mixing it with historical implementation records.
 | Serve a team over MCP from a container | [Run as a Server in a Container](guides/container.md) | [MCP Tools Reference](guides/mcp_tools_reference.md) |
 | Publish current AST and knowledge contexts from CI | [Publishing from GitHub Actions](guides/github-actions-artifacts.md) | [Hub Collaboration](specs/hub_collaboration.md) |
 | Customize a private distribution | [Private Brand Customization](guides/private_brand_customization.md) | [Configuration Specification](specs/config_module.md) |
+| Design or evolve Code, Broker or the public site | [Design system](specs/design_system.md) | [Patterns](specs/design_system/patterns.md) and [evolution checks](specs/design_system/evolution.md) |
 | Contribute to the project | [Contributing](../CONTRIBUTING.md) | [Repository README](../README.md) |
 
 ## Guides

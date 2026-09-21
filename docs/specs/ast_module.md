@@ -157,7 +157,7 @@ The database initializes node tables with the following attributes:
 |------------|----------------|---------|
 | `File` | `path` (PK), `name`, `relative_path`, `is_dependency`, `lang`, `cluster` | Source file metadata. File text lives in the search index, not on this node. |
 | `Directory` | `path` (PK), `name`, `cluster` | File system directories. |
-| `Module` | `uid` (PK), `name`, `lang`, `full_import_name`, `path`, `line_number`, `end_line` | Importable library modules. |
+| `Module` | `uid` (PK), `name`, `lang`, `full_import_name`; additional properties only when declared by the context schema | Importable library modules; source path and line fields are not universal. |
 | `Class` / `Struct` / `Record` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported` | Complex data structures and object types. `Record` = Java records. |
 | `Function` / `Method` / `Constructor` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported` | Executable code blocks, member functions, and constructors. |
 | `Procedure` / `StoredProcedure` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | SQL stored procedures (PL/SQL, PostgreSQL, T-SQL, DB2). |
@@ -1275,8 +1275,9 @@ MATCH (n:Table {cluster: 'oracle'}) RETURN n.name, n.path
 MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path
 
 // Cross-cluster analysis
-MATCH (f:Function {cluster: 'backend'})-[:CALLS]->(s:Function {cluster: 'oracle'})
-RETURN f.name, s.name
+MATCH (f:Function)-[:CALLS]->(s:Function)
+WHERE f.cluster = 'backend' AND s.cluster = 'oracle'
+RETURN DISTINCT s.name, s.path LIMIT 100
 ```
 
 ### Watcher Integration
@@ -1546,3 +1547,22 @@ The graph and search logical keys are rooted below
 `v2/projects/<publisher-ulid>/artifacts/ast/<artifact-id>/<version>/`. A lockfile claim selects the
 version but does not grant access. The trusted subject's project authorization is revalidated before
 mount or credential renewal; failure is closed and never falls back to cached registry data.
+
+### Explorer schema metadata
+
+The scoped `GET /api/schema` response adds `node_types` entries with `label`, `identity_property`, and `properties`, plus `relationship_endpoints` entries with logical `type`, `from`, and `to`. Canonical manifests supply these fields without querying graph rows. They contain no physical tables, storage paths or reverse mirrors. Noncanonical backends return empty metadata; clients must not infer missing properties.
+
+Use each type’s declared identity: File/Directory use `path`, while symbols and Module use `uid`. Available properties vary by context; Module must not be assumed to provide source path or line fields. A typed projection such as `RETURN DISTINCT n.uid AS identity, n.name AS name` supports simple aliases. A typed target in bounded traversal restricts final results, while intermediate nodes can have other labels.
+
+### Interactive query results
+
+`GET /api/graph?cypher_query=...` preserves the table alongside extracted graph entities. Node variables may use any alias. `tabular` always contains `columns` and `rows` arrays for explicit queries, including an empty result; mixed projections retain scalar values. Read-only clause validation ignores quoted strings, escaped identifiers and comments. Query refusals return HTTP 400 with the engine's explanation; the sample path retains server-error reporting.
+
+AI authoring produces a bounded draft for explicit review and execution. Its examples follow the canonical traversal restrictions above: a filtered anchor, `RETURN DISTINCT` properties of one reached endpoint, logical relationship names and explicit hop bounds. When no anchor is known, begin with a node lookup. Generating a draft never executes it.
+
+The Relationship map loads a bounded index sample on first entry when no query has already supplied its data. Re-entering preserves the current result. Map appearance, layout physics and file navigation precede the canvas; the canvas expands through the remaining workspace height. It remains a sample, not a claim of complete graph coverage.
+
+
+The investigation read-only check distinguishes clause verbs from identifier positions. Labels such as `Import`, properties such as `n.set`, parameters and projection aliases do not count as writes. Write clauses remain rejected, including after comments, literal expressions and nested mutation blocks.
+
+AI drafting also supports the opt-in progress stream described in [UI Dashboard](ui_dashboard.md#incremental-agent-responses). The panel displays CLI execution while the draft is being prepared, supports cancellation, and invalidates output on project, context or agent changes. Streaming does not change the read-only query contract or execute the generated draft.

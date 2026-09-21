@@ -85,7 +85,7 @@ func (s *Service) SessionCreate(ctx context.Context, in SessionCreateInput) (Ses
 		out = Session{ID: id, ProjectID: s.projectID, IdempotencyKey: key, Title: in.Title, Description: in.Description, Strategy: in.Strategy, Status: StatusOpen, CreatedAt: now, UpdatedAt: now, Revision: 1}
 		out.LastEvent = sessionEvent(out, "created", in.Actor, "", "session created")
 		out.LastEvent.SpecRevision = &SessionSpecRevision{Key: out.LastEvent.Key, SessionID: id, SourceRevision: 1, Actor: in.Actor, Reason: "session created", At: now, After: sessionSpec(out)}
-		return s.putSessionCAS(ctx, t, Session{}, out)
+		return s.putSessionCAS(ctx, t, Session{}, &out)
 	})
 	return out, err
 }
@@ -138,7 +138,7 @@ func (s *Service) SessionClaim(ctx context.Context, id, actor string, lease time
 		next.HeartbeatAt = next.ClaimedAt
 		next.LeaseExpiresAt = stamp(s.now().UTC().Add(lease))
 		next.LastEvent.ToStatus = next.Status
-		if err := s.putSessionCAS(ctx, t, current, next); err != nil {
+		if err := s.putSessionCAS(ctx, t, current, &next); err != nil {
 			return err
 		}
 		out = next
@@ -182,7 +182,7 @@ func (s *Service) SessionForceTakeover(ctx context.Context, id, actor string, in
 		next.ClaimedAt = stamp(s.now().UTC())
 		next.HeartbeatAt = next.ClaimedAt
 		next.LeaseExpiresAt = stamp(s.now().UTC().Add(lease))
-		if err := s.putSessionCAS(ctx, t, current, next); err != nil {
+		if err := s.putSessionCAS(ctx, t, current, &next); err != nil {
 			return err
 		}
 		out = next
@@ -217,7 +217,7 @@ func (s *Service) mutateSession(ctx context.Context, id, token, actor string, le
 		}
 		next.LastEvent.ToStatus = next.Status
 		next.LastEvent.NextStep = next.NextStep
-		if err := s.putSessionCAS(ctx, t, current, next); err != nil {
+		if err := s.putSessionCAS(ctx, t, current, &next); err != nil {
 			return err
 		}
 		out = next
@@ -492,7 +492,7 @@ func (s *Service) reconcileSessionsLocked(ctx context.Context, t *tables, actor 
 			next.Status = StatusOpen
 			clearSessionClaim(&next)
 			next.LastEvent.ToStatus = next.Status
-			if err := s.putSessionCAS(ctx, t, v, next); err != nil {
+			if err := s.putSessionCAS(ctx, t, v, &next); err != nil {
 				return err
 			}
 		}
@@ -518,7 +518,7 @@ func (s *Service) heartbeatOwnedSessionsLocked(ctx context.Context, t *tables, a
 		next := s.sessionChange(v, "heartbeat", actor, "session lease renewed by hook")
 		next.HeartbeatAt = stamp(s.now().UTC())
 		next.LeaseExpiresAt = renewedLeaseExpiry(v.LeaseExpiresAt, s.now().UTC(), lease)
-		if err := s.putSessionCAS(ctx, t, v, next); err != nil {
+		if err := s.putSessionCAS(ctx, t, v, &next); err != nil {
 			return nil, err
 		}
 		next.ClaimToken = ""
@@ -548,7 +548,7 @@ func (s *Service) releaseOwnedSessionsLocked(ctx context.Context, t *tables, act
 		next.Status = StatusOpen
 		clearSessionClaim(&next)
 		next.LastEvent.ToStatus = next.Status
-		if err := s.putSessionCAS(ctx, t, v, next); err != nil {
+		if err := s.putSessionCAS(ctx, t, v, &next); err != nil {
 			return nil, err
 		}
 		out = append(out, next)

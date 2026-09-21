@@ -1,295 +1,660 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="Graphit is the context and control plane for AI software engineering: structural code intelligence, persistent memory, deterministic team tasks, hybrid retrieval, and reusable multi-system context.">
-  <meta name="theme-color" content="#101311">
-  <title>Graphit Code — The context and control plane for AI software engineering</title>
-  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <script defer src="site.js"></script>
-</head>
-<body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header">
-    <a class="brand" href="#top" aria-label="Graphit Code home">
-      <img src="assets/logo.svg" alt="" width="40" height="40">
-      <span><strong>Graphit</strong><small>AI ENGINEERING</small></span>
-    </a>
-    <nav class="nav-links" id="site-nav" aria-label="Primary navigation">
-      <a href="#system">Platform</a>
-      <a href="#teams">Teams</a>
-      <a href="#retrieval">Retrieval</a>
-      <a href="#server">Server</a>
-      <a href="#install">Install</a>
-      <a href="#docs">Docs</a>
-    </nav>
-    <div class="header-actions">
-      <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch color theme">
-        <span aria-hidden="true">◐</span>
-      </button>
-      <a class="button button-small button-ghost" href="https://github.com/graphit-labs/graphit-code">GitHub ↗</a>
-      <button class="menu-button" id="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
-    </div>
-  </header>
-
-  <main id="main">
-    <section class="hero section" id="top">
-      <div class="hero-copy reveal">
-        <div class="eyebrow"><span class="signal-dot"></span> Context + control for AI engineering <span class="release">v1.4.0</span></div>
-        <h1>Make AI software work <em>complete</em>, not merely plausible.</h1>
-        <p class="hero-lede">Graphit gives every coding agent the same structural code map, searchable documentation, persistent memory, reusable ecosystem context, and deterministic work ledger—inside the tools where your team already builds.</p>
-        <div class="hero-actions">
-          <a class="button button-primary" href="#install">Install Graphit <span>↓</span></a>
-          <a class="button button-secondary" href="https://github.com/graphit-labs/graphit-code">Explore the source <span>↗</span></a>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="description"
+      content="Graphit brings software engineering discipline to AI development. Shared context, explicit ownership and verifiable work for individual developers, teams and enterprises."
+    />
+    <meta name="theme-color" content="#142449" />
+    <title>Graphit — Engineering discipline for AI development</title>
+    <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;650;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="site.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Graphit home"
+        ><img src="assets/logo.svg" width="34" height="34" alt="" /><strong
+          >Graphit</strong
+        ></a
+      >
+      <nav id="site-nav" aria-label="Primary navigation">
+        <a href="#approach">The approach</a><a href="#platform">Platform</a
+        ><a href="#teams">For your team</a><a href="#docs">Documentation</a>
+      </nav>
+      <div class="header-actions">
+        <button
+          id="theme-toggle"
+          class="theme-toggle"
+          aria-label="Switch color theme"
+          title="Switch color theme"
+        >
+          ◐</button
+        ><a
+          class="github-link"
+          href="https://github.com/graphit-labs/graphit-code"
+          >GitHub <span aria-hidden="true">↗</span></a
+        ><a class="button compact" href="#install">Get started</a
+        ><button
+          id="menu-toggle"
+          aria-controls="site-nav"
+          aria-expanded="false"
+        >
+          Menu
+        </button>
+      </div>
+    </header>
+    <main id="main">
+      <section id="top" class="hero wrap">
+        <div class="hero-copy">
+          <p class="intro-label">
+            <span></span> The engineering layer for AI development
+          </p>
+          <h1>AI moves fast.<br />Make the work<br />hold together.</h1>
+          <p class="lede">
+            Give every agent a shared understanding of your software. Preserve
+            the knowledge you have already paid AI to acquire, coordinate the
+            work and inspect the evidence behind each delivery.
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="#install"
+              >Start building with Graphit <span aria-hidden="true">↗</span></a
+            ><a class="text-link" href="#approach"
+              >See how it works <span aria-hidden="true">↓</span></a
+            >
+          </div>
+          <p class="hero-footnote">
+            Local-first. Open source. Built for the tools you already use.
+          </p>
         </div>
-        <div class="hero-proof" aria-label="Product principles">
-          <span>Multi-agent</span><span>Multi-system</span><span>Local-first</span><span>Any MCP client</span><span>Open source</span>
+        <div
+          class="engineering-diagram"
+          aria-label="Conceptual diagram: Graphit connects engineering context, AI execution and evidence"
+        >
+          <div class="diagram-heading">
+            <img src="assets/logo.svg" alt="" width="25" height="25" /><span
+              >One engineering context</span
+            ><span class="diagram-caption">Illustrated workflow</span>
+          </div>
+          <div class="context-sources">
+            <div>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18" /></svg
+              ><strong>Code</strong><span>Structure & impact</span>
+            </div>
+            <div>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 4h7l2 2 2-2h7v16h-7l-2 2-2-2H3zM12 6v16" /></svg
+              ><strong>Knowledge</strong><span>Contracts & sources</span>
+            </div>
+            <div>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 3h8l5 5v8l-5 5H8l-5-5V8zM8 9h8m-8 6h8" /></svg
+              ><strong>Memory</strong><span>Decisions & lessons</span>
+            </div>
+          </div>
+          <div class="diagram-connector">
+            <span>Context that survives the conversation</span>
+          </div>
+          <div class="execution-boundary">
+            <div class="boundary-title">
+              <span class="bracket-icon">[ ]</span><strong>Graphit</strong
+              ><span>Explicit engineering state</span>
+            </div>
+            <div class="execution-row">
+              <span>Defined scope</span><span>Owned work</span
+              ><span>Required checks</span>
+            </div>
+            <div class="agent-row">
+              <span class="agent-symbol" aria-hidden="true">✳</span>
+              <div>
+                <strong>Your AI agents</strong
+                ><small>Reason, implement, verify</small>
+              </div>
+              <span class="agent-interface">CLI / MCP</span>
+            </div>
+          </div>
+          <div class="diagram-connector short"></div>
+          <div class="evidence-output">
+            <span class="check-symbol" aria-hidden="true">✓</span>
+            <div>
+              <strong>Delivery with a trace</strong
+              ><small>Requirements, decisions, checks and evidence</small>
+            </div>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 17 17 7M7 7h10v10" />
+            </svg>
+          </div>
+          <p class="diagram-note">
+            The model reasons. The framework keeps the contract.
+          </p>
         </div>
+      </section>
+      <div class="compatibility wrap">
+        <span>Works where engineering happens</span>
+        <div>Codex</div>
+        <div>Claude Code</div>
+        <div>Cursor</div>
+        <div>Gemini</div>
+        <div>Any MCP client</div>
       </div>
-      <figure class="product-frame reveal">
-        <div class="frame-bar"><span></span><span></span><span></span><code>graphit-labs/graphit-code · AST Explorer</code></div>
-        <img src="assets/observatory-ast-explorer.jpg" alt="Graphit AST Explorer visualizing the graphit-code repository">
-        <figcaption>Real project data from Graphit analyzing its own codebase.</figcaption>
-      </figure>
-    </section>
-
-    <section class="signal-strip" aria-label="Graphit system signals">
-      <div><span>01</span><strong>AST</strong><small>structure & relationships</small></div>
-      <div><span>02</span><strong>MEMORY</strong><small>decisions that persist</small></div>
-      <div><span>03</span><strong>WIKI</strong><small>connected project knowledge</small></div>
-      <div><span>04</span><strong>TASK</strong><small>shared work with safe takeover</small></div>
-      <div><span>05</span><strong>HUB</strong><small>reusable ecosystem context</small></div>
-    </section>
-
-    <section class="section system-section" id="system">
-      <div class="section-heading reveal">
-        <p class="kicker">The operating loop</p>
-        <h2>Models stay probabilistic. Engineering control does not.</h2>
-        <p>Graphit surrounds AI reasoning with source-backed context and deterministic state transitions: discover broadly, verify structurally, claim work atomically, and complete only against explicit evidence.</p>
-      </div>
-      <div class="system-flow">
-        <article class="flow-card reveal"><span>01 / UNDERSTAND</span><h3>Map the code</h3><p>Query symbols, callers, dependencies, imports, inheritance, complexity, and source through a structural graph.</p></article>
-        <article class="flow-card reveal"><span>02 / REMEMBER</span><h3>Keep the why</h3><p>Store corrections, decisions, conventions, and discoveries so the next session starts with project context.</p></article>
-        <article class="flow-card reveal"><span>03 / CONNECT</span><h3>Compile the docs</h3><p>Turn maintained documentation into a searchable wiki with provenance, confidence, and cross-references.</p></article>
-        <article class="flow-card reveal"><span>04 / CONTROL</span><h3>Make work complete</h3><p>Claim shared tasks atomically, fence stale owners, order dependencies, preserve audit history, and require evidence before completion.</p></article>
-        <article class="flow-card reveal"><span>05 / DISTRIBUTE</span><h3>Bring it everywhere</h3><p>Install the right rules, skills, MCP tools, languages, and versioned artifacts for each project, agent, and system.</p></article>
-      </div>
-    </section>
-
-    <section class="section showcase" id="capabilities">
-      <div class="section-heading reveal">
-        <p class="kicker">One observatory</p>
-        <h2>See the code and the knowledge around it.</h2>
-      </div>
-      <div class="showcase-grid">
-        <figure class="product-frame showcase-shot reveal">
-          <div class="frame-bar"><span></span><span></span><span></span><code>Knowledge Explorer</code></div>
-          <img src="assets/observatory-knowledge-explorer.jpg" alt="Graphit Knowledge Explorer showing the graphit-code architecture documentation">
-          <figcaption><strong>Knowledge with provenance.</strong> Browse source-backed pages, confidence, links, and update history.</figcaption>
-        </figure>
-        <figure class="product-frame showcase-shot reveal">
-          <div class="frame-bar"><span></span><span></span><span></span><code>Memory Explorer</code></div>
-          <img src="assets/observatory-memory-explorer.jpg" alt="Graphit Memory Explorer showing a graphit-code design decision">
-          <figcaption><strong>Memory with intent.</strong> Keep the decisions and corrections that code alone cannot explain.</figcaption>
-        </figure>
-      </div>
-      <div class="capability-grid">
-        <article class="capability-card reveal"><span>AST</span><h3>Structural code exploration</h3><p>Language-aware entities and relationships across Go, TypeScript, Python, Java, C, SQL, and more.</p></article>
-        <article class="capability-card reveal"><span>SEARCH</span><h3>FTS + vectors + RRF</h3><p>Combine BM25 full-text precision and semantic recall, then fuse both ranked lists deterministically before reading sources.</p></article>
-        <article class="capability-card reveal"><span>MEMORY</span><h3>Persistent across sessions</h3><p>Keep project decisions and corrections separate from user conventions in local authoritative tables, with mandatory recall and revision history.</p></article>
-        <article class="capability-card reveal"><span>KNOWLEDGE</span><h3>Living documentation</h3><p>Search active guides, specs, architecture, and decisions with traceable sources.</p></article>
-        <article class="capability-card reveal"><span>TASK</span><h3>Deterministic multi-agent work</h3><p>Use one local shared LanceDB scheduler with claims, fencing tokens, dependencies, subtasks, evidence gates, complete JSON export, and the Task Explorer.</p></article>
-        <article class="capability-card reveal"><span>HUB</span><h3>Shareable artifacts</h3><p>Discover and distribute rules, skills, agents, MCP servers, languages, ASTs, and knowledge bundles.</p></article>
-        <article class="capability-card reveal"><span>IDENTITY</span><h3>Account profiles, ready to switch</h3><p>Configure reusable local, OIDC, or explicitly anonymous providers, log in to isolated profiles, and keep one active identity with managed token renewal.</p></article>
-        <article class="capability-card reveal"><span>ACCESS</span><h3>OIDC admin, roles, deny-by-default ACLs</h3><p>Use a confidential OIDC console and action-based roles to grant global, anonymous, authenticated, user, team, organization, or subject access and enforce every request server-side.</p></article>
-        <article class="capability-card reveal"><span>BROKER</span><h3>OIDC identity, transactional ACLs, no end-user cloud keys</h3><p>Persist configuration, roles, and normalized resource grants in SQLite, PostgreSQL, or MySQL; preserve each HTTP MCP caller through bearer relay or RFC 8693 exchange; centralize embedding/rerank; and sign each storage operation separately.</p></article>
-        <article class="capability-card reveal"><span>OBSERVATORY</span><h3>One operational UI</h3><p>Explore code, knowledge, memory, and complete Task lifecycle records alongside daemon, Dream, ecosystem, and live agent state.</p></article>
-        <article class="capability-card reveal"><span>ON THE FLY</span><h3>Fresh authorized context</h3><p>Materialize selected Hub artifacts through per-operation broker authorization, open their local indexes, and assemble disposable Live Search workspaces.</p></article>
-      </div>
-    </section>
-
-    <section class="section trust-section" id="teams">
-      <div class="trust-panel reveal">
-        <div>
-          <p class="kicker">Designed for collaborative engineering</p>
-          <h2>One operational truth for every agent and machine.</h2>
+      <section id="approach" class="approach section wrap">
+        <div class="section-heading">
+          <p class="intro-label">Built around the work</p>
+          <h2>
+            Better prompts are a start.<br />Engineering needs continuity.
+          </h2>
+          <p>
+            Graphit focuses on software engineering, not optimizing token counts.
+            Maintain knowledge, decisions and work across sessions so each
+            delivery builds on what your agents have already learned.
+          </p>
         </div>
-        <div class="trust-copy">
-          <p>A human, a coding agent, a CI worker, and a remote MCP client can enter the same project without reconstructing its history from chat. Graphit gives them durable identity, shared artifacts, explicit ownership, and takeover-safe work.</p>
-          <ul>
-            <li><strong>Shared work</strong><span>Atomic claims, leases, fencing tokens, dependencies, subtasks, checks, flags, and an immutable audit trail.</span></li>
-            <li><strong>Shared memory</strong><span>Project and user scopes preserve decisions across sessions; mandatory memories load before contextual recall.</span></li>
-            <li><strong>Many agents</strong><span>Native adapters for Codex, Claude, Cursor, Gemini, Kiro, OpenCode, and Antigravity, plus MCP for any compatible client.</span></li>
-            <li><strong>Many systems</strong><span>Versioned code graphs, knowledge, rules, skills, agents, commands, MCP definitions, and language packs move through the Hub.</span></li>
-          </ul>
+        <div class="principle-list">
+          <article>
+            <span class="principle-icon">↳</span>
+            <div>
+              <h3>Understand before changing</h3>
+              <p>
+                Find the symbols, relationships and documentation that matter.
+                Read their sources. Make a change with the system in view.
+              </p>
+              <a href="#platform"
+                >Explore code intelligence <span aria-hidden="true">↗</span></a
+              >
+            </div>
+          </article>
+          <article>
+            <span class="principle-icon">⇄</span>
+            <div>
+              <h3>Carry intent across handoffs</h3>
+              <p>
+                Preserve decisions, scope and the next action. A new agent or
+                session continues the work without reconstructing it from a
+                conversation.
+              </p>
+              <a
+                href="https://github.com/graphit-labs/graphit-code/blob/main/docs/specs/task_module.md"
+                >Understand sessions and tasks
+                <span aria-hidden="true">↗</span></a
+              >
+            </div>
+          </article>
+          <article>
+            <span class="principle-icon">✓</span>
+            <div>
+              <h3>Make completion explicit</h3>
+              <p>
+                Claims establish ownership. Dependencies establish order. Checks
+                and evidence establish what it means for a task to be complete.
+              </p>
+              <a
+                href="https://github.com/graphit-labs/graphit-code/blob/main/docs/specs/task_module.md"
+                >Read the work contract <span aria-hidden="true">↗</span></a
+              >
+            </div>
+          </article>
         </div>
-      </div>
-    </section>
-
-    <section class="section showcase" id="retrieval">
-      <div class="section-heading reveal">
-        <p class="kicker">Find broadly, prove exactly</p>
-        <h2>Retrieval is a pipeline, not a guess.</h2>
-        <p>Start with lexical and semantic recall, fuse results with RRF, select the right source, then use graph traversal and bounded source reads for evidence.</p>
-      </div>
-      <div class="capability-grid">
-        <article class="capability-card reveal"><span>FULL TEXT</span><h3>Names, terms, and exact language</h3><p>LanceDB BM25 reaches identifiers, paths, prose, and technical vocabulary without requiring an AI model.</p></article>
-        <article class="capability-card reveal"><span>SEMANTIC</span><h3>Intent beyond wording</h3><p>Local or remote embeddings retrieve related code and knowledge even when the query and source use different words.</p></article>
-        <article class="capability-card reveal"><span>STRUCTURE</span><h3>Relationships you can prove</h3><p>Cypher follows callers, imports, inheritance, database objects, and other exact AST relationships after discovery.</p></article>
-        <article class="capability-card reveal"><span>MULTI-WIKI</span><h3>Project + memory + ecosystem</h3><p>Search selected project, personal, and Hub knowledge sources as one ranked evidence surface.</p></article>
-        <article class="capability-card reveal"><span>RERANK</span><h3>Deterministic second stage</h3><p>AST and Knowledge search can rerank widened results locally, through native Cohere, Voyage, or Jina APIs, or through embedding-simulated OpenAI and Gemini cosine scoring.</p></article>
-        <article class="capability-card reveal"><span>SOURCE</span><h3>Read only what matters</h3><p>Head, tail, line-range, entity, and pattern slices keep context bounded and preserve source provenance.</p></article>
-      </div>
-    </section>
-
-    <section class="section trust-section">
-      <div class="trust-panel reveal">
-        <div>
-          <p class="kicker">Clear trust boundary</p>
-          <h2>Local by default. Shareable when you choose.</h2>
+      </section>
+      <section class="discipline">
+        <div class="wrap discipline-inner">
+          <div>
+            <p class="intro-label">Reasoning has room to explore.</p>
+            <h2>The process has<br />a contract.</h2>
+          </div>
+          <div>
+            <p>
+              LLMs remain probabilistic. Graphit adds explicit state,
+              reproducible queries and deterministic lifecycle rules for task
+              ownership and completion.
+            </p>
+            <p class="discipline-detail">
+              It makes the engineering process inspectable. The quality of a
+              change still depends on the requirements, reviews and checks you
+              define.
+            </p>
+            <div class="contract-chain">
+              <span>Scope</span><i>→</i><span>Claim</span><i>→</i
+              ><span>Implement</span><i>→</i><span>Verify</span>
+            </div>
+          </div>
         </div>
-        <div class="trust-copy">
-          <p>Mutable code, Memory, and Task databases stay local. Optional broker-owned object storage organizes versioned Hub artifacts by immutable project ULID, materializes them through individually authorized requests, and exposes no bucket configuration or cloud credential to clients.</p>
-          <ul>
-            <li><strong>Local core</strong><span>No hosted database is required for everyday operation.</span></li>
-            <li><strong>Explicit sharing</strong><span>Hub publishing is explicit, discovery is deny-by-default, and the local Hub directory is only a disposable metadata cache.</span></li>
-            <li><strong>Network-aware UI</strong><span>The UI binds to loopback by default and is not an authentication layer.</span></li>
-            <li><strong>Serve it when you want to</strong><span>Run the same core as a container: an MCP endpoint your whole team's agents connect to.</span></li>
-          </ul>
+      </section>
+      <section id="platform" class="section wrap">
+        <div class="section-heading wide">
+          <p class="intro-label">One system, clear responsibilities</p>
+          <h2>Context for the agent.<br />Control for the engineering team.</h2>
         </div>
-      </div>
-    </section>
-
-    <section class="section showcase" id="server">
-      <div class="section-heading reveal">
-        <p class="kicker">Run it for the whole team</p>
-        <h2>One server. Any AI agent, over MCP.</h2>
-        <p>Release images are available from GHCR as <code>0.1.2</code>, <code>0.1</code>, <code>0</code>, and <code>latest</code> (without the Git tag's <code>v</code> prefix). The image runs Graphit as a server: the daemon publishes an MCP endpoint and the optional Observatory. Your agent connects from wherever you work, brings its own model, and reads the code graphs, documentation and memory the server holds.</p>
-      </div>
-      <div class="capability-grid">
-        <article class="capability-card reveal"><span>ANY CLIENT</span><h3>Whatever speaks MCP</h3><p>Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot, Kiro, Qwen Code, Kimi Code, Deep Code, or your own client. An HTTP URL and a bearer token is the whole integration.</p></article>
-        <article class="capability-card reveal"><span>NO CHECKOUT</span><h3>Artifacts, not paths</h3><p>The server answers about published knowledge and AST artifacts, addressed by name and version. It holds no source and needs none.</p></article>
-        <article class="capability-card reveal"><span>ONE STORE</span><h3>Published once, authorized per operation</h3><p>Versioned AST and Knowledge stores are materialized once per version through the broker. Checkouts reuse the verified local cache without receiving cloud keys.</p></article>
-      </div>
-      <div class="command-panel is-active reveal" style="margin-top:1.4rem">
-        <button class="copy-button" type="button">Copy</button>
-        <pre><code>VERSION=0.1.1
-docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
-docker run -d --name graphit \
-  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
-  -v graphit-global:/home/graphit/.graphit \
-  "ghcr.io/graphit-labs/graphit-code:${VERSION}"</code></pre>
-      </div>
-      <div class="trust-panel reveal" style="margin-top:1.4rem">
-        <div>
-          <p class="kicker">Point your agent at it</p>
-          <h2>Two values, and it is wired.</h2>
+        <div class="platform-grid">
+          <article class="platform-code">
+            <div class="product-title">
+              <img src="assets/logo.svg" width="34" height="34" alt="" />
+              <div>
+                <h3>Graphit Code</h3>
+                <span>The engineering workspace</span>
+              </div>
+            </div>
+            <p>
+              Connect what the software is, why it works that way, and what
+              needs to happen next.
+            </p>
+            <dl>
+              <div>
+                <dt>Code intelligence</dt>
+                <dd>
+                  Explore structure, callers and dependencies through the AST.
+                </dd>
+              </div>
+              <div>
+                <dt>Knowledge & memory</dt>
+                <dd>
+                  Retrieve source-backed documentation and preserve decisions.
+                </dd>
+              </div>
+              <div>
+                <dt>Sessions & tasks</dt>
+                <dd>
+                  Coordinate owned work, checks, dependencies and handoffs.
+                </dd>
+              </div>
+              <div>
+                <dt>Hub</dt>
+                <dd>
+                  Reuse versioned context, skills, rules and agents across
+                  projects.
+                </dd>
+              </div>
+            </dl>
+            <a class="text-link" href="#install"
+              >Set up your workspace <span aria-hidden="true">↗</span></a
+            >
+          </article>
+          <article class="platform-broker">
+            <div class="product-title">
+              <span class="broker-symbol" aria-hidden="true">⌘</span>
+              <div>
+                <h3>Graphit Broker</h3>
+                <span>The governance console</span>
+              </div>
+            </div>
+            <p>
+              Bring shared capabilities to the team with identity and access
+              evaluated on each request.
+            </p>
+            <dl>
+              <div>
+                <dt>Identity</dt>
+                <dd>
+                  Connect organization accounts or managed local identities.
+                </dd>
+              </div>
+              <div>
+                <dt>Authorization</dt>
+                <dd>Separate administration roles from resource grants.</dd>
+              </div>
+              <div>
+                <dt>Shared services</dt>
+                <dd>
+                  Centralize embedding, rerank and signed storage operations.
+                </dd>
+              </div>
+              <div>
+                <dt>Controlled distribution</dt>
+                <dd>
+                  Authorize access to published artifacts without handing cloud
+                  keys to clients.
+                </dd>
+              </div>
+            </dl>
+            <a
+              class="text-link"
+              href="https://github.com/graphit-labs/graphit-broker"
+              >Explore the Broker <span aria-hidden="true">↗</span></a
+            >
+          </article>
         </div>
-        <div class="trust-copy">
-          <p>Open <strong>System → Daemon</strong> in the Observatory to see the endpoint and copy the generated local runtime key. A local provider may use a static key; direct OIDC and Broker-managed providers verify each remote caller's access token and propagate that identity through broker ACL, storage, embedding, and rerank operations.</p>
-          <ul>
-            <li><strong>URL</strong><span>http://your-server:8081/mcp</span></li>
-            <li><strong>Header</strong><span>Authorization: Bearer &lt;key&gt;</span></li>
-            <li><strong>Trust boundary</strong><span>Local MCP checks a bearer key; direct OIDC validates issuer, signature, expiry, audience, and claims, while Broker-managed identity validates signed access JWTs through the Broker-discovered audience and JWKS. The UI has no login, so protect it from untrusted networks.</span></li>
-          </ul>
-          <p><a class="button button-small button-ghost" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md">Server guide ↗</a></p>
+      </section>
+      <section id="teams" class="adoption section">
+        <div class="wrap">
+          <div class="section-heading">
+            <p class="intro-label">Start at your scale</p>
+            <h2>The same discipline.<br />From one developer to many teams.</h2>
+          </div>
+          <div class="adoption-layout">
+            <div
+              class="audience-tabs"
+              role="tablist"
+              aria-label="Choose your development context"
+            >
+              <button
+                id="audience-solo"
+                role="tab"
+                aria-selected="true"
+                aria-controls="audience-panel-solo"
+                data-audience="solo"
+              >
+                <strong>Independent developers</strong
+                ><span>Keep momentum between sessions</span
+                ><b aria-hidden="true">↗</b></button
+              ><button
+                id="audience-team"
+                role="tab"
+                aria-selected="false"
+                aria-controls="audience-panel-team"
+                tabindex="-1"
+                data-audience="team"
+              >
+                <strong>Engineering teams</strong
+                ><span>Build from shared understanding</span
+                ><b aria-hidden="true">↗</b></button
+              ><button
+                id="audience-enterprise"
+                role="tab"
+                aria-selected="false"
+                aria-controls="audience-panel-enterprise"
+                tabindex="-1"
+                data-audience="enterprise"
+              >
+                <strong>Enterprise ecosystems</strong
+                ><span>Make access and reuse explicit</span
+                ><b aria-hidden="true">↗</b>
+              </button>
+            </div>
+            <div class="audience-panels">
+              <article
+                id="audience-panel-solo"
+                role="tabpanel"
+                aria-labelledby="audience-solo"
+              >
+                <span class="audience-visual" aria-hidden="true"
+                  >[ <b>you + agents</b> ]</span
+                >
+                <h3>Your next session<br />starts with context.</h3>
+                <p>
+                  Index a repository, keep decisions in memory and carry work
+                  forward through durable sessions. Use the agent and model that
+                  fit your workflow.
+                </p>
+                <a class="text-link" href="#install"
+                  >Start locally <span aria-hidden="true">↗</span></a
+                >
+              </article>
+              <article
+                id="audience-panel-team"
+                role="tabpanel"
+                aria-labelledby="audience-team"
+                hidden
+              >
+                <span class="audience-visual" aria-hidden="true"
+                  >[ <b>shared intent</b> ]</span
+                >
+                <h3>Less reconstruction.<br />More continuity.</h3>
+                <p>
+                  Give your team versioned context and reusable artifacts.
+                  Coordinate agents working in a shared project through explicit
+                  claims, dependencies and evidence.
+                </p>
+                <a
+                  class="text-link"
+                  href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"
+                  >Explore team deployment <span aria-hidden="true">↗</span></a
+                >
+              </article>
+              <article
+                id="audience-panel-enterprise"
+                role="tabpanel"
+                aria-labelledby="audience-enterprise"
+                hidden
+              >
+                <span class="audience-visual" aria-hidden="true"
+                  >[ <b>governed access</b> ]</span
+                >
+                <h3>Connect an ecosystem.<br />Keep its boundaries.</h3>
+                <p>
+                  Use the Broker to verify identities and authorize shared
+                  projects and services. Distribute context through the Hub
+                  while preserving explicit access rules.
+                </p>
+                <a
+                  class="text-link"
+                  href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/auth-broker.md"
+                  >Read the governance guide
+                  <span aria-hidden="true">↗</span></a
+                >
+              </article>
+            </div>
+          </div>
         </div>
-      </div>
-    </section>
-
-    <section class="section install-section" id="install">
-      <div class="section-heading reveal">
-        <p class="kicker">Start with one binary</p>
-        <h2>From repository to agent context.</h2>
-        <p>Install Graphit, initialize the project for your Agent, then let the daemon keep indexes current — or skip the install and run it as a server your agents connect to.</p>
-      </div>
-      <div class="install-console reveal">
-        <div class="install-tabs" role="tablist" aria-label="Installation method">
-          <button class="install-tab is-active" id="tab-unix" type="button" role="tab" aria-selected="true" aria-controls="panel-unix" tabindex="0" data-tab="unix">macOS / Linux</button>
-          <button class="install-tab" id="tab-windows" type="button" role="tab" aria-selected="false" aria-controls="panel-windows" tabindex="-1" data-tab="windows">Windows</button>
-          <button class="install-tab" id="tab-docker" type="button" role="tab" aria-selected="false" aria-controls="panel-docker" tabindex="-1" data-tab="docker">Docker server</button>
-          <button class="install-tab" id="tab-source" type="button" role="tab" aria-selected="false" aria-controls="panel-source" tabindex="-1" data-tab="source">From source</button>
+      </section>
+      <section id="install" class="section wrap install-section">
+        <div class="section-heading">
+          <p class="intro-label">Put it to work</p>
+          <h2>Your repository.<br />A stronger starting point.</h2>
+          <p>
+            Install Graphit, initialize a project for your agent, and make its
+            engineering context available.
+          </p>
+          <a
+            class="text-link"
+            href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/getting_started.md"
+            >Full getting started guide <span aria-hidden="true">↗</span></a
+          >
         </div>
-        <div class="command-panel is-active" id="panel-unix" role="tabpanel" aria-labelledby="tab-unix" data-panel="unix">
-          <button class="copy-button" type="button">Copy</button>
-          <pre><code>curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
+        <div class="install-console reveal">
+          <div
+            class="install-tabs"
+            role="tablist"
+            aria-label="Installation method"
+          >
+            <button
+              class="install-tab is-active"
+              id="tab-unix"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panel-unix"
+              tabindex="0"
+              data-tab="unix"
+            >
+              macOS / Linux
+            </button>
+            <button
+              class="install-tab"
+              id="tab-windows"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-windows"
+              tabindex="-1"
+              data-tab="windows"
+            >
+              Windows
+            </button>
+            <button
+              class="install-tab"
+              id="tab-docker"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-docker"
+              tabindex="-1"
+              data-tab="docker"
+            >
+              Docker server
+            </button>
+            <button
+              class="install-tab"
+              id="tab-source"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panel-source"
+              tabindex="-1"
+              data-tab="source"
+            >
+              From source
+            </button>
+          </div>
+          <div
+            class="command-panel is-active"
+            id="panel-unix"
+            role="tabpanel"
+            aria-labelledby="tab-unix"
+            data-panel="unix"
+          >
+            <button class="copy-button" type="button">Copy</button>
+            <pre><code>curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
 graphit setup
 cd your-project
 graphit init --agent codex
 graphit sync
 graphit ui</code></pre>
-        </div>
-        <div class="command-panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows" data-panel="windows" hidden>
-          <button class="copy-button" type="button">Copy</button>
-          <pre><code>irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+          </div>
+          <div
+            class="command-panel"
+            id="panel-windows"
+            role="tabpanel"
+            aria-labelledby="tab-windows"
+            data-panel="windows"
+            hidden
+          >
+            <button class="copy-button" type="button">Copy</button>
+            <pre><code>irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 graphit setup
 cd your-project
 graphit init --agent codex
 graphit sync
 graphit ui</code></pre>
-        </div>
-        <div class="command-panel" id="panel-docker" role="tabpanel" aria-labelledby="tab-docker" data-panel="docker" hidden>
-          <button class="copy-button" type="button">Copy</button>
-          <pre><code>VERSION=0.1.1
+          </div>
+          <div
+            class="command-panel"
+            id="panel-docker"
+            role="tabpanel"
+            aria-labelledby="tab-docker"
+            data-panel="docker"
+            hidden
+          >
+            <button class="copy-button" type="button">Copy</button>
+            <pre><code>VERSION=latest
 docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 docker run -d --name graphit \
   -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
   -v graphit-global:/home/graphit/.graphit \
   "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 docker exec graphit cat /home/graphit/.graphit/daemon/mcp.key</code></pre>
-        </div>
-        <div class="command-panel" id="panel-source" role="tabpanel" aria-labelledby="tab-source" data-panel="source" hidden>
-          <button class="copy-button" type="button">Copy</button>
-          <pre><code>git clone https://github.com/graphit-labs/graphit-code.git
+          </div>
+          <div
+            class="command-panel"
+            id="panel-source"
+            role="tabpanel"
+            aria-labelledby="tab-source"
+            data-panel="source"
+            hidden
+          >
+            <button class="copy-button" type="button">Copy</button>
+            <pre><code>git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
 make install
 graphit setup</code></pre>
+          </div>
         </div>
+      </section>
+      <section id="docs" class="section wrap docs-section">
+        <div class="section-title">
+          <div>
+            <p class="intro-label">Go deeper</p>
+            <h2>Designed to be understood.</h2>
+          </div>
+          <a
+            class="text-link"
+            href="https://github.com/graphit-labs/graphit-code/tree/main/docs"
+            >All documentation <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <div class="doc-grid">
+          <a
+            href="https://github.com/graphit-labs/graphit-code/blob/main/docs/architecture/architecture_overview.md"
+            ><span>Architecture</span>
+            <h3>See how the system fits together.</h3>
+            <p>Core, stores, adapters, daemon and UI.</p>
+            <b aria-hidden="true">↗</b></a
+          ><a
+            href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/configuration.md"
+            ><span>Configuration</span>
+            <h3>Adapt Graphit to your environment.</h3>
+            <p>Providers, modules and deployment options.</p>
+            <b aria-hidden="true">↗</b></a
+          ><a
+            href="https://github.com/graphit-labs/graphit-code/blob/main/docs/specs/task_module.md"
+            ><span>Work lifecycle</span>
+            <h3>Understand the definition of done.</h3>
+            <p>Ownership, dependencies, checks and evidence.</p>
+            <b aria-hidden="true">↗</b></a
+          >
+        </div>
+        <details class="more-guides">
+          <summary>More guides and references</summary>
+          <div>
+            <a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/user_manual.md"
+              >User manual</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/retrieval_architecture.md"
+              >Retrieval architecture</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/filesystem_contract.md"
+              >Filesystem and watchers</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/ast_extensibility.md"
+              >AST extensibility</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/ai_models.md"
+              >Models and providers</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/daemon_operations.md"
+              >Daemon operations</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"
+              >Run as a server</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/oidc-integration.md"
+              >OIDC integration</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/auth-broker.md"
+              >Broker governance</a
+            >
+          </div>
+        </details>
+      </section>
+      <section class="closing wrap">
+        <div>
+          <h2>Build with AI.<br />Keep your engineering standards.</h2>
+          <p>Start with one project. Carry the discipline forward.</p>
+        </div>
+        <a class="button" href="#install"
+          >Get started with Graphit <span aria-hidden="true">↗</span></a
+        >
+      </section>
+    </main>
+    <footer class="wrap">
+      <a class="brand" href="#top"
+        ><img src="assets/logo.svg" width="28" height="28" alt="" /><strong
+          >Graphit</strong
+        ></a
+      ><span>Engineering discipline for AI development.</span>
+      <div>
+        <a href="https://github.com/graphit-labs/graphit-code">Source code</a
+        ><span>© <span id="year">2026</span> Graphit Labs</span>
       </div>
-    </section>
-
-    <section class="section docs-section" id="docs">
-      <div class="section-heading reveal">
-        <p class="kicker">Read by intent</p>
-        <h2>Evaluate, adopt, operate, extend.</h2>
-      </div>
-      <div class="doc-grid">
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/getting_started.md"><span>01</span><h3>Getting started</h3><p>Install, initialize a project, and make the first AST, knowledge, and memory queries.</p><b>Open guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/user_manual.md"><span>02</span><h3>User manual</h3><p>Move from daily commands to explorers, shared artifacts, daemon operation, and troubleshooting.</p><b>Open manual ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/configuration.md"><span>03</span><h3>Configuration</h3><p>Every key, default, provider, environment override, feature switch, deployment profile, and runtime control.</p><b>Open reference ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/retrieval_architecture.md"><span>04</span><h3>Retrieval architecture</h3><p>Choose full text, semantic search, hybrid RRF, source reads, exact Cypher, or agent synthesis deliberately.</p><b>Open guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/filesystem_contract.md"><span>05</span><h3>Filesystem and watchers</h3><p>Know what Graphit reads, writes, watches, commits, ignores, shares, and can safely regenerate.</p><b>Open guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/ast_extensibility.md"><span>06</span><h3>AST extensibility</h3><p>Define every YAML field, select grammars and dialects, add Tree-sitter parsers, and integrate ANTLR drivers.</p><b>Open guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/ai_models.md"><span>07</span><h3>AI models and providers</h3><p>Choose an agent CLI, embedding model, dimensions, credentials, rerank backend, and local or remote boundary.</p><b>Open AI guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/daemon_operations.md"><span>08</span><h3>Daemon operations</h3><p>Understand every start path, scheduler, watcher, service, log, maintenance loop, and recovery behavior.</p><b>Open operations guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"><span>09</span><h3>Run as a server</h3><p>Serve a team from one container: an authenticated MCP endpoint plus the Observatory.</p><b>Open server guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/specs/task_module.md"><span>10</span><h3>Deterministic Task</h3><p>Understand claims, takeover, versioned scope, checks, subtasks, dependencies, flags, audit, and completion gates.</p><b>Open specification ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/architecture/architecture_overview.md"><span>11</span><h3>Architecture</h3><p>Understand the launcher, core, stores, compiled wikis, Hub, daemon, UI, and agent adapters.</p><b>Open architecture ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/oidc-integration.md"><span>12</span><h3>OIDC integration</h3><p>Register native consumer and confidential broker-admin clients, map verified claims, configure roles and S3 routes, and troubleshoot the complete flow.</p><b>Open OIDC guide ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/auth-broker.md"><span>13</span><h3>Broker</h3><p>Operate the OIDC/RBAC/SQL control plane, transactional resource ACLs, anonymous access, bearer relay or RFC 8693 exchange, central AI, private storage routes, and per-operation signing.</p><b>Open broker guide ↗</b></a>
-      </div>
-    </section>
-
-    <section class="final-cta section reveal">
-      <img src="assets/logo.svg" alt="" width="72" height="72">
-      <p class="kicker">Graphit Code</p>
-      <h2>Give every agent context—and every task a definition of done.</h2>
-      <div class="hero-actions">
-        <a class="button button-primary" href="#install">Install Graphit</a>
-        <a class="button button-secondary" href="https://github.com/graphit-labs/graphit-code">View on GitHub ↗</a>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <div class="brand footer-brand"><img src="assets/logo.svg" alt="" width="32" height="32"><span><strong>Graphit</strong><small>AI ENGINEERING</small></span></div>
-    <p>Open source context and deterministic control for AI software engineering.</p>
-    <p>© <span id="year">2026</span> Graphit Labs · MIT</p>
-  </footer>
-</body>
+    </footer>
+  </body>
 </html>

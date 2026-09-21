@@ -3,6 +3,7 @@ package mcpstdio
 import (
 	"context"
 	"errors"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -13,13 +14,14 @@ import (
 )
 
 type taskSessionCreateInput struct {
-	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Title          string `json:"title" jsonschema:"Concise outcome of the complete user request (required)"`
-	Description    string `json:"description" jsonschema:"Detailed current request, scope, requirements, constraints, sources and success criteria sufficient for another agent without the conversation (required)"`
-	Strategy       string `json:"strategy" jsonschema:"Current approach, investigation and task decomposition strategy, uncertainties and validation plan (required)"`
-	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"Stable key for this logical request; reuse on uncertain retries"`
-	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; distinct from the logical session ID"`
-	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	Title          string           `json:"title" jsonschema:"Concise outcome of the complete user request (required)"`
+	Description    string           `json:"description" jsonschema:"Detailed current request, scope, requirements, constraints, sources and success criteria sufficient for another agent without the conversation (required)"`
+	Strategy       string           `json:"strategy" jsonschema:"Current approach, investigation and task decomposition strategy, uncertainties and validation plan (required)"`
+	IdempotencyKey string           `json:"idempotency_key,omitempty" jsonschema:"Stable key for this logical request; reuse on uncertain retries"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; distinct from the logical session ID"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionGetInput struct {
@@ -56,31 +58,33 @@ type taskSessionClaimInput struct {
 }
 
 type taskSessionReviseInput struct {
-	ProjectDir       string  `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID               string  `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken       string  `json:"claim_token" jsonschema:"Private session coordinator token returned by session_claim (required)"`
-	AgentID          string  `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	ExpectedRevision int64   `json:"expected_revision" jsonschema:"Current session revision for compare-and-swap (required)"`
-	Reason           string  `json:"reason" jsonschema:"What changed in user request or approach and its impact on the existing tasks (required)"`
-	Title            *string `json:"title,omitempty" jsonschema:"Replacement request title"`
-	Description      *string `json:"description,omitempty" jsonschema:"Complete replacement request specification, preserving remaining scope and constraints"`
-	Strategy         *string `json:"strategy,omitempty" jsonschema:"Replacement strategy, rationale and validation plan"`
-	Lease            string  `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
-	AiOptimized      *bool   `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References       *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir       string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID               string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken       string           `json:"claim_token" jsonschema:"Private session coordinator token returned by session_claim (required)"`
+	AgentID          string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	ExpectedRevision int64            `json:"expected_revision" jsonschema:"Current session revision for compare-and-swap (required)"`
+	Reason           string           `json:"reason" jsonschema:"What changed in user request or approach and its impact on the existing tasks (required)"`
+	Title            *string          `json:"title,omitempty" jsonschema:"Replacement request title"`
+	Description      *string          `json:"description,omitempty" jsonschema:"Complete replacement request specification, preserving remaining scope and constraints"`
+	Strategy         *string          `json:"strategy,omitempty" jsonschema:"Replacement strategy, rationale and validation plan"`
+	Lease            string           `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
+	AiOptimized      *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionCheckpointInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Summary     string `json:"summary" jsonschema:"Descriptive completed progress with evidence and affected task IDs (required)"`
-	Problems    string `json:"problems,omitempty" jsonschema:"Problems, blockers, uncertainty and attempted solutions"`
-	Decisions   string `json:"decisions,omitempty" jsonschema:"Decisions with rationale, alternatives and impact"`
-	Strategy    string `json:"strategy,omitempty" jsonschema:"Current execution approach; material specification changes also require session_revise"`
-	NextStep    string `json:"next_step" jsonschema:"Exact continuation action, target, prerequisites and done condition (required)"`
-	Lease       string `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken  string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Summary     string           `json:"summary" jsonschema:"Descriptive completed progress with evidence and affected task IDs (required)"`
+	Problems    string           `json:"problems,omitempty" jsonschema:"Problems, blockers, uncertainty and attempted solutions"`
+	Decisions   string           `json:"decisions,omitempty" jsonschema:"Decisions with rationale, alternatives and impact"`
+	Strategy    string           `json:"strategy,omitempty" jsonschema:"Current execution approach; material specification changes also require session_revise"`
+	NextStep    string           `json:"next_step" jsonschema:"Exact continuation action, target, prerequisites and done condition (required)"`
+	Lease       string           `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
+	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionHeartbeatInput struct {
@@ -93,31 +97,34 @@ type taskSessionHeartbeatInput struct {
 }
 
 type taskSessionReleaseInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Summary     string `json:"summary" jsonschema:"Self-contained handoff of results, remaining work, blockers and relevant tasks (required)"`
-	NextStep    string `json:"next_step" jsonschema:"Exact continuation action with target and done condition for the next coordinator (required)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken  string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Summary     string           `json:"summary" jsonschema:"Self-contained handoff of results, remaining work, blockers and relevant tasks (required)"`
+	NextStep    string           `json:"next_step" jsonschema:"Exact continuation action with target and done condition for the next coordinator (required)"`
+	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionCompleteInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Summary     string `json:"summary" jsonschema:"Final result mapped to requested outcomes and evidence; explain cancelled scope and residual limitations (required)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken  string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Summary     string           `json:"summary" jsonschema:"Final result mapped to requested outcomes and evidence; explain cancelled scope and residual limitations (required)"`
+	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionCancelInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Logical Task session ID (required)"`
-	ClaimToken  string `json:"claim_token" jsonschema:"Private token from the active session claim (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity"`
-	Reason      string `json:"reason" jsonschema:"Why this request is cancelled, remaining consequences and replacement if any (required)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string           `json:"id" jsonschema:"Logical Task session ID (required)"`
+	ClaimToken  string           `json:"claim_token" jsonschema:"Private token from the active session claim (required)"`
+	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity"`
+	Reason      string           `json:"reason" jsonschema:"Why this request is cancelled, remaining consequences and replacement if any (required)"`
+	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionForceTakeoverInput struct {
@@ -164,6 +171,10 @@ func taskSessionPageResult[T any](value page.Page[T], optimized *bool) (*mcp.Cal
 
 func registerTaskSessionTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "create"), Description: "Create an idempotent durable request session with its complete description and strategy. Does not claim coordination or create tasks."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCreateInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(in.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, in.References)
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -231,6 +242,10 @@ func registerTaskSessionTools(server *mcp.Server) {
 		return taskResult(v, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "revise"), Description: "Revise the current request or strategy when user direction or discoveries change it; preserve immutable prior specifications and require the current revision."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionReviseInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(in.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, in.References)
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -246,6 +261,10 @@ func registerTaskSessionTools(server *mcp.Server) {
 		return taskResult(v, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "checkpoint"), Description: "Append a descriptive session checkpoint: actual progress, problems, decisions, strategy and exact continuation. Does not replace a changed request specification."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCheckpointInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(in.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, in.References)
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -276,6 +295,10 @@ func registerTaskSessionTools(server *mcp.Server) {
 		return taskResult(v, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "release"), Description: "Hand off session coordination with durable results and an exact next step. The request stays open and tasks retain their independent lifecycle."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionReleaseInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(in.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, in.References)
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -287,6 +310,10 @@ func registerTaskSessionTools(server *mcp.Server) {
 		return taskResult(v, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "complete"), Description: "Explicitly close a fulfilled request with a final evidence-based summary. Refuses any associated task that is not completed or cancelled."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCompleteInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(in.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, in.References)
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -298,6 +325,10 @@ func registerTaskSessionTools(server *mcp.Server) {
 		return taskResult(v, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "cancel"), Description: "Cancel an obsolete request with an audited reason only after its tasks are terminal; never silently cancels associated work."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCancelInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(in.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, in.References)
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)

@@ -3,6 +3,7 @@ package mcpstdio
 import (
 	"context"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -17,23 +18,25 @@ import (
 )
 
 type memoryInsertInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Title       string `json:"title" jsonschema:"Memory title (required)"`
-	Content     string `json:"content" jsonschema:"Detailed memory content (required)"`
-	Type        string `json:"type,omitempty" jsonschema:"Memory type: convention or correction or decision or tension or fact or skill"`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	LinkProject bool   `json:"link_project,omitempty" jsonschema:"Link user memory to project identity"`
-	Important   bool   `json:"important,omitempty" jsonschema:"Mark as important"`
-	Mandatory   bool   `json:"mandatory,omitempty" jsonschema:"Mark as mandatory; mandatory memories are loaded unconditionally at session start"`
-	Tags        string `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
+	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir  string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	Title       string           `json:"title" jsonschema:"Memory title (required)"`
+	Content     string           `json:"content" jsonschema:"Detailed memory content (required)"`
+	Type        string           `json:"type,omitempty" jsonschema:"Memory type: convention or correction or decision or tension or fact or skill"`
+	Scope       string           `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	LinkProject bool             `json:"link_project,omitempty" jsonschema:"Link user memory to project identity"`
+	Important   bool             `json:"important,omitempty" jsonschema:"Mark as important"`
+	Mandatory   bool             `json:"mandatory,omitempty" jsonschema:"Mark as mandatory; mandatory memories are loaded unconditionally at session start"`
+	Tags        string           `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
 }
 
 type memoryUpdateInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID         string `json:"id" jsonschema:"Memory ID to update (required)"`
-	Content    string `json:"content,omitempty" jsonschema:"New content"`
-	Title      string `json:"title,omitempty" jsonschema:"New title"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	References *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ID         string           `json:"id" jsonschema:"Memory ID to update (required)"`
+	Content    string           `json:"content,omitempty" jsonschema:"New content"`
+	Title      string           `json:"title,omitempty" jsonschema:"New title"`
+	Scope      string           `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memoryDeleteInput struct {
@@ -138,6 +141,10 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "insert"),
 		Description: "Add a new memory to the project or user memory store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryInsertInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(input.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, input.References)
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -195,6 +202,10 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "update"),
 		Description: "Update the title or content of an existing memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryUpdateInput) (*mcp.CallToolResult, any, error) {
+		if err := relations.Validate(input.References); err != nil {
+			return errResult(err)
+		}
+		ctx = relations.WithInputs(ctx, input.References)
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)

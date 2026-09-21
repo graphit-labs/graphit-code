@@ -211,6 +211,7 @@ func (s *UIServer) handleRegistry(w http.ResponseWriter, r *http.Request) {
 
 	writeJSONUI(w, map[string]any{
 		"entries": entries, "installed": installed, "project_lock": lock,
+		"available":           s.svc.registry.IsReady(),
 		"next_cursor":         entryPage.NextCursor,
 		"active_project":      filepath.Base(projectDir),
 		"active_project_id":   activeProjectID,

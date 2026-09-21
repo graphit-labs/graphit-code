@@ -1,0 +1,23 @@
+import '@/test/contextControls';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act,cleanup,render,screen,waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { WorkspaceRefreshProvider } from '@/components/layout/WorkspaceRefresh';
+import { useAppStore } from '@/store/appStore';
+import { loadLiveCatalog } from '@/api/liveCatalog';
+import LiveSearchPage from './LiveSearchPage';
+vi.mock('@/api/liveCatalog',async original=>({...await original<typeof import('@/api/liveCatalog')>(),loadLiveCatalog:vi.fn()}));
+vi.mock('@/api/live',()=>({listLiveSessions:vi.fn(async()=>[]),subscribeLiveEvents:vi.fn(()=>({close:vi.fn()})),createLiveSession:vi.fn(),cancelLiveTurn:vi.fn(),sendLiveMessage:vi.fn(),removeLiveSession:vi.fn()}));
+beforeEach(()=>{Element.prototype.scrollIntoView=vi.fn();useAppStore.setState({activeProjectDir:'/project',activeAgent:'codex',projectsLoaded:true});});
+afterEach(()=>{cleanup();vi.resetAllMocks();});
+const source={id:'docs',name:'Project docs',type:'knowledge',latest:'local',sourceLabel:'Project · Current',ref:{id:'docs',type:'knowledge',version:'local',source:'project' as const,project_id:'p',instance_id:'i',project_kind:'own_context'}};
+it('selects source-aware artifacts then clears them on header context changes',async()=>{
+ vi.mocked(loadLiveCatalog).mockResolvedValue({entries:[source],errors:[]});
+ const user=userEvent.setup();render(<MemoryRouter><WorkspaceRefreshProvider><LiveSearchPage/></WorkspaceRefreshProvider></MemoryRouter>);
+ await user.click(await screen.findByRole('checkbox',{name:'Use Project docs'}));
+ expect((screen.getByRole('checkbox',{name:'Use Project docs'}) as HTMLInputElement).checked).toBe(true);
+ act(()=>useAppStore.setState({activeProjectDir:'/next'}));
+ await waitFor(()=>expect(loadLiveCatalog).toHaveBeenLastCalledWith('/next','codex'));
+ expect((await screen.findByRole('checkbox',{name:'Use Project docs'}) as HTMLInputElement).checked).toBe(false);
+});

@@ -50,7 +50,7 @@ function getCookie(name: string): string | null {
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string, options?: RequestInit) => request<T>(path, options),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, {
       method: 'POST',
@@ -67,3 +67,15 @@ export const api = {
 }
 
 export type { ApiError }
+
+export function openAPIStream(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  const base = getApiBase();
+  const fullBase = base.endsWith('/api') ? base : `${base}/api`;
+  const cleanPath = path.startsWith('/api/') ? path.slice(4) : path;
+  const token = getCookie('graphit_id_token');
+  return fetch(`${fullBase}${cleanPath}`, {
+    method: 'POST', signal,
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(token && window.__WEB_MODE__ ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+}

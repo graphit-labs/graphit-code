@@ -1,691 +1,1149 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { astApi, type GraphNode, type GraphEdge, type SchemaNodeStat, type SchemaEdgeStat, type SchemaLangGroup } from '@/api/ast'
-import { showToast } from '@/hooks/useToast'
-import { GraphCanvas, type GraphCanvasRef } from './GraphCanvas'
-import { QueryBar, QueryBarCollapsed, QueryBarCollapseButton } from './QueryBar'
-import { SchemaPanel } from './SchemaPanel'
-import { NodeTree } from './NodeTree'
-import { CodePanel } from './CodePanel'
-import { TabularResults } from './TabularResults'
-import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { labelColor } from '@/lib/utils'
+import { StyledSelect } from "@/components/shared/StyledSelect";
+import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Layers, FolderTree, ChevronLeft, ChevronRight,
-  ZoomIn, ZoomOut, Maximize2, RotateCcw, Settings, X, Code2,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useAppStore } from '@/store/appStore'
-import { ProjectPicker } from '@/components/layout/ProjectPicker'
-
+  astApi,
+  type GraphNode,
+  type GraphEdge,
+  type CodeSearchResult,
+  type SchemaResponse,
+} from "@/api/ast";
+import { GraphCanvas, type GraphCanvasRef } from "./GraphCanvas";
+import { QueryBar } from "./QueryBar";
+import { SchemaPanel } from "./SchemaPanel";
+import { CodePanel } from "./CodePanel";
+import { TabularResults } from "./TabularResults";
+import { NodeTree } from "./NodeTree";
+import { useAppStore } from "@/store/appStore";
+import {
+  WorkPage,
+  WorkHeader,
+  WorkSection,
+  WorkSearch,
+  WorkTabs,
+  WorkNotice,
+  WorkEmpty,
+  FactList,
+  RecordLink,
+} from "@/components/shared/EngineeringUI";
+import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 const LS = {
   get<T>(key: string, fallback: T): T {
-    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
+    try {
+      const v = localStorage.getItem(key);
+      return v ? JSON.parse(v) : fallback;
+    } catch {
+      return fallback;
+    }
   },
   set(key: string, value: unknown) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignored */ }
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      /* optional preferences */
+    }
   },
-}
-
-type LeftTab = 'schema' | 'tree'
-
-function useResizable(
-  initial: number,
-  min: number,
-  max: number,
-  direction: 'right' | 'left' = 'right',
-  storageKey?: string,
-) {
-  const [size, setSize] = useState(() =>
-    storageKey ? LS.get<number>(storageKey, initial) : initial
-  )
-  const dragging = useRef(false)
-  const startX = useRef(0)
-  const startSize = useRef(size)
-
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    dragging.current = true
-    startX.current = e.clientX
-    startSize.current = size
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-
-    const onMove = (ev: MouseEvent) => {
-      if (!dragging.current) return
-      const delta = direction === 'right' ? ev.clientX - startX.current : startX.current - ev.clientX
-      const next = Math.max(min, Math.min(max, startSize.current + delta))
-      setSize(next)
-    }
-    const onUp = () => {
-      dragging.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      if (storageKey) LS.set(storageKey, sizeRef.current)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [size, min, max, direction, storageKey])
-
-  const sizeRef = useRef(size)
-  // eslint-disable-next-line react-hooks/immutability
-  useEffect(() => { sizeRef.current = size }, [size])
-
-  return { size, onMouseDown }
-}
+};
+const quote = (s: string) =>
+  "'" + s.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
 
 export default function ExplorerPage() {
-  const { contextId } = useParams<{ contextId: string }>()
-  const navigate = useNavigate()
-  const { activeProjectDir } = useAppStore()
-
-  const [nodes, setNodes] = useState<GraphNode[]>([])
-  const [links, setLinks] = useState<GraphEdge[]>([])
-  const [schemaNodes, setSchemaNodes] = useState<SchemaNodeStat[]>([])
-  const [schemaEdges, setSchemaEdges] = useState<SchemaEdgeStat[]>([])
-  const [schemaLangs, setSchemaLangs] = useState<SchemaLangGroup[]>([])
-  const [hiddenLabels, setHiddenLabels] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>('graphit_hidden_labels', []))
-  )
-  const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>('graphit_hidden_edges', []))
-  )
-  const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>('graphit_hidden_clusters', []))
-  )
-  const [hiddenLangs, setHiddenLangs] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>('graphit_hidden_langs', []))
-  )
-  const [collapsedLangs, setCollapsedLangs] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>('graphit_collapsed_langs', []))
-  )
-  const [nodeColors, setNodeColors] = useState<Record<string, string>>(
-    () => LS.get<Record<string, string>>('graphit_node_colors', {})
-  )
-  const [clusterColors, setClusterColors] = useState<Record<string, string>>(
-    () => LS.get<Record<string, string>>('graphit_cluster_colors', {})
-  )
-  const [langColors, setLangColors] = useState<Record<string, string>>(
-    () => LS.get<Record<string, string>>('graphit_lang_colors', {})
-  )
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
-  const [sourceFile, setSourceFile] = useState<string | null>(null)
-  const [sourceContent, setSourceContent] = useState('')
-  const [sourceLine, setSourceLine] = useState<number | null>(null)
-  const [tabularData, setTabularData] = useState<{ columns: string[]; rows: unknown[][] } | null>(null)
-  const [leftTab, setLeftTab] = useState<LeftTab>('schema')
-  const [leftCollapsed, setLeftCollapsed] = useState(
-    () => window.matchMedia('(max-width: 767px)').matches || LS.get<boolean>('graphit_left_collapsed', false)
-  )
-  const [rightVisible, setRightVisible] = useState(false)
-  const [physicsPanel, setPhysicsPanel] = useState(false)
-  const [is3D, setIs3D] = useState(
-    () => LS.get<boolean>('graphit_is3D', false)
-  )
-  const defaults2D = { repulsion: 120, linkDistance: 50, gravity: 0.3, edgeWidth: 1, labelDensity: 1.2 }
-  const defaults3D = { repulsion: 120, linkDistance: 50, gravity: 0.1, edgeWidth: 1, labelDensity: 1.2 }
-
-  const loadPhysics = (mode3D: boolean) => {
-    const key = mode3D ? 'graphit_physics_3d' : 'graphit_physics_2d'
-    const defaults = mode3D ? defaults3D : defaults2D
-    const saved = LS.get(key, defaults)
-    return { ...defaults, ...saved }
-  }
-
-  const [physics, setPhysics] = useState(() => loadPhysics(is3D))
-
-  const [queryBarCollapsed, setQueryBarCollapsed] = useState(
-    () => window.matchMedia('(max-width: 767px)').matches || LS.get<boolean>('graphit_querybar_collapsed', false)
-  )
-  const [loading, setLoading] = useState(true)
-  const [queryLoading, setQueryLoading] = useState(false)
-  const [projectName, setProjectName] = useState<string>('')
-  const [projectRoot, setProjectRoot] = useState<string>('')
-
-  const canvasRef = useRef<GraphCanvasRef>(null)
-
-  const left = useResizable(272, 180, 480, 'right', 'graphit_left_width')
-  const right = useResizable(380, 240, 600, 'left', 'graphit_right_width')
-
-  const decodedContextId = contextId ? decodeURIComponent(contextId) : undefined
-
+  const { contextId } = useParams<{ contextId: string }>();
+  const context = contextId ? decodeURIComponent(contextId) : undefined;
+  const { activeProjectDir } = useAppStore();
+  const navigate = useNavigate();
+  const projectDir = activeProjectDir || undefined;
+  const [view, setView] = useState("investigate");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CodeSearchResult[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [source, setSource] = useState<{
+    path: string;
+    content: string;
+    line?: number;
+    provenance: string;
+  } | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [relation, setRelation] = useState("source");
+  const [edgeType, setEdgeType] = useState("CALLS");
+  const [targetType, setTargetType] = useState("");
+  const [related, setRelated] = useState<GraphNode[]>([]);
+  const [relationLoading, setRelationLoading] = useState(false);
+  const [schema, setSchema] = useState<SchemaResponse>({
+    nodes: [],
+    edges: [],
+    node_labels: [],
+    edge_types: [],
+    langs: [],
+    backend: "",
+  });
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
+  const [links, setLinks] = useState<GraphEdge[]>([]);
+  const [tabular, setTabular] = useState<{
+    columns: string[];
+    rows: unknown[][];
+  } | null>(null);
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [queryRan, setQueryRan] = useState(false);
+  const [projectRoot, setProjectRoot] = useState("");
+  const searchRequest = useRef(0),
+    sourceRequest = useRef(0),
+    relationRequest = useRef(0),
+    graphRequest = useRef(0);
+  const lastSearch = useRef("");
+  const initialSample = useRef("");
+  const lastGraphQuery = useRef<{ cypher_query?: string } | null>(null);
+  const scope = useRef("");
+  const currentScope = (projectDir || "") + "|" + (context || "");
+  scope.current = currentScope;
   useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      try {
-        const projDir = activeProjectDir || undefined
-        const [graphData, schema] = await Promise.all([
-          astApi.getGraph({ context: decodedContextId, project_dir: projDir }),
-          astApi.getSchema(decodedContextId, projDir),
-        ])
-        setNodes(graphData.nodes ?? [])
-        setLinks(graphData.links ?? [])
-        setSchemaNodes(schema.nodes ?? [])
-        setSchemaEdges(schema.edges ?? [])
-        setSchemaLangs(schema.langs ?? [])
-
-        const defaults: Record<string, string> = {}
-        schema.node_labels?.forEach((l) => { defaults[l] = labelColor(l) })
-        const saved = LS.get<Record<string, string>>('graphit_node_colors', {})
-        setNodeColors({ ...defaults, ...saved })
-
-        try {
-          const ctxData = await astApi.getContexts(activeProjectDir || undefined)
-          const name = ctxData.project_name || ''
-          const root = ctxData.project_root || ''
-          setProjectName(name)
-          setProjectRoot(root)
-          if (name) document.title = `Graphit AST — ${name}`
-        } catch { /* ignored */ }
-      } catch {
-        showToast('Failed to load graph', 'error')
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [decodedContextId, activeProjectDir])
-
-  const handleQueryResult = useCallback((result: unknown) => {
-    const r = result as { nodes?: GraphNode[]; links?: GraphEdge[]; tabular?: { columns: string[]; rows: unknown[][] } }
-    if (r.tabular && r.tabular.columns && r.tabular.rows) {
-      setTabularData(r.tabular)
-    } else {
-      setTabularData(null)
-      setNodes(r.nodes ?? [])
-      setLinks(r.links ?? [])
-    }
-  }, [])
-
-  const handleFileClick = useCallback(async (path: string, line?: number) => {
-    setSourceFile(path)
-    setSourceLine(line ?? null)
-    setRightVisible(true)
+    searchRequest.current++;
+    sourceRequest.current++;
+    relationRequest.current++;
+    graphRequest.current++;
+    lastSearch.current = "";
+    lastGraphQuery.current = null;
+    initialSample.current = "";
+    setResults([]);
+    setSearched(false);
+    setSelected(null);
+    setSource(null);
+    setRelated([]);
+    setNodes([]);
+    setLinks([]);
+    setTabular(null);
+    setQueryRan(false);
+    setQueryLoading(false);
+    setQuery("");
+    setError("");
+    setSearching(false);
+    setSourceLoading(false);
+    setRelationLoading(false);
+    setSchema({
+      nodes: [],
+      edges: [],
+      node_labels: [],
+      edge_types: [],
+      langs: [],
+      backend: "",
+    });
+    let active = true;
+    astApi
+      .getSchema(context, projectDir)
+      .then((s) => {
+        if (active) setSchema(s);
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    astApi
+      .getContexts(projectDir)
+      .then((c) => {
+        if (active) setProjectRoot(c.project_root || "");
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [context, projectDir]);
+  const search = async (text = query.trim()) => {
+    if (!text) return;
+    lastSearch.current = text;
+    const id = ++searchRequest.current;
+    setSearching(true);
+    setError("");
+    setSearched(true);
+    setResults([]);
     try {
-      const data = await astApi.getFile(path, decodedContextId, activeProjectDir || undefined)
-      setSourceContent(data.content ?? '')
-    } catch {
-      showToast('Failed to load file', 'error')
-      setSourceContent('// Could not load file content.')
-    }
-  }, [decodedContextId, activeProjectDir])
-
-  const handleFileClickRef = useRef(handleFileClick)
-
-  const leftCollapsedRef = useRef(leftCollapsed)
-  useEffect(() => {
-    leftCollapsedRef.current = leftCollapsed
-    handleFileClickRef.current = handleFileClick
-  }, [leftCollapsed, handleFileClick])
-
-  const handleNodeClick = useCallback((node: GraphNode | null) => {
-    if (!node) { setSelectedNode(null); return }
-    setSelectedNode(node)
-
-    setLeftTab('tree')
-    if (leftCollapsedRef.current) setLeftCollapsed(false)
-
-    if (node.file) handleFileClickRef.current(node.file, node.line)
-  }, [])
-
-  const handleZoom = (dir: 1 | -1) => {
-    canvasRef.current?.zoomBy?.(dir === 1 ? 1.4 : 1 / 1.4)
-  }
-
-  const handleFit = () => { canvasRef.current?.fitGraph?.() }
-
-  const prevModeRef = useRef(is3D)
-  useEffect(() => {
-    if (prevModeRef.current !== is3D) {
-      const oldKey = prevModeRef.current ? 'graphit_physics_3d' : 'graphit_physics_2d'
-      LS.set(oldKey, physics)
-      prevModeRef.current = is3D
-      setPhysics(loadPhysics(is3D))
-    } else {
-      const key = is3D ? 'graphit_physics_3d' : 'graphit_physics_2d'
-      LS.set(key, physics)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [physics, is3D])
-  useEffect(() => { LS.set('graphit_node_colors', nodeColors) }, [nodeColors])
-  useEffect(() => { LS.set('graphit_hidden_labels', [...hiddenLabels]) }, [hiddenLabels])
-  useEffect(() => { LS.set('graphit_hidden_edges', [...hiddenEdgeTypes]) }, [hiddenEdgeTypes])
-  useEffect(() => { LS.set('graphit_hidden_clusters', [...hiddenClusters]) }, [hiddenClusters])
-  useEffect(() => { LS.set('graphit_hidden_langs', [...hiddenLangs]) }, [hiddenLangs])
-  useEffect(() => { LS.set('graphit_collapsed_langs', [...collapsedLangs]) }, [collapsedLangs])
-  useEffect(() => { LS.set('graphit_cluster_colors', clusterColors) }, [clusterColors])
-  useEffect(() => { LS.set('graphit_lang_colors', langColors) }, [langColors])
-  useEffect(() => { LS.set('graphit_left_collapsed', leftCollapsed) }, [leftCollapsed])
-  useEffect(() => { LS.set('graphit_querybar_collapsed', queryBarCollapsed) }, [queryBarCollapsed])
-  useEffect(() => { LS.set('graphit_is3D', is3D) }, [is3D])
-
-  const handleReset = async () => {
-    setLoading(true)
-    setSelectedNode(null)
-    try {
-      const data = await astApi.getGraph({ context: decodedContextId, project_dir: activeProjectDir || undefined })
-      setNodes(data.nodes ?? [])
-      setLinks(data.links ?? [])
-      setTabularData(null)
-    } catch {
-      showToast('Failed to reset', 'error')
+      const rows = await astApi.search(text, context, projectDir);
+      if (id === searchRequest.current) setResults(rows || []);
+    } catch (e) {
+      if (id === searchRequest.current) setError((e as Error).message);
     } finally {
-      setLoading(false)
+      if (id === searchRequest.current) setSearching(false);
     }
-  }
-
-  const displayName = projectName || (
-    decodedContextId && decodedContextId !== '__project__'
-      ? decodedContextId
-      : (projectRoot ? projectRoot.split('/').pop() : 'Project')
-  ) || 'Project'
-
-  const toRelPath = (abs: string) => {
-    if (projectRoot && abs.startsWith(projectRoot)) {
-      return abs.slice(projectRoot.length).replace(/^\//, '')
+  };
+  const openFile = useCallback(
+    async (path: string, line?: number) => {
+      const id = ++sourceRequest.current;
+      setSource(null);
+      setSourceLoading(true);
+      setError("");
+      try {
+        const data = await astApi.getFile(path, context, projectDir);
+        if (id === sourceRequest.current)
+          setSource({
+            path,
+            line,
+            content: data.content,
+            provenance: data.source || "indexed",
+          });
+      } catch (e) {
+        if (id === sourceRequest.current)
+          setError("Indexed source unavailable: " + (e as Error).message);
+      } finally {
+        if (id === sourceRequest.current) setSourceLoading(false);
+      }
+    },
+    [context, projectDir],
+  );
+  const choose = useCallback(
+    (node: GraphNode | null) => {
+      if (!node) {
+        setSelected(null);
+        return;
+      }
+      relationRequest.current++;
+      setRelationLoading(false);
+      setRelated([]);
+      setSelected(node);
+      setRelation("source");
+      setView("investigate");
+      if (node.file) void openFile(node.file, node.line);
+      else {
+        sourceRequest.current++;
+        setSource(null);
+        setSourceLoading(false);
+      }
+    },
+    [openFile],
+  );
+  const selectResult = (r: CodeSearchResult) =>
+    choose({
+      id: r.Path + ":" + r.Line + ":" + r.Name,
+      name: r.Name,
+      label: r.Type,
+      type: r.Type,
+      file: r.Path,
+      line: r.Line,
+    });
+  const targetTypes = (kind: string, edge: string) => {
+    const endpoints = (schema.relationship_endpoints || []).filter(
+      (e) => e.type === (kind === "impact" ? "CALLS" : edge),
+    );
+    let labels = new Set(selected ? [selected.label] : []);
+    const result = new Set<string>();
+    for (let hop = 0; hop < (kind === "impact" ? 2 : 1); hop++) {
+      const next = new Set<string>();
+      for (const e of endpoints) {
+        if (labels.has(kind === "outgoing" ? e.from : e.to))
+          next.add(kind === "outgoing" ? e.to : e.from);
+      }
+      next.forEach((label) => result.add(label));
+      labels = next;
     }
-    return abs.split('/').slice(-3).join('/')
-  }
-
+    return [...result].sort();
+  };
+  const investigate = async (
+    kind: string,
+    edge = edgeType,
+    requestedTarget?: string,
+  ) => {
+    setRelation(kind);
+    setRelated([]);
+    const id = ++relationRequest.current;
+    if (kind === "source" || !selected) {
+      setRelationLoading(false);
+      return;
+    }
+    setRelationLoading(true);
+    setError("");
+    try {
+      const anchor = schema.node_types?.find((t) => t.label === selected.label);
+      const options = targetTypes(kind, edge);
+      const targetLabel = requestedTarget || options[0];
+      setTargetType(targetLabel || "");
+      const target = schema.node_types?.find((t) => t.label === targetLabel);
+      if (!anchor?.identity_property || !schema.relationship_endpoints)
+        throw new Error(
+          "This index does not expose identity and relationship metadata. Use Query lab to inspect its schema.",
+        );
+      if (!targetLabel) return;
+      if (!target?.identity_property)
+        throw new Error(
+          "The related entity has no declared identity in this schema.",
+        );
+      const edgeName = kind === "impact" ? "CALLS" : edge;
+      const identifiers = [
+        anchor.label,
+        anchor.identity_property,
+        target.label,
+        target.identity_property,
+        edgeName,
+        ...target.properties,
+      ];
+      if (identifiers.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)))
+        throw new Error("This schema requires an explicit query in Query lab.");
+      let identity = selected.properties?.[anchor.identity_property];
+      if (identity == null && anchor.identity_property === "path")
+        identity = selected.file;
+      if (identity == null || identity === "") {
+        const filters: string[] = [];
+        if (anchor.properties.includes("name"))
+          filters.push("n.name = " + quote(selected.name));
+        if (anchor.properties.includes("path") && selected.file)
+          filters.push("n.path = " + quote(selected.file));
+        if (anchor.properties.includes("line_number") && selected.line)
+          filters.push("n.line_number = " + selected.line);
+        if (!filters.length)
+          throw new Error(
+            "Search an indexed entity with a stable identity before tracing relationships.",
+          );
+        const resolved = await astApi.getGraph({
+          context,
+          project_dir: projectDir,
+          cypher_query:
+            "MATCH (n:" +
+            anchor.label +
+            ") WHERE " +
+            filters.join(" AND ") +
+            " RETURN n LIMIT 2",
+        });
+        if (id !== relationRequest.current) return;
+        if (resolved.nodes.length !== 1)
+          throw new Error(
+            resolved.nodes.length
+              ? "Multiple indexed symbols match this location. Refine the symbol in Query lab before tracing relationships."
+              : "This symbol is no longer present in the current index. Refresh the search before tracing relationships.",
+          );
+        identity = resolved.nodes[0].properties?.[anchor.identity_property];
+        if (identity == null || identity === "")
+          throw new Error(
+            "The indexed symbol has no stable identity. Renderer IDs cannot identify indexed entities.",
+          );
+        setSelected((previous) =>
+          previous?.id === selected.id
+            ? {
+                ...previous,
+                properties: {
+                  ...previous.properties,
+                  [anchor.identity_property]: identity,
+                },
+              }
+            : previous,
+        );
+      }
+      const pattern =
+        kind === "outgoing"
+          ? "(anchor:" +
+            anchor.label +
+            ")-[:" +
+            edgeName +
+            "]->(n:" +
+            target.label +
+            ")"
+          : "(n:" +
+            target.label +
+            ")-[:" +
+            edgeName +
+            (kind === "impact" ? "*1..2" : "") +
+            "]->(anchor:" +
+            anchor.label +
+            ")";
+      const fields = ["n." + target.identity_property + " AS identity"];
+      for (const [property, alias] of [
+        ["name", "name"],
+        ["path", "path"],
+        ["line_number", "line"],
+      ])
+        if (target.properties.includes(property))
+          fields.push("n." + property + " AS " + alias);
+      const data = await astApi.getGraph({
+        context,
+        project_dir: projectDir,
+        cypher_query:
+          "MATCH " +
+          pattern +
+          " WHERE anchor." +
+          anchor.identity_property +
+          " = " +
+          quote(String(identity)) +
+          " RETURN DISTINCT " +
+          fields.join(", ") +
+          " LIMIT 100",
+      });
+      if (id === relationRequest.current) {
+        const table = data.tabular;
+        setRelated(
+          table
+            ? table.rows.map((row) => {
+                const item = Object.fromEntries(
+                  table.columns.map((c, i) => [c, row[i]]),
+                );
+                return {
+                  id: target.label + ":" + String(item.identity),
+                  name: String(item.name || item.identity),
+                  file: String(item.path || ""),
+                  line: Number(item.line) || undefined,
+                  label: target.label,
+                  type: target.label,
+                  properties: { [target.identity_property]: item.identity },
+                };
+              })
+            : data.nodes || [],
+        );
+      }
+    } catch (e) {
+      if (id === relationRequest.current) setError((e as Error).message);
+    } finally {
+      if (id === relationRequest.current) setRelationLoading(false);
+    }
+  };
+  const sample = async () => {
+    lastGraphQuery.current = {};
+    const id = ++graphRequest.current;
+    setQueryLoading(true);
+    setError("");
+    try {
+      const data = await astApi.getGraph({ context, project_dir: projectDir });
+      if (id === graphRequest.current) {
+        setNodes(data.nodes || []);
+        setLinks(data.links || []);
+        setTabular(null);
+      }
+    } catch (e) {
+      if (id === graphRequest.current) setError((e as Error).message);
+    } finally {
+      if (id === graphRequest.current) setQueryLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (view !== "map" || !projectDir || initialSample.current === currentScope) return;
+    initialSample.current = currentScope;
+    if (!lastGraphQuery.current) void sample();
+  }, [view, currentScope, projectDir]);
+  usePageRefresh(async () => {
+    const startedScope = currentScope;
+    const metadata = async () => {
+      const [nextSchema, contexts] = await refreshAll([
+        astApi.getSchema(context, projectDir), astApi.getContexts(projectDir),
+      ] as const);
+      if (scope.current !== startedScope) return;
+      setSchema(nextSchema);
+      setProjectRoot(contexts.project_root || "");
+    };
+    const graph = async () => {
+      if (!lastGraphQuery.current) return;
+      const request = graphRequest.current;
+      const data = await astApi.getGraph({ context, project_dir: projectDir, ...lastGraphQuery.current });
+      if (request !== graphRequest.current || scope.current !== startedScope) return;
+      setNodes(data.nodes || []);
+      setLinks(data.links || []);
+      setTabular(data.tabular || null);
+    };
+    await refreshAll([
+      metadata(), graph(),
+      lastSearch.current ? search(lastSearch.current) : Promise.resolve(),
+      source ? openFile(source.path, source.line) : Promise.resolve(),
+      selected && relation !== "source" ? investigate(relation, edgeType, targetType) : Promise.resolve(),
+    ]);
+  });
   return (
-    <div className="explorer-frame flex h-screen overflow-hidden bg-background/95">
-
-      {}
-      <div
-        className={cn(
-          'flex flex-col border-r border-border/40 bg-card/40 backdrop-blur-xl shrink-0 relative z-20 transition-all duration-300 ease-in-out',
-          leftCollapsed ? 'w-14' : '',
-        )}
-        style={leftCollapsed ? undefined : { width: left.size }}
-      >
-        {}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 gap-2 shrink-0">
-          {!leftCollapsed ? (
-            <button
-              onClick={() => navigate('/ast/contexts')}
-              className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors group"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-              Contexts
-            </button>
-          ) : (
-            <button
-              onClick={() => navigate('/ast/contexts')}
-              className="p-2 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-              title="Back to Contexts"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-          )}
+    <WorkPage className="code-investigation">
+      <WorkHeader
+        title="Code investigation"
+        description="Find the implementation. Read its source. Trace the relationships that inform a change."
+        actions={
           <button
-            onClick={() => setLeftCollapsed((v) => !v)}
-            className="p-1.5 rounded-xl hover:bg-accent border border-transparent hover:border-border/30 text-muted-foreground hover:text-foreground transition-all"
+            className="work-button"
+            onClick={() => navigate("/ast/contexts")}
           >
-            {leftCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            Indexed contexts
           </button>
-        </div>
-
-        {!leftCollapsed && (
-          <>
-            {}
-            <div className="px-3 py-2 border-b border-border/30 shrink-0">
-              <ProjectPicker />
-            </div>
-
-            {}
-            <div className="flex px-3 py-2 border-b border-border/30 bg-accent/10 gap-1 shrink-0">
-              {[
-                { id: 'schema' as LeftTab, icon: <Layers className="w-3.5 h-3.5" />, label: 'Schema' },
-                { id: 'tree' as LeftTab, icon: <FolderTree className="w-3.5 h-3.5" />, label: 'Tree' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setLeftTab(tab.id)}
-                  className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl flex-1 justify-center transition-all duration-150',
-                    leftTab === tab.id
-                      ? 'bg-background text-foreground shadow-sm border border-border/30 font-bold'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
-                  )}
-                >
-                  {tab.icon}
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {}
-            <div className="flex-1 overflow-y-auto">
-              {leftTab === 'schema' && (
-                <div className="p-4">
-                  <SchemaPanel
-                    nodes={schemaNodes}
-                    edges={schemaEdges}
-                    langs={schemaLangs}
-                    graphNodes={nodes}
-                    hiddenLabels={hiddenLabels}
-                    hiddenEdgeTypes={hiddenEdgeTypes}
-                    hiddenClusters={hiddenClusters}
-                    hiddenLangs={hiddenLangs}
-                    collapsedLangs={collapsedLangs}
-                    nodeColors={nodeColors}
-                    clusterColors={clusterColors}
-                    langColors={langColors}
-                    onToggleLabel={(l) =>
-                      setHiddenLabels((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(l)) { next.delete(l) } else { next.add(l) }
-                        return next
-                      })
-                    }
-                    onToggleEdge={(t) =>
-                      setHiddenEdgeTypes((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(t)) { next.delete(t) } else { next.add(t) }
-                        return next
-                      })
-                    }
-                    onToggleCluster={(c) =>
-                      setHiddenClusters((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(c)) { next.delete(c) } else { next.add(c) }
-                        return next
-                      })
-                    }
-                    onToggleLang={(l) =>
-                      setHiddenLangs((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(l)) { next.delete(l) } else { next.add(l) }
-                        return next
-                      })
-                    }
-                    onToggleLangCollapse={(l) =>
-                      setCollapsedLangs((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(l)) { next.delete(l) } else { next.add(l) }
-                        return next
-                      })
-                    }
-                    onColorChange={(label, color) => {
-                      setNodeColors((prev) => ({ ...prev, [label]: color }))
-                    }}
-                    onClusterColorChange={(cluster, color) => {
-                      setClusterColors((prev) => ({ ...prev, [cluster]: color }))
-                    }}
-                    onLangColorChange={(lang, color) => {
-                      setLangColors((prev) => ({ ...prev, [lang]: color }))
-                    }}
-                  />
-                </div>
-              )}
-              {leftTab === 'tree' && (
-                <div className="p-2">
-                  <NodeTree
-                    nodes={nodes}
-                    projectRoot={projectRoot}
-                    selectedNodeId={selectedNode?.id ?? null}
-                    onNodeClick={handleNodeClick}
-                    onFileClick={handleFileClick}
-                  />
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {}
-        {!leftCollapsed && (
-          <div
-            className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50 transition-colors z-20 group"
-            onMouseDown={left.onMouseDown}
-          >
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border/40 group-hover:bg-primary/75 opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-        )}
+        }
+      />
+      <div className="investigation-scope">
+        <span className="status-pill">AST</span>
+        <code>{context || "Project index"}</code>
+        <span>
+          {schema.nodes.reduce((n, s) => n + s.count, 0).toLocaleString()}{" "}
+          indexed nodes
+        </span>
+        <span>{schema.backend}</span>
       </div>
-
-      {}
-      <div className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
-
-        {}
-        <div className="border-b border-border/40 bg-card/25 backdrop-blur-md shrink-0">
-          {queryBarCollapsed ? (
-            <QueryBarCollapsed onClick={() => setQueryBarCollapsed(false)} />
-          ) : (
-            <div className="flex items-start gap-3 px-6 py-4">
-              <div className="flex-1 min-w-0">
-                <QueryBar
-                  contextId={decodedContextId}
-                  projectDir={activeProjectDir || undefined}
-                  onQueryResult={handleQueryResult}
-                  loading={queryLoading}
-                  setLoading={setQueryLoading}
-                />
-              </div>
-              <QueryBarCollapseButton onClick={() => setQueryBarCollapsed(true)} />
-            </div>
-          )}
-        </div>
-
-        {}
-        <div className="flex-1 relative overflow-hidden">
-          {}
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-3 bg-background/70 backdrop-blur-md border border-border/40 px-4 py-2.5 rounded-2xl text-xs font-semibold pointer-events-none text-foreground/90 shadow-sm">
-            <span className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              {nodes.length} nodes
-            </span>
-            <span className="opacity-30">|</span>
-            <span>{links.length} edges</span>
-            {displayName && (
-              <>
-                <span className="opacity-30">|</span>
-                <span className="font-bold text-primary max-w-[200px] truncate">{displayName}</span>
-              </>
-            )}
-          </div>
-
-          {}
-          <div className="absolute top-4 right-4 z-10 flex flex-col gap-1 bg-background/70 backdrop-blur-md border border-border/40 rounded-2xl p-1.5 shadow-sm">
+      <WorkTabs
+        value={view}
+        onChange={setView}
+        items={[
+          ["investigate", "Find & inspect"],
+          ["query", "Query lab"],
+          ["map", "Relationship map"],
+        ]}
+        label="Investigation tools"
+      />
+      {error && (
+        <WorkNotice tone="error" title="Could not complete this request">
+          {error}
+        </WorkNotice>
+      )}
+      {view === "investigate" && (
+        <>
+          <form
+            className="work-toolbar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void search();
+            }}
+          >
+            <WorkSearch
+              label="Search indexed code"
+              value={query}
+              onChange={setQuery}
+              placeholder="Symbol, path or implementation intent"
+            />
             <button
-              onClick={() => handleZoom(1)}
-              className="p-2.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-all hover:scale-105"
-              title="Zoom in"
+              className="work-button primary"
+              disabled={searching || !query.trim()}
             >
-              <ZoomIn className="w-4 h-4" />
+              {searching ? "Searching…" : "Search index"}
             </button>
-            <button
-              onClick={() => handleZoom(-1)}
-              className="p-2.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-all hover:scale-105"
-              title="Zoom out"
+            <small>Up to 20 matches · selected context</small>
+          </form>
+          <div className="investigation-layout">
+            <section
+              aria-label="Code search results"
+              className="investigation-results"
             >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <div className="h-px bg-border/40 mx-2 my-1" />
-            <button
-              onClick={handleFit}
-              className="p-2.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-all hover:scale-105"
-              title="Fit to screen"
-            >
-              <Maximize2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleReset}
-              className="p-2.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-foreground transition-all hover:scale-105"
-              title="Reset graph"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-            <div className="h-px bg-border/40 mx-2 my-1" />
-            <button
-              onClick={() => setIs3D((v) => !v)}
-              className={cn(
-                "p-2.5 rounded-xl transition-all hover:scale-105",
-                is3D
-                  ? "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/25"
-                  : "hover:bg-accent text-muted-foreground hover:text-foreground border border-transparent"
+              <h2>{searched ? "Search results" : "Start with a question"}</h2>
+              {searching ? (
+                <LoadingSpinner label="Searching index…" />
+              ) : (
+                results.map((r, i) => (
+                  <RecordLink
+                    key={r.Path + ":" + r.Line + ":" + i}
+                    title={r.Name}
+                    selected={
+                      selected?.name === r.Name &&
+                      selected?.file === r.Path &&
+                      selected?.line === r.Line
+                    }
+                    meta={
+                      <>
+                        {r.Type} · {r.Path}:{r.Line}
+                        <br />
+                        {r.Docstring || r.SearchType}
+                      </>
+                    }
+                    onClick={() => selectResult(r)}
+                  />
+                ))
               )}
-              title={is3D ? "Switch to 2D Graph" : "Switch to 3D Graph"}
-            >
-              <Layers className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setPhysicsPanel((v) => !v)}
-              className={cn(
-                "p-2.5 rounded-xl transition-all hover:scale-105",
-                physicsPanel
-                  ? "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/25"
-                  : "hover:bg-accent text-muted-foreground hover:text-foreground border border-transparent"
+              {!searching && searched && !results.length && (
+                <WorkEmpty title="No indexed matches">
+                  Try a symbol name or a shorter phrase, or choose another
+                  context.
+                </WorkEmpty>
               )}
-              title="Physics settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
-
-          {}
-          {selectedNode && (
-            <div className="absolute bottom-6 left-6 z-20 bg-background/90 backdrop-blur-md border border-border/40 rounded-2xl p-5 w-80 shadow-2xl pointer-events-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/30">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm border border-black/10" style={{ background: labelColor(selectedNode.label) }} />
-                  <span className="font-heading font-semibold text-sm text-foreground truncate" title={selectedNode.name || selectedNode.id}>
-                    {selectedNode.name || selectedNode.id}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setSelectedNode(null)}
-                  className="p-1.5 rounded-xl hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center bg-muted/40 px-3 py-2 rounded-xl border border-border/20">
-                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold">Label</span>
-                  <span className="text-[11px] font-bold text-foreground bg-background px-2 py-0.5 rounded-lg border border-border/40 shadow-sm">{selectedNode.label}</span>
-                </div>
-                {selectedNode.type && selectedNode.type !== selectedNode.label && (
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[11px] text-muted-foreground font-semibold">Kind</span>
-                    <span className="text-[11px] font-medium text-foreground">{selectedNode.type}</span>
-                  </div>
-                )}
-                {selectedNode.file && (
-                  <div className="flex flex-col gap-1 px-1">
-                    <span className="text-[11px] text-muted-foreground font-semibold">File Path</span>
-                    <span className="text-[11px] font-mono text-foreground/80 bg-accent/20 px-2 py-1 rounded border border-border/20 truncate" title={selectedNode.file}>
-                      {toRelPath(selectedNode.file)}
-                    </span>
-                  </div>
-                )}
-                {selectedNode.file && (
+              {!searched && (
+                <div className="investigation-guide">
+                  <p>Search functions, types and files across the index.</p>
+                  <ol>
+                    <li>Locate the implementation.</li>
+                    <li>Inspect the indexed source.</li>
+                    <li>Follow incoming or outgoing relationships.</li>
+                    <li>Review potential impact before changing code.</li>
+                  </ol>
                   <button
-                    onClick={() => handleFileClick(selectedNode.file!, selectedNode.line)}
-                    className="flex items-center justify-center gap-2 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg transition-all rounded-xl py-2.5 mt-4 w-full group active:scale-[0.98]"
+                    className="work-button"
+                    onClick={() => setView("query")}
                   >
-                    <Code2 className="w-4 h-4 group-hover:rotate-6 transition-transform" />
-                    Open Source Code
+                    Explore with Cypher
                   </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {}
-          {physicsPanel && (
-            <div className="absolute top-4 right-20 z-20 bg-background/90 backdrop-blur-md border border-border/40 rounded-2xl p-5 w-72 shadow-2xl animate-in fade-in slide-in-from-right-3 duration-200">
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-border/30">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">Physics Configuration</h4>
-                <button onClick={() => setPhysicsPanel(false)} className="p-1.5 rounded-xl hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="space-y-4">
-                {[
-                  { key: 'repulsion', label: 'Repulsion Strength', min: 50, max: 800, step: 10 },
-                  { key: 'linkDistance', label: 'Link Distance', min: 20, max: 300, step: 5 },
-                  { key: 'gravity', label: 'Cluster Pull (Gravity)', min: 0.01, max: 1.0, step: 0.01 },
-                  { key: 'edgeWidth', label: 'Edge Thickness', min: 1, max: 10, step: 0.5 },
-                  { key: 'labelDensity', label: 'Label Zoom Threshold', min: 0.1, max: 3.0, step: 0.1 },
-                ].map(({ key, label, min, max, step }) => (
-                  <div key={key} className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-semibold text-muted-foreground">{label}</label>
-                      <span className="text-[11px] font-mono font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">{Number(physics[key as keyof typeof physics]).toFixed(1)}</span>
+                </div>
+              )}
+            </section>
+            <section
+              className="investigation-document"
+              aria-label="Symbol investigation"
+            >
+              {selected ? (
+                <>
+                  <header className="symbol-header">
+                    <div>
+                      <small>{selected.label}</small>
+                      <h2>{selected.name}</h2>
+                      <code>
+                        {selected.file}
+                        {selected.line ? ":" + selected.line : ""}
+                      </code>
                     </div>
-                    <input
-                      type="range" min={min} max={max} step={step}
-                      value={physics[key as keyof typeof physics]}
-                      onChange={(e) => setPhysics((p) => ({ ...p, [key]: +e.target.value }))}
-                      className="w-full h-1 bg-accent rounded-lg appearance-none cursor-pointer accent-primary"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
+                    <span className="status-pill">Indexed evidence</span>
+                  </header>
+                  <WorkTabs
+                    value={relation}
+                    onChange={(id) => void investigate(id)}
+                    items={[
+                      ["source", "Source"],
+                      ["incoming", "Incoming"],
+                      ["outgoing", "Outgoing"],
+                      ["impact", "Potential impact"],
+                    ]}
+                    label="Symbol evidence"
+                  />
+                  {relation === "source" ? (
+                    sourceLoading ? (
+                      <LoadingSpinner label="Loading indexed source…" />
+                    ) : source ? (
+                      <>
+                        <p className="source-provenance">
+                          Source: {source.provenance}. This is the indexed
+                          snapshot of the selected context.
+                        </p>
+                        <div className="investigation-code">
+                          <CodePanel
+                            content={source.content}
+                            filename={source.path}
+                            highlightLine={source.line ?? null}
+                            onClose={() => {
+                              sourceRequest.current++;
+                              setSource(null);
+                            }}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <WorkEmpty
+                        title="No source open"
+                        action={
+                          selected.file ? (
+                            <button
+                              className="work-button"
+                              onClick={() =>
+                                void openFile(selected.file!, selected.line)
+                              }
+                            >
+                              Load indexed source
+                            </button>
+                          ) : undefined
+                        }
+                      >
+                        Some indexed entities have no source file.
+                      </WorkEmpty>
+                    )
+                  ) : (
+                    <>
+                      {relation !== "impact" && (
+                        <label className="work-field mb-4">
+                          <span>Relationship type</span>
+                          <StyledSelect
+                            value={edgeType}
+                            onChange={(e) => {
+                              setEdgeType(e.target.value);
+                              void investigate(relation, e.target.value);
+                            }}
+                          >
+                            {Array.from(
+                              new Set([
+                                "CALLS",
+                                ...schema.edges.map((e) => e.type),
+                              ]),
+                            ).map((t) => (
+                              <option key={t}>{t}</option>
+                            ))}
+                          </StyledSelect>
+                        </label>
+                      )}
+                      {targetTypes(relation, edgeType).length > 0 && (
+                        <label className="work-field mb-4">
+                          <span>Related entity type</span>
+                          <StyledSelect
+                            value={targetType}
+                            onChange={(e) =>
+                              void investigate(
+                                relation,
+                                edgeType,
+                                e.target.value,
+                              )
+                            }
+                          >
+                            {targetTypes(relation, edgeType).map((label) => (
+                              <option key={label}>{label}</option>
+                            ))}
+                          </StyledSelect>
+                        </label>
+                      )}
+                      <WorkNotice
+                        title={
+                          relation === "impact"
+                            ? "Potential impact · up to two incoming call hops"
+                            : "Indexed relationships"
+                        }
+                      >
+                        {relation === "impact"
+                          ? "Reachability identifies candidates for review, not guaranteed runtime impact."
+                          : "Relationships reflect the current index. Dynamic and unresolved calls may be absent."}{" "}
+                        Results are limited to 100 nodes.
+                      </WorkNotice>
+                      {relationLoading ? (
+                        <LoadingSpinner label="Following relationships…" />
+                      ) : related.length ? (
+                        <>
+                          {related.map((n) => (
+                            <RecordLink
+                              key={n.id}
+                              title={n.name || n.id}
+                              meta={
+                                n.label + " · " + (n.file || "No source path")
+                              }
+                              onClick={() => choose(n)}
+                            />
+                          ))}
+                        </>
+                      ) : (
+                        <WorkEmpty title="No indexed relationships found">
+                          This does not prove that runtime relationships do not
+                          exist.
+                        </WorkEmpty>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                <WorkEmpty title="Inspect an implementation">
+                  Select a search result to read its source and investigate how
+                  it connects to the system.
+                </WorkEmpty>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+      {view === "query" && (
+        <>
+          <div className="query-lab-layout">
+            <WorkSection
+              title="A reproducible question"
+              description="Run a read-only Cypher query. AI can draft it; you review and execute it."
+            >
+              <QueryBar
+                key={currentScope}
+                contextId={context}
+                projectDir={projectDir}
+                loading={queryLoading}
+                setLoading={setQueryLoading}
+                onQueryStart={() => {
+                  const request = ++graphRequest.current;
+                  return () => request === graphRequest.current;
+                }}
+                onQueryResult={(value, executedQuery) => {
+                  graphRequest.current++;
+                  setQueryLoading(false);
+                  lastGraphQuery.current = { cypher_query: executedQuery };
+                  const r = value as {
+                    nodes?: GraphNode[];
+                    links?: GraphEdge[];
+                    tabular?: { columns: string[]; rows: unknown[][] };
+                  };
+                  setNodes(r.nodes || []);
+                  setLinks(r.links || []);
+                  setTabular(r.tabular || null);
+                  setQueryRan(true);
+                }}
+              />
+            </WorkSection>
+            <aside className="work-panel">
+              <h2>Available vocabulary</h2>
+              <FactList
+                items={schema.nodes.map((n) => [
+                  n.label,
+                  n.count.toLocaleString(),
+                ])}
+              />
+              <p className="text-xs mt-4">
+                {schema.edges.map((e) => e.type).join(" · ") ||
+                  "No relationship types indexed."}
+              </p>
+            </aside>
+          </div>
+          {queryRan && (
+            <WorkSection
+              title="Query result"
+              actions={
+                nodes.length ? (
+                  <button
+                    className="work-button"
+                    onClick={() => setView("map")}
+                  >
+                    View map
+                  </button>
+                ) : undefined
+              }
+            >
+              {tabular ? (
+                <div className="query-table">
+                  <TabularResults
+                    columns={tabular.columns}
+                    rows={tabular.rows}
+                    onClose={() => setTabular(null)}
+                  />
+                </div>
+              ) : nodes.length ? (
+                nodes.map((n) => (
+                  <RecordLink
+                    key={n.id}
+                    title={n.name || n.id}
+                    meta={n.label + " · " + (n.file || "")}
+                    onClick={() => choose(n)}
+                  />
+                ))
+              ) : (
+                <WorkEmpty title="No rows returned">
+                  Refine the query or check the selected context.
+                </WorkEmpty>
+              )}
+            </WorkSection>
           )}
+        </>
+      )}
+      {view === "map" && (
+        <div className="map-workspace">
+          <WorkNotice title="A bounded view of indexed relationships">
+            The map shows the current query result. A sample is limited and does
+            not represent the complete repository.
+          </WorkNotice>
+          <button
+            className="work-button mb-4"
+            disabled={queryLoading}
+            onClick={() => void sample()}
+          >
+            {queryLoading ? "Loading…" : "Load index sample"}
+          </button>
+          <InvestigationMap
+            nodes={nodes}
+            links={links}
+            schema={schema}
+            selectedNode={selected}
+            handleNodeClick={choose}
+            projectRoot={projectRoot}
+            handleFileClick={(path, line) => {
+              setView("investigate");
+              choose({
+                id: path,
+                name: path.split("/").pop() || path,
+                label: "File",
+                type: "File",
+                file: path,
+                line,
+              });
+            }}
+          />
+        </div>
+      )}
+    </WorkPage>
+  );
+}
 
-          {}
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <LoadingSpinner size="lg" label="Loading graph..." />
-            </div>
-          ) : (
-            <GraphCanvas
-              ref={canvasRef}
-              nodes={nodes}
-              links={links}
+function InvestigationMap({
+  nodes,
+  links,
+  schema,
+  selectedNode,
+  handleNodeClick,
+  projectRoot,
+  handleFileClick,
+}: {
+  nodes: GraphNode[];
+  links: GraphEdge[];
+  schema: SchemaResponse;
+  selectedNode: GraphNode | null;
+  handleNodeClick: (node: GraphNode | null) => void;
+  projectRoot: string;
+  handleFileClick: (path: string, line?: number) => void;
+}) {
+  const [hiddenLabels, setHiddenLabels] = useState<Set<string>>(
+    () => new Set<string>(LS.get<string[]>("graphit_hidden_labels", [])),
+  );
+  const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(
+    () => new Set<string>(LS.get<string[]>("graphit_hidden_edges", [])),
+  );
+  const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(
+    () => new Set<string>(LS.get<string[]>("graphit_hidden_clusters", [])),
+  );
+  const [hiddenLangs, setHiddenLangs] = useState<Set<string>>(
+    () => new Set<string>(LS.get<string[]>("graphit_hidden_langs", [])),
+  );
+  const [collapsedLangs, setCollapsedLangs] = useState<Set<string>>(
+    () => new Set<string>(LS.get<string[]>("graphit_collapsed_langs", [])),
+  );
+  const [nodeColors, setNodeColors] = useState<Record<string, string>>(() =>
+    LS.get<Record<string, string>>("graphit_node_colors", {}),
+  );
+  const [clusterColors, setClusterColors] = useState<Record<string, string>>(
+    () => LS.get<Record<string, string>>("graphit_cluster_colors", {}),
+  );
+  const [langColors, setLangColors] = useState<Record<string, string>>(() =>
+    LS.get<Record<string, string>>("graphit_lang_colors", {}),
+  );
+  const schemaNodes = schema.nodes || [],
+    schemaEdges = schema.edges || [],
+    schemaLangs = schema.langs || [];
+  const canvasRef = useRef<GraphCanvasRef>(null);
+  const [is3D, setIs3D] = useState(() => LS.get("graphit_is3D", false));
+  const [physics, setPhysics] = useState(() =>
+    LS.get("graphit_physics_" + (is3D ? "3d" : "2d"), {
+      repulsion: 120,
+      linkDistance: 50,
+      gravity: is3D ? 0.1 : 0.3,
+      edgeWidth: 1,
+      labelDensity: 1.2,
+    }),
+  );
+  const switchMode = () => {
+    LS.set("graphit_physics_" + (is3D ? "3d" : "2d"), physics);
+    const next = !is3D;
+    setIs3D(next);
+    LS.set("graphit_is3D", next);
+    setPhysics(
+      LS.get("graphit_physics_" + (next ? "3d" : "2d"), {
+        repulsion: 120,
+        linkDistance: 50,
+        gravity: next ? 0.1 : 0.3,
+        edgeWidth: 1,
+        labelDensity: 1.2,
+      }),
+    );
+  };
+  useEffect(
+    () => LS.set("graphit_physics_" + (is3D ? "3d" : "2d"), physics),
+    [physics, is3D],
+  );
+  useEffect(() => {
+    LS.set("graphit_node_colors", nodeColors);
+  }, [nodeColors]);
+  useEffect(() => {
+    LS.set("graphit_hidden_labels", [...hiddenLabels]);
+  }, [hiddenLabels]);
+  useEffect(() => {
+    LS.set("graphit_hidden_edges", [...hiddenEdgeTypes]);
+  }, [hiddenEdgeTypes]);
+  useEffect(() => {
+    LS.set("graphit_hidden_clusters", [...hiddenClusters]);
+  }, [hiddenClusters]);
+  useEffect(() => {
+    LS.set("graphit_hidden_langs", [...hiddenLangs]);
+  }, [hiddenLangs]);
+  useEffect(() => {
+    LS.set("graphit_collapsed_langs", [...collapsedLangs]);
+  }, [collapsedLangs]);
+  useEffect(() => {
+    LS.set("graphit_cluster_colors", clusterColors);
+  }, [clusterColors]);
+  useEffect(() => {
+    LS.set("graphit_lang_colors", langColors);
+  }, [langColors]);
+  return (
+    <div className="investigation-map">
+      <div className="map-toolbar work-actions">
+        <button
+          className="work-button"
+          onClick={() => canvasRef.current?.zoomBy?.(1.4)}
+        >
+          Zoom in
+        </button>
+        <button
+          className="work-button"
+          onClick={() => canvasRef.current?.zoomBy?.(1 / 1.4)}
+        >
+          Zoom out
+        </button>
+        <button
+          className="work-button"
+          onClick={() => canvasRef.current?.fitGraph?.()}
+        >
+          Fit result
+        </button>
+        <button className="work-button" onClick={switchMode}>
+          {is3D ? "Use 2D" : "Use 3D"}
+        </button>
+        <span>
+          {nodes.length} nodes · {links.length} relationships
+        </span>
+      </div>
+      <div className="map-controls work-two-columns">
+        <details className="work-disclosure">
+          <summary>Map appearance & filters</summary>
+          <div>
+            <SchemaPanel
+              nodes={schemaNodes}
+              edges={schemaEdges}
+              langs={schemaLangs}
+              graphNodes={nodes}
               hiddenLabels={hiddenLabels}
               hiddenEdgeTypes={hiddenEdgeTypes}
               hiddenClusters={hiddenClusters}
               hiddenLangs={hiddenLangs}
+              collapsedLangs={collapsedLangs}
               nodeColors={nodeColors}
               clusterColors={clusterColors}
               langColors={langColors}
-              selectedNodeId={selectedNode?.id ?? null}
+              onToggleLabel={(l) =>
+                setHiddenLabels((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(l)) {
+                    next.delete(l);
+                  } else {
+                    next.add(l);
+                  }
+                  return next;
+                })
+              }
+              onToggleEdge={(t) =>
+                setHiddenEdgeTypes((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(t)) {
+                    next.delete(t);
+                  } else {
+                    next.add(t);
+                  }
+                  return next;
+                })
+              }
+              onToggleCluster={(c) =>
+                setHiddenClusters((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(c)) {
+                    next.delete(c);
+                  } else {
+                    next.add(c);
+                  }
+                  return next;
+                })
+              }
+              onToggleLang={(l) =>
+                setHiddenLangs((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(l)) {
+                    next.delete(l);
+                  } else {
+                    next.add(l);
+                  }
+                  return next;
+                })
+              }
+              onToggleLangCollapse={(l) =>
+                setCollapsedLangs((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(l)) {
+                    next.delete(l);
+                  } else {
+                    next.add(l);
+                  }
+                  return next;
+                })
+              }
+              onColorChange={(label, color) => {
+                setNodeColors((prev) => ({ ...prev, [label]: color }));
+              }}
+              onClusterColorChange={(cluster, color) => {
+                setClusterColors((prev) => ({ ...prev, [cluster]: color }));
+              }}
+              onLangColorChange={(lang, color) => {
+                setLangColors((prev) => ({ ...prev, [lang]: color }));
+              }}
+            />
+          </div>
+        </details>
+        <div>
+          <details className="work-disclosure">
+            <summary>Layout physics</summary>
+            <div className="work-form">
+              {[
+                {
+                  key: "repulsion",
+                  label: "Repulsion",
+                  min: 50,
+                  max: 800,
+                  step: 10,
+                },
+                {
+                  key: "linkDistance",
+                  label: "Link distance",
+                  min: 20,
+                  max: 300,
+                  step: 5,
+                },
+                {
+                  key: "gravity",
+                  label: "Cluster pull",
+                  min: 0.01,
+                  max: 1,
+                  step: 0.01,
+                },
+                {
+                  key: "edgeWidth",
+                  label: "Edge width",
+                  min: 1,
+                  max: 10,
+                  step: 0.5,
+                },
+                {
+                  key: "labelDensity",
+                  label: "Label threshold",
+                  min: 0.1,
+                  max: 3,
+                  step: 0.1,
+                },
+              ].map((p) => (
+                <label className="work-field" key={p.key}>
+                  <span>
+                    {p.label} · {physics[p.key as keyof typeof physics]}
+                  </span>
+                  <input
+                    type="range"
+                    min={p.min}
+                    max={p.max}
+                    step={p.step}
+                    value={physics[p.key as keyof typeof physics]}
+                    onChange={(e) =>
+                      setPhysics((s) => ({ ...s, [p.key]: +e.target.value }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          </details>
+          <details className="work-disclosure">
+            <summary>Files in this result</summary>
+            <NodeTree
+              nodes={nodes}
+              projectRoot={projectRoot}
+              selectedNodeId={
+                nodes.some((n) => n.id === selectedNode?.id)
+                  ? selectedNode!.id
+                  : null
+              }
               onNodeClick={handleNodeClick}
-              physics={physics}
-              is3D={is3D}
+              onFileClick={handleFileClick}
             />
-          )}
-
-          {}
-          {tabularData && (
-            <TabularResults
-              columns={tabularData.columns}
-              rows={tabularData.rows}
-              onClose={() => setTabularData(null)}
-            />
-          )}
+          </details>
         </div>
       </div>
-
-      {}
-      {rightVisible && sourceFile && (
-        <div
-          className="shrink-0 border-l border-border/40 flex flex-col relative bg-card/40 backdrop-blur-xl z-20 animate-in slide-in-from-right duration-300"
-          style={{ width: right.size }}
-        >
-          {}
-          <div
-            className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50 transition-colors z-20 group"
-            onMouseDown={right.onMouseDown}
-          >
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border/40 group-hover:bg-primary/75 opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-
-          <div className="flex-1 overflow-hidden p-3 bg-background/50">
-            <CodePanel
-              content={sourceContent}
-              filename={sourceFile}
-              highlightLine={sourceLine}
-              onClose={() => { setRightVisible(false); setSourceFile(null); setSourceLine(null) }}
-            />
-          </div>
-        </div>
-      )}
+      <div className="map-stage">
+        <GraphCanvas
+          ref={canvasRef}
+          nodes={nodes}
+          links={links}
+          hiddenLabels={hiddenLabels}
+          hiddenEdgeTypes={hiddenEdgeTypes}
+          hiddenClusters={hiddenClusters}
+          hiddenLangs={hiddenLangs}
+          nodeColors={nodeColors}
+          clusterColors={clusterColors}
+          langColors={langColors}
+          selectedNodeId={
+            nodes.some((n) => n.id === selectedNode?.id)
+              ? selectedNode!.id
+              : null
+          }
+          onNodeClick={handleNodeClick}
+          physics={physics}
+          is3D={is3D}
+        />
+      </div>
     </div>
-  )
+  );
 }

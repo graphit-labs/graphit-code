@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"reflect"
 	"sort"
 	"strings"
@@ -366,6 +367,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Task, error) {
 		}
 		now := stamp(s.now().UTC())
 		out = Task{SessionID: sessionID, ID: id, ProjectID: s.projectID, ParentID: parentID, IdempotencyKey: key, Title: in.Title, Description: in.Description, Type: in.Type, Status: StatusOpen, Priority: in.Priority, DependsOn: deps, Checks: checks, CreatedAt: now, UpdatedAt: now, Revision: 1}
+		out.References = relations.Inputs(ctx)
+		if err := relations.Validate(out.References); err != nil {
+			return err
+		}
 		out.LastEvent = newEvent(out, "created", in.Actor, "", StatusOpen, "task created", out.NextStep)
 		revision := newSpecRevision(Task{}, out, "created", in.Actor, "task created")
 		out.LastEvent.SpecRevision = &revision
@@ -507,7 +512,7 @@ func (s *Service) Revise(ctx context.Context, id, token, actor string, in Revise
 		next.LastEvent = newEvent(next, "revised", actor, current.Status, next.Status, in.Reason, next.NextStep)
 		revision := newSpecRevision(current, next, "revised", actor, in.Reason)
 		next.LastEvent.SpecRevision = &revision
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -599,7 +604,7 @@ func (s *Service) SupersedeCheck(ctx context.Context, id, token, actor string, i
 		revision := newSpecRevision(current, next, "check_superseded", actor, in.Reason)
 		revision.SubjectID = in.CheckID
 		next.LastEvent.SpecRevision = &revision
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -650,7 +655,7 @@ func (s *Service) Claim(ctx context.Context, id, actor string, lease time.Durati
 			current.Revision++
 			current.UpdatedAt = stamp(s.now().UTC())
 			current.LastEvent = newEvent(current, "lease_expired", "system", old.Status, current.Status, "claim expired; task is ready for takeover", current.NextStep)
-			if err := s.putCAS(ctx, t, old.Revision, current); err != nil {
+			if err := s.putCAS(ctx, t, old.Revision, &current); err != nil {
 				return err
 			}
 			if err := s.projectTask(ctx, t, current, actor); err != nil {
@@ -685,7 +690,7 @@ func (s *Service) Claim(ctx context.Context, id, actor string, lease time.Durati
 		next.Revision++
 		next.UpdatedAt = stamp(now)
 		next.LastEvent = newEvent(next, "claimed", actor, current.Status, next.Status, "task claimed", next.NextStep)
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -762,7 +767,7 @@ func (s *Service) ForceTakeover(ctx context.Context, id, actor string, in ForceT
 		next.UpdatedAt = stamp(now)
 		next.LastEvent = newEvent(next, "force_takeover", actor, current.Status, next.Status,
 			fmt.Sprintf("forced takeover from %q to %q at revision %d -> %d: %s", current.Owner, actor, current.Revision, next.Revision, in.Reason), next.NextStep)
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -859,7 +864,7 @@ func (s *Service) Cancel(ctx context.Context, id, token, actor, reason string) (
 		next.Revision++
 		next.UpdatedAt = stamp(s.now().UTC())
 		next.LastEvent = newEvent(next, "cancelled", actor, current.Status, next.Status, reason, "")
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -932,6 +937,9 @@ func finishTaskRemoval(ctx context.Context, t *tables, id string) error {
 		return err
 	}
 	if err := t.dependencies.DeleteWhere(ctx, filter+" OR depends_on = "+quote(id)); err != nil {
+		return err
+	}
+	if err := relations.Remove(ctx, t.store, "task", id); err != nil {
 		return err
 	}
 	return t.control.DeleteByKey(ctx, "key", []string{taskRemovalPrefix + id})
@@ -1036,7 +1044,7 @@ func (s *Service) AddComment(ctx context.Context, id, token, actor, kind, body, 
 		out = Comment{ID: commentID, TaskID: id, IdempotencyKey: key, Sequence: next.CommentSequence, Kind: kind, Body: body, Actor: actor, At: next.UpdatedAt, Revision: next.Revision}
 		next.LastComment = out
 		next.LastEvent = newEvent(next, "commented", actor, current.Status, next.Status, kind+": "+body, next.NextStep)
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		return s.projectTask(ctx, t, next, actor)
@@ -1087,7 +1095,7 @@ func (s *Service) claimMutation(ctx context.Context, id, token, actor string, le
 		next.Revision++
 		next.UpdatedAt = stamp(now)
 		next.LastEvent = newEvent(next, eventType, actor, current.Status, next.Status, mutationSummary(current, next, eventType), next.NextStep)
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -1134,7 +1142,7 @@ func (s *Service) changeDependency(ctx context.Context, id, dep, actor string, a
 			kind = "dependency_added"
 		}
 		next.LastEvent = newEvent(next, kind, actor, current.Status, next.Status, dep, next.NextStep)
-		if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+		if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 			return err
 		}
 		out = next
@@ -1512,8 +1520,15 @@ func (s *Service) SearchInSession(ctx context.Context, query string, limit int, 
 	return out, err
 }
 
-func (s *Service) putCAS(ctx context.Context, t *tables, expected int64, v Task) error {
-	res, err := t.tasks.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: fmt.Sprintf("target.revision = %d", expected)}, []lancestore.Row{taskRow(v)})
+func (s *Service) putCAS(ctx context.Context, t *tables, expected int64, v *Task) error {
+	if refs := relations.Inputs(ctx); refs != nil {
+		if err := relations.Validate(refs); err != nil {
+			return err
+		}
+		v.References = refs
+	}
+	v.LastEvent.References = v.References
+	res, err := t.tasks.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: fmt.Sprintf("target.revision = %d", expected)}, []lancestore.Row{taskRow(*v)})
 	if err != nil {
 		return err
 	}
@@ -1624,7 +1639,7 @@ func (s *Service) reconcileLocked(ctx context.Context, t *tables, actor string) 
 			v.Revision++
 			v.UpdatedAt = now
 			v.LastEvent = newEvent(v, "lease_expired", "system", old.Status, v.Status, "claim expired; task is ready for takeover", v.NextStep)
-			if err := s.putCAS(ctx, t, old.Revision, v); err != nil {
+			if err := s.putCAS(ctx, t, old.Revision, &v); err != nil {
 				if errors.Is(err, ErrConcurrent) {
 					continue
 				}
@@ -1644,7 +1659,7 @@ func (s *Service) reconcileLocked(ctx context.Context, t *tables, actor string) 
 					reasons = append(reasons, "task is flagged")
 				}
 				v.LastEvent = newEvent(v, "completion_invalidated", "hook", old.Status, v.Status, strings.Join(reasons, "; "), v.NextStep)
-				if err := s.putCAS(ctx, t, old.Revision, v); err != nil {
+				if err := s.putCAS(ctx, t, old.Revision, &v); err != nil {
 					if errors.Is(err, ErrConcurrent) {
 						continue
 					}
@@ -1835,7 +1850,27 @@ func (s *Service) projectTask(ctx context.Context, t *tables, v Task, actor stri
 	if err := s.projectDependencies(ctx, t, v, actor); err != nil {
 		return err
 	}
-	return s.projectChecks(ctx, t, v)
+	if err := s.projectChecks(ctx, t, v); err != nil {
+		return err
+	}
+	source := relations.Entity{Type: "task", ID: v.ID, Scope: "project", ScopeID: v.ProjectID}
+	refs := []relations.Ref{}
+	if v.References != nil {
+		refs = relations.Qualify(source, *v.References)
+	}
+
+	for relation, ids := range map[string][]string{"session": {v.SessionID}, "parent": {v.ParentID}, "dependency": v.DependsOn} {
+		kind := "task"
+		if relation == "session" {
+			kind = "session"
+		}
+		for _, id := range ids {
+			if id != "" {
+				refs = append(refs, relations.Ref{Target: relations.Entity{Type: kind, ID: id, Scope: "project", ScopeID: v.ProjectID}, Relation: relation})
+			}
+		}
+	}
+	return relations.Replace(ctx, t.store, source, v.Revision, "record", refs, fmt.Sprint(v.Revision))
 }
 
 func ensureEvent(ctx context.Context, t *tables, event Event) error {
@@ -1961,7 +1996,7 @@ func (s *Service) projectDependencies(ctx context.Context, t *tables, v Task, ac
 }
 
 func newEvent(v Task, kind, actor string, from, to Status, summary, next string) Event {
-	return Event{Key: fmt.Sprintf("%s/%020d", v.ID, v.Revision), TaskID: v.ID, Sequence: v.Revision, Type: kind, Actor: actor, At: v.UpdatedAt, FromStatus: from, ToStatus: to, Summary: summary, NextStep: next, Revision: v.Revision}
+	return Event{References: v.References, Key: fmt.Sprintf("%s/%020d", v.ID, v.Revision), TaskID: v.ID, Sequence: v.Revision, Type: kind, Actor: actor, At: v.UpdatedAt, FromStatus: from, ToStatus: to, Summary: summary, NextStep: next, Revision: v.Revision}
 }
 
 func mutationSummary(before, after Task, eventType string) string {

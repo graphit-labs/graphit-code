@@ -50,6 +50,18 @@ describe('useTheme hook', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
+  test('synchronizes desktop and mobile theme controls', () => {
+    const desktop = renderHook(() => useTheme())
+    const mobile = renderHook(() => useTheme())
+    act(() => desktop.result.current.toggle())
+    expect(desktop.result.current.theme).toBe('dark')
+    expect(mobile.result.current.theme).toBe('dark')
+    act(() => mobile.result.current.toggle())
+    expect(desktop.result.current.theme).toBe('light')
+    expect(mobile.result.current.theme).toBe('light')
+    expect(document.documentElement.classList.contains('light')).toBe(true)
+  })
+
   test('should toggle theme', () => {
     const { result } = renderHook(() => useTheme())
     expect(result.current.theme).toBe('light')

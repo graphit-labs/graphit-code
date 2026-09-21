@@ -185,9 +185,10 @@ func chainResultFromRecord(rec MemoryRecord) ChainResult {
 }
 
 func memorySnippet(body string) string {
-	body = strings.TrimSpace(strings.Join(strings.Fields(body), " "))
-	if len(body) > 240 {
-		return body[:240] + "…"
+	body = strings.TrimSpace(body)
+	runes := []rune(body)
+	if len(runes) > 240 {
+		return string(runes[:240]) + "…"
 	}
 	return body
 }

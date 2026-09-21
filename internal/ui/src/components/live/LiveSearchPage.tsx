@@ -1,4 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { StyledSelect } from "@/components/shared/StyledSelect";
+import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
+import {
+  WorkPage,
+  WorkHeader,
+  WorkSection,
+  WorkSearch,
+  WorkTabs,
+  WorkEmpty,
+  WorkNotice,
+  FactList,
+} from "@/components/shared/EngineeringUI";
+import { LiveAnswer } from "./LiveAnswer";
+import { AgentExecution } from "@/components/shared/AgentExecution";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Bot,
@@ -18,7 +32,7 @@ import {
   Trash2,
   User,
   Wrench,
-} from 'lucide-react'
+} from "lucide-react";
 import {
   cancelLiveTurn,
   createLiveSession,
@@ -30,665 +44,720 @@ import {
   type LiveEvent,
   type LiveSession,
   type LiveSubscription,
-} from '@/api/live'
-import { hubApi, type RegistryEntry } from '@/api/hub'
-import { EmptyState } from '@/components/shared/EmptyState'
-import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { useAppStore } from '@/store/appStore'
-import { cn } from '@/lib/utils'
-
-
+} from "@/api/live";
+import { loadLiveCatalog, filterLiveCatalog, artifactKey, type LiveCatalogEntry } from "@/api/liveCatalog";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import { useAppStore } from "@/store/appStore";
+import { cn } from "@/lib/utils";
 
 interface Turn {
-  question?: string
-  answer: string
-  activity: Array<{ seq: number; label: string; detail?: string }>
-  errors: string[]
-  done: boolean
+  question?: string;
+  answer: string;
+  activity: Array<{ seq: number; label: string; detail?: string }>;
+  errors: string[];
+  done: boolean;
 }
 
-function transcriptFromEvents(events: LiveEvent[]): Turn[] {
-  const turns: Turn[] = []
+export function transcriptFromEvents(events: LiveEvent[]): Turn[] {
+  const turns: Turn[] = [];
   const current = (): Turn => {
     if (turns.length === 0 || turns[turns.length - 1].done) {
-      turns.push({ answer: '', activity: [], errors: [], done: false })
+      turns.push({ answer: "", activity: [], errors: [], done: false });
     }
-    return turns[turns.length - 1]
-  }
+    return turns[turns.length - 1];
+  };
 
   for (const ev of events) {
     switch (ev.kind) {
-      case 'prompt': {
-        const t = current()
+      case "prompt": {
+        const t = current();
         if (t.question !== undefined) {
-          turns.push({ question: ev.text, answer: '', activity: [], errors: [], done: false })
+          turns.push({
+            question: ev.text,
+            answer: "",
+            activity: [],
+            errors: [],
+            done: false,
+          });
         } else {
-          t.question = ev.text
+          t.question = ev.text;
         }
-        break
+        break;
       }
-      case 'text':
-        current().answer += ev.text ?? ''
-        break
-      case 'prep':
-        current().activity.push({ seq: ev.seq, label: ev.text ?? '' })
-        break
-      case 'tool_use':
-        current().activity.push({ seq: ev.seq, label: ev.tool ?? 'tool', detail: ev.detail })
-        break
-      case 'error':
-        current().errors.push(ev.text ?? '')
-        break
-      case 'turn_done':
-        current().done = true
-        break
+      case "text":
+        current().answer += ev.text ?? "";
+        break;
+      case "prep":
+        current().activity.push({ seq: ev.seq, label: ev.text ?? "" });
+        break;
+      case "thinking":
+      case "stdout":
+      case "stderr":
+      case "tool_result":
+      case "tool_use":
+        current().activity.push({
+          seq: ev.seq,
+          label: ev.tool ? `${ev.kind} · ${ev.tool}` : ev.kind,
+          detail: ev.text || ev.detail,
+        });
+        break;
+      case "error":
+        current().errors.push(ev.text ?? "");
+        break;
+      case "turn_done":
+        current().done = true;
+        break;
       default:
-        break
+        break;
     }
   }
-  return turns
+  return turns;
 }
 
-type LiveState = LiveSession['state']
+type LiveState = LiveSession["state"];
 
 function stateTone(state: LiveState | undefined): string {
   switch (state) {
-    case 'ready':
-      return 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-    case 'running':
-      return 'text-primary bg-primary/10 border-primary/30'
-    case 'preparing':
-      return 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30'
-    case 'failed':
-      return 'text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/30'
+    case "ready":
+      return "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
+    case "running":
+      return "text-primary bg-primary/10 border-primary/30";
+    case "preparing":
+      return "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30";
+    case "failed":
+      return "text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/30";
     default:
-      return 'text-muted-foreground bg-muted/40 border-border/40'
+      return "text-muted-foreground bg-muted/40 border-border/40";
   }
 }
 
 function typeBadgeStyle(type: string): string {
   switch (type.toLowerCase()) {
-    case 'knowledge':
-      return 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
-    case 'skill':
-      return 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
-    case 'agent':
-      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-    case 'rule':
-      return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-    case 'ast':
-      return 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
-    case 'mcp':
-      return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-    case 'command':
-      return 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30'
+    case "knowledge":
+      return "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30";
+    case "skill":
+      return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30";
+    case "agent":
+      return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
+    case "rule":
+      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30";
+    case "ast":
+      return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30";
+    case "mcp":
+      return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30";
+    case "command":
+      return "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30";
     default:
-      return 'bg-muted/50 text-muted-foreground border-border/40'
+      return "bg-muted/50 text-muted-foreground border-border/40";
   }
 }
 
 export default function LiveSearchPage() {
-  const { activeProjectDir, activeAgent, projectsLoaded, loadProjects } = useAppStore()
+  const { activeProjectDir, activeAgent, projectsLoaded, loadProjects } =
+    useAppStore();
 
-  const [entries, setEntries] = useState<RegistryEntry[]>([])
-  const [chosen, setChosen] = useState<LiveArtifact[]>([])
-  const [typeFilter, setTypeFilter] = useState('')
-  const [pickerQuery, setPickerQuery] = useState('')
+  const [entries, setEntries] = useState<LiveCatalogEntry[]>([]);
+  const [catalogErrors, setCatalogErrors] = useState<string[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [chosen, setChosen] = useState<LiveArtifact[]>([]);
+  const [typeFilter, setTypeFilter] = useState("");
+  const [pickerQuery, setPickerQuery] = useState("");
 
-  const [question, setQuestion] = useState('')
-  const [session, setSession] = useState<LiveSession | null>(null)
-  const [events, setEvents] = useState<LiveEvent[]>([])
-  const [sessions, setSessions] = useState<LiveSession[]>([])
-  const [starting, setStarting] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  const [streamQuiet, setStreamQuiet] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [question, setQuestion] = useState("");
+  const [session, setSession] = useState<LiveSession | null>(null);
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [starting, setStarting] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [sessionsProblem, setSessionsProblem] = useState<string | null>(null);
+  const [streamQuiet, setStreamQuiet] = useState(false);
+  const [workspace, setWorkspace] = useState("prepare");
+  const [evidence, setEvidence] = useState("output");
 
-  const subscription = useRef<LiveSubscription | null>(null)
-  const transcriptEnd = useRef<HTMLDivElement | null>(null)
+  const subscription = useRef<LiveSubscription | null>(null);
+  const transcriptEnd = useRef<HTMLDivElement | null>(null);
 
   const refreshSessions = useCallback(() => {
-    listLiveSessions().then(setSessions).catch(() => {  })
-  }, [])
+    return listLiveSessions()
+      .then(rows => { setSessions(rows); setSessionsProblem(null); })
+      .catch((error) => { setSessionsProblem(`Could not refresh recent sessions: ${error instanceof Error ? error.message : String(error)}`); });
+  }, []);
+
+  const registryRequest = useRef(0);
+  const activeScope = `${activeProjectDir}\0${activeAgent}`;
+  const activeScopeRef = useRef(activeScope); activeScopeRef.current = activeScope;
+  const loadArtifacts = useCallback(async () => {
+    const request = ++registryRequest.current;
+    if (!activeAgent) return;
+    setCatalogLoading(true);
+    try {
+      const result = await loadLiveCatalog(activeProjectDir, activeAgent);
+      if (request === registryRequest.current) {
+        setEntries(result.entries); setCatalogErrors(result.errors);
+        const available=new Set(result.entries.filter(e=>!e.unavailable).map(e=>artifactKey(e.ref)));
+        setChosen(items=>items.filter(item=>available.has(artifactKey(item))));
+      }
+    } catch (error) {
+      if (request === registryRequest.current) setCatalogErrors([(error as Error).message]);
+    } finally { if (request === registryRequest.current) setCatalogLoading(false); }
+  }, [activeProjectDir, activeAgent]);
+  useEffect(()=>{setChosen([]);setEntries([]);setCatalogErrors([]);},[activeProjectDir,activeAgent]);
+  useEffect(() => {
+    void loadArtifacts();
+    if (!projectsLoaded) void loadProjects();
+    void refreshSessions();
+    return () => { registryRequest.current++; };
+  }, [loadArtifacts, projectsLoaded, loadProjects, refreshSessions]);
+  usePageRefresh(() => refreshAll([loadArtifacts(), refreshSessions()]));
 
   useEffect(() => {
-    hubApi.getRegistry(activeProjectDir || undefined)
-      .then(r => setEntries(r.entries ?? []))
-      .catch(() => setEntries([]))
-    if (!projectsLoaded) void loadProjects()
-    refreshSessions()
-  }, [activeProjectDir, projectsLoaded, loadProjects, refreshSessions])
-
-  useEffect(() => {
-    subscription.current?.close()
-    subscription.current = null
-    if (!session) return
+    subscription.current?.close();
+    subscription.current = null;
+    if (!session) return;
 
     const sub = subscribeLiveEvents(session.id, 0, {
-      onEvent: ev => {
-        setEvents(prev => (prev.some(p => p.seq === ev.seq) ? prev : [...prev, ev]))
-        if (ev.kind === 'state' && ev.state) {
-          setSession(s => (s ? { ...s, state: ev.state as LiveState } : s))
-          if (ev.state === 'ready' || ev.state === 'failed') refreshSessions()
+      onEvent: (ev) => {
+        setEvents((prev) =>
+          prev.some((p) => p.seq === ev.seq) ? prev : [...prev, ev],
+        );
+        if (ev.kind === "state" && ev.state) {
+          setSession((s) => (s ? { ...s, state: ev.state as LiveState } : s));
+          if (ev.state === "ready" || ev.state === "failed") refreshSessions();
         }
       },
       onOpen: () => setStreamQuiet(false),
       onError: () => setStreamQuiet(true),
-    })
-    subscription.current = sub
-    return () => { sub.close() }
-  }, [session?.id, refreshSessions]) // eslint-disable-line react-hooks/exhaustive-deps
+    });
+    subscription.current = sub;
+    return () => {
+      sub.close();
+    };
+  }, [session?.id, refreshSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const turns = useMemo(() => transcriptFromEvents(events), [events])
+  const turns = useMemo(() => transcriptFromEvents(events), [events]);
 
   useEffect(() => {
-    transcriptEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [turns])
+    transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns]);
 
   const types = useMemo(() => {
-    const seen = new Set<string>()
-    for (const e of entries) if (e.type) seen.add(e.type)
-    return Array.from(seen).sort()
-  }, [entries])
+    const seen = new Set<string>();
+    for (const e of entries) if (e.type) seen.add(e.type);
+    return Array.from(seen).sort();
+  }, [entries]);
 
   const visibleEntries = useMemo(() => {
-    const q = pickerQuery.trim().toLowerCase()
-    return entries.filter(e => {
-      if (typeFilter && e.type !== typeFilter) return false
-      if (!q) return true
-      return `${e.id} ${e.name ?? ''} ${e.description ?? ''}`.toLowerCase().includes(q)
-    })
-  }, [entries, typeFilter, pickerQuery])
+    return filterLiveCatalog(entries,pickerQuery,typeFilter,sourceFilter);
+  }, [entries, typeFilter, pickerQuery,sourceFilter]);
 
-  const isChosen = (e: RegistryEntry) => chosen.some(c => c.id === e.id && c.type === e.type)
+  const isChosen = (e: LiveCatalogEntry) =>
+    chosen.some((c) => artifactKey(c) === artifactKey(e.ref));
 
-  const toggle = (e: RegistryEntry) => {
-    setChosen(prev => prev.some(c => c.id === e.id && c.type === e.type)
-      ? prev.filter(c => !(c.id === e.id && c.type === e.type))
-      : [...prev, { id: e.id, type: e.type, version: e.latest }])
-  }
+  const toggle = (e: LiveCatalogEntry) => {
+    if(e.unavailable) return;
+    setChosen((prev) =>
+      prev.some((c) => artifactKey(c) === artifactKey(e.ref))
+        ? prev.filter((c) => artifactKey(c) !== artifactKey(e.ref))
+        : [...prev, e.ref],
+    );
+  };
 
   const start = async () => {
-    setProblem(null)
-    setStarting(true)
+    if (starting || chosen.length === 0 || !activeAgent) return;
+    setProblem(null);
+    setStarting(true);
+    const startScope=activeScopeRef.current;
     try {
       const created = await createLiveSession({
         agent: activeAgent,
         artifacts: chosen,
         prompt: question.trim() || undefined,
-      })
-      setEvents([])
-      setSession(created)
-      setQuestion('')
-      refreshSessions()
+      });
+      if(startScope!==activeScopeRef.current) {void refreshSessions();return;}
+      setEvents([]);
+      setSession(created);
+      setWorkspace("run");
+      setQuestion("");
+      refreshSessions();
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e))
+      if(startScope===activeScopeRef.current) setProblem(e instanceof Error ? e.message : String(e));
     } finally {
-      setStarting(false)
+      setStarting(false);
     }
-  }
+  };
 
   const ask = async () => {
-    if (!session || !question.trim()) return
-    setProblem(null)
-    const prompt = question
-    setQuestion('')
+    if (!session || !question.trim()) return;
+    setProblem(null);
+    const prompt = question;
+    setQuestion("");
     try {
-      await sendLiveMessage(session.id, prompt)
-      setSession(s => (s ? { ...s, state: 'running' } : s))
+      await sendLiveMessage(session.id, prompt);
+      setSession((s) => (s ? { ...s, state: "running" } : s));
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e))
-      setQuestion(prompt)
+      setProblem(e instanceof Error ? e.message : String(e));
+      setQuestion(prompt);
     }
-  }
+  };
 
   const stop = async () => {
-    if (!session) return
-    try { await cancelLiveTurn(session.id) } catch { /* ignored */ }
-  }
+    if (!session) return;
+    try {
+      await cancelLiveTurn(session.id);
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  };
 
   const remove = async (id: string) => {
+    if (
+      !window.confirm(
+        "Remove this ephemeral live session and its local records?",
+      )
+    )
+      return;
     try {
-      await removeLiveSession(id)
+      await removeLiveSession(id);
       if (session?.id === id) {
-        setSession(null)
-        setEvents([])
+        setSession(null);
+        setEvents([]);
       }
-      refreshSessions()
+      refreshSessions();
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e))
+      setProblem(e instanceof Error ? e.message : String(e));
     }
-  }
+  };
 
   const open = (s: LiveSession) => {
-    setEvents([])
-    setSession(s)
-  }
+    setEvents([]);
+    setSession(s);
+    setWorkspace("run");
+  };
 
-  const busy = session?.state === 'preparing' || session?.state === 'running'
-  const canAsk = session?.state === 'ready' && question.trim().length > 0
+  const busy = session?.state === "preparing" || session?.state === "running";
+  const canAsk = session?.state === "ready" && question.trim().length > 0;
 
-  return (
-    <div className="w-full max-w-7xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-10 animate-in fade-in duration-300">
-      {}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-border/40">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm">
-            <Radio className={cn('w-6 h-6 text-primary', busy && 'animate-pulse')} />
-          </div>
-          <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Agent workspace / multi-source</p>
-            <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Live Search</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Streamed autonomous agent running on throwaway projects with your selected artifacts
-            </p>
-            <div className="flex items-center gap-2 mt-2.5 glass-pill px-3 py-1.5 w-fit">
-              <Monitor className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">Target Agent:</span>
-              <span className="text-xs font-mono font-semibold text-primary">{activeAgent || '…'}</span>
-            </div>
-          </div>
-        </div>
-
-        {session && (
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className={cn('text-xs font-bold uppercase px-3 py-1.5 rounded-xl border shadow-sm', stateTone(session.state))}>
-              {session.state}
-            </span>
-            {session.state === 'running' && (
-              <button
-                onClick={stop}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/30 transition-all hover:scale-[1.02]"
-              >
-                <Square className="w-3.5 h-3.5" /> Stop Run
-              </button>
-            )}
-            <button
-              onClick={() => { setSession(null); setEvents([]); }}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl border border-border/50 hover:bg-accent/50 glass-panel transition-all hover:scale-[1.02]"
-            >
-              <Plus className="w-3.5 h-3.5 text-primary" /> New Search
-            </button>
-          </div>
+  const promptEditor = (
+    <div className="work-form">
+      <label className="work-field">
+        <span>
+          {session
+            ? "Follow-up question"
+            : "What should the agent investigate?"}
+        </span>
+        <textarea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          rows={4}
+          placeholder={
+            session
+              ? "Ask a follow-up query…"
+              : "Describe the question and the evidence you need."
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              if (session) {
+                if (canAsk) void ask();
+              } else if (!starting && chosen.length && activeAgent)
+                void start();
+            }
+          }}
+        />
+      </label>
+      <div className="work-actions">
+        {session ? (
+          <button
+            className="work-button primary"
+            disabled={!canAsk}
+            onClick={() => void ask()}
+          >
+            Ask
+          </button>
+        ) : (
+          <button
+            className="work-button primary"
+            disabled={starting || chosen.length === 0 || !activeAgent}
+            onClick={() => void start()}
+          >
+            {starting ? "Preparing…" : "Start Run"}
+          </button>
         )}
-      </div>
-
-      {}
-      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 h-auto lg:h-[calc(100vh-220px)] min-h-0 lg:min-h-[500px] transition-all duration-300">
-        {}
-        <aside
-          className={cn(
-            'flex flex-col min-h-0 max-h-[430px] lg:max-h-none glass-panel rounded-2xl border border-border/40 overflow-hidden shadow-sm transition-all duration-300 ease-in-out shrink-0',
-            sidebarCollapsed ? 'w-full lg:w-16 p-2 items-center' : 'w-full lg:w-96 p-4',
-          )}
-        >
-          {sidebarCollapsed ? (
-
-            <div className="flex flex-col items-center gap-4 py-2 w-full">
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                className="p-2 rounded-xl bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-all"
-                title="Expand sidebar"
-              >
-                <PanelLeftOpen className="w-4 h-4" />
-              </button>
-              <div className="w-full border-t border-border/40 my-1" />
-
-              <div
-                className="relative p-2.5 rounded-xl bg-card/50 border border-border/40 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                onClick={() => setSidebarCollapsed(false)}
-                title={`Target Artifacts (${chosen.length} selected)`}
-              >
-                <Layers className="w-4 h-4 text-primary" />
-                {chosen.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                    {chosen.length}
-                  </span>
-                )}
-              </div>
-
-              <div
-                className="relative p-2.5 rounded-xl bg-card/50 border border-border/40 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                onClick={() => setSidebarCollapsed(false)}
-                title={`Recent Sessions (${sessions.length})`}
-              >
-                <MessageSquare className="w-4 h-4 text-primary" />
-                {sessions.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-accent text-foreground text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-border/40">
-                    {sessions.length}
-                  </span>
-                )}
-              </div>
-            </div>
-          ) : (
-
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-border/30">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Configuration & Artifacts</span>
-                <button
-                  onClick={() => setSidebarCollapsed(true)}
-                  className="p-1.5 rounded-lg border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-all"
-                  title="Collapse sidebar (expand chat)"
-                >
-                  <PanelLeftClose className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto space-y-6 pr-1 scrollbar-thin">
-                {}
-                <div className="bg-card/40 border border-border/30 rounded-xl p-3.5 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                    <Monitor className="w-4 h-4 text-primary shrink-0" />
-                    <span>Agent Conventions</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Rules, skills, and MCP setup for the throwaway project follow your selected Agent: <strong className="text-foreground">{activeAgent || 'Default'}</strong>. Change it in the project switcher above.
-                  </p>
-                </div>
-
-                {}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-primary" />
-                      <span>Target Artifacts ({chosen.length})</span>
-                    </label>
-                    {chosen.length > 0 && (
-                      <button
-                        onClick={() => setChosen([])}
-                        className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        Clear selection
-                      </button>
-                    )}
-                  </div>
-
-                  {}
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                      <input
-                        value={pickerQuery}
-                        onChange={e => setPickerQuery(e.target.value)}
-                        placeholder="Filter artifacts..."
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-background/50 border border-border/50 backdrop-blur-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                      />
-                    </div>
-                    <select
-                      value={typeFilter}
-                      onChange={e => setTypeFilter(e.target.value)}
-                      className="text-xs rounded-xl bg-background/50 border border-border/50 px-2 py-1.5 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                    >
-                      <option value="">All Types</option>
-                      {types.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-
-                  {}
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                    {visibleEntries.length === 0 ? (
-                      <p className="text-xs text-muted-foreground/70 py-4 text-center">
-                        No registry artifacts match your search.
-                      </p>
-                    ) : (
-                      visibleEntries.map(e => {
-                        const selected = isChosen(e)
-                        return (
-                          <button
-                            key={`${e.type}:${e.id}`}
-                            onClick={() => toggle(e)}
-                            className={cn(
-                              'w-full text-left rounded-xl p-2.5 border transition-all duration-200 glass-panel-hover flex items-start gap-2.5 group',
-                              selected
-                                ? 'bg-primary/10 border-primary/40 shadow-sm'
-                                : 'bg-card/30 border-border/30 hover:bg-accent/40',
-                            )}
-                          >
-                            <div className={cn(
-                              'w-4 h-4 rounded-md border flex items-center justify-center shrink-0 mt-0.5 transition-colors',
-                              selected
-                                ? 'bg-primary border-primary text-primary-foreground'
-                                : 'border-border/60 group-hover:border-primary/50',
-                            )}>
-                              {selected && <Check className="w-3 h-3 stroke-[3]" />}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-xs font-semibold text-foreground truncate">{e.name || e.id}</span>
-                                <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border shrink-0', typeBadgeStyle(e.type))}>
-                                  {e.type}
-                                </span>
-                              </div>
-                              {e.description && (
-                                <p className="text-[11px] text-muted-foreground truncate mt-0.5">{e.description}</p>
-                              )}
-                            </div>
-                          </button>
-                        )
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {}
-                <div className="space-y-2.5 pt-2 border-t border-border/30">
-                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <MessageSquare className="w-3.5 h-3.5 text-primary" />
-                    <span>Recent Sessions ({sessions.length})</span>
-                  </label>
-                  <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                    {sessions.length === 0 ? (
-                      <p className="text-xs text-muted-foreground/70 py-2 text-center">No active sessions yet.</p>
-                    ) : (
-                      sessions.map(s => (
-                        <div
-                          key={s.id}
-                          className={cn(
-                            'group rounded-xl p-2.5 border transition-all duration-200 flex items-center justify-between gap-2',
-                            session?.id === s.id
-                              ? 'bg-primary/10 border-primary/40 shadow-sm'
-                              : 'bg-card/30 border-border/30 hover:bg-accent/40',
-                          )}
-                        >
-                          <button onClick={() => open(s)} className="flex-1 text-left min-w-0">
-                            <p className="text-xs font-semibold text-foreground truncate">{s.title || '(No prompt query)'}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border', stateTone(s.state))}>
-                                {s.state}
-                              </span>
-                              <span className="text-[10px] font-mono text-muted-foreground truncate">{s.id.slice(0, 8)}</span>
-                            </div>
-                          </button>
-                          <button
-                            onClick={() => remove(s.id)}
-                            title="Remove session"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </aside>
-
-        {}
-        <section className="flex-1 flex flex-col min-h-[560px] lg:min-h-0 min-w-0 glass-panel rounded-2xl border border-border/40 overflow-hidden shadow-sm transition-all duration-300">
-          {}
-          <div className="px-6 py-3.5 border-b border-border/40 bg-card/40 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                onClick={() => setSidebarCollapsed(v => !v)}
-                className="p-1.5 rounded-lg border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-all shrink-0"
-                title={sidebarCollapsed ? "Expand artifact sidebar" : "Collapse artifact sidebar (expand chat)"}
-              >
-                {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4 text-primary" /> : <PanelLeftClose className="w-4 h-4" />}
-              </button>
-              <div className={cn('w-2.5 h-2.5 rounded-full shrink-0', busy ? 'bg-primary animate-ping' : 'bg-emerald-500')} />
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-foreground truncate">
-                  {session ? session.title || 'Live Session Stream' : 'New Live Search Session'}
-                </h2>
-                {session && (
-                  <p className="text-[11px] text-muted-foreground font-mono truncate">Session ID: {session.id}</p>
-                )}
-              </div>
-            </div>
-            {session && (
-              <div className="flex items-center gap-2">
-                <span className={cn('text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg border', stateTone(session.state))}>
-                  {session.state}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {}
-          {streamQuiet && (
-            <div className="px-6 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs flex items-center gap-2">
-              <Clock className="w-4 h-4 shrink-0" />
-              <span>The connection paused. The agent run continues on the server; reconnecting automatically...</span>
-            </div>
-          )}
-          {problem && (
-            <div className="px-6 py-2 bg-destructive/10 border-b border-destructive/30 text-destructive text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{problem}</span>
-            </div>
-          )}
-
-          {}
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-            {!session ? (
-              <div className="h-full flex items-center justify-center py-12">
-                <EmptyState
-                  icon={Sparkles}
-                  title="Start a Live Search Run"
-                  description="Select artifacts from the registry on the left, then enter your prompt below to launch an autonomous agent session."
-                />
-              </div>
-            ) : turns.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-                <LoadingSpinner size="md" />
-                <p className="text-sm text-muted-foreground">Initializing throwaway project and agent environment...</p>
-              </div>
-            ) : (
-              <div className="space-y-6 max-w-5xl mx-auto">
-                {turns.map((t, i) => (
-                  <article key={i} className="space-y-3 animate-in fade-in duration-200">
-                    {}
-                    {t.question && (
-                      <div className="flex items-start gap-3 bg-primary/5 border border-primary/15 rounded-2xl p-4 shadow-sm">
-                        <div className="w-7 h-7 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-primary mt-0.5">
-                          <User className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-primary">User Request</span>
-                          <p className="text-sm font-semibold text-foreground mt-0.5 leading-relaxed">{t.question}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {}
-                    {t.activity.length > 0 && (
-                      <div className="border-l-2 border-primary/30 pl-4 ml-3 py-1 space-y-2">
-                        {t.activity.map(a => (
-                          <div key={a.seq} className="flex items-start gap-2 text-xs text-muted-foreground">
-                            <Wrench className="w-3.5 h-3.5 text-primary/70 mt-0.5 shrink-0" />
-                            <span className="font-mono font-semibold bg-accent/60 px-2 py-0.5 rounded-md border border-border/40 text-foreground text-[11px]">
-                              {a.label}
-                            </span>
-                            {a.detail && (
-                              <span className="font-mono text-[11px] text-muted-foreground/80 truncate">{a.detail}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {}
-                    {t.answer && (
-                      <div className="flex items-start gap-3 bg-card/70 border border-border/40 rounded-2xl p-5 shadow-sm">
-                        <div className="w-7 h-7 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0 text-purple-500 mt-0.5">
-                          <Bot className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">Agent Output</span>
-                          <div className="mt-1 text-sm leading-relaxed text-foreground whitespace-pre-wrap font-sans">
-                            {t.answer}
-                            {!t.done && busy && (
-                              <span className="inline-block w-2 h-4 bg-primary rounded-sm animate-pulse ml-1 align-middle" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {}
-                    {t.errors.map((err, j) => (
-                      <div key={j} className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl p-3">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>{err}</span>
-                      </div>
-                    ))}
-                  </article>
-                ))}
-                <div ref={transcriptEnd} />
-              </div>
-            )}
-          </div>
-
-          {}
-          <footer className="border-t border-border/40 p-4 bg-card/30">
-            <div className="flex gap-3 max-w-5xl mx-auto items-end">
-              <div className="flex-1 relative">
-                <textarea
-                  value={question}
-                  onChange={e => setQuestion(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                      e.preventDefault()
-                      if (session) { if (canAsk) void ask() } else { void start() }
-                    }
-                  }}
-                  rows={2}
-                  placeholder={session ? 'Ask a follow-up query…' : 'Enter prompt or question for the live search agent…'}
-                  className="w-full text-sm rounded-xl bg-background/60 border border-border/50 backdrop-blur-sm px-3.5 py-2.5 resize-none outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all shadow-sm"
-                />
-              </div>
-
-              {session ? (
-                <button
-                  onClick={ask}
-                  disabled={!canAsk}
-                  className="btn-premium flex items-center gap-2 text-sm font-semibold px-5 py-3 rounded-xl disabled:opacity-40 shrink-0"
-                >
-                  <Send className="w-4 h-4" /> Ask
-                </button>
-              ) : (
-                <button
-                  onClick={start}
-                  disabled={starting || chosen.length === 0 || !activeAgent}
-                  title={chosen.length === 0 ? 'Choose at least one artifact to search' : undefined}
-                  className="btn-premium flex items-center gap-2 text-sm font-semibold px-5 py-3 rounded-xl disabled:opacity-40 shrink-0"
-                >
-                  {starting ? <LoadingSpinner size="sm" /> : <Radio className="w-4 h-4" />} Start Run
-                </button>
-              )}
-            </div>
-            <div className="flex items-center justify-between max-w-5xl mx-auto mt-2 text-[11px] text-muted-foreground/70">
-              <span>{session ? 'Press Ctrl+Enter to send follow-up' : 'Choose artifacts on the left & press Ctrl+Enter to launch search'}</span>
-              {chosen.length > 0 && !session && (
-                <span className="text-primary font-medium">{chosen.length} artifact(s) selected</span>
-              )}
-            </div>
-          </footer>
-        </section>
+        <small className="text-xs text-muted-foreground">
+          Ctrl / ⌘ + Enter
+        </small>
       </div>
     </div>
-  )
+  );
+  return (
+    <WorkPage>
+      <WorkHeader
+        title="Live investigation"
+        description="Assemble a bounded set of artifacts and investigate it with an agent in an ephemeral workspace."
+        actions={
+          <button
+            className="work-button"
+            onClick={() => {
+              setSession(null);
+              setEvents([]);
+              setWorkspace("prepare");
+              setProblem(null);
+            }}
+          >
+            New Search
+          </button>
+        }
+      />
+      <WorkTabs
+        value={workspace}
+        onChange={setWorkspace}
+        items={[
+          ["prepare", "Prepare context"],
+          ["run", "Run & evidence"],
+          ["history", "Recent sessions"],
+        ]}
+        label="Live investigation workspace"
+      />
+      {sessionsProblem && <WorkNotice title="Recent sessions could not refresh" tone="error">{sessionsProblem}</WorkNotice>}
+      {problem && (
+        <WorkNotice title="The request could not complete" tone="error">
+          {problem}
+        </WorkNotice>
+      )}
+      {workspace === "prepare" && (
+        <div className="live-preparation">
+          <section>
+            <WorkSection
+              title="Choose the evidence boundary"
+              description="Select the artifacts the agent will use for this investigation."
+            >
+              <div className="work-toolbar">
+                <WorkSearch
+                  label="Find live artifacts"
+                  value={pickerQuery}
+                  onChange={setPickerQuery}
+                />
+                <StyledSelect aria-label="Artifact source" value={sourceFilter} onChange={e=>setSourceFilter(e.target.value)}>
+                  <option value="">All sources</option><option value="project">Current project</option><option value="hub">Hub registry</option>
+                </StyledSelect>
+                <StyledSelect
+                  aria-label="Live artifact type"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                >
+                  <option value="">All types</option>
+                  {types.map((t) => (
+                    <option key={t}>{t}</option>
+                  ))}
+                </StyledSelect>
+              </div>
+              {catalogLoading && <p role="status">Loading project and Hub artifacts…</p>}
+              {catalogErrors.map(message=><WorkNotice key={message} title="Some sources could not load" tone="error">{message}</WorkNotice>)}
+              <div className="work-table-wrap live-artifacts">
+                <table className="work-table">
+                  <thead>
+                    <tr>
+                      <th>Use</th>
+                      <th>Artifact</th>
+                      <th>Type</th>
+                      <th>Version</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleEntries.map((e) => (
+                      <tr
+                        key={artifactKey(e.ref)}
+                        className={isChosen(e) ? "selected" : ""}
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={"Use " + e.name}
+                            checked={isChosen(e)}
+                            disabled={!!e.unavailable}
+                            onChange={() => toggle(e)}
+                          />
+                        </td>
+                        <td>
+                          <strong>{e.name}</strong>
+                          <small>{e.description}</small>
+                          <small>{e.id}</small>
+                          <small>{e.sourceLabel}{e.ref.project_kind && ` · ${e.ref.project_kind.replace(/_/g,' ')}`}</small>
+                          {e.unavailable && <small>{e.unavailable}</small>}
+                        </td>
+                        <td>{e.type}</td>
+                        <td>{e.latest}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!visibleEntries.length && !catalogLoading && (
+                  <WorkEmpty title="No matching artifacts">
+                    Adjust the filter or make an artifact available in the
+                    project or registry.
+                  </WorkEmpty>
+                )}
+              </div>
+            </WorkSection>
+          </section>
+          <aside className="work-panel">
+            <WorkSection title="Investigation brief">
+              <FactList
+                items={[
+                  ["Agent", activeAgent || "Choose an agent"],
+                  ["Selected artifacts", chosen.length],
+                ]}
+              />
+              <div className="selected-artifacts">
+                {chosen.map((c) => (
+                  <div key={artifactKey(c)}>
+                    <span>
+                      <strong>{c.id}</strong>
+                      <small>
+                        {c.type} · {c.version} · {entries.find(e=>artifactKey(e.ref)===artifactKey(c))?.sourceLabel || c.source || 'Hub'}
+                      </small>
+                    </span>
+                    <button
+                      className="work-button"
+                      aria-label={"Remove " + c.id}
+                      onClick={() =>
+                        setChosen((prev) =>
+                          prev.filter(
+                            (a) => artifactKey(a) !== artifactKey(c),
+                          ),
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {session ? (
+                <WorkNotice title="A session is already open">
+                  Context changes apply to the next run.
+                  <button
+                    className="work-button mt-3"
+                    onClick={() => {
+                      setSession(null);
+                      setEvents([]);
+                      setQuestion("");
+                    }}
+                  >
+                    Prepare a new run
+                  </button>
+                </WorkNotice>
+              ) : (
+                promptEditor
+              )}
+            </WorkSection>
+            <p className="text-xs text-muted-foreground">
+              Live sessions use an ephemeral project. They are separate from
+              durable task sessions.
+            </p>
+          </aside>
+        </div>
+      )}
+      {workspace === "run" &&
+        (session ? (
+          <>
+            <div className="runtime-strip">
+              <strong>{session.title || "Live session"}</strong>
+              <span className="status-pill">{session.state}</span>
+              <code>{session.id}</code>
+              {session.state === "running" && (
+                <button
+                  className="work-button danger"
+                  onClick={() => void stop()}
+                >
+                  Stop Run
+                </button>
+              )}
+            </div>
+            {streamQuiet && (
+              <WorkNotice title="Reconnecting">
+                The connection paused. The agent run continues on the server.
+              </WorkNotice>
+            )}
+            <div className="live-run-layout">
+              <section className="work-panel">
+                <WorkTabs
+                  label="Run evidence"
+                  value={evidence}
+                  onChange={setEvidence}
+                  items={[
+                    ["output", "Agent output"],
+                    ["activity", "Execution activity"],
+                  ]}
+                />
+                {evidence === "activity" ? (
+                  <div className="work-timeline">
+                    {events
+                      .filter((e) => !["text", "prompt"].includes(e.kind))
+                      .map((e) => (
+                        <article key={e.seq}>
+                          <small>
+                            Event {e.seq} · {e.kind}
+                          </small>
+                          <h3>{e.tool || e.state || e.kind}</h3>
+                          {e.text && (
+                            <p className="text-xs whitespace-pre-wrap">
+                              {e.text}
+                            </p>
+                          )}
+                          {e.detail && (
+                            <pre className="work-code">
+                              {typeof e.detail === "string"
+                                ? e.detail
+                                : JSON.stringify(e.detail, null, 2)}
+                            </pre>
+                          )}
+                        </article>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="live-transcript">
+                    {turns.map((t, i) => (
+                      <article key={i}>
+                        <header>
+                          <small>Request {i + 1}</small>
+                          <h3>{t.question || "Agent preparation"}</h3>
+                        </header>
+                        <AgentExecution events={t.activity.map(a => ({ kind: a.label, text: a.detail }))} running={!t.done && busy} />
+                        {t.answer && (
+                          <div className="agent-answer">
+                            <LiveAnswer sessionId={session.id} content={t.answer} />
+                          </div>
+                        )}
+                        {t.errors.map((e, j) => (
+                          <WorkNotice key={j} title="Run error" tone="error">
+                            {e}
+                          </WorkNotice>
+                        ))}
+                        <small className="text-muted-foreground">
+                          {t.done
+                            ? "Turn complete"
+                            : busy
+                              ? "Working…"
+                              : "Waiting"}
+                        </small>
+                      </article>
+                    ))}
+                    {!turns.length && (
+                      <WorkEmpty
+                        title={
+                          busy
+                            ? "Preparing the investigation"
+                            : "No output recorded"
+                        }
+                      >
+                        {busy
+                          ? "The agent environment is being prepared."
+                          : "Session state: " + session.state}
+                      </WorkEmpty>
+                    )}
+                    <div ref={transcriptEnd} />
+                  </div>
+                )}
+                <div className="live-composer">{promptEditor}</div>
+              </section>
+              <aside>
+                <WorkSection title="Run context">
+                  <FactList
+                    items={[
+                      ["Agent", session.agent],
+                      ["Created", session.created_at],
+                      ["Updated", session.updated_at],
+                      ["State", session.state],
+                    ]}
+                  />
+                </WorkSection>
+                <WorkSection title="Artifacts used">
+                  {(session.artifacts || []).map((a) => (
+                    <div
+                      className="py-3 border-b border-border text-xs"
+                      key={a.type + "/" + a.id}
+                    >
+                      <strong className="break-all">{a.id}</strong>
+                      <small className="block mt-2 text-muted-foreground">
+                        {a.type} · {a.version}
+                      </small>
+                    </div>
+                  ))}
+                </WorkSection>
+                {session.error && (
+                  <WorkNotice title="Session error" tone="error">
+                    {session.error}
+                  </WorkNotice>
+                )}
+              </aside>
+            </div>
+          </>
+        ) : (
+          <WorkEmpty
+            title="No investigation open"
+            action={
+              <button
+                className="work-button"
+                onClick={() => setWorkspace("prepare")}
+              >
+                Prepare context
+              </button>
+            }
+          >
+            Choose artifacts and start a run, or reopen a recent session.
+          </WorkEmpty>
+        ))}
+      {workspace === "history" && (
+        <WorkSection
+          title="Recent live sessions"
+          description="Reopen the server-side stream and inspect its recorded evidence."
+        >
+          <div className="work-table-wrap">
+            <table className="work-table">
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th>State</th>
+                  <th>Agent</th>
+                  <th>Updated</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      <button className="record-title" onClick={() => open(s)}>
+                        {s.title || "Untitled investigation"}
+                      </button>
+                      <small>{s.id}</small>
+                    </td>
+                    <td>{s.state}</td>
+                    <td>{s.agent}</td>
+                    <td>{new Date(s.updated_at).toLocaleString()}</td>
+                    <td>
+                      <button
+                        className="work-button danger"
+                        onClick={() => void remove(s.id)}
+                      >
+                        Remove session
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!sessions.length && (
+              <WorkEmpty title="No live sessions yet">
+                Start an investigation with selected artifacts.
+              </WorkEmpty>
+            )}
+          </div>
+        </WorkSection>
+      )}
+    </WorkPage>
+  );
 }

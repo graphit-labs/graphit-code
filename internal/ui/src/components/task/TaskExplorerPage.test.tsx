@@ -1,3 +1,5 @@
+import "@/test/contextControls"
+import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors"
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -94,20 +96,21 @@ describe('Task Explorer', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/explorer/:taskId?" element={<><TaskExplorerPage /><Location /></>} />
         </Routes>
       </MemoryRouter>,
     )
 
-    expect(await screen.findByText('Specification')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Specification' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Objective' })).toBeTruthy()
     expect(screen.getByText('first deterministic feature')).toBeTruthy()
     expect(screen.getByText('canonical export')).toBeTruthy()
     expect(screen.getAllByText('observable outcome').length).toBeGreaterThan(0)
     expect(screen.getByText('npm test')).toBeTruthy()
     expect(screen.getByText('make test')).toBeTruthy()
-    const specification = screen.getByText('Specification').closest('section')
+    const specification = screen.getByRole('heading', { name: 'Specification' }).closest('section')
     expect(specification).not.toBeNull()
     expect(within(specification!).queryByText(/# Objective/)).toBeNull()
     expect(taskApi.list).toHaveBeenCalledWith({ projectDir: '/project', query: undefined, status: 'all', pageSize: 20, cursor: undefined })
@@ -129,6 +132,7 @@ describe('Task Explorer', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
       </MemoryRouter>,
     )
@@ -148,12 +152,13 @@ describe('Task Explorer', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
       </MemoryRouter>,
     )
 
     await screen.findByText('First task')
-    const selector = screen.getByRole('button', { name: 'Filter task status' })
+    const selector = screen.getByRole('combobox', { name: 'Filter task status' })
     await user.click(selector)
     const options = screen.getByRole('listbox', { name: 'Task statuses' })
     await user.click(within(options).getByRole('option', { name: 'Blocked' }))
@@ -169,6 +174,7 @@ describe('Task Explorer', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} />
           <Route path="/task/sessions/:sessionId" element={<Location />} />
@@ -187,6 +193,7 @@ describe('Task Explorer', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} />
           <Route path="/task/sessions" element={<Location />} />
@@ -208,6 +215,7 @@ describe('Task Explorer', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL })
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
       </MemoryRouter>,
     )
@@ -225,19 +233,20 @@ describe('Task Explorer', () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/explorer/:taskId?" element={<><TaskExplorerPage /><Location /></>} />
         </Routes>
       </MemoryRouter>,
     )
 
-    expect(await screen.findByText('Specification')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Specification' })).toBeTruthy()
     const taskList = screen.getByLabelText('Task catalogue')
     const loaded = vi.mocked(taskApi.export).mock.calls.length
 
     await user.click(within(taskList).getByText('First task'))
 
-    expect(screen.getByText('Specification')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Specification' })).toBeTruthy()
     expect(screen.queryByText('Select a task')).toBeNull()
     expect(vi.mocked(taskApi.export).mock.calls.length).toBe(loaded)
     expect(screen.getByTestId('location').textContent).toBe('/task/explorer/tsk-aaaa')
@@ -248,6 +257,7 @@ describe('Task Explorer', () => {
     vi.mocked(taskApi.export).mockRejectedValueOnce(new Error('unavailable'))
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
       </MemoryRouter>,
     )
@@ -259,11 +269,11 @@ describe('Task Explorer', () => {
 
     await user.click(within(taskList).getByText('First task'))
 
-    expect(await screen.findByText('Specification')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Specification' })).toBeTruthy()
     expect(vi.mocked(taskApi.export).mock.calls.filter(([, id]) => id === 'tsk-aaaa').length).toBe(2)
   })
 
-  it('switches the active project from the explorer header', async () => {
+  it('switches the active project from the shared header', async () => {
     const user = userEvent.setup()
     useAppStore.setState({
       projects: [
@@ -274,34 +284,34 @@ describe('Task Explorer', () => {
     })
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
       </MemoryRouter>,
     )
 
     await screen.findByText('First task')
-    const picker = screen.getByRole('button', { name: 'Switch project' })
+    const picker = screen.getByRole('combobox', { name: 'Project' })
     expect(picker.textContent).toContain('Demo')
-
     await user.click(picker)
-    const options = screen.getByRole('listbox', { name: 'Projects' })
-    await user.click(within(options).getByRole('option', { name: 'Other' }))
+    await user.click(screen.getByRole('option', { name: 'Other' }))
 
     expect(useAppStore.getState().activeProjectDir).toBe('/other')
     await waitFor(() => expect(taskApi.list).toHaveBeenLastCalledWith({
       projectDir: '/other', query: undefined, status: 'all', pageSize: 20, cursor: undefined,
     }))
-    expect(screen.queryByRole('listbox', { name: 'Projects' })).toBeNull()
+    expect(screen.getAllByRole('combobox', { name: 'Project' })).toHaveLength(1)
   })
 
-  it('omits the project picker while no project is loaded', async () => {
+  it('keeps the global project control disabled while projects load', async () => {
     useAppStore.setState({ projects: [], projectsLoaded: false })
     render(
       <MemoryRouter initialEntries={['/task/explorer']}>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
       </MemoryRouter>,
     )
 
     await screen.findByText('First task')
-    expect(screen.queryByRole('button', { name: 'Switch project' })).toBeNull()
+    expect((screen.getByRole('combobox', { name: 'Project' }) as HTMLSelectElement).disabled).toBe(true)
   })
 })

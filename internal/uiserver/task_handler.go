@@ -31,6 +31,8 @@ func NewTaskHandler(defaultProjectDir string) *TaskHandler {
 }
 
 func (h *TaskHandler) RegisterAPIRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/workspace/now", corsJSON(h.handleWorkspaceNow))
+	mux.HandleFunc("GET /api/references", corsJSON(h.handleReferences))
 	mux.HandleFunc("GET /api/tasks", corsJSON(h.handleCatalog))
 	mux.HandleFunc("GET /api/tasks/export", corsJSON(h.handleExport))
 }

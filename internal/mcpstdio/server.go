@@ -27,6 +27,7 @@ func NewServer() *mcp.Server {
 	registerKnowledgeTools(server)
 	registerMemoryTools(server)
 	registerTaskTools(server)
+	registerReferenceTools(server)
 	registerHubTools(server)
 	registerWikiTools(server)
 	registerDreamTools(server)

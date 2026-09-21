@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"log/slog"
 	"strings"
 	"time"
@@ -853,4 +854,41 @@ func renderMemoryFile(fm MemoryFrontmatter, body string) string {
 func sameMemoryBody(a, b string) bool {
 	return strings.TrimSpace(extractBodyAfterFrontmatter(a)) ==
 		strings.TrimSpace(extractBodyAfterFrontmatter(b))
+}
+
+func (m *MemoryService) ReferenceEdges(ctx context.Context) ([]relations.Edge, bool, error) {
+	t, e := m.openTable(ctx)
+	if e != nil {
+		return nil, false, e
+	}
+	defer t.Close()
+	return t.ReferenceEdges(ctx)
+}
+func (m *MemoryService) ReconcileReferences(ctx context.Context) error {
+	t, e := m.openTable(ctx)
+	if e != nil {
+		return e
+	}
+	defer t.Close()
+	rows, e := t.Live(ctx)
+	if e != nil {
+		return e
+	}
+	for _, r := range rows {
+		source := relations.Entity{Type: "memory", ID: r.ID, Scope: r.Scope, ScopeID: r.ScopeID}
+		hash := relations.Fingerprint([]string{r.Title, r.Body, r.ContentHash})
+		_, complete, err := relations.ReadMatching(ctx, t.store, map[string]string{source.Key(): hash})
+		if err != nil {
+			return err
+		}
+		if complete {
+			continue
+		}
+		// Repair only the relation projection. Never rewrite a head read before a
+		// concurrent edit; snapshot matching ignores this generation if it is stale.
+		if err := relations.Replace(ctx, t.store, source, int64(r.Revision), "record", nil, hash); err != nil {
+			return err
+		}
+	}
+	return nil
 }

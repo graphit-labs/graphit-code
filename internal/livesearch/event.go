@@ -42,6 +42,7 @@ const (
 	KindToolResult Kind = "tool_result"
 	// KindStderr is diagnostic output from the agent process.
 	KindStderr Kind = "stderr"
+	KindStdout Kind = "stdout"
 	// KindError reports a failure. It does not necessarily end the session.
 	KindError Kind = "error"
 	// KindTurnDone closes one turn. The session stays alive for the next one.
@@ -86,6 +87,8 @@ func eventFromAI(ev ai.Event) (Event, bool) {
 		k = KindToolResult
 	case ai.EventStderr:
 		k = KindStderr
+	case ai.EventStdout:
+		k = KindStdout
 	case ai.EventError:
 		k = KindError
 	default:

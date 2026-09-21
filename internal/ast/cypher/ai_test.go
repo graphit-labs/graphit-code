@@ -692,3 +692,24 @@ func TestGenerateExpandKeywordsFallback(t *testing.T) {
 		t.Errorf("expected keyword 'find payment', got %q", resp.Keywords[0])
 	}
 }
+
+func TestGenerationPromptTeachesBoundedCanonicalTraversal(t *testing.T) {
+	db := &mockGraphDB{canonical: true, queryFunc: func(context.Context, string, map[string]any) (*ast.QueryResult, error) {
+		return &ast.QueryResult{}, nil
+	}}
+	ai := &mockAIClient{completeFunc: func(ctx context.Context, system, user string) (string, error) {
+		for _, rule := range []string{"RETURN DISTINCT", "ONLY the other endpoint", "WHERE anchor.name", "default 25", "Never return both endpoints"} {
+			if !strings.Contains(system, rule) {
+				t.Errorf("missing canonical rule %q", rule)
+			}
+		}
+		if strings.Contains(system, "RETURN n, r, m") {
+			t.Error("unsupported graph projection taught")
+		}
+		return "<cypher>MATCH (anchor:Function)-[:CALLS]->(target:Function) WHERE anchor.name = 'handleRequest' RETURN DISTINCT target.name, target.path LIMIT 25</cypher>", nil
+	}}
+	response, err := NewGenerator(db, ai).Generate(context.Background(), QueryRequest{UserQuery: "callers of handleRequest"})
+	if err != nil || response.Cypher == "" {
+		t.Fatalf("%v %v", response, err)
+	}
+}

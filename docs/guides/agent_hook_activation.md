@@ -184,6 +184,8 @@ At meaningful progress, expect the coordinator to record a session checkpoint wi
 
 Delegate one task with the session ID and Task ID. The worker should read both and claim only its own task. Stopping the worker must not release or close the coordinator's session. Before reporting a delivered request, the coordinator must explicitly complete the session after linked tasks are terminal. Stopping a turn or closing the host conversation is not that completion: unfinished work remains open and recoverable. See [Task sessions](task-sessions.md) for the tool and CLI workflow.
 
+A delegated agent delivers its complete result with evidence and may finish its turn. It does not need to keep a turn running in a waiting loop. The coordinator should reuse the same delegate and its context through the host's follow-up or resume mechanism when supported; availability and resource lifetime depend on that host. For example, a host exposing `followup_task` may restart an idle delegate, whereas `send_message` may only deliver a message. Inspect the host tool contract instead of assuming these operations are interchangeable. Release host resources when no longer needed. None of these host operations completes or releases another agent's Graphit Task or coordination Session; acceptance and session closure remain the coordinator's responsibility.
+
 When the host cannot provide an identity matching MCP ownership, explicitly checkpoint and release before stopping. Automatic hooks cannot guess the right owner. OpenCode forwards native identity where its events provide it. Hook presence alone does not prove correlation with a proxy-generated fallback identity.
 
 ## End-to-end check

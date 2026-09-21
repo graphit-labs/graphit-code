@@ -1,0 +1,31 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { api } from '@/api/client';
+import { LiveAnswer } from './LiveAnswer';
+vi.mock('@/api/client',()=>({api:{get:vi.fn()}}));
+vi.mock('@/hooks/useTheme',()=>({useTheme:()=>({theme:'light'})}));
+afterEach(()=>{cleanup();vi.resetAllMocks();});
+it('renders Markdown and resolves nested wiki links within the selected session context',async()=>{
+ const user=userEvent.setup();
+ vi.mocked(api.get).mockResolvedValueOnce({title:'Rules',path:'rules',content:'**Source** [[next]]',context:'alpha'}).mockResolvedValueOnce({title:'Next',path:'next',content:'Resolved',context:'alpha'});
+ render(<LiveAnswer sessionId="session-A" content="**Answer** [[alpha:rules]]"/>);
+ expect(screen.getByText('Answer').tagName).toBe('STRONG');
+ await user.click(screen.getByRole('button',{name:/rules/i}));
+ expect(await screen.findByText('Source')).toBeTruthy();
+ await user.click(screen.getByRole('button',{name:'next'}));
+ await screen.findByText('Resolved');
+ expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('session-A/knowledge/page?page=next&context=alpha'),expect.objectContaining({signal:expect.any(AbortSignal)}));
+});
+it('aborts and hides an old source when switching investigations',async()=>{
+ let resolve!:(value:unknown)=>void;
+ vi.mocked(api.get).mockImplementation(()=>new Promise(r=>{resolve=r as typeof resolve;}));
+ const user=userEvent.setup(),view=render(<LiveAnswer sessionId="A" content="[[rules]]"/>);
+ await user.click(screen.getByRole('button',{name:'rules'}));
+ const signal=vi.mocked(api.get).mock.calls[0][1]?.signal;
+ view.rerender(<LiveAnswer sessionId="B" content="Different answer"/>);
+ expect(signal?.aborted).toBe(true);
+ resolve({title:'Old',path:'rules',content:'stale content',context:'alpha'});
+ await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+ expect(screen.queryByText('stale content')).toBeNull();
+});

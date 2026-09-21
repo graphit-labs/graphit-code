@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/agentstream"
 	"github.com/graphit-labs/graphit-code/internal/netutil"
 	"net/http"
 	"os"
@@ -320,6 +321,10 @@ func indexedModuleStats(wikiDir string) (pages int, hasLog bool) {
 }
 
 func (h *WikiHandler) handleAISearch(w http.ResponseWriter, r *http.Request) {
+	agentstream.Serve(w, r, h.handleAISearchJSON)
+}
+
+func (h *WikiHandler) handleAISearchJSON(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Dir        string `json:"dir"`
 		Query      string `json:"query"`
@@ -435,11 +440,15 @@ Wiki Content:
 		}
 	}
 
+	if strings.TrimSpace(aiResp.Answer) == "" && aiResp.Error == "" {
+		aiResp.Error = "The agent returned no answer. Review the execution output and try again."
+	}
+
 	pagesByPath := map[string]WikiPageMeta{}
 	for _, pg := range pages {
 		pagesByPath[pg.Path] = pg
 	}
-	var validated []AISearchResult
+	validated := []AISearchResult{}
 	for _, r := range aiResp.Results {
 		if _, exists := pagesByPath[r.Path]; exists {
 			if r.Title == "" {

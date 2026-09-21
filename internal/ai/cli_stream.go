@@ -81,6 +81,9 @@ func (c *cliClient) SupportsStructuredStream() bool {
 // looked at a single event. What varies is only how much detail the middle has.
 func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit EventFunc) (*StreamResult, error) {
 	if emit == nil {
+		emit = eventObserver(ctx)
+	}
+	if emit == nil {
 		emit = func(Event) {}
 	}
 	var emitMu sync.Mutex
@@ -163,6 +166,7 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 	}
 
 	cmd := exec.CommandContext(ctx, c.executablePath, args...)
+	configureStreamProcess(cmd)
 
 	cmd.Dir = req.WorkDir
 
@@ -192,6 +196,18 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting %q: %w", c.binaryName, err)
 	}
+	// Even a descendant that deliberately detaches must not keep our readers
+	// blocked after the caller cancels the request.
+	readDone := make(chan struct{})
+	defer close(readDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = stdout.Close()
+			_ = stderr.Close()
+		case <-readDone:
+		}
+	}()
 
 	result := &StreamResult{
 		SessionID:           effectiveSessionID,
@@ -304,6 +320,10 @@ func readStructured(
 		events, text, sid := spec.parse(line)
 		if events == nil && text == "" && sid == "" {
 			unparsed = append(unparsed, string(line))
+			// Do not expose unknown structured envelopes (they may carry native IDs).
+			if !json.Valid(line) {
+				send(Event{Kind: EventStdout, Text: string(line)})
+			}
 			continue
 		}
 		parsedAny = true

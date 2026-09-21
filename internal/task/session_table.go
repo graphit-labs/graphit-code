@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"sort"
 	"strings"
 
@@ -100,6 +101,14 @@ func sessionHistoryRow(key, id string, revision int64, value any, searchText str
 	return lancestore.Row{"key": key, "session_id": id, "revision": revision, "body_json": string(body), "search_text": searchText}
 }
 func (s *Service) projectSession(ctx context.Context, t *tables, v Session) error {
+	source := relations.Entity{Type: "session", ID: v.ID, Scope: "project", ScopeID: v.ProjectID}
+	refs := []relations.Ref{}
+	if v.References != nil {
+		refs = relations.Qualify(source, *v.References)
+	}
+	if err := relations.Replace(ctx, t.store, source, v.Revision, "record", refs, fmt.Sprint(v.Revision)); err != nil {
+		return err
+	}
 	e := v.LastEvent
 	if e.Key == "" {
 		return nil
@@ -127,7 +136,15 @@ func (s *Service) projectSession(ctx context.Context, t *tables, v Session) erro
 	}
 	return nil
 }
-func (s *Service) putSessionCAS(ctx context.Context, t *tables, before, after Session) error {
+func (s *Service) putSessionCAS(ctx context.Context, t *tables, before Session, after *Session) error {
+	if refs := relations.Inputs(ctx); refs != nil {
+		if err := relations.Validate(refs); err != nil {
+			return err
+		}
+		after.References = refs
+	} else {
+		after.References = before.References
+	}
 	// Repair the previous committed event before replacing its recovery anchor.
 	if before.ID != "" {
 		if err := s.projectSession(ctx, t, before); err != nil {
@@ -138,12 +155,12 @@ func (s *Service) putSessionCAS(ctx context.Context, t *tables, before, after Se
 	if before.ID != "" {
 		condition = fmt.Sprintf("target.revision = %d", before.Revision)
 	}
-	res, err := t.sessions.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: condition, InsertIfMissing: before.ID == ""}, []lancestore.Row{sessionRow(after)})
+	res, err := t.sessions.Merge(ctx, lancestore.MergeOptions{KeyColumn: "id", MatchCondition: condition, InsertIfMissing: before.ID == ""}, []lancestore.Row{sessionRow(*after)})
 	if err != nil {
 		return err
 	}
 	if !res.Changed() {
 		return fmt.Errorf("%w: session %s", ErrConcurrent, after.ID)
 	}
-	return s.projectSession(ctx, t, after)
+	return s.projectSession(ctx, t, *after)
 }

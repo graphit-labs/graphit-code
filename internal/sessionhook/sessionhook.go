@@ -206,32 +206,17 @@ func workerProtocol(role Role, context Context) string {
 // performer opening its own session, or closing work the coordinator still
 // owns — do not depend on which role is running.
 //
-// A delegate stays alive and idle after it answers, and ends only on the
-// coordinator's explicit signal. Ending supporting agents is the symmetric
-// half: a performer carries the same mandate everyone does, delegation
-// included, so it can open help of its own, and the coordinator cannot dismiss
-// what it never saw. Without both halves the chain leaks — every level waits
-// on a level above that does not know it exists.
-//
-// This is deliberately written for a host that runs agents separately, and the
-// no-subagent host is stated as an exception at the end.
-//
-// An earlier revision inverted that. The same document has two readers — a
-// subagent, and the main agent performing the role itself where the host has
-// no subagent — and the wording was weakened to suit the second, saying the
-// WORK continued rather than the agent. Tests even forbade "stay alive". That
-// made the contract true for both readers and binding on neither: a delegate
-// told only that the work is still its own has no rule against ending itself.
-// Shaping the normal case around the exception is what strands delegates, so
-// the exception is now a clause instead of a constraint.
+// Turn completion and resumption are host capabilities, separate from Graphit
+// ownership. Reporting must not require an active waiting loop or imply that
+// another agent's durable work is complete.
 func delegatedContracts(role Role) string {
 	lines := []string{
 		"Delegated work contract:",
 		"- The coordinator owns the session. It hands you the `session_id` and the task ids you need. Claim at most your own task, and never create, claim or close a coordination session.",
-		"- Returning an answer is not finishing. Once the requested work is done, report it and stop there: do not complete or cancel a task, do not close a session, and do not release anything you were not asked to release. Leave your findings recorded so the next instruction continues from them. The coordinator decides when this work ends.",
-		"- Stay alive and wait for the next instruction. Answering is not leaving: after you report, remain available and idle until the coordinator either sends you more work or tells you explicitly that you are done. Never end yourself, and never treat one answer as your dismissal. Answer each request in full rather than holding anything for a later turn, and anchor every finding to an id or `file:line`, so a follow-up starts from the evidence rather than from your recollection of it.",
-		"- End whatever you started, before you go. The coordinator dismisses you and cannot dismiss what it never saw, so any supporting agent you opened is yours: send it follow-ups while you need it, dismiss it explicitly once you do not, and never leave it waiting behind you. Fold what it found into your own answer rather than forwarding it, because the coordinator asked you, not it.",
-		"- Exception: where the host cannot run agents separately, whoever performs this role is the coordinator itself. Then there is nothing to wait for and nothing to dismiss — the contracts above bind only a performer that is actually a separate agent.",
+		"- Finishing a turn does not complete Graphit work. Once the requested work is done, report it: do not complete or cancel a task, do not close a session, and do not release anything you were not asked to release. Leave your findings recorded so the next instruction continues from them. The coordinator decides when this work ends.",
+		"- Deliver the complete answer with findings anchored to an id or `file:line`, then finish your turn. Do not run a waiting loop. The coordinator may resume the same delegate through the host's follow-up/resume mechanism when supported; availability and resource lifetime depend on that host. A follow-up continues from your recorded evidence.",
+		"- Manage supporting delegates through the host's available controls: reuse them for related questions and release their host resources when no longer needed. Fold their findings into your own answer. This never authorizes completing or releasing Graphit records owned by another agent.",
+		"- Exception: where the host cannot run agents separately, whoever performs this role is the coordinator itself. Apply the role scope and evidence requirements directly; separate-agent coordination instructions do not apply.",
 	}
 	if role.Name == "" {
 		return strings.Join(lines, "\n")

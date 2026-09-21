@@ -1,30 +1,33 @@
 package task
 
+import "github.com/graphit-labs/graphit-code/internal/relations"
+
 // Session is the durable user-intent and coordination boundary, independent of
 // a host conversation ID and of the claims held by its task workers.
 type Session struct {
-	ID                 string       `json:"id"`
-	ProjectID          string       `json:"project_id"`
-	IdempotencyKey     string       `json:"idempotency_key"`
-	Title              string       `json:"title"`
-	Description        string       `json:"description"`
-	Strategy           string       `json:"strategy"`
-	Status             Status       `json:"status"`
-	Owner              string       `json:"owner,omitempty"`
-	ClaimToken         string       `json:"claim_token,omitempty"`
-	ClaimEpoch         int64        `json:"claim_epoch"`
-	ClaimedAt          string       `json:"claimed_at,omitempty"`
-	LeaseExpiresAt     string       `json:"lease_expires_at,omitempty"`
-	HeartbeatAt        string       `json:"heartbeat_at,omitempty"`
-	CheckpointSequence int64        `json:"checkpoint_sequence"`
-	ProgressSummary    string       `json:"progress_summary,omitempty"`
-	NextStep           string       `json:"next_step,omitempty"`
-	CompletedBy        string       `json:"completed_by,omitempty"`
-	CompletedAt        string       `json:"completed_at,omitempty"`
-	CreatedAt          string       `json:"created_at"`
-	UpdatedAt          string       `json:"updated_at"`
-	Revision           int64        `json:"revision"`
-	LastEvent          SessionEvent `json:"-"`
+	References         *[]relations.Ref `json:"references,omitempty"`
+	ID                 string           `json:"id"`
+	ProjectID          string           `json:"project_id"`
+	IdempotencyKey     string           `json:"idempotency_key"`
+	Title              string           `json:"title"`
+	Description        string           `json:"description"`
+	Strategy           string           `json:"strategy"`
+	Status             Status           `json:"status"`
+	Owner              string           `json:"owner,omitempty"`
+	ClaimToken         string           `json:"claim_token,omitempty"`
+	ClaimEpoch         int64            `json:"claim_epoch"`
+	ClaimedAt          string           `json:"claimed_at,omitempty"`
+	LeaseExpiresAt     string           `json:"lease_expires_at,omitempty"`
+	HeartbeatAt        string           `json:"heartbeat_at,omitempty"`
+	CheckpointSequence int64            `json:"checkpoint_sequence"`
+	ProgressSummary    string           `json:"progress_summary,omitempty"`
+	NextStep           string           `json:"next_step,omitempty"`
+	CompletedBy        string           `json:"completed_by,omitempty"`
+	CompletedAt        string           `json:"completed_at,omitempty"`
+	CreatedAt          string           `json:"created_at"`
+	UpdatedAt          string           `json:"updated_at"`
+	Revision           int64            `json:"revision"`
+	LastEvent          SessionEvent     `json:"-"`
 }
 
 type SessionSpec struct {

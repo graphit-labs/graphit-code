@@ -26,7 +26,7 @@
 
 ## AI agents need more than a prompt
 
-Models are probabilistic. Engineering work cannot be.
+Models are probabilistic. Engineering needs explicit state, evidence and continuity.
 
 Coding agents usually enter a repository with four blind spots:
 
@@ -47,8 +47,13 @@ machines, and model providers:
 | **Hub** | A versioned registry for reusable agent capabilities and contexts | Share rules, skills, agents, commands, MCP servers, languages, ASTs, and knowledge across systems |
 | **Observatory** | One operational workspace over the same stores agents use | Explore code, docs, memory, live runs, daemon state, Dream, and ecosystem projects without a second data model |
 
-Graphit does not make a language model deterministic. It puts deterministic discovery, ownership,
-validation, persistence, and completion gates around whichever coding agent you choose.
+Graphit does not make a language model deterministic. It adds reproducible queries, explicit
+ownership, durable state and deterministic lifecycle gates around whichever coding agent you choose.
+
+Graphit's goal is software engineering, not optimizing token counts. Preserve the system knowledge
+you have already paid AI to acquire: record decisions, maintain source-backed documentation and carry
+verified work forward. Individuals, teams and enterprises can build progressively on that foundation
+instead of reconstructing it in every session.
 
 ## Built for teams, agents, and software ecosystems
 
@@ -316,6 +321,7 @@ Start with the document that matches your intent:
 - [Storage layout](docs/architecture/storage_layout.md) — what lives in a project and what lives globally.
 - [Task module](docs/specs/task_module.md) — shared lifecycle, ordered batches, durable claims, checks, hooks, and takeover guarantees.
 - [UI specification](docs/specs/ui_dashboard.md) — Observatory behavior and backend contract.
+- [Design system](docs/specs/design_system.md) — shared principles, tokens, interaction patterns and evolution rules for Code, Broker and the site.
 - [Documentation hub](docs/README.md) — the complete maintained documentation map.
 
 Task history lives in the authoritative LanceDB tables; changelogs and accepted decisions remain documentation evidence. The documentation hub separates historical records from current operational guidance.

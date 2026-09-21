@@ -11,6 +11,10 @@ export interface LiveArtifact {
 
   type?: string
   version?: string
+  source?: 'hub' | 'project'
+  project_id?: string
+  instance_id?: string
+  project_kind?: string
 }
 
 export interface LiveSession {
@@ -30,7 +34,7 @@ export interface LiveSession {
 
 export type LiveEventKind =
   | 'state' | 'prep' | 'prompt' | 'text' | 'thinking'
-  | 'tool_use' | 'tool_result' | 'stderr' | 'error' | 'turn_done'
+  | 'tool_use' | 'tool_result' | 'stdout' | 'stderr' | 'error' | 'turn_done'
 
 export interface LiveEvent {
 
@@ -46,7 +50,7 @@ export interface LiveEvent {
 
 const EVENT_KINDS: LiveEventKind[] = [
   'state', 'prep', 'prompt', 'text', 'thinking',
-  'tool_use', 'tool_result', 'stderr', 'error', 'turn_done',
+  'tool_use', 'tool_result', 'stdout', 'stderr', 'error', 'turn_done',
 ]
 
 export interface CreateLiveSessionRequest {

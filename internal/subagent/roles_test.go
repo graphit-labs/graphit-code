@@ -25,6 +25,16 @@ func TestInstallRolesWritesEveryRoleForEveryHost(t *testing.T) {
 					t.Fatalf("%s did not install role %s", agentName, role.Name)
 				}
 				content := readFile(t, path)
+				for _, want := range []string{"then finish your turn", "Do not run a waiting loop", "follow-up/resume mechanism when supported", "never create, claim or close a coordination session"} {
+					if !strings.Contains(content, want) {
+						t.Errorf("%s/%s lost lifecycle guidance %q", agentName, role.Name, want)
+					}
+				}
+				for _, forbidden := range []string{"Stay alive", "Never end yourself", "waits forever"} {
+					if strings.Contains(content, forbidden) {
+						t.Errorf("%s/%s requires a waiting turn: %q", agentName, role.Name, forbidden)
+					}
+				}
 				if !strings.Contains(content, "Delegated work contract:") {
 					t.Errorf("%s/%s lost the delegated contract: %s", agentName, role.Name, content)
 				}

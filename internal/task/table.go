@@ -457,6 +457,7 @@ func taskFromRow(r lancestore.Row) Task {
 	_ = json.Unmarshal([]byte(text(r, "depends_on_json")), &v.DependsOn)
 	_ = json.Unmarshal([]byte(text(r, "checks_json")), &v.Checks)
 	_ = json.Unmarshal([]byte(text(r, "last_event_json")), &v.LastEvent)
+	v.References = v.LastEvent.References
 	_ = json.Unmarshal([]byte(text(r, "last_comment_json")), &v.LastComment)
 	return v
 }

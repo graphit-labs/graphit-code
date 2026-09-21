@@ -1,215 +1,199 @@
-import { useState, useRef, useEffect } from 'react'
-import { astApi } from '@/api/ast'
-import { showToast } from '@/hooks/useToast'
-import { cn, agentFeaturesEnabled } from '@/lib/utils'
-import { Code2, Loader2, Send, ChevronUp, ChevronDown, Sparkles } from 'lucide-react'
-
-type Mode = 'cypher' | 'nl'
+import { AgentExecution, appendProgress } from "@/components/shared/AgentExecution";
+import type { AgentProgress } from "@/api/agentStream";
+import { useState, useRef, useEffect } from "react";
+import { astApi } from "@/api/ast";
+import { useAppStore } from "@/store/appStore";
+import { agentFeaturesEnabled } from "@/lib/utils";
+import { WorkTabs, WorkNotice } from "@/components/shared/EngineeringUI";
 
 interface QueryBarProps {
-  contextId?: string
-  projectDir?: string
-  onQueryResult: (result: unknown) => void
-  loading: boolean
-  setLoading: (v: boolean) => void
-  collapsed?: boolean
-  onCollapsedClick?: () => void
+  contextId?: string;
+  projectDir?: string;
+  onQueryResult: (result: unknown, executedQuery: string) => void;
+  onQueryStart?: () => () => boolean;
+  loading: boolean;
+  setLoading: (value: boolean) => void;
+  collapsed?: boolean;
+  onCollapsedClick?: () => void;
 }
-
-const EXAMPLE_QUERIES = [
-  'MATCH (n) RETURN n LIMIT 50',
-  'MATCH (n:Function) RETURN n LIMIT 30',
-  'MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 40',
-  'MATCH (n:File) RETURN n LIMIT 20',
-  "MATCH (n:Class {cluster: 'my-cluster'}) RETURN n.name, n.path",
-  "MATCH (n:Function {cluster: 'backend'}) RETURN n.name LIMIT 20",
-]
-
-export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoading, collapsed, onCollapsedClick: _onCollapsedClick }: QueryBarProps) {
-
-  const aiEnabled = agentFeaturesEnabled()
-  const [mode, setMode] = useState<Mode>('cypher')
-  const [query, setQuery] = useState('')
-  const [generating, setGenerating] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
+const EXAMPLES = [
+  "MATCH (n) RETURN n LIMIT 50",
+  "MATCH (n:Function) RETURN n LIMIT 30",
+  "MATCH (caller:Function)-[:CALLS]->(callee:Function) WHERE caller.name = 'handleRequest' RETURN DISTINCT callee.uid AS uid, callee.name AS name, callee.path AS path LIMIT 40",
+  "MATCH (n:File) RETURN n LIMIT 20",
+];
+export function QueryBar({
+  contextId,
+  projectDir,
+  onQueryResult,
+  onQueryStart,
+  loading,
+  setLoading,
+}: QueryBarProps) {
+  const activeAgent = useAppStore(state => state.activeAgent);
+  const [mode, setMode] = useState("cypher"),
+    [query, setQuery] = useState(""),
+    [prompt, setPrompt] = useState("");
+  const [generating, setGenerating] = useState(false),
+    [error, setError] = useState(""),
+    [generated, setGenerated] = useState(false);
+  const generation = useRef(0);
+  const abort = useRef<AbortController | null>(null);
+  const [progress, setProgress] = useState<AgentProgress[]>([]);
   useEffect(() => {
-    if (!collapsed) {
-      setTimeout(() => textareaRef.current?.focus(), 50)
-    }
-  }, [collapsed])
-
-  const handleExecute = async () => {
-    const q = query.trim()
-    if (!q) return
-    setLoading(true)
+    setGenerating(false); setLoading(false); setProgress([]); setError("");
+    return () => { generation.current++; abort.current?.abort(); };
+  }, [projectDir, contextId, activeAgent]);
+  const execute = async () => {
+    if (!query.trim()) return;
+    const id = ++generation.current;
+    const isCurrent = onQueryStart?.() ?? (() => true);
+    setLoading(true);
+    setError("");
     try {
-      const result = await astApi.getGraph({ context: contextId, cypher_query: q, project_dir: projectDir })
-      onQueryResult(result)
-    } catch (e: unknown) {
-      showToast(`Query failed: ${(e as Error).message}`, 'error')
+      const result = await astApi.getGraph({
+        context: contextId,
+        project_dir: projectDir,
+        cypher_query: query.trim(),
+      });
+      if (id === generation.current && isCurrent()) onQueryResult(result, query.trim());
+    } catch (e) {
+      if (id === generation.current) setError((e as Error).message);
     } finally {
-      setLoading(false)
+      if (id === generation.current && isCurrent()) setLoading(false);
     }
-  }
-
-  const handleGenerate = async () => {
-    const prompt = query.trim()
-    if (!prompt || mode !== 'nl' || !aiEnabled) return
-    setGenerating(true)
+  };
+  const generate = async () => {
+    if (!prompt.trim()) return;
+    const id = ++generation.current;
+    abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
+    setProgress([]);
+    setGenerating(true);
+    setError("");
     try {
-      const result = await astApi.generateCypher(prompt, contextId, projectDir)
-      if (result.cypher) {
-        setQuery(result.cypher)
-        setMode('cypher')
-        setLoading(true)
-        const graphResult = await astApi.getGraph({ context: contextId, cypher_query: result.cypher, project_dir: projectDir })
-        onQueryResult(graphResult)
-        setLoading(false)
-      }
-    } catch {
-      showToast('AI generation failed. Check AI config with: graphit config --global ai.provider <provider>', 'error')
+      const result = await astApi.generateCypher(
+        prompt.trim(),
+        contextId,
+        projectDir,
+        { signal: controller.signal, onProgress: event => { if (id === generation.current && !controller.signal.aborted) setProgress(items => appendProgress(items, event)); } },
+      );
+      if (id !== generation.current) return;
+      if (!result.cypher)
+        throw new Error(
+          "No query was generated. Refine the question and try again.",
+        );
+      setQuery(result.cypher);
+      setMode("cypher");
+      setGenerated(true);
+    } catch (e) {
+      if (id === generation.current) setError((e as Error).message);
     } finally {
-      setGenerating(false)
+      if (id === generation.current) setGenerating(false);
     }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      if (mode === 'nl') handleGenerate()
-      else handleExecute()
-    }
-  }
-
+  };
   return (
-    <div className="flex flex-col gap-3">
-      {}
-      <div className="flex items-center gap-1 bg-accent/40 border border-border/40 rounded-xl p-1 w-fit backdrop-blur-md">
-        <button
-          onClick={() => setMode('cypher')}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200',
-            mode === 'cypher'
-              ? 'bg-card text-foreground shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-border/40'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Code2 className="w-3.5 h-3.5" />
-          Cypher
-        </button>
-        {aiEnabled && (
-          <button
-            onClick={() => setMode('nl')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200',
-              mode === 'nl'
-                ? 'bg-card text-primary shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-border/40'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
-            AI Assistant
-          </button>
-        )}
-      </div>
-
-      {}
-      <div className="relative group">
+    <div className="work-form">
+      <AgentExecution events={progress} running={generating} onCancel={() => { abort.current?.abort(); generation.current++; setGenerating(false); setError("Generation stopped."); }} />
+      <WorkTabs
+        value={mode}
+        onChange={setMode}
+        items={
+          agentFeaturesEnabled()
+            ? [
+                ["cypher", "Write Cypher"],
+                ["nl", "Draft with AI"],
+              ]
+            : [["cypher", "Write Cypher"]]
+        }
+        label="Query authoring"
+      />
+      {generated && mode === "cypher" && (
+        <WorkNotice title="Draft ready for review">
+          Check the scope, relationship and limit before running. The query has
+          not been executed.
+        </WorkNotice>
+      )}
+      {error && (
+        <WorkNotice tone="error" title="Query could not complete">
+          {error}
+        </WorkNotice>
+      )}
+      <label className="work-field">
+        <span>
+          {mode === "nl" ? "What do you want to understand?" : "Cypher query"}
+        </span>
         <textarea
-          ref={textareaRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={
-            mode === 'cypher'
-              ? "MATCH (n:Function {cluster: 'my-cluster'}) RETURN n.name LIMIT 50"
-              : 'Describe what to explore... e.g. "Show all functions that query the database"'
+          rows={5}
+          value={mode === "nl" ? prompt : query}
+          onChange={(e) =>
+            mode === "nl" ? setPrompt(e.target.value) : setQuery(e.target.value)
           }
-          rows={mode === 'cypher' ? 2 : 3}
-          className={cn(
-            'w-full px-4 py-3 pr-24 rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm text-sm font-mono transition-all duration-200',
-            'outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/80 resize-y',
-            mode === 'nl' && 'font-sans',
-          )}
+          placeholder={
+            mode === "nl"
+              ? "Find callers of the authorization handler"
+              : "MATCH (n:Function) RETURN n LIMIT 30"
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              if (!loading && !generating)
+                void (mode === "nl" ? generate() : execute());
+            }
+          }}
         />
-        <div className="absolute right-3 bottom-3 flex items-center gap-2">
-          {mode === 'nl' && (
-            <button
-              onClick={handleGenerate}
-              disabled={generating || !query.trim()}
-              title="Generate with AI (Ctrl+Enter)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/95 disabled:opacity-40 transition-all shadow-sm"
-            >
-              {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              Generate
-            </button>
-          )}
-          <button
-            onClick={mode === 'nl' ? handleGenerate : handleExecute}
-            disabled={loading || generating || !query.trim()}
-            title={mode === 'cypher' ? 'Execute (Ctrl+Enter)' : 'Generate & Execute'}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm",
-              mode === 'cypher'
-                ? "bg-foreground text-background hover:bg-foreground/90"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
-            )}
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {mode === 'cypher' ? 'Run' : 'Ask'}
-          </button>
-        </div>
+      </label>
+      <div className="work-actions">
+        <button
+          className="work-button primary"
+          onClick={() => void (mode === "nl" ? generate() : execute())}
+          disabled={
+            loading || generating || !(mode === "nl" ? prompt : query).trim()
+          }
+        >
+          {generating
+            ? "Drafting…"
+            : loading
+              ? "Running…"
+              : mode === "nl"
+                ? "Generate draft"
+                : "Run query"}
+        </button>
+        <small className="text-muted-foreground">
+          ⌘ / Ctrl + Enter · read-only execution
+        </small>
       </div>
-
-      {}
-      {mode === 'cypher' && (
-        <div className="flex items-center gap-2 flex-wrap pt-1">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/60">Examples:</span>
-          {EXAMPLE_QUERIES.map((eq) => (
+      <details className="work-disclosure">
+        <summary>Query starters</summary>
+        <div className="work-form">
+          {EXAMPLES.map((q) => (
             <button
-              key={eq}
-              onClick={() => { setQuery(eq); setMode('cypher'); textareaRef.current?.focus() }}
-              className="text-[10px] px-2.5 py-1 rounded-lg border border-border/30 bg-muted/40 hover:bg-accent hover:border-primary/20 text-muted-foreground hover:text-foreground transition-all duration-150 font-mono"
+              className="text-left text-xs font-mono text-primary"
+              key={q}
+              onClick={() => {
+                setQuery(q);
+                setMode("cypher");
+                setGenerated(false);
+              }}
             >
-              {eq.length > 32 ? eq.slice(0, 30) + '…' : eq}
+              {q}
             </button>
           ))}
         </div>
-      )}
-      {mode === 'nl' && (
-        <p className="text-[11px] text-muted-foreground/80 flex items-center gap-1">
-          <span>Press</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-border/50 bg-muted text-[10px] font-mono font-semibold shadow-sm">Ctrl + Enter</kbd>
-          <span>to generate and execute your query automatically.</span>
-        </p>
-      )}
+      </details>
     </div>
-  )
+  );
 }
-
 export function QueryBarCollapsed({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-3 w-full px-5 py-3.5 text-xs text-muted-foreground hover:text-foreground bg-accent/25 hover:bg-accent/40 border border-border/30 rounded-xl transition-all duration-200 text-left shadow-sm group"
-      title="Click to expand query bar"
-    >
-      <Code2 className="w-4 h-4 shrink-0 text-muted-foreground/80 group-hover:scale-105 transition-transform" />
-      <span className="flex-1 font-medium">Click or search the codebase graph with Cypher or AI...</span>
-      <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground/60 group-hover:translate-y-0.5 transition-transform" />
+    <button className="work-button" onClick={onClick}>
+      Open query editor
     </button>
-  )
+  );
 }
-
 export function QueryBarCollapseButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="p-2 rounded-xl hover:bg-accent border border-transparent hover:border-border/30 text-muted-foreground hover:text-foreground shrink-0 transition-all duration-150"
-      title="Minimize query bar"
-    >
-      <ChevronUp className="w-3.5 h-3.5" />
+    <button className="work-button" onClick={onClick}>
+      Close query editor
     </button>
-  )
+  );
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"strings"
 	"time"
 )
@@ -18,7 +19,8 @@ type BatchInput struct {
 }
 
 type BatchOperation struct {
-	SessionID          string `json:"session_id,omitempty" jsonschema:"Create: durable session ID; inherited from parent or current coordinator when omitted"`
+	References         *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships; omitted preserves, [] clears."`
+	SessionID          string           `json:"session_id,omitempty" jsonschema:"Create: durable session ID; inherited from parent or current coordinator when omitted"`
 	requireSession     bool
 	Key                string   `json:"key,omitempty" jsonschema:"Optional caller correlation key"`
 	Action             string   `json:"action" jsonschema:"create, claim, force_takeover, progress, heartbeat, release, complete, cancel, remove, flag, unflag, check, check_supersede, revise, comment, dependency_add, or dependency_remove"`
@@ -111,6 +113,10 @@ func (s *Service) Batch(ctx context.Context, in BatchInput) (BatchResult, error)
 }
 
 func (s *Service) runBatchOperation(ctx context.Context, actor string, defaultLease time.Duration, operation BatchOperation) (any, error) {
+	if err := relations.Validate(operation.References); err != nil {
+		return nil, err
+	}
+	ctx = relations.WithInputs(ctx, operation.References)
 	action := strings.ToLower(strings.TrimSpace(operation.Action))
 	lease, err := batchLease(operation.Lease, defaultLease)
 	if err != nil {

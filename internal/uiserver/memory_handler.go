@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -259,17 +260,31 @@ func (h *MemoryHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Title     string   `json:"title"`
-		Body      string   `json:"body"`
-		Type      string   `json:"type"`
-		Tags      []string `json:"tags"`
-		Important bool     `json:"important"`
-		Mandatory bool     `json:"mandatory"`
+		References *[]relations.Ref `json:"references,omitempty"`
+		Title      string           `json:"title"`
+		Body       string           `json:"body"`
+		Type       string           `json:"type"`
+		Tags       []string         `json:"tags"`
+		Important  bool             `json:"important"`
+		Mandatory  bool             `json:"mandatory"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeMemoryError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	if err := relations.Validate(body.References); err != nil {
+		writeMemoryError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.References != nil {
+		// Reopen through the same authorized scope with the explicit write input.
+		r = r.WithContext(relations.WithInputs(r.Context(), body.References))
+		service, ok = h.service(w, r)
+		if !ok {
+			return
+		}
+	}
+
 	if strings.TrimSpace(body.Title) == "" || strings.TrimSpace(body.Body) == "" {
 		writeMemoryError(w, http.StatusBadRequest, "title and body are required")
 		return
@@ -309,21 +324,35 @@ func (h *MemoryHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Title     *string `json:"title"`
-		Body      *string `json:"body"`
-		Type      *string `json:"type"`
-		Important *bool   `json:"important"`
-		Mandatory *bool   `json:"mandatory"`
+		References *[]relations.Ref `json:"references,omitempty"`
+		Title      *string          `json:"title"`
+		Body       *string          `json:"body"`
+		Type       *string          `json:"type"`
+		Important  *bool            `json:"important"`
+		Mandatory  *bool            `json:"mandatory"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeMemoryError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	if err := relations.Validate(body.References); err != nil {
+		writeMemoryError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.References != nil {
+		// Reopen through the same authorized scope with the explicit write input.
+		r = r.WithContext(relations.WithInputs(r.Context(), body.References))
+		service, ok = h.service(w, r)
+		if !ok {
+			return
+		}
+	}
+
 	if body.Type != nil && !memory.ValidMemoryType(*body.Type) {
 		writeMemoryError(w, http.StatusBadRequest, "invalid memory type")
 		return
 	}
-	if body.Title != nil || body.Body != nil || body.Type != nil {
+	if body.Title != nil || body.Body != nil || body.Type != nil || body.References != nil {
 		title, content, memType := "", "", ""
 		if body.Title != nil {
 			title = *body.Title

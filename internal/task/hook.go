@@ -117,7 +117,7 @@ func (s *Service) HeartbeatOwned(ctx context.Context, actor string, lease time.D
 			next.UpdatedAt = stamp(now)
 			next.Revision++
 			next.LastEvent = newEvent(next, "heartbeat", actor, current.Status, next.Status, next.ProgressSummary, next.NextStep)
-			if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 				return err
 			}
 			return s.projectTask(ctx, t, next, actor)
@@ -151,7 +151,7 @@ func (s *Service) ReleaseOwned(ctx context.Context, actor string) error {
 			next.UpdatedAt = stamp(s.now().UTC())
 			next.Revision++
 			next.LastEvent = newEvent(next, "agent_stopped", actor, current.Status, next.Status, next.ProgressSummary, next.NextStep)
-			if err := s.putCAS(ctx, t, current.Revision, next); err != nil {
+			if err := s.putCAS(ctx, t, current.Revision, &next); err != nil {
 				return err
 			}
 			if err := s.projectTask(ctx, t, next, actor); err != nil {

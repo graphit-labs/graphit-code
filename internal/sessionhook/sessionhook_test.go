@@ -93,12 +93,12 @@ func TestDelegatedProtocolNeverInstructsSessionOwnership(t *testing.T) {
 	}
 
 	for label, payload := range payloads {
-		for _, forbidden := range []string{"graphit_task_session_create", "graphit_task_session_claim", "graphit_task_session_complete", "graphit_task_session_checkpoint"} {
+		for _, forbidden := range []string{"graphit_task_session_create", "graphit_task_session_claim", "graphit_task_session_complete", "graphit_task_session_checkpoint", "Stay alive", "Never end yourself", "waits forever"} {
 			if strings.Contains(payload, forbidden) {
 				t.Fatalf("%s must not instruct session ownership, found %q", label, forbidden)
 			}
 		}
-		for _, want := range []string{"never create, claim or close a coordination session", "Returning an answer is not finishing", "The coordinator decides when this work ends", "Stay alive and wait for the next instruction", "Never end yourself", "End whatever you started, before you go", "dismiss it explicitly once you do not"} {
+		for _, want := range []string{"never create, claim or close a coordination session", "Finishing a turn does not complete Graphit work", "The coordinator decides when this work ends", "then finish your turn", "Do not run a waiting loop", "follow-up/resume mechanism when supported", "release their host resources when no longer needed", "records owned by another agent"} {
 			if !strings.Contains(payload, want) {
 				t.Fatalf("%s missing delegated contract %q", label, want)
 			}
@@ -106,12 +106,7 @@ func TestDelegatedProtocolNeverInstructsSessionOwnership(t *testing.T) {
 	}
 }
 
-// The same document is read by a subagent and, where the host has none, by the
-// main agent. It is written for the first: a delegate that does not stay alive
-// waiting is a delegate that ends itself, so the live-process wording is now
-// required rather than forbidden. The second reader is served by an explicit
-// exception clause, not by weakening the rule — an earlier revision did the
-// latter and left the contract binding on neither reader.
+// The role also remains usable by a coordinator on a host without subagents.
 func TestRoleProtocolReadsForEitherPerformer(t *testing.T) {
 	t.Parallel()
 

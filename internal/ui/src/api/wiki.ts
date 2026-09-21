@@ -1,3 +1,4 @@
+import { postAgentStream, type StreamOptions } from "./agentStream";
 
 
 const API = () => window.__API_BASE__ ?? ''
@@ -24,25 +25,24 @@ export async function fetchModules(projectDir?: string): Promise<WikiModule[]> {
   if (projectDir) params.set('project_dir', projectDir)
   const qs = params.toString()
   const r = await fetch(`${API()}/api/wiki/modules${qs ? `?${qs}` : ''}`)
+  if (!r.ok) throw new Error(`Knowledge request failed (HTTP ${r.status})`)
   return r.json()
 }
 export async function fetchPages(dir: string): Promise<WikiPageMeta[]> {
   const r = await fetch(`${API()}/api/wiki/pages?dir=${encodeURIComponent(dir)}`)
+  if (!r.ok) throw new Error(`Knowledge request failed (HTTP ${r.status})`)
   return r.json()
 }
 export async function fetchPage(dir: string, path: string): Promise<WikiPageContent> {
   const r = await fetch(`${API()}/api/wiki/page?dir=${encodeURIComponent(dir)}&path=${encodeURIComponent(path)}`)
+  if (!r.ok) throw new Error(`Knowledge request failed (HTTP ${r.status})`)
   return r.json()
 }
 export async function searchWiki(dir: string, q: string): Promise<SearchResult[]> {
   const r = await fetch(`${API()}/api/wiki/search?dir=${encodeURIComponent(dir)}&q=${encodeURIComponent(q)}`)
+  if (!r.ok) throw new Error(`Knowledge request failed (HTTP ${r.status})`)
   return r.json()
 }
-export async function aiSearchWiki(dir: string, query: string, projectDir?: string): Promise<AISearchResponse> {
-  const r = await fetch(`${API()}/api/wiki/ai-search`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dir, query, project_dir: projectDir }),
-  })
-  return r.json()
+export async function aiSearchWiki(dir: string, query: string, projectDir?: string, options: StreamOptions = {}): Promise<AISearchResponse> {
+  return postAgentStream<AISearchResponse>('/api/wiki/ai-search', { dir, query, project_dir: projectDir }, options);
 }

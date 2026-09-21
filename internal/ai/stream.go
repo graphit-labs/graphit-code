@@ -25,6 +25,8 @@ const (
 	// EventStderr is diagnostic output. Surfaced rather than swallowed: for most
 	// CLIs it is where the reason for a failure appears.
 	EventStderr EventKind = "stderr"
+	// EventStdout is unstructured CLI output outside recognized answer events.
+	EventStdout EventKind = "stdout"
 	// EventError reports a failure. It does not necessarily end the stream.
 	EventError EventKind = "error"
 	// EventDone is the last event of a run, always emitted, success or failure.

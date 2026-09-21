@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/agentstream"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -241,13 +244,24 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	nodeTypes := []schemaNodeType{}
+	endpoints := []schemaRelationshipEndpoint{}
+	if provider, ok := db.(canonicalStatsProvider); ok {
+		if stats, canonical := provider.canonicalGraphStats(); canonical {
+			nodeTypes = stats.NodeTypes
+			endpoints = stats.RelationshipEndpoints
+		}
+	}
+
 	writeJSON(w, map[string]any{
-		"nodes":       nodeStats,
-		"edges":       edgeStats,
-		"langs":       schemaLangGroups(ctx, db),
-		"node_labels": nodeLabels,
-		"edge_types":  edgeTypes,
-		"backend":     db.BackendType(),
+		"nodes":                  nodeStats,
+		"edges":                  edgeStats,
+		"langs":                  schemaLangGroups(ctx, db),
+		"node_labels":            nodeLabels,
+		"edge_types":             edgeTypes,
+		"backend":                db.BackendType(),
+		"node_types":             nodeTypes,
+		"relationship_endpoints": endpoints,
 	})
 }
 
@@ -470,7 +484,11 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		result, err = querySample(ctx, db, defaultGraphQuery, graphNodeSampleQuery(false))
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if isUserQuery {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 
@@ -523,10 +541,80 @@ func resolveGraphQuery(cypherQuery, repoPath, defaultQuery string) (cypher strin
 	}
 }
 
-func validateReadOnlyQuery(cypher string) error {
-	upper := strings.ToUpper(strings.TrimSpace(cypher))
-	for _, kw := range []string{"CREATE", "DELETE", "SET ", "REMOVE", "MERGE", "DROP", "DETACH"} {
-		if strings.Contains(upper, kw) {
+// Ignore literals, escaped identifiers and comments before checking clause tokens.
+var cypherWriteToken = regexp.MustCompile(`(?i)^(CREATE|DELETE|SET|REMOVE|MERGE|DROP|DETACH|COPY|LOAD|INSTALL|ATTACH|IMPORT|EXPORT)$`)
+var cypherLexicalToken = regexp.MustCompile(`[\p{L}_][\p{L}\p{N}_]*|[^\s]`)
+
+func validateReadOnlyQuery(query string) error {
+	var code strings.Builder
+	for i := 0; i < len(query); {
+		c := query[i]
+		if c == '\'' || c == '"' || c == '`' {
+			quote := c
+			i++
+			for i < len(query) {
+				if query[i] == '\\' {
+					i += 2
+					continue
+				}
+				if query[i] == quote {
+					i++
+					if i < len(query) && query[i] == quote {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+			code.WriteString(" __quoted__ ")
+		} else if i+1 < len(query) && query[i:i+2] == "//" {
+			for i < len(query) && query[i] != '\n' {
+				i++
+			}
+			code.WriteByte(' ')
+		} else if i+1 < len(query) && query[i:i+2] == "/*" {
+			i += 2
+			for i+1 < len(query) && query[i:i+2] != "*/" {
+				i++
+			}
+			i += 2
+			code.WriteByte(' ')
+		} else {
+			code.WriteByte(c)
+			i++
+		}
+	}
+	tokens := cypherLexicalToken.FindAllString(code.String(), -1)
+	for i, token := range tokens {
+		if !cypherWriteToken.MatchString(token) {
+			continue
+		}
+		previous, next := "", ""
+		if i > 0 {
+			previous = strings.ToUpper(tokens[i-1])
+		}
+		if i+1 < len(tokens) {
+			next = tokens[i+1]
+		}
+		// These positions require an identifier/expression, not a write clause:
+		// labels, properties, parameters, bindings, map keys and projection aliases.
+		identifier := next == ":"
+		switch previous {
+		case ":", ".", "$", "(", "[", ",", "AS", "RETURN", "WITH", "DISTINCT", "WHERE", "BY", "AND", "OR", "XOR", "NOT", "IN", "WHEN", "THEN", "ELSE", "=", "<", ">", "+", "-", "/", "%":
+			identifier = true
+		case "*":
+			// A projection wildcard completes an expression; multiplication
+			// expects another operand. Do not let WITH * hide a write clause.
+			if i >= 2 {
+				switch strings.ToUpper(tokens[i-2]) {
+				case "WITH", "RETURN", "DISTINCT", ",":
+				default:
+					identifier = true
+				}
+			}
+		}
+		if !identifier {
 			return fmt.Errorf("write operations are not allowed from the visualizer")
 		}
 	}
@@ -538,6 +626,7 @@ func collectTabularRow(rec map[string]any, tabCols []string, tabRows [][]any, in
 		for k := range rec {
 			tabCols = append(tabCols, k)
 		}
+		sort.Strings(tabCols)
 	}
 	row := make([]any, len(tabCols))
 	for j, col := range tabCols {
@@ -548,9 +637,9 @@ func collectTabularRow(rec map[string]any, tabCols []string, tabRows [][]any, in
 
 func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]any, edges *[]map[string]any) {
 
-	for _, key := range []string{"n", "m", "a", "b", "src", "dst", "source", "target"} {
+	for key := range rec {
 		if node, ok := rec[key]; ok && node != nil {
-			if nm, ok := node.(map[string]any); ok {
+			if nm, ok := node.(map[string]any); ok && nm["SourceID"] == nil && nm["Properties"] != nil {
 				id := extractLadybugNodeID(nm)
 				if id == "" {
 					continue
@@ -579,7 +668,7 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 		}
 	}
 
-	for _, key := range []string{"rel", "r", "e", "edge"} {
+	for key := range rec {
 		if rel, ok := rec[key]; ok && rel != nil {
 			if rm, ok := rel.(map[string]any); ok {
 				relLabel := "RELATED"
@@ -650,15 +739,6 @@ func extractBuiltinQueryGraph(rec map[string]any, nodesMap map[string]map[string
 
 func writeGraphResponse(w http.ResponseWriter, nodesMap map[string]map[string]any, edges []map[string]any, tabCols []string, tabRows [][]any, isUserQuery bool) {
 
-	if isUserQuery && len(nodesMap) == 0 && len(tabRows) > 0 {
-		writeJSON(w, map[string]any{
-			"nodes": []any{}, "links": []any{},
-			"files": []any{}, "fileContents": map[string]string{},
-			"tabular": map[string]any{"columns": tabCols, "rows": tabRows},
-		})
-		return
-	}
-
 	nodes := make([]map[string]any, 0, len(nodesMap))
 	fileSet := map[string]bool{}
 	for _, n := range nodesMap {
@@ -681,10 +761,20 @@ func writeGraphResponse(w http.ResponseWriter, nodesMap map[string]map[string]an
 		files = []string{}
 	}
 
-	writeJSON(w, map[string]any{
+	response := map[string]any{
 		"nodes": nodes, "links": edges,
 		"files": files, "fileContents": map[string]string{},
-	})
+	}
+	if isUserQuery {
+		if tabCols == nil {
+			tabCols = []string{}
+		}
+		if tabRows == nil {
+			tabRows = [][]any{}
+		}
+		response["tabular"] = map[string]any{"columns": tabCols, "rows": tabRows}
+	}
+	writeJSON(w, response)
 }
 
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
@@ -844,6 +934,10 @@ func (s *Server) handleDeleteContext(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGenerateCypher(w http.ResponseWriter, r *http.Request) {
+	agentstream.Serve(w, r, s.handleGenerateCypherJSON)
+}
+
+func (s *Server) handleGenerateCypherJSON(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Query      string `json:"query"`
 		Context    string `json:"context"`

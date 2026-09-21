@@ -7,14 +7,15 @@ import (
 
 func TestKnowledgeInstructionContextBudgets(t *testing.T) {
 	t.Parallel()
+	// Allow the explicit-reference contract without removing prior invariants.
 	// Retrieval and per-unit invariants stay resident; conditional authoring detail
 	// is generated separately and loaded only at its documented decision boundary.
-	if size := len(KnowledgeRuleContent(nil, "docs")); size == 0 || size > 6200 {
+	if size := len(KnowledgeRuleContent(nil, "docs")); size == 0 || size > 8200 {
 		t.Errorf("Knowledge skill outside its context budget: %d bytes", size)
 	} else {
 		t.Logf("Knowledge entrypoint: %d bytes", size)
 	}
-	if size := len(MandateTrigger()); size == 0 || size > 1000 {
+	if size := len(MandateTrigger()); size == 0 || size > 1250 {
 		t.Errorf("Knowledge resident mandate outside its context budget: %d bytes", size)
 	} else {
 		t.Logf("Knowledge mandate: %d bytes", size)

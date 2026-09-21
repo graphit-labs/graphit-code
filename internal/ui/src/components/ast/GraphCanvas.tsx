@@ -293,7 +293,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
     const ForceGraph: any = mod.default ?? mod
     const fg = ForceGraph()(el)
 
-    const isDark = document.documentElement.classList.contains('dark')
+    const isDark = () => document.documentElement.classList.contains('dark')
 
     fg.width(el.clientWidth)
       .height(el.clientHeight)
@@ -354,7 +354,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
           const fontSize = isSelected ? 15.5 / globalScale : 12 / globalScale
           ctx.font = `${isSelected ? '600 ' : ''}${fontSize}px Inter,sans-serif`
           ctx.globalAlpha = dimmed ? 0.15 : 1
-          ctx.fillStyle = isDark ? '#e2e8f0' : '#1e293b'
+          ctx.fillStyle = isDark() ? '#e2e8f0' : '#1e293b'
           ctx.fillText(label, n.x + r + 2 / globalScale, n.y + 3 / globalScale)
           ctx.globalAlpha = 1
         }
@@ -370,12 +370,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
       })
       .linkColor((l: any) => {
         const selId = selectedIdRef.current
-        if (!selId) return isDark ? '#33415580' : '#cbd5e190'
+        if (!selId) return isDark() ? '#33415580' : '#cbd5e190'
         const neighbourhood = neighbourhoodRef.current
         const src = linkNodeId(l.source)
         const tgt = linkNodeId(l.target)
         const connected = neighbourhood?.has(src) && neighbourhood?.has(tgt)
-        return connected ? '#60a5fa' : (isDark ? '#0f172a40' : '#f1f5f960')
+        return connected ? '#60a5fa' : (isDark() ? '#0f172a40' : '#f1f5f960')
       })
       .linkCurvature(0.15)
       .linkWidth(linkWidthFn)

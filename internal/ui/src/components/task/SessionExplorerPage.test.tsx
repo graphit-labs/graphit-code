@@ -1,3 +1,6 @@
+import { WorkspaceRefreshProvider } from "@/components/layout/WorkspaceRefresh"
+import "@/test/contextControls"
+import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors"
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -70,6 +73,7 @@ function Location() {
 describe('Session Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useAppStore.setState({ loadProjects: vi.fn(async () => {}), projectsError: "" })
     useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(sessionApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondSummary], next_cursor: '' }
@@ -83,16 +87,17 @@ describe('Session Explorer', () => {
   it('loads a bounded catalogue, renders exact detail with checkpoints/revisions, and appends the next page', async () => {
     const user = userEvent.setup()
     render(
-      <MemoryRouter initialEntries={['/task/sessions']}>
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/sessions/:sessionId?" element={<><SessionExplorerPage /><Location /></>} />
         </Routes>
-      </MemoryRouter>,
+      </WorkspaceRefreshProvider></MemoryRouter>,
     )
 
-    expect(await screen.findByText('Description')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Request' })).toBeTruthy()
     expect(screen.getByText('archive export')).toBeTruthy()
-    expect(screen.getByText('Current strategy')).toBeTruthy()
+    expect(screen.getAllByRole('heading', { name: 'Strategy' })[0]).toBeTruthy()
     expect(screen.getByText('Producer', { selector: 'strong' })).toBeTruthy()
     expect(screen.getByText('Endpoint', { selector: 'strong' })).toBeTruthy()
     expect(screen.getByText('Retry identifier was late.')).toBeTruthy()
@@ -114,12 +119,13 @@ describe('Session Explorer', () => {
   it('navigates to a linked task and back to the tasks view via the mode toggle', async () => {
     const user = userEvent.setup()
     render(
-      <MemoryRouter initialEntries={['/task/sessions']}>
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/sessions/:sessionId?" element={<><SessionExplorerPage /><Location /></>} />
           <Route path="/task/explorer/:taskId" element={<Location />} />
         </Routes>
-      </MemoryRouter>,
+      </WorkspaceRefreshProvider></MemoryRouter>,
     )
 
     await screen.findByText('Linked worker task')
@@ -130,13 +136,14 @@ describe('Session Explorer', () => {
   it('filters by status and active-only, and searches sessions', async () => {
     const user = userEvent.setup()
     render(
-      <MemoryRouter initialEntries={['/task/sessions']}>
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes>
-      </MemoryRouter>,
+      </WorkspaceRefreshProvider></MemoryRouter>,
     )
 
     await screen.findByText('Archive export session')
-    const selector = screen.getByRole('button', { name: 'Filter session status' })
+    const selector = screen.getByRole('combobox', { name: 'Filter session status' })
     await user.click(selector)
     const options = screen.getByRole('listbox', { name: 'Session statuses' })
     await user.click(within(options).getByRole('option', { name: 'In progress' }))
@@ -151,26 +158,27 @@ describe('Session Explorer', () => {
   it('keeps the detail rendered when the selected session row is clicked again', async () => {
     const user = userEvent.setup()
     render(
-      <MemoryRouter initialEntries={['/task/sessions']}>
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <header><WorkspaceSelectors /></header>
         <Routes>
           <Route path="/task/sessions/:sessionId?" element={<><SessionExplorerPage /><Location /></>} />
         </Routes>
-      </MemoryRouter>,
+      </WorkspaceRefreshProvider></MemoryRouter>,
     )
 
-    expect(await screen.findByText('Description')).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Request' })).toBeTruthy()
     const sessionList = screen.getByLabelText('Session catalogue')
     const loaded = vi.mocked(sessionApi.get).mock.calls.length
 
     await user.click(within(sessionList).getByText('Archive export session'))
 
-    expect(screen.getByText('Description')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Request' })).toBeTruthy()
     expect(screen.queryByText('Select a session')).toBeNull()
     expect(vi.mocked(sessionApi.get).mock.calls.length).toBe(loaded)
     expect(screen.getByTestId('location').textContent).toBe('/task/sessions/ses-aaaa')
   })
 
-  it('switches the active project from the sessions header', async () => {
+  it('switches the active project from the shared header', async () => {
     const user = userEvent.setup()
     useAppStore.setState({
       projects: [
@@ -180,19 +188,35 @@ describe('Session Explorer', () => {
       projectsLoaded: true,
     })
     render(
-      <MemoryRouter initialEntries={['/task/sessions']}>
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <header><WorkspaceSelectors /></header>
         <Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes>
-      </MemoryRouter>,
+      </WorkspaceRefreshProvider></MemoryRouter>,
     )
 
     await screen.findByText('Archive export session')
-    await user.click(screen.getByRole('button', { name: 'Switch project' }))
-    const options = screen.getByRole('listbox', { name: 'Projects' })
-    await user.click(within(options).getByRole('option', { name: 'Other' }))
+    await user.click(screen.getByRole('combobox', { name: 'Project' }))
+    await user.click(screen.getByRole('option', { name: 'Other' }))
 
     expect(useAppStore.getState().activeProjectDir).toBe('/other')
     await waitFor(() => expect(sessionApi.list).toHaveBeenLastCalledWith({
       projectDir: '/other', query: undefined, status: 'all', active: false, pageSize: 20, cursor: undefined,
     }))
   })
+  it('combines the project catalogue, session list and open session in one header refresh', async () => {
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+      <WorkspaceSelectors /><Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes>
+    </WorkspaceRefreshProvider></MemoryRouter>)
+    await screen.findByText('Archive export session')
+    await waitFor(() => expect(sessionApi.get).toHaveBeenCalled())
+    const beforeList = vi.mocked(sessionApi.list).mock.calls.length
+    const beforeDetail = vi.mocked(sessionApi.get).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(vi.mocked(sessionApi.list).mock.calls.length).toBeGreaterThan(beforeList))
+    expect(vi.mocked(sessionApi.get).mock.calls.length).toBeGreaterThan(beforeDetail)
+    expect(useAppStore.getState().loadProjects).toHaveBeenCalledOnce()
+    expect(screen.getAllByRole('button', { name: 'Refresh' })).toHaveLength(1)
+  })
+
 })

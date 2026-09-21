@@ -36,6 +36,10 @@ The tools are organized by module. Every tool name follows the pattern `graphit_
 
 ---
 
+## Typed references between records
+
+When a write relies on a Task, Session, Memory or Knowledge record, send explicit `references` with each target's type and ID. Text mentions do not create database relationships. Omission preserves the current explicit list; `[]` clears it. Query outgoing links or backlinks with `graphit_references_query`; repair missing local projections with `graphit_references_reconcile`. See [Persisted record relationships](../specs/record_relations.md) for the payload, scope, pagination and recovery contract.
+
 ## Retrieval Tools Overview
 
 The platform provides multiple retrieval tools across three tiers. Use this matrix to choose the right tool:

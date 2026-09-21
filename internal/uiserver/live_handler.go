@@ -36,13 +36,30 @@ func NewLiveHandler(mgr *livesearch.Manager) *LiveHandler {
 func (h *LiveHandler) Manager() *livesearch.Manager { return h.mgr }
 
 func (h *LiveHandler) RegisterAPIRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/live/artifacts", corsJSON(h.handleArtifacts))
 	mux.HandleFunc("POST /api/live/sessions", corsJSON(h.handleCreate))
 	mux.HandleFunc("GET /api/live/sessions", corsJSON(h.handleList))
 	mux.HandleFunc("GET /api/live/sessions/{id}", corsJSON(h.handleGet))
 	mux.HandleFunc("DELETE /api/live/sessions/{id}", corsJSON(h.handleRemove))
 	mux.HandleFunc("POST /api/live/sessions/{id}/messages", corsJSON(h.handleSend))
 	mux.HandleFunc("POST /api/live/sessions/{id}/cancel", corsJSON(h.handleCancel))
+	mux.HandleFunc("GET /api/live/sessions/{id}/knowledge/page", corsJSON(h.handleKnowledgePage))
 	mux.HandleFunc("GET /api/live/sessions/{id}/stream", corsSSE(h.handleStream))
+}
+
+func (h *LiveHandler) handleArtifacts(w http.ResponseWriter, r *http.Request) {
+	items, err := prep.ProjectCatalog(r.URL.Query().Get("agent"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	selected := []prep.ProjectArtifact{}
+	for _, item := range items {
+		if item.BelongsTo(r.URL.Query().Get("project_dir")) {
+			selected = append(selected, item)
+		}
+	}
+	writeJSON(w, map[string]any{"entries": selected})
 }
 
 func corsSSE(h http.HandlerFunc) http.HandlerFunc {

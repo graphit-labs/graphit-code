@@ -73,9 +73,13 @@ const tailBuffer = 256
 // allowed: a knowledge wiki, a code graph, a rule, a skill, whatever the Hub
 // carries.
 type Artifact struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Version string `json:"version,omitempty"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Version     string `json:"version,omitempty"`
+	Source      string `json:"source,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
+	InstanceID  string `json:"instance_id,omitempty"`
+	ProjectKind string `json:"project_kind,omitempty"`
 }
 
 // Meta is the part of a session that survives a restart.
@@ -833,4 +837,21 @@ this search, indexed and reachable through your tools. The workspace lifecycle h
 has supplied the framework's resident instructions and its skills are available on demand.
 
 Ground your answer in what you find there. Say plainly when something is not covered
-by the material available to you, rather than filling the gap from general knowledge.`
+by the material available to you, rather than filling the gap from general knowledge.
+For documentation citations, use [[context-name:page-slug]] with the installed
+context name and a page slug verified through the wiki tools. Never invent a page
+or cite a source outside the contexts prepared for this investigation.`
+
+// WorkspaceForRead resolves only manager-owned sessions, including retained
+// history after restart. It never prepares or recreates an ephemeral workspace.
+func (m *Manager) WorkspaceForRead(id string) (string, error) {
+	if _, err := m.Meta(id); err != nil {
+		return "", err
+	}
+	path := filepath.Join(m.root, id, workspaceDirName)
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return "", ErrNotFound
+	}
+	return path, nil
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"log/slog"
 	"path/filepath"
 	"reflect"
@@ -346,6 +347,11 @@ func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string]
 	if w.Remote() {
 		return lancestore.ErrReadOnly
 	}
+	for _, c := range chunks {
+		if _, err := FrontmatterReferences(c.Body); err != nil {
+			return fmt.Errorf("page %s: %w", c.Slug, err)
+		}
+	}
 	t0 := time.Now()
 	if err := w.ensureTables(ctx); err != nil {
 		return err
@@ -354,6 +360,10 @@ func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string]
 	existing, err := w.Chunks(ctx)
 	if err != nil {
 		return fmt.Errorf("reading current wiki rows: %w", err)
+	}
+	previousReferences, _, err := w.ReferenceEdges(ctx)
+	if err != nil {
+		return err
 	}
 	existingBySlug := make(map[string]WikiChunk, len(existing))
 	for _, c := range existing {
@@ -370,6 +380,25 @@ func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string]
 			deleted = append(deleted, slug)
 		}
 	}
+	// Write the complete desired relation generations before their source heads.
+	// Snapshot matching hides them until the corresponding corpus rows commit.
+	for _, c := range chunks {
+		if _, err := chunkReferences(c, xrefs, previousReferences...); err != nil {
+			return err
+		}
+	}
+	revision := time.Now().UnixNano()
+	for _, c := range chunks {
+		source := relations.Entity{Type: "knowledge", ID: c.Slug}
+		refs, err := chunkReferences(c, xrefs, previousReferences...)
+		if err != nil {
+			return err
+		}
+		if err := relations.Replace(ctx, w.store, source, revision, "record", refs, relations.Fingerprint([]string{"explicit-v1", c.Body, c.ContentHash})); err != nil {
+			return err
+		}
+	}
+
 	if err := w.chunks.DeleteByKey(ctx, "slug", deleted); err != nil {
 		return fmt.Errorf("deleting %d wiki rows: %w", len(deleted), err)
 	}
@@ -428,6 +457,12 @@ func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string]
 	}
 	if err := w.writeXRefs(ctx, changedRefs); err != nil {
 		return err
+	}
+
+	for _, slug := range deleted {
+		if err := relations.Remove(ctx, w.store, "knowledge", slug); err != nil {
+			return err
+		}
 	}
 
 	if logEntry != nil {
@@ -851,14 +886,18 @@ func wikiSnippet(body, summary string) string {
 	}
 	const max = 240
 	b := strings.TrimSpace(body)
-	if len(b) <= max {
+	runes := []rune(b)
+	if len(runes) <= max {
 		return b
 	}
-	cut := strings.LastIndex(b[:max], " ")
-	if cut < max/2 {
-		cut = max
+	cut := max
+	for i := max - 1; i >= max/2; i-- {
+		if runes[i] == ' ' || runes[i] == '\n' {
+			cut = i
+			break
+		}
 	}
-	return b[:cut] + "…"
+	return string(runes[:cut]) + "…"
 }
 
 // Browse lists pages by filter, which is a predicate and a limit rather than a search.
@@ -1492,4 +1531,50 @@ func flt(v any) float64 {
 func boolOf(v any) bool {
 	b, _ := v.(bool)
 	return b
+}
+
+func (w *WikiDB) ReferenceEdges(ctx context.Context) ([]relations.Edge, bool, error) {
+	chunks, err := w.Chunks(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	heads := map[string]string{}
+	for _, c := range chunks {
+		heads[(relations.Entity{Type: "knowledge", ID: c.Slug}).Key()] = relations.Fingerprint([]string{"explicit-v1", c.Body, c.ContentHash})
+	}
+	return relations.ReadMatching(ctx, w.store, heads)
+}
+func (w *WikiDB) ReconcileReferences(ctx context.Context) error {
+	if w.Remote() {
+		return lancestore.ErrReadOnly
+	}
+	chunks, err := w.Chunks(ctx)
+	if err != nil {
+		return err
+	}
+	xrefs, err := w.AllXRefs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, c := range chunks {
+		if _, err := chunkReferences(c, xrefs); err != nil {
+			return err
+		}
+	}
+	previousReferences, _, err := w.ReferenceEdges(ctx)
+	if err != nil {
+		return err
+	}
+	revision := time.Now().UnixNano()
+	for _, c := range chunks {
+		source := relations.Entity{Type: "knowledge", ID: c.Slug}
+		refs, err := chunkReferences(c, xrefs, previousReferences...)
+		if err != nil {
+			return err
+		}
+		if err := relations.Replace(ctx, w.store, source, revision, "record", refs, relations.Fingerprint([]string{"explicit-v1", c.Body, c.ContentHash})); err != nil {
+			return err
+		}
+	}
+	return nil
 }

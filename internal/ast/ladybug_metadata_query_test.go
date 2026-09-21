@@ -17,13 +17,13 @@ func canonicalMetadataManifest() *ladybug.CanonicalManifest {
 	return &ladybug.CanonicalManifest{
 		Version: ladybug.CanonicalManifestVersion, Format: "icebug-canonical", Finished: true,
 		NodeTables: []ladybug.CanonicalNodeTable{
-			{Label: "Function", Rows: 7, LangCounts: []ladybug.CanonicalLangCount{{Lang: "go", Rows: 5}, {Lang: "tsx", Rows: 2}}},
-			{Label: "File", Rows: 3, LangCounts: []ladybug.CanonicalLangCount{{Lang: "go", Rows: 2}, {Lang: "tsx", Rows: 1}}},
+			{Label: "Function", PrimaryKey: "uid", Columns: []ladybug.Field{{Name: "uid"}, {Name: "name"}, {Name: "path"}}, Rows: 7, LangCounts: []ladybug.CanonicalLangCount{{Lang: "go", Rows: 5}, {Lang: "tsx", Rows: 2}}},
+			{Label: "File", Columns: []ladybug.Field{{Name: "path"}, {Name: "name"}}, Rows: 3, LangCounts: []ladybug.CanonicalLangCount{{Lang: "go", Rows: 2}, {Lang: "tsx", Rows: 1}}},
 			{Label: "Directory", Rows: 2, LangCounts: []ladybug.CanonicalLangCount{{Lang: "", Rows: 2}}},
 		},
 		EdgeCount: 12,
 		RelGroups: []ladybug.CanonicalRelGroup{
-			{Type: "CALLS", Members: []ladybug.CanonicalMember{{Rows: 8}}, ReverseMembers: []ladybug.CanonicalMember{{Rows: 8}}},
+			{Type: "CALLS", Members: []ladybug.CanonicalMember{{Rows: 8, From: "Function", To: "Function", Table: "physical_forward"}, {From: "Function", To: "Function"}}, ReverseMembers: []ladybug.CanonicalMember{{Rows: 8, From: "PRIVATE", To: "PRIVATE", Table: "physical_reverse"}}},
 			{Type: "CONTAINS", Members: []ladybug.CanonicalMember{{Rows: 4}}, ReverseMembers: []ladybug.CanonicalMember{{Rows: 4}}},
 		},
 	}
@@ -170,8 +170,11 @@ func TestSchemaUsesCanonicalStatsWithoutQuery(t *testing.T) {
 	if db.queries != 0 {
 		t.Fatalf("schema executed %d graph queries", db.queries)
 	}
-	if body := rec.Body.String(); !containsAll(body, `"label":"Function"`, `"type":"CALLS"`, `"lang":"go"`) {
+	if body := rec.Body.String(); !containsAll(body, `"label":"Function"`, `"type":"CALLS"`, `"lang":"go"`, `"identity_property":"uid"`, `"identity_property":"path"`, `"relationship_endpoints":[{"type":"CALLS","from":"Function","to":"Function"}]`) {
 		t.Fatalf("canonical schema stats missing: %s", body)
+	}
+	if strings.Contains(rec.Body.String(), "physical_") || strings.Contains(rec.Body.String(), "PRIVATE") {
+		t.Fatal("schema exposed physical storage metadata")
 	}
 }
 

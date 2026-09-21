@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"net/url"
 	"sort"
 	"strings"
@@ -254,16 +255,50 @@ func (t *MemoryTable) Count(ctx context.Context) (int64, error) {
 //
 // `Upsert` is one atomic merge, so a rewrite cannot expose a missing head between two commits.
 func (t *MemoryTable) Put(ctx context.Context, records ...MemoryRecord) error {
-	if len(records) == 0 {
-		return nil
+	if err := relations.Validate(relations.Inputs(ctx)); err != nil {
+		return err
 	}
 	rows := make([]lancestore.Row, 0, len(records))
 	for _, r := range records {
+		if r.RevisionID == "" && !r.Superseded {
+			source := relations.Entity{Type: "memory", ID: r.ID, Scope: r.Scope, ScopeID: r.ScopeID}
+			refs := []relations.Ref{}
+			old, exists, err := t.Get(ctx, r.ID)
+			if err != nil {
+				return err
+			}
+			if exists {
+				edges, _, err := relations.ReadMatching(ctx, t.store, map[string]string{source.Key(): relations.Fingerprint([]string{old.Title, old.Body, old.ContentHash})})
+				if err != nil {
+					return err
+				}
+				for _, edge := range edges {
+					refs = append(refs, relations.Ref{Target: edge.Target, Relation: edge.Relation, Field: edge.Field})
+				}
+			}
+			if input := relations.Inputs(ctx); input != nil {
+				refs = relations.Qualify(source, *input)
+			}
+			if relations.Inputs(ctx) != nil || len(refs) > 0 {
+				r.ContentHash = relations.Fingerprint(struct {
+					Title, Body string
+					References  []relations.Ref
+				}{r.Title, r.Body, refs})
+			}
+			// Persist the complete generation first; until the authoritative head commits,
+			// these rows are not current. A failed head write cannot expose its links.
+			if err := relations.Replace(ctx, t.store, source, int64(r.Revision), "record", refs, relations.Fingerprint([]string{r.Title, r.Body, r.ContentHash})); err != nil {
+				return err
+			}
+		}
 		row, err := memoryRow(r)
 		if err != nil {
 			return err
 		}
 		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return nil
 	}
 	if err := t.table.Upsert(ctx, "key", rows); err != nil {
 		return fmt.Errorf("writing %d memory record(s): %w", len(rows), err)
@@ -279,6 +314,13 @@ func (t *MemoryTable) Delete(ctx context.Context, keys ...string) error {
 	}
 	if err := t.table.DeleteByKey(ctx, "key", keys); err != nil {
 		return fmt.Errorf("deleting %d memory record(s): %w", len(keys), err)
+	}
+	for _, key := range keys {
+		if !strings.Contains(key, "/") {
+			if err := relations.Remove(ctx, t.store, "memory", strings.TrimSuffix(key, ".md")); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -603,4 +645,16 @@ func memVector(v any) []float32 {
 		return out
 	}
 	return nil
+}
+
+func (t *MemoryTable) ReferenceEdges(ctx context.Context) ([]relations.Edge, bool, error) {
+	rows, err := t.Live(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	heads := map[string]string{}
+	for _, r := range rows {
+		heads[(relations.Entity{Type: "memory", ID: r.ID, Scope: r.Scope, ScopeID: r.ScopeID}).Key()] = relations.Fingerprint([]string{r.Title, r.Body, r.ContentHash})
+	}
+	return relations.ReadMatching(ctx, t.store, heads)
 }

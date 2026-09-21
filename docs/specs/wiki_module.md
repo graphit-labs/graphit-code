@@ -326,3 +326,12 @@ sequenceDiagram
    The search engine reads the requested files from disk, appends them to the context, and invokes the AI client again.
 4. **Synthesis**:
    Once the AI client has sufficient context, it responds with a synthesized Markdown document including inline page citations.
+
+
+### Explicit relationships to engineering records
+
+Knowledge authors declare typed `references` in Markdown frontmatter. Indexing persists these references alongside wiki cross-links and validates all metadata before replacing corpus rows. Omitted metadata preserves the existing indexed authored list; `[]` clears it. Unchanged-content indexing also repairs a missing relation projection. See [Persisted record relationships](record_relations.md) for input, scope and recovery semantics.
+
+Knowledge indexing records source modification time using UTC RFC3339 with subsecond precision. Activity readers also accept older `YYYY-MM-DD` values and display them without inventing a time of day. Existing indexed documents receive precise timestamps through their next normal indexing update.
+
+Live investigations may link a registered project's existing Knowledge store into their ephemeral context registry. The link's `SourcePath` is the source **project directory**, whose lock supplies the stable project identity; it is not the index directory. Preparation requires an existing source identity and index and does not initialize or reindex the source. The Live source viewer reads only selected contexts and checks published mounts through Hub authorization; it never substitutes the currently selected dashboard project's wiki.

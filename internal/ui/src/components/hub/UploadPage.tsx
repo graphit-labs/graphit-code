@@ -1,234 +1,471 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { useAppStore } from '@/store/appStore'
-import { showToast } from '@/hooks/useToast'
-import { hubApi } from '@/api/hub'
-import { CloudUpload, Plus, Trash2, Wand2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { StyledSelect } from "@/components/shared/StyledSelect";
+import {
+  WorkPage,
+  WorkHeader,
+  WorkSection,
+  WorkNotice,
+  FactList,
+} from "@/components/shared/EngineeringUI";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useAppStore } from "@/store/appStore";
+import { showToast } from "@/hooks/useToast";
+import { hubApi } from "@/api/hub";
+import { CloudUpload, Plus, Trash2, Wand2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const TYPES = ['rule', 'skill', 'agent', 'command', 'knowledge', 'ast', 'mcp', 'power', 'language', 'framework']
+const TYPES = [
+  "rule",
+  "skill",
+  "agent",
+  "command",
+  "knowledge",
+  "ast",
+  "mcp",
+  "power",
+  "language",
+  "framework",
+];
 
-interface Dep { type: string; id: string; version: string }
+interface Dep {
+  type: string;
+  id: string;
+  version: string;
+}
 
 function uploadExtension(type: string) {
-  if (type === 'ast') return '.ast'
-  if (type === 'knowledge') return '.knowledge'
-  return '.zip'
+  if (type === "ast") return ".ast";
+  if (type === "knowledge") return ".knowledge";
+  return ".zip";
 }
 
 export default function UploadPage() {
-  const { webMode, activeAgent, activeProjectDir } = useAppStore()
+  const { activeProjectDir, activeAgent } = useAppStore();
+  return (
+    <PublicationWorkspace
+      key={JSON.stringify([activeProjectDir, activeAgent])}
+    />
+  );
+}
+function PublicationWorkspace() {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  const [file, setFile] = useState<File | null>(null)
-  const [artifactId, setArtifactId] = useState('')
-  const [name, setName] = useState('')
-  const [version, setVersion] = useState('1.0.0')
-  const [type, setType] = useState('')
-  const [description, setDescription] = useState('')
-  const [tags, setTags] = useState('')
-  const [author, setAuthor] = useState('')
-  const [deps, setDeps] = useState<Dep[]>([])
-  const [loading, setLoading] = useState(false)
-  const [dragging, setDragging] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const acceptedExtension = uploadExtension(type)
+  const { webMode, activeAgent, activeProjectDir } = useAppStore();
+
+  const [step, setStep] = useState(0);
+  const stepPanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const heading = stepPanel.current?.querySelector("h2");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: "start" });
+    }
+  }, [step]);
+  const [published, setPublished] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [artifactId, setArtifactId] = useState("");
+  const [name, setName] = useState("");
+  const [version, setVersion] = useState("1.0.0");
+  const [type, setType] = useState("");
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState("");
+  const [author, setAuthor] = useState("");
+  const [deps, setDeps] = useState<Dep[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const acceptedExtension = uploadExtension(type);
 
   useEffect(() => {
     if (!webMode) {
-      hubApi.getGitAuthor().then((d) => setAuthor(d.author)).catch(() => {})
+      hubApi
+        .getGitAuthor()
+        .then((d) => setAuthor(d.author))
+        .catch(() => {});
     }
-  }, [webMode])
+  }, [webMode]);
 
-  const handleFileDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f && f.name.toLowerCase().endsWith(acceptedExtension)) setFile(f)
-    else showToast(`Artifact type ${type || 'selected'} requires a ${acceptedExtension} file`, 'error')
-  }, [acceptedExtension, type])
+  const handleFileDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const f = e.dataTransfer.files[0];
+      if (f && f.name.toLowerCase().endsWith(acceptedExtension)) setFile(f);
+      else
+        showToast(
+          `Artifact type ${type || "selected"} requires a ${acceptedExtension} file`,
+          "error",
+        );
+    },
+    [acceptedExtension, type],
+  );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    if (!f) return
+    const f = e.target.files?.[0];
+    if (!f) return;
     if (!f.name.toLowerCase().endsWith(acceptedExtension)) {
-      showToast(`Artifact type ${type || 'selected'} requires a ${acceptedExtension} file`, 'error')
-      e.target.value = ''
-      return
+      showToast(
+        `Artifact type ${type || "selected"} requires a ${acceptedExtension} file`,
+        "error",
+      );
+      e.target.value = "";
+      return;
     }
-    setFile(f)
-  }
+    setFile(f);
+  };
 
-  const addDep = () => setDeps((d) => [...d, { type: '', id: '', version: 'latest' }])
-  const removeDep = (i: number) => setDeps((d) => d.filter((_, idx) => idx !== i))
+  const addDep = () =>
+    setDeps((d) => [...d, { type: "", id: "", version: "latest" }]);
+  const removeDep = (i: number) =>
+    setDeps((d) => d.filter((_, idx) => idx !== i));
   const updateDep = (i: number, field: keyof Dep, value: string) =>
-    setDeps((d) => d.map((dep, idx) => (idx === i ? { ...dep, [field]: value } : dep)))
+    setDeps((d) =>
+      d.map((dep, idx) => (idx === i ? { ...dep, [field]: value } : dep)),
+    );
 
   const handleSubmit = async () => {
-    const isPower = type === 'power'
-    if (!isPower && !file) { showToast(`Please select a ${acceptedExtension} file`, 'error'); return }
-    if (!artifactId || !type) { showToast('Artifact ID and type are required', 'error'); return }
-    setLoading(true)
+    const isPower = type === "power";
+    if (!isPower && !file) {
+      showToast(`Please select a ${acceptedExtension} file`, "error");
+      return;
+    }
+    if (!artifactId || !type) {
+      showToast("Artifact ID and type are required", "error");
+      return;
+    }
+    setLoading(true);
     try {
-      const formData = new FormData()
-      if (file) formData.append('file', file)
-      formData.append('id', artifactId)
-      formData.append('type', type)
-      formData.append('version', version)
-      formData.append('name', name)
-      formData.append('description', description)
-      formData.append('tags', tags)
-      formData.append('author', author)
-      formData.append('agent', activeAgent)
-      formData.append('dependencies', JSON.stringify(deps.filter((d) => d.id)))
-      if (activeProjectDir) formData.append('project_dir', activeProjectDir)
+      const formData = new FormData();
+      if (file) formData.append("file", file);
+      formData.append("id", artifactId);
+      formData.append("type", type);
+      formData.append("version", version);
+      formData.append("name", name);
+      formData.append("description", description);
+      formData.append("tags", tags);
+      formData.append("author", author);
+      formData.append("agent", activeAgent);
+      formData.append("dependencies", JSON.stringify(deps.filter((d) => d.id)));
+      if (activeProjectDir) formData.append("project_dir", activeProjectDir);
 
-      const result = await hubApi.upload(formData)
+      const result = await hubApi.upload(formData);
+      if (!mounted.current) return;
       if (result.success) {
-        showToast('Upload successful!', 'success')
-        setFile(null)
-        setArtifactId('')
-        setName('')
-        setDescription('')
-        setTags('')
-        setDeps([])
+        showToast("Upload successful!", "success");
+        setPublished(artifactId + "@" + version);
+        setStep(0);
+        setFile(null);
+        setArtifactId("");
+        setName("");
+        setDescription("");
+        setTags("");
+        setDeps([]);
       } else {
-        showToast(`Upload failed: ${result.error ?? 'unknown'}`, 'error')
+        showToast(`Upload failed: ${result.error ?? "unknown"}`, "error");
       }
-    } catch { showToast('Upload failed', 'error') }
-    finally { setLoading(false) }
-  }
+    } catch {
+      showToast("Upload failed", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const inputCls = 'w-full px-3.5 py-2.5 rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/80 transition-all duration-200'
-
+  const readyPackage = !!type && (type === "power" || !!file);
+  const readyMetadata = !!artifactId.trim() && !!version.trim();
   return (
-    <div className="w-full max-w-3xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-12 relative animate-in fade-in duration-300">
-
-      <div className="flex items-center gap-4 mb-8 pb-6 border-b border-border/40 relative z-10">
-        <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-          <CloudUpload className="w-6 h-6 text-primary" />
-        </div>
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Hub / publish</p>
-          <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Upload Artifact</h1>
-          <p className="text-[14px] text-muted-foreground mt-1 leading-relaxed">
-            Import an exported <strong className="text-foreground font-semibold">.ast</strong> or <strong className="text-foreground font-semibold">.knowledge</strong> package, or upload a <strong className="text-foreground font-semibold">.zip</strong> for other artifact types. Publication belongs to the current project.
-          </p>
-        </div>
-      </div>
-
-      <div className="glass-panel rounded-2xl p-6 md:p-8 space-y-6 relative z-10">
-        {type === 'power' && (
-          <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/20 animate-fade-in">
-            <Wand2 className="w-5 h-5 text-primary shrink-0 animate-pulse" />
-            <div>
-              <strong className="text-sm font-semibold text-foreground">Power — Virtual Artifact</strong>
-              <p className="text-xs text-muted-foreground mt-0.5">Dependency packages with no files. Fill metadata and dependencies below.</p>
-            </div>
-          </div>
+    <WorkPage>
+      <WorkHeader
+        title="Publish an artifact"
+        description="Package reusable engineering context, describe its contract and review the publication."
+      />
+      {published && (
+        <WorkNotice tone="success" title="Artifact published">
+          {published}
+        </WorkNotice>
+      )}
+      <ol className="publish-steps" aria-label="Publication steps">
+        {["Package", "Metadata & dependencies", "Review & publish"].map(
+          (label, i) => (
+            <li key={label} aria-current={step === i ? "step" : undefined}>
+              <button disabled={i > step} onClick={() => setStep(i)}>
+                <span>{i + 1}</span>
+                {label}
+              </button>
+            </li>
+          ),
         )}
-
-        {}
-        <div
-          className={cn(
-            'relative border border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-300',
-            dragging ? 'border-primary/60 bg-primary/5 scale-[1.01]' : 'border-border/60 hover:border-primary/40 hover:bg-accent/30',
-            type === 'power' && 'hidden',
+      </ol>
+      <div className="publish-layout">
+        <section className="work-panel" ref={stepPanel}>
+          {step === 0 && (
+            <WorkSection
+              title="Choose what you are sharing"
+              description="Artifact type determines the required package format."
+            >
+              <div className="work-form">
+                <label className="work-field">
+                  <span>Artifact type</span>
+                  <StyledSelect
+                    value={type}
+                    onChange={(e) => {
+                      setType(e.target.value);
+                      setFile(null);
+                      if (fileRef.current) fileRef.current.value = "";
+                    }}
+                  >
+                    <option value="">Select a type</option>
+                    {TYPES.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                  </StyledSelect>
+                </label>
+                {type === "power" ? (
+                  <WorkNotice title="A virtual package">
+                    Powers group dependencies and require no file.
+                  </WorkNotice>
+                ) : (
+                  <div
+                    className={"package-drop " + (dragging ? "dragging" : "")}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragging(true);
+                    }}
+                    onDragLeave={() => setDragging(false)}
+                    onDrop={handleFileDrop}
+                  >
+                    <label className="work-field">
+                      <span>Package file · {acceptedExtension}</span>
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept={acceptedExtension}
+                        onChange={handleFileSelect}
+                        disabled={!type}
+                      />
+                      <small>
+                        {file
+                          ? file.name +
+                            " · " +
+                            (file.size / 1024).toFixed(1) +
+                            " KB"
+                          : "Choose a file or drop it here."}
+                      </small>
+                    </label>
+                  </div>
+                )}
+                {["ast", "knowledge"].includes(type) && (
+                  <WorkNotice title="Use an exported package">
+                    <code>graphit {type} export --format package</code>
+                    <p>
+                      The server validates the package envelope and native
+                      store.
+                    </p>
+                  </WorkNotice>
+                )}
+                <div className="work-actions">
+                  <button
+                    className="work-button primary"
+                    disabled={!readyPackage}
+                    onClick={() => setStep(1)}
+                  >
+                    Describe artifact
+                  </button>
+                </div>
+              </div>
+            </WorkSection>
           )}
-          onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={handleFileDrop}
-          onClick={() => fileRef.current?.click()}
-        >
-          <div className="w-12 h-12 rounded-xl bg-accent/40 flex items-center justify-center mx-auto mb-4 border border-border/50 shadow-inner group-hover:scale-105 transition-transform">
-            <CloudUpload className="w-6 h-6 text-muted-foreground opacity-80" />
-          </div>
-          <p className="text-[14px] text-muted-foreground">
-            Drag & drop your <strong className="text-foreground font-semibold">{acceptedExtension}</strong> file here, or <span className="text-primary font-semibold hover:underline">browse files</span>
-          </p>
-          {file && (
-            <p className="mt-4 text-xs font-semibold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 shadow-sm">
-              Selected: {file.name}
-            </p>
+          {step === 1 && (
+            <WorkSection
+              title="Make the artifact understandable"
+              description="Use a stable identifier and describe when this context should be applied."
+            >
+              <div className="work-form">
+                <div className="work-two-columns">
+                  <label className="work-field">
+                    <span>Artifact ID</span>
+                    <input
+                      value={artifactId}
+                      onChange={(e) => setArtifactId(e.target.value)}
+                      placeholder="delivery-evidence"
+                    />
+                  </label>
+                  <label className="work-field">
+                    <span>Version</span>
+                    <input
+                      value={version}
+                      onChange={(e) => setVersion(e.target.value)}
+                      placeholder="1.0.0"
+                    />
+                  </label>
+                </div>
+                <label className="work-field">
+                  <span>Display name</span>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Delivery evidence"
+                  />
+                </label>
+                <label className="work-field">
+                  <span>Description</span>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Purpose, scope and expected use"
+                  />
+                </label>
+                <div className="work-two-columns">
+                  <label className="work-field">
+                    <span>Tags, comma-separated</span>
+                    <input
+                      value={tags}
+                      onChange={(e) => setTags(e.target.value)}
+                    />
+                  </label>
+                  <label className="work-field">
+                    <span>Author</span>
+                    <input
+                      value={author}
+                      disabled={webMode}
+                      onChange={(e) => setAuthor(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <WorkSection
+                  title="Dependencies"
+                  description="Declare the other artifacts this package needs."
+                  actions={
+                    <button className="work-button" onClick={addDep}>
+                      Add dependency
+                    </button>
+                  }
+                >
+                  {deps.map((d, i) => (
+                    <div className="dependency-row" key={i}>
+                      <label className="work-field">
+                        <span>Type</span>
+                        <StyledSelect
+                          value={d.type}
+                          onChange={(e) => updateDep(i, "type", e.target.value)}
+                        >
+                          <option value="">Select</option>
+                          {TYPES.map((t) => (
+                            <option key={t}>{t}</option>
+                          ))}
+                        </StyledSelect>
+                      </label>
+                      <label className="work-field">
+                        <span>Identifier</span>
+                        <input
+                          value={d.id}
+                          onChange={(e) => updateDep(i, "id", e.target.value)}
+                        />
+                      </label>
+                      <label className="work-field">
+                        <span>Version</span>
+                        <input
+                          value={d.version}
+                          onChange={(e) =>
+                            updateDep(i, "version", e.target.value)
+                          }
+                        />
+                      </label>
+                      <button
+                        className="work-button danger"
+                        onClick={() => removeDep(i)}
+                        aria-label={"Remove dependency " + (i + 1)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </WorkSection>
+                <div className="work-actions">
+                  <button className="work-button" onClick={() => setStep(0)}>
+                    Back
+                  </button>
+                  <button
+                    className="work-button primary"
+                    disabled={!readyMetadata}
+                    onClick={() => setStep(2)}
+                  >
+                    Review publication
+                  </button>
+                </div>
+              </div>
+            </WorkSection>
           )}
-          <input ref={fileRef} type="file" accept={acceptedExtension} onChange={handleFileSelect} className="hidden" />
-        </div>
-
-        {}
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Artifact ID</label>
-              <input value={artifactId} onChange={(e) => setArtifactId(e.target.value)} placeholder="my-custom-rule" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Type</label>
-              <select value={type} onChange={(e) => { setType(e.target.value); setFile(null) }} className={inputCls}>
-                <option value="">— Select type —</option>
-                {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Display Name</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Custom Rule" className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Version</label>
-              <input value={version} onChange={(e) => setVersion(e.target.value)} placeholder="1.0.0" className={inputCls} />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="A short description..." rows={2} className={cn(inputCls, 'resize-y')} />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Tags (comma-separated)</label>
-            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="typescript, best-practices" className={inputCls} />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Author</label>
-            <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="johndoe" className={inputCls} disabled={webMode} />
-          </div>
-        </div>
-
-        {}
-        <div className="pt-2">
-          <label className="block text-xs font-semibold text-muted-foreground mb-2.5">Dependencies</label>
-          <div className="space-y-2">
-            {deps.map((dep, i) => (
-              <div key={i} className="grid grid-cols-[110px_1fr_90px_32px] gap-2 items-center animate-fade-in">
-                <select value={dep.type} onChange={(e) => updateDep(i, 'type', e.target.value)} className={cn(inputCls, 'text-xs py-2')}>
-                  <option value="">type</option>
-                  {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <input value={dep.id} onChange={(e) => updateDep(i, 'id', e.target.value)} placeholder="artifact-id" className={cn(inputCls, 'text-xs py-2')} />
-                <input value={dep.version} onChange={(e) => updateDep(i, 'version', e.target.value)} placeholder="latest" className={cn(inputCls, 'text-xs py-2')} />
-                <button onClick={() => removeDep(i)} className="p-2 rounded-xl text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center shrink-0">
-                  <Trash2 className="w-4 h-4" />
+          {step === 2 && (
+            <WorkSection
+              title="Review the publication"
+              description="This action publishes under the active project's publisher identity."
+            >
+              <FactList
+                items={[
+                  ["Artifact", artifactId],
+                  ["Name", name],
+                  ["Type", type],
+                  ["Version", version],
+                  [
+                    "Package",
+                    type === "power" ? "Virtual package" : file?.name,
+                  ],
+                  ["Description", description],
+                  ["Tags", tags],
+                  ["Author", author],
+                  [
+                    "Dependencies",
+                    deps
+                      .filter((d) => d.id)
+                      .map((d) => d.type + "/" + d.id + "@" + d.version)
+                      .join(", "),
+                  ],
+                ]}
+              />
+              <div className="work-actions mt-6">
+                <button
+                  className="work-button"
+                  disabled={loading}
+                  onClick={() => setStep(1)}
+                >
+                  Edit metadata
+                </button>
+                <button
+                  className="work-button primary"
+                  disabled={loading || !readyPackage || !readyMetadata}
+                  onClick={() => void handleSubmit()}
+                >
+                  {loading ? "Publishing…" : "Upload & Publish"}
                 </button>
               </div>
-            ))}
-          </div>
-          <button onClick={addDep} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-xl border border-dashed border-border/80 hover:border-foreground/50 transition-colors mt-3">
-            <Plus className="w-3.5 h-3.5" /> Add Dependency
-          </button>
-        </div>
-
-        <div className="pt-4 flex justify-end">
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/95 disabled:opacity-50 transition-all hover:scale-[1.02] shadow-md btn-premium"
-          >
-            <CloudUpload className="w-4 h-4" />
-            {loading ? 'Uploading...' : 'Upload & Publish'}
-          </button>
-        </div>
+            </WorkSection>
+          )}
+        </section>
+        <aside>
+          <WorkSection title="Publication context">
+            <FactList
+              items={[
+                ["Project", activeProjectDir || "Current project"],
+                ["Agent", activeAgent],
+                [
+                  "Package format",
+                  type === "power" ? "Virtual" : acceptedExtension,
+                ],
+              ]}
+            />
+          </WorkSection>
+          <WorkNotice title="Reusable engineering context">
+            A useful artifact makes its purpose, dependencies and version
+            explicit.
+          </WorkNotice>
+        </aside>
       </div>
-    </div>
-  )
+    </WorkPage>
+  );
 }

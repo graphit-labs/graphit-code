@@ -31,6 +31,9 @@ export interface InstalledArtifact {
 }
 
 export interface RegistryResponse {
+	 next_cursor?: string
+  error?: string
+  available?: boolean
   entries: RegistryEntry[]
   installed: InstalledArtifact[]
   project_lock: Record<string, unknown>
@@ -88,10 +91,11 @@ export const hubApi = {
       project_dir: projectDir,
     }),
   
-  getRegistry: (projectDir?: string, agent?: string) => {
+  getRegistry: (projectDir?: string, agent?: string, cursor?: string) => {
     const params = new URLSearchParams()
     if (projectDir) params.set('project_dir', projectDir)
     if (agent) params.set('agent', agent)
+    if (cursor) params.set('cursor', cursor)
     const qs = params.toString()
     return api.get<RegistryResponse>(`/api/registry${qs ? `?${qs}` : ''}`)
   },

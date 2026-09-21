@@ -681,7 +681,7 @@ func copyFile(src, dst string) error {
 		srcData, serr := os.ReadFile(src)
 		dstData, derr := os.ReadFile(dst)
 		if serr == nil && derr == nil && string(srcData) == string(dstData) {
-			return nil
+			return os.Chmod(dst, srcInfo.Mode().Perm())
 		}
 	}
 	in, err := os.Open(src)
@@ -698,7 +698,10 @@ func copyFile(src, dst string) error {
 	}
 	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
-	return err
+	if err != nil {
+		return err
+	}
+	return out.Chmod(srcInfo.Mode().Perm())
 }
 
 func copyDirAll(src, dst string) error {

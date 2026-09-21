@@ -270,17 +270,15 @@ Graph Schema:
 %s%s%s
 
 Rules:
-1. ALWAYS use n-[:REL]-m patterns (never label-less MATCH) and return the full nodes and relationships (e.g., RETURN n, r, m) to support visualization.
-2. DO NOT include a LIMIT clause unless the user explicitly asks for it.
-3. Only reference node labels and properties that exist in the schema.
-4. LadybugDB strict typing: DO NOT access properties (like n.source or n.value) unless you explicitly MATCH the label that contains them (e.g., (n:Function)). If a property is not shared by ALL possible labels in a pattern, LadybugDB will crash!
-5. When searching by name, use: toLower(n.name) CONTAINS toLower('term')
-6. Never hallucinate node/property names — only use what is in the schema.
-7. ALWAYS write the entire query on a SINGLE LINE without any newline characters (\n). Use spaces before WHERE, RETURN, and LIMIT keywords.
-8. Do not make the query overly complex with OR conditions unless explicitly asked.
-9. Use ONLY the logical public relationship types listed in the schema. Never construct storage-specific relationship names or reverse-mirror types.
-10. ALWAYS wrap your final Cypher query inside <cypher>...</cypher> tags. Do not add any other text.`,
-		schema, dialectNote, groundingNote, repoNote)
+1. Generate a read-only MATCH query with a bounded LIMIT (default %d).
+2. A node lookup may return nodes or scalar properties: MATCH (n:Function) WHERE n.name CONTAINS 'term' RETURN n.name, n.path LIMIT 25.
+3. Relationship traversal MUST anchor one endpoint with a WHERE predicate and RETURN DISTINCT plain properties from ONLY the other endpoint. Example: MATCH (anchor:Function)-[:CALLS]->(target:Function) WHERE anchor.name = 'handleRequest' RETURN DISTINCT target.name, target.path LIMIT 25.
+4. Never return both endpoints, whole nodes or relationships from a traversal. Do not use collect(), label(), or computed traversal projections. Put filters for each endpoint in separate top-level AND clauses. Multi-hop ranges must have explicit bounds, such as *1..2.
+5. Only reference node labels, properties and logical public relationship types present in the schema. Never construct storage-specific or reverse-mirror types.
+6. Pin the label when using properties that are not shared by all node types. Use direct property comparisons; do not assume unsupported functions.
+7. Use an anchor named in the question. If the question lacks an anchor, produce a bounded node lookup to identify candidates instead of an unanchored relationship scan.
+8. Return the query on one line inside <cypher>...</cypher>, with no other text.`,
+		schema, dialectNote, groundingNote, repoNote, maxResults)
 
 	userPrompt := fmt.Sprintf(`User question: %s
 
