@@ -85,7 +85,9 @@ func TestStreamReadsPOSTBeforeFlushingHTTP1(t *testing.T) {
 			case <-r.Context().Done():
 				return
 			}
-			json.NewEncoder(w).Encode(payload)
+			if err := json.NewEncoder(w).Encode(payload); err != nil {
+				t.Errorf("encode response: %v", err)
+			}
 		})
 	}))
 	defer server.Close()

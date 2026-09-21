@@ -1,5 +1,5 @@
 import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { astApi, type Context } from "@/api/ast";
 import { showToast } from "@/hooks/useToast";
@@ -25,7 +25,7 @@ export default function ContextsPage() {
   const [error, setError] = useState("");
   const request = useRef(0);
   const scope = useRef(activeProjectDir);
-  scope.current = activeProjectDir;
+  useLayoutEffect(() => { scope.current = activeProjectDir; }, [activeProjectDir]);
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     id: string;
@@ -51,12 +51,18 @@ export default function ContextsPage() {
     }
   }, [activeProjectDir]);
 
-  useEffect(() => {
+  const [dataScope, setDataScope] = useState(activeProjectDir);
+  if (dataScope !== activeProjectDir) {
+    setDataScope(activeProjectDir);
     setContexts([]);
     setSelected("");
     setDeleteModal({ open: false, id: "", name: "" });
-    queueMicrotask(load);
+  }
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
     return () => {
+      active = false;
       request.current++;
     };
   }, [load]);

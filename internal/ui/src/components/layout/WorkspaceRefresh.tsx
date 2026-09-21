@@ -17,7 +17,7 @@ export function WorkspaceRefreshProvider({ children }: { children: React.ReactNo
   const { activeProjectDir, activeAgent, loadProjects } = useAppStore()
   const scope = JSON.stringify([pathname, activeProjectDir, activeAgent])
   const currentScope = useRef(scope)
-  currentScope.current = scope
+  useLayoutEffect(() => { currentScope.current = scope }, [scope])
   const entries = useRef(new Set<Registration>())
   const running = useRef(false)
   const [refreshing, setRefreshing] = useState(false)

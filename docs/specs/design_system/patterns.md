@@ -65,6 +65,12 @@ Project and Agent use themed Radix Select menus: Tab reaches each trigger; Enter
 
 Return promises from every callback and wait for all sources, including when another fails. The button remains busy until the combined work settles and ignores duplicate activation. A context change during catalogue loading prevents the old callbacks from running; domain loaders must still reject stale responses after they start. Surface-specific errors remain near their data and uncaught refresh failures appear near the header. No page toolbar or section adds another generic Refresh button.
 
+### Scoped asynchronous state
+
+Changing project, agent or document scope clears only the data owned by that scope. Keep query drafts, view preferences and an active Live investigation where their contracts require continuity. Reset a self-contained editor through its keyed lifecycle; for partial resets, conditionally adjust the component's own state when its scope identity changes. Never update parent state during render or write latest-value refs during render; synchronize those refs in a layout effect.
+
+Effects own subscriptions, requests and their cleanup. Cancel a deferred initial load if its effect is cleaned up before dispatch, invalidate previous request generations, and reject late responses. Abort requests where supported. Global refresh calls the same loaders without remounting the page. Test scope changes during a pending request, preserved drafts and unmount cleanup; lint compliance alone does not establish those behaviors.
+
 ### Actions
 
 | Kind | Use | Content and state |

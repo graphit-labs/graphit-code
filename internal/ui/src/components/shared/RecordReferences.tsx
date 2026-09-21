@@ -20,7 +20,14 @@ export function RecordReferences({ kind, id, scope = 'project', context = 'proje
       if (request === generation.current) { setData(response); setError(''); }
     } catch (e) { if (request === generation.current) setError((e as Error).message); }
   }, [project, kind, id, scope, context]);
-  useEffect(() => { setData(null); setError(''); void load(); return () => { generation.current++; }; }, [load]);
+  const dataScope = JSON.stringify([project, kind, id, scope, context]);
+  const [loadedScope, setLoadedScope] = useState(dataScope);
+  if (loadedScope !== dataScope) { setLoadedScope(dataScope); setData(null); setError(''); }
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    return () => { active = false; generation.current++; };
+  }, [load]);
   usePageRefresh(load);
   return <WorkSection title="Record links" description="Persisted relationships in the current project and your knowledge contexts.">
     {error ? <WorkNotice title="References unavailable" tone="error">{error}</WorkNotice> : !data ? <p role="status">Resolving references…</p> : <>

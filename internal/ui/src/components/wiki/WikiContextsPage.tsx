@@ -45,11 +45,14 @@ export default function WikiContextsPage({
       if (id === request.current) setLoading(false);
     }
   }, [activeProjectDir, moduleFilter]);
+  const scope = JSON.stringify([activeProjectDir, moduleFilter]);
+  const [dataScope, setDataScope] = useState(scope);
+  if (dataScope !== scope) { setDataScope(scope); setSelected(null); setModules([]); }
   useEffect(() => {
-    setSelected(null);
-    setModules([]);
-    void load();
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
     return () => {
+      active = false;
       request.current++;
     };
   }, [load]);

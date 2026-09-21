@@ -190,7 +190,7 @@ export function WorkTabs({
         tabIndex={value === id ? 0 : -1}
         onClick={() => onChange(id)}
         onKeyDown={(e) => {
-          let next = index;
+          let next: number;
           if (e.key === "ArrowRight") next = (index + 1) % items.length;
           else if (e.key === "ArrowLeft") next = (index + items.length - 1) % items.length;
           else if (e.key === "Home") next = 0;

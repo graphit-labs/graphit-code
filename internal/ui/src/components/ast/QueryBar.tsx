@@ -41,10 +41,18 @@ export function QueryBar({
   const abort = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState<AgentProgress[]>([]);
   const [outcome, setOutcome] = useState<ExecutionOutcome>("idle");
+  const scope = JSON.stringify([projectDir, contextId, activeAgent]);
+  const [executionScope, setExecutionScope] = useState(scope);
+  if (executionScope !== scope) {
+    setExecutionScope(scope);
+    setGenerating(false); setProgress([]); setOutcome("idle"); setError("");
+  }
   useEffect(() => {
-    setGenerating(false); setLoading(false); setProgress([]); setOutcome("idle"); setError("");
-    return () => { generation.current++; abort.current?.abort(); };
-  }, [projectDir, contextId, activeAgent]);
+    let active = true;
+    // The loading indicator belongs to the parent, outside this component's state.
+    queueMicrotask(() => { if (active) setLoading(false); });
+    return () => { active = false; generation.current++; abort.current?.abort(); };
+  }, [scope, setLoading]);
   const execute = async () => {
     if (!query.trim()) return;
     const id = ++generation.current;

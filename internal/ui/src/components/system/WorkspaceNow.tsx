@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '@/api/client';
 import { useAppStore } from '@/store/appStore';
@@ -15,7 +15,7 @@ function dateLabel(value: string) { return /^\d{4}-\d{2}-\d{2}$/.test(value) ? v
 export function WorkspaceNow() {
   const { activeProjectDir: project, activeAgent: agent } = useAppStore();
   const scope = JSON.stringify([project, agent]);
-  const scopeRef = useRef(scope); scopeRef.current = scope;
+  const scopeRef = useRef(scope); useLayoutEffect(() => { scopeRef.current = scope; }, [scope]);
   const request = useRef<{ scope: string; controller: AbortController; promise: Promise<void> } | null>(null);
   const [snapshot, setSnapshot] = useState<{ scope: string; data: NowSnapshot } | null>(null);
   const [error, setError] = useState('');
@@ -39,10 +39,13 @@ export function WorkspaceNow() {
     request.current = { scope, controller, promise };
     return promise;
   }, [scope, project]);
+  const [loadedScope, setLoadedScope] = useState(scope);
+  if (loadedScope !== scope) { setLoadedScope(scope); setError(''); setRefreshing(false); }
   useEffect(() => {
-    setError(''); void load();
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
     const timer = setInterval(() => void load(), 5000);
-    return () => { clearInterval(timer); request.current?.controller.abort(); request.current = null; };
+    return () => { active = false; clearInterval(timer); request.current?.controller.abort(); request.current = null; };
   }, [load]);
   usePageRefresh(load);
   const data = snapshot?.scope === scope ? snapshot.data : null;

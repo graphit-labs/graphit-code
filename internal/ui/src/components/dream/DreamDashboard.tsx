@@ -10,7 +10,7 @@ import {
   FactList,
 } from "@/components/shared/EngineeringUI";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { dreamApi, type DreamReport, type DreamStatus } from "@/api/dream";
 import { useAppStore } from "@/store/appStore";
 import {
@@ -41,16 +41,21 @@ export default function DreamDashboard() {
 
   const [query, setQuery] = useState("");
   const scopeRef = useRef(activeProjectDir);
-  scopeRef.current = activeProjectDir;
+  useLayoutEffect(() => { scopeRef.current = activeProjectDir; }, [activeProjectDir]);
   const reportRequest = useRef(0);
-  useEffect(() => {
-    reportRequest.current++;
+  const [dataScope, setDataScope] = useState(activeProjectDir);
+  if (dataScope !== activeProjectDir) {
+    setDataScope(activeProjectDir);
     setStatus(null);
     setReports([]);
     setSelectedReport(null);
     setReportContent("");
     setLoadingReport(false);
-    if (!activeProjectDir) setLoading(false);
+    setLoading(!!activeProjectDir);
+  }
+  useEffect(() => {
+    reportRequest.current++;
+    return () => { reportRequest.current++; };
   }, [activeProjectDir]);
 
   const fetchData = useCallback(

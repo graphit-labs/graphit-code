@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
@@ -47,7 +46,6 @@ func Schema() lancestore.Schema {
 	fields = append(fields, lancestore.Field{Name: "source_revision", Type: lancestore.FieldInt64}, lancestore.Field{Name: "marker", Type: lancestore.FieldBool})
 	return lancestore.Schema{Fields: fields}
 }
-func quote(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 func row(source Entity, ref Ref, revision int64, origin string, marker bool, snapshot string) lancestore.Row {
 	identity := snapshot + source.Key() + ":" + strconv.FormatInt(revision, 10) + ":" + origin + ":" + ref.Target.Key() + ":" + ref.Relation + ":" + ref.Field
 	hash := sha256.Sum256([]byte(identity))

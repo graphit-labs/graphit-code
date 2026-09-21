@@ -1,4 +1,4 @@
-import { useEffect, useState, useId } from "react";
+import { useState, useId } from "react";
 import { ModalPortal } from "@/components/shared/ModalPortal";
 interface AliasModalProps {
   open: boolean;
@@ -7,8 +7,10 @@ interface AliasModalProps {
   onConfirm: (alias: string | null) => void;
   onCancel: () => void;
 }
-export function AliasModal({
-  open,
+export function AliasModal(props: AliasModalProps) {
+  return props.open ? <AliasEditor key={props.artifactId} {...props} /> : null;
+}
+function AliasEditor({
   artifactId,
   requireAlias,
   onConfirm,
@@ -16,10 +18,6 @@ export function AliasModal({
 }: AliasModalProps) {
   const [alias, setAlias] = useState("");
   const id = useId();
-  useEffect(() => {
-    if (open) setAlias("");
-  }, [open, artifactId]);
-  if (!open) return null;
   return (
     <ModalPortal onClose={onCancel}>
       <div className="work-modal-backdrop">

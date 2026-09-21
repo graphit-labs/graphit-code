@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 /** Keep modal controls above the workspace chrome and background controls inert. */
@@ -6,7 +6,7 @@ export function ModalPortal({ children, onClose }: { children: ReactNode; onClos
   const container = useRef<HTMLDivElement>(null)
   const previousFocus = useRef(document.activeElement as HTMLElement | null)
   const closeRef = useRef(onClose)
-  closeRef.current = onClose
+  useLayoutEffect(() => { closeRef.current = onClose }, [onClose])
   useEffect(() => {
     const root = document.getElementById('root')
     const wasInert = root?.inert ?? false

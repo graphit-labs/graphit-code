@@ -15,7 +15,7 @@ import { LiveAnswer } from "./LiveAnswer";
 import { LiveEvidence } from "./LiveEvidence";
 import { ExecutionActivity } from "@/components/shared/ExecutionActivity";
 import { AgentExecution, executionEventLabel } from "@/components/shared/AgentExecution";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Bot,
@@ -151,7 +151,7 @@ export default function LiveSearchPage() {
 
   const registryRequest = useRef(0);
   const activeScope = `${activeProjectDir}\0${activeAgent}`;
-  const activeScopeRef = useRef(activeScope); activeScopeRef.current = activeScope;
+  const activeScopeRef = useRef(activeScope); useLayoutEffect(() => { activeScopeRef.current = activeScope; }, [activeScope]);
   const loadArtifacts = useCallback(async () => {
     const request = ++registryRequest.current;
     if (!activeAgent) return;
@@ -167,12 +167,16 @@ export default function LiveSearchPage() {
       if (request === registryRequest.current) setCatalogErrors([(error as Error).message]);
     } finally { if (request === registryRequest.current) setCatalogLoading(false); }
   }, [activeProjectDir, activeAgent]);
-  useEffect(()=>{setChosen([]);setEntries([]);setCatalogErrors([]);},[activeProjectDir,activeAgent]);
+  const [catalogScope, setCatalogScope] = useState(activeScope);
+  if (catalogScope !== activeScope) {
+    setCatalogScope(activeScope); setChosen([]); setEntries([]); setCatalogErrors([]);
+  }
   useEffect(() => {
-    void loadArtifacts();
+    let active = true;
+    queueMicrotask(() => { if (active) void loadArtifacts(); });
     if (!projectsLoaded) void loadProjects();
     void refreshSessions();
-    return () => { registryRequest.current++; };
+    return () => { active = false; registryRequest.current++; };
   }, [loadArtifacts, projectsLoaded, loadProjects, refreshSessions]);
   usePageRefresh(() => refreshAll([loadArtifacts(), refreshSessions()]));
 

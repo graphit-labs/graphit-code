@@ -1,6 +1,6 @@
 import { StyledSelect } from "@/components/shared/StyledSelect";
 import { usePageRefresh, refreshAll } from "@/components/layout/WorkspaceRefresh";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   astApi,
@@ -100,15 +100,10 @@ export default function ExplorerPage() {
   const lastGraphQuery = useRef<{ cypher_query?: string } | null>(null);
   const scope = useRef("");
   const currentScope = (projectDir || "") + "|" + (context || "");
-  scope.current = currentScope;
-  useEffect(() => {
-    searchRequest.current++;
-    sourceRequest.current++;
-    relationRequest.current++;
-    graphRequest.current++;
-    lastSearch.current = "";
-    lastGraphQuery.current = null;
-    initialSample.current = "";
+  useLayoutEffect(() => { scope.current = currentScope; }, [currentScope]);
+  const [dataScope, setDataScope] = useState(currentScope);
+  if (dataScope !== currentScope) {
+    setDataScope(currentScope);
     setResults([]);
     setSearched(false);
     setSelected(null);
@@ -132,6 +127,15 @@ export default function ExplorerPage() {
       langs: [],
       backend: "",
     });
+  }
+  useEffect(() => {
+    searchRequest.current++;
+    sourceRequest.current++;
+    relationRequest.current++;
+    graphRequest.current++;
+    lastSearch.current = "";
+    lastGraphQuery.current = null;
+    initialSample.current = "";
     let active = true;
     astApi
       .getSchema(context, projectDir)

@@ -58,7 +58,9 @@ func TestVisualizerPreservesAliasesAndMixedTable(t *testing.T) {
 	w = httptest.NewRecorder()
 	writeGraphResponse(w, nil, nil, nil, nil, true)
 	var empty map[string]any
-	json.Unmarshal(w.Body.Bytes(), &empty)
+	if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil {
+		t.Fatal(err)
+	}
 	table, ok := empty["tabular"].(map[string]any)
 	if !ok || table["rows"] == nil || table["columns"] == nil {
 		t.Fatal(w.Body.String())

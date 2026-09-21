@@ -40,7 +40,7 @@ func openLiveKnowledge(ctx context.Context, workdir, name string) (*wiki.WikiDB,
 		return nil, err
 	}
 	if !st.Configured() {
-		return nil, fmt.Errorf("Hub storage is not configured")
+		return nil, fmt.Errorf("hub storage is not configured")
 	}
 	mount, ok, err := st.MountedWikiAt(ctx, rec.ArtifactID, rec.Version, rec.ProjectID)
 	if err != nil {

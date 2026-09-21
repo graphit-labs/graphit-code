@@ -6,7 +6,7 @@ import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
 import { ModalPortal } from "@/components/shared/ModalPortal";
 import React, {
   useState,
-  useEffect,
+  useEffect, useLayoutEffect,
   useCallback,
   useMemo,
   useRef,
@@ -252,7 +252,7 @@ export default function WikiExplorerPage({
   const searchAbort = useRef<AbortController | null>(null);
   const [answer, setAnswer] = useState<AISearchResponse | null>(null),
     [error, setError] = useState("");
-  const [loading, setLoading] = useState(false),
+  const [loading, setLoading] = useState(true),
     [searching, setSearching] = useState(false),
     [loadingPage, setLoadingPage] = useState(false);
   const [raw, setRaw] = useState(false),
@@ -275,7 +275,7 @@ export default function WikiExplorerPage({
     moduleRequest = useRef(0);
   const cache = useRef<Record<string, WikiPageMeta[]>>({});
   const historyRef = useRef(historyIndex);
-  historyRef.current = historyIndex;
+  useLayoutEffect(() => { historyRef.current = historyIndex; }, [historyIndex]);
   const pendingExternal = useRef(
     location.state as {
       aiResponse?: AISearchResponse;
@@ -286,9 +286,9 @@ export default function WikiExplorerPage({
     ? "/knowledge/explorer"
     : "/wiki/explorer";
   const modulesRef = useRef(modules);
-  modulesRef.current = modules;
+  useLayoutEffect(() => { modulesRef.current = modules; }, [modules]);
   const selectedRef = useRef(module);
-  selectedRef.current = module;
+  useLayoutEffect(() => { selectedRef.current = module; }, [module]);
   useEffect(() => {
     const handler = (e: Event) => setLightboxSrc((e as CustomEvent).detail);
     document.addEventListener("wiki-lightbox", handler);
@@ -330,13 +330,11 @@ export default function WikiExplorerPage({
       if (id === moduleRequest.current) setLoading(false);
     }
   }, []);
-  useEffect(() => {
-    const id = ++generation.current;
-    moduleRequest.current++;
-    pageRequest.current++;
-    searchRequest.current++;
-    searchAbort.current?.abort(); setProgress([]); setOutcome("idle"); setSearching(false);
-    cache.current = {};
+  const scope = JSON.stringify([activeProjectDir, activeAgent, moduleId, autoSelectProject]);
+  const [dataScope, setDataScope] = useState(scope);
+  if (dataScope !== scope) {
+    setDataScope(scope);
+    setProgress([]); setOutcome("idle"); setSearching(false);
     setModules([]);
     setModule(null);
     setPages([]);
@@ -348,6 +346,14 @@ export default function WikiExplorerPage({
     setView("library");
     setLoading(true);
     setError("");
+  }
+  useEffect(() => {
+    const id = ++generation.current;
+    moduleRequest.current++;
+    pageRequest.current++;
+    searchRequest.current++;
+    searchAbort.current?.abort();
+    cache.current = {};
     fetchModules(activeProjectDir || undefined)
       .then(async (ms) => {
         if (id !== generation.current) return;
