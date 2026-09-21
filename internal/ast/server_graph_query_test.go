@@ -2,7 +2,9 @@ package ast
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,7 +154,95 @@ func TestGraphSamplesRunOnAGraphWithoutEntities(t *testing.T) {
 		t.Fatal("no rows: a graph whose nodes have no edges would be drawn empty")
 	}
 
-	if _, err := querySample(context.Background(), graph, defaultGraphEdgeQuery, graphEdgeSampleQuery(false)); err != nil {
+	if _, err := queryGraphEdgeSample(context.Background(), graph); err != nil {
 		t.Fatalf("the edge sample must not error on a graph with no entities: %v", err)
+	}
+}
+
+// Distinct physical members have overlapping offsets. The public sample must
+// keep their endpoints separate and omit reverse acceleration tables.
+func TestGraphSamplePreservesCanonicalRelationships(t *testing.T) {
+	ctx := context.Background()
+	work := t.TempDir()
+	for name, source := range map[string]string{
+		"orders.go": "package demo\nfunc Checkout(id string) { Validate(id); Save(id) }\nfunc Validate(id string) {}\nfunc Save(id string) {}\n",
+		"events.go": "package demo\nfunc Emit(id string) { Append(id) }\nfunc Append(id string) {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(work, name), []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := t.TempDir()
+	cfg := LadybugConfig{StoreDir: root, IcebugDir: filepath.Join(root, "graph.icebug")}
+	db := NewLadybugDB(cfg)
+	if _, err := RunPipeline(ctx, db, work, PipelineOptions{CacheDir: root, Workers: 2, SkipExternal: true}); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	db = NewLadybugDB(cfg)
+	defer db.Close()
+	for _, query := range []string{"MATCH (n)-[r]->(m) RETURN n,r,m", "MATCH (n)-->(m) RETURN m"} {
+		if _, err := db.Query(ctx, query, nil); err == nil || !strings.Contains(err.Error(), "incorrect endpoints") {
+			t.Fatalf("Query must refuse unsafe scan: %v", err)
+		}
+		if _, err := db.QueryPage(ctx, query, nil, 0, 10); err == nil || !strings.Contains(err.Error(), "incorrect endpoints") {
+			t.Fatalf("QueryPage must refuse unsafe scan: %v", err)
+		}
+	}
+	safe := "MATCH (a:Function)-[:CALLS]->(b:Function) WHERE a.name = 'Checkout' RETURN DISTINCT b.name"
+	for _, paged := range []bool{false, true} {
+		var result *QueryResult
+		var err error
+		if paged {
+			result, err = db.QueryPage(ctx, safe, nil, 0, 10)
+		} else {
+			result, err = db.Query(ctx, safe, nil)
+		}
+		if err != nil || len(result.Records) != 2 {
+			t.Fatalf("supported traversal: result=%v err=%v", result, err)
+		}
+	}
+	server := &Server{db: db}
+	for attempt := 0; attempt < 2; attempt++ {
+		w := httptest.NewRecorder()
+		server.handleGraph(w, httptest.NewRequest("GET", "/api/graph", nil))
+		if w.Code != 200 {
+			t.Fatalf("graph: %d %s", w.Code, w.Body.String())
+		}
+		var graph struct {
+			Nodes []map[string]any `json:"nodes"`
+			Links []map[string]any `json:"links"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &graph); err != nil {
+			t.Fatal(err)
+		}
+		nodes := map[string]map[string]any{}
+		for _, n := range graph.Nodes {
+			nodes[n["id"].(string)] = n
+		}
+		calls := map[string]bool{}
+		for _, e := range graph.Links {
+			a, b := nodes[e["source"].(string)], nodes[e["target"].(string)]
+			if a == nil || b == nil {
+				t.Fatalf("missing endpoint: %v", e)
+			}
+			switch e["type"] {
+			case "CALLS":
+				calls[fmt.Sprint(a["name"], "->", b["name"])] = true
+			case "HAS_PARAMETER":
+				if a["type"] != "Function" || b["type"] != "Parameter" {
+					t.Fatalf("reversed parameter relation: %v -> %v", a, b)
+				}
+			}
+		}
+		want := []string{"Checkout->Validate", "Checkout->Save", "Emit->Append"}
+		if len(calls) != len(want) {
+			t.Fatalf("calls: %v", calls)
+		}
+		for _, pair := range want {
+			if !calls[pair] {
+				t.Fatalf("missing %s: %v", pair, calls)
+			}
+		}
 	}
 }

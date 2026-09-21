@@ -29,9 +29,13 @@ same way and shared between the projects that claim them. See
 
 ---
 
-## 🌐 Supported Languages
+## Supported languages
 
 Graphit Code exposes **44 top-level language entries** and ships **45 index profiles: 40 through Tree-sitter and 5 through ANTLR v4**. The extra profile is the exclusive Tree-sitter `plpgsql` grammar used by embedded PostgreSQL parsing. Each profile is defined by an external YAML file—queries, export detection, self-keywords, context types, complexity, semantic labels, and comment handling are configurable without recompilation. An arbitrary new Tree-sitter language needs a compatible shared library plus YAML; a new ANTLR driver still requires contributor integration. See the user-facing [AST Grammars and Parser Extensibility](../guides/ast_extensibility.md) guide for the complete field-by-field contract.
+
+**Automatic selection:** 39 Tree-sitter profiles and COBOL 85 participate in file discovery. Oracle PL/SQL, PostgreSQL, DB2 and T-SQL require an explicit grammar selection. Plain `.sql` selects the Tree-sitter SQL profile.
+
+Extensions below describe registered routing, not a guarantee of full syntax support for every variant (for example Zsh, JSON5 or R Markdown). Extracted entities, relationships, resolution and complexity metrics vary by profile. Inspect the selected index schema before relying on a relationship.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -43,7 +47,7 @@ Graphit Code exposes **44 top-level language entries** and ships **45 index prof
 | 6 | **Java** | Tree-sitter | `.java` | Function, Constructor, Class, Record, Annotation, Interface, Enum, Variable, Field, Parameter, Package |
 | 7 | **Rust** | Tree-sitter | `.rs` | Function, Struct, Enum, Trait, Type, Constant, Variable, Field, Parameter |
 | 8 | **C** | Tree-sitter | `.c`, `.h` | Function, Struct, Enum, Type, Variable, Field, Parameter |
-| 9 | **C++** | Tree-sitter | `.cpp`, `.hpp`, `.cc`, `.cxx` | Function, Class, Struct, Enum, Namespace, Type, Field, Parameter |
+| 9 | **C++** | Tree-sitter | `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh` | Function, Class, Struct, Enum, Namespace, Type, Field, Parameter |
 | 10 | **C#** | Tree-sitter | `.cs` | Function, Class, Interface, Enum, Struct, Property, Namespace, Field, Parameter |
 | 11 | **Kotlin** | Tree-sitter | `.kt`, `.kts` | Function, Class, Object, Variable, Field, Parameter, Package |
 | 12 | **Swift** | Tree-sitter | `.swift` | Function, Class, Struct, Enum, Protocol, Variable, Field, Parameter |
@@ -58,25 +62,25 @@ Graphit Code exposes **44 top-level language entries** and ships **45 index prof
 | 21 | **T-SQL** (exclusive) | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
 | 22 | **COBOL 85** | ANTLR v4 | `.cob`, `.cbl`, `.cpy`, `.cobol` | Program, Section, Paragraph, DataItem, FileDescription, ConditionName |
 | 23 | **HTML** | Tree-sitter | `.html`, `.htm` | Element, Attribute, AttributeValue, Doctype, Text — plus everything the inline `<script>` and `<style>` bodies declare (see [Embedded Language Parsing](embedded_language_parsing.md)) |
-| 24 | **Bash** | Tree-sitter | `.sh`, `.bash` | Function, Variable |
+| 24 | **Bash** | Tree-sitter | `.sh`, `.bash`, `.zsh`, `.ksh` | Function, Variable |
 | 25 | **Clojure** | Tree-sitter | `.clj`, `.cljs`, `.cljc`, `.edn` | Function, Variable, Namespace |
-| 26 | **Dockerfile** | Tree-sitter | `Dockerfile`, `.dockerfile` | Stage, Instruction |
+| 26 | **Dockerfile** | Tree-sitter | `Dockerfile`, `.dockerfile`, `.containerfile` | Stage, Instruction |
 | 27 | **Elixir** | Tree-sitter | `.ex`, `.exs` | Function, Module, Variable |
 | 28 | **GraphQL** | Tree-sitter | `.graphql`, `.gql` | Type, Field, Query, Mutation, Subscription |
-| 29 | **Groovy** | Tree-sitter | `.groovy`, `.gradle` | Function, Class, Variable |
-| 30 | **Haskell** | Tree-sitter | `.hs` | Function, Type, Class, Module |
-| 31 | **HCL** | Tree-sitter | `.tf`, `.hcl` | Block, Variable |
-| 32 | **JSON** | Tree-sitter | `.json`, `.jsonc` | Object, Array |
+| 29 | **Groovy** | Tree-sitter | `.groovy`, `.gvy`, `.gy`, `.gsh`, `.gradle` | Function, Class, Variable |
+| 30 | **Haskell** | Tree-sitter | `.hs`, `.lhs` | Function, Type, Class, Module |
+| 31 | **HCL** | Tree-sitter | `.tf`, `.hcl`, `.tfvars` | Block, Variable |
+| 32 | **JSON** | Tree-sitter | `.json`, `.jsonc`, `.json5` | Object, Array |
 | 33 | **Julia** | Tree-sitter | `.jl` | Function, Struct, Module, Variable |
 | 34 | **Lua** | Tree-sitter | `.lua` | Function, Variable |
 | 35 | **Objective-C** | Tree-sitter | `.m`, `.mm` | Function, Class, Method, Protocol, Property |
 | 36 | **Protocol Buffers** | Tree-sitter | `.proto` | Message, Enum, Service, RPC |
-| 37 | **R** | Tree-sitter | `.r`, `.R` | Function, Variable |
+| 37 | **R** | Tree-sitter | `.r`, `.R`, `.Rmd` | Function, Variable |
 | 38 | **Scala** | Tree-sitter | `.scala`, `.sc` | Function, Class, Object, Trait, Variable |
 | 39 | **TOML** | Tree-sitter | `.toml` | Table, Key |
 | 40 | **YAML** | Tree-sitter | `.yaml`, `.yml` | Mapping, Sequence |
 | 41 | **Zig** | Tree-sitter | `.zig` | Function, Struct, Enum, Variable |
-| 42 | **CSS** | Tree-sitter | `.css` | CssClass, CssId, CssElement, CssPseudoClass, CssPseudoElement, CssProperty, CssVariable, Keyframes, MediaFeature, AtRule, Attribute, Value |
+| 42 | **CSS** | Tree-sitter | `.css`, `.pcss`, `.postcss` | CssClass, CssId, CssElement, CssPseudoClass, CssPseudoElement, CssProperty, CssVariable, Keyframes, MediaFeature, AtRule, Attribute, Value |
 | 43 | **Svelte** | Tree-sitter | `.svelte` | Element, Attribute, AttributeValue, Condition, Text, Value — plus everything `<script>` and `<style>` declare: Import/Export, Function, Class, Variable, Constant, Interface, Parameter, CssClass, CssProperty, … (see [Embedded Language Parsing](embedded_language_parsing.md)) |
 | 44 | **Vue** | Tree-sitter | `.vue` | Element, Attribute, AttributeValue, Directive, Prop, EventHandler, Slot, Condition, Loop, Text, Value — plus everything `<script>` and `<style>` declare: Import/Export, Function, Class, Variable, Constant, Interface, Parameter, CssClass, CssProperty, … (see [Embedded Language Parsing](embedded_language_parsing.md)) |
 
@@ -268,6 +272,17 @@ message. Every rule below is one branch of `parseCanonicalTraversal`, and each h
 table (`-[:calls__function_function]->`) is the engine's to run exactly as written, so
 `tryCanonicalBoundedTraversal` checks the type against the manifest before surfacing any rule —
 including for shapes the planner cannot read at all, such as anonymous `()` endpoints.
+
+**Icebug 0.19 scan limitation.** Wildcard relationships (`-[r]->`, `-[]-`,
+`-->`) and multiple-type relationship patterns (`[:A|B]`) are rejected before
+native execution: the current native scanner can reuse a previous physical
+table's Parquet reader and return incorrect endpoints. This safeguard applies
+to ordinary and paged queries. Use the filtered logical traversal forms above,
+or the Relationship map's bounded sample. The sample queries forward members
+separately, excludes reverse storage mirrors, shares one 1,000-edge budget and
+surfaces errors instead of silently omitting failed relationships. This is a
+Graphit safeguard; it does not claim that the native library has been patched.
+Independent typed statements joined by `UNION` are not relationship alternation.
 
 **A query that is not a traversal falls through.** A node-only pattern runs on the mounted
 tables, `label(n)` included: the restriction is about traversing a logical type, not about
@@ -1572,7 +1587,7 @@ Use each type’s declared identity: File/Directory use `path`, while symbols an
 
 AI authoring produces a bounded draft for explicit review and execution. Its examples follow the canonical traversal restrictions above: a filtered anchor, `RETURN DISTINCT` properties of one reached endpoint, logical relationship names and explicit hop bounds. When no anchor is known, begin with a node lookup. Generating a draft never executes it.
 
-The Relationship map loads a bounded index sample on first entry when no query has already supplied its data. Re-entering preserves the current result. Map appearance, layout physics and file navigation precede the canvas; the canvas expands through the remaining workspace height. It remains a sample, not a claim of complete graph coverage.
+The Relationship map loads a bounded index sample on first entry when no query has already supplied its data. Re-entering preserves the result and local exploration. Its deterministic catalogue groups by directory, file, language or configured cluster; the reader shows directed boundary crossings and entity neighborhoods. Counts deduplicate source/type/target triples within the loaded result, discarding edges whose endpoints are unavailable. The sample includes up to 300 initial nodes plus endpoints of up to 1,000 relationships; it is not a complete graph or a runtime impact guarantee. Clusters are configured path groups, not inferred communities. Source and wider potential-impact queries remain explicit operations. See [Code investigation](../guides/code_investigation.md).
 
 
 The investigation read-only check distinguishes clause verbs from identifier positions. Labels such as `Import`, properties such as `n.set`, parameters and projection aliases do not count as writes. Write clauses remain rejected, including after comments, literal expressions and nested mutation blocks.

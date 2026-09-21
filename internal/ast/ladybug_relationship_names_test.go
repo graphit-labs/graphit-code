@@ -166,3 +166,12 @@ func TestGraphLinksUseLogicalRelationshipNames(t *testing.T) {
 		t.Fatalf("physical relationship names crossed the API boundary: %v", edges)
 	}
 }
+
+func TestGraphReverseMembersKeepLogicalDirection(t *testing.T) {
+	db := &LadybugBackend{canonical: canonicalRelationshipManifest()}
+	edges := []map[string]any{{"type": "calls_file_function_reverse", "source": "function", "target": "file"}}
+	normalizeGraphEdgeTypes(db, edges)
+	if edges[0]["type"] != "CALLS" || edges[0]["source"] != "file" || edges[0]["target"] != "function" {
+		t.Fatalf("incorrect direction: %v", edges)
+	}
+}

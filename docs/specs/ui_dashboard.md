@@ -29,7 +29,7 @@ The SPA lives in `internal/ui/`.
 | State | Zustand stores with selective persistence |
 | HTTP | Axios-based API modules |
 | Markdown | Dedicated Knowledge and Memory renderers over their respective domain records |
-| Graph | D3 force simulation and canvas rendering |
+| Relationships | Deterministic boundary catalogue and directed entity neighborhoods |
 | Packaging | Production assets embedded into the Go binary |
 
 `npm run build` writes `internal/ui/dist/`. The Go UI server embeds that output and serves it with same-origin API routes.
@@ -87,11 +87,11 @@ Relationship inspection first resolves the selected name/path/line to one indexe
 
 **Query lab** offers direct read-only Cypher and **Draft with AI**. Generation fills an editable draft; it does not execute. The user reviews scope, relationship and limit before choosing **Run query**. Result tables retain full values and offer explicit CSV export. Project/context changes invalidate outstanding results.
 
-**Relationship map** is an optional view of a graph result or an explicitly requested bounded index sample. Its filters preserve node labels, relationships, languages and clusters, with color overrides, 2D/3D, zoom, fit, physics and a file tree. A table of reached endpoints is not fabricated into graph edges. Source search, copy and line highlighting remain available in the source viewer.
+**Relationship map** loads a bounded sample on first entry or explores the current graph query result. A stable catalogue groups entities by directory, file, language or configured cluster. Selecting a boundary shows its members and directed crossings; selecting an entity shows incoming and outgoing neighbors with relationship types. Following a neighbor stays in the map, while **Inspect source & impact** explicitly opens Find & inspect. Filters are above the work area, all entity actions are keyboard-accessible and narrow screens stack the panels. Counts deduplicate observed source/type/target triples and never imply repository completeness. Configured clusters are not inferred communities. A table of reached endpoints is not fabricated into graph edges. Source search, copy and line highlighting remain available in the source viewer. See [Investigate code relationships](../guides/code_investigation.md).
 
 **Indexed contexts** is a searchable directory followed by an origin dossier and **Investigate this context** action. Imported-context unlinking is confirmed and scoped to the selected project; it removes that project’s reference without deleting the shared index. Tables scroll within their containers; investigation, source and controls stack on smaller screens.
 
-User-facing relationship names are resolved dynamically from the active project or context's `graph.icebug/icebug.json` manifest. `CanonicalRelGroup.Type` is the public name used by the translator, schema controls, filters, and canvas. Physical edge-table names are internal Icebug storage details and must not cross the explorer API boundary.
+User-facing relationship names are resolved dynamically from the active project or context's `graph.icebug/icebug.json` manifest. `CanonicalRelGroup.Type` is the public name used by the translator, schema controls, filters, and relationship readers. Physical edge-table names are internal Icebug storage details and must not cross the explorer API boundary.
 
 Context totals and the schema controls’ label, relationship-type, and language counts come from the
 same canonical manifest. Listing a large project must not mount LadybugDB or run global `count`

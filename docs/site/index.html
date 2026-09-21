@@ -229,6 +229,20 @@
           </div>
         </div>
       </section>
+      <section class="section wrap" id="ast-languages" aria-labelledby="ast-languages-title">
+        <div class="section-heading wide">
+          <h2 id="ast-languages-title">Code intelligence across your stack.</h2>
+          <p>Graphit Code ships 45 AST profiles: 44 language and format entries, plus embedded PL/pgSQL. Each profile defines the structure and relationships it can extract.</p>
+        </div>
+        <dl class="language-support">
+          <div><dt>Application and systems code</dt><dd>C, C++, C#, Clojure, Dart, Elixir, Go, Groovy, Haskell, Java, Julia, Kotlin, Lua, Objective-C, PHP, Python, R, Ruby, Rust, Scala, Swift and Zig.</dd></div>
+          <div><dt>Web</dt><dd>JavaScript and JSX, TypeScript, TSX, HTML, CSS, Svelte and Vue.</dd></div>
+          <div><dt>Data, interfaces and configuration</dt><dd>SQL, GraphQL, Protocol Buffers, JSON, XML, YAML, TOML, HCL, Dockerfile and Bash. COBOL 85 is also included.</dd></div>
+          <div><dt>Explicit SQL dialects</dt><dd>Oracle PL/SQL, PostgreSQL, DB2 and T-SQL require grammar configuration. Plain .sql uses the default SQL profile.</dd></div>
+        </dl>
+        <p class="language-note">Entities and relationship coverage vary by profile; a registered extension does not guarantee every syntax variant. Supported embedded scripts and styles retain their source locations. Markdown documentation belongs to Knowledge.</p>
+        <a class="text-link" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/specs/ast_module.md#supported-languages">Read the language, extension and parser matrix</a>
+      </section>
       <section id="platform" class="section wrap">
         <div class="section-heading wide">
           <p class="intro-label">One system, clear responsibilities</p>
@@ -321,6 +335,31 @@
               >Explore the Broker <span aria-hidden="true">↗</span></a
             >
           </article>
+        </div>
+      </section>
+      <section id="workspace-demo" class="section wrap" aria-labelledby="workspace-demo-title">
+        <div class="section-heading">
+          <p class="intro-label">Inside the workspace</p>
+          <h2 id="workspace-demo-title">Follow the evidence.<br />Keep the engineering record.</h2>
+          <p>Real Code and Broker interfaces, shown with Aster Delivery: an invented project, team and set of policies. No customer workspace or production data.</p>
+        </div>
+        <div class="product-gallery">
+          <figure>
+            <a href="assets/code-investigation.jpg" aria-label="Open full-size code investigation screenshot"><img src="assets/code-investigation.jpg" width="1600" height="1100" loading="lazy" alt="Code investigation with directory boundaries and directed calls around Checkout" /></a>
+            <figcaption><span>01 · Code intelligence</span><h3>Trace a change to its implementation.</h3><p>Move from a boundary to incoming and outgoing relationships, then inspect the indexed source. Counts describe the loaded result.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="assets/code-knowledge.jpg" aria-label="Open full-size knowledge screenshot"><img src="assets/code-knowledge.jpg" width="1600" height="1100" loading="lazy" alt="Knowledge reading view with an order fulfillment contract and source provenance" /></a>
+            <figcaption><span>02 · Maintained knowledge</span><h3>Retain intent with its provenance.</h3><p>Read the checkout contract beside its source and document relationships. Carry that understanding into the next investigation.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="assets/code-evidence.jpg" aria-label="Open full-size task evidence screenshot"><img src="assets/code-evidence.jpg" width="1600" height="1100" loading="lazy" alt="Task dossier with acceptance checks, illustrative evidence and persisted memory and session links" /></a>
+            <figcaption><span>03 · Work and evidence</span><h3>Make completion reviewable.</h3><p>Inspect the contract, recorded checks and linked decisions. The demonstration's review evidence is illustrative, not a production test result.</p></figcaption>
+          </figure>
+          <figure>
+            <a href="assets/broker-resource-grants.jpg" aria-label="Open full-size Broker policy screenshot"><img src="assets/broker-resource-grants.jpg" width="1600" height="1100" loading="lazy" alt="Broker resource grants linking fictional audiences to capabilities and project scopes" /></a>
+            <figcaption><span>04 · Broker governance</span><h3>Give each caller an explicit scope.</h3><p>Review team and service access by capability and project. Resource grants remain separate from administrative roles.</p></figcaption>
+          </figure>
         </div>
       </section>
       <section id="teams" class="adoption section">

@@ -776,6 +776,12 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 		}
 	}
 
+	if k.canonical != nil {
+		if err := canonicalUnsafeScan(cypher); err != nil {
+			return nil, err
+		}
+	}
+
 	res, err := k.runQuery(cypher, params)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
@@ -835,6 +841,12 @@ func (k *LadybugBackend) QueryPage(ctx context.Context, cypher string, params ma
 				"`MATCH (a)-[:TYPE]->(b) [WHERE ...] RETURN DISTINCT b.property | count([DISTINCT] b.uid)`, "+
 				"with one end filtered; this query is not that shape, and the planner is the only route for "+
 				"these types", members)
+		}
+	}
+
+	if k.canonical != nil {
+		if err := canonicalUnsafeScan(cypher); err != nil {
+			return nil, err
 		}
 	}
 

@@ -1096,3 +1096,22 @@ footer > div {
     transition: none !important;
   }
 }
+
+/* Language support is a readable reference, not a collection of status badges. */
+.language-support { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 48px; margin: 32px 0; }
+.language-support div { border-top: 1px solid var(--line); padding-top: 18px; }
+.language-support dt { font-weight: 650; margin-bottom: 8px; }
+.language-support dd { margin: 0; color: var(--muted); max-width: 65ch; }
+.language-note { max-width: 80ch; color: var(--muted); }
+@media (max-width: 700px) { .language-support { grid-template-columns: 1fr; } }
+
+/* Product evidence: real UI captures with readable captions and full-size links. */
+.product-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px 32px; }
+.product-gallery figure { margin: 0; min-width: 0; }
+.product-gallery figure > a { display: block; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; overflow: hidden; }
+.product-gallery img { display: block; width: 100%; height: auto; }
+.product-gallery figcaption { padding-top: 22px; }
+.product-gallery figcaption > span { font: 12px/1.5 "IBM Plex Mono", monospace; color: var(--muted); }
+.product-gallery h3 { margin: 10px 0; font-size: 23px; letter-spacing: -.025em; }
+.product-gallery p { color: var(--muted); line-height: 1.7; max-width: 58ch; }
+@media (max-width: 800px) { .product-gallery { grid-template-columns: 1fr; gap: 36px; } }

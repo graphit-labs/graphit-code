@@ -47,6 +47,21 @@ type relationshipTypeNamer interface {
 	logicalRelationshipType(physical string) string
 }
 
+func (k *LadybugBackend) reverseRelationshipType(physical string) bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.canonical != nil {
+		for _, group := range k.canonical.RelGroups {
+			for _, member := range group.ReverseMembers {
+				if strings.EqualFold(member.Table, physical) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 type canonicalStatsProvider interface {
 	canonicalGraphStats() (canonicalStats, bool)
 }

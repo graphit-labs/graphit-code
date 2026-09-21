@@ -1,0 +1,118 @@
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, Crosshair, FileCode2 } from "lucide-react";
+import type { GraphEdge, GraphNode } from "@/api/ast";
+import { StyledSelect } from "@/components/shared/StyledSelect";
+import { WorkBadge, WorkEmpty, WorkSearch } from "@/components/shared/EngineeringUI";
+import { groupGraph, groupOf, languageOf, clusterOf, observedGraph, type Grouping } from "./relationshipModel";
+import "./relationship-explorer.css";
+
+interface Props {
+  nodes: GraphNode[];
+  links: GraphEdge[];
+  onInspect: (node: GraphNode) => void;
+  loading?: boolean;
+  error?: boolean;
+}
+const entityIdentity = (n: GraphNode) => JSON.stringify([n.id, n.label, n.name, n.file ?? null, n.line ?? null, n.properties?.uid ?? null, n.properties?.path ?? null]);
+const groupingLabels: Record<Grouping, string> = { directory: "Directory", file: "File", language: "Language", cluster: "Configured cluster" };
+
+export function RelationshipExplorer({ nodes, links, onInspect, loading = false, error = false }: Props) {
+  const [grouping, setGrouping] = useState<Grouping>("directory");
+  const [groupName, setGroupName] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [history, setHistory] = useState<string[]>([]);
+  const reader = useRef<HTMLElement>(null);
+  const [navigation, setNavigation] = useState(0);
+  useLayoutEffect(() => { if (navigation && reader.current) { reader.current.focus({ preventScroll: true }); reader.current.scrollTop = 0; } }, [navigation]);
+  const [filter, setFilter] = useState("");
+  const [language, setLanguage] = useState("");
+  const [entityType, setEntityType] = useState("");
+  const [edgeType, setEdgeType] = useState("");
+  const graph = useMemo(() => observedGraph(nodes, links), [nodes, links]);
+  const visible = useMemo(() => {
+    const selected = graph.nodes.filter(n => (!language || languageOf(n) === language) && (!entityType || n.label === entityType));
+    const ids = new Set(selected.map(n => n.id));
+    return { nodes: selected, links: graph.links.filter(e => ids.has(e.source) && ids.has(e.target) && (!edgeType || e.type === edgeType)) };
+  }, [graph, language, entityType, edgeType]);
+  const groups = useMemo(() => groupGraph(visible.nodes, visible.links, grouping), [visible, grouping]);
+  const q = filter.trim().toLowerCase();
+  const matched = groups.filter(g => !q || g.name.toLowerCase().includes(q) || g.members.some(n => (n.name + " " + n.file).toLowerCase().includes(q)));
+  const active = matched.find(g => g.name === groupName) || matched[0];
+  const focus = visible.nodes.find(n => entityIdentity(n) === focusId);
+  const incoming = focus ? visible.links.filter(e => e.target === focus.id && e.source !== focus.id) : [];
+  const outgoing = focus ? visible.links.filter(e => e.source === focus.id && e.target !== focus.id) : [];
+  const self = focus ? visible.links.filter(e => e.source === focus.id && e.target === focus.id) : [];
+  const follow = (n: GraphNode) => {
+    if (focus && focus.id !== n.id) setHistory(h => [...h, entityIdentity(focus)]);
+    setFocusId(entityIdentity(n));
+    setNavigation(n => n + 1);
+    setGroupName(groupOf(n, grouping));
+  };
+  const chooseGroup = (name: string) => { setGroupName(name); setFocusId(null); setHistory([]); setNavigation(n => n + 1); };
+  const clearFilters = () => { setFilter(""); setLanguage(""); setEntityType(""); setEdgeType(""); };
+  function entity(n: GraphNode, prefix: string) {
+    return <button key={prefix + n.id} className="relationship-entity" onClick={() => follow(n)}>
+      <span className="relationship-entity-name">{n.name || n.id}<ArrowRight size={14} aria-hidden="true" /></span>
+      <span className="relationship-entity-location">{n.file || "No indexed source path"}{n.line ? `:${n.line}` : ""}</span>
+      <span className="relationship-entity-meta">{n.label} <span>{languageOf(n)}</span></span>
+    </button>;
+  }
+  function edges(items: GraphEdge[], side: "incoming" | "outgoing", prefix: string) {
+    return items.length ? items.map(e => {
+      const endpoint = graph.byId.get(side === "incoming" ? e.source : e.target)!;
+      const inner = graph.byId.get(side === "incoming" ? e.target : e.source)!;
+      return <div className="relationship-edge" key={JSON.stringify([prefix,e.source,e.type,e.target])}>
+        <span className="relationship-edge-type">{e.type}</span>
+        {entity(endpoint, prefix)}
+        {!focus && <small>{side === "incoming" ? "To " : "From "}<button className="relationship-inline" onClick={() => follow(inner)}>{inner.name}</button></small>}
+      </div>;
+    }) : <p className="relationship-none">No {side} relationships in this result.</p>;
+  }
+  return <section className="relationship-explorer" aria-label="Relationship exploration">
+    <div className="relationship-filters">
+      <label className="work-field"><span>Organize by</span><StyledSelect value={grouping} onChange={e => { setGrouping(e.target.value as Grouping); setGroupName(null); }}>
+        {Object.entries(groupingLabels).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+      </StyledSelect></label>
+      <label className="work-field"><span>Language</span><StyledSelect value={language} onChange={e => setLanguage(e.target.value)}>
+        <option value="">All languages</option>{[...new Set(graph.nodes.map(languageOf))].sort().map(v => <option key={v}>{v}</option>)}
+      </StyledSelect></label>
+      <label className="work-field"><span>Entity type</span><StyledSelect value={entityType} onChange={e => setEntityType(e.target.value)}>
+        <option value="">All entities</option>{[...new Set(graph.nodes.map(n => n.label))].sort().map(v => <option key={v}>{v}</option>)}
+      </StyledSelect></label>
+      <label className="work-field"><span>Relationship</span><StyledSelect value={edgeType} onChange={e => setEdgeType(e.target.value)}>
+        <option value="">All relationships</option>{[...new Set(graph.links.map(e => e.type))].sort().map(v => <option key={v}>{v}</option>)}
+      </StyledSelect></label>
+      {(language || entityType || edgeType || filter) && <button className="work-button" onClick={clearFilters}>Clear filters</button>}
+    </div>
+    <div className="relationship-scope"><span><strong>{visible.nodes.length.toLocaleString()}</strong> entities · <strong>{visible.links.length.toLocaleString()}</strong> unique relationships in this view</span><span>Source → target · indexed evidence</span></div>
+    {grouping === "cluster" && <p className="relationship-explanation">Clusters are configured path groups, not inferred communities or team ownership. Unassigned entities remain visible.</p>}
+    {!graph.nodes.length ? (loading || error ? null : <WorkEmpty title="No graph entities in this result">Load an index sample or return to Query lab. Scalar query results remain in the query table.</WorkEmpty>) : <div className="relationship-layout">
+      <aside className="relationship-catalogue" aria-label="Result boundaries">
+        <WorkSearch label="Find a boundary or entity" value={filter} onChange={setFilter} placeholder="Find a path or symbol" />
+        <div className="relationship-catalogue-title"><h2>{groupingLabels[grouping]}</h2><span>{matched.length} groups</span></div>
+        <div className="relationship-groups">{matched.map(g => <button key={g.name} className="relationship-group" aria-pressed={active?.name === g.name} onClick={() => chooseGroup(g.name)}>
+          <strong>{g.name}</strong><span>{g.members.length} entities</span>
+          <small><span>← {g.incoming.length} incoming</span><span>{g.outgoing.length} outgoing →</span></small>
+        </button>)}</div>
+        <p className="relationship-explanation">Groups describe this loaded result. Missing links do not prove independence.</p>
+      </aside>
+      <section ref={reader} tabIndex={-1} className="relationship-reader" aria-label="Relationship evidence">
+        {!active && !focus ? <WorkEmpty title="No matching entities" action={<button className="work-button" onClick={clearFilters}>Clear filters</button>}>Try another path, name or filter.</WorkEmpty> : focus ? <>
+          <header className="relationship-reader-header"><div className="relationship-breadcrumb"><button className="work-button" onClick={() => { setFocusId(null); setHistory([]); setNavigation(n => n + 1); }}>All boundaries</button>{history.length > 0 && <button className="work-button" onClick={() => { setFocusId(history[history.length-1]); setHistory(h => h.slice(0,-1)); setNavigation(n => n + 1); }}><ArrowLeft size={14} />Back</button>}<span>Entity neighborhood</span></div>
+            <div className="relationship-focus-heading"><div><WorkBadge>{focus.label}</WorkBadge><h2>{focus.name || focus.id}</h2><code>{focus.file || "No indexed source path"}{focus.line ? `:${focus.line}` : ""}</code></div><button className="work-button primary" onClick={() => onInspect(focus)}><FileCode2 size={16} />Inspect source & impact</button></div>
+          </header>
+          <div className="relationship-flow">
+            <section><h3>Incoming <span>{incoming.length}</span></h3><p>Entities pointing to this one</p>{edges(incoming,"incoming","focus-in")}</section>
+            <section className="relationship-anchor"><Crosshair size={22} aria-hidden="true" /><span>Selected entity</span><strong>{focus.name || focus.id}</strong><WorkBadge>{languageOf(focus)}</WorkBadge><dl><dt>Directory</dt><dd>{groupOf(focus,"directory")}</dd><dt>Configured cluster</dt><dd>{clusterOf(focus)}</dd></dl>{self.length > 0 && <p>Self relationships: {self.map(e=>e.type).join(", ")}</p>}</section>
+            <section><h3>Outgoing <span>{outgoing.length}</span></h3><p>Entities this one points to</p>{edges(outgoing,"outgoing","focus-out")}</section>
+          </div>
+        </> : active && <>
+          <header className="relationship-reader-header"><span>{groupingLabels[grouping]} boundary</span><h2>{active.name}</h2><p>{active.members.length} entities · {active.internal.length} internal relationships · {active.incoming.length + active.outgoing.length} crossing this boundary</p></header>
+          <div className="relationship-boundary-content"><section className="relationship-members"><h3>Choose an entity</h3><p>Follow its relationships, then inspect the implementation.</p>{active.members.filter(n => !q || active.name.toLowerCase().includes(q) || (n.name + " " + n.file).toLowerCase().includes(q)).map(n => entity(n,"member"))}</section>
+          <div className="relationship-crossings"><section><h3>Incoming <span>{active.incoming.length}</span></h3>{edges(active.incoming,"incoming","group-in")}</section><section><h3>Outgoing <span>{active.outgoing.length}</span></h3>{edges(active.outgoing,"outgoing","group-out")}</section></div></div>
+        </>}
+      </section>
+    </div>}
+    <footer className="relationship-footnote">This is a bounded result, not a complete architecture or runtime impact analysis. Open an entity to query incoming calls and potential impact in the selected index.</footer>
+  </section>;
+}

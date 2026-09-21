@@ -22,7 +22,9 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-![Graphit AST Explorer analyzing the graphit-code repository](docs/site/assets/observatory-ast-explorer.jpg)
+![Graphit Code tracing incoming and outgoing calls around Checkout in Aster Delivery](docs/site/assets/code-investigation.jpg)
+
+*From a code boundary to a directed relationship and its indexed source. Aster Delivery is a fictional demonstration project.*
 
 ## AI agents need more than a prompt
 
@@ -74,13 +76,23 @@ instead of reconstructing it in every session.
 
 The web UI is an operational view over the same project context exposed to agents.
 
-| Knowledge Explorer | Memory Explorer |
-|---|---|
-| ![Graphit Knowledge Explorer showing project architecture](docs/site/assets/observatory-knowledge-explorer.jpg) | ![Graphit Memory Explorer showing a design decision](docs/site/assets/observatory-memory-explorer.jpg) |
+### Retain intent with its sources
 
-These screenshots use Graphit Code itself as the example project. The same Observatory also includes
-a Task Explorer with a paginated task catalogue, server-side status/search filters, complete specs,
-checks, dependencies, subtasks, comments, lifecycle events, revision history, and JSON download.
+![Knowledge reading view showing the checkout contract, source document and references](docs/site/assets/code-knowledge.jpg)
+
+Read maintained guidance beside its provenance and linked documents. The example describes Aster
+Delivery's checkout boundaries and payment retry contract.
+
+### Review the contract and the evidence
+
+![Task dossier showing acceptance checks, review evidence and persisted session and memory links](docs/site/assets/code-evidence.jpg)
+
+Inspect checks, evidence, specification, lifecycle and persisted record relationships. The displayed
+review evidence is illustrative; it does not represent a production test run.
+
+All screenshots use an isolated, fictional English project. No customer or maintainer workspace is
+shown. See the [code investigation guide](docs/guides/code_investigation.md) and
+[screenshot maintenance guide](docs/guides/product_screenshots.md).
 
 ## Install
 
@@ -233,6 +245,21 @@ The graph opens on the fly from Icebug files into an in-memory catalog, so publi
 portable without running a separate graph server. Optional local, direct, or broker-based
 second-stage reranking is active in AST and Knowledge searches when `search.rerank=true`. See the
 [AI Engine specification](docs/specs/ai_engine.md).
+
+### AST language support
+
+The AST ships **45 profiles covering 44 language and format entries**, plus embedded PL/pgSQL. The default discovery profiles cover:
+
+| Area | Languages and formats |
+| --- | --- |
+| Application and systems code | C, C++, C#, Clojure, Dart, Elixir, Go, Groovy, Haskell, Java, Julia, Kotlin, Lua, Objective-C, PHP, Python, R, Ruby, Rust, Scala, Swift, Zig |
+| Web | JavaScript (including JSX), TypeScript, TSX, HTML, CSS, Svelte, Vue |
+| Data, interfaces and configuration | SQL, GraphQL, Protocol Buffers, JSON, XML, YAML, TOML, HCL, Dockerfile, Bash |
+| Legacy systems | COBOL 85 |
+
+**Explicit SQL dialects:** Oracle PL/SQL, PostgreSQL, DB2 and T-SQL use ANTLR profiles selected through `ast.grammar`; `.sql` otherwise uses Tree-sitter SQL. HTML, Vue and Svelte can also index supported embedded script/style languages. PostgreSQL supports embedded PL/pgSQL bodies.
+
+Support is profile-specific: entities, relationships and resolution depth differ by language. Registered extensions are routing rules, not a promise to support every dialect or variant. See the [complete language and extension matrix](docs/specs/ast_module.md#supported-languages), [embedded parsing](docs/specs/embedded_language_parsing.md) and [grammar configuration and extensibility](docs/guides/ast_extensibility.md). Markdown documentation is handled by Knowledge rather than the default AST profiles.
 
 ### Source-backed knowledge
 

@@ -117,7 +117,10 @@ graphit ui
 
 Open the displayed loopback URL. The workspace selector should identify the current repository before you interpret explorer data.
 
-![Graphit AST Explorer analyzing graphit-code](../site/assets/observatory-ast-explorer.jpg)
+![Code investigation showing directed calls in the fictional Aster Delivery project](../site/assets/code-investigation.jpg)
+
+The example uses invented data. Choose **Code intelligence → Relationship map** to explore a bounded
+sample, follow a relation, and inspect its indexed source. See [Code investigation](code_investigation.md).
 
 The UI is not an authentication layer. Keep the default loopback binding for local use; read [S3 Credentials and UI Network Configuration](s3-and-ui-network.md) before making it reachable over a network.
 

@@ -9,12 +9,10 @@ import {
   type CodeSearchResult,
   type SchemaResponse,
 } from "@/api/ast";
-import { GraphCanvas, type GraphCanvasRef } from "./GraphCanvas";
+import { RelationshipExplorer } from "./RelationshipExplorer";
 import { QueryBar } from "./QueryBar";
-import { SchemaPanel } from "./SchemaPanel";
 import { CodePanel } from "./CodePanel";
 import { TabularResults } from "./TabularResults";
-import { NodeTree } from "./NodeTree";
 import { useAppStore } from "@/store/appStore";
 import {
   WorkBadge,
@@ -29,23 +27,6 @@ import {
   RecordLink,
 } from "@/components/shared/EngineeringUI";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
-const LS = {
-  get<T>(key: string, fallback: T): T {
-    try {
-      const v = localStorage.getItem(key);
-      return v ? JSON.parse(v) : fallback;
-    } catch {
-      return fallback;
-    }
-  },
-  set(key: string, value: unknown) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      /* optional preferences */
-    }
-  },
-};
 const quote = (s: string) =>
   "'" + s.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
 
@@ -90,7 +71,6 @@ export default function ExplorerPage() {
   } | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryRan, setQueryRan] = useState(false);
-  const [projectRoot, setProjectRoot] = useState("");
   const searchRequest = useRef(0),
     sourceRequest = useRef(0),
     relationRequest = useRef(0),
@@ -145,12 +125,6 @@ export default function ExplorerPage() {
       .catch((e) => {
         if (active) setError(e.message);
       });
-    astApi
-      .getContexts(projectDir)
-      .then((c) => {
-        if (active) setProjectRoot(c.project_root || "");
-      })
-      .catch(() => {});
     return () => {
       active = false;
     };
@@ -424,12 +398,9 @@ export default function ExplorerPage() {
   usePageRefresh(async () => {
     const startedScope = currentScope;
     const metadata = async () => {
-      const [nextSchema, contexts] = await refreshAll([
-        astApi.getSchema(context, projectDir), astApi.getContexts(projectDir),
-      ] as const);
+      const nextSchema = await astApi.getSchema(context, projectDir);
       if (scope.current !== startedScope) return;
       setSchema(nextSchema);
-      setProjectRoot(contexts.project_root || "");
     };
     const graph = async () => {
       if (!lastGraphQuery.current) return;
@@ -451,7 +422,7 @@ export default function ExplorerPage() {
     <WorkPage className="code-investigation">
       <WorkHeader
         title="Code investigation"
-        description="Find the implementation. Read its source. Trace the relationships that inform a change."
+        description={view === "map" ? "" : "Find the implementation. Read its source. Trace the relationships that inform a change."}
         actions={
           <button
             className="work-button"
@@ -804,351 +775,29 @@ export default function ExplorerPage() {
           )}
         </>
       )}
-      {view === "map" && (
+      <div hidden={view !== "map"}>
         <div className="map-workspace">
-          <WorkNotice title="A bounded view of indexed relationships">
-            The map shows the current query result. A sample is limited and does
-            not represent the complete repository.
-          </WorkNotice>
+          <div className="relationship-intro">
+            <p>Choose a boundary. Follow a relationship. Inspect the implementation.</p>
           <button
-            className="work-button mb-4"
+            className="work-button"
             disabled={queryLoading}
             onClick={() => void sample()}
           >
             {queryLoading ? "Loading…" : "Load index sample"}
           </button>
-          <InvestigationMap
+          </div>
+          {queryLoading && <LoadingSpinner label="Loading indexed relationships…" />}
+          <RelationshipExplorer
+            key={currentScope}
             nodes={nodes}
             links={links}
-            schema={schema}
-            selectedNode={selected}
-            handleNodeClick={choose}
-            projectRoot={projectRoot}
-            handleFileClick={(path, line) => {
-              setView("investigate");
-              choose({
-                id: path,
-                name: path.split("/").pop() || path,
-                label: "File",
-                type: "File",
-                file: path,
-                line,
-              });
-            }}
+            loading={queryLoading}
+            error={Boolean(error)}
+            onInspect={choose}
           />
         </div>
-      )}
+      </div>
     </WorkPage>
-  );
-}
-
-function InvestigationMap({
-  nodes,
-  links,
-  schema,
-  selectedNode,
-  handleNodeClick,
-  projectRoot,
-  handleFileClick,
-}: {
-  nodes: GraphNode[];
-  links: GraphEdge[];
-  schema: SchemaResponse;
-  selectedNode: GraphNode | null;
-  handleNodeClick: (node: GraphNode | null) => void;
-  projectRoot: string;
-  handleFileClick: (path: string, line?: number) => void;
-}) {
-  const [hiddenLabels, setHiddenLabels] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>("graphit_hidden_labels", [])),
-  );
-  const [hiddenEdgeTypes, setHiddenEdgeTypes] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>("graphit_hidden_edges", [])),
-  );
-  const [hiddenClusters, setHiddenClusters] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>("graphit_hidden_clusters", [])),
-  );
-  const [hiddenLangs, setHiddenLangs] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>("graphit_hidden_langs", [])),
-  );
-  const [collapsedLangs, setCollapsedLangs] = useState<Set<string>>(
-    () => new Set<string>(LS.get<string[]>("graphit_collapsed_langs", [])),
-  );
-  const [nodeColors, setNodeColors] = useState<Record<string, string>>(() =>
-    LS.get<Record<string, string>>("graphit_node_colors", {}),
-  );
-  const [clusterColors, setClusterColors] = useState<Record<string, string>>(
-    () => LS.get<Record<string, string>>("graphit_cluster_colors", {}),
-  );
-  const [langColors, setLangColors] = useState<Record<string, string>>(() =>
-    LS.get<Record<string, string>>("graphit_lang_colors", {}),
-  );
-  const schemaNodes = schema.nodes || [],
-    schemaEdges = schema.edges || [],
-    schemaLangs = schema.langs || [];
-  const canvasRef = useRef<GraphCanvasRef>(null);
-  const [is3D, setIs3D] = useState(() => LS.get("graphit_is3D", false));
-  const [physics, setPhysics] = useState(() =>
-    LS.get("graphit_physics_" + (is3D ? "3d" : "2d"), {
-      repulsion: 120,
-      linkDistance: 50,
-      gravity: is3D ? 0.1 : 0.3,
-      edgeWidth: 1,
-      labelDensity: 1.2,
-    }),
-  );
-  const switchMode = () => {
-    LS.set("graphit_physics_" + (is3D ? "3d" : "2d"), physics);
-    const next = !is3D;
-    setIs3D(next);
-    LS.set("graphit_is3D", next);
-    setPhysics(
-      LS.get("graphit_physics_" + (next ? "3d" : "2d"), {
-        repulsion: 120,
-        linkDistance: 50,
-        gravity: next ? 0.1 : 0.3,
-        edgeWidth: 1,
-        labelDensity: 1.2,
-      }),
-    );
-  };
-  useEffect(
-    () => LS.set("graphit_physics_" + (is3D ? "3d" : "2d"), physics),
-    [physics, is3D],
-  );
-  useEffect(() => {
-    LS.set("graphit_node_colors", nodeColors);
-  }, [nodeColors]);
-  useEffect(() => {
-    LS.set("graphit_hidden_labels", [...hiddenLabels]);
-  }, [hiddenLabels]);
-  useEffect(() => {
-    LS.set("graphit_hidden_edges", [...hiddenEdgeTypes]);
-  }, [hiddenEdgeTypes]);
-  useEffect(() => {
-    LS.set("graphit_hidden_clusters", [...hiddenClusters]);
-  }, [hiddenClusters]);
-  useEffect(() => {
-    LS.set("graphit_hidden_langs", [...hiddenLangs]);
-  }, [hiddenLangs]);
-  useEffect(() => {
-    LS.set("graphit_collapsed_langs", [...collapsedLangs]);
-  }, [collapsedLangs]);
-  useEffect(() => {
-    LS.set("graphit_cluster_colors", clusterColors);
-  }, [clusterColors]);
-  useEffect(() => {
-    LS.set("graphit_lang_colors", langColors);
-  }, [langColors]);
-  return (
-    <div className="investigation-map">
-      <div className="map-toolbar work-actions">
-        <button
-          className="work-button"
-          onClick={() => canvasRef.current?.zoomBy?.(1.4)}
-        >
-          Zoom in
-        </button>
-        <button
-          className="work-button"
-          onClick={() => canvasRef.current?.zoomBy?.(1 / 1.4)}
-        >
-          Zoom out
-        </button>
-        <button
-          className="work-button"
-          onClick={() => canvasRef.current?.fitGraph?.()}
-        >
-          Fit result
-        </button>
-        <button className="work-button" onClick={switchMode}>
-          {is3D ? "Use 2D" : "Use 3D"}
-        </button>
-        <span>
-          {nodes.length} nodes · {links.length} relationships
-        </span>
-      </div>
-      <div className="map-controls work-two-columns">
-        <details className="work-disclosure">
-          <summary>Map appearance & filters</summary>
-          <div>
-            <SchemaPanel
-              nodes={schemaNodes}
-              edges={schemaEdges}
-              langs={schemaLangs}
-              graphNodes={nodes}
-              hiddenLabels={hiddenLabels}
-              hiddenEdgeTypes={hiddenEdgeTypes}
-              hiddenClusters={hiddenClusters}
-              hiddenLangs={hiddenLangs}
-              collapsedLangs={collapsedLangs}
-              nodeColors={nodeColors}
-              clusterColors={clusterColors}
-              langColors={langColors}
-              onToggleLabel={(l) =>
-                setHiddenLabels((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(l)) {
-                    next.delete(l);
-                  } else {
-                    next.add(l);
-                  }
-                  return next;
-                })
-              }
-              onToggleEdge={(t) =>
-                setHiddenEdgeTypes((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(t)) {
-                    next.delete(t);
-                  } else {
-                    next.add(t);
-                  }
-                  return next;
-                })
-              }
-              onToggleCluster={(c) =>
-                setHiddenClusters((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(c)) {
-                    next.delete(c);
-                  } else {
-                    next.add(c);
-                  }
-                  return next;
-                })
-              }
-              onToggleLang={(l) =>
-                setHiddenLangs((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(l)) {
-                    next.delete(l);
-                  } else {
-                    next.add(l);
-                  }
-                  return next;
-                })
-              }
-              onToggleLangCollapse={(l) =>
-                setCollapsedLangs((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(l)) {
-                    next.delete(l);
-                  } else {
-                    next.add(l);
-                  }
-                  return next;
-                })
-              }
-              onColorChange={(label, color) => {
-                setNodeColors((prev) => ({ ...prev, [label]: color }));
-              }}
-              onClusterColorChange={(cluster, color) => {
-                setClusterColors((prev) => ({ ...prev, [cluster]: color }));
-              }}
-              onLangColorChange={(lang, color) => {
-                setLangColors((prev) => ({ ...prev, [lang]: color }));
-              }}
-            />
-          </div>
-        </details>
-        <div>
-          <details className="work-disclosure">
-            <summary>Layout physics</summary>
-            <div className="work-form">
-              {[
-                {
-                  key: "repulsion",
-                  label: "Repulsion",
-                  min: 50,
-                  max: 800,
-                  step: 10,
-                },
-                {
-                  key: "linkDistance",
-                  label: "Link distance",
-                  min: 20,
-                  max: 300,
-                  step: 5,
-                },
-                {
-                  key: "gravity",
-                  label: "Cluster pull",
-                  min: 0.01,
-                  max: 1,
-                  step: 0.01,
-                },
-                {
-                  key: "edgeWidth",
-                  label: "Edge width",
-                  min: 1,
-                  max: 10,
-                  step: 0.5,
-                },
-                {
-                  key: "labelDensity",
-                  label: "Label threshold",
-                  min: 0.1,
-                  max: 3,
-                  step: 0.1,
-                },
-              ].map((p) => (
-                <label className="work-field" key={p.key}>
-                  <span>
-                    {p.label} · {physics[p.key as keyof typeof physics]}
-                  </span>
-                  <input
-                    type="range"
-                    min={p.min}
-                    max={p.max}
-                    step={p.step}
-                    value={physics[p.key as keyof typeof physics]}
-                    onChange={(e) =>
-                      setPhysics((s) => ({ ...s, [p.key]: +e.target.value }))
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-          </details>
-          <details className="work-disclosure">
-            <summary>Files in this result</summary>
-            <NodeTree
-              nodes={nodes}
-              projectRoot={projectRoot}
-              selectedNodeId={
-                nodes.some((n) => n.id === selectedNode?.id)
-                  ? selectedNode!.id
-                  : null
-              }
-              onNodeClick={handleNodeClick}
-              onFileClick={handleFileClick}
-            />
-          </details>
-        </div>
-      </div>
-      <div className="map-stage">
-        <GraphCanvas
-          ref={canvasRef}
-          nodes={nodes}
-          links={links}
-          hiddenLabels={hiddenLabels}
-          hiddenEdgeTypes={hiddenEdgeTypes}
-          hiddenClusters={hiddenClusters}
-          hiddenLangs={hiddenLangs}
-          nodeColors={nodeColors}
-          clusterColors={clusterColors}
-          langColors={langColors}
-          selectedNodeId={
-            nodes.some((n) => n.id === selectedNode?.id)
-              ? selectedNode!.id
-              : null
-          }
-          onNodeClick={handleNodeClick}
-          physics={physics}
-          is3D={is3D}
-        />
-      </div>
-    </div>
   );
 }

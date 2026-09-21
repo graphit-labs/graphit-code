@@ -6,6 +6,8 @@ artifacts, and bounded live agent runs. This hub routes developers, operators, a
 current guidance without mixing it with historical implementation records.
 
 The current visual reference is the [Graphit design system](specs/design_system.md).
+See the [code investigation workflow](guides/code_investigation.md) and
+[product screenshots](guides/product_screenshots.md) for current UI examples and capture maintenance.
 
 ## Choose your path
 

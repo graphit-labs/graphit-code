@@ -54,6 +54,8 @@ that span HTTP requests resume through both values; in-process multi-step consum
 external CLI and are separate from Graphit chat IDs, Live Search workspace IDs, provider profiles,
 and MCP host-session identity.
 
+AST query generation must follow the [canonical traversal contract](ast_module.md#the-rules-and-what-each-refusal-says): name a logical relationship, filter an anchor and project the reached endpoint with `DISTINCT`. Wildcard relationships and type alternation are refused with the current Icebug 0.19 engine because multi-table scans can return incorrect endpoints. Treat this diagnostic as a query failure, never as an empty result; the UI Relationship map uses a separate bounded, typed sample.
+
 ## Live CLI execution boundary
 
 `ai.NewClientForAgent` resolves only `config.CLIForAgent(agent)` on `PATH`, with the corresponding

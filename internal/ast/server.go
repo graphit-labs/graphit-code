@@ -507,10 +507,13 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isUserQuery {
-		if edgeResult, edgeErr := querySample(ctx, db, defaultGraphEdgeQuery, graphEdgeSampleQuery(false)); edgeErr == nil {
-			for _, rec := range edgeResult.Records {
-				extractBuiltinQueryGraph(rec, nodesMap, &edges)
-			}
+		edgeResult, edgeErr := queryGraphEdgeSample(ctx, db)
+		if edgeErr != nil {
+			writeError(w, http.StatusInternalServerError, edgeErr.Error())
+			return
+		}
+		for _, rec := range edgeResult.Records {
+			extractBuiltinQueryGraph(rec, nodesMap, &edges)
 		}
 	}
 
@@ -525,6 +528,9 @@ func normalizeGraphEdgeTypes(db GraphDB, edges []map[string]any) {
 	}
 	for _, edge := range edges {
 		if physical, ok := edge["type"].(string); ok {
+			if direction, ok := db.(interface{ reverseRelationshipType(string) bool }); ok && direction.reverseRelationshipType(physical) {
+				edge["source"], edge["target"] = edge["target"], edge["source"]
+			}
 			edge["type"] = namer.logicalRelationshipType(physical)
 		}
 	}

@@ -9,6 +9,8 @@ This guide is the user-facing contract for extending that system. It covers ever
 supported YAML field, both selector languages, parser installation, precedence,
 hot reload, distribution, validation, and the current extension boundaries.
 
+For the shipped languages, declared file extensions and parser-specific boundaries, use the [supported language matrix](../specs/ast_module.md#supported-languages). SQL dialect profiles require explicit selection; a registered extension alone does not promise complete support for every language variant.
+
 ## What can be extended without rebuilding Graphit
 
 You can do all of the following in a project YAML file:

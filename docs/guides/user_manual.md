@@ -84,7 +84,7 @@ Example:
 
 ```cypher
 MATCH (caller)-[:CALLS]->(target:Function {name: 'RunSync'})
-RETURN caller.name, caller.path
+RETURN DISTINCT caller.name, caller.path
 ```
 
 Use source retrieval after the graph identifies the relevant file or entity. Do not infer callers, imports, inheritance, or impact from text matches alone.
@@ -99,9 +99,21 @@ The graph is stored as Icebug files and attached to an in-memory LadybugDB catal
 That on-the-fly catalog makes local and published contexts portable without a separate graph-server
 deployment.
 
-The AST Explorer presents the same process visually: schema and type controls on the rail, Cypher and AI-assisted query modes above, and the graph canvas in the main workspace. Relationship names are friendly names resolved from the active store's `graph.icebug/icebug.json` manifest; physical edge-table names are storage details. AI-assisted Cypher generation runs the configured agent CLI from the selected project's directory and returns a query expressed only with those logical relationship names. The response also exposes `agent_cli` and, when supported, `agent_session_id` so the native run can be inspected. The Explorer then executes that query once when it loads the graph.
+The Code investigation workspace separates **Find & inspect**, **Query lab** and **Relationship map**.
+The map loads a bounded sample and organizes it by directory, file, language or configured cluster.
+Select a boundary, follow incoming or outgoing relationships, then choose **Inspect source & impact**.
+Clusters are configured path groups, not inferred communities. Counts describe the loaded result;
+missing sample edges do not prove that a dependency is absent.
 
-![Graphit AST Explorer using graphit-code as the active project](../site/assets/observatory-ast-explorer.jpg)
+Relationship names come from the active store's canonical manifest. AI-assisted Cypher uses the
+selected agent and project context; inspect execution activity and the resulting query before relying
+on its answer. The current Icebug engine's unsafe wildcard and type-alternation scans are refused;
+use a supported anchored logical traversal instead. See [Code investigation](code_investigation.md)
+for the workflow and [query contracts](../specs/ast_module.md#the-rules-and-what-each-refusal-says).
+
+![Code investigation around Checkout in fictional Aster Delivery](../site/assets/code-investigation.jpg)
+
+*This and the following screenshots use invented English data in an isolated example project.*
 
 ## Knowledge workflow
 
@@ -118,7 +130,7 @@ The Knowledge Explorer exposes the same page index, keyword and AI-assisted sear
 Direct keyword and semantic retrieval do not require a coding-agent CLI. AI synthesis does and is
 controlled by `modules.agent`. Search returns candidate titles; `wiki_source` is the evidence read.
 
-![Graphit Knowledge Explorer showing the project architecture](../site/assets/observatory-knowledge-explorer.jpg)
+![Knowledge reading view with the fictional checkout contract and its source provenance](../site/assets/code-knowledge.jpg)
 
 ## Memory workflow
 
@@ -140,7 +152,7 @@ Importance and mandatory recall are independent flags. When a correction superse
 memory, update it in place so the revision chain remains searchable instead of leaving contradictory
 records.
 
-![Graphit Memory Explorer showing a persistent project decision](../site/assets/observatory-memory-explorer.jpg)
+A memory decision can be explicitly linked to a task or session. Those typed references are persisted; they are not inferred from prose links.
 
 ## Hub and ecosystem workflow
 
@@ -196,6 +208,11 @@ ephemeral workspace as cwd. Saved wiki/chat interactions persist the native ID t
 CLI name and reject that ID after a CLI or project change.
 
 ## Dream and Task
+
+![Fictional task dossier with checks, illustrative evidence and persisted record links](../site/assets/code-evidence.jpg)
+
+*Inspect the work contract and the evidence together. The example contains an illustrative documentation review, not a production test result.*
+
 
 Dream runs during configured idle periods to analyze conversation history and improve project knowledge or reusable agent artifacts. It is a knowledge-improvement process, not a task scheduler.
 

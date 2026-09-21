@@ -234,14 +234,13 @@ it("keeps a newer explicit query when an older graph refresh resolves last", asy
   expect(screen.getByText("New result")).toBeTruthy();
 });
 
-it('loads a bounded sample on first map entry and keeps controls before the canvas', async () => {
+it('loads a bounded sample on first map entry with accessible boundary controls', async () => {
   const user = setup();
   await user.click(screen.getByRole('tab', { name: 'Relationship map' }));
   await waitFor(() => expect(astApi.getGraph).toHaveBeenCalledTimes(1));
   expect(astApi.getGraph).toHaveBeenCalledWith({ context: 'library', project_dir: '/project' });
-  const controls = document.querySelector('.map-controls')!;
-  const canvas = document.querySelector('.map-stage')!;
-  expect(controls.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByLabelText('Organize by')).toBeTruthy();
+  expect(screen.getByText('No graph entities in this result')).toBeTruthy();
   await user.click(screen.getByRole('tab', { name: 'Query lab' }));
   await user.click(screen.getByRole('tab', { name: 'Relationship map' }));
   expect(astApi.getGraph).toHaveBeenCalledTimes(1);

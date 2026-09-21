@@ -144,11 +144,11 @@ Memory uses a current-record catalogue and revision dossier. The revision chain 
 
 ### Investigation and query evidence
 
-Current AST implementation: `ExplorerPage`, `QueryBar`, `TabularResults`, `ContextsPage`. Search is the first action and queries the selected index; no sample graph is fetched merely by entering the page. A selected symbol opens indexed source, then Incoming/Outgoing/Potential impact views. Resolve one indexed identity before traversal. Empty, ambiguous or stale identities must not silently merge evidence.
+Current AST implementation: `ExplorerPage`, `QueryBar`, `TabularResults`, `ContextsPage`. Search is the first action and queries the selected index; the Relationship map loads its sample on first selection, not on page entry. A selected symbol opens indexed source, then Incoming/Outgoing/Potential impact views. Resolve one indexed identity before traversal. Empty, ambiguous or stale identities must not silently merge evidence.
 
 AI-generated Cypher is an editable draft. Generation and execution have separate labels, loading states and explicit user actions. Scope changes invalidate results and pending generation. A bounded traversal returns evidence about the indexed endpoints; label its limit and dynamic-analysis gaps. Do not manufacture graph edges from a result table.
 
-The optional map retains schema filters, colors, languages, clusters, 2D/3D, zoom, fit, physics and file navigation. Its graph and tables are different representations with distinct data contracts. The context directory leads with source origin and scope before the investigation action.
+The Relationship map is a deterministic exploration of the loaded result. Organize entities by directory, file, language or configured cluster, inspect relationships crossing a boundary, then follow incoming and outgoing neighbors around a selected entity. Opening source and potential impact is a separate action. Filters remain above the work area; readable names and directions replace physics and 3D controls. Graph and table results retain distinct data contracts. See [the investigation guide](../../guides/code_investigation.md).
 
 ### Source, commands and DX
 
@@ -194,7 +194,7 @@ This is a review contract, **not a claim of a completed accessibility audit**.
 - Never rely only on color, hover, animation or an icon. Do not suppress focus outlines without an equivalent visible replacement.
 - Support zoom, long content, system-font fallback and reduced motion. Keep horizontal scrolling scoped to content that needs it.
 - Announce asynchronous outcomes appropriately without repeatedly interrupting assistive technology. Live regions and graph alternatives need feature-level verification; their completeness is not asserted here.
-- Give charts/diagrams textual explanations. The canvas graph is not, by itself, a sufficient nonvisual explanation; preserve tree/source pathways and evaluate remaining gaps.
+- Give charts/diagrams textual explanations. Relationship exploration must expose entity names, direction and types as readable, keyboard-operable content; a canvas or color alone is not an adequate alternative.
 
 Use direct, concrete language. “Open sessions”, “Review checks”, “No projects match this filter” and “Could not copy; select the command manually” explain an action or state. Avoid “AI magic”, vague “Something went wrong”, unsupported enterprise guarantees, and “Completed” before checks have passed. Keep product-facing copy about the user's decision; implementation details belong in diagnostics or technical docs.
 
