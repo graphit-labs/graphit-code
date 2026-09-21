@@ -915,7 +915,7 @@ way to take a language out of the index. That works for *this* repository, which
 owns `internal/ast/queries/*.yaml`. It does not work for a consumer: the files it
 would have to delete live in `~/.graphit/runtime/<version>/ast/queries/`, which the
 launcher regenerates on every install. The markdown note in
-[Supported Languages](#-supported-languages) is the deleted-file case; these keys
+[Supported Languages](#supported-languages) is the deleted-file case; these keys
 are the same decision made from the outside.
 
 **Where it is enforced.** The extension tables (`tsExtMap`, `antlrExtMap`,

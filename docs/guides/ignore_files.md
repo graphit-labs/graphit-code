@@ -122,7 +122,7 @@ The AST module has three built-in defaults; everything else is controlled by the
 > `ast.index_docs` does not bring it back. The grammar itself is still compiled in,
 > so a project that wants markdown structure opts in with its own `markdown.yaml`
 > under `ast.queries_dir`. See
-> [AST Module](../specs/ast_module.md#-supported-languages).
+> [AST Module](../specs/ast_module.md#supported-languages).
 
 > **Ignored by the indexer is not the same as ignored by git.** The `.gitignore`
 > block `graphit init` writes names `.graphit/runtime/` and `.graphit/grammars/`.

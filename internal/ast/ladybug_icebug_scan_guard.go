@@ -52,7 +52,7 @@ func canonicalUnsafeScan(cypher string) error {
 			}
 		case i+1 < len(code) && code[i] == '/' && code[i+1] == '*':
 			i += 2
-			for i+1 < len(code) && !(code[i] == '*' && code[i+1] == '/') {
+			for i+1 < len(code) && (code[i] != '*' || code[i+1] != '/') {
 				i++
 			}
 			i += 2
