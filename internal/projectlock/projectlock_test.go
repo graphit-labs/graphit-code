@@ -109,7 +109,7 @@ func TestProjectClusterRoundTripsNormalized(t *testing.T) {
 		ID:   ulid.Make().String(),
 		Name: "clustered-project",
 		Cluster: map[string][]string{
-			" team ": {"frontend", " backend ", "frontend", ""},
+			" team ": {"frontend", " backend ", "frontend", ""}, //nolint:gocritic // Exercise normalization of surrounding whitespace.
 			"":       {"ignored"},
 		},
 	}}

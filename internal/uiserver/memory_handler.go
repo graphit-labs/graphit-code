@@ -105,14 +105,6 @@ func (h *MemoryHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/memories/{id}", corsJSON(h.handleRemove))
 }
 
-func (h *MemoryHandler) projectDir(r *http.Request) string {
-	projectDir := strings.TrimSpace(r.URL.Query().Get("project_dir"))
-	if projectDir == "" {
-		projectDir = h.defaultProjectDir
-	}
-	return projectDir
-}
-
 func memoryScope(r *http.Request) string {
 	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	if scope == "" {

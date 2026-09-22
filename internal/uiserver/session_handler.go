@@ -122,14 +122,6 @@ func (h *SessionHandler) handleDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, detail)
 }
 
-func (h *SessionHandler) projectDir(r *http.Request) string {
-	projectDir := strings.TrimSpace(r.URL.Query().Get("project_dir"))
-	if projectDir == "" {
-		projectDir = h.defaultProjectDir
-	}
-	return projectDir
-}
-
 func (h *SessionHandler) openScope(ctx context.Context, scope ProjectScope) (sessionExporter, error) {
 	if scope.Remote() {
 		return h.openRemote(ctx, scope.ProjectID)

@@ -230,15 +230,6 @@ func contextLabel(name string, idNames map[string]string) string {
 	return name
 }
 
-func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) {
-	db, err := wiki.OpenWikiDB(ctx, wikiDir)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	return listWikiPagesFrom(ctx, db)
-}
-
 func listWikiPagesFrom(ctx context.Context, db *wiki.WikiDB) ([]WikiPageMeta, error) {
 
 	chunks, err := db.Chunks(ctx)

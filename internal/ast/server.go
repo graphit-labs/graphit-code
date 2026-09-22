@@ -161,7 +161,7 @@ func (s *Server) dbForContext(r *http.Request) GraphDB {
 			return &errorGraphDB{err: fmt.Errorf("exact context id@version is required for a Hub project")}
 		}
 		if s.externalContextResolver == nil {
-			return &errorGraphDB{err: fmt.Errorf("Hub AST context resolver is unavailable")}
+			return &errorGraphDB{err: fmt.Errorf("hub AST context resolver is unavailable")}
 		}
 		storeDir, _, err := s.externalContextResolver(r.Context(), projectID, ctxName)
 		if err != nil {
