@@ -18,18 +18,21 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 			t.Fatalf("preamble missing persistence boundary %q:\n%s", want, content)
 		}
 	}
-	// Keep work ownership explicit without requiring a live waiting turn.
-	for _, want := range []string{"Delegate recall", "where your host cannot run them", "perform it yourself", "report evidence and may finish their turn", "no waiting loop is required", "follow-up/resume mechanism when available", "Send later questions to the one that owns them", "an expectation that did not hold", "rather than investigating yourself", "release host resources when no longer needed", "never delegated"} {
+	// An applicable named delegation is the narrow exception to the default: it
+	// authorizes and requires only that role, without transferring coordination.
+	for _, want := range []string{"Subagent default: create none unless", "applicable mandate, AGENTS.md, loaded skill or higher-priority instruction", "explicitly assigns bounded work to a delegated role", "authorizes and requires only that role and work", "This mandate assigns recall→", "impact review→", "decided transcription→", "already in that role works directly, not recursively", "host cannot run the role", "perform only that role yourself", "report evidence and may finish", "no waiting loop", "may later send that delegate another instruction", "follow-up/resume when supported", "Reuse is optional", "no keep-alive, reuse or explicit dismissal is required", "ending a turn does not complete Graphit work", "Task/session claims, revisions, completion and lifecycle stay with the coordinator"} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("preamble missing delegation guidance %q:\n%s", want, content)
 		}
 	}
-	for _, forbidden := range []string{"stays open", "waits forever", "Stay alive", "Never end yourself"} {
+	for _, forbidden := range []string{"stays open", "waits forever", "Stay alive", "Never end yourself", "must reuse the same delegate", "should reuse the same delegate"} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("preamble requires a live waiting turn: %q", forbidden)
 		}
 	}
-	if len(content) > 2900 {
+	// The resident budget includes the explicit delegation authorization boundary;
+	// keep that safety rule without letting the preamble grow unbounded.
+	if len(content) > 3200 {
 		t.Fatalf("resident preamble is too large: %d bytes", len(content))
 	}
 }

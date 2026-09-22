@@ -93,12 +93,12 @@ func TestDelegatedProtocolNeverInstructsSessionOwnership(t *testing.T) {
 	}
 
 	for label, payload := range payloads {
-		for _, forbidden := range []string{"graphit_task_session_create", "graphit_task_session_claim", "graphit_task_session_complete", "graphit_task_session_checkpoint", "Stay alive", "Never end yourself", "waits forever"} {
+		for _, forbidden := range []string{"graphit_task_session_create", "graphit_task_session_claim", "graphit_task_session_complete", "graphit_task_session_checkpoint", "Stay alive", "Never end yourself", "waits forever", "must reuse the same delegate", "should reuse the same delegate"} {
 			if strings.Contains(payload, forbidden) {
 				t.Fatalf("%s must not instruct session ownership, found %q", label, forbidden)
 			}
 		}
-		for _, want := range []string{"never create, claim or close a coordination session", "Finishing a turn does not complete Graphit work", "The coordinator decides when this work ends", "then finish your turn", "Do not run a waiting loop", "follow-up/resume mechanism when supported", "release their host resources when no longer needed", "records owned by another agent"} {
+		for _, want := range []string{"never create, claim or close a coordination session", "Finishing a turn does not complete Graphit work", "The coordinator decides when this work ends", "then finish your turn", "Do not run a waiting loop", "may later send you another instruction", "follow-up/resume mechanism when supported", "Reuse is optional", "no keep-alive, reuse or explicit dismissal is required", "same optional follow-up capability", "records owned by another agent"} {
 			if !strings.Contains(payload, want) {
 				t.Fatalf("%s missing delegated contract %q", label, want)
 			}
@@ -216,6 +216,11 @@ func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 	}
 	if !strings.Contains(invariant, "new/resumed action") || !strings.Contains(invariant, "reload after compaction if lost") {
 		t.Fatalf("invariant does not restore Graphit-first routing on resume: %s", invariant)
+	}
+	for _, want := range []string{"Delegation", "applicable instruction that explicitly assigns bounded work to a delegated role", "authorizes and requires only that role/work", "recall→scout", "impact→tracker", "transcription→scribe", "otherwise no subagents", "host cannot run it", "coordinator performs only that role", "Acceptance, checkpoints, Task/session claims, revisions, completion and lifecycle stay with the coordinator"} {
+		if !strings.Contains(invariant, want) {
+			t.Fatalf("invariant does not preserve the bounded delegation rule %q after compaction: %s", want, invariant)
+		}
 	}
 	for _, want := range []string{"Persistence boundary", "only non-sensitive, project-inherent", "personal/sensitive data", "secrets/credentials", "security-risk material", "transient feelings/speculation", "private user memory", "otherwise do not persist"} {
 		if !strings.Contains(invariant, want) {
@@ -453,7 +458,9 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 		if !strings.Contains(string(payload), "Antigravity-specific hook compensation") || !strings.Contains(string(payload), "role document installed under the agents directory") || !strings.Contains(string(payload), "read that document yourself when you cannot delegate") || strings.Contains(string(payload), "Cursor-specific") {
 			t.Fatalf("Antigravity compensation is missing or leaked: %s", payload)
 		}
-		if strings.Contains(invocation, `:1`) && len(payload) > 1600 {
+		// The recurring payload carries the complete delegation boundary after
+		// compaction, including coordinator-only lifecycle and host fallback.
+		if strings.Contains(invocation, `:1`) && len(payload) > 2000 {
 			t.Fatalf("repeated Antigravity compensation is too large: %d bytes", len(payload))
 		}
 	}

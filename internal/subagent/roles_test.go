@@ -25,12 +25,17 @@ func TestInstallRolesWritesEveryRoleForEveryHost(t *testing.T) {
 					t.Fatalf("%s did not install role %s", agentName, role.Name)
 				}
 				content := readFile(t, path)
-				for _, want := range []string{"then finish your turn", "Do not run a waiting loop", "follow-up/resume mechanism when supported", "never create, claim or close a coordination session"} {
+				for _, want := range []string{"then finish your turn", "Do not run a waiting loop", "follow-up/resume mechanism when supported", "may later send you another instruction", "Reuse is optional", "no keep-alive, reuse or explicit dismissal is required", "never create, claim or close a coordination session"} {
 					if !strings.Contains(content, want) {
 						t.Errorf("%s/%s lost lifecycle guidance %q", agentName, role.Name, want)
 					}
 				}
-				for _, forbidden := range []string{"Stay alive", "Never end yourself", "waits forever"} {
+				for _, want := range []string{"Subagent default: create none unless", "explicitly assigns bounded work to a delegated role", "authorizes and requires only that role and work", "already in that role works directly, not recursively", "Task/session claims, revisions, completion and lifecycle stay with the coordinator"} {
+					if !strings.Contains(content, want) {
+						t.Errorf("%s/%s lost bounded delegation guidance %q", agentName, role.Name, want)
+					}
+				}
+				for _, forbidden := range []string{"Stay alive", "Never end yourself", "waits forever", "must reuse the same delegate", "should reuse the same delegate"} {
 					if strings.Contains(content, forbidden) {
 						t.Errorf("%s/%s requires a waiting turn: %q", agentName, role.Name, forbidden)
 					}
