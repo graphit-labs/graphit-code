@@ -2,7 +2,7 @@
 title: Adapter hook enforcement
 type: architecture
 status: active
-updated: 2026-09-08
+updated: 2026-09-22
 tags: [adapters, hooks, mandates, skills, enforcement]
 ---
 
@@ -37,6 +37,10 @@ In the same event, `_session-hook` resolves the project root at runtime from the
 
 After resolution, the command reads that project's configuration and lockfile. In stable order, it composes only the mandates for enabled modules and the bodies of installed Hub `rule` artifacts. Rules are read from the authoritative artifact (`RULE.md`), including local links; they are not copied into Agent rule directories.
 
+The single resident preamble also carries a persistence boundary for every enabled module and every delegated role. Shared project records may contain only non-sensitive content inherent to the project and needed for confirmed contracts, decisions, evidence, operations, or technical continuity. Agents must not persist personal or sensitive user/organization data, secrets, credentials, material whose retention creates a security risk, or an engineer's feelings, frustration, transient impressions, or unconfirmed speculation. User-only context can be considered only for private user memory when it is a durable, legitimately useful preference or correction; otherwise it is not persisted. A technical hypothesis that is necessary to continue an investigation remains explicitly labelled as a hypothesis and is never promoted to a fact merely because it was recorded.
+
+This is an agent mandate, not a claim that the storage layer can infer sensitivity or intent from arbitrary text. Hooks deliver the same classification rule before any enabled module is used; module skills define their own write workflows. The compact invariant repeats the boundary after compaction and at recurring model boundaries so resumed agents do not lose it. Tests and examples use synthetic classifications rather than copying real sensitive material.
+
 Knowledge and Task complement one another: documentation supplies authoritative project context; task records supply current specifications, prior findings and validation evidence. Reuse Task context already retrieved for the question. Search additional task history when a new question needs knowledge of system behavior, earlier work or rationale, then read selected records with `graphit_task_get`. When Task is disabled or unavailable, Knowledge remains usable. Recurring reminders retain this mid-work recall rule without replaying either initial retrieval workflow.
 
 Context-capable adapters do not create or update `AGENTS.md`, `CLAUDE.md`, or equivalents to deliver these instructions. Skills remain physical in native host directories because hosts must discover and load them on demand.
@@ -52,6 +56,8 @@ discovery. Hub/AST explain the transition; Memory/Task/Knowledge preserve each l
 while the coordinating task remains in its owning project.
 
 Full resident context is reserved for a real session or subagent start and reconstruction after compaction, except Kimi: its reliable context boundary is `UserPromptSubmit`, so it retains bootstrap delivery there without assuming `SessionStart` stdout was consumed. Other recurring prompt or invocation boundaries receive only `CoreInvariant`, the short Graphit-first priority reminder; they do not rebuild or repeat mandatory memory, mandates, rules, or the initial bootstrap. When an adapter has a compensable gap, only that adapter's format appends its specific instruction to the invariant or checkpoint. Post-action boundaries without a gap receive only `UnitCompletionReminder`. If a required Graphit MCP tool is unavailable in the current agent, the agent continues with its native tools. The only prohibited substitution is using the Graphit CLI as though it were MCP.
+
+Because the persistence boundary governs every later write, `CoreInvariant` retains its compact form: project records stay non-sensitive and project-inherent; personal/sensitive data, secrets, credentials, security-risk material, and transient feelings/speculation are not persisted; durable user-only preferences or corrections belong only in private user memory. This reminder preserves the decision boundary without replaying the full mandate.
 
 Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. The hook only restores the router; the agent still classifies the domain and loads the corresponding skill only when the next action matches a trigger.
 
@@ -183,7 +189,8 @@ Routing and domain-specific decision workflows remain in mandates and skills wit
 
 ## Context budget
 
-- The resident preamble has a tested 1,600-byte limit and appears only once in composed context.
+- The resident preamble has a tested 2,900-byte limit and appears only once in composed context. The budget includes the cross-module persistence boundary so it is not duplicated inside every module mandate.
+- Repeated Antigravity invocation context, which combines `CoreInvariant` with its adapter-specific compensation, has a tested 1,600-byte ceiling. The invariant keeps the compact persistence classification because it must survive compaction and resume boundaries.
 - Recurring post-action payloads have a tested 550-byte ceiling and never include long mandatory memory or full module instructions. Adapter-specific compensation remains at the appropriate bootstrap boundary; Cursor repeats only its short routing reminder after tools.
 - Each module mandate has a tested compact limit. It names the trigger, the exact point to read the skill, and the initial tool route; detailed procedures stay in the skill.
 - Skills have module-specific entrypoint byte ceilings. Detailed authoring guides and complete examples live in selectively loaded `references/` resources, with explicit reading triggers in each skill. Instruction depth is preserved without injecting all examples into every action.

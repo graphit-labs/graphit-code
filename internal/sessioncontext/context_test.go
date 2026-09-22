@@ -53,6 +53,18 @@ func TestMandateRouterCarriesOnlyTheRoleModules(t *testing.T) {
 			t.Fatalf("scribe carries %s, a module its role does not use", unwanted)
 		}
 	}
+
+	for name, context := range map[string]string{
+		"coordinator": coordinator,
+		"tracker":     tracker,
+		"scribe":      scribe,
+	} {
+		for _, want := range []string{"Persistence boundary for every module", "only non-sensitive content inherent to the project", "private user memory", "otherwise do not persist it"} {
+			if !strings.Contains(context, want) {
+				t.Fatalf("%s lost the cross-module persistence boundary %q", name, want)
+			}
+		}
+	}
 }
 
 func TestLoadMandatoryContextFallsBackWhenAStoreCannotOpen(t *testing.T) {

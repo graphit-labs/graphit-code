@@ -217,6 +217,11 @@ func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 	if !strings.Contains(invariant, "new/resumed action") || !strings.Contains(invariant, "reload after compaction if lost") {
 		t.Fatalf("invariant does not restore Graphit-first routing on resume: %s", invariant)
 	}
+	for _, want := range []string{"Persistence boundary", "only non-sensitive, project-inherent", "personal/sensitive data", "secrets/credentials", "security-risk material", "transient feelings/speculation", "private user memory", "otherwise do not persist"} {
+		if !strings.Contains(invariant, want) {
+			t.Fatalf("invariant does not preserve persistence boundary %q after compaction: %s", want, invariant)
+		}
+	}
 }
 
 func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
@@ -448,7 +453,7 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 		if !strings.Contains(string(payload), "Antigravity-specific hook compensation") || !strings.Contains(string(payload), "role document installed under the agents directory") || !strings.Contains(string(payload), "read that document yourself when you cannot delegate") || strings.Contains(string(payload), "Cursor-specific") {
 			t.Fatalf("Antigravity compensation is missing or leaked: %s", payload)
 		}
-		if strings.Contains(invocation, `:1`) && len(payload) > 1200 {
+		if strings.Contains(invocation, `:1`) && len(payload) > 1600 {
 			t.Fatalf("repeated Antigravity compensation is too large: %d bytes", len(payload))
 		}
 	}

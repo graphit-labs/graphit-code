@@ -13,6 +13,11 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 			t.Fatalf("preamble missing %q:\n%s", want, content)
 		}
 	}
+	for _, want := range []string{"Persistence boundary for every module", "only non-sensitive content inherent to the project", "personal or sensitive user/organization data", "secrets, credentials", "feelings, frustration", "unconfirmed speculation", "private user memory", "otherwise do not persist it", "technical hypotheses explicitly labelled", "never promote them to facts"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("preamble missing persistence boundary %q:\n%s", want, content)
+		}
+	}
 	// Keep work ownership explicit without requiring a live waiting turn.
 	for _, want := range []string{"Delegate recall", "where your host cannot run them", "perform it yourself", "report evidence and may finish their turn", "no waiting loop is required", "follow-up/resume mechanism when available", "Send later questions to the one that owns them", "an expectation that did not hold", "rather than investigating yourself", "release host resources when no longer needed", "never delegated"} {
 		if !strings.Contains(content, want) {
@@ -24,7 +29,7 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 			t.Fatalf("preamble requires a live waiting turn: %q", forbidden)
 		}
 	}
-	if len(content) > 2200 {
+	if len(content) > 2900 {
 		t.Fatalf("resident preamble is too large: %d bytes", len(content))
 	}
 }
