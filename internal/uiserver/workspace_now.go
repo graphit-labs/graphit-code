@@ -143,6 +143,10 @@ func readWorkspaceNow(ctx context.Context, dir string, now time.Time) nowView {
 	return out
 }
 func (h *TaskHandler) handleWorkspaceNow(w http.ResponseWriter, r *http.Request) {
+	// Workspace Now is a live snapshot. Polling and the global refresh reuse the
+	// same URL, so browsers and intermediate proxies must not reuse an older
+	// response when the project scope itself has not changed.
+	w.Header().Set("Cache-Control", "no-store")
 	dir := h.projectDir(r)
 	if dir == "" {
 		writeTaskError(w, 400, "project_dir is required")

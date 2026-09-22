@@ -2,6 +2,8 @@ package uiserver
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -20,5 +22,14 @@ func TestActivityOrderingBeforeLimitAndLegacyDates(t *testing.T) {
 	}
 	if got := finishNow(nil, fmt.Errorf("offline")); len(got.Items) != 0 || got.Error != "offline" {
 		t.Fatal(got)
+	}
+}
+
+func TestWorkspaceNowResponsesAreNeverCached(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/workspace/now", nil)
+	recorder := httptest.NewRecorder()
+	(&TaskHandler{}).handleWorkspaceNow(recorder, req)
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
 	}
 }

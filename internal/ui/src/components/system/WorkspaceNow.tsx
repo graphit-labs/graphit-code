@@ -28,7 +28,10 @@ export function WorkspaceNow() {
     setRefreshing(true);
     const promise = (async () => {
       try {
-        const data = await api.get<NowSnapshot>('/api/workspace/now?' + new URLSearchParams({ project_dir: project }), { signal: controller.signal });
+        const data = await api.get<NowSnapshot>('/api/workspace/now?' + new URLSearchParams({ project_dir: project }), {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
         if (!controller.signal.aborted && scopeRef.current === scope) { setSnapshot({ scope, data }); setError(''); }
       } catch (e) {
         if (!controller.signal.aborted && scopeRef.current === scope) setError(e instanceof Error ? e.message : 'Activity unavailable');
