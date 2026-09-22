@@ -62,9 +62,10 @@ func Build(projectDir string, includeMandatory bool) sessionhook.Context {
 	return context
 }
 
-// BuildForRole returns the context for a delegated role. It differs from Build
-// in one way that matters: the router carries only the modules the role uses,
-// so a performer is never handed rules for tools its role will not touch.
+// BuildForRole returns the static context installed for a delegated role. The
+// router carries only the modules the role uses, so a performer is never handed
+// rules for tools its role will not touch. Mandatory memory is runtime state and
+// must never be serialized into the installed role document.
 func BuildForRole(projectDir string, role sessionhook.Role) sessionhook.Context {
 	if projectDir == "" {
 		return sessionhook.Context{}
@@ -72,9 +73,6 @@ func BuildForRole(projectDir string, role sessionhook.Role) sessionhook.Context 
 	projectCfg := loadProjectConfig(projectDir)
 	context := moduleContext(projectCfg)
 	context.Instructions = loadMandateContextForRole(projectDir, projectCfg, role)
-	if !context.MemoryDisabled {
-		context.Mandatory, context.MandatoryLoaded = loadMandatoryContext(projectDir)
-	}
 	return context
 }
 

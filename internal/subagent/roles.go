@@ -66,7 +66,7 @@ func descriptorFor(projectDir string, role sessionhook.Role) agent.AgentDescript
 // agent reads when its host has no subagent to delegate to, so it is addressed
 // to the performer either way.
 func RoleBody(projectDir string, role sessionhook.Role) string {
-	context := sessioncontext.BuildForRole(projectDir, role)
+	context := staticRoleContext(sessioncontext.BuildForRole(projectDir, role))
 	sections := []string{
 		sessionhook.RoleProtocol(role, context),
 		"",
@@ -75,6 +75,15 @@ func RoleBody(projectDir string, role sessionhook.Role) string {
 		roleGuidance(role),
 	}
 	return strings.Join(sections, "\n")
+}
+
+// staticRoleContext is the persistence boundary between live hook context and
+// files installed in a repository. A static agent can explain how to load
+// mandatory memory at runtime, but it must never contain a memory snapshot.
+func staticRoleContext(context sessionhook.Context) sessionhook.Context {
+	context.Mandatory = ""
+	context.MandatoryLoaded = false
+	return context
 }
 
 func roleGuidance(role sessionhook.Role) string {

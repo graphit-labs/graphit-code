@@ -76,6 +76,25 @@ func TestInstallRolesIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestStaticRoleContextNeverSerializesMandatoryMemory(t *testing.T) {
+	const runtimeOnly = "runtime-only-mandatory-memory-sentinel"
+	context := staticRoleContext(sessionhook.Context{
+		Mandatory:       runtimeOnly,
+		MandatoryLoaded: true,
+	})
+	body := sessionhook.RoleProtocol(sessionhook.RoleScout, context)
+
+	if strings.Contains(body, runtimeOnly) {
+		t.Fatalf("static role persisted runtime mandatory memory: %s", body)
+	}
+	if strings.Contains(body, "Standing context already read from the authoritative memory table") {
+		t.Fatalf("static role claims a runtime memory snapshot was already loaded: %s", body)
+	}
+	if !strings.Contains(body, "call `graphit_memory_mandatory` once per available scope before acting") {
+		t.Fatalf("static role lost its runtime mandatory-memory instruction: %s", body)
+	}
+}
+
 // Removal must not be a blunt directory wipe: a host's agent directory is also
 // where the user keeps their own agents.
 func TestRemoveRolesLeavesUserAuthoredAgentsAlone(t *testing.T) {

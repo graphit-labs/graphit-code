@@ -45,6 +45,8 @@ Knowledge and Task complement one another: documentation supplies authoritative 
 
 Context-capable adapters do not create or update `AGENTS.md`, `CLAUDE.md`, or equivalents to deliver these instructions. Skills remain physical in native host directories because hosts must discover and load them on demand.
 
+Managed delegated-role documents are static discovery artifacts. They contain the generic router and mandate boundaries plus an instruction to load mandatory memory at runtime; they never serialize a current `Standing context` block, memory titles, or memory content. Live mandatory memory is injected only at the applicable runtime session/subagent boundary.
+
 External agents can retrieve only global mandates through parameterless `graphit_mandates`. The tool does not resolve a project or read its lockfile. On every call, the canonical configuration schema resolves environment, global configuration, defaults, and global rule overrides through the same builder used by the hook. Mandatory memories, bootstrap instructions, installed Hub rules, and project configuration are excluded from this response.
 
 ### Invariant reinjection
