@@ -1,5 +1,4 @@
 import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
-import { ConfirmModal } from "@/components/hub/modals/ConfirmModal";
 import {
   WorkPage,
   WorkHeader,
@@ -11,26 +10,11 @@ import {
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { useEffect, useState } from "react";
 import { daemonApi, type DaemonStatus } from "@/api/daemon";
-import {
-  Terminal,
-  Square,
-  Activity,
-  FileText,
-  RefreshCw,
-  Cpu,
-  Calendar,
-  Server,
-  Copy,
-  Check,
-  Plug,
-} from "lucide-react";
 import { showToast } from "@/hooks/useToast";
 
 export default function DaemonDashboard() {
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stopConfirm, setStopConfirm] = useState(false);
-  const [stopping, setStopping] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
 
   const copyMcpKey = async () => {
@@ -68,21 +52,6 @@ export default function DaemonDashboard() {
       clearInterval(interval);
     };
   }, []);
-
-  const handleStop = async () => {
-    setStopConfirm(false);
-    setStopping(true);
-    try {
-      const res = await daemonApi.stop();
-      showToast(res.message, "success");
-      await fetchStatus();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showToast(`Failed to stop daemon: ${msg}`, "error");
-    } finally {
-      setStopping(false);
-    }
-  };
 
   const formatUptime = (seconds?: number) => {
     if (seconds == null) return "N/A";
@@ -193,24 +162,6 @@ export default function DaemonDashboard() {
                   </WorkNotice>
                 )}
               </WorkSection>
-              <WorkSection
-                title="Service control"
-                description="Stopping the daemon interrupts background synchronization."
-              >
-                {status.running ? (
-                  <button
-                    className="work-button danger"
-                    disabled={stopping}
-                    onClick={() => setStopConfirm(true)}
-                  >
-                    {stopping ? "Stopping…" : "Stop Daemon"}
-                  </button>
-                ) : (
-                  <WorkNotice title="Start from your terminal">
-                    <code>graphit daemon</code>
-                  </WorkNotice>
-                )}
-              </WorkSection>
             </aside>
           </div>
         </>
@@ -226,15 +177,6 @@ export default function DaemonDashboard() {
           The service could not be reached.
         </WorkEmpty>
       )}
-      <ConfirmModal
-        open={stopConfirm}
-        title="Stop the daemon?"
-        message="The local background service will stop."
-        warning="Background synchronization and agent connections may be interrupted. Restart the daemon from your terminal when ready."
-        confirmLabel="Stop daemon"
-        onConfirm={() => void handleStop()}
-        onCancel={() => setStopConfirm(false)}
-      />
     </WorkPage>
   );
 }

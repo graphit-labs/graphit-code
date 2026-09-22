@@ -8,10 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 )
 
@@ -83,7 +81,7 @@ func TestAdvertisedMCPHost(t *testing.T) {
 	}
 }
 
-func TestHandleDaemonStop_NotRunning(t *testing.T) {
+func TestDaemonStopRouteIsNotRegistered(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
@@ -92,30 +90,8 @@ func TestHandleDaemonStop_NotRunning(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var res map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
-		t.Fatalf("failed to decode: %v", err)
-	}
-	if res["success"] != true {
-		t.Errorf("expected success true, got %v", res["success"])
-	}
-}
-
-func TestHandleDaemonStop_InvalidMethod(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/daemon/stop", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusMethodNotAllowed)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d; want %d", w.Code, http.StatusNotFound)
 	}
 }
 
@@ -454,29 +430,6 @@ func TestSplitLastNLocal(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestHandleDaemonStop_RunningAndStop(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	t.Setenv("HOME", tmpDir)
-	pid := daemon.NewPIDFile()
-
-	err := os.MkdirAll(filepath.Dir(pid.Path()), 0o755)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	myPid := os.Getpid()
-	content := fmt.Sprintf("%d\n%s\n", myPid, time.Now().UTC().Format(time.RFC3339))
-	err = os.WriteFile(pid.Path(), []byte(content), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
 }
 
 func TestNewDaemonDreamHandler(t *testing.T) {

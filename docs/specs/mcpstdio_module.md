@@ -59,7 +59,7 @@ The server deliberately avoids the SDK's `StdioTransport` helper, which hardcode
 
 | Type / Function | Description |
 |---|---|
-| `safeTool(handler)` | Generic wrapper adding panic recovery and background daemon auto-start to every typed tool handler. |
+| `safeTool(handler)` | Generic wrapper adding panic recovery to every typed tool handler. |
 | `textResult(text string)` | Returns a `CallToolResult` with a single `TextContent` payload. |
 | `errResult(err error)` | Returns the error directly to the MCP framework for standard error rendering. |
 | `jsonResult(v any)` | Marshals `v` as indented JSON and returns it as `TextContent`. |
@@ -94,7 +94,6 @@ Tools are registered via `mcp.AddTool(server, toolDefinition, handlerFunc)`. Eac
 Every handler is wrapped with `safeTool()`, which:
 
 1. **Recovers from panics** — catches `recover()` in a deferred function and converts it to a structured error (`"internal error (panic): %v"`).
-2. **Ensures the daemon is running** — calls `daemon.EnsureRunning()` before every tool invocation, mirroring the CLI's behavior. Failures are logged to stderr but do not block the tool.
 
 ### Naming Convention
 
@@ -268,12 +267,9 @@ tasks; deterministic ownership belongs to the Task module.
 | Tool | Description |
 |---|---|
 | `graphit_daemon_status` | Check daemon status: PID, uptime, scheduler status, last 10 log lines. |
-| `graphit_daemon_start` | Start the daemon if it is not running; reports the PID and leaves a live daemon alone. |
-| `graphit_daemon_restart` | Hand the stop-and-start to a detached process and reply before it runs, returning the outgoing PID. |
 
-There is deliberately no stop tool. Every tool here executes inside the daemon, so a handler that
-stops it dies before writing its reply; stopping is a CLI operation (`graphit daemon stop`), which
-runs in a separate process.
+The daemon tool group is deliberately status-only. Lifecycle administration is performed through
+the `graphit daemon` CLI commands documented in the daemon operations guide.
 
 ### 9. Cluster Tools (`tools_cluster.go`)
 

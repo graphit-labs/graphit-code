@@ -1,12 +1,10 @@
 package uiserver
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,7 +17,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
-	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 type DaemonDreamHandler struct {
@@ -32,7 +29,6 @@ func NewDaemonDreamHandler(hubSvc *hub.HubService) *DaemonDreamHandler {
 
 func (h *DaemonDreamHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/daemon/status", corsJSON(h.handleDaemonStatus))
-	mux.HandleFunc("POST /api/daemon/stop", corsJSON(h.handleDaemonStop))
 	mux.HandleFunc("GET /api/dream/status", corsJSON(h.handleDreamStatus))
 	mux.HandleFunc("GET /api/dream/reports", corsJSON(h.handleDreamReports))
 }
@@ -110,63 +106,6 @@ func advertisedMCPHost(bindHost, requestHost string) string {
 	default:
 		return strings.Trim(bindHost, "[]")
 	}
-}
-
-// This server is a module of the daemon it controls, so a handler that signals the daemon is
-// signalling its own process: it dies mid-request and the browser is left waiting on a connection
-// that will never carry a reply. The stop is therefore handed to a detached process and the reply
-// goes out while this one is still up.
-var (
-	stopDaemonDetached = spawnDetachedStop
-	livingDaemonPID    = currentDaemonPID
-)
-
-func currentDaemonPID() (int, bool) {
-	if alive := daemon.NewPIDFile().IsAlive(); alive != nil {
-		return alive.PID, true
-	}
-	return 0, false
-}
-
-// spawnDetachedStop runs the stop command in a process that outlives this one. Reusing that
-// command keeps the signal, grace period and cleanup rules in a single place.
-func spawnDetachedStop() error {
-	exe := daemonctl.ResolveExe()
-	if exe == "" {
-		return errors.New("cannot locate the executable needed to stop the daemon")
-	}
-	cmd := exec.Command(exe, "daemon", "stop")
-	cmd.Stdin, cmd.Stdout = nil, nil
-	closeLog := daemon.AttachLogStderr(cmd)
-	defer closeLog()
-	sysutil.DetachProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("spawning the stop process: %w", err)
-	}
-	// Nothing waits for it: this process is the one it is about to stop.
-	go func() { _ = cmd.Wait() }()
-	return nil
-}
-
-func (h *DaemonDreamHandler) handleDaemonStop(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-
-	pidNum, running := livingDaemonPID()
-	if !running {
-		writeJSON(w, map[string]any{"success": true, "message": "No daemon running."})
-		return
-	}
-
-	if err := stopDaemonDetached(); err != nil {
-		http.Error(w, fmt.Sprintf("starting the stop process: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, map[string]any{"success": true, "message": fmt.Sprintf(
-		"Daemon (PID %d) is being stopped by a separate process. This reply is sent before it goes down, so the stop completes just after you read it.", pidNum)})
 }
 
 func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Request) {

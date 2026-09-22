@@ -16,5 +16,4 @@ export interface DaemonStatus {
 
 export const daemonApi = {
   getStatus: () => api.get<DaemonStatus>('/daemon/status'),
-  stop: () => api.post<{ success: boolean; message: string }>('/daemon/stop', {}),
 }

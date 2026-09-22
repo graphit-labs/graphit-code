@@ -224,8 +224,11 @@ providers, or downstream services.
 
 In the Observatory, open **System → Daemon**. The page shows the current port and usable endpoint;
 its **MCP bearer key** button masks the value on screen and copies the complete key for the client
-configuration. Runtime keys rotate on restart. Stable per-account credentials and OIDC renewal are
+configuration. Runtime keys rotate with a new daemon runtime. Stable per-account credentials and OIDC renewal are
 managed by `graphit login`; see [Authentication](authentication.md).
+
+The Observatory daemon page is status-only. Use the `graphit daemon` CLI commands listed under
+**Lifecycle commands** for lifecycle administration.
 
 The port file is discovery metadata, not a secret. The daemon rewrites both files if another
 process deletes or changes them. On shutdown it removes them only when they still describe that

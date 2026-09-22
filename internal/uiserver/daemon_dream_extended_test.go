@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -111,70 +110,6 @@ func TestHandleDaemonStatus_WithStalePID(t *testing.T) {
 
 	if res.Running {
 		t.Error("expected Running=false for stale/non-existent PID")
-	}
-}
-
-func TestHandleDaemonStop_StalePIDFile(t *testing.T) {
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	daemonDir := filepath.Join(tmpHome, "."+brand.Brand, "daemon")
-	if err := os.MkdirAll(daemonDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pidContent := fmt.Sprintf("99999999\n%s\n", time.Now().UTC().Format(time.RFC3339))
-	if err := os.WriteFile(filepath.Join(daemonDir, "daemon.pid"), []byte(pidContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/daemon/stop", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var res map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if res["success"] != true {
-		t.Errorf("expected success true, got %v", res["success"])
-	}
-}
-
-func TestHandleDaemonStop_NoPIDFile(t *testing.T) {
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/daemon/stop", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var res map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if res["success"] != true {
-		t.Errorf("expected success true (no daemon running)")
-	}
-	if msg, ok := res["message"].(string); ok {
-		if !strings.Contains(msg, "No daemon running") {
-			t.Errorf("message = %q; expected 'No daemon running'", msg)
-		}
 	}
 }
 

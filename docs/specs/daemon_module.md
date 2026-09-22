@@ -159,7 +159,9 @@ autostart wait; process termination releases the operating-system locks.
 Modules that run once per daemon (not per-project):
 - **`EmbedServer`**: Lazy Unix-socket proxy for the configured local or remote embedding provider.
 - **User `MemoryMaintenanceModule`**: exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
-- **Optional UI module**: hosts the Observatory when `modules.daemon_ui=true`.
+- **Optional UI module**: hosts the Observatory when `modules.daemon_ui=true`. Its daemon surface is
+  read-only and reports status and connection details only. Lifecycle administration remains in the
+  `graphit daemon` CLI.
 
 The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp` and an
 unauthenticated liveness probe at `GET /health`. The health route returns HTTP 200 with
