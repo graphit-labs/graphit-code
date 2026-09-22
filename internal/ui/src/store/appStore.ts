@@ -91,23 +91,11 @@ export const useAppStore = create<AppState>()(
           const data = await hubApi.getGlobalProjects()
           const projects = data.projects ?? []
           const state = get()
-          let activeDir = state.activeProjectDir
-          let name = state.projectName
-          if (!activeDir && data.current_project_dir) {
-            activeDir = data.current_project_dir
-            const match = projects.find((p) => p.dir === activeDir)
-            if (match) name = match.name
-          }
-          if (activeDir && projects.length > 0) {
-            const match = projects.find((p) => p.dir === activeDir)
-            if (!match) {
-              activeDir = data.current_project_dir || ''
-              const fallback = projects.find((p) => p.dir === activeDir)
-              name = fallback?.name || ''
-            } else {
-              name = match.name
-            }
-          }
+          const selected = projects.find((p) => p.dir === state.activeProjectDir)
+            ?? projects.find((p) => p.dir === data.current_project_dir)
+          const activeDir = selected?.dir ?? ''
+          const name = selected?.name ?? ''
+          const activeProjectId = selected?.id ?? ''
           
           let agent = state.activeAgent
           if (!agent) {
@@ -117,6 +105,7 @@ export const useAppStore = create<AppState>()(
           set({
             projects,
             activeProjectDir: activeDir,
+            activeProjectId,
             projectName: name,
             activeAgent: agent,
             supportedAgents: data.supported_agents ?? [],

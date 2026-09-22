@@ -149,13 +149,23 @@ func (s *UIServer) handleGlobalProjects(w http.ResponseWriter, r *http.Request) 
 	}
 
 	p := paths.GetPaths(s.agent, false)
+	currentProjectDir := currentProjectDirForCatalog(p.ActiveProjectDir, active)
 
 	writeJSONUI(w, map[string]any{
 		"projects":            projects,
-		"current_project_dir": p.ActiveProjectDir,
+		"current_project_dir": currentProjectDir,
 		"current_agent":       s.agent,
 		"supported_agents":    agent.SupportedAgents(),
 	})
+}
+
+func currentProjectDirForCatalog(candidate string, active []ActiveProject) string {
+	for _, project := range active {
+		if sameDir(candidate, project.Dir) {
+			return project.Dir
+		}
+	}
+	return ""
 }
 
 func (s *UIServer) handleRegistry(w http.ResponseWriter, r *http.Request) {

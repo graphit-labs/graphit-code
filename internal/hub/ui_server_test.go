@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 func newTestUIServer(t *testing.T) *UIServer {
@@ -835,6 +836,90 @@ func TestUIServer_handleGlobalProjects(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if _, ok := resp["projects"]; !ok {
 		t.Error("expected 'projects' key in response")
+	}
+}
+
+func TestUIServerHandleGlobalProjectsValidatesCurrentDirectory(t *testing.T) {
+	t.Run("rejects the global directory when no project is registered", func(t *testing.T) {
+		globalDir := t.TempDir()
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+		t.Chdir(globalDir)
+
+		s := newTestUIServer(t)
+		w := httptest.NewRecorder()
+		s.handleGlobalProjects(w, httptest.NewRequest(http.MethodGet, "/api/global-projects", nil))
+
+		var resp struct {
+			Projects          []any  `json:"projects"`
+			CurrentProjectDir string `json:"current_project_dir"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Projects) != 0 {
+			t.Fatalf("projects = %v, want empty", resp.Projects)
+		}
+		if resp.CurrentProjectDir != "" {
+			t.Fatalf("current_project_dir = %q, want empty", resp.CurrentProjectDir)
+		}
+	})
+
+	t.Run("preserves a registered current project", func(t *testing.T) {
+		globalDir := t.TempDir()
+		projectDir := t.TempDir()
+		t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+		t.Chdir(projectDir)
+
+		const projectID = "01TESTPROJECT00000000000000"
+		lock := &Lockfile{
+			Project:   ProjectIdentity{ID: projectID, Name: "test-project"},
+			Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
+		}
+		if err := SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), lock); err != nil {
+			t.Fatal(err)
+		}
+		manager, err := NewGlobalLockManager()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.RegisterProject(projectID, projectDir, WithProjectName("test-project")); err != nil {
+			t.Fatal(err)
+		}
+
+		s := newTestUIServer(t)
+		w := httptest.NewRecorder()
+		s.handleGlobalProjects(w, httptest.NewRequest(http.MethodGet, "/api/global-projects", nil))
+
+		var resp struct {
+			Projects          []map[string]any `json:"projects"`
+			CurrentProjectDir string           `json:"current_project_dir"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Projects) != 1 {
+			t.Fatalf("projects = %v, want one project", resp.Projects)
+		}
+		if resp.CurrentProjectDir != projectDir {
+			t.Fatalf("current_project_dir = %q, want %q", resp.CurrentProjectDir, projectDir)
+		}
+	})
+}
+
+func TestCurrentProjectDirForCatalog(t *testing.T) {
+	t.Parallel()
+	registered := t.TempDir()
+	other := t.TempDir()
+	active := []ActiveProject{{ID: "project-1", Dir: registered}}
+
+	if got := currentProjectDirForCatalog(other, active); got != "" {
+		t.Fatalf("unregistered candidate = %q, want empty", got)
+	}
+	if got := currentProjectDirForCatalog(registered, nil); got != "" {
+		t.Fatalf("candidate with empty catalogue = %q, want empty", got)
+	}
+	if got := currentProjectDirForCatalog(filepath.Join(registered, "."), active); got != registered {
+		t.Fatalf("registered candidate = %q, want %q", got, registered)
 	}
 }
 
