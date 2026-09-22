@@ -170,7 +170,7 @@ See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 - Source and local Icebug output remain local. Memory, Task, Knowledge/AST Lance data, and Hub
   artifacts use direct S3 mounts when the active provider has S3.
 - S3-enabled Broker providers receive a short-lived S3 session and topology per project, user-memory,
-  or Hub-metadata scope and keep those values only in process memory. The Broker retains
+  or Hub-metadata scope and physical module, and keep those values only in process memory. The Broker retains
   permanent credentials, derives the STS policy from current ACLs, and never carries object bodies.
   When Broker discovery omits storage, the authenticated provider uses local paths. Direct OIDC
   providers use web-identity STS when configured; without it they also use local paths. Local

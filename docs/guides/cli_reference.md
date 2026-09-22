@@ -190,7 +190,7 @@ Important provider option groups:
 | Broker | `--broker-endpoint`, `--broker-audience`, `--broker-resource`, `--broker-token-strategy relay|token-exchange`, `--broker-token-exchange-endpoint`, `--broker-allow-anonymous` |
 | Embedding | `--embedding-mode local|direct|broker|disabled`; local `--embedding-device auto|cpu|cuda|coreml` and `--embedding-device-id`; direct protocol/endpoint/model/dimensions |
 | Rerank | `--rerank-mode local|direct|broker|disabled`; local `--rerank-device auto|cpu|cuda|coreml` and `--rerank-device-id`; direct protocol/endpoint/model plus `--rerank-dimensions` for OpenAI/OpenAI-compatible/Google embedding-simulated rerank |
-| S3 topology | `--s3-bucket`, `--s3-region`, `--s3-endpoint`, `--s3-prefix`, `--s3-credential-source login|aws-chain|sts`; first-class Broker providers resolve these values in memory per project/user/Hub scope when Broker S3 is enabled and otherwise use local storage |
+| S3 topology | `--s3-bucket`, `--s3-region`, `--s3-endpoint`, `--s3-prefix`, `--s3-credential-source login|aws-chain|sts`; first-class Broker providers resolve these values in memory per project/user/Hub scope and physical module when Broker S3 is enabled and otherwise use local storage |
 | OIDC STS | `--sts-endpoint`, `--sts-role-arn`, `--sts-session-name`, `--sts-duration`, `--sts-use-access-token`, `--clear-sts` |
 | Local S3 login | `--s3-access-key`, `--s3-secret-key`, `--s3-session-token`, or `--aws-profile`; `--allow-aws-credential-chain` enables the ambient chain |
 

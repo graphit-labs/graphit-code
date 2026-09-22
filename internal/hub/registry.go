@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
@@ -727,7 +728,7 @@ func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, 
 		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
 	case TypeKnowledge:
-		prepared, err := prepareKnowledgePublishVersion(ctx, localPath, latestOnly, config.ProjectS3Config(ctx, meta.ProjectID))
+		prepared, err := prepareKnowledgePublishVersion(ctx, localPath, latestOnly, config.ProjectS3Config(ctx, meta.ProjectID, auth.BrokerStorageModuleHub))
 		if err != nil {
 			return fmt.Errorf("preparing knowledge publish: %w", err)
 		}

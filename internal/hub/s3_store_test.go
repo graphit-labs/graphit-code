@@ -18,8 +18,9 @@ import (
 
 type brokerS3TestResponse struct {
 	auth.S3Credentials
-	Scope     string `json:"scope"`
-	ProjectID string `json:"project_id,omitempty"`
+	Scope     string                   `json:"scope"`
+	ProjectID string                   `json:"project_id,omitempty"`
+	Module    auth.BrokerStorageModule `json:"module"`
 }
 
 func activateBrokerProvider(t *testing.T, endpoint string) {
@@ -45,7 +46,7 @@ func TestS3StoreDiscoversTemporaryCredentialsFromBroker(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/graphit-broker":
 			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "issuer": "http://" + r.Host, "services": map[string]any{"s3_credentials": map[string]any{
-				"protocol": "graphit-s3-credentials-v2", "path": "/v1/s3/credentials", "authorization_revision": "acl-1",
+				"protocol": "graphit-s3-credentials-v3", "path": "/v1/s3/credentials", "authorization_revision": "acl-1",
 			}}})
 		case "/v1/s3/credentials":
 			credentialCalls++
@@ -54,7 +55,7 @@ func TestS3StoreDiscoversTemporaryCredentialsFromBroker(t *testing.T) {
 				t.Errorf("decode scope: %v", err)
 			}
 			scopes = append(scopes, scope)
-			_ = json.NewEncoder(w).Encode(brokerS3TestResponse{S3Credentials: auth.S3Credentials{AccessKeyID: "A-" + scope.Kind + "-" + scope.ProjectID, SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Endpoint: "http://" + r.Host, Prefixes: []string{"v2"}, AuthorizationRevision: "acl-1"}, Scope: scope.Kind, ProjectID: scope.ProjectID})
+			_ = json.NewEncoder(w).Encode(brokerS3TestResponse{S3Credentials: auth.S3Credentials{AccessKeyID: "A-" + scope.Kind + "-" + scope.ProjectID + "-" + string(scope.Module), SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Endpoint: "http://" + r.Host, Prefixes: []string{"v2"}, AuthorizationRevision: "acl-1"}, Scope: scope.Kind, ProjectID: scope.ProjectID, Module: scope.Module})
 		default:
 			http.NotFound(w, r)
 		}
@@ -74,7 +75,14 @@ func TestS3StoreDiscoversTemporaryCredentialsFromBroker(t *testing.T) {
 	if _, err := store.projectStore(context.Background(), testProjectTwo); err != nil {
 		t.Fatal(err)
 	}
-	if credentialCalls != 3 || len(scopes) != 3 || scopes[0].Kind != "hub" || scopes[1] != auth.ProjectStorageScope(testProjectOne) || scopes[2] != auth.ProjectStorageScope(testProjectTwo) {
+	taskScope := auth.ProjectStorageScope(testProjectOne, auth.BrokerStorageModuleTask)
+	if _, err := store.scopeStore(context.Background(), taskScope); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.scopeStore(context.Background(), taskScope); err != nil {
+		t.Fatal(err)
+	}
+	if credentialCalls != 4 || len(scopes) != 4 || scopes[0] != auth.HubStorageScope() || scopes[1] != auth.ProjectStorageScope(testProjectOne, auth.BrokerStorageModuleHub) || scopes[2] != auth.ProjectStorageScope(testProjectTwo, auth.BrokerStorageModuleHub) || scopes[3] != taskScope {
 		t.Fatalf("scoped credential calls=%d scopes=%#v", credentialCalls, scopes)
 	}
 }
@@ -112,12 +120,12 @@ func TestS3StoreUsesBrokerHubAccessExclusivelyWhenAdvertised(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/graphit-broker":
 			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "issuer": "http://" + r.Host, "services": map[string]any{
-				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v2", "path": "/v1/s3/credentials", "authorization_revision": "9"},
+				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v3", "path": "/v1/s3/credentials", "authorization_revision": "9"},
 				"hub_access":     map[string]any{"protocol": "graphit-hub-access-v1", "path": "/v1/hub/access/resolve", "authorization_revision": "9"},
 			}})
 		case "/v1/s3/credentials":
 			credentialCalls++
-			_ = json.NewEncoder(w).Encode(brokerS3TestResponse{S3Credentials: auth.S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Endpoint: "http://" + r.Host, Prefixes: []string{"users/alice"}, AuthorizationRevision: "9"}, Scope: "hub"})
+			_ = json.NewEncoder(w).Encode(brokerS3TestResponse{S3Credentials: auth.S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Endpoint: "http://" + r.Host, Prefixes: []string{"users/alice"}, AuthorizationRevision: "9"}, Scope: "hub", Module: auth.BrokerStorageModuleHub})
 		case "/v1/hub/access/resolve":
 			if r.Header.Get("Authorization") != "Bearer broker-key" {
 				t.Errorf("authorization=%q", r.Header.Get("Authorization"))
@@ -151,12 +159,12 @@ func TestS3StoreBrokerHubAccessFailureDoesNotFallBackToProjectsJSON(t *testing.T
 		switch r.URL.Path {
 		case "/.well-known/graphit-broker":
 			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "issuer": "http://" + r.Host, "services": map[string]any{
-				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v2", "path": "/v1/s3/credentials", "authorization_revision": "4"},
+				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v3", "path": "/v1/s3/credentials", "authorization_revision": "4"},
 				"hub_access":     map[string]any{"protocol": "graphit-hub-access-v1", "path": "/v1/hub/access/resolve", "authorization_revision": "4"},
 			}})
 		case "/v1/s3/credentials":
 			credentialCalls++
-			_ = json.NewEncoder(w).Encode(brokerS3TestResponse{S3Credentials: auth.S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Endpoint: "http://" + r.Host, Prefixes: []string{"users/alice"}, AuthorizationRevision: "4"}, Scope: "hub"})
+			_ = json.NewEncoder(w).Encode(brokerS3TestResponse{S3Credentials: auth.S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Endpoint: "http://" + r.Host, Prefixes: []string{"users/alice"}, AuthorizationRevision: "4"}, Scope: "hub", Module: auth.BrokerStorageModuleHub})
 		case "/v1/hub/access/resolve":
 			http.Error(w, "synthetic outage", http.StatusServiceUnavailable)
 		default:

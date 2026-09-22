@@ -11,8 +11,9 @@ configured together on the active provider:
   `AssumeRoleWithWebIdentity`. The provider owns the stable bucket/region/endpoint/prefix and STS
   role configuration.
 - `broker` uses filesystem paths when valid discovery omits S3 because Broker storage is disabled.
-  When discovery advertises `graphit-s3-credentials-v2`, Graphit calls `POST /v1/s3/credentials`
-  with its current Broker bearer and the framework-selected `project`, `user`, or `hub` scope. The Broker derives a session policy from current grants and
+  When discovery advertises `graphit-s3-credentials-v3`, Graphit calls `POST /v1/s3/credentials`
+  with its current Broker bearer and the framework-selected `project`, `user`, or `hub` scope plus
+  the physical `task`, `memory`, `knowledge`, `ast`, or `hub` module. The Broker derives a session policy from current grants and
   returns a temporary access key, secret, session token, expiry, bucket, region, endpoint,
   prefixes, and authorization revision.
 
@@ -26,12 +27,13 @@ are used; `search.rerank=false` prevents rerank calls without changing the requi
 
 The Broker may define several named storage routes, but every effective S3 grant for one requested
 scope must resolve to one route. Different projects may receive different topology. Conflicting
-matching routes fail closed. The client sends only the scope and, for project scope, the immutable
-project ULID; it cannot select a route, bucket, prefix, operation set, role, or duration. The Broker
+matching routes fail closed. The client sends only the scope, module and, for project scope, the immutable
+project ULID; it cannot select a route, bucket, prefix, operation set, role, or duration. Graphit
+rejects any response that does not echo scope/project/module exactly. The Broker
 keeps its permanent S3 identity private and uses it only to call STS.
 
 Temporary credentials are bearer secrets. For a Broker provider, credentials and returned topology
-exist only in process memory, keyed by authenticated identity, provider revision and storage scope;
+exist only in process memory, keyed by authenticated identity, provider revision, storage scope and module;
 `auth.json` never receives them and a restarted process requests fresh grants. Concurrent requests
 for one key share one exchange, while projects and user/Hub scopes never share a credential. An ACL change is reflected
 at the next renewal. A credential already issued remains usable until its STS expiry or an

@@ -697,7 +697,7 @@ has a resolved S3 topology and credentials. Without S3 it falls back to the glob
 anonymous user memory is always local.
 
 **Solutions:** Configure direct S3 on a local provider, web-identity STS on an OIDC provider, or use
-a Broker provider whose discovery advertises `graphit-s3-credentials-v2`. Re-login if the provider
+a Broker provider whose discovery advertises `graphit-s3-credentials-v3`. Re-login if the provider
 revision changed, then inspect the redacted account state. Broker credential expiry is managed only
 in process memory and is intentionally absent from account output.
 

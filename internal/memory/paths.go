@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -81,7 +82,7 @@ func memoryS3Config(ctx context.Context, parts []string) config.S3Config {
 	}
 	switch parts[1] {
 	case "project":
-		return config.ProjectS3Config(ctx, parts[2])
+		return config.ProjectS3Config(ctx, parts[2], auth.BrokerStorageModuleMemory)
 	case "user":
 		return config.UserS3Config(ctx)
 	default:

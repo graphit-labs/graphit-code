@@ -25,9 +25,10 @@ S3 configuration depends on provider type. A local provider may configure bucket
 prefix and either login credentials, an AWS profile, or the explicitly enabled AWS credential
 chain. A direct OIDC provider configures the same topology plus an STS role and exchanges web
 identity for renewable temporary credentials. A first-class Broker provider stores no S3 topology.
-When discovery advertises `graphit-s3-credentials-v2`, it receives complete topology and a
+When discovery advertises `graphit-s3-credentials-v3`, it receives complete topology and a
 restricted STS session from the Broker separately for each project, user-memory, or Hub-metadata
-scope as that scope is first used. When the Broker has S3 disabled and omits that capability,
+scope and physical module as that pair is first used. The response must echo the requested
+scope/project/module exactly. When the Broker has S3 disabled and omits that capability,
 login still succeeds and the authenticated profile uses filesystem storage.
 
 ## Local identity

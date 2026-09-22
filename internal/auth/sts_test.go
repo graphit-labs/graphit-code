@@ -42,7 +42,7 @@ func TestAWSSTSExchangerUsesOIDCTokenAndReturnsCompleteTemporaryTopology(t *test
 		S3:   S3Config{Bucket: "artifacts", Region: "us-east-1", Endpoint: "https://s3.example", Prefix: "graphit", CredentialSource: "sts"},
 		STS:  &STSConfig{Endpoint: server.URL, RoleARN: "arn:aws:iam::123456789012:role/graphit", RoleSessionName: "graphit-test", DurationSeconds: 1800},
 	}
-	credentials, err := (AWSSTSExchanger{}).ExchangeForScope(t.Context(), provider, Profile{Name: "alice", Username: "alice", OIDC: &OIDCSession{IDToken: "id-token", AccessToken: "access-token"}}, ProjectStorageScope("project-a"))
+	credentials, err := (AWSSTSExchanger{}).ExchangeForScope(t.Context(), provider, Profile{Name: "alice", Username: "alice", OIDC: &OIDCSession{IDToken: "id-token", AccessToken: "access-token"}}, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,10 +53,10 @@ func TestAWSSTSExchangerUsesOIDCTokenAndReturnsCompleteTemporaryTopology(t *test
 
 func TestAWSSTSExchangerCanUseAccessTokenAndRejectsMissingSession(t *testing.T) {
 	provider := Provider{Type: ProviderOIDC, S3: S3Config{Bucket: "artifacts", CredentialSource: "sts"}, STS: &STSConfig{RoleARN: "role", UseAccessToken: true}}
-	if _, err := (AWSSTSExchanger{}).ExchangeForScope(t.Context(), provider, Profile{}, ProjectStorageScope("project-a")); err == nil || !strings.Contains(err.Error(), "OIDC session") {
+	if _, err := (AWSSTSExchanger{}).ExchangeForScope(t.Context(), provider, Profile{}, ProjectStorageScope("project-a", BrokerStorageModuleTask)); err == nil || !strings.Contains(err.Error(), "OIDC session") {
 		t.Fatalf("missing session error=%v", err)
 	}
-	if _, err := (AWSSTSExchanger{}).ExchangeForScope(t.Context(), provider, Profile{OIDC: &OIDCSession{IDToken: "id-only"}}, ProjectStorageScope("project-a")); err == nil || !strings.Contains(err.Error(), "token is missing") {
+	if _, err := (AWSSTSExchanger{}).ExchangeForScope(t.Context(), provider, Profile{OIDC: &OIDCSession{IDToken: "id-only"}}, ProjectStorageScope("project-a", BrokerStorageModuleTask)); err == nil || !strings.Contains(err.Error(), "token is missing") {
 		t.Fatalf("missing access token error=%v", err)
 	}
 }
@@ -70,7 +70,7 @@ func TestSTSSessionPolicyLimitsProjectUserAndHubNamespaces(t *testing.T) {
 		want  string
 		deny  string
 	}{
-		{"project", ProjectStorageScope("project-a"), "tenant/v2/projects/project-a/*", "project-b"},
+		{"project", ProjectStorageScope("project-a", BrokerStorageModuleTask), "tenant/v2/projects/project-a/*", "project-b"},
 		{"user", UserStorageScope(), "tenant/v2/users/alice/memory/*", "users/bob"},
 		{"hub", HubStorageScope(), "tenant/v2/registry/*", "projects/project-a/artifacts"},
 	}
@@ -108,7 +108,7 @@ func TestSTSSessionPolicyLimitsProjectUserAndHubNamespaces(t *testing.T) {
 	if _, err := stsSessionPolicy(provider, Profile{Username: "../bob"}, UserStorageScope()); err == nil {
 		t.Fatal("unsafe user ID was accepted")
 	}
-	if _, err := stsSessionPolicy(provider, profile, ProjectStorageScope("../other")); err == nil {
+	if _, err := stsSessionPolicy(provider, profile, ProjectStorageScope("../other", BrokerStorageModuleTask)); err == nil {
 		t.Fatal("unsafe project ID was accepted")
 	}
 }

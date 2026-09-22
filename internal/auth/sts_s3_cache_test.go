@@ -30,7 +30,7 @@ func TestSTSS3ManagerCachesOnlyWithinOneScopeAndSession(t *testing.T) {
 		mu.Unlock()
 		return S3Credentials{AccessKeyID: fmt.Sprintf("%s-%d", key, call), SecretAccessKey: "secret", SessionToken: "session", ExpiresAt: now.Add(time.Hour), Bucket: "artifacts", Region: "us-east-1", Prefixes: []string{"graphit"}}, nil
 	})}
-	projectA := ProjectStorageScope("project-a")
+	projectA := ProjectStorageScope("project-a", BrokerStorageModuleTask)
 	var wg sync.WaitGroup
 	results := make(chan S3Credentials, 8)
 	for range 8 {
@@ -52,7 +52,7 @@ func TestSTSS3ManagerCachesOnlyWithinOneScopeAndSession(t *testing.T) {
 			t.Errorf("concurrent credentials = %q", creds.AccessKeyID)
 		}
 	}
-	for _, scope := range []BrokerStorageScope{ProjectStorageScope("project-b"), UserStorageScope(), HubStorageScope()} {
+	for _, scope := range []BrokerStorageScope{ProjectStorageScope("project-b", BrokerStorageModuleTask), UserStorageScope(), HubStorageScope()} {
 		if _, err := manager.Resolve(context.Background(), base, scope); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +86,7 @@ func TestSTSS3ManagerRejectsRemoteIDTokenExchange(t *testing.T) {
 		t.Fatal("remote request must not exchange the daemon's ID token")
 		return S3Credentials{}, nil
 	})}
-	if _, err := manager.Resolve(WithBrokerBearer(context.Background(), "caller-access"), snapshot, ProjectStorageScope("project-a")); err == nil {
+	if _, err := manager.Resolve(WithBrokerBearer(context.Background(), "caller-access"), snapshot, ProjectStorageScope("project-a", BrokerStorageModuleTask)); err == nil {
 		t.Fatal("remote OIDC STS accepted the daemon's ID token")
 	}
 }

@@ -174,7 +174,7 @@ Hub storage and identity are not layered configuration keys. A local provider ma
 topology and choose login credentials, an AWS profile, or the allowed AWS chain. A direct OIDC
 provider owns S3 topology plus an STS role and exchanges web identity. A first-class Broker provider
 resolves topology and a restricted temporary session in memory for each project/user/Hub scope when discovery
-advertises `graphit-s3-credentials-v2`; when the capability is absent because Broker S3 is disabled,
+advertises `graphit-s3-credentials-v3`; when the capability is absent because Broker S3 is disabled,
 the profile remains authenticated and storage is local. A profile owns identity, service keys and
 direct-provider renewable sessions; Broker S3 sessions are process-local. See [Authentication](authentication.md).
 

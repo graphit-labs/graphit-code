@@ -268,7 +268,7 @@ The framework accepts discovery version `1`:
 
 - embeddings: protocol `openai-embeddings-v1`, path, route, revision, dimensions, max batch;
 - rerank: protocol `graphit-rerank-v1`, path, route, revision, max documents;
-- temporary storage credentials: protocol `graphit-s3-credentials-v2`, path and authorization revision.
+- temporary storage credentials: protocol `graphit-s3-credentials-v3`, path and authorization revision; requests and responses carry the exact scope/project/module tuple.
 
 The broker chooses actual upstream provider/model. This makes routing, central API keys, cache,
 rate policy and optimizations an operator concern while preserving a stable client contract.

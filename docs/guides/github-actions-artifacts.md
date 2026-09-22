@@ -75,7 +75,7 @@ OIDC example after a trusted step acquires tokens for the configured broker audi
       --refresh-token "$OIDC_REFRESH_TOKEN"
 ```
 
-Discovery must advertise both the broker embedding capability and `graphit-s3-credentials-v2`
+Discovery must advertise both the broker embedding capability and `graphit-s3-credentials-v3`
 before publishing. Graphit requests a short-lived STS session for the publishing project whose
 policy is derived from the current principal's grants, then uploads directly to S3. The Broker owns bucket, region, endpoint,
 prefix, role and its permanent AWS identity; the runner receives only the temporary session.

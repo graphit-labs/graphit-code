@@ -314,7 +314,7 @@ Before remote access:
 - keep credentials out of repository configuration.
 - distinguish the MCP bearer from trusted user/team identity;
 - for Broker-managed S3, keep permanent credentials exclusively in Graphit Broker; Graphit holds
-  returned topology and temporary credentials only in memory per project/user/Hub scope. Grant only
+  returned topology and temporary credentials only in memory per project/user/Hub scope and physical module. Grant only
   the intended logical operations through the Broker ACL UI.
 
 ## Operational checklist

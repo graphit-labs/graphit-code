@@ -38,7 +38,7 @@ access token, refresh token, client ID, or client secret never crosses the Broke
 Remote storage follows provider type. A direct OIDC provider with S3 configured uses
 `AssumeRoleWithWebIdentity`; a first-class Broker provider receives a restricted STS session plus
 topology per requested project, user-memory, or Hub-metadata scope when it discovers
-`graphit-s3-credentials-v2`. In both enabled cases the credentials are renewable and
+`graphit-s3-credentials-v3`. In both enabled cases the credentials are renewable and
 LanceDB/LadybugDB send object traffic directly to S3. Either provider uses local
 storage when S3 is not configured or advertised.
 
@@ -98,7 +98,7 @@ each project, user-memory, or Hub-metadata storage scope
   └─ use the temporary key, secret and session token directly with S3
 ```
 
-For a Broker provider, login records only whether Broker S3 is available. Each storage scope later
+For a Broker provider, login records only whether Broker S3 is available. Each storage scope/module pair later
 calls `/v1/s3/credentials` on first use and renewal; Broker ACL changes are reflected at the next renewal. An already issued STS session remains valid until its expiry or
 storage-side revocation.
 

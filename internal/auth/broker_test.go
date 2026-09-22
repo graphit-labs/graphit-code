@@ -21,20 +21,21 @@ func TestBrokerDiscoveryAndCredentialExchange(t *testing.T) {
 		case "/.well-known/graphit-broker":
 			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "issuer": serverURL(r), "services": map[string]any{
 				"embeddings":     map[string]any{"protocol": "openai-embeddings-v1", "path": "/v1/embeddings", "revision": "r1", "dimensions": 3},
-				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v2", "path": "/v1/s3/credentials", "authorization_revision": "acl-1"},
+				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v3", "path": "/v1/s3/credentials", "authorization_revision": "acl-1"},
 			}})
 		case "/v1/s3/credentials":
 			authorization = r.Header.Get("Authorization")
 			var request map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&request)
-			if request["scope"] != "project" || request["project_id"] != "project-a" || len(request) != 2 {
+			if request["scope"] != "project" || request["project_id"] != "project-a" || request["module"] != "task" || len(request) != 3 {
 				t.Errorf("broker request scope: %#v", request)
 			}
 			_ = json.NewEncoder(w).Encode(struct {
 				S3Credentials
-				Scope     string `json:"scope"`
-				ProjectID string `json:"project_id,omitempty"`
-			}{S3Credentials: S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "b", Region: "r", Endpoint: serverURL(r), Prefixes: []string{"users/alice"}, AuthorizationRevision: "acl-1"}, Scope: "project", ProjectID: "project-a"})
+				Scope     string              `json:"scope"`
+				ProjectID string              `json:"project_id,omitempty"`
+				Module    BrokerStorageModule `json:"module"`
+			}{S3Credentials: S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "b", Region: "r", Endpoint: serverURL(r), Prefixes: []string{"users/alice"}, AuthorizationRevision: "acl-1"}, Scope: "project", ProjectID: "project-a", Module: BrokerStorageModuleTask})
 		default:
 			http.NotFound(w, r)
 		}
@@ -45,7 +46,7 @@ func TestBrokerDiscoveryAndCredentialExchange(t *testing.T) {
 	if err != nil || discovery.Services.Embeddings == nil || discovery.Services.S3Credentials == nil {
 		t.Fatalf("discovery=%#v err=%v", discovery, err)
 	}
-	credentials, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "broker-secret"}, ProjectStorageScope("project-a"))
+	credentials, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "broker-secret"}, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +63,8 @@ func TestBrokerCredentialExchangeDistinguishesDisabledFromInvalidS3(t *testing.T
 	}{
 		{name: "disabled", capability: nil, wantAbsent: true},
 		{name: "invalid protocol", capability: map[string]any{"protocol": "unsupported", "path": "/v1/s3/credentials"}},
-		{name: "invalid path", capability: map[string]any{"protocol": "graphit-s3-credentials-v2", "path": "https://other.example/credentials"}},
+		{name: "v2 rejected", capability: map[string]any{"protocol": "graphit-s3-credentials-v2", "path": "/v1/s3/credentials"}},
+		{name: "invalid path", capability: map[string]any{"protocol": "graphit-s3-credentials-v3", "path": "https://other.example/credentials"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,7 +87,7 @@ func TestBrokerCredentialExchangeDistinguishesDisabledFromInvalidS3(t *testing.T
 			defer server.Close()
 
 			provider := brokerProviderForTest(server.URL)
-			_, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "token"}, ProjectStorageScope("project-a"))
+			_, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "token"}, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 			if tc.wantAbsent {
 				if !errors.Is(err, ErrBrokerS3Unavailable) {
 					t.Fatalf("error = %v, want ErrBrokerS3Unavailable", err)
@@ -105,23 +107,121 @@ func TestBrokerCredentialExchangeRejectsDifferentResponseScope(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/graphit-broker":
 			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "services": map[string]any{
-				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v2", "path": "/v1/s3/credentials", "authorization_revision": "1"},
+				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v3", "path": "/v1/s3/credentials", "authorization_revision": "1"},
 			}})
 		case "/v1/s3/credentials":
 			_ = json.NewEncoder(w).Encode(struct {
 				S3Credentials
-				Scope     string `json:"scope"`
-				ProjectID string `json:"project_id,omitempty"`
-			}{S3Credentials: S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "b", Region: "r", Prefixes: []string{"v2"}, AuthorizationRevision: "1"}, Scope: "project", ProjectID: "project-b"})
+				Scope     string              `json:"scope"`
+				ProjectID string              `json:"project_id,omitempty"`
+				Module    BrokerStorageModule `json:"module"`
+			}{S3Credentials: S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "b", Region: "r", Prefixes: []string{"v2"}, AuthorizationRevision: "1"}, Scope: "project", ProjectID: "project-b", Module: BrokerStorageModuleTask})
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer server.Close()
 	provider := brokerProviderForTest(server.URL)
-	_, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "token"}, ProjectStorageScope("project-a"))
+	_, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "token"}, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 	if err == nil || !strings.Contains(err.Error(), "different storage scope") {
 		t.Fatalf("scope mismatch error=%v", err)
+	}
+}
+
+func TestBrokerCredentialExchangeRejectsDifferentResponseModule(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/graphit-broker":
+			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "services": map[string]any{
+				"s3_credentials": map[string]any{"protocol": "graphit-s3-credentials-v3", "path": "/v1/s3/credentials", "authorization_revision": "1"},
+			}})
+		case "/v1/s3/credentials":
+			_ = json.NewEncoder(w).Encode(struct {
+				S3Credentials
+				Scope     string              `json:"scope"`
+				ProjectID string              `json:"project_id,omitempty"`
+				Module    BrokerStorageModule `json:"module"`
+			}{S3Credentials: S3Credentials{AccessKeyID: "A", SecretAccessKey: "S", SessionToken: "T", ExpiresAt: time.Now().Add(time.Hour), Bucket: "b", Region: "r", Prefixes: []string{"v2"}, AuthorizationRevision: "1"}, Scope: "project", ProjectID: "project-a", Module: BrokerStorageModuleMemory})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	provider := brokerProviderForTest(server.URL)
+	_, err := (BrokerCredentialExchanger{HTTP: server.Client()}).ExchangeForScope(context.Background(), provider, Profile{BrokerKey: "token"}, ProjectStorageScope("project-a", BrokerStorageModuleTask))
+	if err == nil || !strings.Contains(err.Error(), "different storage scope") {
+		t.Fatalf("module mismatch error=%v", err)
+	}
+}
+
+func TestBrokerStorageScopeValidation(t *testing.T) {
+	valid := []BrokerStorageScope{
+		ProjectStorageScope("project-a", BrokerStorageModuleTask),
+		ProjectStorageScope("project-a", BrokerStorageModuleMemory),
+		ProjectStorageScope("project-a", BrokerStorageModuleKnowledge),
+		ProjectStorageScope("project-a", BrokerStorageModuleAST),
+		ProjectStorageScope("project-a", BrokerStorageModuleHub),
+		UserStorageScope(),
+		HubStorageScope(),
+	}
+	for _, scope := range valid {
+		if err := scope.validate(); err != nil {
+			t.Fatalf("valid scope %#v: %v", scope, err)
+		}
+	}
+	invalid := []BrokerStorageScope{
+		{Kind: "project", ProjectID: "project-a"},
+		{Kind: "project", ProjectID: "project-a", Module: "other"},
+		{Kind: "user", Module: BrokerStorageModuleHub},
+		{Kind: "user", ProjectID: "project-a", Module: BrokerStorageModuleMemory},
+		{Kind: "hub", Module: BrokerStorageModuleMemory},
+		{Kind: "hub", ProjectID: "project-a", Module: BrokerStorageModuleHub},
+	}
+	for _, scope := range invalid {
+		if err := scope.validate(); err == nil {
+			t.Fatalf("invalid scope accepted: %#v", scope)
+		}
+	}
+}
+
+func TestBrokerStorageScopeForObjectKeyUsesPhysicalModule(t *testing.T) {
+	project := func(module BrokerStorageModule) BrokerStorageScope {
+		return ProjectStorageScope("project-a", module)
+	}
+	tests := []struct {
+		key  string
+		want BrokerStorageScope
+	}{
+		{"v2/projects/project-a/tasks", project(BrokerStorageModuleTask)},
+		{"prefix/v2/projects/project-a/memory/table.lance", project(BrokerStorageModuleMemory)},
+		{"v2/projects/project-a/knowledge/search", project(BrokerStorageModuleKnowledge)},
+		{"v2/projects/project-a/ast/graph", project(BrokerStorageModuleAST)},
+		{"v2/projects/project-a/project.json", project(BrokerStorageModuleHub)},
+		{"v2/projects/project-a/registry/knowledge/item.json", project(BrokerStorageModuleHub)},
+		{"v2/projects/project-a/artifacts/knowledge/item/1/file", project(BrokerStorageModuleHub)},
+		{"v2/projects/project-a/artifacts/ast/item/1/file", project(BrokerStorageModuleHub)},
+		{"v2/projects/project-a/events/event.json", project(BrokerStorageModuleHub)},
+		{"v2/users/alice/memory", UserStorageScope()},
+		{"v2/registry/names/project.json", HubStorageScope()},
+		{"v2/global/rules/baseline.json", HubStorageScope()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.key, func(t *testing.T) {
+			got, err := BrokerStorageScopeForObjectKey(tc.key)
+			if err != nil || got != tc.want {
+				t.Fatalf("scope=%#v err=%v want=%#v", got, err, tc.want)
+			}
+		})
+	}
+	for _, key := range []string{
+		"v2/projects/project-a/unknown/data",
+		"v2/projects/project-a",
+		"v2/users/alice/unknown",
+		"v2/projects/project-a/tasks/v2/projects/project-a/memory",
+	} {
+		if scope, err := BrokerStorageScopeForObjectKey(key); err == nil {
+			t.Fatalf("ambiguous or unknown key %q accepted as %#v", key, scope)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -15,7 +16,7 @@ import (
 // bucket exists every agent opens the S3 tables directly; there is no replica or
 // synchronization layer.
 func TableURI(projectID string, projectCfg config.ConfigMap) string {
-	return tableURIWithS3(projectID, projectCfg, config.ProjectS3Config(context.Background(), projectID))
+	return tableURIWithS3(projectID, projectCfg, config.ProjectS3Config(context.Background(), projectID, auth.BrokerStorageModuleTask))
 }
 
 func tableURIWithS3(projectID string, projectCfg config.ConfigMap, cfg config.S3Config) string {

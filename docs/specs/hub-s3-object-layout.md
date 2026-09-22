@@ -20,15 +20,23 @@ Every key below is relative to the active provider's S3 prefix. Local providers 
 bucket, region, endpoint and prefix directly and use login credentials, an AWS profile or the AWS
 credential chain. Direct OIDC providers configure that topology and obtain renewable credentials
 with `AssumeRoleWithWebIdentity`. When first-class Broker discovery advertises
-`graphit-s3-credentials-v2`, the Broker selects its private route, derives an STS session policy
+`graphit-s3-credentials-v3`, the Broker selects its private route, derives an STS session policy
 from the authenticated principal's current grants for the requested project, user-memory, or Hub
-metadata scope, and returns the topology plus temporary credentials. Broker credentials/topology
+metadata scope and physical module, and returns the topology plus temporary credentials. Broker credentials/topology
 remain only in process memory and are never written to `auth.json`. When valid discovery omits it, the provider uses local storage and this remote object
 layout is unavailable. A configured or advertised credential exchange failure fails closed.
 
-The client sends only the scope and, for project data, its immutable ULID. It never sends a
+The client sends the scope, physical module, and, for project data, its immutable ULID. Project
+`tasks`, `memory`, `knowledge`, and `ast` directories use their corresponding modules;
+`project.json`, `registry`, `artifacts`, and `events` use `hub`. Artifact subfolders never change
+that rule, so `artifacts/knowledge` and `artifacts/ast` use `hub`. User memory uses user/memory;
+global registry and rules use hub/hub. It never sends a
 requested bucket, prefix, policy, role or duration to the Broker. Broker
 ACL and STS/IAM policy constrain the returned session, while object requests flow directly to S3.
+
+Credential protocol v3 is exclusive and requires a coordinated Broker/Graphit rollout. Any other
+advertised protocol fails closed. This does not rename the `v2/` keys below: their version is the
+object-layout version, not the credential-protocol version.
 
 ## Version 2 key convention
 
@@ -211,7 +219,7 @@ mirror and `~/.<brand>/hub.registry.json` authority are removed.
 | Condition | Behaviour |
 |---|---|
 | No S3 configured on a local or direct OIDC provider | Filesystem-only behavior |
-| Valid first-class Broker discovery omits `graphit-s3-credentials-v2` | Filesystem-only behavior; remote Hub operations are unavailable |
+| Valid first-class Broker discovery omits `graphit-s3-credentials-v3` | Filesystem-only behavior; remote Hub operations are unavailable |
 | Broker advertises an invalid S3 capability, cannot be discovered/authenticated, fails issuance, or loses the capability while renewing an existing grant | Fail closed; do not silently change storage authority |
 | ACL document absent | No grant from that level |
 | Authenticated subject unavailable | Use the teamless `anonymous` subject; missing global and anonymous grants deny project access |

@@ -786,16 +786,17 @@ Agent-to-CLI mapping, and terminal fallbacks above still apply.
 
 Hub artifacts and shared memories use the active provider. Local and direct OIDC providers expose
 one ambient S3 configuration. Broker providers require a project, user-memory, or Hub-metadata
-scope and resolve a separate in-memory configuration for it. There is no `hub.repo` or
+scope plus its physical storage module and resolve a separate in-memory configuration for each
+scope/module pair. There is no `hub.repo` or
 `memory.repo` configuration key.
 
 | Function | Description |
 |---|---|
 | `ResolveHubS3(inline, project)` / `HubS3Config()` | Return the ambient local/direct-OIDC `S3Config`; Broker callers must use a scoped resolver. Inline/project config cannot override authentication. |
-| `ProjectS3Config(ctx, id)` | Resolve or renew the Broker grant/topology for one project; other providers return their ambient S3 view. |
+| `ProjectS3Config(ctx, id, module)` | Resolve or renew the Broker grant/topology for one project and physical module; other providers return their ambient S3 view. |
 | `UserS3Config(ctx)` | Resolve or renew the authenticated user-memory scope. |
 | `HubMetadataS3Config(ctx)` | Resolve or renew registry and global-rule storage. |
-| `S3ConfigForURI(ctx, uri)` | Derive the narrow Broker scope from a canonical S3 URI. |
+| `S3ConfigForURI(ctx, uri)` | Derive the narrow Broker scope/module from a canonical S3 URI; unknown or ambiguous project paths fail closed. |
 | `ResolveHubEventsAnonymize(inline, project)` / `HubEventsAnonymize()` | Resolve the opt-in event identifier anonymization switch. |
 | `IsSecretConfigKey(key)` | Identify values that CLI output must redact; derived from `SecretConfigKeys`. |
 | `ConfigEnvVar(key)` | The environment variable that supplies a key. **The** derivation — `ResolveConfig` calls it, and anything that needs to name a variable calls it rather than rebuilding the rule. |

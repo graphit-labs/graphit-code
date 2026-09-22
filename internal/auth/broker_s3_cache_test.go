@@ -35,7 +35,7 @@ func TestBrokerS3ManagerSingleFlightsAndIsolatesEveryCacheDimension(t *testing.T
 	manager.Exchange = scopedExchangerFunc(func(_ context.Context, provider Provider, profile Profile, scope BrokerStorageScope) (S3Credentials, error) {
 		calls.Add(1)
 		time.Sleep(10 * time.Millisecond)
-		identity := fmt.Sprintf("%s-%d-%s-%s-%s", provider.Name, provider.Revision, profile.Name, scope.Kind, scope.ProjectID)
+		identity := fmt.Sprintf("%s-%d-%s-%s-%s-%s", provider.Name, provider.Revision, profile.Name, scope.Kind, scope.ProjectID, scope.Module)
 		return S3Credentials{AccessKeyID: identity, SecretAccessKey: "secret", SessionToken: "token", ExpiresAt: now.Add(time.Hour), Bucket: "bucket", Region: "region", Prefixes: []string{"v2"}, AuthorizationRevision: "1"}, nil
 	})
 
@@ -46,7 +46,7 @@ func TestBrokerS3ManagerSingleFlightsAndIsolatesEveryCacheDimension(t *testing.T
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			credentials, err := manager.Resolve(context.Background(), base, ProjectStorageScope("project-a"))
+			credentials, err := manager.Resolve(context.Background(), base, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 			if err != nil {
 				t.Errorf("Resolve: %v", err)
 				return
@@ -57,7 +57,7 @@ func TestBrokerS3ManagerSingleFlightsAndIsolatesEveryCacheDimension(t *testing.T
 	wg.Wait()
 	close(results)
 	for credentials := range results {
-		if credentials.AccessKeyID != "broker-1-alice-project-project-a" {
+		if credentials.AccessKeyID != "broker-1-alice-project-project-a-task" {
 			t.Fatalf("shared result = %#v", credentials.RedactedForTest())
 		}
 	}
@@ -69,9 +69,10 @@ func TestBrokerS3ManagerSingleFlightsAndIsolatesEveryCacheDimension(t *testing.T
 		snapshot Snapshot
 		scope    BrokerStorageScope
 	}{
-		{base, ProjectStorageScope("project-b")},
-		{brokerSnapshotForCache("bob", 1), ProjectStorageScope("project-a")},
-		{brokerSnapshotForCache("alice", 2), ProjectStorageScope("project-a")},
+		{base, ProjectStorageScope("project-b", BrokerStorageModuleTask)},
+		{brokerSnapshotForCache("bob", 1), ProjectStorageScope("project-a", BrokerStorageModuleTask)},
+		{brokerSnapshotForCache("alice", 2), ProjectStorageScope("project-a", BrokerStorageModuleTask)},
+		{base, ProjectStorageScope("project-a", BrokerStorageModuleMemory)},
 		{base, UserStorageScope()},
 		{base, HubStorageScope()},
 	} {
@@ -79,8 +80,8 @@ func TestBrokerS3ManagerSingleFlightsAndIsolatesEveryCacheDimension(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	if got := calls.Load(); got != 6 {
-		t.Fatalf("isolated exchanges = %d, want 6", got)
+	if got := calls.Load(); got != 7 {
+		t.Fatalf("isolated exchanges = %d, want 7", got)
 	}
 }
 
@@ -93,12 +94,12 @@ func TestBrokerS3ManagerRenewsEarlyWithoutServingExpiredGrant(t *testing.T) {
 		return S3Credentials{AccessKeyID: fmt.Sprintf("key-%d", call), SecretAccessKey: "secret", SessionToken: "token", ExpiresAt: now.Add(10 * time.Minute), Bucket: "bucket", Region: "region", Prefixes: []string{"v2"}, AuthorizationRevision: "1"}, nil
 	})
 	snapshot := brokerSnapshotForCache("alice", 1)
-	first, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a"))
+	first, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 	if err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(9 * time.Minute)
-	second, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a"))
+	second, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +132,11 @@ func TestBrokerS3ManagerNeverPersistsResolvedOrRenewedGrant(t *testing.T) {
 		calls++
 		return S3Credentials{AccessKeyID: fmt.Sprintf("MEMORY-ACCESS-%d", calls), SecretAccessKey: "MEMORY-SECRET", SessionToken: "MEMORY-TOKEN", ExpiresAt: now.Add(3 * time.Minute), Bucket: "MEMORY-BUCKET", Region: "region", Endpoint: "https://memory-s3.example", Prefixes: []string{"MEMORY-PREFIX"}, AuthorizationRevision: fmt.Sprint(calls)}, nil
 	})}
-	if _, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a")); err != nil {
+	if _, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a", BrokerStorageModuleTask)); err != nil {
 		t.Fatal(err)
 	}
 	now = now.Add(2 * time.Minute)
-	if _, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a")); err != nil {
+	if _, err := manager.Resolve(context.Background(), snapshot, ProjectStorageScope("project-a", BrokerStorageModuleTask)); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {

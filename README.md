@@ -65,7 +65,7 @@ instead of reconstructing it in every session.
   personal conventions across projects. Registered sibling projects retain independent stores.
 - **One team, many machines.** S3-backed providers share versioned Hub artifacts and authoritative
   Memory/Task LanceDB tables. S3-enabled Broker providers receive restricted in-memory temporary
-  credentials per project/user/Hub scope while
+  credentials per project/user/Hub scope and physical module while
   deny-by-default ACLs and IAM policy govern the remote prefixes.
 - **One framework, many assistants.** Native adapters support Codex, Claude Code, Cursor, Gemini CLI,
   Kiro, OpenCode, Antigravity, Qwen Code, and Kimi Code; any MCP client can use the server endpoint.
@@ -289,7 +289,7 @@ bundles; direct AST, Wiki, Memory, and Task tools remain the cheaper path for fo
 | Goal | Setting |
 |---|---|
 | Keep everything local | configure no broker and use local embedding/rerank modes |
-| Share Hub artifacts | configure S3 on a local provider, configure STS on a direct OIDC provider, or use a Broker provider that advertises `graphit-s3-credentials-v2` |
+| Share Hub artifacts | configure S3 on a local provider, configure STS on a direct OIDC provider, or use a Broker provider that advertises `graphit-s3-credentials-v3` |
 | Use enterprise SSO | configure an OIDC provider with claim mappings, an MCP audience, and either shared-audience broker relay or RFC 8693 exchange |
 | Run without an installed coding-agent CLI | `modules.agent=false` |
 | Keep autonomous Dream work off/on | `modules.dream=false` (default) or `true` |

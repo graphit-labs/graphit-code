@@ -639,7 +639,7 @@ func TestAWSSTSExchange(t *testing.T) {
 	}))
 	defer server.Close()
 	provider := Provider{Name: "corp", Type: ProviderOIDC, S3: S3Config{Bucket: "artifacts", Region: "us-east-1", CredentialSource: "sts"}, STS: &STSConfig{Endpoint: server.URL, RoleARN: "arn:aws:iam::123456789012:role/graphit"}}
-	creds, err := (AWSSTSExchanger{}).ExchangeForScope(context.Background(), provider, Profile{Name: "alice", Username: "alice", OIDC: &OIDCSession{IDToken: "id-token"}}, ProjectStorageScope("project-a"))
+	creds, err := (AWSSTSExchanger{}).ExchangeForScope(context.Background(), provider, Profile{Name: "alice", Username: "alice", OIDC: &OIDCSession{IDToken: "id-token"}}, ProjectStorageScope("project-a", BrokerStorageModuleTask))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -182,19 +182,36 @@ type BrokerCredentialExchanger struct {
 }
 
 type BrokerStorageScope struct {
-	Kind      string `json:"scope"`
-	ProjectID string `json:"project_id,omitempty"`
+	Kind      string              `json:"scope"`
+	ProjectID string              `json:"project_id,omitempty"`
+	Module    BrokerStorageModule `json:"module"`
 }
 
-func ProjectStorageScope(projectID string) BrokerStorageScope {
-	return BrokerStorageScope{Kind: "project", ProjectID: strings.TrimSpace(projectID)}
+type BrokerStorageModule string
+
+const (
+	BrokerStorageModuleTask      BrokerStorageModule = "task"
+	BrokerStorageModuleMemory    BrokerStorageModule = "memory"
+	BrokerStorageModuleKnowledge BrokerStorageModule = "knowledge"
+	BrokerStorageModuleAST       BrokerStorageModule = "ast"
+	BrokerStorageModuleHub       BrokerStorageModule = "hub"
+)
+
+func ProjectStorageScope(projectID string, module BrokerStorageModule) BrokerStorageScope {
+	return BrokerStorageScope{Kind: "project", ProjectID: strings.TrimSpace(projectID), Module: module}
 }
 
-func UserStorageScope() BrokerStorageScope { return BrokerStorageScope{Kind: "user"} }
+func UserStorageScope() BrokerStorageScope {
+	return BrokerStorageScope{Kind: "user", Module: BrokerStorageModuleMemory}
+}
 
-func HubStorageScope() BrokerStorageScope { return BrokerStorageScope{Kind: "hub"} }
+func HubStorageScope() BrokerStorageScope {
+	return BrokerStorageScope{Kind: "hub", Module: BrokerStorageModuleHub}
+}
 
-func (s BrokerStorageScope) cacheKey() string { return s.Kind + "\x00" + s.ProjectID }
+func (s BrokerStorageScope) cacheKey() string {
+	return s.Kind + "\x00" + s.ProjectID + "\x00" + string(s.Module)
+}
 
 var brokerStorageProjectPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
@@ -204,14 +221,106 @@ func (s BrokerStorageScope) validate() error {
 		if !brokerStorageProjectPattern.MatchString(s.ProjectID) || s.ProjectID == "." || s.ProjectID == ".." {
 			return errors.New("project storage scope requires a safe project ID")
 		}
-	case "user", "hub":
+		switch s.Module {
+		case BrokerStorageModuleTask, BrokerStorageModuleMemory, BrokerStorageModuleKnowledge, BrokerStorageModuleAST, BrokerStorageModuleHub:
+		default:
+			return fmt.Errorf("project storage scope does not support module %q", s.Module)
+		}
+	case "user":
 		if s.ProjectID != "" {
 			return fmt.Errorf("%s storage scope cannot select a project", s.Kind)
+		}
+		if s.Module != BrokerStorageModuleMemory {
+			return fmt.Errorf("user storage scope requires module %q", BrokerStorageModuleMemory)
+		}
+	case "hub":
+		if s.ProjectID != "" {
+			return fmt.Errorf("%s storage scope cannot select a project", s.Kind)
+		}
+		if s.Module != BrokerStorageModuleHub {
+			return fmt.Errorf("hub storage scope requires module %q", BrokerStorageModuleHub)
 		}
 	default:
 		return fmt.Errorf("unsupported broker storage scope %q", s.Kind)
 	}
 	return nil
+}
+
+// BrokerStorageScopeForObjectKey derives the credential domain from the
+// physical v2 object layout. It deliberately rejects unknown or ambiguous
+// keys instead of widening access to a generic project grant.
+func BrokerStorageScopeForObjectKey(key string) (BrokerStorageScope, error) {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(key), "/"), "/")
+	var matches []BrokerStorageScope
+	for i, part := range parts {
+		if part != "v2" {
+			continue
+		}
+		scope, ok := brokerStorageScopeAtV2(parts[i:])
+		if ok {
+			matches = append(matches, scope)
+		}
+	}
+	if len(matches) != 1 {
+		return BrokerStorageScope{}, fmt.Errorf("object key %q does not identify exactly one broker storage module", key)
+	}
+	if err := matches[0].validate(); err != nil {
+		return BrokerStorageScope{}, err
+	}
+	return matches[0], nil
+}
+
+func brokerStorageScopeAtV2(parts []string) (BrokerStorageScope, bool) {
+	if len(parts) < 2 || parts[0] != "v2" {
+		return BrokerStorageScope{}, false
+	}
+	switch parts[1] {
+	case "projects":
+		if len(parts) < 4 {
+			return BrokerStorageScope{}, false
+		}
+		projectID := parts[2]
+		switch parts[3] {
+		case "tasks":
+			return ProjectStorageScope(projectID, BrokerStorageModuleTask), true
+		case "memory":
+			return ProjectStorageScope(projectID, BrokerStorageModuleMemory), true
+		case "knowledge":
+			return ProjectStorageScope(projectID, BrokerStorageModuleKnowledge), true
+		case "ast":
+			return ProjectStorageScope(projectID, BrokerStorageModuleAST), true
+		case "project.json":
+			if len(parts) != 4 {
+				return BrokerStorageScope{}, false
+			}
+			return ProjectStorageScope(projectID, BrokerStorageModuleHub), true
+		case "registry", "artifacts", "events":
+			return ProjectStorageScope(projectID, BrokerStorageModuleHub), true
+		}
+	case "users":
+		if len(parts) >= 4 && parts[3] == "memory" {
+			return UserStorageScope(), true
+		}
+		// Per-user ACL documents are Hub metadata, not user-memory objects.
+		if len(parts) == 4 && parts[3] == "projects.json" {
+			return HubStorageScope(), true
+		}
+	case "registry":
+		return HubStorageScope(), true
+	case "global":
+		if len(parts) >= 3 && (parts[2] == "rules" || parts[2] == "projects.json") {
+			return HubStorageScope(), true
+		}
+	case "anonymous", "authenticated":
+		if len(parts) == 3 && parts[2] == "projects.json" {
+			return HubStorageScope(), true
+		}
+	case "teams":
+		if len(parts) == 4 && parts[3] == "projects.json" {
+			return HubStorageScope(), true
+		}
+	}
+	return BrokerStorageScope{}, false
 }
 
 func (e BrokerCredentialExchanger) ExchangeForScope(ctx context.Context, provider Provider, profile Profile, scope BrokerStorageScope) (S3Credentials, error) {
@@ -240,7 +349,7 @@ func (e BrokerCredentialExchanger) ExchangeForScope(ctx context.Context, provide
 	if capability == nil {
 		return S3Credentials{}, ErrBrokerS3Unavailable
 	}
-	if capability.Protocol != "graphit-s3-credentials-v2" || !validBrokerPath(capability.Path) {
+	if capability.Protocol != "graphit-s3-credentials-v3" || !validBrokerPath(capability.Path) {
 		return S3Credentials{}, errors.New("broker advertises an incompatible temporary S3 credential service")
 	}
 	requestBody, err := json.Marshal(scope)
@@ -268,15 +377,16 @@ func (e BrokerCredentialExchanger) ExchangeForScope(ctx context.Context, provide
 	}
 	var output struct {
 		S3Credentials
-		Scope     string `json:"scope"`
-		ProjectID string `json:"project_id,omitempty"`
+		Scope     string              `json:"scope"`
+		ProjectID string              `json:"project_id,omitempty"`
+		Module    BrokerStorageModule `json:"module"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&output); err != nil {
 		return S3Credentials{}, fmt.Errorf("decode broker S3 credentials: %w", err)
 	}
-	if output.Scope != scope.Kind || output.ProjectID != scope.ProjectID {
+	if output.Scope != scope.Kind || output.ProjectID != scope.ProjectID || output.Module != scope.Module {
 		return S3Credentials{}, errors.New("broker returned credentials for a different storage scope")
 	}
 	if err := validateBrokerS3Credentials(output.S3Credentials, capability.AuthorizationRevision, time.Now()); err != nil {

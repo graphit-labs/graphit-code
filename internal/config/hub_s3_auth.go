@@ -40,8 +40,8 @@ func HubS3Config() S3Config {
 	return hubS3Config(context.Background(), nil)
 }
 
-func ProjectS3Config(ctx context.Context, projectID string) S3Config {
-	scope := auth.ProjectStorageScope(projectID)
+func ProjectS3Config(ctx context.Context, projectID string, module auth.BrokerStorageModule) S3Config {
+	scope := auth.ProjectStorageScope(projectID, module)
 	return hubS3Config(ctx, &scope)
 }
 
@@ -62,23 +62,11 @@ func S3ConfigForURI(ctx context.Context, storageURI string) S3Config {
 	if err != nil || strings.ToLower(parsed.Scheme) != "s3" {
 		return HubS3Config()
 	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	for i := 0; i+1 < len(parts); i++ {
-		if parts[i] != "v2" {
-			continue
-		}
-		switch parts[i+1] {
-		case "projects":
-			if i+2 < len(parts) {
-				return ProjectS3Config(ctx, parts[i+2])
-			}
-		case "users":
-			return UserS3Config(ctx)
-		case "registry":
-			return HubMetadataS3Config(ctx)
-		}
+	scope, err := auth.BrokerStorageScopeForObjectKey(parsed.Path)
+	if err != nil {
+		return S3Config{ResolutionError: err}
 	}
-	return HubS3Config()
+	return hubS3Config(ctx, &scope)
 }
 
 func hubS3Config(ctx context.Context, storageScope *auth.BrokerStorageScope) S3Config {

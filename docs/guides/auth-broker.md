@@ -23,8 +23,8 @@ Graphit login profile
        ├─ /v1/hub/access/resolve ─ current SQL grants ─ authorized project selectors
        ├─ /v1/embeddings ─ ACL ─ broker-owned embedding upstream/key/model
        ├─ /v1/rerank     ─ ACL ─ broker-owned rerank upstream/key/model
-       └─ /v1/s3/credentials (optional; called on first use of each scope and before expiry)
-            └─ project/user/Hub scope + current ACL + private route ─ restricted STS session ─ direct S3 data traffic
+       └─ /v1/s3/credentials (optional; called on first use of each scope/module and before expiry)
+            └─ project/user/Hub scope + physical module + current ACL + private route ─ restricted STS session ─ direct S3 data traffic
 ```
 
 The broker source, Dockerfile and server-side configuration reference live in the companion
@@ -338,11 +338,19 @@ endpoint/model/dimensions are topology in the provider; API keys are account sec
 ## Project-scoped STS storage
 
 A first-class Broker provider contains only the Broker endpoint. When runtime discovery advertises
-`graphit-s3-credentials-v2`, `POST /v1/s3/credentials` accepts `project` with a project ULID,
-`user`, or `hub`, and returns a
+`graphit-s3-credentials-v3`, `POST /v1/s3/credentials` requires a physical storage `module` in
+addition to `scope`: `project` accepts `task`, `memory`, `knowledge`, `ast`, or `hub` and requires a
+project ULID; `user` accepts only `memory`; `hub` accepts only `hub`. It returns a
 temporary access key, secret, session token, expiration, bucket, region, endpoint, prefixes, and
-authorization revision plus the echoed scope. The project ULID selects the resource to authorize;
+authorization revision plus the exactly echoed scope, project ID, and module. Graphit rejects an
+invalid combination before the request and rejects any response whose echo differs. The project ULID selects the resource to authorize;
 the client cannot ask for a route, policy, prefix, operation, role, or duration.
+
+The module follows the physical object directory, not the artifact type. Project `tasks/`,
+`memory/`, `knowledge/`, and `ast/` select their matching modules. `project.json`, `registry/`,
+`artifacts/`, and `events/` select `hub`; consequently `artifacts/knowledge/` and
+`artifacts/ast/` also use `hub`. User `memory/` selects user/memory, while global `registry/` and
+`global/rules/` select hub/hub. Unknown or ambiguous project paths fail closed.
 
 When S3 is disabled, valid discovery omits `s3_credentials`. Login and OIDC token renewal continue,
 the profile stores no S3 grant, and Tasks, Memory, Knowledge and AST use their normal filesystem
@@ -355,9 +363,9 @@ prefixes for the authenticated principal and requested scope. All matching S3 gr
 resolve to one route; ambiguity fails closed. The Broker converts effective read/write/publish/delete
 rights into a bounded inline STS policy and calls `AssumeRole` with its private route identity.
 
-Graphit exchanges credentials when each scope is first used and renews them before expiry,
+Graphit exchanges credentials when each scope/module is first used and renews them before expiry,
 refreshing its Broker OIDC access token first when necessary. The memory-only cache key includes
-provider, provider revision, profile and authenticated session identity plus scope/project.
+provider, provider revision, profile and authenticated session identity plus scope/project/module.
 LanceDB, LadybugDB and framework uploads then use normal S3
 requests directly. The Broker sees credential issuance and renewal, while object metadata, ranges
 and bodies travel between the client and S3.
@@ -382,6 +390,11 @@ in process memory, are isolated per scope, and are renewed before expiry. They a
 to `auth.json`. ACL changes apply to the next issued session; already issued credentials remain
 usable until expiry unless the storage provider revokes them. Broker providers require an
 authenticated subject and do not issue anonymous S3 credentials.
+
+This is a coordinated breaking rollout. Graphit accepts only `graphit-s3-credentials-v3`; a Broker
+advertising v2 or any other protocol fails closed. There is no fallback, dual stack, feature flag,
+or alias. The `v2/...` S3 key namespace remains unchanged because it versions the storage layout,
+not the credential protocol.
 
 With Broker S3 enabled, Tasks and Memory use remote LanceDB tables; Hub Knowledge and AST FTS mount
 remote LanceDB; Hub Icebug uses LadybugDB against remote Parquet. Local Knowledge/AST FTS retain

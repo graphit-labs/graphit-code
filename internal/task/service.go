@@ -173,7 +173,7 @@ func (s *Service) ensureIdentity(ctx context.Context) error {
 		return err
 	}
 	s.projectID = projectID
-	s.s3 = config.ProjectS3Config(ctx, projectID)
+	s.s3 = config.ProjectS3Config(ctx, projectID, auth.BrokerStorageModuleTask)
 	if s.s3.ResolutionError != nil {
 		return s.s3.ResolutionError
 	}

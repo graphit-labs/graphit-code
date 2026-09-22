@@ -82,7 +82,7 @@ func NewS3Store(ctx context.Context, inlineCfg, projectCfg config.ConfigMap) (*S
 	}
 	hubStore.objects = objects
 	if hubStore.scopedCredentials {
-		hubStore.scoped["hub"] = scopedS3Store{objects: objects, cfg: cfg}
+		hubStore.scoped[storageScopeCacheKey(auth.HubStorageScope())] = scopedS3Store{objects: objects, cfg: cfg}
 	}
 	brokerACL, accessErr := auth.NewBrokerHubAccessClient(ctx, nil)
 	if accessErr != nil && !errors.Is(accessErr, auth.ErrBrokerHubAccessUnavailable) {
@@ -214,7 +214,7 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 		return scopedS3Store{}, err
 	}
 	identity := auth.BrokerStorageIdentity(snapshot)
-	key := scope.Kind + "\x00" + scope.ProjectID
+	key := storageScopeCacheKey(scope)
 	s.mu.Lock()
 	if identity != s.storageID {
 		s.scoped = map[string]scopedS3Store{}
@@ -228,7 +228,7 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 	var cfg config.S3Config
 	switch scope.Kind {
 	case "project":
-		cfg = config.ProjectS3Config(ctx, scope.ProjectID)
+		cfg = config.ProjectS3Config(ctx, scope.ProjectID, scope.Module)
 	case "user":
 		cfg = config.UserS3Config(ctx)
 	default:
@@ -257,23 +257,19 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 }
 
 func (s *S3Store) storeForKey(ctx context.Context, key string) (scopedS3Store, error) {
-	parts := strings.Split(strings.Trim(key, "/"), "/")
-	for i := 0; i+2 < len(parts); i++ {
-		if parts[i] != hubaccess.VersionPrefix {
-			continue
-		}
-		switch parts[i+1] {
-		case "projects":
-			return s.scopeStore(ctx, auth.ProjectStorageScope(parts[i+2]))
-		case "users":
-			return s.scopeStore(ctx, auth.UserStorageScope())
-		}
+	scope, err := auth.BrokerStorageScopeForObjectKey(key)
+	if err != nil {
+		return scopedS3Store{}, err
 	}
-	return s.scopeStore(ctx, auth.HubStorageScope())
+	return s.scopeStore(ctx, scope)
 }
 
 func (s *S3Store) projectStore(ctx context.Context, projectID string) (scopedS3Store, error) {
-	return s.scopeStore(ctx, auth.ProjectStorageScope(projectID))
+	return s.scopeStore(ctx, auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleHub))
+}
+
+func storageScopeCacheKey(scope auth.BrokerStorageScope) string {
+	return scope.Kind + "\x00" + scope.ProjectID + "\x00" + string(scope.Module)
 }
 
 // EnsureReachable verifies that the active credentials authorize a minimal object-store request.
