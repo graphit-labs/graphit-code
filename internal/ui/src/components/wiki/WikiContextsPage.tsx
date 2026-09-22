@@ -2,6 +2,7 @@ import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchModules, type WikiModule } from "@/api/wiki";
+import { hubApi } from "@/api/hub";
 import { useAppStore } from "@/store/appStore";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import {
@@ -18,7 +19,11 @@ export default function WikiContextsPage({
   moduleFilter: string;
 }) {
   const navigate = useNavigate(),
-    { activeProjectDir } = useAppStore();
+    { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId } = useAppStore();
+  const remote = activeProjectOrigin === "hub";
+  const projectKey = activeProjectKey || (remote ? `hub:${activeProjectId}` : `workspace:${activeProjectDir}`);
+  const projectDir = remote ? undefined : activeProjectDir || undefined;
+  const projectId = remote ? activeProjectId || undefined : undefined;
   const [modules, setModules] = useState<WikiModule[]>([]),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<WikiModule | null>(null),
@@ -30,12 +35,16 @@ export default function WikiContextsPage({
     setLoading(true);
     setError("");
     try {
-      const ms = await fetchModules(activeProjectDir || undefined);
+      const ms = remote && projectId
+        ? (await hubApi.getProjectContexts(projectId)).entries
+            .filter(entry => entry.type === "knowledge" && entry.qualified_latest)
+            .map(entry => ({ id: entry.qualified_latest!, label: entry.name || entry.id, path: "", context: entry.qualified_latest!, pages: 0, hasLog: false }))
+        : await fetchModules(projectDir);
       if (id === request.current) {
         setSelected(current => ms.find(m => m.id === current?.id) || null);
         setModules(
           (ms || []).filter(
-            (m) => m.id === moduleFilter || m.id.startsWith(moduleFilter + "/"),
+            (m) => remote || m.id === moduleFilter || m.id.startsWith(moduleFilter + "/"),
           ),
         );
       }
@@ -44,8 +53,8 @@ export default function WikiContextsPage({
     } finally {
       if (id === request.current) setLoading(false);
     }
-  }, [activeProjectDir, moduleFilter]);
-  const scope = JSON.stringify([activeProjectDir, moduleFilter]);
+  }, [projectDir, projectId, remote, moduleFilter]);
+  const scope = JSON.stringify([projectKey, moduleFilter]);
   const [dataScope, setDataScope] = useState(scope);
   if (dataScope !== scope) { setDataScope(scope); setSelected(null); setModules([]); }
   useEffect(() => {
@@ -83,7 +92,7 @@ export default function WikiContextsPage({
         <LoadingSpinner label="Loading contexts…" />
       ) : !modules.length ? (
         <WorkEmpty title="No contexts available">
-          Index project documentation with graphit knowledge index docs/.
+          {remote ? "This Hub project has no published Knowledge artifact." : "Index project documentation with graphit knowledge index docs/."}
         </WorkEmpty>
       ) : (
         <div className="work-split">
@@ -125,7 +134,7 @@ export default function WikiContextsPage({
                 <FactList
                   items={[
                     ["Context", selected.context],
-                    ["Location", selected.path],
+                    [remote ? "Exact Hub context" : "Location", remote ? selected.context : selected.path],
                     ["Pages", selected.pages],
                     [
                       "Changelog",

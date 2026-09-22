@@ -3,7 +3,7 @@ title: Project Identity
 description: The lifecycle and invariants of the stable project ULID and mutable globally unique project name.
 status: draft
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-22
 tags: [project, identity, ulid, lockfile, hub]
 ---
 
@@ -53,7 +53,8 @@ The minimal identity record is:
 {
   "project": {
     "id": "01J...",
-    "name": "payments-api"
+    "name": "payments-api",
+    "cluster": {"domain": ["payments"], "team": ["backend"]}
   }
 }
 ```
@@ -61,6 +62,12 @@ The minimal identity record is:
 Once written, `project.id` cannot be changed by rename, sync, init, registration, publication, or
 installation. A conflicting ULID is an integrity error, not an update. Installed artifact records
 refer to the publishing project by ULID.
+
+`project.cluster` is optional discovery metadata owned by the project. Keys and values are trimmed,
+empty entries are removed, and values are deduplicated and sorted when the lock is saved. The
+machine-global lock keeps only a local projection of this field for checkout discovery; it is not
+the authority. Init, update, and project-scoped publication copy the same cluster map into Hub
+project metadata so remote discovery does not require a local checkout.
 
 ## Name contract
 

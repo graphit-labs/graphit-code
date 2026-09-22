@@ -122,6 +122,28 @@ func memoryTestHandler(t *testing.T, fake *fakeMemoryExplorer) http.Handler {
 	return mux
 }
 
+func TestMemoryHandlerOpensRemoteProjectByID(t *testing.T) {
+	fake := &fakeMemoryExplorer{}
+	handler := NewMemoryHandler("/local/default")
+	handler.openRemote = func(_ context.Context, projectID, scope string) (memoryExplorerService, error) {
+		if projectID != remoteProjectID || scope != "project" {
+			t.Fatalf("remote address = %q, scope = %q", projectID, scope)
+		}
+		return fake, nil
+	}
+	handler.open = func(context.Context, string, string) (memoryExplorerService, error) {
+		t.Fatal("remote request fell back to a local project")
+		return nil, nil
+	}
+	mux := http.NewServeMux()
+	handler.RegisterAPIRoutes(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/memories?project_id="+remoteProjectID+"&scope=project", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestMemoryHandlerCatalogUsesMemorySearchAndDomainFilters(t *testing.T) {
 	fake := &fakeMemoryExplorer{
 		entries: []memory.MemoryEntry{

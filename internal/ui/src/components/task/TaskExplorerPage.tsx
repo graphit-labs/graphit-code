@@ -44,6 +44,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { showToast } from "@/hooks/useToast";
+import { projectRequestScope } from "@/lib/projectScope";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/appStore";
 
@@ -392,11 +393,14 @@ function TaskDetail({
 export default function TaskExplorerPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
-  const { activeProjectDir, projectName } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName } = useAppStore();
+  const { key: projectKey, projectDir, projectId } = projectRequestScope({
+    activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
+  });
   const [catalog, setCatalog] = useState<TaskCatalogItem[]>([]);
   const [nextCursor, setNextCursor] = useState("");
   const [detailResult, setDetailResult] = useState<{
-    projectDir: string;
+    projectKey: string;
     selectedID: string;
     document: TaskExportDocument;
   } | null>(null);
@@ -411,9 +415,9 @@ export default function TaskExplorerPage() {
   const selectedIDRef = useRef(selectedID);
   const catalogRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
-  const previousProjectRef = useRef(activeProjectDir);
+  const previousProjectRef = useRef(projectKey);
   const detail =
-    detailResult?.projectDir === activeProjectDir &&
+    detailResult?.projectKey === projectKey &&
     detailResult.selectedID === selectedID
       ? detailResult.document
       : null;
@@ -429,7 +433,8 @@ export default function TaskExplorerPage() {
       }
       try {
         const page = await taskApi.list({
-          projectDir: activeProjectDir || undefined,
+          projectDir,
+          ...(projectId ? { projectId } : {}),
           query: query.trim() || undefined,
           status,
           pageSize: 20,
@@ -465,7 +470,7 @@ export default function TaskExplorerPage() {
         }
       }
     },
-    [activeProjectDir, projectName, query, status],
+    [projectDir, projectId, projectName, query, status],
   );
 
   useEffect(() => {
@@ -476,23 +481,25 @@ export default function TaskExplorerPage() {
   }, [loadCatalog]);
 
   useEffect(() => {
-    if (previousProjectRef.current === activeProjectDir) return;
-    previousProjectRef.current = activeProjectDir;
+    if (previousProjectRef.current === projectKey) return;
+    previousProjectRef.current = projectKey;
     selectedIDRef.current = "";
     setSelectedID("");
     setDetailResult(null);
     navigate("/task/explorer", { replace: true });
-  }, [activeProjectDir, navigate]);
+  }, [projectKey, navigate]);
 
   const loadDetail = useCallback(
     (id: string) => {
       const request = ++detailRequestRef.current;
-      return taskApi
-        .export(activeProjectDir || undefined, id)
+      const requestDetail = projectId
+        ? taskApi.export(projectDir, id, projectId)
+        : taskApi.export(projectDir, id);
+      return requestDetail
         .then((document) => {
           if (request === detailRequestRef.current) {
             setDetailResult({
-              projectDir: activeProjectDir,
+              projectKey,
               selectedID: id,
               document,
             });
@@ -503,7 +510,7 @@ export default function TaskExplorerPage() {
             showToast("Failed to load task details", "error");
         });
     },
-    [activeProjectDir],
+    [projectDir, projectId, projectKey],
   );
 
   useEffect(() => {
@@ -537,7 +544,9 @@ export default function TaskExplorerPage() {
   const exportAll = async () => {
     setExporting(true);
     try {
-      const document = await taskApi.export(activeProjectDir || undefined);
+      const document = projectId
+        ? await taskApi.export(projectDir, undefined, projectId)
+        : await taskApi.export(projectDir);
       downloadJSON(document, "graphit-tasks.json");
     } catch {
       showToast("Failed to export tasks", "error");

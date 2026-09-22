@@ -26,6 +26,8 @@ type cachedDB struct {
 	lastUsed time.Time
 }
 
+type ExternalContextResolver func(context.Context, string, string) (string, string, error)
+
 type Server struct {
 	db       GraphDB
 	aiClient ai.Client
@@ -33,8 +35,13 @@ type Server struct {
 	port     int
 	mux      *http.ServeMux
 
-	dbCacheMu sync.Mutex
-	dbCache   map[string]*cachedDB
+	dbCacheMu               sync.Mutex
+	dbCache                 map[string]*cachedDB
+	externalContextResolver ExternalContextResolver
+}
+
+func (s *Server) SetExternalContextResolver(resolver ExternalContextResolver) {
+	s.externalContextResolver = resolver
 }
 
 func NewServerOnPort(db GraphDB, repoPath string, port int) (*Server, error) {
@@ -102,6 +109,19 @@ func (e *emptyGraphDB) Ping(_ context.Context) error                         { r
 func (e *emptyGraphDB) BackendType() string                                  { return "empty" }
 func (e *emptyGraphDB) Close() error                                         { return nil }
 
+type errorGraphDB struct{ err error }
+
+func (e *errorGraphDB) Query(_ context.Context, _ string, _ map[string]any) (*QueryResult, error) {
+	return nil, e.err
+}
+func (e *errorGraphDB) Execute(_ context.Context, _ string, _ map[string]any) (*QueryResult, error) {
+	return nil, e.err
+}
+func (e *errorGraphDB) ExecuteBatch(_ context.Context, _ []BatchQuery) error { return e.err }
+func (e *errorGraphDB) Ping(_ context.Context) error                         { return e.err }
+func (e *errorGraphDB) BackendType() string                                  { return "unavailable" }
+func (e *errorGraphDB) Close() error                                         { return nil }
+
 func (s *Server) getOrCreateCachedDB(projectDir, storeDir string, readOnly bool) GraphDB {
 	key := projectDir + "\x00" + storeDir
 	s.dbCacheMu.Lock()
@@ -136,6 +156,19 @@ func (s *Server) requestedRoot(r *http.Request) (root string, otherProject bool)
 
 func (s *Server) dbForContext(r *http.Request) GraphDB {
 	ctxName := r.URL.Query().Get("context")
+	if projectID := strings.TrimSpace(r.URL.Query().Get("project_id")); projectID != "" {
+		if ctxName == "" || !strings.Contains(ctxName, "@") {
+			return &errorGraphDB{err: fmt.Errorf("exact context id@version is required for a Hub project")}
+		}
+		if s.externalContextResolver == nil {
+			return &errorGraphDB{err: fmt.Errorf("Hub AST context resolver is unavailable")}
+		}
+		storeDir, _, err := s.externalContextResolver(r.Context(), projectID, ctxName)
+		if err != nil {
+			return &errorGraphDB{err: err}
+		}
+		return s.getOrCreateCachedDB("hub:"+projectID, storeDir, true)
+	}
 
 	root, otherProject := s.requestedRoot(r)
 	if otherProject {
@@ -171,6 +204,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Params     map[string]any `json:"params"`
 		Context    string         `json:"context"`
 		ProjectDir string         `json:"project_dir"`
+		ProjectID  string         `json:"project_id"`
 	}
 
 	if r.Method == http.MethodGet {
@@ -196,6 +230,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if body.ProjectDir != "" {
 		q := r.URL.Query()
 		q.Set("project_dir", body.ProjectDir)
+		r.URL.RawQuery = q.Encode()
+	}
+	if body.ProjectID != "" {
+		q := r.URL.Query()
+		q.Set("project_id", body.ProjectID)
 		r.URL.RawQuery = q.Encode()
 	}
 
@@ -800,6 +839,16 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) storePathForRequest(r *http.Request) string {
 	ctxName := r.URL.Query().Get("context")
+	if projectID := strings.TrimSpace(r.URL.Query().Get("project_id")); projectID != "" {
+		if ctxName == "" || !strings.Contains(ctxName, "@") || s.externalContextResolver == nil {
+			return ""
+		}
+		storeDir, _, err := s.externalContextResolver(r.Context(), projectID, ctxName)
+		if err != nil {
+			return ""
+		}
+		return storeDir
+	}
 
 	root, otherProject := s.requestedRoot(r)
 	if otherProject {
@@ -948,6 +997,7 @@ func (s *Server) handleGenerateCypherJSON(w http.ResponseWriter, r *http.Request
 		Query      string `json:"query"`
 		Context    string `json:"context"`
 		ProjectDir string `json:"project_dir"`
+		ProjectID  string `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" {
 		writeError(w, http.StatusBadRequest, "No query provided")
@@ -970,6 +1020,11 @@ func (s *Server) handleGenerateCypherJSON(w http.ResponseWriter, r *http.Request
 	if body.ProjectDir != "" {
 		q := r.URL.Query()
 		q.Set("project_dir", body.ProjectDir)
+		r.URL.RawQuery = q.Encode()
+	}
+	if body.ProjectID != "" {
+		q := r.URL.Query()
+		q.Set("project_id", body.ProjectID)
 		r.URL.RawQuery = q.Encode()
 	}
 

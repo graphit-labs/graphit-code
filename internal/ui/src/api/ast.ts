@@ -110,10 +110,11 @@ export interface CodeSearchResult {
   Distance?: number;
 }
 export const astApi = {
-  search: (query: string, context?: string, projectDir?: string) => {
+  search: (query: string, context?: string, projectDir?: string, projectId?: string) => {
     const qs = new URLSearchParams({ q: query, top: "20" });
     if (context) qs.set("context", context);
     if (projectDir) qs.set("project_dir", projectDir);
+    if (projectId) qs.set("project_id", projectId);
     return api.get<CodeSearchResult[]>(`/api/search?${qs}`);
   },
   getContexts: (projectDir?: string) => {
@@ -122,10 +123,11 @@ export const astApi = {
     const qs = params.toString();
     return api.get<ContextsResponse>(`/api/contexts${qs ? `?${qs}` : ""}`);
   },
-  getSchema: (context?: string, projectDir?: string) => {
+  getSchema: (context?: string, projectDir?: string, projectId?: string) => {
     const qs = new URLSearchParams();
     if (context) qs.set("context", context);
     if (projectDir) qs.set("project_dir", projectDir);
+    if (projectId) qs.set("project_id", projectId);
     return api.get<SchemaResponse>(`/api/schema?${qs}`);
   },
   getGraph: (params: {
@@ -134,29 +136,33 @@ export const astApi = {
     cypher_query?: string;
     repo_path?: string;
     project_dir?: string;
+    project_id?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params.context) qs.set("context", params.context);
     if (params.cypher_query) qs.set("cypher_query", params.cypher_query);
     if (params.repo_path) qs.set("repo_path", params.repo_path);
     if (params.project_dir) qs.set("project_dir", params.project_dir);
+    if (params.project_id) qs.set("project_id", params.project_id);
     return params.signal
       ? api.get<GraphResponse>(`/api/graph?${qs}`, { signal: params.signal })
       : api.get<GraphResponse>(`/api/graph?${qs}`);
   },
-  getFile: (path: string, context?: string, projectDir?: string) => {
+  getFile: (path: string, context?: string, projectDir?: string, projectId?: string) => {
     const qs = new URLSearchParams({ path });
     if (context) qs.set("context", context);
     if (projectDir) qs.set("project_dir", projectDir);
+    if (projectId) qs.set("project_id", projectId);
     return api.get<{ content: string; source: string }>(`/api/file?${qs}`);
   },
-  query: (cypher: string, context?: string, projectDir?: string) =>
+  query: (cypher: string, context?: string, projectDir?: string, projectId?: string) =>
     api.post<QueryResult>("/api/query", {
       cypher,
       context,
       project_dir: projectDir,
+      project_id: projectId,
     }),
-  generateCypher: (prompt: string, context?: string, projectDir?: string, options: StreamOptions = {}) =>
+  generateCypher: (prompt: string, context?: string, projectDir?: string, options: StreamOptions = {}, projectId?: string) =>
     postAgentStream<{
       cypher: string;
       explanation?: string;
@@ -166,6 +172,7 @@ export const astApi = {
       query: prompt,
       context,
       project_dir: projectDir,
+      project_id: projectId,
     }, options),
   getStatus: () => api.get<StatusResponse>("/api/status"),
   deleteContext: (name: string, projectDir?: string) => {

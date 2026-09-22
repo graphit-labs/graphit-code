@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
@@ -409,6 +410,17 @@ func WithProjectDescription(desc string) func(*InstanceEntry) {
 	return func(e *InstanceEntry) { e.Description = desc }
 }
 
+func WithProjectCluster(cluster map[string][]string) func(*InstanceEntry) {
+	return func(e *InstanceEntry) {
+		normalized := projectlock.NormalizeCluster(cluster)
+		if normalized == nil {
+			e.Cluster = nil
+			return
+		}
+		e.Cluster = ClusterMap(normalized)
+	}
+}
+
 func (m *GlobalLockManager) SetCluster(projectID, projectDir, key, value string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -419,15 +431,11 @@ func (m *GlobalLockManager) SetCluster(projectID, projectDir, key, value string)
 	}
 
 	inst := m.findOrCreateInstance(lock, projectID, projectDir)
-	if inst.Cluster == nil {
-		inst.Cluster = make(map[string][]string)
+	lf := &projectlock.Lockfile{Project: projectlock.ProjectIdentity{Cluster: map[string][]string(inst.Cluster)}}
+	if err := projectlock.SetClusterLabel(lf, key, value); err != nil {
+		return err
 	}
-	for _, existing := range inst.Cluster[key] {
-		if existing == value {
-			return nil
-		}
-	}
-	inst.Cluster[key] = append(inst.Cluster[key], value)
+	inst.Cluster = ClusterMap(lf.Project.Cluster)
 	return m.save(lock)
 }
 
@@ -444,10 +452,11 @@ func (m *GlobalLockManager) UnsetCluster(projectID, projectDir, key string) erro
 	if inst == nil {
 		return nil
 	}
-	delete(inst.Cluster, key)
-	if len(inst.Cluster) == 0 {
-		inst.Cluster = nil
+	lf := &projectlock.Lockfile{Project: projectlock.ProjectIdentity{Cluster: map[string][]string(inst.Cluster)}}
+	if err := projectlock.UnsetClusterLabel(lf, key); err != nil {
+		return err
 	}
+	inst.Cluster = ClusterMap(lf.Project.Cluster)
 	return m.save(lock)
 }
 

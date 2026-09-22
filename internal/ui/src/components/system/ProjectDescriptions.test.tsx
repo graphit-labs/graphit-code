@@ -9,7 +9,13 @@ import EcosystemDashboard from './EcosystemDashboard';
 vi.mock('@/hooks/useTheme',()=>({useTheme:()=>({theme:'light'})}));
 vi.mock('./WorkspaceNow',()=>({WorkspaceNow:()=>null}));
 const description='**Project purpose**\n\n- Preserve `decisions`\n- Read the [contract](https://example.test/contract)';
-beforeEach(()=>useAppStore.setState({projectsLoaded:true,activeProjectDir:'/project',projects:[{id:'p',name:'**Literal name**',dir:'/project',description,registered_at:'2026-09-21',cluster:{}}]}));
+beforeEach(()=>{
+ const workspace={id:'p',name:'**Literal name**',dir:'/project',description,registered_at:'2026-09-21',cluster:{}};
+ useAppStore.setState({
+  projectsLoaded:true,activeProjectKey:'workspace:p:/project',activeProjectOrigin:'workspace',activeProjectId:'p',
+  activeProjectDir:'/project',projects:[workspace],projectCatalog:[{id:'p',name:workspace.name,description,cluster:{},workspace}],
+ });
+});
 afterEach(cleanup);
 function expectDescription(){
  expect(screen.getByText('Project purpose').tagName).toBe('STRONG');

@@ -60,6 +60,38 @@ export interface GlobalProject {
   cluster?: Record<string, string[]>
 }
 
+export interface HubProject {
+  id: string
+  name: string
+  description?: string
+  cluster?: Record<string, string[]>
+  revision: number
+  status: string
+}
+
+export interface ProjectCatalogResponse {
+  workspace_projects: GlobalProject[]
+  hub_projects: HubProject[]
+  workspace_error?: string
+  hub_error?: string
+}
+
+export interface ProjectContextEntry {
+  id: string
+  name: string
+  type: 'knowledge' | 'ast'
+  description?: string
+  latest?: string
+  versions?: string[]
+  qualified_latest?: string
+}
+
+export interface ProjectContextsResponse {
+  project: HubProject
+  live: { task: boolean; memory: boolean }
+  entries: ProjectContextEntry[]
+}
+
 export interface GlobalProjectsResponse {
   projects: GlobalProject[]
   current_project_dir: string
@@ -69,6 +101,9 @@ export interface GlobalProjectsResponse {
 
 export const hubApi = {
   getGlobalProjects: () => api.get<GlobalProjectsResponse>('/api/global-projects'),
+  getProjectCatalog: () => api.get<ProjectCatalogResponse>('/api/project-catalog'),
+  getProjectContexts: (projectId: string) =>
+    api.get<ProjectContextsResponse>(`/api/projects/${encodeURIComponent(projectId)}/contexts`),
 
   setClusterLabel: (projectId: string, projectDir: string, key: string, value: string) =>
     api.post<{ success: boolean; error?: string }>('/api/cluster/set', {

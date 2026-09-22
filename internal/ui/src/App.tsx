@@ -5,6 +5,7 @@ import { useAppStore } from "./store/appStore";
 import { lazy, Suspense, useEffect } from "react";
 import { LoadingSpinner } from "./components/shared/LoadingSpinner";
 import { GlobalLoader } from "./components/shared/GlobalLoader";
+import { LocalProjectRoute } from "./components/shared/RemoteProjectUnavailable";
 import { agentFeaturesEnabled } from "@/lib/utils";
 
 const WorkspacePage = lazy(() => import("./components/system/WorkspacePage"));
@@ -147,13 +148,13 @@ export default function App() {
                 element={
                   <Suspense fallback={<Fallback />}>
                     <Routes>
-                      <Route path="/workspace" element={<WorkspacePage />} />
-                      <Route path="/hub/registry" element={<RegistryPage />} />
+                      <Route path="/workspace" element={<LocalProjectRoute capability="Workspace now"><WorkspacePage /></LocalProjectRoute>} />
+                      <Route path="/hub/registry" element={<LocalProjectRoute capability="Hub registry operations"><RegistryPage /></LocalProjectRoute>} />
                       <Route
                         path="/hub/local"
-                        element={<ProjectArtifactsPage />}
+                        element={<LocalProjectRoute capability="Local project artifacts"><ProjectArtifactsPage /></LocalProjectRoute>}
                       />
-                      <Route path="/hub/upload" element={<UploadPage />} />
+                      <Route path="/hub/upload" element={<LocalProjectRoute capability="Hub publication"><UploadPage /></LocalProjectRoute>} />
                       <Route path="/ast/contexts" element={<ContextsPage />} />
                       <Route
                         path="/knowledge/contexts"
@@ -163,7 +164,7 @@ export default function App() {
                         path="/live"
                         element={
                           agentFeaturesEnabled() ? (
-                            <LiveSearchPage />
+                            <LocalProjectRoute capability="Live workspace search"><LiveSearchPage /></LocalProjectRoute>
                           ) : (
                             <Navigate to="/hub/registry" replace />
                           )
@@ -188,7 +189,7 @@ export default function App() {
                       />
                       <Route
                         path="/system/dream"
-                        element={<DreamDashboard />}
+                        element={<LocalProjectRoute capability="Dream workspace analysis"><DreamDashboard /></LocalProjectRoute>}
                       />
                       <Route
                         path="/system/ecosystem"

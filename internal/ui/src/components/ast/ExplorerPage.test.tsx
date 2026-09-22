@@ -7,6 +7,7 @@ import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { astApi } from "@/api/ast";
+import { hubApi } from "@/api/hub";
 import { useAppStore } from "@/store/appStore";
 import ExplorerPage from "./ExplorerPage";
 vi.mock("@/api/ast", () => ({
@@ -19,13 +20,14 @@ vi.mock("@/api/ast", () => ({
     generateCypher: vi.fn(),
   },
 }));
+vi.mock("@/api/hub", () => ({ hubApi: { getProjectContexts: vi.fn() } }));
 vi.mock("./CodePanel", () => ({
   CodePanel: ({ content }: { content: string }) => <pre>{content}</pre>,
 }));
 const empty = { nodes: [], links: [], files: [], fileContents: {} };
 beforeEach(() => {
   vi.resetAllMocks();
-  useAppStore.setState({ activeProjectDir: "/project", projectsError: "", loadProjects: vi.fn(async () => {}) });
+  useAppStore.setState({ activeProjectKey: "workspace:demo:/project", activeProjectOrigin: "workspace", activeProjectId: "demo", activeProjectDir: "/project", projectsError: "", loadProjects: vi.fn(async () => {}) });
   vi.mocked(astApi.getSchema).mockResolvedValue({
     nodes: [{ label: "Function", count: 1000 }],
     edges: [{ type: "CALLS", count: 500 }],
@@ -56,6 +58,10 @@ beforeEach(() => {
     content: "export function validate() {}",
     source: "indexed",
   });
+  vi.mocked(hubApi.getProjectContexts).mockResolvedValue({
+    project: { id: "01HUB", name: "Remote", revision: 1, status: "active" },
+    live: { task: true, memory: true }, entries: [],
+  });
 });
 afterEach(cleanup);
 function setup() {
@@ -68,6 +74,29 @@ function setup() {
   );
   return userEvent.setup();
 }
+it("keeps a Hub AST artifact exact while switching from latest to a pinned version", async () => {
+  const user = userEvent.setup();
+  useAppStore.setState({
+    activeProjectKey: "hub:01HUB", activeProjectOrigin: "hub", activeProjectId: "01HUB",
+    activeProjectDir: "", projectName: "Remote",
+  });
+  vi.mocked(hubApi.getProjectContexts).mockResolvedValue({
+    project: { id: "01HUB", name: "Remote", revision: 1, status: "active" },
+    live: { task: true, memory: true },
+    entries: [{ id: "ast-artifact", name: "Service AST", type: "ast", latest: "2.0.0", versions: ["1.0.0", "2.0.0"], qualified_latest: "ast-artifact@2.0.0" }],
+  });
+  render(
+    <MemoryRouter initialEntries={["/ast/explorer"]}>
+      <Routes><Route path="/ast/explorer/:contextId?" element={<ExplorerPage />} /></Routes>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(astApi.getSchema).toHaveBeenCalledWith("ast-artifact@2.0.0", undefined, "01HUB"));
+  expect(screen.getByText(/Reading exact context/).textContent).toContain("ast-artifact@2.0.0");
+
+  await user.click(screen.getByRole("combobox", { name: "AST version" }));
+  await user.click(screen.getByRole("option", { name: "1.0.0" }));
+  await waitFor(() => expect(astApi.getSchema).toHaveBeenCalledWith("ast-artifact@1.0.0", undefined, "01HUB"));
+});
 it("searches the full scoped index without loading a sample, then reads indexed source", async () => {
   const user = setup();
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
@@ -128,7 +157,7 @@ it("discards search results returned after switching project", async () => {
   );
   await user.type(screen.getByLabelText("Search indexed code"), "old");
   await user.click(screen.getByRole("button", { name: "Search index" }));
-  act(() => useAppStore.setState({ activeProjectDir: "/new" }));
+  act(() => useAppStore.setState({ activeProjectKey: "workspace:new:/new", activeProjectOrigin: "workspace", activeProjectId: "new", activeProjectDir: "/new" }));
   await act(async () =>
     finish([{ Name: "stale", Type: "Function", Path: "old.ts", Line: 1 }]),
   );
@@ -387,6 +416,6 @@ it("queries an independent scoped neighborhood from a search selection and refre
   expect(screen.getByRole("heading", { name: "validate" })).toBeTruthy();
   expect(screen.getByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeTruthy();
   for (const [args] of vi.mocked(astApi.getGraph).mock.calls) expect(args).toMatchObject({ context: "library", project_dir: "/project" });
-  act(() => useAppStore.setState({ activeProjectDir: "/new" }));
+  act(() => useAppStore.setState({ activeProjectKey: "workspace:new:/new", activeProjectOrigin: "workspace", activeProjectId: "new", activeProjectDir: "/new" }));
   expect(screen.queryByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeNull();
 });

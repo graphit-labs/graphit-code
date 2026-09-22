@@ -12,3 +12,8 @@ it('forwards neighborhood cancellation to HTTP without adding the signal to the 
  await astApi.getGraph({ context:'shared/code', project_dir:'/example', cypher_query:'MATCH (n) RETURN n', signal:controller.signal });
  expect(api.get).toHaveBeenCalledWith('/api/graph?context=shared%2Fcode&cypher_query=MATCH+%28n%29+RETURN+n&project_dir=%2Fexample', {signal:controller.signal});
 });
+
+it('reads an exact published AST context without a local project path', async () => {
+ await astApi.getGraph({ context:'artifact@2.1.0', project_id:'01HUB' });
+ expect(api.get).toHaveBeenCalledWith('/api/graph?context=artifact%402.1.0&project_id=01HUB');
+});

@@ -55,17 +55,37 @@ Persistent navigation groups Engineering (workspace, sessions, tasks and evidenc
 
 ## Workspace identity
 
-The app store loads machine-local ecosystem projects from `GET /api/global-projects` and persists
-the selected project directory under the `graphit-app-state` browser key. That local list is not
-the remote Hub project directory. Hub discovery uses its own ACL-filtered cursor API.
+The app store combines machine-local projects from `GET /api/global-projects` with the
+ACL-filtered `GET /api/project-catalog` result. It deduplicates both presences by immutable project
+ID and persists a typed target under the `graphit-app-state` browser key: `workspace:<id>:<dir>` or
+`hub:<id>`. A Hub target has no fabricated checkout directory.
 
-Every project-scoped request must use the active project directory or context. Because the selection survives browser sessions, the common header must display the active project clearly enough for a user to verify it before interpreting data.
+Every project-scoped request must use the selected target: `project_dir` for Workspace and
+`project_id` or an exact remote context for Hub. Because the selection survives browser sessions,
+the common header displays the origin clearly enough for a user to verify it before interpreting
+data. A temporarily unavailable Hub catalogue retains the selected Hub target as stale; it never
+falls back to a previous local directory.
 
 `AppShell` mounts one `WorkspaceSelectors` group in the right side of its header on every route, including all explorers. It is the only place that changes global project and agent selection. Sidebar, mobile navigation and page toolbars do not repeat these controls or a separate selected-project badge. Each themed dropdown has a persistent label, selected checkmark and keyboard/type-ahead support; switching one leaves the other unchanged. The selectors write the existing app store and retain its browser persistence.
 
-Controls remain visible while loading or empty, with descriptive disabled options. The single Refresh action reloads available projects and agents, then all data sources registered by the active page: catalogues, open details and runtime data. It stays busy until all finish, prevents duplicate activation and reports errors. Refresh never reloads the document, resets drafts or executes an unreviewed AI query. Duplicate project names include their directories in the options; the selected project's full directory is available on hover. Missing selections are explicitly marked unavailable rather than displaying an unrelated first option. On narrow screens the same two selectors stay in the header; the breadcrumb and Source link yield space before the context controls do.
+Controls remain visible while loading or empty, with descriptive disabled options. The Project menu
+groups Workspace and **Hub · remote** targets. Workspace options expose their directory; Hub options
+expose the immutable project ID, and the selected value includes “Hub”. The single Refresh action
+reloads available projects and agents, then all data sources registered by the active page:
+catalogues, open details and runtime data. It stays busy until all finish, prevents duplicate
+activation and reports errors. Refresh never reloads the document, resets drafts or executes an
+unreviewed AI query. Duplicate project names remain distinct by origin and directory or project ID.
+Missing selections are explicitly marked unavailable rather than displaying an unrelated first
+option. On narrow screens the same two selectors stay in the header; the breadcrumb and Source link
+yield space before the context controls do.
 
 Page-specific context choices (indexed AST/Knowledge source, Memory scope, publisher filters or a Live run configuration) remain in the relevant page. These describe the work being inspected or executed, not a second global project/agent selector. Project metadata in a dossier remains appropriate when it adds information beyond the selected name.
+
+Routes that require a checkout render the shared **Local workspace required** state while a Hub
+target is selected. The state names the retained remote project and directs the user to the global
+Project selector; it does not execute the route with an empty path or the previous Workspace path.
+Workspace Now, local artifact management/publication, Live workspace search and Dream analysis use
+this guard. Task, Session, project Memory, Knowledge and AST remain available remotely.
 
 Switching projects updates:
 
@@ -91,6 +111,13 @@ Relationship inspection first resolves the selected name/path/line to one indexe
 
 **Indexed contexts** is a searchable directory followed by an origin dossier and **Investigate this context** action. Imported-context unlinking is confirmed and scoped to the selected project; it removes that project’s reference without deleting the shared index. Tables scroll within their containers; investigation, source and controls stack on smaller screens.
 
+For a Hub project, the directory is built from `/api/projects/{projectID}/contexts`. The explorer
+shows separate artifact and published-version selectors. “Latest” is a presentation choice only:
+the client resolves `qualified_latest` and every schema, search, graph, file and generated-query
+request carries `project_id` plus the exact `id@version`. The server opens that published store
+read-only on demand; it neither installs the context nor creates a local project claim. Unlink and
+other local mutation actions are absent for these rows.
+
 User-facing relationship names are resolved dynamically from the active project or context's `graph.icebug/icebug.json` manifest. `CanonicalRelGroup.Type` is the public name used by the translator, schema controls, filters, and relationship readers. Physical edge-table names are internal Icebug storage details and must not cross the explorer API boundary.
 
 Context totals and the schema controls’ label, relationship-type, and language counts come from the
@@ -106,6 +133,13 @@ Knowledge uses a library → reading → evidence journey for maintained project
 The reading workspace brings the document into focus and makes the search/context region collapsible. It retains provenance, type, tags, indexed confidence, source path, references, backlinks, raw Markdown, copy and previous/next document history. Explicit wiki links can address another known context using `context/page`; normal source-file links retain their source-path meaning. Cross-context navigation and project changes invalidate stale lookups. Images open in the shared modal viewer with zoom, pan, reset and Escape/focus restoration.
 
 **Knowledge contexts** is a searchable collection directory. Selecting a row shows origin, location, page count and changelog availability before **Read this collection** opens its library. APIs remain under `/api/wiki`; no independent copy of knowledge state is created in the UI.
+
+For a Hub project, Knowledge exposes artifact and published-version selectors. “Latest” resolves to
+`qualified_latest` before the library opens, and pages, documents, keyword search and AI-assisted
+search all send the immutable `project_id` + `id@version` pair. The handler mounts the published
+LanceDB URI read-only for that request and never treats the reference as a filesystem directory or
+persists an installation. Switching project, artifact or version clears previous pages, documents,
+answers and outstanding requests before the new source is shown.
 
 ### Memory Explorer
 
@@ -132,8 +166,11 @@ Create/edit uses a focused modal: content and title are primary, while classific
 
 The Memory API consists of `GET /api/memories`, `POST /api/memories`,
 `GET /api/memories/{id}`, `PATCH /api/memories/{id}`, and
-`DELETE /api/memories/{id}?confirm=true`. Each request accepts `project_dir` and `scope` as
-appropriate. `GET /api/memories/scopes` reports the directly addressable scopes.
+`DELETE /api/memories/{id}?confirm=true`. Each request accepts exactly one project address:
+`project_dir` for a workspace checkout or immutable `project_id` for a Hub project, plus `scope` as
+appropriate. The addresses are mutually exclusive. Project memory follows the selected project;
+user memory remains the authenticated user's private scope. `GET /api/memories/scopes` reports the
+directly addressable scopes.
 
 ### Task Explorer
 
@@ -154,13 +191,15 @@ fields come from the Task service, while detail arrays come from the shared expo
 status, project, and page size are bound into opaque cursors; stale responses are discarded when
 the view changes.
 
-`GET /api/tasks` accepts `project_dir`, `query`, `status`, `page_size`, and `cursor`. It returns a
+`GET /api/tasks` accepts exactly one of `project_dir` or immutable Hub `project_id`, plus `query`,
+`status`, `page_size`, and `cursor`. It returns a
 bounded `results` array and `next_cursor`; page size defaults to 20 and is capped by the shared API
 pagination limit. Results run from newest creation time to oldest, with task ID as a deterministic
 tie-breaker. A cursor from another query, status, project, or page size returns `400`.
 
-`GET /api/tasks/export` accepts `project_dir` and `id` as query parameters. `project_dir` defaults
-to the server's active project; omitting `id` returns the complete project document, while an exact
+`GET /api/tasks/export` accepts the same exclusive project address and `id` as query parameters.
+When neither address is supplied, `project_dir` defaults to the server's active project. Omitting
+`id` returns the complete project document, while an exact
 `id` returns that task and its recursive subtasks. A missing task returns `404`; an unavailable Task
 module also returns `404`; invalid project resolution returns `400`.
 
@@ -214,7 +253,16 @@ Live Search separates **Prepare context**, **Run & evidence**, and **Recent sess
 
 ### System views
 
-**Projects** is a searchable local directory with a selected project dossier. Inspect its path, registered identity and cluster labels, edit labels or unregister through explicit confirmation. Change the working project using the common header. **Daemon** starts with process/connection state and polling logs; stopping uses a focused confirmation. **Dream** separates runtime conditions, report directory and reading view, with scope changes clearing previous evidence. **Workspace** is a job chooser (Continue, Understand, Reuse & share, Operate) with project metadata and a link to project administration. Global context selection stays in the header.
+**Projects** is a unified identity directory with one row per project ID and explicit Workspace/Hub
+presences. All Projects and Same Cluster compare cluster metadata from both sources. The dossier
+shows the local path when present, Hub revision and remote-context capabilities; **Use workspace**
+and **Use Hub context** change the one global selector. Cluster editing and unregistering remain
+local-only operations with explicit confirmation. A partial source failure keeps the available
+catalogue visible and identifies the unavailable source. **Daemon** starts with process/connection
+state and polling logs; stopping uses a focused confirmation. **Dream** separates runtime
+conditions, report directory and reading view, with scope changes clearing previous evidence.
+**Workspace** is a job chooser (Continue, Understand, Reuse & share, Operate) with project metadata
+and a link to project administration. Global context selection stays in the header.
 
 - **Daemon** exposes process status and recent operational information.
 - **Dream** exposes configuration and session/report state.
@@ -269,6 +317,12 @@ The shared [design system](design_system.md) defines the current visual identity
 ### Current project activity
 
 `GET /api/workspace/now?project_dir=...` returns `project_id`, `generated_at` and `sections` keyed by `sessions`, `tasks`, `memories`, and `knowledge`. Each section contains `items`, `total`, `has_more` and an optional `error`. Items contain identity/title/link, available responsible identity and update time; current work additionally includes lease, progress and next action. Fencing tokens, raw session snapshots, audit histories and complete document/memory bodies are excluded. Domain readers retain their normal project authorization. Metadata is ordered by parsed update timestamp descending with ID as the stable tie-breaker before the 20-item cap. Task/session claims must be in progress and unexpired. Knowledge is the project's own corpus; personal memory and imported corpora are not included.
+
+`GET /api/project-catalog` returns `workspace_projects` and `hub_projects` independently, with
+`workspace_error` and `hub_error` for partial failures. Clients deduplicate both sources by immutable
+project ID. `GET /api/projects/{projectID}/contexts` returns Hub project metadata, live Task/Memory
+capability markers, and Knowledge/AST entries with `latest`, `versions`, and `qualified_latest`.
+Artifact reads use a concrete `id@version`; choosing `latest` first resolves it to that exact value.
 
 ### Incremental agent responses
 

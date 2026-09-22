@@ -74,7 +74,7 @@ describe('Session Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ loadProjects: vi.fn(async () => {}), projectsError: "" })
-    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
+    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(sessionApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondSummary], next_cursor: '' }
       : { results: [firstSummary], next_cursor: 'page-2' })

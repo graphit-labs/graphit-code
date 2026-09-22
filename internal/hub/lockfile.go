@@ -1,7 +1,9 @@
 package hub
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -41,6 +43,76 @@ const (
 func LoadLockfile(path string) (*Lockfile, error) { return projectlock.Load(path) }
 
 func SaveLockfile(path string, lf *Lockfile) error { return projectlock.Save(path, lf) }
+
+// SetProjectClusterLabel updates the portable project lock first and then its
+// local global-lock projection. The Hub registry is synchronized by lifecycle
+// and publication paths, where an authenticated registry context is available.
+func SetProjectClusterLabel(projectDir, expectedProjectID, key, value string) error {
+	return mutateProjectCluster(projectDir, expectedProjectID, func(lf *Lockfile) error {
+		return projectlock.SetClusterLabel(lf, key, value)
+	})
+}
+
+// UnsetProjectClusterLabel removes a key from both the project authority and
+// the local discovery projection.
+func UnsetProjectClusterLabel(projectDir, expectedProjectID, key string) error {
+	return mutateProjectCluster(projectDir, expectedProjectID, func(lf *Lockfile) error {
+		return projectlock.UnsetClusterLabel(lf, key)
+	})
+}
+
+func mutateProjectCluster(projectDir, expectedProjectID string, mutate func(*Lockfile) error) error {
+	if strings.TrimSpace(projectDir) == "" {
+		return fmt.Errorf("project_dir is required")
+	}
+	lockPath := filepath.Join(projectDir, brand.LockFileName())
+	lf, err := LoadLockfile(lockPath)
+	if err != nil {
+		return fmt.Errorf("cannot load project lockfile: %w", err)
+	}
+	if lf == nil {
+		return fmt.Errorf("cannot load project lockfile: lockfile not found")
+	}
+	if lf.Project.ID == "" {
+		return fmt.Errorf("project has no ID")
+	}
+	if expectedProjectID != "" && expectedProjectID != lf.Project.ID {
+		return fmt.Errorf("project ID mismatch: lock has %q, request has %q", lf.Project.ID, expectedProjectID)
+	}
+	before := projectlock.NormalizeCluster(lf.Project.Cluster)
+	if err := mutate(lf); err != nil {
+		return err
+	}
+	if err := SaveLockfile(lockPath, lf); err != nil {
+		return err
+	}
+	mgr, err := NewGlobalLockManager()
+	if err == nil {
+		err = mgr.RegisterProject(lf.Project.ID, projectDir,
+			WithProjectName(lf.Project.Name),
+			WithProjectDescription(lf.Project.Description),
+			WithProjectCluster(lf.Project.Cluster),
+		)
+	}
+	if err == nil {
+		return nil
+	}
+	// Do not report a successful mutation with a stale local projection. Restore
+	// the portable authority best-effort and surface the projection failure.
+	lf.Project.Cluster = before
+	_ = SaveLockfile(lockPath, lf)
+	return fmt.Errorf("project cluster projection: %w", err)
+}
+
+// SyncProjectMetadata publishes the lock's identity and discovery metadata to
+// an authenticated Hub registry. It is shared by init, update and publication.
+func SyncProjectMetadata(ctx context.Context, registry *RegistryManager, lf *Lockfile) error {
+	if registry == nil || !registry.IsReady() || lf == nil || lf.Project.ID == "" {
+		return nil
+	}
+	_, err := registry.UpsertProjectWithCluster(ctx, lf.Project.ID, lf.Project.Name, lf.Project.Description, lf.Project.Cluster)
+	return err
+}
 
 func AddAgent(path, agent string) ([]string, error) {
 	lf, err := LoadLockfile(path)

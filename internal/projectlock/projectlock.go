@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,6 +89,10 @@ type ProjectIdentity struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Cluster is project metadata, not machine metadata. Keeping it beside the
+	// immutable identity lets every checkout publish the same discovery labels;
+	// the global lock only projects this value for local lookup.
+	Cluster map[string][]string `json:"cluster,omitempty"`
 	// Ephemeral marks a throwaway workspace — a live search session — which gets a
 	// lockfile so the agent CLI can find itself, but must not acquire stores of its
 	// own. See store.IsEphemeralProject.
@@ -186,6 +191,7 @@ func Save(path string, lf *Lockfile) error {
 		}
 	}
 	lf.Project.Name = normalizeProjectName(lf.Project.Name)
+	lf.Project.Cluster = NormalizeCluster(lf.Project.Cluster)
 	if lf.Project.Name == "" {
 		lf.Project.Name = resolveProjectName(filepath.Dir(path))
 	}
@@ -222,6 +228,72 @@ func Save(path string, lf *Lockfile) error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("replacing lockfile: %w", err)
 	}
+	return nil
+}
+
+// NormalizeCluster returns a deterministic, portable cluster map. Empty keys
+// and values are discarded, values are deduplicated and sorted, and an empty
+// result is represented as nil so old lockfiles remain byte-compatible.
+func NormalizeCluster(cluster map[string][]string) map[string][]string {
+	if len(cluster) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(cluster))
+	for rawKey, rawValues := range cluster {
+		key := strings.TrimSpace(rawKey)
+		if key == "" {
+			continue
+		}
+		seen := make(map[string]struct{}, len(rawValues))
+		values := make([]string, 0, len(rawValues))
+		for _, rawValue := range rawValues {
+			value := strings.TrimSpace(rawValue)
+			if value == "" {
+				continue
+			}
+			if _, duplicate := seen[value]; duplicate {
+				continue
+			}
+			seen[value] = struct{}{}
+			values = append(values, value)
+		}
+		if len(values) == 0 {
+			continue
+		}
+		sort.Strings(values)
+		out[key] = values
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// SetClusterLabel adds one normalized value to a project-owned cluster key.
+func SetClusterLabel(lf *Lockfile, key, value string) error {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return fmt.Errorf("cluster key and value must not be empty")
+	}
+	cluster := NormalizeCluster(lf.Project.Cluster)
+	if cluster == nil {
+		cluster = make(map[string][]string)
+	}
+	cluster[key] = append(cluster[key], value)
+	lf.Project.Cluster = NormalizeCluster(cluster)
+	return nil
+}
+
+// UnsetClusterLabel removes a complete key from the project-owned cluster map.
+func UnsetClusterLabel(lf *Lockfile, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("cluster key must not be empty")
+	}
+	cluster := NormalizeCluster(lf.Project.Cluster)
+	delete(cluster, key)
+	lf.Project.Cluster = NormalizeCluster(cluster)
 	return nil
 }
 

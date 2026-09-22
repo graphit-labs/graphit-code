@@ -39,10 +39,11 @@ func OnInit(ctx context.Context, registry *RegistryManager, agent, projectDir st
 			if savedLf.Project.Description != "" {
 				regOpts = append(regOpts, WithProjectDescription(savedLf.Project.Description))
 			}
+			regOpts = append(regOpts, WithProjectCluster(savedLf.Project.Cluster))
 			_ = mgr.RegisterProject(savedLf.Project.ID, projDir, regOpts...)
 		}
 		if registry.IsReady() {
-			if _, err := registry.UpsertProject(ctx, savedLf.Project.ID, savedLf.Project.Name, savedLf.Project.Description); err != nil {
+			if err := SyncProjectMetadata(ctx, registry, savedLf); err != nil {
 				return fmt.Errorf("registering project in Hub: %w", err)
 			}
 		}
@@ -80,7 +81,7 @@ func OnUpdate(ctx context.Context, registry *RegistryManager, agent, projectDir 
 	if registry.IsReady() {
 		lf, _ := LoadLockfile(pp.LockFilePath)
 		if lf != nil {
-			if _, err := registry.UpsertProject(ctx, lf.Project.ID, lf.Project.Name, lf.Project.Description); err != nil {
+			if err := SyncProjectMetadata(ctx, registry, lf); err != nil {
 				return fmt.Errorf("updating project in Hub: %w", err)
 			}
 			tracker := NewEventTracker(registry.Store())

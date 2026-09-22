@@ -15,6 +15,7 @@ beforeEach(() => {
   useAppStore.setState({
     projectsError: '',
     projects: [{ id: 'p1', name: 'Platform', dir: '/platform' }, { id: 'p2', name: 'Service', dir: '/service' }] as never,
+    projectTargets: [], projectCatalog: [], activeProjectKey: '', activeProjectOrigin: '',
     activeProjectDir: '/platform', projectName: 'Platform', activeProjectId: 'p1',
     supportedAgents: ['codex', 'claude-code'], activeAgent: 'codex', projectsLoaded: true,
     loadProjects: originalLoadProjects,
@@ -95,5 +96,24 @@ describe('Global working context', () => {
     const project = screen.getByRole('combobox', { name: 'Project' }) as HTMLSelectElement
     expect(project.textContent).toContain('Missing (unavailable)')
     expect(screen.getByRole('combobox', { name: 'Agent' }).textContent).toContain('Legacy (unavailable)')
+  })
+
+  it('keeps a remote Hub project visibly selected in the global control', async () => {
+    const user = userEvent.setup()
+    const remoteId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
+    useAppStore.setState({
+      projectTargets: [
+        { key: 'workspace:p1:/platform', origin: 'workspace', id: 'p1', name: 'Platform', dir: '/platform' },
+        { key: `hub:${remoteId}`, origin: 'hub', id: remoteId, name: 'Remote platform' },
+      ],
+      activeProjectKey: 'workspace:p1:/platform', activeProjectOrigin: 'workspace', activeProjectDir: '/platform',
+    })
+    render(<MemoryRouter><WorkspaceRefreshProvider><WorkspaceSelectors /></WorkspaceRefreshProvider></MemoryRouter>)
+    await user.click(screen.getByRole('combobox', { name: 'Project' }))
+    expect(screen.getByText('Hub · remote')).toBeTruthy()
+    await user.click(screen.getByRole('option', { name: 'Remote platform' }))
+    expect(useAppStore.getState().activeProjectKey).toBe(`hub:${remoteId}`)
+    expect(useAppStore.getState().activeProjectDir).toBe('')
+    expect(screen.getByRole('combobox', { name: 'Project' }).textContent).toContain('Remote platform · Hub')
   })
 })

@@ -1112,9 +1112,27 @@
 }
 .ecosystem-layout {
   display: grid;
-  grid-template-columns: var(--work-columns-detail);
+  /* The project directory carries four comparison columns, so it needs more
+     room than a typical detail-first rail while the dossier remains readable. */
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 1fr);
   gap: 28px;
   align-items: start;
+}
+.project-presence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.project-presence .work-badge {
+  white-space: nowrap;
+}
+.ecosystem-layout .work-table td:nth-child(2) small {
+  display: block;
+  margin-bottom: 4px;
+}
+.ecosystem-layout .work-panel code {
+  overflow-wrap: anywhere;
 }
 .cluster-label-row {
   display: flex;

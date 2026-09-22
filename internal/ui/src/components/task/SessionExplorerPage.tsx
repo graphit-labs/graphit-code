@@ -36,6 +36,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { MarkdownContent } from "@/components/wiki/WikiMarkdown";
 import { showToast } from "@/hooks/useToast";
+import { projectRequestScope } from "@/lib/projectScope";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/appStore";
 
@@ -287,11 +288,14 @@ function SessionDetailView({
 export default function SessionExplorerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { activeProjectDir, projectName } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName } = useAppStore();
+  const { key: projectKey, projectDir, projectId } = projectRequestScope({
+    activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
+  });
   const [catalog, setCatalog] = useState<SessionSearchResult[]>([]);
   const [nextCursor, setNextCursor] = useState("");
   const [detailResult, setDetailResult] = useState<{
-    projectDir: string;
+    projectKey: string;
     selectedID: string;
     detail: SessionDetail;
   } | null>(null);
@@ -306,9 +310,9 @@ export default function SessionExplorerPage() {
   const selectedIDRef = useRef(selectedID);
   const catalogRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
-  const previousProjectRef = useRef(activeProjectDir);
+  const previousProjectRef = useRef(projectKey);
   const detail =
-    detailResult?.projectDir === activeProjectDir &&
+    detailResult?.projectKey === projectKey &&
     detailResult.selectedID === selectedID
       ? detailResult.detail
       : null;
@@ -324,7 +328,8 @@ export default function SessionExplorerPage() {
       }
       try {
         const page = await sessionApi.list({
-          projectDir: activeProjectDir || undefined,
+          projectDir,
+          ...(projectId ? { projectId } : {}),
           query: query.trim() || undefined,
           status,
           active: activeOnly,
@@ -364,7 +369,7 @@ export default function SessionExplorerPage() {
         }
       }
     },
-    [activeProjectDir, projectName, query, status, activeOnly],
+    [projectDir, projectId, projectName, query, status, activeOnly],
   );
 
   useEffect(() => {
@@ -375,23 +380,25 @@ export default function SessionExplorerPage() {
   }, [loadCatalog]);
 
   useEffect(() => {
-    if (previousProjectRef.current === activeProjectDir) return;
-    previousProjectRef.current = activeProjectDir;
+    if (previousProjectRef.current === projectKey) return;
+    previousProjectRef.current = projectKey;
     selectedIDRef.current = "";
     setSelectedID("");
     setDetailResult(null);
     navigate("/task/sessions", { replace: true });
-  }, [activeProjectDir, navigate]);
+  }, [projectKey, navigate]);
 
   const loadDetail = useCallback(
     (id: string) => {
       const request = ++detailRequestRef.current;
-      return sessionApi
-        .get(activeProjectDir || undefined, id)
+      const requestDetail = projectId
+        ? sessionApi.get(projectDir, id, projectId)
+        : sessionApi.get(projectDir, id);
+      return requestDetail
         .then((detail) => {
           if (request === detailRequestRef.current) {
             setDetailResult({
-              projectDir: activeProjectDir,
+              projectKey,
               selectedID: id,
               detail,
             });
@@ -402,7 +409,7 @@ export default function SessionExplorerPage() {
             showToast("Failed to load session details", "error");
         });
     },
-    [activeProjectDir],
+    [projectDir, projectId, projectKey],
   );
 
   useEffect(() => {

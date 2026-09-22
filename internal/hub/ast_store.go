@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
@@ -54,6 +55,30 @@ func (s *HubService) ensureASTStore(ctx context.Context, projectID, version stri
 type artifactRef struct {
 	ID        string
 	ProjectID string
+}
+
+// ResolveASTContext resolves latest or a requested version to one exact remote
+// AST context. It stages only the local catalog needed to address the published
+// graph and search mount; it does not install the artifact into a project lock.
+func (s *HubService) ResolveASTContext(ctx context.Context, projectID, qualifiedID string) (storeDir, version string, err error) {
+	realID, requested := qualifiedID, ""
+	if parts := strings.SplitN(qualifiedID, "@", 2); len(parts) == 2 {
+		realID, requested = parts[0], parts[1]
+	}
+	entry, err := s.registry.ResolveEntry(ctx, projectID, realID, TypeAST)
+	if err != nil {
+		return "", "", err
+	}
+	version, err = resolveEntryVersion(entry, requested)
+	if err != nil {
+		return "", "", err
+	}
+	if version == "" {
+		return "", "", fmt.Errorf("AST artifact %q has no published version", realID)
+	}
+	contextID := ast.HubContextID(entry.ProjectID)
+	storeDir, err = s.ensureASTStore(ctx, contextID, version, artifactRef{ID: realID, ProjectID: entry.ProjectID})
+	return storeDir, version, err
 }
 
 // mountASTGraph fetches the published DDL and runs it against a fresh local catalog.

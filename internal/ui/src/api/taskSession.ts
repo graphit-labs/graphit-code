@@ -100,6 +100,7 @@ export interface SessionCatalogPage {
 
 export interface SessionCatalogOptions {
   projectDir?: string
+  projectId?: string
   query?: string
   status?: string
   active?: boolean
@@ -108,9 +109,10 @@ export interface SessionCatalogOptions {
 }
 
 export const sessionApi = {
-  list: ({ projectDir, query, status, active, pageSize = 20, cursor }: SessionCatalogOptions) => {
+  list: ({ projectDir, projectId, query, status, active, pageSize = 20, cursor }: SessionCatalogOptions) => {
     const params = new URLSearchParams()
     if (projectDir) params.set('project_dir', projectDir)
+    if (projectId) params.set('project_id', projectId)
     if (query) params.set('query', query)
     if (status && status !== 'all') params.set('status', status)
     if (active) params.set('active', 'true')
@@ -118,9 +120,10 @@ export const sessionApi = {
     if (cursor) params.set('cursor', cursor)
     return api.get<SessionCatalogPage>(`/tasks/sessions?${params.toString()}`)
   },
-  get: (projectDir: string | undefined, id: string) => {
+  get: (projectDir: string | undefined, id: string, projectId?: string) => {
     const params = new URLSearchParams()
     if (projectDir) params.set('project_dir', projectDir)
+    if (projectId) params.set('project_id', projectId)
     const query = params.toString()
     return api.get<SessionDetail>(`/tasks/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ''}`)
   },

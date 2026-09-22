@@ -148,6 +148,7 @@ export interface TaskCatalogPage {
 
 export interface TaskCatalogOptions {
   projectDir?: string
+  projectId?: string
   query?: string
   status?: string
   pageSize?: number
@@ -155,18 +156,20 @@ export interface TaskCatalogOptions {
 }
 
 export const taskApi = {
-  list: ({ projectDir, query, status, pageSize = 20, cursor }: TaskCatalogOptions) => {
+  list: ({ projectDir, projectId, query, status, pageSize = 20, cursor }: TaskCatalogOptions) => {
     const params = new URLSearchParams()
     if (projectDir) params.set('project_dir', projectDir)
+    if (projectId) params.set('project_id', projectId)
     if (query) params.set('query', query)
     if (status && status !== 'all') params.set('status', status)
     params.set('page_size', String(pageSize))
     if (cursor) params.set('cursor', cursor)
     return api.get<TaskCatalogPage>(`/tasks?${params.toString()}`)
   },
-  export: (projectDir?: string, id?: string) => {
+  export: (projectDir?: string, id?: string, projectId?: string) => {
     const params = new URLSearchParams()
     if (projectDir) params.set('project_dir', projectDir)
+    if (projectId) params.set('project_id', projectId)
     if (id) params.set('id', id)
     const query = params.toString()
     return api.get<TaskExportDocument>(`/tasks/export${query ? `?${query}` : ''}`)

@@ -1,6 +1,6 @@
 import "@/test/contextControls"
 import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors"
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -75,7 +75,7 @@ function Location() {
 describe('Task Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
+    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(taskApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondCatalogItem], next_cursor: '' }
       : { results: [firstCatalogItem], next_cursor: 'page-2' })
@@ -90,6 +90,33 @@ describe('Task Explorer', () => {
         comments: completeExport.comments.filter(item => item.task_id === id),
       }
     })
+  })
+
+  it('switches Workspace to Hub and back without reusing either request scope', async () => {
+    useAppStore.setState({
+      activeProjectKey: 'workspace:local:/project', activeProjectOrigin: 'workspace',
+      activeProjectId: 'local', activeProjectDir: '/project', projectName: 'Local',
+    })
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(taskApi.list).toHaveBeenCalledWith(expect.objectContaining({ projectDir: '/project' })))
+
+    act(() => useAppStore.setState({
+      activeProjectKey: 'hub:01HUB', activeProjectOrigin: 'hub', activeProjectId: '01HUB',
+      activeProjectDir: '', projectName: 'Remote',
+    }))
+    await waitFor(() => expect(taskApi.list).toHaveBeenCalledWith(expect.objectContaining({ projectDir: undefined, projectId: '01HUB' })))
+    await waitFor(() => expect(taskApi.export).toHaveBeenCalledWith(undefined, 'tsk-aaaa', '01HUB'))
+
+    act(() => useAppStore.setState({
+      activeProjectKey: 'workspace:other:/other', activeProjectOrigin: 'workspace', activeProjectId: 'other',
+      activeProjectDir: '/other', projectName: 'Other',
+    }))
+    await waitFor(() => expect(taskApi.list).toHaveBeenCalledWith(expect.objectContaining({ projectDir: '/other' })))
+    expect(taskApi.list).not.toHaveBeenCalledWith(expect.objectContaining({ projectDir: '/other', projectId: '01HUB' }))
   })
 
   it('loads a bounded catalogue, renders exact detail, and appends the next page', async () => {

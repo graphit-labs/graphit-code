@@ -70,6 +70,29 @@ func OpenAt(projectID, uri string) *Service {
 	}
 }
 
+// OpenProject opens the authoritative live store for a project identified only
+// by its immutable Hub ID. It never resolves the ID as a filesystem path.
+func OpenProject(ctx context.Context, projectID string) (*Service, error) {
+	if err := hubaccess.ValidateProjectID(projectID); err != nil {
+		return nil, err
+	}
+	if config.IsModuleDisabled("task", nil, nil) {
+		return nil, ErrDisabled
+	}
+	s3 := config.ProjectS3Config(ctx, projectID, auth.BrokerStorageModuleTask)
+	if s3.ResolutionError != nil {
+		return nil, s3.ResolutionError
+	}
+	uri := tableURIWithS3(projectID, nil, s3)
+	if uri == "" {
+		return nil, fmt.Errorf("task store URI is unavailable")
+	}
+	return &Service{
+		projectID: projectID, uri: uri, s3: s3, now: time.Now,
+		operationTimeout: defaultOperationTimeout, versionRetention: defaultVersionRetention,
+	}, nil
+}
+
 func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
 	if err := s.ensureIdentity(ctx); err != nil {
 		return err

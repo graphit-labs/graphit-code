@@ -10,7 +10,7 @@ export type NeighborhoodLoader = (node: GraphNode, previous?: Neighborhood, sign
 const stableId = (label: string, identity: unknown) => JSON.stringify([label, String(identity)]);
 
 /** Direct, schema-typed evidence. This never writes to the original search result. */
-export async function loadNeighborhood(node: GraphNode, schema: SchemaResponse, context?: string, projectDir?: string, previous?: Neighborhood, signal?: AbortSignal): Promise<Neighborhood> {
+export async function loadNeighborhood(node: GraphNode, schema: SchemaResponse, context?: string, projectDir?: string, previous?: Neighborhood, signal?: AbortSignal, projectId?: string): Promise<Neighborhood> {
   const check = () => signal?.throwIfAborted();
   check();
   const type = schema.node_types?.find(t => t.label === node.label);
@@ -24,7 +24,7 @@ export async function loadNeighborhood(node: GraphNode, schema: SchemaResponse, 
     if (type.properties.includes("path") && node.file) filters.push("n.path = " + quote(node.file));
     if (type.properties.includes("line_number") && Number.isFinite(node.line)) filters.push("n.line_number = " + node.line);
     if (!filters.length) throw new Error("This entity has no indexed identity or location to resolve.");
-    const resolved = await astApi.getGraph({ context, project_dir: projectDir, signal, cypher_query: `MATCH (n:${type.label}) WHERE ${filters.join(" AND ")} RETURN n LIMIT 2` });
+    const resolved = await astApi.getGraph({ context, project_dir: projectDir, ...(projectId ? { project_id: projectId } : {}), signal, cypher_query: `MATCH (n:${type.label}) WHERE ${filters.join(" AND ")} RETURN n LIMIT 2` });
     check();
     if (resolved.nodes.length !== 1) throw new Error(resolved.nodes.length ? "Multiple indexed entities match this location. Refine the search before exploring." : "This entity is no longer in the index. Refresh the search.");
     anchor = resolved.nodes[0];
@@ -67,7 +67,7 @@ export async function loadNeighborhood(node: GraphNode, schema: SchemaResponse, 
         const fields = properties.map(k => `n.${k} AS ${k === target.identity_property ? "identity" : k}`);
         const pattern = p.direction === "outgoing" ? `(anchor:${type.label})-[:${p.type}]->(n:${target.label})` : `(n:${target.label})-[:${p.type}]->(anchor:${type.label})`;
         const cursor = p.after === undefined ? "" : ` AND n.${target.identity_property} > ${quote(p.after)}`;
-        const data = await astApi.getGraph({ context, project_dir: projectDir, signal, cypher_query: `MATCH ${pattern} WHERE anchor.${type.identity_property} = ${quote(String(identity))}${cursor} RETURN DISTINCT ${fields.join(", ")} ORDER BY identity LIMIT ${PAGE_SIZE + 1}` });
+        const data = await astApi.getGraph({ context, project_dir: projectDir, ...(projectId ? { project_id: projectId } : {}), signal, cypher_query: `MATCH ${pattern} WHERE anchor.${type.identity_property} = ${quote(String(identity))}${cursor} RETURN DISTINCT ${fields.join(", ")} ORDER BY identity LIMIT ${PAGE_SIZE + 1}` });
         check();
         if (!data.tabular) throw new Error("The index did not return relationship rows");
         const rows = data.tabular.rows;

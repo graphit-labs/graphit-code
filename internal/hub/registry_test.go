@@ -76,6 +76,40 @@ func TestUpsertProjectReservesGlobalNameAndRenamesWithoutMovingData(t *testing.T
 	}
 }
 
+func TestUpsertProjectSynchronizesAndCanClearCluster(t *testing.T) {
+	store, _ := newTestS3Store(t)
+	ctx := trustedHubContext(t)
+	allowProjects(t, ctx, store, hubaccess.Selector{All: true})
+	registry := registryForStore(ctx, store)
+
+	project, err := registry.UpsertProjectWithCluster(ctx, testProjectOne, "payments-api", "Payments", map[string][]string{
+		"team": {" backend ", "backend", "platform"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := project.Cluster["team"]; len(got) != 2 || got[0] != "backend" || got[1] != "platform" {
+		t.Fatalf("cluster = %#v", project.Cluster)
+	}
+
+	// The compatibility API does not erase discovery metadata it did not own.
+	preserved, err := registry.UpsertProject(ctx, testProjectOne, "payments-api", "Updated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preserved.Cluster["team"]) != 2 {
+		t.Fatalf("legacy upsert erased cluster: %#v", preserved.Cluster)
+	}
+
+	cleared, err := registry.UpsertProjectWithCluster(ctx, testProjectOne, "payments-api", "Updated", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Cluster != nil {
+		t.Fatalf("cluster = %#v, want cleared", cleared.Cluster)
+	}
+}
+
 func TestUpsertProjectRejectsNameCollisionWithConditionalCreate(t *testing.T) {
 	store, _ := newTestS3Store(t)
 	ctx := trustedHubContext(t)

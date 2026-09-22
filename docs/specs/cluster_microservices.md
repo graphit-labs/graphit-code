@@ -43,6 +43,11 @@ Projects are grouped into clusters via key-value labels. Projects sharing at lea
 identical label value for the same key are considered part of the same cluster.
 Projects without any labels form their own default group.
 
+Cluster labels are stored in `graphit.lock.json` under `project.cluster`. The global lock mirrors
+them for local discovery, while Hub project metadata mirrors them for authorized remote discovery.
+`graphit cluster`, its MCP tools, and the UI all update the project lock first. A later init, update,
+or artifact publication synchronizes the full normalized map to the Hub registry.
+
 ```bash
 # Set a cluster label
 graphit cluster domain backend
@@ -99,7 +104,7 @@ current project. Each entry contains:
 | `dir`          | Absolute path to the project root directory  |
 | `name`         | Human-readable project name                  |
 | `description`  | Project description                          |
-| `cluster`      | Cluster labels (key→value map)               |
+| `cluster`      | Cluster labels (key→values map)              |
 | `registeredAt` | When the project was registered              |
 
 ---

@@ -93,6 +93,27 @@ func TestSessionHandlerPaginatesListAndBindsCursor(t *testing.T) {
 	}
 }
 
+func TestSessionHandlerOpensRemoteProjectByID(t *testing.T) {
+	handler := NewSessionHandler("/local/default")
+	handler.openRemote = func(_ context.Context, projectID string) (sessionExporter, error) {
+		if projectID != remoteProjectID {
+			t.Fatalf("project id = %q", projectID)
+		}
+		return &fakeSessionExporter{}, nil
+	}
+	handler.open = func(string) (sessionExporter, error) {
+		t.Fatal("remote request fell back to a local project")
+		return nil, nil
+	}
+	mux := http.NewServeMux()
+	handler.RegisterAPIRoutes(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/tasks/sessions?project_id="+remoteProjectID, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestSessionHandlerSearchesWhenQueryIsSet(t *testing.T) {
 	fake := &fakeSessionExporter{searchResult: []graphtask.SessionSearchResult{
 		{SessionSummary: graphtask.SessionSummary{ID: "ses-a", Title: "Archive export"}, Score: 0.9},

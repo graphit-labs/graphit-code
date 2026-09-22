@@ -40,4 +40,15 @@ describe('Task API', () => {
       expect.anything(),
     )
   })
+
+  it('addresses a Hub task store by project id without a workspace path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [], next_cursor: '' }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await taskApi.list({ projectId: '01HUB', status: 'all' })
+    await taskApi.export(undefined, 'tsk-remote', '01HUB')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?project_id=01HUB&page_size=20')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks/export?project_id=01HUB&id=tsk-remote')
+  })
 })

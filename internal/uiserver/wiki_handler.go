@@ -101,23 +101,13 @@ func (h *WikiHandler) handleModules(w http.ResponseWriter, r *http.Request) {
 
 func (h *WikiHandler) handlePages(w http.ResponseWriter, r *http.Request) {
 	wikiDir := r.URL.Query().Get("dir")
-	if wikiDir == "" {
-		http.Error(w, "dir required", http.StatusBadRequest)
-		return
-	}
-
-	wikiDir = resolveDir(wikiDir)
-	absDir, err := filepath.Abs(filepath.Clean(wikiDir))
+	db, err := h.openReadDB(r.Context(), wikiDir, r.URL.Query().Get("project_id"), r.URL.Query().Get("context"))
 	if err != nil {
-		http.Error(w, "invalid dir", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	info, err := os.Stat(absDir)
-	if err != nil || !info.IsDir() {
-		http.Error(w, "dir not found or not a directory", http.StatusBadRequest)
-		return
-	}
-	pages, err := listWikiPages(r.Context(), absDir)
+	defer db.Close()
+	pages, err := listWikiPagesFrom(r.Context(), db)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -128,20 +118,19 @@ func (h *WikiHandler) handlePages(w http.ResponseWriter, r *http.Request) {
 func (h *WikiHandler) handlePage(w http.ResponseWriter, r *http.Request) {
 	wikiDir := r.URL.Query().Get("dir")
 	pagePath := r.URL.Query().Get("path")
-	if wikiDir == "" || pagePath == "" {
+	projectID := r.URL.Query().Get("project_id")
+	contextID := r.URL.Query().Get("context")
+	if pagePath == "" || (wikiDir == "" && projectID == "" && contextID == "") {
 		http.Error(w, "dir and path required", http.StatusBadRequest)
 		return
 	}
-
-	absWiki, err := filepath.Abs(resolveDir(wikiDir))
+	db, err := h.openReadDB(r.Context(), wikiDir, projectID, contextID)
 	if err != nil {
-		http.Error(w, "invalid dir", http.StatusBadRequest)
-		return
-	}
-
-	db, err := wiki.OpenWikiDB(r.Context(), absWiki)
-	if err != nil {
-		http.Error(w, "wiki index not found", http.StatusNotFound)
+		if projectID != "" || contextID != "" {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, "wiki index not found", http.StatusNotFound)
+		}
 		return
 	}
 	defer db.Close()
@@ -163,13 +152,18 @@ func (h *WikiHandler) handlePage(w http.ResponseWriter, r *http.Request) {
 func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	wikiDir := r.URL.Query().Get("dir")
 	query := r.URL.Query().Get("q")
-	if wikiDir == "" || query == "" {
+	if query == "" || (wikiDir == "" && r.URL.Query().Get("project_id") == "" && r.URL.Query().Get("context") == "") {
 		writeJSON(w, []SearchResult{})
 		return
 	}
-
+	db, err := h.openReadDB(r.Context(), wikiDir, r.URL.Query().Get("project_id"), r.URL.Query().Get("context"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer db.Close()
 	results := []SearchResult{}
-	bm25Results := wiki.BM25Search(r.Context(), wikiDir, query, 30)
+	bm25Results := wiki.BM25SearchFrom(r.Context(), db, query, 30)
 	for _, br := range bm25Results {
 		results = append(results, SearchResult{
 			Path:    br.Path,
@@ -242,6 +236,10 @@ func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) 
 		return nil, err
 	}
 	defer db.Close()
+	return listWikiPagesFrom(ctx, db)
+}
+
+func listWikiPagesFrom(ctx context.Context, db *wiki.WikiDB) ([]WikiPageMeta, error) {
 
 	chunks, err := db.Chunks(ctx)
 	if err != nil {
@@ -272,6 +270,39 @@ func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) 
 		return pages[i].Path < pages[j].Path
 	})
 	return pages, nil
+}
+
+func (h *WikiHandler) openReadDB(ctx context.Context, wikiDir, projectID, contextID string) (*wiki.WikiDB, error) {
+	projectID = strings.TrimSpace(projectID)
+	contextID = strings.TrimSpace(contextID)
+	if projectID != "" || contextID != "" {
+		if projectID == "" || contextID == "" {
+			return nil, fmt.Errorf("project_id and exact context are required together")
+		}
+		if !strings.Contains(contextID, "@") {
+			return nil, fmt.Errorf("context must be an exact id@version reference")
+		}
+		if h.hubSvc == nil {
+			return nil, fmt.Errorf("hub context resolver is unavailable")
+		}
+		mount, err := h.hubSvc.ResolveProjectKnowledgeMount(ctx, projectID, contextID)
+		if err != nil {
+			return nil, err
+		}
+		return wiki.OpenWikiDBAt(ctx, mount.Config)
+	}
+	if strings.TrimSpace(wikiDir) == "" {
+		return nil, fmt.Errorf("dir required")
+	}
+	absDir, err := filepath.Abs(filepath.Clean(resolveDir(wikiDir)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid dir")
+	}
+	info, err := os.Stat(absDir)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("dir not found or not a directory")
+	}
+	return wiki.OpenWikiDB(ctx, absDir)
 }
 
 func chunkPageMeta(c wiki.WikiChunk, outbound []string) WikiPageMeta {
@@ -329,9 +360,11 @@ func (h *WikiHandler) handleAISearchJSON(w http.ResponseWriter, r *http.Request)
 		Dir        string `json:"dir"`
 		Query      string `json:"query"`
 		ProjectDir string `json:"project_dir"`
+		ProjectID  string `json:"project_id"`
+		Context    string `json:"context"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" || body.Dir == "" {
-		writeJSON(w, AISearchResponse{Error: "dir and query are required"})
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" {
+		writeJSON(w, AISearchResponse{Error: "query and a knowledge source are required"})
 		return
 	}
 
@@ -344,14 +377,13 @@ func (h *WikiHandler) handleAISearchJSON(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	bm25Results := wiki.BM25Search(r.Context(), body.Dir, body.Query, 15)
-
-	db, err := wiki.OpenWikiDB(r.Context(), body.Dir)
+	db, err := h.openReadDB(r.Context(), body.Dir, body.ProjectID, body.Context)
 	if err != nil {
 		writeJSON(w, AISearchResponse{Error: "wiki index not found: " + err.Error()})
 		return
 	}
 	defer db.Close()
+	bm25Results := wiki.BM25SearchFrom(r.Context(), db, body.Query, 15)
 	chunks, err := db.Chunks(r.Context())
 	if err != nil {
 		writeJSON(w, AISearchResponse{Error: "failed to list pages: " + err.Error()})
@@ -459,8 +491,12 @@ Wiki Content:
 	}
 	aiResp.Results = validated
 
+	sourceID := body.Context
+	if sourceID == "" {
+		sourceID = body.Dir
+	}
 	session := chat.NewSession(conversation.WorkDir(), []chat.Source{
-		{ID: "wiki", Label: "Wiki", Dir: body.Dir},
+		{ID: "wiki", Label: "Wiki", Dir: sourceID},
 	}, body.Query)
 	_ = session.SetAgentSession(conversation.SessionID(), conversation.AgentCLI())
 	_ = session.Append(chat.ChatMessage{

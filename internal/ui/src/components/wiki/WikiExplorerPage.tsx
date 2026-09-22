@@ -23,10 +23,13 @@ import {
   type WikiPageContent,
   type SearchResult,
   type AISearchResponse,
+  type WikiReadScope,
 } from "@/api/wiki";
+import { hubApi, type ProjectContextEntry } from "@/api/hub";
 import { WikiMarkdown } from "./WikiMarkdown";
 import { agentFeaturesEnabled, wikiLinkFriendlyName } from "@/lib/utils";
 import { useAppStore } from "@/store/appStore";
+import { projectRequestScope } from "@/lib/projectScope";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import {
   WorkBadge,
@@ -230,15 +233,31 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
 interface WikiExplorerProps {
   autoSelectProject?: boolean;
 }
+
+function remoteWikiModule(entry: ProjectContextEntry, qualified = entry.qualified_latest || ""): WikiModule {
+  return {
+    id: qualified,
+    label: entry.name || entry.id,
+    path: "",
+    context: qualified,
+    pages: 0,
+    hasLog: false,
+  };
+}
+
 export default function WikiExplorerPage({
   autoSelectProject,
 }: WikiExplorerProps = {}) {
   const { moduleId } = useParams<{ moduleId?: string }>(),
     navigate = useNavigate(),
     location = useLocation();
-  const { activeProjectDir, activeAgent } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, activeAgent } = useAppStore();
+  const { key: projectKey, projectDir, projectId, remote } = projectRequestScope({
+    activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
+  });
   const [modules, setModules] = useState<WikiModule[]>([]),
     [module, setModule] = useState<WikiModule | null>(null);
+  const [remoteContexts, setRemoteContexts] = useState<ProjectContextEntry[]>([]);
   const [pages, setPages] = useState<WikiPageMeta[]>([]),
     [page, setPage] = useState<WikiPageContent | null>(null);
   const [view, setView] = useState("library"),
@@ -282,6 +301,8 @@ export default function WikiExplorerPage({
       searchQuery?: string;
     } | null,
   );
+  const readScope = useCallback((m: WikiModule): WikiReadScope | undefined =>
+    projectId ? { projectId, context: m.context } : undefined, [projectId]);
   const base = location.pathname.startsWith("/knowledge")
     ? "/knowledge/explorer"
     : "/wiki/explorer";
@@ -318,7 +339,8 @@ export default function WikiExplorerPage({
       setType("all");
     }
     try {
-      const ps = cache.current[m.id] ?? (await fetchPages(m.path));
+      const sourceScope = readScope(m);
+      const ps = cache.current[m.id] ?? (sourceScope ? await fetchPages(m.path, sourceScope) : await fetchPages(m.path));
       if (id !== moduleRequest.current) return false;
       cache.current[m.id] = ps || [];
       setPages(ps || []);
@@ -329,13 +351,14 @@ export default function WikiExplorerPage({
     } finally {
       if (id === moduleRequest.current) setLoading(false);
     }
-  }, []);
-  const scope = JSON.stringify([activeProjectDir, activeAgent, moduleId, autoSelectProject]);
+  }, [readScope]);
+  const scope = JSON.stringify([projectKey, activeAgent, moduleId, autoSelectProject]);
   const [dataScope, setDataScope] = useState(scope);
   if (dataScope !== scope) {
     setDataScope(scope);
     setProgress([]); setOutcome("idle"); setSearching(false);
     setModules([]);
+    setRemoteContexts([]);
     setModule(null);
     setPages([]);
     setPage(null);
@@ -354,7 +377,14 @@ export default function WikiExplorerPage({
     searchRequest.current++;
     searchAbort.current?.abort();
     cache.current = {};
-    fetchModules(activeProjectDir || undefined)
+    const source = remote && projectId
+      ? hubApi.getProjectContexts(projectId).then(response => {
+          const entries = response.entries.filter(entry => entry.type === "knowledge" && entry.qualified_latest);
+          setRemoteContexts(entries);
+          return entries.map(entry => remoteWikiModule(entry));
+        })
+      : fetchModules(projectDir);
+    source
       .then(async (ms) => {
         if (id !== generation.current) return;
         const list = ms || [];
@@ -388,7 +418,7 @@ export default function WikiExplorerPage({
       pageRequest.current++;
       searchRequest.current++; searchAbort.current?.abort();
     };
-  }, [activeProjectDir, activeAgent, moduleId, autoSelectProject, loadModule]);
+  }, [projectKey, projectDir, projectId, remote, activeAgent, moduleId, autoSelectProject, loadModule]);
   const chooseModule = (m: WikiModule) => {
     void loadModule(m);
     navigate(
@@ -397,6 +427,10 @@ export default function WikiExplorerPage({
         : base + "/" + encodeURIComponent(m.context),
       { replace: true },
     );
+  };
+  const chooseRemoteContext = (entry: ProjectContextEntry, qualified: string) => {
+    if (!qualified) return;
+    chooseModule(remoteWikiModule(entry, qualified));
   };
   const openPage = useCallback(
     async (
@@ -428,7 +462,8 @@ export default function WikiExplorerPage({
         setHistoryIndex((i) => i + 1);
       }
       try {
-        const p = await fetchPage(m.path, path);
+        const sourceScope = readScope(m);
+        const p = sourceScope ? await fetchPage(m.path, path, sourceScope) : await fetchPage(m.path, path);
         if (id === pageRequest.current) setPage(p);
       } catch (e) {
         if (id === pageRequest.current) setError((e as Error).message);
@@ -436,17 +471,17 @@ export default function WikiExplorerPage({
         if (id === pageRequest.current) setLoadingPage(false);
       }
     },
-    [loadModule],
+    [loadModule, readScope],
   );
   const requestedPage = new URLSearchParams(location.search).get('page');
   const requestedPageKey = useRef('');
   useEffect(() => {
     if (!requestedPage || !module || loading) return;
-    const key = activeProjectDir + ':' + module.id + ':' + requestedPage;
+    const key = projectKey + ':' + module.id + ':' + requestedPage;
     if (requestedPageKey.current === key) return;
     requestedPageKey.current = key;
     void openPage(module, requestedPage);
-  }, [requestedPage, module, loading, activeProjectDir, openPage]);
+  }, [requestedPage, module, loading, projectKey, openPage]);
   useEffect(() => { if (!requestedPage) requestedPageKey.current = ''; }, [requestedPage]);
   const onLink = useCallback(
     async (target: string) => {
@@ -477,7 +512,8 @@ export default function WikiExplorerPage({
       }
       for (const m of ordered) {
         try {
-          const ps = cache.current[m.id] ?? (await fetchPages(m.path));
+          const sourceScope = readScope(m);
+          const ps = cache.current[m.id] ?? (sourceScope ? await fetchPages(m.path, sourceScope) : await fetchPages(m.path));
           if (
             epoch !== generation.current ||
             intent !== navigationRequest.current
@@ -511,7 +547,7 @@ export default function WikiExplorerPage({
           target,
       );
     },
-    [openPage],
+    [openPage, readScope],
   );
   const search = async () => {
     if (!module || !query.trim()) return;
@@ -526,18 +562,20 @@ export default function WikiExplorerPage({
     setAnswer(null);
     try {
       if (searchMode === "ai" && agentFeaturesEnabled()) {
-        const r = await aiSearchWiki(
-          module.path,
-          query.trim(),
-          activeProjectDir || undefined,
-          { signal: controller.signal, onProgress: event => { if (id === searchRequest.current && !controller.signal.aborted) setProgress(items => appendProgress(items, event)); } },
-        );
+        const options = { signal: controller.signal, onProgress: (event: AgentProgress) => { if (id === searchRequest.current && !controller.signal.aborted) setProgress(items => appendProgress(items, event)); } };
+        const sourceScope = readScope(module);
+        const r = sourceScope
+          ? await aiSearchWiki(module.path, query.trim(), projectDir, options, sourceScope)
+          : await aiSearchWiki(module.path, query.trim(), projectDir, options);
         if (id === searchRequest.current) {
           setAnswer(r); setOutcome(r.error ? "failed" : "completed");
           if (r.error) setError(r.error);
         }
       } else {
-        const r = await searchWiki(module.path, query.trim());
+        const sourceScope = readScope(module);
+        const r = sourceScope
+          ? await searchWiki(module.path, query.trim(), sourceScope)
+          : await searchWiki(module.path, query.trim());
         if (id === searchRequest.current) setResults(r || []);
       }
     } catch (e) {
@@ -549,7 +587,12 @@ export default function WikiExplorerPage({
   const refresh = async () => {
     const current = page, selectedModule = module,
       epoch = generation.current, intent = ++navigationRequest.current;
-    const list = await fetchModules(activeProjectDir || undefined);
+    const list = remote && projectId
+      ? (await hubApi.getProjectContexts(projectId)).entries
+          .filter(entry => entry.type === "knowledge" && entry.qualified_latest)
+          .map(entry => remoteWikiModule(entry, entry.id === selectedModule?.context.split("@")[0]
+            ? selectedModule.context : entry.qualified_latest))
+      : await fetchModules(projectDir);
     if (epoch !== generation.current || intent !== navigationRequest.current) return;
     setModules(list || []);
     const next = list.find(m => m.id === selectedModule?.id)
@@ -596,6 +639,10 @@ export default function WikiExplorerPage({
       void openPage(h.module, h.path, false);
     }
   };
+  const selectedRemoteContext = remoteContexts.find(entry =>
+    module?.context.startsWith(entry.id + "@"));
+  const selectedRemoteContextID = selectedRemoteContext?.id || "";
+  const selectedRemoteLatest = selectedRemoteContext?.qualified_latest || "";
   usePageRefresh(refresh);
   return (
     <WorkPage className="knowledge-library">
@@ -622,7 +669,38 @@ export default function WikiExplorerPage({
           Search & context · {module?.label || "Knowledge library"}
         </summary>
         <div className="knowledge-query">
-          {(!autoSelectProject || Boolean(moduleId)) && <label className="work-field">
+          {remote ? <>
+            <label className="work-field">
+              <span>Knowledge artifact</span>
+              <StyledSelect
+                value={selectedRemoteContext?.id || ""}
+                onChange={(e) => {
+                  const entry = remoteContexts.find(item => item.id === e.target.value);
+                  if (entry?.qualified_latest) chooseRemoteContext(entry, entry.qualified_latest);
+                }}
+                aria-label="Knowledge artifact"
+              >
+                {!remoteContexts.length && <option value="">No published artifacts</option>}
+                {remoteContexts.map(entry => <option key={entry.id} value={entry.id}>{entry.name || entry.id}</option>)}
+              </StyledSelect>
+            </label>
+            <label className="work-field">
+              <span>Published version</span>
+              <StyledSelect
+                value={module?.context || ""}
+                disabled={!selectedRemoteContext}
+                onChange={(e) => selectedRemoteContext && chooseRemoteContext(selectedRemoteContext, e.target.value)}
+                aria-label="Knowledge version"
+              >
+                {selectedRemoteContext?.qualified_latest &&
+                  <option value={selectedRemoteContext.qualified_latest}>Latest · {selectedRemoteContext.latest}</option>}
+                {(selectedRemoteContext?.versions || []).filter(version =>
+                  `${selectedRemoteContextID}@${version}` !== selectedRemoteLatest)
+                  .map(version => <option key={version} value={`${selectedRemoteContextID}@${version}`}>{version}</option>)}
+              </StyledSelect>
+              {module?.context && <small>Reading exact context <code>{module.context}</code> from Hub</small>}
+            </label>
+          </> : (!autoSelectProject || Boolean(moduleId)) && <label className="work-field">
             <span>Knowledge context</span>
             <StyledSelect
               value={module?.id || ""}
@@ -714,8 +792,9 @@ export default function WikiExplorerPage({
           <LoadingSpinner label="Loading library…" />
         ) : !modules.length ? (
           <WorkEmpty title="No indexed wikis found">
-            Index documentation with graphit knowledge index docs/ or install a
-            knowledge context.
+            {remote
+              ? "This Hub project has no published Knowledge artifact."
+              : "Index documentation with graphit knowledge index docs/ or install a knowledge context."}
           </WorkEmpty>
         ) : (
           <>

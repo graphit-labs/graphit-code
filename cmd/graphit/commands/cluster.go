@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -45,15 +46,10 @@ Examples:
 				return fmt.Errorf("project has no ID — run '%s init' first", brand.BinName())
 			}
 
-			mgr, err := hub.NewGlobalLockManager()
-			if err != nil {
-				return fmt.Errorf("global lock: %w", err)
-			}
-
-			wd, _ := os.Getwd()
+			projectDir := filepath.Dir(lp)
 
 			if flagUnset != "" {
-				if err := mgr.UnsetCluster(projectID, wd, flagUnset); err != nil {
+				if err := hub.UnsetProjectClusterLabel(projectDir, projectID, flagUnset); err != nil {
 					return fmt.Errorf("unset cluster label: %w", err)
 				}
 				p.Success("Removed cluster label: %s", flagUnset)
@@ -62,20 +58,14 @@ Examples:
 
 			if flagGetAll || flagGet != "" {
 				if flagGet != "" {
-					vals, err := mgr.GetCluster(projectID, wd, flagGet)
-					if err != nil {
-						return fmt.Errorf("get cluster label: %w", err)
-					}
+					vals := lf.Project.Cluster[flagGet]
 					if len(vals) == 0 {
 						p.StepWarn("Label %q is not set", flagGet)
 					} else {
 						p.Data(fmt.Sprintf("%s=%s", flagGet, strings.Join(vals, ",")))
 					}
 				} else {
-					labels, err := mgr.GetAllClusterLabels(projectID, wd)
-					if err != nil {
-						return fmt.Errorf("get cluster labels: %w", err)
-					}
+					labels := lf.Project.Cluster
 					if len(labels) == 0 {
 						p.StepWarn("No cluster labels set")
 					} else {
@@ -102,7 +92,7 @@ Examples:
 				return fmt.Errorf("cluster key must not be empty")
 			}
 
-			if err := mgr.SetCluster(projectID, wd, key, value); err != nil {
+			if err := hub.SetProjectClusterLabel(projectDir, projectID, key, value); err != nil {
 				return fmt.Errorf("set cluster label: %w", err)
 			}
 			p.Success("Set cluster label: %s=%s", key, value)

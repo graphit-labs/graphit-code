@@ -1,8 +1,50 @@
 package hub
 
 import (
+	"path/filepath"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+func TestProjectClusterMutationUpdatesLockAndLocalProjection(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	projectDir := t.TempDir()
+	projectID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	lockPath := filepath.Join(projectDir, brand.LockFileName())
+	if err := SaveLockfile(lockPath, &Lockfile{Project: ProjectIdentity{ID: projectID, Name: "demo"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProjectClusterLabel(projectDir, projectID, " team ", " backend "); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := LoadLockfile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lf.Project.Cluster["team"]; len(got) != 1 || got[0] != "backend" {
+		t.Fatalf("project lock cluster = %#v", lf.Project.Cluster)
+	}
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := mgr.GetAllClusterLabels(projectID, projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := projected["team"]; len(got) != 1 || got[0] != "backend" {
+		t.Fatalf("global projection = %#v", projected)
+	}
+	if err := UnsetProjectClusterLabel(projectDir, projectID, "team"); err != nil {
+		t.Fatal(err)
+	}
+	lf, _ = LoadLockfile(lockPath)
+	if lf.Project.Cluster != nil {
+		t.Fatalf("project lock cluster after unset = %#v", lf.Project.Cluster)
+	}
+}
 
 func TestIsClusterSibling(t *testing.T) {
 	t.Parallel()

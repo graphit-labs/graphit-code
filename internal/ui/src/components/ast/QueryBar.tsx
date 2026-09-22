@@ -9,6 +9,7 @@ import { WorkTabs, WorkNotice } from "@/components/shared/EngineeringUI";
 interface QueryBarProps {
   contextId?: string;
   projectDir?: string;
+  projectId?: string;
   onQueryResult: (result: unknown, executedQuery: string) => void;
   onQueryStart?: (query: string) => () => boolean;
   onQueryError?: (error: string) => void;
@@ -26,6 +27,7 @@ const EXAMPLES = [
 export function QueryBar({
   contextId,
   projectDir,
+  projectId,
   onQueryResult,
   onQueryStart,
   onQueryError,
@@ -43,7 +45,7 @@ export function QueryBar({
   const abort = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState<AgentProgress[]>([]);
   const [outcome, setOutcome] = useState<ExecutionOutcome>("idle");
-  const scope = JSON.stringify([projectDir, contextId, activeAgent]);
+  const scope = JSON.stringify([projectDir, projectId, contextId, activeAgent]);
   const [executionScope, setExecutionScope] = useState(scope);
   if (executionScope !== scope) {
     setExecutionScope(scope);
@@ -65,6 +67,7 @@ export function QueryBar({
       const result = await astApi.getGraph({
         context: contextId,
         project_dir: projectDir,
+        ...(projectId ? { project_id: projectId } : {}),
         cypher_query: query.trim(),
       });
       if (id === generation.current && isCurrent()) onQueryResult(result, query.trim());
@@ -87,6 +90,7 @@ export function QueryBar({
         contextId,
         projectDir,
         { signal: controller.signal, onProgress: event => { if (id === generation.current && !controller.signal.aborted) setProgress(items => appendProgress(items, event)); } },
+        projectId,
       );
       if (id !== generation.current) return;
       if (!result.cypher)

@@ -61,6 +61,7 @@ export interface MemoryTrace {
 
 export interface MemoryCatalogOptions {
   projectDir?: string
+  projectId?: string
   scope: MemoryScope
   query?: string
   type?: string
@@ -110,20 +111,21 @@ export function sortMemoryCatalogItems(items: MemoryCatalogItem[]) {
   })
 }
 
-function params(projectDir: string | undefined, scope?: MemoryScope) {
+function params(projectDir: string | undefined, scope?: MemoryScope, projectId?: string) {
   const values = new URLSearchParams()
   if (projectDir) values.set('project_dir', projectDir)
+  if (projectId) values.set('project_id', projectId)
   if (scope) values.set('scope', scope)
   return values
 }
 
 export const memoryApi = {
-  scopes(projectDir?: string) {
-    const query = params(projectDir).toString()
+  scopes(projectDir?: string, projectId?: string) {
+    const query = params(projectDir, undefined, projectId).toString()
     return api.get<MemoryScopeInfo[]>(`/memories/scopes${query ? `?${query}` : ''}`)
   },
   list(options: MemoryCatalogOptions) {
-    const query = params(options.projectDir, options.scope)
+    const query = params(options.projectDir, options.scope, options.projectId)
     if (options.query) query.set('query', options.query)
     if (options.type && options.type !== 'all') query.set('type', options.type)
     if (options.tag && options.tag !== 'all') query.set('tag', options.tag)
@@ -131,20 +133,20 @@ export const memoryApi = {
     if (options.mandatory && options.mandatory !== 'all') query.set('mandatory', options.mandatory)
     return api.get<MemoryCatalog>(`/memories?${query.toString()}`)
   },
-  detail(projectDir: string | undefined, scope: MemoryScope, id: string) {
-    const query = params(projectDir, scope)
+  detail(projectDir: string | undefined, scope: MemoryScope, id: string, projectId?: string) {
+    const query = params(projectDir, scope, projectId)
     return api.get<MemoryTrace>(`/memories/${encodeURIComponent(id)}?${query.toString()}`)
   },
-  create(projectDir: string | undefined, scope: MemoryScope, body: MemoryWrite) {
-    const query = params(projectDir, scope)
+  create(projectDir: string | undefined, scope: MemoryScope, body: MemoryWrite, projectId?: string) {
+    const query = params(projectDir, scope, projectId)
     return api.post<MemoryTrace>(`/memories?${query.toString()}`, body)
   },
-  update(projectDir: string | undefined, scope: MemoryScope, id: string, body: MemoryUpdate) {
-    const query = params(projectDir, scope)
+  update(projectDir: string | undefined, scope: MemoryScope, id: string, body: MemoryUpdate, projectId?: string) {
+    const query = params(projectDir, scope, projectId)
     return api.patch<MemoryTrace>(`/memories/${encodeURIComponent(id)}?${query.toString()}`, body)
   },
-  remove(projectDir: string | undefined, scope: MemoryScope, id: string) {
-    const query = params(projectDir, scope)
+  remove(projectDir: string | undefined, scope: MemoryScope, id: string, projectId?: string) {
+    const query = params(projectDir, scope, projectId)
     query.set('confirm', 'true')
     return api.delete<{ id: string; removed: boolean }>(`/memories/${encodeURIComponent(id)}?${query.toString()}`)
   },

@@ -19,6 +19,7 @@ type taskExporter interface {
 type TaskHandler struct {
 	defaultProjectDir string
 	open              func(string) (taskExporter, error)
+	openRemote        func(context.Context, string) (taskExporter, error)
 }
 
 func NewTaskHandler(defaultProjectDir string) *TaskHandler {
@@ -26,6 +27,9 @@ func NewTaskHandler(defaultProjectDir string) *TaskHandler {
 		defaultProjectDir: defaultProjectDir,
 		open: func(projectDir string) (taskExporter, error) {
 			return graphtask.Open(projectDir)
+		},
+		openRemote: func(ctx context.Context, projectID string) (taskExporter, error) {
+			return graphtask.OpenProject(ctx, projectID)
 		},
 	}
 }
@@ -38,9 +42,9 @@ func (h *TaskHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 }
 
 func (h *TaskHandler) handleCatalog(w http.ResponseWriter, r *http.Request) {
-	projectDir := h.projectDir(r)
-	if projectDir == "" {
-		writeTaskError(w, http.StatusBadRequest, "project_dir is required")
+	scope, err := resolveProjectScope(r, h.defaultProjectDir)
+	if err != nil {
+		writeTaskError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	pageSize := 0
@@ -62,16 +66,16 @@ func (h *TaskHandler) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 		Cursor:   strings.TrimSpace(r.URL.Query().Get("cursor")),
 		Bind: struct {
-			ProjectDir string `json:"project_dir"`
-			Query      string `json:"query"`
-			Status     string `json:"status"`
-		}{projectDir, query, status},
+			Project string `json:"project"`
+			Query   string `json:"query"`
+			Status  string `json:"status"`
+		}{scope.Key(), query, status},
 	})
 	if err != nil {
 		writeTaskError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	service, err := h.open(projectDir)
+	service, err := h.openScope(r.Context(), scope)
 	if err != nil {
 		writeTaskError(w, taskOpenStatus(err), err.Error())
 		return
@@ -85,12 +89,12 @@ func (h *TaskHandler) handleCatalog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *TaskHandler) handleExport(w http.ResponseWriter, r *http.Request) {
-	projectDir := h.projectDir(r)
-	if projectDir == "" {
-		writeTaskError(w, http.StatusBadRequest, "project_dir is required")
+	scope, err := resolveProjectScope(r, h.defaultProjectDir)
+	if err != nil {
+		writeTaskError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	service, err := h.open(projectDir)
+	service, err := h.openScope(r.Context(), scope)
 	if err != nil {
 		writeTaskError(w, taskOpenStatus(err), err.Error())
 		return
@@ -113,6 +117,13 @@ func (h *TaskHandler) projectDir(r *http.Request) string {
 		projectDir = h.defaultProjectDir
 	}
 	return projectDir
+}
+
+func (h *TaskHandler) openScope(ctx context.Context, scope ProjectScope) (taskExporter, error) {
+	if scope.Remote() {
+		return h.openRemote(ctx, scope.ProjectID)
+	}
+	return h.open(scope.ProjectDir)
 }
 
 func taskOpenStatus(err error) int {

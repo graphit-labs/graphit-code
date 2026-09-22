@@ -28,7 +28,7 @@ Source of route truth: [App.tsx](../../../internal/ui/src/App.tsx). Source paths
 | `/hub/local` | What context does this project own or consume? Owned/Installed/Linked catalogues → origin-specific inspector | Publish/update/unpublish own artifacts; update/remove installations; unlink local context; metadata/dependency review before publication | `hub/ProjectArtifactsPage.tsx`, `hub/modals/SubmitModal.tsx` |
 | `/hub/upload` | What contract am I publishing for reuse? Package → Metadata & dependencies → Review & publish | Type-specific package extension; virtual power packages; identity, version, author, tags, dependencies; selected project/agent and explicit final submit | `hub/UploadPage.tsx` |
 | `/live` | What evidence boundary should an agent investigate? Prepare context → Run & evidence → Recent sessions | Compatible artifact selection, brief, start/follow-up/cancel; streamed output/activity and source tabs with concise citations; reconnect/dedup; reopen/remove sessions; ephemeral scope | `live/LiveSearchPage.tsx`, `live/LiveEvidence.tsx` |
-| `/system/ecosystem` | Which local project is relevant and how is it connected? Searchable directory → project/cluster dossier | All/Same Cluster filters; inspect/copy path; label add/remove; registration removal confirmation | `system/EcosystemDashboard.tsx` |
+| `/system/ecosystem` | Which project identity is relevant, and should its working context come from Workspace or Hub? Unified directory → identity/presence/cluster dossier | All/Same Cluster filters; Workspace/Hub presence; use local or remote context; inspect/copy path; local label add/remove and registration removal confirmation | `system/EcosystemDashboard.tsx` |
 | `/system/daemon` | Is the background service available and how do I connect? Runtime band → logs and process details → agent connection and control | Poll/refresh; actual endpoint/key fields; copy where available; explicit stop confirmation and restart guidance | `daemon/DaemonDashboard.tsx` |
 | `/system/dream` | What did autonomous maintenance produce? Conditions → report directory → report reading | Scoped polling/refresh, report filter and content, links to recorded work; no invented quality metric | `dream/DreamDashboard.tsx` |
 
@@ -111,6 +111,19 @@ Inspect desktop and narrow screens for the changed job, including long identifie
 
 Every Code route inherits exactly one Project/Agent group from `AppShell` → `WorkspaceSelectors`. Keep it at the right of the common header, including mobile. Page headers and navigation must not mount another global picker or selected-project badge. Themed Radix menus retain accessible labels, keyboard selection, Escape/focus return and empty/loading states. The single header refresh combines the context catalogue with all active-page loaders. Domain source/scope filters remain local; project metadata may appear in a dossier when it provides additional information.
 
+The Project menu treats Workspace and Hub as two working-context origins for the same immutable
+identity. Group options by origin, show a checkout path only for Workspace, and show “Hub” plus the
+project ID for remote targets. Persist the typed target, not just a path. When the Hub source is
+temporarily unavailable, mark a retained remote target stale and keep it selected; never substitute
+the last Workspace path. Operations > Projects merges both sources into one row per ID and puts the
+origin choice in the detail action, keeping identity comparison separate from execution scope.
+
+Task, Session and project Memory send the Hub project ID directly. Knowledge and AST add two local
+selectors — artifact and version — and visibly show the resolved exact `id@version`; “Latest” must
+never remain an ambiguous request value. Remote-compatible pages clear results on `activeProjectKey`
+changes. Checkout-only pages use one shared unavailable composition with the selected Hub identity
+and a global-selector next action, preserving the target instead of falling back to a local path.
+
 ## Combined refresh by route
 
 The header always refreshes the project/agent catalogue once. `WorkspaceRefreshProvider` then awaits the active page's registered work without remounting it. Page loaders return promises; `refreshAll` waits for every source before propagating an error. Generic local Refresh buttons are prohibited.
@@ -140,7 +153,7 @@ All Code routes and their internal reading/editing compositions were reviewed ag
 | --- | --- | --- |
 | Code contexts / Knowledge contexts | Keep detail-first `work-split`; adopt available-width stacking | Origin, scope and next action belong to the selected context |
 | Hub registry / Project artifacts | Detail-first `artifact-directory`; wide identity facts use two columns | Inspection and maintenance need more space than selection |
-| Projects | Detail-first `ecosystem-layout` | The right side owns selected-project metadata and cluster administration |
+| Projects | Balanced detail-first `ecosystem-layout` | The four-column identity directory needs comparison width; the dossier owns origin choice, selected-project metadata and cluster administration |
 | Live preparation | Detail-first `live-preparation` | The right side is the investigation brief and execution composer |
 | Publish: package, metadata, review | Content-first `publish-layout`, fluid support | The form remains primary; publication context stays readable |
 | Task / Session / Project and Personal Memory dossiers | Content-first `dossier-layout`, fluid support | Evidence/request/guidance primary; accountability and provenance alongside; catalogues remain full width above |

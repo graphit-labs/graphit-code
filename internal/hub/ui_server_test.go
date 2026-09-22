@@ -14,6 +14,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 )
 
 func newTestUIServer(t *testing.T) *UIServer {
@@ -530,6 +531,83 @@ func TestUIServerHandleProjectsOffline(t *testing.T) {
 	}
 }
 
+func TestUIServerProjectCatalogPreservesWorkspaceWhenHubUnavailable(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	projectDir := t.TempDir()
+	if err := SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &Lockfile{Project: ProjectIdentity{ID: testProjectOne, Name: "workspace", Cluster: map[string][]string{"team": {"core"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RegisterProject(testProjectOne, projectDir, WithProjectName("workspace"), WithProjectCluster(map[string][]string{"team": {"core"}})); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestUIServer(t)
+	w := httptest.NewRecorder()
+	s.handleProjectCatalog(w, httptest.NewRequest(http.MethodGet, "/api/project-catalog", nil))
+	var response ProjectCatalogResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.WorkspaceProjects) != 1 || len(response.HubProjects) != 0 || response.HubError == "" {
+		t.Fatalf("catalog = %#v", response)
+	}
+}
+
+func TestUIServerProjectCatalogAndContextsExposeHubMetadata(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	projectDir := t.TempDir()
+	if err := SaveLockfile(filepath.Join(projectDir, brand.LockFileName()), &Lockfile{Project: ProjectIdentity{ID: testProjectOne, Name: "shared"}}); err != nil {
+		t.Fatal(err)
+	}
+	mgr, _ := NewGlobalLockManager()
+	if err := mgr.RegisterProject(testProjectOne, projectDir, WithProjectName("shared")); err != nil {
+		t.Fatal(err)
+	}
+
+	store, _ := newTestS3Store(t)
+	ctx := trustedHubContext(t)
+	allowProjects(t, ctx, store, hubaccess.Selector{All: true})
+	registry := registryForStore(ctx, store)
+	project, err := registry.UpsertProjectWithCluster(ctx, testProjectOne, "shared", "Shared project", map[string][]string{"team": {"core"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{ID: "shared-ast", Name: "Shared AST", Type: TypeAST, ProjectID: project.ID, Latest: "2.0.0", Versions: []string{"1.0.0", "2.0.0"}}
+	data, _ := json.Marshal(entryFile{Version: hubManifestVersion, Entry: entry})
+	if err := store.WriteFile(ctx, hubaccess.ProjectRegistryKey(project.ID, string(TypeAST), entry.ID), data); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestUIServer(t)
+	s.svc.registry = registry
+
+	w := httptest.NewRecorder()
+	s.handleProjectCatalog(w, httptest.NewRequest(http.MethodGet, "/api/project-catalog", nil).WithContext(ctx))
+	var catalog ProjectCatalogResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.WorkspaceProjects) != 1 || len(catalog.HubProjects) != 1 || catalog.HubProjects[0].Cluster["team"][0] != "core" {
+		t.Fatalf("catalog = %#v", catalog)
+	}
+
+	w = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/"+project.ID+"/contexts", nil).WithContext(ctx)
+	req.SetPathValue("id", project.ID)
+	s.handleProjectContexts(w, req)
+	var contexts ProjectContextsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &contexts); err != nil {
+		t.Fatal(err)
+	}
+	if contexts.Project == nil || !contexts.Live["task"] || !contexts.Live["memory"] || len(contexts.Entries) != 1 || contexts.Entries[0].Qualified != "shared-ast@2.0.0" {
+		t.Fatalf("contexts = %#v", contexts)
+	}
+}
+
 func TestUIServer_handleRegistry_NoProjectDir(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -904,6 +982,45 @@ func TestUIServerHandleGlobalProjectsValidatesCurrentDirectory(t *testing.T) {
 			t.Fatalf("current_project_dir = %q, want %q", resp.CurrentProjectDir, projectDir)
 		}
 	})
+}
+
+func TestUIServerClusterHandlersPersistProjectAuthority(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	projectDir := t.TempDir()
+	projectID := testProjectOne
+	lockPath := filepath.Join(projectDir, brand.LockFileName())
+	if err := SaveLockfile(lockPath, &Lockfile{Project: ProjectIdentity{ID: projectID, Name: "demo"}}); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestUIServer(t)
+
+	body := `{"project_id":"` + projectID + `","project_dir":"` + projectDir + `","key":"team","value":"backend"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/cluster/set", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleSetCluster(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"success":true`) {
+		t.Fatalf("set response = %d %s", w.Code, w.Body.String())
+	}
+	lf, err := LoadLockfile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lf.Project.Cluster["team"]; len(got) != 1 || got[0] != "backend" {
+		t.Fatalf("project cluster = %#v", lf.Project.Cluster)
+	}
+
+	body = `{"project_id":"` + projectID + `","project_dir":"` + projectDir + `","key":"team"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/cluster/unset", strings.NewReader(body))
+	w = httptest.NewRecorder()
+	s.handleUnsetCluster(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"success":true`) {
+		t.Fatalf("unset response = %d %s", w.Code, w.Body.String())
+	}
+	lf, _ = LoadLockfile(lockPath)
+	if lf.Project.Cluster != nil {
+		t.Fatalf("project cluster after unset = %#v", lf.Project.Cluster)
+	}
 }
 
 func TestCurrentProjectDirForCatalog(t *testing.T) {

@@ -44,6 +44,38 @@ type UIServer struct {
 	agent  string
 }
 
+type WorkspaceProject struct {
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Dir          string              `json:"dir"`
+	Description  string              `json:"description,omitempty"`
+	RegisteredAt string              `json:"registered_at,omitempty"`
+	Cluster      map[string][]string `json:"cluster,omitempty"`
+}
+
+type ProjectCatalogResponse struct {
+	WorkspaceProjects []WorkspaceProject `json:"workspace_projects"`
+	HubProjects       []*Project         `json:"hub_projects"`
+	WorkspaceError    string             `json:"workspace_error,omitempty"`
+	HubError          string             `json:"hub_error,omitempty"`
+}
+
+type ProjectContextEntry struct {
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Type        ArtifactType `json:"type"`
+	Description string       `json:"description,omitempty"`
+	Latest      string       `json:"latest,omitempty"`
+	Versions    []string     `json:"versions,omitempty"`
+	Qualified   string       `json:"qualified_latest,omitempty"`
+}
+
+type ProjectContextsResponse struct {
+	Project *Project              `json:"project"`
+	Live    map[string]bool       `json:"live"`
+	Entries []ProjectContextEntry `json:"entries"`
+}
+
 func (u *UIServer) log() *slog.Logger { return slogutil.Resolve(u.Logger) }
 
 func NewUIServerOnPort(svc *HubService, agent string, port int) (*UIServer, error) {
@@ -57,6 +89,8 @@ func (s *UIServer) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/project-artifacts", s.handleProjectArtifacts)
 	mux.HandleFunc("GET /api/git-author", s.handleGitAuthor)
 	mux.HandleFunc("GET /api/projects", s.handleProjects)
+	mux.HandleFunc("GET /api/project-catalog", s.handleProjectCatalog)
+	mux.HandleFunc("GET /api/projects/{id}/contexts", s.handleProjectContexts)
 	mux.HandleFunc("GET /api/global-projects", s.handleGlobalProjects)
 	mux.HandleFunc("POST /api/install", s.handleInstall)
 	mux.HandleFunc("POST /api/uninstall", s.handleUninstall)
@@ -86,32 +120,34 @@ func (s *UIServer) resolveAgent(r *http.Request) string {
 }
 
 func (s *UIServer) handleGlobalProjects(w http.ResponseWriter, r *http.Request) {
-	mgr, err := NewGlobalLockManager()
+	projects, currentProjectDir, err := s.workspaceProjects()
 	if err != nil {
 		writeJSONUI(w, map[string]any{"projects": []any{}, "error": err.Error()})
 		return
 	}
+	writeJSONUI(w, map[string]any{
+		"projects":            projects,
+		"current_project_dir": currentProjectDir,
+		"current_agent":       s.agent,
+		"supported_agents":    agent.SupportedAgents(),
+	})
+}
+
+func (s *UIServer) workspaceProjects() ([]WorkspaceProject, string, error) {
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		return nil, "", err
+	}
 	active, err := mgr.ListActiveProjects()
 	if err != nil {
-		writeJSONUI(w, map[string]any{"projects": []any{}, "error": err.Error()})
-		return
+		return nil, "", err
 	}
 
 	lock, err := mgr.Load()
 	if err != nil {
-		writeJSONUI(w, map[string]any{"projects": []any{}, "error": err.Error()})
-		return
+		return nil, "", err
 	}
-
-	type projectInfo struct {
-		ID           string              `json:"id"`
-		Name         string              `json:"name"`
-		Dir          string              `json:"dir"`
-		Description  string              `json:"description,omitempty"`
-		RegisteredAt string              `json:"registered_at,omitempty"`
-		Cluster      map[string][]string `json:"cluster,omitempty"`
-	}
-	var projects []projectInfo
+	var projects []WorkspaceProject
 	for _, ap := range active {
 		name := filepath.Base(ap.Dir)
 		description := ""
@@ -128,17 +164,16 @@ func (s *UIServer) handleGlobalProjects(w http.ResponseWriter, r *http.Request) 
 		}
 
 		lockPath := filepath.Join(ap.Dir, brand.LockFileName())
-		if lf := readJSONFileUI(lockPath); lf != nil {
-			if proj, ok := lf["project"].(map[string]any); ok {
-				if n, ok := proj["name"].(string); ok && n != "" {
-					name = n
-				}
-				if d, ok := proj["description"].(string); ok && d != "" {
-					description = d
-				}
+		if lf, loadErr := LoadLockfile(lockPath); loadErr == nil && lf != nil {
+			if lf.Project.Name != "" {
+				name = lf.Project.Name
 			}
+			if lf.Project.Description != "" {
+				description = lf.Project.Description
+			}
+			cluster = lf.Project.Cluster
 		}
-		projects = append(projects, projectInfo{
+		projects = append(projects, WorkspaceProject{
 			ID:           ap.ID,
 			Name:         name,
 			Dir:          ap.Dir,
@@ -150,13 +185,7 @@ func (s *UIServer) handleGlobalProjects(w http.ResponseWriter, r *http.Request) 
 
 	p := paths.GetPaths(s.agent, false)
 	currentProjectDir := currentProjectDirForCatalog(p.ActiveProjectDir, active)
-
-	writeJSONUI(w, map[string]any{
-		"projects":            projects,
-		"current_project_dir": currentProjectDir,
-		"current_agent":       s.agent,
-		"supported_agents":    agent.SupportedAgents(),
-	})
+	return projects, currentProjectDir, nil
 }
 
 func currentProjectDirForCatalog(candidate string, active []ActiveProject) string {
@@ -487,6 +516,75 @@ func (s *UIServer) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONUI(w, projects)
+}
+
+func (s *UIServer) handleProjectCatalog(w http.ResponseWriter, r *http.Request) {
+	response := ProjectCatalogResponse{
+		WorkspaceProjects: []WorkspaceProject{},
+		HubProjects:       []*Project{},
+	}
+	workspace, _, err := s.workspaceProjects()
+	if err != nil {
+		response.WorkspaceError = err.Error()
+	} else {
+		response.WorkspaceProjects = workspace
+	}
+	if !s.svc.registry.IsReady() {
+		response.HubError = "hub not configured"
+		writeJSONUI(w, response)
+		return
+	}
+	cursor := ""
+	for {
+		page, err := s.svc.registry.DiscoverProjects(r.Context(), 100, cursor)
+		if err != nil {
+			response.HubError = err.Error()
+			break
+		}
+		response.HubProjects = append(response.HubProjects, page.Projects...)
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	writeJSONUI(w, response)
+}
+
+func (s *UIServer) handleProjectContexts(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(r.PathValue("id"))
+	if projectID == "" {
+		writeJSONUI(w, map[string]any{"error": "project id is required"})
+		return
+	}
+	project, err := s.svc.registry.ResolveProject(r.Context(), projectID)
+	if err != nil {
+		writeJSONUI(w, map[string]any{"error": err.Error()})
+		return
+	}
+	entries, err := s.svc.registry.ListProjectEntries(r.Context(), project.ID)
+	if err != nil {
+		writeJSONUI(w, map[string]any{"error": err.Error()})
+		return
+	}
+	response := ProjectContextsResponse{
+		Project: project,
+		Live:    map[string]bool{"task": true, "memory": true},
+		Entries: []ProjectContextEntry{},
+	}
+	for _, entry := range entries {
+		if entry.Type != TypeKnowledge && entry.Type != TypeAST {
+			continue
+		}
+		qualified := ""
+		if entry.Latest != "" {
+			qualified = entry.ID + "@" + entry.Latest
+		}
+		response.Entries = append(response.Entries, ProjectContextEntry{
+			ID: entry.ID, Name: entry.Name, Type: entry.Type, Description: entry.Description,
+			Latest: entry.Latest, Versions: entry.Versions, Qualified: qualified,
+		})
+	}
+	writeJSONUI(w, response)
 }
 
 func (s *UIServer) handleInstall(w http.ResponseWriter, r *http.Request) {
@@ -1033,12 +1131,7 @@ func (s *UIServer) handleSetCluster(w http.ResponseWriter, r *http.Request) {
 		writeJSONUI(w, map[string]any{"success": false, "error": "invalid request body"})
 		return
 	}
-	mgr, err := NewGlobalLockManager()
-	if err != nil {
-		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
-		return
-	}
-	if err := mgr.SetCluster(body.ProjectID, body.ProjectDir, body.Key, body.Value); err != nil {
+	if err := SetProjectClusterLabel(body.ProjectDir, body.ProjectID, body.Key, body.Value); err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}
@@ -1059,12 +1152,7 @@ func (s *UIServer) handleUnsetCluster(w http.ResponseWriter, r *http.Request) {
 		writeJSONUI(w, map[string]any{"success": false, "error": "invalid request body"})
 		return
 	}
-	mgr, err := NewGlobalLockManager()
-	if err != nil {
-		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
-		return
-	}
-	if err := mgr.UnsetCluster(body.ProjectID, body.ProjectDir, body.Key); err != nil {
+	if err := UnsetProjectClusterLabel(body.ProjectDir, body.ProjectID, body.Key); err != nil {
 		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
 		return
 	}

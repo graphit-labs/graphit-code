@@ -1116,6 +1116,13 @@ func agentArtifactPath(projectDir, agent, artifactType, artifactName string) (st
 // ResolveKnowledgeMount resolves a versioned knowledge artifact to its read-only published Lance
 // index. It never downloads, imports, or registers a transient local copy.
 func (s *HubService) ResolveKnowledgeMount(ctx context.Context, artifactID string) (MountedWiki, error) {
+	return s.ResolveProjectKnowledgeMount(ctx, "", artifactID)
+}
+
+// ResolveProjectKnowledgeMount resolves a qualified Knowledge reference inside
+// one publishing project. The returned mount is read-only and creates no local
+// project claim or installation record.
+func (s *HubService) ResolveProjectKnowledgeMount(ctx context.Context, projectID, artifactID string) (MountedWiki, error) {
 
 	reqVersion := ""
 	realID := artifactID
@@ -1123,7 +1130,7 @@ func (s *HubService) ResolveKnowledgeMount(ctx context.Context, artifactID strin
 		realID, reqVersion = parts[0], parts[1]
 	}
 
-	entry, err := s.registry.ResolveEntry(ctx, "", realID, TypeKnowledge)
+	entry, err := s.registry.ResolveEntry(ctx, projectID, realID, TypeKnowledge)
 	if err != nil {
 		return MountedWiki{}, err
 	}

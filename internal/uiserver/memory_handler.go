@@ -29,6 +29,7 @@ type memoryExplorerService interface {
 type MemoryHandler struct {
 	defaultProjectDir string
 	open              func(context.Context, string, string) (memoryExplorerService, error)
+	openRemote        func(context.Context, string, string) (memoryExplorerService, error)
 }
 
 type MemoryScopeView struct {
@@ -91,6 +92,7 @@ type MemoryTraceView struct {
 func NewMemoryHandler(defaultProjectDir string) *MemoryHandler {
 	h := &MemoryHandler{defaultProjectDir: defaultProjectDir}
 	h.open = h.openService
+	h.openRemote = h.openRemoteService
 	return h
 }
 
@@ -142,13 +144,37 @@ func (h *MemoryHandler) openService(ctx context.Context, projectDir, scope strin
 	}
 }
 
+func (h *MemoryHandler) openRemoteService(ctx context.Context, projectID, scope string) (memoryExplorerService, error) {
+	memStore, err := memory.NewMemoryStore()
+	if err != nil {
+		return nil, err
+	}
+	switch memory.MemoryScope(scope) {
+	case memory.MemoryScopeProject:
+		return memory.NewMemoryService(memory.MemoryScopeProject, projectID, memStore).WithContext(ctx), nil
+	case memory.MemoryScopeUser:
+		userID, err := memory.UserScopeIDForContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return memory.NewMemoryService(memory.MemoryScopeUser, userID, memStore).WithContext(ctx), nil
+	default:
+		return nil, fmt.Errorf("unsupported memory scope %q", scope)
+	}
+}
+
 func (h *MemoryHandler) service(w http.ResponseWriter, r *http.Request) (memoryExplorerService, bool) {
-	projectDir := h.projectDir(r)
-	if projectDir == "" {
-		writeMemoryError(w, http.StatusBadRequest, "project_dir is required")
+	project, err := resolveProjectScope(r, h.defaultProjectDir)
+	if err != nil {
+		writeMemoryError(w, http.StatusBadRequest, err.Error())
 		return nil, false
 	}
-	service, err := h.open(r.Context(), projectDir, memoryScope(r))
+	var service memoryExplorerService
+	if project.Remote() {
+		service, err = h.openRemote(r.Context(), project.ProjectID, memoryScope(r))
+	} else {
+		service, err = h.open(r.Context(), project.ProjectDir, memoryScope(r))
+	}
 	if err != nil {
 		writeMemoryError(w, http.StatusBadRequest, err.Error())
 		return nil, false
@@ -157,8 +183,17 @@ func (h *MemoryHandler) service(w http.ResponseWriter, r *http.Request) (memoryE
 }
 
 func (h *MemoryHandler) handleScopes(w http.ResponseWriter, r *http.Request) {
-	projectDir := h.projectDir(r)
-	projectID := store.ProjectID(projectDir)
+	project, err := resolveProjectScope(r, h.defaultProjectDir)
+	if err != nil {
+		writeMemoryError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	projectID := project.ProjectID
+	projectLabel := projectID
+	if !project.Remote() {
+		projectID = store.ProjectID(project.ProjectDir)
+		projectLabel = projectDisplayName(project.ProjectDir)
+	}
 	if projectID == "" {
 		writeMemoryError(w, http.StatusBadRequest, "project is not initialized")
 		return
@@ -169,7 +204,7 @@ func (h *MemoryHandler) handleScopes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, []MemoryScopeView{
-		{ID: "project", Label: projectDisplayName(projectDir), ScopeID: projectID, Kind: "project"},
+		{ID: "project", Label: projectLabel, ScopeID: projectID, Kind: "project"},
 		{ID: "user", Label: "User memory", ScopeID: userID, Kind: "user"},
 	})
 }
@@ -295,7 +330,15 @@ func (h *MemoryHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := ""
 	if memoryScope(r) == string(memory.MemoryScopeUser) {
-		projectID = store.ProjectID(h.projectDir(r))
+		project, scopeErr := resolveProjectScope(r, h.defaultProjectDir)
+		if scopeErr != nil {
+			writeMemoryError(w, http.StatusBadRequest, scopeErr.Error())
+			return
+		}
+		projectID = project.ProjectID
+		if !project.Remote() {
+			projectID = store.ProjectID(project.ProjectDir)
+		}
 	}
 	id, err := service.AddMemory(body.Title, body.Body, memory.MemoryOpts{
 		ProjectID: projectID, Important: body.Important, Mandatory: body.Mandatory,

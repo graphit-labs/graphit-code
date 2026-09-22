@@ -58,6 +58,7 @@ func NewUnifiedServer(
 	if err != nil {
 		return nil, fmt.Errorf("ast handler init: %w", err)
 	}
+	astSrv.SetExternalContextResolver(hubSvc.ResolveASTContext)
 
 	hubSrv.RegisterAPIRoutes(mux)
 	astSrv.RegisterAPIRoutes(mux)

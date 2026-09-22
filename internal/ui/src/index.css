@@ -349,6 +349,8 @@ select {
 .context-select-option[data-highlighted][data-state="checked"] { background: hsl(var(--primary) / .17); }
 .context-select-option-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; font-weight: 600; }
 .context-select-option-copy small { margin-top: 3px; font-size: 11px; color: hsl(var(--muted-foreground)); font-weight: 400; overflow-wrap: anywhere; }
+.context-select-menu-label + .context-select-option { margin-top: 2px; }
+.context-select-menu-label:not(:first-child) { border-top: 1px solid hsl(var(--border)); margin-top: 4px; }
 .context-select-check { flex-shrink: 0; }
 .context-select-scroll { display: grid; place-items: center; padding: 5px; background: hsl(var(--card)); color: hsl(var(--muted-foreground)); }
 .context-refresh { display: grid; place-items: center; min-height: 44px; border-radius: 6px; color: hsl(var(--muted-foreground)); }

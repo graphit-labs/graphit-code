@@ -88,6 +88,28 @@ func TestTaskHandlerPaginatesCatalogAndBindsCursor(t *testing.T) {
 	}
 }
 
+func TestTaskHandlerOpensRemoteProjectByID(t *testing.T) {
+	fake := &fakeTaskExporter{}
+	handler := NewTaskHandler("/local/default")
+	handler.openRemote = func(_ context.Context, projectID string) (taskExporter, error) {
+		if projectID != remoteProjectID {
+			t.Fatalf("project id = %q", projectID)
+		}
+		return fake, nil
+	}
+	handler.open = func(string) (taskExporter, error) {
+		t.Fatal("remote request fell back to a local project")
+		return nil, nil
+	}
+	mux := http.NewServeMux()
+	handler.RegisterAPIRoutes(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/tasks?project_id="+remoteProjectID, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
 func TestTaskHandlerExportsCanonicalDocument(t *testing.T) {
 	fake := &fakeTaskExporter{document: graphtask.ExportDocument{
 		SchemaVersion: graphtask.ExportSchemaVersion,

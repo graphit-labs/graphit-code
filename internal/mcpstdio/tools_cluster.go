@@ -56,12 +56,7 @@ func registerClusterTools(server *mcp.Server) {
 				return fmt.Errorf("project has no ID")
 			}
 
-			mgr, err := hub.NewGlobalLockManager()
-			if err != nil {
-				return fmt.Errorf("global lock: %w", err)
-			}
-
-			if err := mgr.SetCluster(projectID, projectDir, input.Key, input.Value); err != nil {
+			if err := hub.SetProjectClusterLabel(projectDir, projectID, input.Key, input.Value); err != nil {
 				return err
 			}
 
@@ -95,23 +90,10 @@ func registerClusterTools(server *mcp.Server) {
 				return fmt.Errorf("project has no ID")
 			}
 
-			mgr, err := hub.NewGlobalLockManager()
-			if err != nil {
-				return fmt.Errorf("global lock: %w", err)
-			}
-
 			if input.Key != "" {
-				vals, err := mgr.GetCluster(projectID, projectDir, input.Key)
-				if err != nil {
-					return err
-				}
-				result = vals
+				result = lf.Project.Cluster[input.Key]
 			} else {
-				labels, err := mgr.GetAllClusterLabels(projectID, projectDir)
-				if err != nil {
-					return err
-				}
-				result = labels
+				result = lf.Project.Cluster
 			}
 			return nil
 		})
@@ -145,12 +127,7 @@ func registerClusterTools(server *mcp.Server) {
 				return fmt.Errorf("project has no ID")
 			}
 
-			mgr, err := hub.NewGlobalLockManager()
-			if err != nil {
-				return fmt.Errorf("global lock: %w", err)
-			}
-
-			if err := mgr.UnsetCluster(projectID, projectDir, input.Key); err != nil {
+			if err := hub.UnsetProjectClusterLabel(projectDir, projectID, input.Key); err != nil {
 				return err
 			}
 

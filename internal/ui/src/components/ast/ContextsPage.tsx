@@ -2,10 +2,12 @@ import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { astApi, type Context } from "@/api/ast";
+import { hubApi } from "@/api/hub";
 import { showToast } from "@/hooks/useToast";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { ConfirmModal } from "@/components/hub/modals/ConfirmModal";
 import { useAppStore } from "@/store/appStore";
+import { projectRequestScope } from "@/lib/projectScope";
 import {
   WorkPage,
   WorkHeader,
@@ -17,15 +19,18 @@ import {
 } from "@/components/shared/EngineeringUI";
 export default function ContextsPage() {
   const navigate = useNavigate();
-  const { setActiveContextId, activeProjectDir } = useAppStore();
+  const { setActiveContextId, activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId } = useAppStore();
+  const { key: projectKey, projectDir, projectId, remote } = projectRequestScope({
+    activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
+  });
   const [contexts, setContexts] = useState<Context[]>([]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const request = useRef(0);
-  const scope = useRef(activeProjectDir);
-  useLayoutEffect(() => { scope.current = activeProjectDir; }, [activeProjectDir]);
+  const scope = useRef(projectKey);
+  useLayoutEffect(() => { scope.current = projectKey; }, [projectKey]);
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     id: string;
@@ -34,11 +39,21 @@ export default function ContextsPage() {
 
   const load = useCallback(async () => {
     const id = ++request.current,
-      project = activeProjectDir;
+      project = projectKey;
     setLoading(true);
     setError("");
     try {
-      const data = await astApi.getContexts(activeProjectDir || undefined);
+      const data = remote && projectId
+        ? {
+            contexts: (await hubApi.getProjectContexts(projectId)).entries
+              .filter(entry => entry.type === "ast" && entry.qualified_latest)
+              .map(entry => ({
+                id: entry.qualified_latest!, name: entry.name || entry.id, type: "import" as const,
+                database: "Hub published artifact", db_path: entry.qualified_latest,
+              })),
+            project_name: "Hub project",
+          }
+        : await astApi.getContexts(projectDir);
       if (id !== request.current || scope.current !== project) return;
       setContexts(data.contexts ?? []);
       document.title = `Graphit AST — ${data.project_name ?? "Explorer"}`;
@@ -49,11 +64,11 @@ export default function ContextsPage() {
       if (id === request.current && scope.current === project)
         setLoading(false);
     }
-  }, [activeProjectDir]);
+  }, [projectKey, projectDir, projectId, remote]);
 
-  const [dataScope, setDataScope] = useState(activeProjectDir);
-  if (dataScope !== activeProjectDir) {
-    setDataScope(activeProjectDir);
+  const [dataScope, setDataScope] = useState(projectKey);
+  if (dataScope !== projectKey) {
+    setDataScope(projectKey);
     setContexts([]);
     setSelected("");
     setDeleteModal({ open: false, id: "", name: "" });
@@ -81,7 +96,7 @@ export default function ContextsPage() {
     const { id } = deleteModal;
     setDeleteModal({ open: false, id: "", name: "" });
     try {
-      await astApi.deleteContext(id, activeProjectDir || undefined);
+      await astApi.deleteContext(id, projectDir);
       showToast("Context unlinked from this project", "success");
       await load();
     } catch {
@@ -121,8 +136,7 @@ export default function ContextsPage() {
         <LoadingSpinner label="Loading contexts…" />
       ) : !contexts.length ? (
         <WorkEmpty title="No contexts available">
-          Index a project with graphit ast index, or install an AST context from
-          the Hub.
+          {remote ? "This Hub project has no published AST artifact." : "Index a project with graphit ast index, or install an AST context from the Hub."}
         </WorkEmpty>
       ) : (
         <div className="work-split">
@@ -150,7 +164,7 @@ export default function ContextsPage() {
                           {ctx.name}
                         </button>
                         <small>
-                          {ctx.type === "project"
+                          {remote ? "Published Hub index" : ctx.type === "project"
                             ? "Project index"
                             : "Imported index"}
                         </small>
@@ -174,14 +188,16 @@ export default function ContextsPage() {
                 <WorkSection
                   title={current.name}
                   description={
-                    current.type === "project"
+                    remote
+                      ? "A published, immutable code index resolved on demand from Hub."
+                      : current.type === "project"
                       ? "The indexed implementation of this project."
                       : "A separately scoped imported code index."
                   }
                 >
                   <FactList
                     items={[
-                      ["Context ID", current.id],
+                      [remote ? "Exact context" : "Context ID", current.id],
                       ["Source", current.path],
                       ["Store", current.db_path],
                       ["Database", current.database],
@@ -196,7 +212,7 @@ export default function ContextsPage() {
                   >
                     Investigate this context
                   </button>
-                  {current.type !== "project" && (
+                  {!remote && current.type !== "project" && (
                     <button
                       className="work-button danger"
                       onClick={() => handleDelete(current.id)}

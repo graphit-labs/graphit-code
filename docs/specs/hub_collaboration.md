@@ -39,6 +39,16 @@ discovery, and cache rules are defined in [Hub Access Control](hub_access_contro
 
 The global registry contains only `name -> project ULID` identity records. Project metadata,
 artifact entries, payloads, events, memory, and Tasks live below `v2/projects/<ULID>/`.
+Project metadata includes the normalized cluster map from `graphit.lock.json`; authorized clients
+can therefore discover related projects without a checkout. Init, update, and project-scoped
+publication synchronize name, description, and cluster together. The global lock remains a local
+projection and is never the Hub authority.
+
+The UI may make a Hub project the active working target without installing it. Live Task and project
+Memory stores are addressed by project ULID. Published Knowledge and AST are discovered through the
+project context inventory, resolve `latest` to a concrete version, and are read as exact
+`artifact-id@version` stores on demand. These reads create no lockfile entry, context claim or local
+artifact copy. User Memory remains a private user scope independent of the selected project.
 Operations use object-store semantics:
 
 - `Sync` resolves the caller's grants, reads only authorized project and artifact metadata, and

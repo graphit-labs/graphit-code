@@ -72,12 +72,34 @@ function renderExplorer(path = '/memory/explorer/project/01MEMORY') {
 describe('Memory Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
+    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
     vi.mocked(memoryApi.list).mockResolvedValue(catalog)
     vi.mocked(memoryApi.detail).mockResolvedValue(trace)
     vi.mocked(memoryApi.create).mockResolvedValue(trace)
     vi.mocked(memoryApi.update).mockResolvedValue(trace)
     vi.mocked(memoryApi.remove).mockResolvedValue({ id: '01MEMORY', removed: true })
+  })
+
+  it('uses Hub identity for project memory and keeps personal memory outside that project scope', async () => {
+    useAppStore.setState({
+      activeProjectKey: 'hub:01HUB', activeProjectOrigin: 'hub', activeProjectId: '01HUB',
+      activeProjectDir: '', projectName: 'Remote',
+    })
+    const projectView = renderExplorer('/memory/explorer/project/01MEMORY')
+    await waitFor(() => expect(memoryApi.list).toHaveBeenCalledWith(expect.objectContaining({
+      projectDir: undefined, projectId: '01HUB', scope: 'project',
+    })))
+    expect(memoryApi.detail).toHaveBeenCalledWith(undefined, 'project', '01MEMORY', '01HUB')
+    projectView.unmount()
+    vi.clearAllMocks()
+    vi.mocked(memoryApi.list).mockResolvedValue(catalog)
+    vi.mocked(memoryApi.detail).mockResolvedValue(trace)
+
+    renderExplorer('/memory/explorer/user/01MEMORY')
+    await waitFor(() => expect(memoryApi.list).toHaveBeenCalledWith(expect.objectContaining({
+      projectDir: undefined, scope: 'user',
+    })))
+    expect(memoryApi.list).not.toHaveBeenCalledWith(expect.objectContaining({ projectId: '01HUB', scope: 'user' }))
   })
 
   it('renders authoritative metadata and a navigable revision chain', async () => {

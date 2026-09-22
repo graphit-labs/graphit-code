@@ -5,6 +5,7 @@ import { hubApi } from '@/api/hub'
 vi.mock('@/api/hub', () => ({
   hubApi: {
     getGlobalProjects: vi.fn(),
+    getProjectCatalog: vi.fn(),
   },
 }))
 
@@ -18,8 +19,10 @@ describe('appStore', () => {
     store.setActiveContextId(null)
     useAppStore.setState({
       projects: [], activeProjectDir: '', activeProjectId: '', projectName: '',
-      projectsLoaded: false, projectsError: '', supportedAgents: [],
+      projectTargets: [], projectCatalog: [], activeProjectKey: '', activeProjectOrigin: '',
+      projectsLoaded: false, projectsError: '', workspaceProjectsError: '', hubProjectsError: '', supportedAgents: [],
     })
+    vi.mocked(hubApi.getProjectCatalog).mockResolvedValue({ workspace_projects: [], hub_projects: [] })
 
     while (useAppStore.getState().activeRequests > 0) {
       useAppStore.getState().decrementLoading()
@@ -208,5 +211,42 @@ describe('appStore', () => {
     expect(state.activeProjectDir).toBe('/dir/three')
     expect(state.projectName).toBe('three')
     expect(state.activeProjectId).toBe('')
+  })
+
+  test('keeps a Hub target selected without fabricating a workspace directory', async () => {
+    const remote = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', name: 'Remote project', revision: 4, status: 'active' }
+    useAppStore.setState({
+      activeProjectKey: `hub:${remote.id}`, activeProjectId: remote.id,
+      activeProjectOrigin: 'hub', activeProjectDir: '', projectName: remote.name,
+    })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: [{ id: remote.id, name: remote.name, dir: '/workspace/remote' }],
+      current_project_dir: '/workspace/remote', current_agent: 'codex', supported_agents: ['codex'],
+    })
+    vi.mocked(hubApi.getProjectCatalog).mockResolvedValueOnce({
+      workspace_projects: [], hub_projects: [remote],
+    })
+
+    await useAppStore.getState().loadProjects()
+    const state = useAppStore.getState()
+    expect(state.activeProjectKey).toBe(`hub:${remote.id}`)
+    expect(state.activeProjectOrigin).toBe('hub')
+    expect(state.activeProjectDir).toBe('')
+    expect(state.projectCatalog).toHaveLength(1)
+    expect(state.projectCatalog[0].workspace?.dir).toBe('/workspace/remote')
+    expect(state.projectCatalog[0].hub?.revision).toBe(4)
+  })
+
+  test('retains a stale Hub selection during a partial Hub failure', async () => {
+    const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
+    useAppStore.setState({ activeProjectKey: `hub:${id}`, activeProjectId: id, activeProjectOrigin: 'hub', projectName: 'Remote', activeProjectDir: '' })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({ projects: [], current_project_dir: '', current_agent: 'codex', supported_agents: ['codex'] })
+    vi.mocked(hubApi.getProjectCatalog).mockResolvedValueOnce({ workspace_projects: [], hub_projects: [], hub_error: 'offline' })
+
+    await useAppStore.getState().loadProjects()
+    const state = useAppStore.getState()
+    expect(state.activeProjectOrigin).toBe('hub')
+    expect(state.activeProjectDir).toBe('')
+    expect(state.projectTargets[0].availability).toBe('stale')
   })
 })

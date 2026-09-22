@@ -2,11 +2,12 @@ import "@/test/contextControls";
 import { WorkspaceRefreshProvider } from "@/components/layout/WorkspaceRefresh";
 import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { useAppStore } from "@/store/appStore";
 import * as wiki from "@/api/wiki";
+import { hubApi } from "@/api/hub";
 import WikiExplorerPage from "./WikiExplorerPage";
 vi.mock("@/api/wiki", () => ({
   fetchModules: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock("@/api/wiki", () => ({
   searchWiki: vi.fn(),
   aiSearchWiki: vi.fn(),
 }));
+vi.mock("@/api/hub", () => ({ hubApi: { getProjectContexts: vi.fn() } }));
 const meta = {
   path: "rules.md",
   title: "Engineering rules",
@@ -35,7 +37,11 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     })),
   });
-  useAppStore.setState({ activeProjectDir: "/project", projectsError: "", loadProjects: vi.fn(async () => {}) });
+  useAppStore.setState({ activeProjectKey: "workspace:demo:/project", activeProjectOrigin: "workspace", activeProjectId: "demo", activeProjectDir: "/project", projectsError: "", loadProjects: vi.fn(async () => {}) });
+  vi.mocked(hubApi.getProjectContexts).mockResolvedValue({
+    project: { id: "01HUB", name: "Remote", revision: 1, status: "active" },
+    live: { task: true, memory: true }, entries: [],
+  });
   vi.mocked(wiki.fetchModules).mockResolvedValue([
     {
       id: "knowledge",
@@ -61,6 +67,30 @@ beforeEach(() => {
   ]);
 });
 afterEach(cleanup);
+it("resolves latest and pinned Knowledge versions to exact Hub contexts", async () => {
+  const user = userEvent.setup();
+  useAppStore.setState({
+    activeProjectKey: "hub:01HUB", activeProjectOrigin: "hub", activeProjectId: "01HUB",
+    activeProjectDir: "", projectName: "Remote",
+  });
+  vi.mocked(hubApi.getProjectContexts).mockResolvedValue({
+    project: { id: "01HUB", name: "Remote", revision: 1, status: "active" },
+    live: { task: true, memory: true },
+    entries: [{ id: "knowledge-artifact", name: "System knowledge", type: "knowledge", latest: "2.0.0", versions: ["1.0.0", "2.0.0"], qualified_latest: "knowledge-artifact@2.0.0" }],
+  });
+
+  render(<MemoryRouter initialEntries={["/knowledge/explorer"]}><WikiExplorerPage /></MemoryRouter>);
+  await waitFor(() => expect(wiki.fetchPages).toHaveBeenCalledWith("", {
+    projectId: "01HUB", context: "knowledge-artifact@2.0.0",
+  }));
+  expect(screen.getByText(/Reading exact context/).textContent).toContain("knowledge-artifact@2.0.0");
+
+  await user.click(screen.getByRole("combobox", { name: "Knowledge version" }));
+  await user.click(screen.getByRole("option", { name: "1.0.0" }));
+  await waitFor(() => expect(wiki.fetchPages).toHaveBeenCalledWith("", {
+    projectId: "01HUB", context: "knowledge-artifact@1.0.0",
+  }));
+});
 it("opens a library document with provenance and preserves raw Markdown", async () => {
   const user = userEvent.setup();
   render(
@@ -112,7 +142,7 @@ it("does not show a document that arrives after the project changes", async () =
   await user.click(
     await screen.findByRole("button", { name: "Engineering rules" }),
   );
-  act(() => useAppStore.setState({ activeProjectDir: "/next" }));
+  act(() => useAppStore.setState({ activeProjectKey: "workspace:next:/next", activeProjectOrigin: "workspace", activeProjectId: "next", activeProjectDir: "/next" }));
   await act(async () => finish({ ...meta, content: "Stale document" }));
   expect(screen.queryByText("Stale document")).toBeNull();
 });
@@ -255,7 +285,7 @@ it("does not reopen an old document when refresh completes after a project switc
   vi.mocked(wiki.fetchPages).mockResolvedValue([
     { ...meta, title: "Next rules", path: "next.md" },
   ]);
-  act(() => useAppStore.setState({ activeProjectDir: "/next" }));
+  act(() => useAppStore.setState({ activeProjectKey: "workspace:next:/next", activeProjectOrigin: "workspace", activeProjectId: "next", activeProjectDir: "/next" }));
   await screen.findByRole("button", { name: "Next rules" });
   await act(async () => finish([meta]));
   expect(screen.queryByText("Keep evidence attached.")).toBeNull();
@@ -325,7 +355,7 @@ it('shows streamed diagnostics before the answer and aborts when project changes
   await user.click(screen.getByRole('button', {name:'Ask'}));
   expect(await screen.findByText('Inspecting selected documents')).toBeTruthy();
   const signal = vi.mocked(wiki.aiSearchWiki).mock.calls[0][3]?.signal;
-  act(()=>useAppStore.setState({activeProjectDir:'/other-project'}));
+  act(()=>useAppStore.setState({activeProjectKey:'workspace:other:/other-project',activeProjectOrigin:'workspace',activeProjectId:'other',activeProjectDir:'/other-project'}));
   expect(signal?.aborted).toBe(true);
   await act(async()=>finish({answer:'Old answer',results:[]}));
   expect(screen.queryByText('Old answer')).toBeNull();

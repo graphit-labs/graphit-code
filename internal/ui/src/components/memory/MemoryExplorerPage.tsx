@@ -48,6 +48,7 @@ import {
 import { EmptyState } from "@/components/shared/EmptyState";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { showToast } from "@/hooks/useToast";
+import { projectRequestScope } from "@/lib/projectScope";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/store/appStore";
 import { MemoryMarkdown } from "./MemoryMarkdown";
@@ -402,7 +403,11 @@ export default function MemoryExplorerPage() {
     memoryId?: string;
   }>();
   const scope: MemoryScope = scopeId === "user" ? "user" : "project";
-  const { activeProjectDir, projectName } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName } = useAppStore();
+  const { key: projectKey, projectDir, projectId: selectedProjectId } = projectRequestScope({
+    activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
+  });
+  const projectId = scope === "project" ? selectedProjectId : undefined;
   const [catalog, setCatalog] = useState<MemoryCatalog>({
     results: [],
     total: 0,
@@ -420,7 +425,7 @@ export default function MemoryExplorerPage() {
   const [form, setForm] = useState<"create" | "edit" | null>(null);
   const catalogRequest = useRef(0);
   const detailRequest = useRef(0);
-  const previousProject = useRef(activeProjectDir);
+  const previousProject = useRef(projectKey);
   const detailTrace = trace && trace.memory_id === memoryId ? trace : null;
 
   const loadCatalog = useCallback(async () => {
@@ -428,7 +433,8 @@ export default function MemoryExplorerPage() {
     setLoading(true);
     try {
       const result = await memoryApi.list({
-        projectDir: activeProjectDir || undefined,
+        projectDir,
+        ...(projectId ? { projectId } : {}),
         scope,
         query: query.trim() || undefined,
         type,
@@ -457,7 +463,8 @@ export default function MemoryExplorerPage() {
       if (request === catalogRequest.current) setLoading(false);
     }
   }, [
-    activeProjectDir,
+    projectDir,
+    projectId,
     important,
     mandatory,
     memoryId,
@@ -478,8 +485,10 @@ export default function MemoryExplorerPage() {
   const loadTrace = useCallback(
     (id: string) => {
       const request = ++detailRequest.current;
-      return memoryApi
-        .detail(activeProjectDir || undefined, scope, id)
+      const requestTrace = projectId
+        ? memoryApi.detail(projectDir, scope, id, projectId)
+        : memoryApi.detail(projectDir, scope, id);
+      return requestTrace
         .then((result) => {
           if (request === detailRequest.current) setTrace(result);
         })
@@ -490,7 +499,7 @@ export default function MemoryExplorerPage() {
           }
         });
     },
-    [activeProjectDir, scope],
+    [projectDir, projectId, scope],
   );
   useEffect(() => {
     if (!memoryId) {
@@ -500,11 +509,11 @@ export default function MemoryExplorerPage() {
     loadTrace(memoryId);
   }, [loadTrace, memoryId]);
   useEffect(() => {
-    if (previousProject.current === activeProjectDir) return;
-    previousProject.current = activeProjectDir;
+    if (previousProject.current === projectKey) return;
+    previousProject.current = projectKey;
     setTrace(null);
     navigate(`/memory/explorer/${scope}`, { replace: true });
-  }, [activeProjectDir, navigate, scope]);
+  }, [projectKey, navigate, scope]);
 
   // Clicking the already selected row navigates to the URL it is already on, so the trace
   // effect cannot run: keep the rendered trace and only reload when nothing is shown, which
@@ -535,17 +544,12 @@ export default function MemoryExplorerPage() {
     try {
       const result =
         form === "edit" && detailTrace?.current
-          ? await memoryApi.update(
-              activeProjectDir || undefined,
-              scope,
-              detailTrace.current.id,
-              value as MemoryUpdate,
-            )
-          : await memoryApi.create(
-              activeProjectDir || undefined,
-              scope,
-              value as MemoryWrite,
-            );
+          ? projectId
+            ? await memoryApi.update(projectDir, scope, detailTrace.current.id, value as MemoryUpdate, projectId)
+            : await memoryApi.update(projectDir, scope, detailTrace.current.id, value as MemoryUpdate)
+          : projectId
+            ? await memoryApi.create(projectDir, scope, value as MemoryWrite, projectId)
+            : await memoryApi.create(projectDir, scope, value as MemoryWrite);
       setTrace(result);
       setForm(null);
       navigate(
@@ -573,11 +577,8 @@ export default function MemoryExplorerPage() {
     )
       return;
     try {
-      await memoryApi.remove(
-        activeProjectDir || undefined,
-        scope,
-        detailTrace.current.id,
-      );
+      if (projectId) await memoryApi.remove(projectDir, scope, detailTrace.current.id, projectId);
+      else await memoryApi.remove(projectDir, scope, detailTrace.current.id);
       setTrace(null);
       navigate(`/memory/explorer/${scope}`, { replace: true });
       await loadCatalog();

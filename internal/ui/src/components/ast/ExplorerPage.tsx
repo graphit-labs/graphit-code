@@ -8,12 +8,14 @@ import {
   type GraphEdge,
   type SchemaResponse,
 } from "@/api/ast";
+import { hubApi, type ProjectContextEntry } from "@/api/hub";
 import { loadNeighborhood, type Neighborhood, type NeighborhoodLoader } from "./neighborhood";
 import { RelationshipExplorer } from "./RelationshipExplorer";
 import { QueryBar } from "./QueryBar";
 import { CodePanel } from "./CodePanel";
 import { TabularResults } from "./TabularResults";
 import { useAppStore } from "@/store/appStore";
+import { projectRequestScope } from "@/lib/projectScope";
 import {
   WorkBadge,
   WorkPage,
@@ -33,9 +35,12 @@ const quote = (s: string) =>
 export default function ExplorerPage() {
   const { contextId } = useParams<{ contextId: string }>();
   const context = contextId ? decodeURIComponent(contextId) : undefined;
-  const { activeProjectDir } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId } = useAppStore();
+  const { key: projectKey, projectDir, projectId, remote } = projectRequestScope({
+    activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
+  });
   const navigate = useNavigate();
-  const projectDir = activeProjectDir || undefined;
+  const [remoteContexts, setRemoteContexts] = useState<ProjectContextEntry[]>([]);
   const [view, setView] = useState("investigate");
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -86,7 +91,7 @@ export default function ExplorerPage() {
   const initialSample = useRef("");
   const lastGraphQuery = useRef<{ cypher_query?: string } | null>(null);
   const scope = useRef("");
-  const currentScope = (projectDir || "") + "|" + (context || "");
+  const currentScope = projectKey + "|" + (context || "");
   useLayoutEffect(() => { scope.current = currentScope; }, [currentScope]);
   const [dataScope, setDataScope] = useState(currentScope);
   if (dataScope !== currentScope) {
@@ -114,6 +119,7 @@ export default function ExplorerPage() {
       langs: [],
       backend: "",
     });
+    setRemoteContexts([]);
   }
   useEffect(() => {
     sourceRequest.current++;
@@ -123,8 +129,10 @@ export default function ExplorerPage() {
     lastGraphQuery.current = null;
     initialSample.current = "";
     let active = true;
-    astApi
-      .getSchema(context, projectDir)
+    const schemaRequest = projectId
+      ? astApi.getSchema(context, projectDir, projectId)
+      : astApi.getSchema(context, projectDir);
+    schemaRequest
       .then((s) => {
         if (active) setSchema(s);
       })
@@ -134,10 +142,21 @@ export default function ExplorerPage() {
     return () => {
       active = false;
     };
-  }, [context, projectDir]);
+  }, [context, projectDir, projectId]);
+  useEffect(() => {
+    if (!remote || !projectId) return;
+    let active = true;
+    hubApi.getProjectContexts(projectId).then(response => {
+      if (!active) return;
+      const entries = response.entries.filter(entry => entry.type === "ast" && entry.qualified_latest);
+      setRemoteContexts(entries);
+      if (!context && entries[0]?.qualified_latest) navigate(`/ast/explorer/${encodeURIComponent(entries[0].qualified_latest)}`, { replace: true });
+    }).catch(e => { if (active) setError((e as Error).message); });
+    return () => { active = false; };
+  }, [remote, projectId, context, navigate]);
   const exploreNeighborhood: NeighborhoodLoader = useCallback(
-    (node: GraphNode, previous?: Neighborhood, signal?: AbortSignal) => loadNeighborhood(node, schema, context, projectDir, previous, signal),
-    [schema, context, projectDir],
+    (node: GraphNode, previous?: Neighborhood, signal?: AbortSignal) => loadNeighborhood(node, schema, context, projectDir, previous, signal, projectId),
+    [schema, context, projectDir, projectId],
   );
   const beginResult = (origin: string, kind: "sample" | "search" | "query" = "sample") => {
     setResultKind(kind);
@@ -162,7 +181,9 @@ export default function ExplorerPage() {
     setSearching(true);
     setError("");
     try {
-      const rows = await astApi.search(text, context, projectDir);
+      const rows = projectId
+        ? await astApi.search(text, context, projectDir, projectId)
+        : await astApi.search(text, context, projectDir);
       if (id !== graphRequest.current || scope.current !== startedScope) return;
       setNodes((rows || []).map((r, index) => ({
         id: JSON.stringify([r.Type, r.Path, r.Line, r.Name]),
@@ -183,7 +204,9 @@ export default function ExplorerPage() {
       setSourceLoading(true);
       setError("");
       try {
-        const data = await astApi.getFile(path, context, projectDir);
+        const data = projectId
+          ? await astApi.getFile(path, context, projectDir, projectId)
+          : await astApi.getFile(path, context, projectDir);
         if (id === sourceRequest.current)
           setSource({
             path,
@@ -198,7 +221,7 @@ export default function ExplorerPage() {
         if (id === sourceRequest.current) setSourceLoading(false);
       }
     },
-    [context, projectDir],
+    [context, projectDir, projectId],
   );
   const choose = useCallback(
     (node: GraphNode | null) => {
@@ -296,6 +319,7 @@ export default function ExplorerPage() {
         const resolved = await astApi.getGraph({
           context,
           project_dir: projectDir,
+          ...(projectId ? { project_id: projectId } : {}),
           cypher_query:
             "MATCH (n:" +
             anchor.label +
@@ -355,6 +379,7 @@ export default function ExplorerPage() {
       const data = await astApi.getGraph({
         context,
         project_dir: projectDir,
+        ...(projectId ? { project_id: projectId } : {}),
         cypher_query:
           "MATCH " +
           pattern +
@@ -402,7 +427,7 @@ export default function ExplorerPage() {
     setQueryLoading(true);
     setError("");
     try {
-      const data = await astApi.getGraph({ context, project_dir: projectDir });
+      const data = await astApi.getGraph({ context, project_dir: projectDir, ...(projectId ? { project_id: projectId } : {}) });
       if (id === graphRequest.current) {
         setNodes(data.nodes || []);
         setLinks(data.links || []);
@@ -415,14 +440,16 @@ export default function ExplorerPage() {
     }
   };
   useEffect(() => {
-    if (view !== "map" || !projectDir || initialSample.current === currentScope) return;
+    if (view !== "map" || (!projectDir && !projectId) || initialSample.current === currentScope) return;
     initialSample.current = currentScope;
     if (!lastGraphQuery.current && !lastSearch.current) void sample();
-  }, [view, currentScope, projectDir]);
+  }, [view, currentScope, projectDir, projectId]);
   usePageRefresh(async () => {
     const startedScope = currentScope;
     const metadata = async () => {
-      const nextSchema = await astApi.getSchema(context, projectDir);
+      const nextSchema = projectId
+        ? await astApi.getSchema(context, projectDir, projectId)
+        : await astApi.getSchema(context, projectDir);
       if (scope.current !== startedScope) return;
       setSchema(nextSchema);
     };
@@ -433,7 +460,7 @@ export default function ExplorerPage() {
       setQueryLoading(true);
       setRefreshingGraph(true);
       try {
-        const data = await astApi.getGraph({ context, project_dir: projectDir, ...lastGraphQuery.current });
+        const data = await astApi.getGraph({ context, project_dir: projectDir, ...(projectId ? { project_id: projectId } : {}), ...lastGraphQuery.current });
         if (!isCurrent()) return;
         setError("");
         setNodes(data.nodes || []);
@@ -452,6 +479,10 @@ export default function ExplorerPage() {
       selected && relation !== "source" ? investigate(relation, edgeType, targetType) : Promise.resolve(),
     ]);
   });
+  const selectedRemoteContext = remoteContexts.find(entry =>
+    context?.startsWith(entry.id + "@"));
+  const selectedRemoteContextID = selectedRemoteContext?.id || "";
+  const selectedRemoteLatest = selectedRemoteContext?.qualified_latest || "";
   return (
     <WorkPage className="code-investigation">
       <WorkHeader
@@ -475,6 +506,38 @@ export default function ExplorerPage() {
         </span>
         <span>{schema.backend}</span>
       </div>
+      {remote && <div className="work-toolbar" aria-label="Published AST context">
+        <label className="work-field">
+          <span>AST artifact</span>
+          <StyledSelect
+            aria-label="AST artifact"
+            value={selectedRemoteContext?.id || ""}
+            onChange={(e) => {
+              const entry = remoteContexts.find(item => item.id === e.target.value);
+              if (entry?.qualified_latest) navigate(`/ast/explorer/${encodeURIComponent(entry.qualified_latest)}`);
+            }}
+          >
+            {!remoteContexts.length && <option value="">No published artifacts</option>}
+            {remoteContexts.map(entry => <option key={entry.id} value={entry.id}>{entry.name || entry.id}</option>)}
+          </StyledSelect>
+        </label>
+        <label className="work-field">
+          <span>Published version</span>
+          <StyledSelect
+            aria-label="AST version"
+            value={context || ""}
+            disabled={!selectedRemoteContext}
+            onChange={(e) => navigate(`/ast/explorer/${encodeURIComponent(e.target.value)}`)}
+          >
+            {selectedRemoteContext?.qualified_latest &&
+              <option value={selectedRemoteContext.qualified_latest}>Latest · {selectedRemoteContext.latest}</option>}
+            {(selectedRemoteContext?.versions || []).filter(version =>
+              `${selectedRemoteContextID}@${version}` !== selectedRemoteLatest)
+              .map(version => <option key={version} value={`${selectedRemoteContextID}@${version}`}>{version}</option>)}
+          </StyledSelect>
+          {context && <small>Reading exact context <code>{context}</code> from Hub</small>}
+        </label>
+      </div>}
       <WorkTabs
         value={view}
         onChange={setView}
@@ -529,6 +592,7 @@ export default function ExplorerPage() {
                 key={currentScope}
                 contextId={context}
                 projectDir={projectDir}
+                projectId={projectId}
                 loading={queryLoading && !refreshingGraph}
                 setLoading={setQueryLoading}
                 onQueryStart={(executedQuery) => {

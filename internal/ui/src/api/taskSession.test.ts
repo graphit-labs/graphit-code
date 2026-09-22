@@ -46,4 +46,15 @@ describe('Session API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/tasks/sessions/ses-abcd?project_dir=%2Fwork%2Fproject', expect.anything())
   })
+
+  it('addresses Hub sessions by project id without a workspace path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [], next_cursor: '' }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sessionApi.list({ projectId: '01HUB' })
+    await sessionApi.get(undefined, 'ses-remote', '01HUB')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/sessions?project_id=01HUB&page_size=20')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks/sessions/ses-remote?project_id=01HUB')
+  })
 })

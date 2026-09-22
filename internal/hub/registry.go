@@ -22,6 +22,7 @@ import (
 	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -72,11 +73,12 @@ type Dependency struct {
 }
 
 type Project struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Revision    int64  `json:"revision"`
-	Status      string `json:"status"`
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Description string              `json:"description,omitempty"`
+	Cluster     map[string][]string `json:"cluster,omitempty"`
+	Revision    int64               `json:"revision"`
+	Status      string              `json:"status"`
 }
 
 type Baseline struct {
@@ -682,6 +684,18 @@ func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, 
 	if err := ValidatePublishedVersion(version); err != nil {
 		return fmt.Errorf("invalid published version: %w", err)
 	}
+	if projectDir != "" {
+		lf, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+		if err != nil {
+			return fmt.Errorf("reading publishing project metadata: %w", err)
+		}
+		if lf == nil || lf.Project.ID != meta.ProjectID {
+			return fmt.Errorf("publishing project identity does not match %s", meta.ProjectID)
+		}
+		if err := SyncProjectMetadata(ctx, m, lf); err != nil {
+			return fmt.Errorf("synchronizing publishing project metadata: %w", err)
+		}
+	}
 	if err := m.authorizeProject(ctx, meta.ProjectID); err != nil {
 		return err
 	}
@@ -855,6 +869,14 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 }
 
 func (m *RegistryManager) UpsertProject(ctx context.Context, remoteID, name, description string) (*Project, error) {
+	return m.upsertProjectAuthorized(ctx, remoteID, name, description, nil, false)
+}
+
+func (m *RegistryManager) UpsertProjectWithCluster(ctx context.Context, remoteID, name, description string, cluster map[string][]string) (*Project, error) {
+	return m.upsertProjectAuthorized(ctx, remoteID, name, description, projectlock.NormalizeCluster(cluster), true)
+}
+
+func (m *RegistryManager) upsertProjectAuthorized(ctx context.Context, remoteID, name, description string, cluster map[string][]string, replaceCluster bool) (*Project, error) {
 	if err := hubaccess.ValidateProjectID(remoteID); err != nil {
 		return nil, err
 	}
@@ -872,7 +894,7 @@ func (m *RegistryManager) UpsertProject(ctx context.Context, remoteID, name, des
 	if !grants.Allows(remoteID, name) {
 		return nil, fmt.Errorf("%w: %s", hubaccess.ErrDenied, remoteID)
 	}
-	return m.upsertProject(ctx, remoteID, name, description)
+	return m.upsertProject(ctx, remoteID, name, description, cluster, replaceCluster)
 }
 
 func (m *RegistryManager) authorizeProject(ctx context.Context, projectID string) error {
@@ -883,11 +905,11 @@ func (m *RegistryManager) authorizeProject(ctx context.Context, projectID string
 	return m.store.Authorize(ctx, project.ID, project.Name)
 }
 
-func (m *RegistryManager) upsertProject(ctx context.Context, projectID, name, description string) (*Project, error) {
+func (m *RegistryManager) upsertProject(ctx context.Context, projectID, name, description string, cluster map[string][]string, replaceCluster bool) (*Project, error) {
 	projectKey := hubaccess.ProjectMetadataKey(projectID)
 	currentValue, err := m.store.ReadValue(ctx, projectKey)
 	if errors.Is(err, s3store.ErrNotFound) {
-		return m.createProject(ctx, projectID, name, description)
+		return m.createProject(ctx, projectID, name, description, cluster)
 	}
 	if err != nil {
 		return nil, err
@@ -900,8 +922,11 @@ func (m *RegistryManager) upsertProject(ctx context.Context, projectID, name, de
 	if current.Status != "active" {
 		return nil, fmt.Errorf("project %s is not active", projectID)
 	}
+	if !replaceCluster {
+		cluster = projectlock.NormalizeCluster(current.Cluster)
+	}
 
-	next := &Project{ID: projectID, Name: name, Description: description, Revision: current.Revision + 1, Status: "active"}
+	next := &Project{ID: projectID, Name: name, Description: description, Cluster: cluster, Revision: current.Revision + 1, Status: "active"}
 	if current.Name == name {
 		if err := m.writeProjectCAS(ctx, projectKey, currentValue.ETag, next); err != nil {
 			return nil, err
@@ -931,8 +956,8 @@ func (m *RegistryManager) upsertProject(ctx context.Context, projectID, name, de
 	return next, nil
 }
 
-func (m *RegistryManager) createProject(ctx context.Context, projectID, name, description string) (*Project, error) {
-	project := &Project{ID: projectID, Name: name, Description: description, Revision: 1, Status: "active"}
+func (m *RegistryManager) createProject(ctx context.Context, projectID, name, description string, cluster map[string][]string) (*Project, error) {
+	project := &Project{ID: projectID, Name: name, Description: description, Cluster: cluster, Revision: 1, Status: "active"}
 	reservationETag, err := m.reserveName(ctx, name, project)
 	if err != nil {
 		return nil, err

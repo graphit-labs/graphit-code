@@ -103,6 +103,50 @@ func TestSaveCanonicalizesAnExistingFriendlyNameWithoutChangingTheID(t *testing.
 	}
 }
 
+func TestProjectClusterRoundTripsNormalized(t *testing.T) {
+	path := filepath.Join(t.TempDir(), brand.LockFileName())
+	lf := &Lockfile{Project: ProjectIdentity{
+		ID:   ulid.Make().String(),
+		Name: "clustered-project",
+		Cluster: map[string][]string{
+			" team ": {"frontend", " backend ", "frontend", ""},
+			"":       {"ignored"},
+		},
+	}}
+	if err := Save(path, lf); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values := got.Project.Cluster["team"]; len(values) != 2 || values[0] != "backend" || values[1] != "frontend" {
+		t.Fatalf("normalized cluster = %#v", got.Project.Cluster)
+	}
+	if _, exists := got.Project.Cluster[""]; exists {
+		t.Fatalf("empty cluster key survived: %#v", got.Project.Cluster)
+	}
+}
+
+func TestProjectClusterMutationUsesProjectLockAsAuthority(t *testing.T) {
+	lf := &Lockfile{}
+	if err := SetClusterLabel(lf, " team ", " backend "); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetClusterLabel(lf, "team", "backend"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lf.Project.Cluster["team"]; len(got) != 1 || got[0] != "backend" {
+		t.Fatalf("cluster after set = %#v", lf.Project.Cluster)
+	}
+	if err := UnsetClusterLabel(lf, "team"); err != nil {
+		t.Fatal(err)
+	}
+	if lf.Project.Cluster != nil {
+		t.Fatalf("cluster after unset = %#v, want nil", lf.Project.Cluster)
+	}
+}
+
 func TestSourcePathRoundTripsThroughTheProject(t *testing.T) {
 	project := filepath.Join(string(filepath.Separator), "home", "someone", "work", "app")
 	sibling := filepath.Join(string(filepath.Separator), "home", "someone", "work", "lib")
