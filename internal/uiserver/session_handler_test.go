@@ -42,9 +42,9 @@ func (f *fakeSessionExporter) SessionGet(_ context.Context, id string) (graphtas
 
 func TestSessionHandlerPaginatesListAndBindsCursor(t *testing.T) {
 	fake := &fakeSessionExporter{summaries: []graphtask.SessionSummary{
-		{ID: "ses-newest", Title: "Newest"},
-		{ID: "ses-middle", Title: "Middle"},
-		{ID: "ses-oldest", Title: "Oldest"},
+		{ID: "ses-newest", Title: "Newest", CompletedTasks: 0, TotalTasks: 0},
+		{ID: "ses-middle", Title: "Middle", CompletedTasks: 1, TotalTasks: 3},
+		{ID: "ses-oldest", Title: "Oldest", CompletedTasks: 2, TotalTasks: 2},
 	}}
 	handler := NewSessionHandler("/project")
 	handler.open = func(string) (sessionExporter, error) { return fake, nil }
@@ -63,7 +63,7 @@ func TestSessionHandlerPaginatesListAndBindsCursor(t *testing.T) {
 	if err := json.NewDecoder(first.Body).Decode(&firstPage); err != nil {
 		t.Fatal(err)
 	}
-	if len(firstPage.Results) != 2 || firstPage.Results[0].ID != "ses-newest" || firstPage.Results[1].ID != "ses-middle" || firstPage.NextCursor == "" {
+	if len(firstPage.Results) != 2 || firstPage.Results[0].ID != "ses-newest" || firstPage.Results[0].CompletedTasks != 0 || firstPage.Results[0].TotalTasks != 0 || firstPage.Results[1].ID != "ses-middle" || firstPage.Results[1].CompletedTasks != 1 || firstPage.Results[1].TotalTasks != 3 || firstPage.NextCursor == "" {
 		t.Fatalf("first page = %#v", firstPage)
 	}
 	if fake.gotList.Status != "open" || !fake.gotList.Active {
@@ -82,7 +82,7 @@ func TestSessionHandlerPaginatesListAndBindsCursor(t *testing.T) {
 	if err := json.NewDecoder(second.Body).Decode(&secondPage); err != nil {
 		t.Fatal(err)
 	}
-	if len(secondPage.Results) != 1 || secondPage.Results[0].ID != "ses-oldest" || secondPage.NextCursor != "" {
+	if len(secondPage.Results) != 1 || secondPage.Results[0].ID != "ses-oldest" || secondPage.Results[0].CompletedTasks != 2 || secondPage.Results[0].TotalTasks != 2 || secondPage.NextCursor != "" {
 		t.Fatalf("second page = %#v", secondPage)
 	}
 
@@ -116,7 +116,7 @@ func TestSessionHandlerOpensRemoteProjectByID(t *testing.T) {
 
 func TestSessionHandlerSearchesWhenQueryIsSet(t *testing.T) {
 	fake := &fakeSessionExporter{searchResult: []graphtask.SessionSearchResult{
-		{SessionSummary: graphtask.SessionSummary{ID: "ses-a", Title: "Archive export"}, Score: 0.9},
+		{SessionSummary: graphtask.SessionSummary{ID: "ses-a", Title: "Archive export", CompletedTasks: 1, TotalTasks: 3}, Score: 0.9},
 	}}
 	handler := NewSessionHandler("/project")
 	handler.open = func(string) (sessionExporter, error) { return fake, nil }
@@ -137,7 +137,7 @@ func TestSessionHandlerSearchesWhenQueryIsSet(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Results) != 1 || page.Results[0].ID != "ses-a" || page.Results[0].Score != 0.9 {
+	if len(page.Results) != 1 || page.Results[0].ID != "ses-a" || page.Results[0].CompletedTasks != 1 || page.Results[0].TotalTasks != 3 || page.Results[0].Score != 0.9 {
 		t.Fatalf("page = %#v", page)
 	}
 }

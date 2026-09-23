@@ -474,7 +474,7 @@ export default function SessionExplorerPage() {
         <span>Open a continuity brief</span>
       </div>
       <div
-        className="work-table-wrap work-catalogue"
+        className="work-table-wrap work-catalogue session-catalogue"
         aria-label="Session catalogue"
       >
         <table className="work-table">
@@ -482,6 +482,7 @@ export default function SessionExplorerPage() {
             <tr>
               <th>Request</th>
               <th>Status</th>
+              <th>Tasks</th>
               <th>Coordinator</th>
               <th>Updated</th>
             </tr>
@@ -505,6 +506,32 @@ export default function SessionExplorerPage() {
                 </td>
                 <td>
                   <WorkStatusBadge status={session.status} />
+                </td>
+                <td>
+                  <div className="session-task-progress">
+                    {session.total_tasks > 0 ? (
+                      <>
+                        <span className="session-task-progress-label">
+                          {session.completed_tasks} of {session.total_tasks} complete
+                        </span>
+                        <span
+                          className="session-task-progress-track"
+                          role="progressbar"
+                          aria-label={`Task progress: ${session.completed_tasks} of ${session.total_tasks} complete`}
+                          aria-valuemin={0}
+                          aria-valuemax={session.total_tasks}
+                          aria-valuenow={session.completed_tasks}
+                        >
+                          <span
+                            className="session-task-progress-fill"
+                            style={{ width: `${Math.min(100, Math.max(0, (session.completed_tasks / session.total_tasks) * 100))}%` }}
+                          />
+                        </span>
+                      </>
+                    ) : (
+                      <span className="session-task-progress-label empty">No tasks</span>
+                    )}
+                  </div>
                 </td>
                 <td>{session.owner || "Unclaimed"}</td>
                 <td>{shortDate(session.updated_at)}</td>

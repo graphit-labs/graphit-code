@@ -197,6 +197,40 @@
 .work-table code {
   font-size: 10px;
 }
+.session-task-progress {
+  min-width: 120px;
+}
+.session-catalogue .work-table {
+  min-width: 900px;
+}
+.session-catalogue .work-badge {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+.session-task-progress-label {
+  display: block;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-task-progress-label.empty {
+  color: hsl(var(--muted-foreground));
+}
+.session-task-progress-track {
+  display: block;
+  width: 112px;
+  height: 4px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: hsl(var(--muted));
+}
+.session-task-progress-fill {
+  display: block;
+  height: 100%;
+  background: hsl(var(--success));
+}
 .work-catalogue {
   max-height: 230px;
   overflow: auto;

@@ -43,12 +43,24 @@ const secondSession: Session = {
 
 const firstSummary: SessionSearchResult = {
   id: firstSession.id, title: firstSession.title, status: firstSession.status,
-  owner: firstSession.owner, updated_at: firstSession.updated_at, revision: firstSession.revision,
+  owner: firstSession.owner, completed_tasks: 1, total_tasks: 3,
+  updated_at: firstSession.updated_at, revision: firstSession.revision,
 }
 
 const secondSummary: SessionSearchResult = {
   id: secondSession.id, title: secondSession.title, status: secondSession.status,
-  owner: secondSession.owner, updated_at: secondSession.updated_at, revision: secondSession.revision,
+  owner: secondSession.owner, completed_tasks: 0, total_tasks: 0,
+  updated_at: secondSession.updated_at, revision: secondSession.revision,
+}
+
+const completedSummary: SessionSearchResult = {
+  ...firstSummary,
+  id: 'ses-cccc',
+  title: 'Completed delivery session',
+  status: 'completed',
+  owner: undefined,
+  completed_tasks: 2,
+  total_tasks: 2,
 }
 
 const firstDetail: SessionDetail = {
@@ -162,6 +174,26 @@ describe('Session Explorer', () => {
     await waitFor(() => expect(sessionApi.list).toHaveBeenLastCalledWith({
       projectDir: '/project', query: 'archive', status: 'in_progress', active: true, pageSize: 20, cursor: undefined,
     }))
+  })
+
+  it('shows linked task progress without treating an empty session as complete', async () => {
+    vi.mocked(sessionApi.list).mockResolvedValue({
+      results: [firstSummary, secondSummary, completedSummary],
+      next_cursor: '',
+    })
+    render(
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <header><WorkspaceSelectors /></header>
+        <Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes>
+      </WorkspaceRefreshProvider></MemoryRouter>,
+    )
+
+    expect(await screen.findByText('1 of 3 complete')).toBeTruthy()
+    expect(screen.getByText('2 of 2 complete')).toBeTruthy()
+    expect(screen.getByText('No tasks')).toBeTruthy()
+    expect(screen.getByRole('progressbar', { name: 'Task progress: 1 of 3 complete' }).getAttribute('aria-valuenow')).toBe('1')
+    expect(screen.getByRole('progressbar', { name: 'Task progress: 2 of 2 complete' }).getAttribute('aria-valuemax')).toBe('2')
+    expect(screen.getAllByRole('progressbar')).toHaveLength(2)
   })
 
   it('keeps the detail rendered when the selected session row is clicked again', async () => {

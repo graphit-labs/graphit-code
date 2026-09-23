@@ -18,8 +18,30 @@ var ErrSessionNotFound = errors.New("task session not found")
 func sessionSpec(v Session) SessionSpec {
 	return SessionSpec{Title: v.Title, Description: v.Description, Strategy: v.Strategy}
 }
-func sessionSummary(v Session) SessionSummary {
-	return SessionSummary{ID: v.ID, Title: v.Title, Status: v.Status, Owner: v.Owner, ProgressSummary: v.ProgressSummary, NextStep: v.NextStep, UpdatedAt: v.UpdatedAt, Revision: v.Revision}
+
+type sessionTaskProgress struct {
+	completed int
+	total     int
+}
+
+func sessionTaskProgressBySession(tasks []taskSessionStatus) map[string]sessionTaskProgress {
+	counts := make(map[string]sessionTaskProgress)
+	for _, task := range tasks {
+		if task.sessionID == "" {
+			continue
+		}
+		progress := counts[task.sessionID]
+		progress.total++
+		if task.status == StatusCompleted {
+			progress.completed++
+		}
+		counts[task.sessionID] = progress
+	}
+	return counts
+}
+
+func sessionSummary(v Session, progress sessionTaskProgress) SessionSummary {
+	return SessionSummary{ID: v.ID, Title: v.Title, Status: v.Status, Owner: v.Owner, ProgressSummary: v.ProgressSummary, NextStep: v.NextStep, CompletedTasks: progress.completed, TotalTasks: progress.total, UpdatedAt: v.UpdatedAt, Revision: v.Revision}
 }
 func sessionActive(v Session) bool { return v.Status == StatusOpen || v.Status == StatusInProgress }
 func clearSessionClaim(v *Session) {
@@ -394,11 +416,16 @@ func (s *Service) SessionList(ctx context.Context, opts SessionListOptions) ([]S
 		if err != nil {
 			return err
 		}
+		tasks, err := t.sessionTaskStatuses(ctx)
+		if err != nil {
+			return err
+		}
+		progressBySession := sessionTaskProgressBySession(tasks)
 		for _, v := range all {
 			if opts.Status != "" && string(v.Status) != opts.Status || opts.Owner != "" && v.Owner != opts.Owner || opts.Active && !sessionActive(v) {
 				continue
 			}
-			out = append(out, sessionSummary(v))
+			out = append(out, sessionSummary(v, progressBySession[v.ID]))
 		}
 		return nil
 	})
@@ -428,6 +455,11 @@ func (s *Service) SessionSearch(ctx context.Context, query string, limit int) ([
 		for _, v := range all {
 			byID[v.ID] = v
 		}
+		tasks, err := t.sessionTaskStatuses(ctx)
+		if err != nil {
+			return err
+		}
+		progressBySession := sessionTaskProgressBySession(tasks)
 		scores := map[string]float64{}
 		for _, table := range []*lancestore.Table{t.sessions, t.sessionCheckpoints, t.sessionRevisions, t.sessionEvents} {
 			for offset := 0; ; offset += pageSize {
@@ -462,7 +494,7 @@ func (s *Service) SessionSearch(ctx context.Context, query string, limit int) ([
 			}
 		}
 		for id, score := range scores {
-			out = append(out, SessionSearchResult{SessionSummary: sessionSummary(byID[id]), Score: score})
+			out = append(out, SessionSearchResult{SessionSummary: sessionSummary(byID[id], progressBySession[id]), Score: score})
 		}
 		return nil
 	})

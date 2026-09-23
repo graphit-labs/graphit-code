@@ -557,6 +557,30 @@ func (t *tables) catalogTasks(ctx context.Context) ([]Task, error) {
 	})
 }
 
+type taskSessionStatus struct {
+	sessionID string
+	status    Status
+}
+
+func (t *tables) sessionTaskStatuses(ctx context.Context) ([]taskSessionStatus, error) {
+	var out []taskSessionStatus
+	for offset := 0; ; offset += pageSize {
+		hits, err := t.tasks.Search(ctx, lancestore.Query{
+			Filter: "revision >= 1", Columns: []string{"session_id", "status"}, Limit: pageSize, Offset: offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, hit := range hits {
+			out = append(out, taskSessionStatus{sessionID: text(hit.Row, "session_id"), status: Status(text(hit.Row, "status"))})
+		}
+		if len(hits) < pageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (t *tables) tasksWithColumns(ctx context.Context, columns []string) ([]Task, error) {
 	var out []Task
 	for offset := 0; ; offset += pageSize {

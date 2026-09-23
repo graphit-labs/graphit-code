@@ -91,6 +91,8 @@ type SessionSummary struct {
 	Owner           string `json:"owner,omitempty"`
 	ProgressSummary string `json:"progress_summary,omitempty"`
 	NextStep        string `json:"next_step,omitempty"`
+	CompletedTasks  int    `json:"completed_tasks"`
+	TotalTasks      int    `json:"total_tasks"`
 	UpdatedAt       string `json:"updated_at"`
 	Revision        int64  `json:"revision"`
 }

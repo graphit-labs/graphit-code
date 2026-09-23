@@ -10,6 +10,8 @@ export interface SessionSummary {
   owner?: string
   progress_summary?: string
   next_step?: string
+  completed_tasks: number
+  total_tasks: number
   updated_at: string
   revision: number
 }

@@ -352,3 +352,69 @@ func TestSessionEmptyDiscoveryAndCurrentStrategy(t *testing.T) {
 		t.Fatalf("current strategy: %#v %v", updated, err)
 	}
 }
+
+func TestSessionDiscoverySummarizesLinkedTaskProgress(t *testing.T) {
+	ctx := context.Background()
+	s := OpenAt("session-progress", t.TempDir())
+	zero := createSessionFixture(t, s, "agent", "zeroneedle")
+	partial := createSessionFixture(t, s, "agent", "partialneedle")
+	complete := createSessionFixture(t, s, "agent", "completeneedle")
+
+	createTask := func(sessionID, key string) Task {
+		t.Helper()
+		in := testCreate("Deliver "+key, key)
+		in.Actor = "agent"
+		in.RequireSession = true
+		in.SessionID = sessionID
+		task, err := s.Create(ctx, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+
+	partialDone := createTask(partial.ID, "partial-done")
+	createTask(partial.ID, "partial-open")
+	partialCancelled := createTask(partial.ID, "partial-cancelled")
+	finishTaskFixture(t, s, partialDone.ID, "partial-worker")
+	if _, err := s.Cancel(ctx, partialCancelled.ID, "", "agent", "Fixture keeps cancelled work terminal but not completed."); err != nil {
+		t.Fatal(err)
+	}
+	completeA := createTask(complete.ID, "complete-a")
+	completeB := createTask(complete.ID, "complete-b")
+	finishTaskFixture(t, s, completeA.ID, "complete-worker-a")
+	finishTaskFixture(t, s, completeB.ID, "complete-worker-b")
+
+	list, err := s.SessionList(ctx, SessionListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]SessionSummary, len(list))
+	for _, summary := range list {
+		byID[summary.ID] = summary
+	}
+	if got := byID[zero.ID]; got.CompletedTasks != 0 || got.TotalTasks != 0 {
+		t.Fatalf("zero progress = %#v", got)
+	}
+	if got := byID[partial.ID]; got.CompletedTasks != 1 || got.TotalTasks != 3 {
+		t.Fatalf("partial progress = %#v", got)
+	}
+	if got := byID[complete.ID]; got.CompletedTasks != 2 || got.TotalTasks != 2 {
+		t.Fatalf("complete progress = %#v", got)
+	}
+
+	for _, tc := range []struct {
+		query                      string
+		id                         string
+		completedTasks, totalTasks int
+	}{
+		{query: "zeroneedle", id: zero.ID, completedTasks: 0, totalTasks: 0},
+		{query: "partialneedle", id: partial.ID, completedTasks: 1, totalTasks: 3},
+		{query: "completeneedle", id: complete.ID, completedTasks: 2, totalTasks: 2},
+	} {
+		hits, err := s.SessionSearch(ctx, tc.query, 5)
+		if err != nil || len(hits) != 1 || hits[0].ID != tc.id || hits[0].CompletedTasks != tc.completedTasks || hits[0].TotalTasks != tc.totalTasks {
+			t.Fatalf("search %q progress = %#v %v", tc.query, hits, err)
+		}
+	}
+}
