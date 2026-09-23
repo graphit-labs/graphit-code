@@ -2,11 +2,8 @@ package tray
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
@@ -29,27 +26,11 @@ func TestDescribeDaemonStates(t *testing.T) {
 		{"foreground", "Daemon running in foreground", daemonservice.Status{}, true, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := describe(tc.service, tc.running, "No recorded activity")
+			got := describe(tc.service, tc.running)
 			if got.state != tc.want || got.canStart != tc.start || got.canStop != tc.stop {
 				t.Fatalf("state=%q start=%t stop=%t", got.state, got.canStart, got.canStop)
 			}
 		})
-	}
-}
-
-func TestRecentActivityShowsAgeWithoutClaimingCurrentWork(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "daemon.log")
-	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.Local)
-	data := "[2026-09-23 11:58:00] Project active again: /work/demo\n"
-	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got := recentActivity(path, now)
-	if !strings.Contains(got, "Last event 2m ago") || !strings.Contains(got, "Project active again") {
-		t.Fatalf("unexpected activity: %q", got)
-	}
-	if got := recentActivity(filepath.Join(t.TempDir(), "missing.log"), now); got != "No recorded activity" {
-		t.Fatalf("missing log: %q", got)
 	}
 }
 

@@ -74,7 +74,7 @@ Enable startup at **user login** explicitly:
 
 ```bash
 graphit daemon service install --login
-graphit daemon service login disable
+graphit daemon service uninstall --only-login
 graphit daemon service login enable
 graphit daemon service login status
 graphit daemon service status
@@ -94,7 +94,7 @@ managed daemon starts its UI module using the configured `ui.host` and `ui.port`
 actual address it binds. The service uses no one-minute cron or timer. Installation removes only
 Graphit's identified legacy watchdog entry. `graphit daemon scheduler` remains an alias for
 `daemon service`. `service uninstall` stops and removes the service and its login startup; `remove`
-is an alias. `service login disable` turns off daemon and tray startup at login without stopping the
+is an alias. `service uninstall --only-login` turns off daemon and tray startup at login without stopping the
 running daemon or removing its service registration. `--managed` is an internal service flag and is
 not needed when starting the daemon manually. A later eligible command registers an uninstalled
 service again with login startup off.
@@ -103,9 +103,11 @@ service again with login startup off.
 
 In a graphical session, eligible CLI commands start a separate `graphit tray` process if one is
 not already running. The daemon service remains headless. The tray menu shows running, starting,
-stopped, or error state and the age of its last recorded log event; an older event is labeled as
-such and is not presented as current work. The menu can **Open UI**, **Start daemon**, **Stop daemon**,
-or **Stop daemon and quit**. That last action stops the OS-managed service and daemon before
+stopped, or error state and the active login provider and profile. When there is no active login,
+it lists configured first-class Broker providers under **Sign in with Broker**. Selecting one opens
+the existing browser login flow and activates a profile named after the provider unless a profile
+for that provider already exists. The menu can **Open UI**, **Start daemon**, **Restart daemon**,
+or **Quit**. Quit stops the OS-managed service and daemon before
 closing the tray; if stopping fails, the tray stays open and shows an error. The service remains
 registered: the next eligible command can start it again, and login startup runs at the next login
 when enabled. Open UI only opens the daemon's published UI URL in the default browser; it does not

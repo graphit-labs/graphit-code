@@ -66,6 +66,11 @@ graphit provider add company --type broker \
 graphit login --profile alice-company --provider company
 ```
 
+When no profile is signed in, the Graphit system tray lists configured first-class Broker
+providers under **Sign in with Broker**. Selecting a provider opens this same browser flow.
+The tray reuses an existing profile for that provider when available; otherwise it creates
+a profile with the provider's name (or a numbered name if that name is occupied).
+
 Graphit Code reads `/.well-known/graphit-broker`, resolves the advertised issuer/client/scopes, then
 uses ordinary OpenID Connect discovery, Authorization Code, PKCE S256, state, nonce and JWKS. The
 Broker page—not the CLI—offers local login and/or organization OIDC according to its

@@ -258,10 +258,11 @@ explicit service commands return the error. `graphit daemon` remains an explicit
 foreground command.
 
 `graphit daemon service install --login` opts in to starting at user login;
-`service login enable|disable|status` changes or reports daemon and tray login startup without
+`service login enable|status` enables or reports daemon and tray login startup without
 stopping the current daemon. `start`, `stop`, `restart`, `status`, and `uninstall` control the service;
 `remove` aliases `uninstall`. Uninstall stops the daemon and removes both service registration and
-login startup. The internal `daemon --managed` flag is supplied by the OS service definition and
+login startup; `uninstall --only-login` removes daemon and tray startup at login while keeping the
+running daemon and service registration. The internal `daemon --managed` flag is supplied by the OS service definition and
 forces the UI module on; manual foreground use does not require that flag. The old
 `daemon scheduler` name aliases the new command. An intentional stop uses the
 OS manager so its failure restart does not relaunch the daemon. Installation
@@ -274,10 +275,11 @@ the next eligible command or enabled login task can start the service afterward.
 `internal/tray` is a separate graphical process with its own singleton lock.
 It uses the existing bracket mark from `internal/ui/public/favicon.svg` as a
 44-pixel tray icon, with a monochrome template variant for the macOS menu bar.
-It reads daemon lock state and the most recent timestamped daemon log entry on
-a three-second interval. Menu actions call `daemonctl.EnsureRunning` or `Stop`,
-open the daemon's published UI URL in the default browser, and stop the managed service and daemon
-before quitting the tray. A stop failure keeps the tray visible for retry. The UI module publishes
+It reads daemon state and the global authentication state on a three-second interval. The menu
+shows the active login provider and profile, or offers configured first-class Broker providers
+through the existing browser login command. Menu actions start or restart the daemon, open the
+daemon's published UI URL in the default browser, and stop the managed service and daemon on Quit.
+A stop failure keeps the tray visible for retry. The UI module publishes
 the actual selected address in `daemon/ui.url` with its PID so a stale file is ignored. The
 service's login option also installs tray login startup; `graphit tray login`
 controls it separately. Linux requires a StatusNotifier watcher; without one,

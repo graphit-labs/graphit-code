@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -93,41 +94,69 @@ func Run() error {
 	defer lock.Release()
 
 	ui := systray.New()
-	menu := systray.NewMenu()
-	stateItem := menu.Add("Checking daemon…", nil)
-	stateItem.SetDisabled(true)
-	activityItem := menu.Add("Checking activity…", nil)
-	activityItem.SetDisabled(true)
-	menu.AddSeparator()
-	menu.Add("Open UI", func() {
-		go func() {
-			if err := OpenUI(); err != nil {
-				ui.ShowNotification(brand.DisplayName, "UI unavailable: "+short(err.Error(), 100))
+	var loggingIn atomic.Bool
+	type menuItems struct{ state, start, restart *systray.MenuItem }
+	buildMenu := func(authState authMenuState) (*systray.Menu, menuItems) {
+		menu := systray.NewMenu()
+		stateItem := menu.Add("Checking daemon…", nil)
+		stateItem.SetDisabled(true)
+		authItem := menu.Add(authState.label, nil)
+		authItem.SetDisabled(true)
+		if len(authState.brokers) > 0 {
+			brokers := systray.NewMenu()
+			for _, provider := range authState.brokers {
+				provider := provider
+				brokers.Add(provider, func() {
+					if !loggingIn.CompareAndSwap(false, true) {
+						return
+					}
+					go func() {
+						defer loggingIn.Store(false)
+						ui.ShowNotification(brand.DisplayName, "Opening login for "+provider)
+						if err := launchBrokerLogin(provider); err != nil {
+							ui.ShowNotification(brand.DisplayName, "Login failed: "+short(err.Error(), 100))
+							return
+						}
+						ui.ShowNotification(brand.DisplayName, "Signed in with "+provider)
+					}()
+				})
 			}
-		}()
-	})
-	startItem := menu.Add("Start daemon", func() {
-		go func() {
-			if _, err := daemonctl.EnsureRunning(); err != nil {
-				ui.ShowNotification(brand.DisplayName, "Start failed: "+short(err.Error(), 100))
-			}
-		}()
-	})
-	stopItem := menu.Add("Stop daemon", func() {
-		go func() {
-			if err := daemonctl.Stop(); err != nil {
-				ui.ShowNotification(brand.DisplayName, "Stop failed: "+short(err.Error(), 100))
-			}
-		}()
-	})
-	menu.AddSeparator()
-	menu.Add("Stop daemon and quit", func() {
-		go func() {
-			if err := stopAndQuit(daemonctl.Stop, ui.Remove); err != nil {
-				ui.ShowNotification(brand.DisplayName, "Stop failed: "+short(err.Error(), 100))
-			}
-		}()
-	})
+			menu.AddSubmenu("Sign in with Broker", brokers)
+		}
+		menu.AddSeparator()
+		menu.Add("Open UI", func() {
+			go func() {
+				if err := OpenUI(); err != nil {
+					ui.ShowNotification(brand.DisplayName, "UI unavailable: "+short(err.Error(), 100))
+				}
+			}()
+		})
+		startItem := menu.Add("Start daemon", func() {
+			go func() {
+				if _, err := daemonctl.EnsureRunning(); err != nil {
+					ui.ShowNotification(brand.DisplayName, "Start failed: "+short(err.Error(), 100))
+				}
+			}()
+		})
+		restartItem := menu.Add("Restart daemon", func() {
+			go func() {
+				if err := daemonctl.Restart(); err != nil {
+					ui.ShowNotification(brand.DisplayName, "Restart failed: "+short(err.Error(), 100))
+				}
+			}()
+		})
+		menu.AddSeparator()
+		menu.Add("Quit", func() {
+			go func() {
+				if err := stopAndQuit(daemonctl.Stop, ui.Remove); err != nil {
+					ui.ShowNotification(brand.DisplayName, "Stop failed: "+short(err.Error(), 100))
+				}
+			}()
+		})
+		return menu, menuItems{stateItem, startItem, restartItem}
+	}
+	authState := captureAuthMenu(time.Now())
+	menu, items := buildMenu(authState)
 	ui.SetIcon(iconPNG).SetTooltip(brand.DisplayName + " daemon").SetMenu(menu)
 	if runtime.GOOS == "darwin" {
 		ui.SetTemplateIcon(templatePNG)
@@ -145,11 +174,16 @@ func Run() error {
 		tick := time.NewTicker(3 * time.Second)
 		defer tick.Stop()
 		for {
-			s := capture(time.Now())
-			stateItem.SetLabel(s.state)
-			activityItem.SetLabel(s.activity)
-			startItem.SetDisabled(!s.canStart)
-			stopItem.SetDisabled(!s.canStop)
+			nextAuth := captureAuthMenu(time.Now())
+			if nextAuth.key != authState.key {
+				authState = nextAuth
+				menu, items = buildMenu(authState)
+				ui.SetMenu(menu)
+			}
+			s := capture()
+			items.state.SetLabel(s.state)
+			items.start.SetDisabled(!s.canStart)
+			items.restart.SetDisabled(!s.canStop)
 			ui.SetTooltip(brand.DisplayName + ": " + s.state)
 			select {
 			case <-ctx.Done():

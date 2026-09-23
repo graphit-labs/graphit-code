@@ -158,11 +158,18 @@ func TestDaemonFlagsAndServiceCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"enable", "disable", "status"} {
+	for _, name := range []string{"enable", "status"} {
 		found, _, err := login.Find([]string{name})
 		if err != nil || found == nil || found.Name() != name {
 			t.Errorf("login command %q = %v, %v", name, found, err)
 		}
+	}
+	if found, _, err := login.Find([]string{"disable"}); err == nil && found != nil && found.Name() == "disable" {
+		t.Fatal("service login disable must not be registered")
+	}
+	uninstall, _, err := service.Find([]string{"uninstall"})
+	if err != nil || uninstall.Flags().Lookup("only-login") == nil {
+		t.Fatal("service uninstall must offer --only-login")
 	}
 }
 

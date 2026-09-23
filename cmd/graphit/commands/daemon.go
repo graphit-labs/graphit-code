@@ -95,7 +95,7 @@ Lifecycle:
 Managed service (current user):
   ` + brand.BinName() + ` daemon service start             Start through the OS manager
   ` + brand.BinName() + ` daemon service install --login   Also start at user login
-  ` + brand.BinName() + ` daemon service login disable    Disable login startup only
+  ` + brand.BinName() + ` daemon service uninstall --only-login  Disable login startup only
   ` + brand.BinName() + ` daemon service stop              Stop without automatic relaunch
   ` + brand.BinName() + ` daemon service status            Show service and login state
   ` + brand.BinName() + ` daemon service uninstall         Stop and remove the service
@@ -682,6 +682,12 @@ An eligible command installs the service on first use and starts it without
 enabling login start. Choose --login to start it automatically at future logins.
 The daemon restarts after an unexpected failure while the service is active.`,
 	}
+	disableLogin := func() error {
+		if err := daemonservice.SetLogin(false); err != nil && !errors.Is(err, daemonservice.ErrNotInstalled) {
+			return err
+		}
+		return tray.RemoveLogin()
+	}
 	loginCmd := &cobra.Command{Use: "login", Short: "Manage service startup at user login"}
 	loginCmd.AddCommand(
 		&cobra.Command{Use: "enable", Short: "Start daemon and tray at user login", RunE: func(cmd *cobra.Command, args []string) error {
@@ -689,12 +695,6 @@ The daemon restarts after an unexpected failure while the service is active.`,
 				return err
 			}
 			return tray.InstallLogin()
-		}},
-		&cobra.Command{Use: "disable", Short: "Disable daemon and tray startup at login", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := daemonservice.SetLogin(false); err != nil {
-				return err
-			}
-			return tray.RemoveLogin()
 		}},
 		&cobra.Command{Use: "status", Short: "Show daemon and tray login settings", RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := daemonservice.GetStatus()
@@ -733,6 +733,20 @@ The daemon restarts after an unexpected failure while the service is active.`,
 		},
 	}
 	installCmd.Flags().BoolVar(&login, "login", false, "Start the daemon at each user login")
+	var onlyLogin bool
+	uninstallCmd := &cobra.Command{Use: "uninstall", Aliases: []string{"remove"}, Short: "Remove the service or only its login startup", RunE: func(cmd *cobra.Command, args []string) error {
+		if onlyLogin {
+			return disableLogin()
+		}
+		if err := daemonctl.Stop(); err != nil {
+			return err
+		}
+		if err := daemonservice.Remove(); err != nil {
+			return err
+		}
+		return tray.RemoveLogin()
+	}}
+	uninstallCmd.Flags().BoolVar(&onlyLogin, "only-login", false, "Remove daemon and tray startup at login; keep the service and running daemon")
 	cmd.AddCommand(
 		installCmd,
 		loginCmd,
@@ -749,15 +763,7 @@ The daemon restarts after an unexpected failure while the service is active.`,
 		&cobra.Command{Use: "restart", Short: "Restart the managed daemon", RunE: func(cmd *cobra.Command, args []string) error {
 			return daemonctl.Restart()
 		}},
-		&cobra.Command{Use: "uninstall", Aliases: []string{"remove"}, Short: "Stop and remove the per-user daemon service and login startup", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := daemonctl.Stop(); err != nil {
-				return err
-			}
-			if err := daemonservice.Remove(); err != nil {
-				return err
-			}
-			return tray.RemoveLogin()
-		}},
+		uninstallCmd,
 		&cobra.Command{Use: "status", Short: "Show service and login state", RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := daemonservice.GetStatus()
 			if err != nil {
