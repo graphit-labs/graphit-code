@@ -1,15 +1,24 @@
+//go:build linux
+
 package daemon
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-func TestEnsureRunning_AlreadyAlive(t *testing.T) {
-	tempHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	_ = os.Setenv("HOME", tempHome)
-	defer func() { _ = os.Setenv("HOME", origHome) }()
+func TestEnsureRunning_AlreadyAliveWithoutUserManager(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), root)
+	t.Setenv("PATH", root)
 
 	pf := NewPIDFile()
 	if err := pf.Acquire(); err != nil {
@@ -23,5 +32,8 @@ func TestEnsureRunning_AlreadyAlive(t *testing.T) {
 	}
 	if started {
 		t.Error("expected started=false when daemon is already alive")
+	}
+	if pf.IsAlive() == nil {
+		t.Error("existing daemon lost its PID lock")
 	}
 }
