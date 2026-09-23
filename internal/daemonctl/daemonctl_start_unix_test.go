@@ -4,7 +4,10 @@ package daemonctl
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,12 +31,30 @@ func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv(brand.EnvVar("LAUNCHER_PATH"), launcherPath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_HELPER", testExe)
 	t.Setenv("GRAPHIT_DAEMON_TEST_HELPER_PROCESS", "1")
 	t.Setenv("GRAPHIT_DAEMON_TEST_COUNT", countPath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_PID", pidPath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_RELEASE", releasePath)
+	managerState := filepath.Join(root, "manager-active")
+	t.Setenv("GRAPHIT_DAEMON_TEST_MANAGER", managerState)
+	manager := "#!/bin/sh\ncase \"$2\" in\n" +
+		"is-active) test -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+		"is-enabled) exit 1 ;;\n" +
+		"start) /bin/touch \"$GRAPHIT_DAEMON_TEST_MANAGER\"; \"$GRAPHIT_LAUNCHER_PATH\" daemon --managed >/dev/null 2>&1 & ;;\n" +
+		"stop) /bin/rm -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+		"*) exit 0 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(manager), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	crontab := "#!/bin/sh\necho 'no crontab for test' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(root, "crontab"), []byte(crontab), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root)
 	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), 0o600) })
 
 	start := make(chan struct{})
@@ -84,6 +105,18 @@ func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
 	if !fileLocked(pidPath) {
 		t.Fatal("daemon PID file was not locked when startup returned")
 	}
+	if err := Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if fileLocked(pidPath) {
+		t.Fatal("daemon remained alive after intentional service stop")
+	}
+	if _, err := os.Stat(managerState); !os.IsNotExist(err) {
+		t.Fatalf("manager remained active after stop: %v", err)
+	}
+	if started, err := EnsureRunning(); err != nil || !started {
+		t.Fatalf("restart after stop started=%t err=%v", started, err)
+	}
 	if err := os.WriteFile(releasePath, []byte("release"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +126,75 @@ func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
 	}
 	if fileLocked(pidPath) {
 		t.Fatal("temporary daemon did not release its PID lock")
+	}
+}
+
+func TestEnsureRunningAdoptsLegacyDaemonBeforeManagedStart(t *testing.T) {
+	root := t.TempDir()
+	pidPath := filepath.Join(root, "daemon", "daemon.pid")
+	countPath := filepath.Join(root, "starts")
+	releasePath := filepath.Join(root, "release")
+	launcherPath := filepath.Join(root, "launcher")
+	testExe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(launcherPath, []byte("#!/bin/sh\nexec \"$GRAPHIT_DAEMON_TEST_HELPER\" -test.run '^TestDaemonctlLauncherHelper$'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv(brand.EnvVar("LAUNCHER_PATH"), launcherPath)
+	t.Setenv("GRAPHIT_DAEMON_TEST_HELPER", testExe)
+	t.Setenv("GRAPHIT_DAEMON_TEST_HELPER_PROCESS", "1")
+	t.Setenv("GRAPHIT_DAEMON_TEST_COUNT", countPath)
+	t.Setenv("GRAPHIT_DAEMON_TEST_PID", pidPath)
+	t.Setenv("GRAPHIT_DAEMON_TEST_RELEASE", releasePath)
+	t.Setenv("GRAPHIT_DAEMON_TEST_MANAGER", filepath.Join(root, "manager-active"))
+	manager := "#!/bin/sh\ncase \"$2\" in\n" +
+		"is-active) test -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+		"is-enabled) exit 1 ;;\n" +
+		"start) /bin/touch \"$GRAPHIT_DAEMON_TEST_MANAGER\"; \"$GRAPHIT_LAUNCHER_PATH\" daemon --managed >/dev/null 2>&1 & ;;\n" +
+		"stop) /bin/rm -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+		"*) exit 0 ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(manager), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "crontab"), []byte("#!/bin/sh\necho 'no crontab for test' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root)
+	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), 0o600) })
+	if err := os.MkdirAll(filepath.Dir(pidPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := exec.Command(launcherPath, "daemon")
+	if err := legacy.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = legacy.Process.Kill(); _ = legacy.Wait() }()
+	if err := waitForFileLock(pidPath, time.Second, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	started, err := EnsureRunning()
+	if err != nil || !started {
+		t.Fatalf("adoption started=%t err=%v", started, err)
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managedPID, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0]))
+	if err != nil || managedPID == legacy.Process.Pid {
+		t.Fatalf("managed PID=%d legacy PID=%d err=%v", managedPID, legacy.Process.Pid, err)
+	}
+	starts, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(starts) != "started\nstarted\n" {
+		t.Fatalf("expected one legacy and one managed start, got %q", starts)
 	}
 }
 
@@ -122,6 +224,12 @@ func TestDaemonctlLauncherHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer flockProbeRelease(pidFile)
+	if err := pidFile.Truncate(0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pidFile.WriteString(strconv.Itoa(os.Getpid()) + "\n"); err != nil {
+		t.Fatal(err)
+	}
 
 	for {
 		if _, err := os.Stat(os.Getenv("GRAPHIT_DAEMON_TEST_RELEASE")); err == nil {

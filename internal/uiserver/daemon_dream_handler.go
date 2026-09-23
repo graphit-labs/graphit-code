@@ -14,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
+	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
@@ -43,6 +44,7 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 		UptimeSeconds   int64     `json:"uptime_seconds,omitempty"`
 		PIDFilePath     string    `json:"pid_file_path"`
 		SchedulerStatus string    `json:"scheduler_status"`
+		ServiceStatus   string    `json:"service_status"`
 		RecentLogs      []string  `json:"recent_logs,omitempty"`
 		MCPPort         int       `json:"mcp_port,omitempty"`
 		MCPEndpoint     string    `json:"mcp_endpoint,omitempty"`
@@ -61,7 +63,13 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 		MCPKey string `json:"mcp_key,omitempty"`
 	}
 	res.PIDFilePath = pid.Path()
-	res.SchedulerStatus = daemon.SchedulerStatus()
+	if service, err := daemonservice.GetStatus(); err == nil {
+		res.ServiceStatus = service.String()
+		res.SchedulerStatus = res.ServiceStatus // compatibility for older UI clients
+	} else {
+		res.ServiceStatus = "unavailable: " + err.Error()
+		res.SchedulerStatus = res.ServiceStatus
+	}
 
 	if alive == nil {
 		res.Running = false

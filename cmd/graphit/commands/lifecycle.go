@@ -20,6 +20,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
+	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
@@ -29,6 +31,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/subagent"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
+	"github.com/graphit-labs/graphit-code/internal/tray"
 	"github.com/graphit-labs/graphit-code/internal/updater"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/spf13/cobra"
@@ -664,12 +667,18 @@ func newSelfUpdateCmd() *cobra.Command {
 
 			task.Done("Updated to %s", release.TagName)
 
-			if daemon.IsSchedulerInstalled() {
-				schedTask := p.StartTask("Updating OS scheduler...")
-				if err := daemon.InstallScheduler(); err != nil {
-					schedTask.Fail("Scheduler update: %v", err)
+			if service, err := daemonservice.GetStatus(); err == nil && service.Installed {
+				serviceTask := p.StartTask("Updating daemon service...")
+				if err := daemonservice.Install(service.AutoStart); err != nil {
+					serviceTask.Fail("Service update: %v", err)
+				} else if service.Active {
+					if err := daemonctl.Restart(); err != nil {
+						serviceTask.Fail("Service restart: %v", err)
+					} else {
+						serviceTask.Done("Daemon service updated")
+					}
 				} else {
-					schedTask.Done("OS scheduler updated")
+					serviceTask.Done("Daemon service updated")
 				}
 			}
 
@@ -1142,13 +1151,24 @@ configuration and custom rules. This is a destructive operation.`,
 				task.Done("Daemon stopped")
 			}
 
-			if daemon.IsSchedulerInstalled() {
-				task := p.StartTask("Removing OS scheduler...")
-				if err := daemon.RemoveScheduler(); err != nil {
-					task.Fail("Scheduler removal: %v", err)
+			if service, err := daemonservice.GetStatus(); err == nil && service.Installed {
+				task := p.StartTask("Removing daemon service...")
+				if err := daemonservice.Remove(); err != nil {
+					task.Fail("Service removal: %v", err)
 				} else {
-					task.Done("OS scheduler removed")
+					task.Done("Daemon service removed")
 				}
+			}
+			if daemon.IsSchedulerInstalled() {
+				task := p.StartTask("Removing legacy scheduler...")
+				if err := daemon.RemoveScheduler(); err != nil {
+					task.Fail("Legacy scheduler removal: %v", err)
+				} else {
+					task.Done("Legacy scheduler removed")
+				}
+			}
+			if err := tray.RemoveLogin(); err != nil {
+				p.Warn("Could not remove tray login entry: %v", err)
 			}
 
 			globalDir := brand.GlobalDir()

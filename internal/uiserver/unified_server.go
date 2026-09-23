@@ -109,9 +109,21 @@ func (s *UnifiedServer) Port() int { return s.port }
 func (s *UnifiedServer) Host() string { return s.host }
 
 func (s *UnifiedServer) Start(ctx context.Context) error {
-	ln, _, err := netutil.ListenOnFreePortOnHost(s.host, s.port)
+	return s.StartWithReady(ctx, nil)
+}
+
+// StartWithReady calls ready after the selected address is bound, before
+// accepting requests. This lets the daemon publish only a reachable UI URL.
+func (s *UnifiedServer) StartWithReady(ctx context.Context, ready func() error) error {
+	ln, err := net.Listen("tcp", net.JoinHostPort(s.host, strconv.Itoa(s.port)))
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
+	}
+	if ready != nil {
+		if err := ready(); err != nil {
+			_ = ln.Close()
+			return err
+		}
 	}
 
 	srv := &http.Server{

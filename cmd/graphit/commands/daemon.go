@@ -27,6 +27,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
+	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
@@ -35,6 +36,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
+	"github.com/graphit-labs/graphit-code/internal/tray"
 	"github.com/spf13/cobra"
 )
 
@@ -43,6 +45,7 @@ func newDaemonCmd() *cobra.Command {
 		noEmbedding bool
 		noDream     bool
 		logPath     string
+		managed     bool
 	)
 
 	cmd := &cobra.Command{
@@ -85,58 +88,76 @@ Lifecycle:
   ` + brand.BinName() + ` daemon                          Start in foreground (Ctrl+C to stop)
   ` + brand.BinName() + ` daemon stop                      Stop the running daemon
   ` + brand.BinName() + ` daemon status                    Show daemon health
-  ` + brand.BinName() + ` daemon restart                   Stop + start in background
+  ` + brand.BinName() + ` daemon restart                   Restart through the OS manager
 
-Auto-start (OS scheduler):
-  ` + brand.BinName() + ` daemon scheduler install         Register daemon auto-start with OS
-  ` + brand.BinName() + ` daemon scheduler remove          Unregister daemon auto-start
-  ` + brand.BinName() + ` daemon scheduler status          Show scheduler status
+Managed service (current user):
+  ` + brand.BinName() + ` daemon service start             Start through the OS manager
+  ` + brand.BinName() + ` daemon service install --login   Also start at user login
+  ` + brand.BinName() + ` daemon service stop              Stop without automatic relaunch
+  ` + brand.BinName() + ` daemon service status            Show service and login state
+
+The managed daemon serves the UI itself. The tray opens its published URL in
+your browser; it does not start a second UI server.
 
 PID file: ~/` + brand.DotDir() + `/daemon/daemon.pid (global, one daemon per machine)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDaemonStart(noEmbedding, noDream, logPath)
+			return runDaemonStart(noEmbedding, noDream, logPath, managed)
 		},
 	}
 
 	cmd.Flags().BoolVar(&noEmbedding, "no-embedding", false, "Disable background embedding module")
 	cmd.Flags().BoolVar(&noDream, "no-dream", false, "Disable autonomous dream module")
 	cmd.Flags().StringVar(&logPath, "log", "", "Log file path (default: ~/"+brand.DotDir()+"/daemon/daemon.log)")
+	cmd.Flags().BoolVar(&managed, "managed", false, "Internal OS service mode")
+	_ = cmd.Flags().MarkHidden("managed")
 
 	cmd.AddCommand(
 		newDaemonStopCmd(),
 		newDaemonStatusCmd(),
 		newDaemonRestartCmd(),
-		newDaemonSchedulerCmd(),
+		newDaemonServiceCmd(),
 	)
 
 	return cmd
 }
 
-func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
-	closeMCP, err := runDaemonCore(noEmbedding, noDream, logPath)
+func runDaemonStart(noEmbedding, noDream bool, logPath string, managed bool) error {
+	closeMCP, err := runDaemonCore(noEmbedding, noDream, logPath, managed)
 	if !errors.Is(err, daemon.ErrReplace) {
 		return err
 	}
 	closeMCP()
+	return finishDaemonReplacement(managed, func() error {
+		exe := daemonctl.ResolveExe()
+		if exe == "" {
+			exe, _ = os.Executable()
+		}
+		argv := []string{"daemon"}
+		if noEmbedding {
+			argv = append(argv, "--no-embedding")
+		}
+		if noDream {
+			argv = append(argv, "--no-dream")
+		}
+		if logPath != "" {
+			argv = append(argv, "--log", logPath)
+		}
+		return spawnDetachedDaemon(exe, argv)
+	})
+}
 
-	exe := daemonctl.ResolveExe()
-	if exe == "" {
-		exe, _ = os.Executable()
+func finishDaemonReplacement(managed bool, spawn func() error) error {
+	if managed {
+		return fmt.Errorf("managed daemon requested replacement: %w", daemon.ErrReplace)
 	}
-	argv := []string{"daemon"}
-	if noEmbedding {
-		argv = append(argv, "--no-embedding")
-	}
-	if noDream {
-		argv = append(argv, "--no-dream")
-	}
-	if logPath != "" {
-		argv = append(argv, "--log", logPath)
-	}
-	if spawnErr := spawnDetachedDaemon(exe, argv); spawnErr != nil {
+	if spawnErr := spawn(); spawnErr != nil {
 		return fmt.Errorf("spawning new daemon: %w", spawnErr)
 	}
 	return nil
+}
+
+func daemonShouldServeUI(managed bool) bool {
+	return managed || config.DaemonServesUI(nil, nil)
 }
 
 func spawnDetachedDaemon(exe string, argv []string) error {
@@ -149,7 +170,7 @@ func spawnDetachedDaemon(exe string, argv []string) error {
 	return cmd.Start()
 }
 
-func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), err error) {
+func runDaemonCore(noEmbedding, noDream bool, logPath string, managed bool) (closeMCP func(), err error) {
 	var (
 		mcpOnce     sync.Once
 		mcpCloserMu sync.Mutex
@@ -342,7 +363,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		}
 	}
 
-	if config.DaemonServesUI(nil, nil) {
+	if daemonShouldServeUI(managed) {
 		d.AddGlobalModule(newDaemonUIModule(""))
 	}
 
@@ -533,36 +554,10 @@ func newDaemonStopCmd() *cobra.Command {
 		Use:   "stop",
 		Short: "Stop the running global daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p := output.NewPrinter("")
-			pid := daemon.NewPIDFile()
-
-			alive := pid.IsAlive()
-			if alive == nil {
-				p.Info("No daemon running.")
-				return nil
+			if err := daemonctl.Stop(); err != nil {
+				return err
 			}
-
-			p.Running("Stopping daemon (pid %d)…", alive.PID)
-			if err := pid.Signal(syscall.SIGTERM); err != nil {
-				return fmt.Errorf("sending SIGTERM: %w", err)
-			}
-
-			for i := 0; i < 20; i++ {
-				time.Sleep(500 * time.Millisecond)
-				if pid.IsAlive() == nil {
-					p.Success("Daemon stopped")
-					return nil
-				}
-			}
-
-			p.Warn("Daemon did not stop within 10s — sending SIGKILL")
-			if err := pid.Signal(syscall.SIGKILL); err != nil {
-				return fmt.Errorf("sending SIGKILL: %w", err)
-			}
-			pid.Remove()
-			_ = os.Remove(daemonctl.PortFilePath())
-			_ = os.Remove(daemonctl.KeyFilePath())
-			p.Success("Daemon killed")
+			output.NewPrinter("").Success("Daemon stopped")
 			return nil
 		},
 	}
@@ -579,7 +574,10 @@ func newDaemonStatusCmd() *cobra.Command {
 			alive := pid.IsAlive()
 			if alive == nil {
 				p.Info("No daemon running.")
-				p.Step("Start one with: %s daemon", brand.BinName())
+				if service, err := daemonservice.GetStatus(); err == nil {
+					p.KeyValue("Service", formatServiceStatus(service))
+				}
+				p.Step("Start one with: %s daemon service start", brand.BinName())
 				return nil
 			}
 
@@ -590,7 +588,9 @@ func newDaemonStatusCmd() *cobra.Command {
 			p.KeyValue("Uptime", uptime.String())
 			p.KeyValue("PID File", pid.Path())
 			p.KeyValue("Scope", "global (all projects)")
-			p.KeyValue("Scheduler", daemon.SchedulerStatus())
+			if service, err := daemonservice.GetStatus(); err == nil {
+				p.KeyValue("Service", formatServiceStatus(service))
+			}
 
 			logPath := filepath.Join(daemon.GlobalDaemonDir(), "daemon.log")
 			if data, err := os.ReadFile(logPath); err == nil {
@@ -646,108 +646,84 @@ func newDaemonRestartCmdWithEnsure(ensureRunning func() (bool, error)) *cobra.Co
 		Short: "Stop and restart the global daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := output.NewPrinter("")
-			pid := daemon.NewPIDFile()
-
-			if alive := pid.IsAlive(); alive != nil {
-				p.Running("Stopping daemon (pid %d)…", alive.PID)
-				_ = pid.Signal(syscall.SIGTERM)
-				for i := 0; i < 20; i++ {
-					time.Sleep(500 * time.Millisecond)
-					if pid.IsAlive() == nil {
-						break
-					}
-				}
-				if pid.IsAlive() != nil {
-					_ = pid.Signal(syscall.SIGKILL)
-					pid.Remove()
-					_ = os.Remove(daemonctl.PortFilePath())
-					_ = os.Remove(daemonctl.KeyFilePath())
-				}
-				p.StepOK("Previous daemon stopped")
+			if err := daemonctl.Stop(); err != nil {
+				return fmt.Errorf("stopping daemon: %w", err)
 			}
-
-			p.Running("Starting global daemon…")
+			p.Running("Starting managed daemon…")
 			if _, err := ensureRunning(); err != nil {
-				return fmt.Errorf("starting daemon in background: %w", err)
+				return fmt.Errorf("starting managed daemon: %w", err)
 			}
-			p.Success("Daemon restarted in background")
+			p.Success("Daemon restarted")
 			return nil
 		},
 	}
 }
 
-func newDaemonSchedulerCmd() *cobra.Command {
+func formatServiceStatus(status daemonservice.Status) string {
+	return status.String()
+}
+
+func newDaemonServiceCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "scheduler",
-		Short: "Manage OS-level daemon auto-start (cron/launchd/schtasks)",
-		Long: `Manage the OS-level scheduler that auto-starts the daemon.
-
-The scheduler uses user-scoped, privilege-free mechanisms:
-  • Linux:   User crontab entry (runs every 1 minute)
-  • macOS:   LaunchAgent plist (RunAtLoad + periodic restart)
-  • Windows: Task Scheduler entry (runs every 1 minute)
-
-The scheduler is completely optional — the daemon is also auto-started
-by ordinary CLI commands. The scheduler ensures the daemon stays running even
-when no CLI commands are being executed (e.g. during long coding sessions).`,
+		Use:     "service",
+		Aliases: []string{"scheduler"},
+		Short:   "Manage the per-user OS supervised daemon",
+		Long: `Manage the daemon through the current user's OS service manager.
+An eligible command installs the service on first use and starts it without
+enabling login start. Choose --login to start it automatically at future logins.
+The daemon restarts after an unexpected failure while the service is active.`,
 	}
-
-	cmd.AddCommand(
-		newDaemonSchedulerInstallCmd(),
-		newDaemonSchedulerRemoveCmd(),
-		newDaemonSchedulerStatusCmd(),
-	)
-
-	return cmd
-}
-
-func newDaemonSchedulerInstallCmd() *cobra.Command {
-	return &cobra.Command{
+	var login bool
+	installCmd := &cobra.Command{
 		Use:   "install",
-		Short: "Register the daemon with the OS scheduler for auto-start",
+		Short: "Register the per-user daemon service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p := output.NewPrinter("")
-
-			p.Running("Installing OS scheduler...")
-			if err := daemon.InstallScheduler(); err != nil {
-				p.Error("Failed: %v", err)
+			if err := daemonservice.Install(login); err != nil {
 				return err
 			}
-
-			p.Success("Scheduler installed")
-			p.Step("Status: %s", daemon.SchedulerStatus())
-			return nil
-		},
-	}
-}
-
-func newDaemonSchedulerRemoveCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "remove",
-		Short: "Unregister the daemon from the OS scheduler",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p := output.NewPrinter("")
-
-			p.Running("Removing OS scheduler...")
-			if err := daemon.RemoveScheduler(); err != nil {
-				p.Error("Failed: %v", err)
+			if _, err := daemonctl.EnsureRunning(); err != nil {
 				return err
 			}
-
-			p.Success("Scheduler removed")
+			if login {
+				if err := tray.InstallLogin(); err != nil {
+					return fmt.Errorf("enabling tray at login: %w", err)
+				}
+			}
+			_ = tray.EnsureRunning()
+			output.NewPrinter("").Success("Daemon service installed and started")
 			return nil
 		},
 	}
-}
-
-func newDaemonSchedulerStatusCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "status",
-		Short: "Show the current OS scheduler status",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p := output.NewPrinter("")
-			p.KeyValue("Scheduler", daemon.SchedulerStatus())
+	installCmd.Flags().BoolVar(&login, "login", false, "Start the daemon at each user login")
+	cmd.AddCommand(
+		installCmd,
+		&cobra.Command{Use: "start", Short: "Start the managed daemon", RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := daemonctl.EnsureRunning()
+			if err == nil {
+				_ = tray.EnsureRunning()
+			}
+			return err
+		}},
+		&cobra.Command{Use: "stop", Short: "Stop the managed daemon", RunE: func(cmd *cobra.Command, args []string) error {
+			return daemonctl.Stop()
+		}},
+		&cobra.Command{Use: "restart", Short: "Restart the managed daemon", RunE: func(cmd *cobra.Command, args []string) error {
+			return daemonctl.Restart()
+		}},
+		&cobra.Command{Use: "remove", Short: "Remove the per-user daemon service", RunE: func(cmd *cobra.Command, args []string) error {
+			if err := daemonservice.Remove(); err != nil {
+				return err
+			}
+			return tray.RemoveLogin()
+		}},
+		&cobra.Command{Use: "status", Short: "Show service and login state", RunE: func(cmd *cobra.Command, args []string) error {
+			status, err := daemonservice.GetStatus()
+			if err != nil {
+				return err
+			}
+			output.NewPrinter("").KeyValue("Service", formatServiceStatus(status))
 			return nil
-		},
-	}
+		}},
+	)
+	return cmd
 }

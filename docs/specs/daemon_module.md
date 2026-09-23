@@ -161,9 +161,9 @@ autostart wait; process termination releases the operating-system locks.
 Modules that run once per daemon (not per-project):
 - **`EmbedServer`**: Lazy Unix-socket proxy for the configured local or remote embedding provider.
 - **User `MemoryMaintenanceModule`**: exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
-- **Optional UI module**: hosts the Observatory when `modules.daemon_ui=true`. Its daemon surface is
-  read-only and reports status and connection details only. Lifecycle administration remains in the
-  `graphit daemon` CLI.
+- **UI module**: the OS-managed daemon hosts the Observatory automatically; an explicitly foreground
+  daemon opts in with `modules.daemon_ui=true`. Its daemon surface is read-only and reports status
+  and connection details only. Lifecycle administration remains in the `graphit daemon` CLI.
 
 The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp` and an
 unauthenticated liveness probe at `GET /health`. The health route returns HTTP 200 with
@@ -231,29 +231,57 @@ honoured directly rather than as a second filter after git's.
 
 ---
 
-## 📅 OS-Level Schedulers
+## OS-managed user service
 
-To keep the service alive without consuming high system resources, Graphit Code hooks into user-scoped, privilege-free system schedulers:
+`internal/daemonservice` registers one daemon under the current user's OS manager.
+Linux uses `~/.config/systemd/user/graphit-daemon.service` with
+`Restart=on-failure`. macOS stores `graphit-daemon.plist` in the global daemon
+directory and bootstraps it into `gui/<uid>`; a copy in `~/Library/LaunchAgents`
+is present only when login startup is enabled. `KeepAlive` restarts the job after
+a nonzero exit. Windows registers a persistent `graphit_daemon` Task Scheduler
+task with `RestartOnFailure`; a separate `graphit_daemon_login` task is present
+only when login startup is enabled. There is no periodic cron or one-minute job.
 
-### 1. Linux (Crontab)
-Registers a cron entry in the user's crontab:
-```cron
-* * * * * /usr/local/bin/graphit daemon > /dev/null 2>&1
-```
-*Verification*: Checked using `crontab -l`. If the daemon is already running, the child command terminates immediately.
+`daemonctl.EnsureRunning` is invoked by the existing eligible CLI and MCP paths.
+It serializes startup, registers the user service on first use with login startup
+off, stops a prior unmanaged daemon if one holds the PID lock, starts the OS
+service, then waits for the daemon's lock. Daemon installation itself has a
+separate process lock. The `daemon.pid` lock is the final singleton guarantee.
+The existing root-command exceptions and `modules.daemon=false` still apply.
+CLI manager errors are shown as warnings so foreground commands still run;
+explicit service commands return the error. `graphit daemon` remains an explicit
+foreground command.
 
-### 2. macOS (LaunchAgent)
-Generates a LaunchAgent plist configuration file under `~/Library/LaunchAgents/com.graphit.daemon.plist`:
-- Configured with `RunAtLoad = true` to start the daemon on user login.
-- Redirects standard output and error to `/dev/null`.
+`graphit daemon service install --login` opts in to starting at user login;
+`start`, `stop`, `restart`, `status`, and `remove` control the service. The old
+`daemon scheduler` name aliases the new command. An intentional stop uses the
+OS manager so its failure restart does not relaunch the daemon. Installation
+removes only legacy Graphit watchdog entries: the marked Linux cron pair, the
+old macOS LaunchAgent label, or the old Windows watchdog task. No administrator
+elevation is normally needed for these user-scoped registrations.
+Windows Task Scheduler limits `RestartOnFailure` to 255 configured retries;
+the next eligible command or enabled login task can start the service afterward.
 
-### 3. Windows (Task Scheduler)
-Uses `schtasks` commands to create a user-scoped XML task trigger.
-It schedules execution to repeat every 1 minute under user execution rights.
+`internal/tray` is a separate graphical process with its own singleton lock.
+It uses the existing bracket mark from `internal/ui/public/favicon.svg` as a
+44-pixel tray icon, with a monochrome template variant for the macOS menu bar.
+It reads daemon lock state and the most recent timestamped daemon log entry on
+a three-second interval. Menu actions call `daemonctl.EnsureRunning` or `Stop`,
+open the daemon's published UI URL in the default browser, and stop the managed service and daemon
+before quitting the tray. A stop failure keeps the tray visible for retry. The UI module publishes
+the actual selected address in `daemon/ui.url` with its PID so a stale file is ignored. The
+service's login option also installs tray login startup; `graphit tray login`
+controls it separately. Linux requires a StatusNotifier watcher; without one,
+the tray exits with a clear error while the daemon remains headless.
+
+Linux behavior was tested with a simulated manager and a transient native
+systemd user unit. macOS and Windows files cross-compile and have structural
+plist/XML checks; native runtime behavior on those two systems remains to be
+verified.
 
 ---
 
-## 🔄 Binary Upgrade & Replacement Spawn
+## 🔄 Binary Upgrade & Replacement
 
 When the launcher/Core or native parser libraries change, the running daemon replaces itself.
 
@@ -264,7 +292,8 @@ When the launcher/Core or native parser libraries change, the running daemon rep
    If the stamp value differs, the daemon knows that a new binary version has been installed:
    - It gracefully stops project and global modules.
    - It closes the authenticated MCP listener and removes its discovery files.
-   - The command then spawns a detached replacement that preserves process flags.
+   - A managed daemon exits with failure so the OS manager restarts the stable launcher.
+   - A manually started foreground daemon spawns a detached replacement that preserves process flags.
 3. **Endpoint handoff**:
    The old daemon frees the MCP listener and Unix embedding socket before the replacement
    publishes fresh discovery state. YAML query-definition changes reload independently and do

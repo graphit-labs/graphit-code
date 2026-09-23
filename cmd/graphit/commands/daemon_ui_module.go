@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
@@ -51,8 +53,28 @@ func (m *daemonUIModule) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("ui server init: %w", err)
 	}
-
-	return srv.Start(ctx)
+	host := config.ResolveUIHost(nil, config.LoadProjectConfig(repoPath))
+	switch host {
+	case "0.0.0.0":
+		host = "127.0.0.1"
+	case "::":
+		host = "::1"
+	}
+	address := "http://" + net.JoinHostPort(host, fmt.Sprint(srv.Port())) + "/"
+	var clearURL func()
+	defer func() {
+		if clearURL != nil {
+			clearURL()
+		}
+	}()
+	return srv.StartWithReady(ctx, func() error {
+		var publishErr error
+		clearURL, publishErr = daemonctl.PublishUIURL(address)
+		if publishErr != nil {
+			return fmt.Errorf("publishing daemon UI URL: %w", publishErr)
+		}
+		return nil
+	})
 }
 
 func resolveDaemonUIRepoPath() string {

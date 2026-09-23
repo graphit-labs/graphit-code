@@ -11,6 +11,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 )
 
 type daemonStatusInput struct {
@@ -23,6 +24,7 @@ type DaemonStatusResult struct {
 	UptimeSeconds   int64     `json:"uptime_seconds,omitempty"`
 	PIDFilePath     string    `json:"pid_file_path"`
 	SchedulerStatus string    `json:"scheduler_status"`
+	ServiceStatus   string    `json:"service_status"`
 	RecentLogs      []string  `json:"recent_logs,omitempty"`
 }
 
@@ -36,7 +38,13 @@ func registerDaemonTools(server *mcp.Server) {
 
 		var res DaemonStatusResult
 		res.PIDFilePath = pid.Path()
-		res.SchedulerStatus = daemon.SchedulerStatus()
+		if service, err := daemonservice.GetStatus(); err == nil {
+			res.ServiceStatus = service.String()
+			res.SchedulerStatus = res.ServiceStatus
+		} else {
+			res.ServiceStatus = "unavailable: " + err.Error()
+			res.SchedulerStatus = res.ServiceStatus
+		}
 
 		if alive == nil {
 			res.Running = false

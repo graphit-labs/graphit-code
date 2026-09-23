@@ -47,6 +47,7 @@ func TestHandleDaemonStatus_ResponseFields(t *testing.T) {
 	var res struct {
 		PIDFilePath     string `json:"pid_file_path"`
 		SchedulerStatus string `json:"scheduler_status"`
+		ServiceStatus   string `json:"service_status"`
 		Running         bool   `json:"running"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
@@ -54,6 +55,9 @@ func TestHandleDaemonStatus_ResponseFields(t *testing.T) {
 	}
 	if res.PIDFilePath == "" {
 		t.Error("expected non-empty pid_file_path")
+	}
+	if res.ServiceStatus == "" || res.ServiceStatus != res.SchedulerStatus {
+		t.Errorf("service_status=%q scheduler_status=%q", res.ServiceStatus, res.SchedulerStatus)
 	}
 	t.Logf("scheduler_status: %q, pid_file_path: %q", res.SchedulerStatus, res.PIDFilePath)
 }

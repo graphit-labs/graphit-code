@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
-	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 const (
@@ -61,40 +63,115 @@ func EnsureRunning() (bool, error) {
 	}
 	defer spawnLock.Release()
 
+	status, err := daemonservice.GetStatus()
+	if err != nil {
+		return false, fmt.Errorf("checking daemon service: %w", err)
+	}
+	if !status.Installed {
+		if err := daemonservice.EnsureInstalled(); err != nil {
+			return false, fmt.Errorf("registering daemon service: %w", err)
+		}
+	}
 	locked, err := fileLockState(PIDFilePath())
 	if err != nil {
 		return false, fmt.Errorf("checking daemon lock: %w", err)
 	}
+	if locked && status.Active {
+		return false, nil
+	}
 	if locked {
-		return false, nil
+		if err := stopUnmanagedDaemon(); err != nil {
+			return false, fmt.Errorf("handing existing daemon to service: %w", err)
+		}
 	}
-
-	exe := ResolveExe()
-	if exe == "" {
-		return false, nil
+	if err := daemonservice.Start(); err != nil {
+		return false, fmt.Errorf("starting daemon service: %w", err)
 	}
-
-	cmd := exec.Command(exe, "daemon")
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	closeLog := AttachLogStderr(cmd)
-	defer closeLog()
-	sysutil.DetachProcess(cmd)
-
-	if err := cmd.Start(); err != nil {
-		return false, err
-	}
-	go func() { _ = cmd.Wait() }()
 	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll); err != nil {
-		return true, fmt.Errorf("waiting for daemon readiness: %w", err)
+		return true, fmt.Errorf("waiting for managed daemon readiness: %w", err)
 	}
 	return true, nil
+}
+
+// Stop intentionally disables the supervisor's restart path before stopping
+// any remaining foreground or legacy daemon that still holds the PID lock.
+func Stop() error {
+	status, err := daemonservice.GetStatus()
+	if err != nil {
+		return err
+	}
+	if status.Installed {
+		if err := daemonservice.Stop(); err != nil {
+			return err
+		}
+		if err := waitForFileUnlock(PIDFilePath(), 2*time.Second, 20*time.Millisecond); err == nil {
+			return nil
+		}
+	}
+	locked, err := fileLockState(PIDFilePath())
+	if err != nil {
+		return err
+	}
+	if locked {
+		return stopUnmanagedDaemon()
+	}
+	return nil
+}
+
+// Restart returns the daemon to OS supervision even when it began as a
+// foreground or legacy detached process.
+func Restart() error {
+	if err := Stop(); err != nil {
+		return err
+	}
+	_, err := EnsureRunning()
+	return err
+}
+
+func stopUnmanagedDaemon() error {
+	data, err := os.ReadFile(PIDFilePath())
+	if err != nil {
+		return err
+	}
+	line := strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
+	pid, err := strconv.Atoi(line)
+	if err != nil || pid <= 0 || pid == os.Getpid() {
+		return fmt.Errorf("invalid daemon PID %q", line)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := terminateProcess(proc); err != nil {
+		return err
+	}
+	return waitForFileUnlock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll)
+}
+
+func waitForFileUnlock(path string, timeout, poll time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		locked, err := fileLockState(path)
+		if err != nil {
+			return err
+		}
+		if !locked {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("daemon PID lock did not release within %s", timeout)
+		}
+		time.Sleep(poll)
+	}
 }
 
 func fileLocked(path string) bool {
 	locked, _ := fileLockState(path)
 	return locked
 }
+
+// IsRunning reports whether the global daemon currently holds its PID lock.
+func IsRunning() bool { return fileLocked(PIDFilePath()) }
 
 func fileLockState(path string) (bool, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)

@@ -63,12 +63,9 @@ func ResolveMCPAllowedOrigins(inlineCfg, projectCfg ConfigMap) []string {
 // DaemonUIModule is the module name that makes the daemon serve the unified UI for as long as it
 // runs, as one of its supervised global modules.
 //
-// It is OPT-IN — listed in OptInModules — because on a workstation the UI is something you start
-// when you want it (`graphit ui`) and close when you are done, and a background process that
-// silently holds port 8080 is not what anyone asked the daemon for.
-//
-// A container is the case it exists for: there, one process must both bring up the MCP server and
-// serve the UI, and it is PID 1.
+// It is OPT-IN — listed in OptInModules — for an explicitly foreground daemon.
+// The per-user OS-managed daemon enables this module so its tray can open the
+// already-running UI. Containers can enable it with modules.daemon_ui=true.
 const DaemonUIModule = "daemon_ui"
 
 // DaemonServesUI reports whether the daemon should run the unified UI itself.

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/tray"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -23,23 +25,28 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	Version:       version.Version,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 
 		name := cmd.Name()
-		if name == "daemon" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" {
-			return
+		if name == "daemon" || name == "tray" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" {
+			return nil
 		}
 
 		for p := cmd.Parent(); p != nil; p = p.Parent() {
-			if p.Name() == "daemon" || p.Name() == "provider" || p.Name() == "account" || p.Name() == "_internal" {
-				return
+			if p.Name() == "daemon" || p.Name() == "tray" || p.Name() == "provider" || p.Name() == "account" || p.Name() == "_internal" {
+				return nil
 			}
 		}
 
 		if config.IsModuleDisabled("daemon", nil, nil) {
-			return
+			return nil
 		}
-		_, _ = daemon.EnsureRunning()
+		_, err := daemon.EnsureRunning()
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Graphit daemon service warning: %v\n", err)
+		}
+		_ = tray.EnsureRunning()
+		return nil
 	},
 }
 
@@ -66,6 +73,7 @@ func init() {
 		newLiveCmd(),
 		newDreamCmd(),
 		newDaemonCmd(),
+		newTrayCmd(),
 		newMCPCmd(),
 		newProviderCmd(),
 		newLoginCmd(),

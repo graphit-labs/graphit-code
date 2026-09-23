@@ -6,11 +6,12 @@ import (
 	"errors"
 	"os"
 
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"golang.org/x/sys/windows"
 )
 
 // DaemonPIDLockOffset is outside the PID stamp so status readers can inspect it.
-const DaemonPIDLockOffset = 1024
+const DaemonPIDLockOffset = lockfile.DaemonPIDLockOffset
 
 func flockProbe(f *os.File) error {
 	ol := &windows.Overlapped{Offset: DaemonPIDLockOffset}

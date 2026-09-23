@@ -18,6 +18,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 )
@@ -31,7 +32,7 @@ func TestDaemonHelpDocumentsWatchConfiguration(t *testing.T) {
 		"explicit graphit sync",
 		"verified end-user access token",
 		"regenerated on each daemon start",
-		"daemon restart                   Stop + start in background",
+		"daemon restart                   Restart through the OS manager",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("daemon help does not contain %q", expected)
@@ -78,7 +79,7 @@ func TestDaemonMCPMuxHealthAndMCPRoutes(t *testing.T) {
 	}
 }
 
-func TestDaemonRestartStartsInBackground(t *testing.T) {
+func TestDaemonRestartStartsThroughManager(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 
 	called := false
@@ -90,7 +91,7 @@ func TestDaemonRestartStartsInBackground(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !called {
-		t.Fatal("restart did not invoke the detached daemon starter")
+		t.Fatal("restart did not invoke the managed daemon starter")
 	}
 }
 
@@ -103,6 +104,32 @@ func TestDaemonRestartReportsBackgroundStartFailure(t *testing.T) {
 	})
 	if err := cmd.Execute(); !errors.Is(err, want) {
 		t.Fatalf("restart error = %v, want wrapped %v", err, want)
+	}
+}
+
+func TestManagedReplacementReturnsFailureForSupervisor(t *testing.T) {
+	spawned := false
+	err := finishDaemonReplacement(true, func() error { spawned = true; return nil })
+	if !errors.Is(err, daemon.ErrReplace) || spawned {
+		t.Fatalf("managed replacement err=%v spawned=%t", err, spawned)
+	}
+	if err := finishDaemonReplacement(false, func() error { spawned = true; return nil }); err != nil || !spawned {
+		t.Fatalf("foreground replacement err=%v spawned=%t", err, spawned)
+	}
+}
+
+func TestManagedDaemonAlwaysServesUI(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), "false")
+	if !daemonShouldServeUI(true) {
+		t.Fatal("managed daemon must serve its UI even when the optional module is disabled")
+	}
+	if daemonShouldServeUI(false) {
+		t.Fatal("foreground daemon should keep the configured opt-in behavior")
+	}
+	t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), "true")
+	if !daemonShouldServeUI(false) {
+		t.Fatal("foreground daemon should honor explicit UI enablement")
 	}
 }
 

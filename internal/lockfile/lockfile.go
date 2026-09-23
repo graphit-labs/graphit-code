@@ -22,6 +22,10 @@ import (
 // not a failure: callers skip their work and return.
 var ErrLocked = errors.New("lockfile: held by another process")
 
+// DaemonPIDLockOffset is outside the text stamp on Windows, where a byte-range
+// lock lets status readers inspect the PID while the daemon holds the lock.
+const DaemonPIDLockOffset = 1024
+
 // Lock is an acquired advisory lock. The zero value is not usable; get one from
 // TryAcquire.
 type Lock struct {
@@ -58,6 +62,26 @@ func TryAcquire(path string) (*Lock, error) {
 	}
 
 	return &Lock{path: path, f: f}, nil
+}
+
+// IsLocked probes an existing lock without changing its file contents.
+func IsLocked(path string) (bool, error) {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	if err := flockTry(f); err != nil {
+		if flockContended(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	flockRelease(f)
+	return false, nil
 }
 
 // Acquire takes an exclusive lock on path, waiting up to wait for whoever holds it to

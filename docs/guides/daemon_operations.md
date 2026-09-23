@@ -1,8 +1,8 @@
 ---
 title: Daemon Operations and Monitoring
 type: guide
-updated: 2026-09-03
-tags: [daemon, watchers, scheduler, operations, mcp, embeddings]
+updated: 2026-09-23
+tags: [daemon, watchers, service, operations, mcp, embeddings]
 ---
 
 # Daemon Operations and Monitoring
@@ -16,16 +16,18 @@ graph: project stores remain independent and are opened when a module or request
 
 ### Automatic CLI and MCP start
 
-Ordinary `graphit` commands make a best-effort call to start the daemon before the requested command
-runs. The attempt is skipped for `daemon`, `setup`, `uninstall`, `self-update`, and internal hook
-commands, and whenever `modules.daemon=false`. Setup performs its own start near completion. Both
-stdio MCP entry points ensure the daemon at startup, and the MCP server retries the same check for
-tool calls.
+Ordinary `graphit` commands register a per-user OS service on first use, then ask the OS manager to
+start it before the command runs. Registration leaves login startup off. Existing exceptions in the
+CLI root hook remain: `daemon`, `setup`, `uninstall`, `self-update`, `provider`, `login`, `logout`,
+`account`, and internal commands do not autostart; `modules.daemon=false` also disables it. Setup
+performs its own start near completion. Both stdio MCP entry points ensure the daemon at startup,
+and the MCP server retries the same check for tool calls. The ordinary CLI warns on manager errors
+and still runs the requested foreground command; explicit service commands return the error.
 
-Autostart is race-safe: processes serialize through `~/.graphit/daemon/.spawn.lock`, probe the lock
-held on `daemon.pid`, resolve `GRAPHIT_LAUNCHER_PATH` when valid or the current executable otherwise,
-and detach `graphit daemon`. Failure is intentionally non-fatal to the foreground command; explicit
-operations that do not need background state can still work.
+Autostart serializes callers through `~/.graphit/daemon/.spawn.lock` and service registration through
+`.service-install.lock`. If a foreground or older detached daemon still holds `daemon.pid`, it is
+stopped before the service starts. The daemon itself holds that PID lock throughout its lifetime,
+so simultaneous CLI invocations and OS starts cannot produce two active daemons.
 
 ### Manual foreground start
 
@@ -37,12 +39,13 @@ graphit daemon --log /absolute/path/daemon.log
 ```
 
 The command remains in the foreground; `Ctrl+C`, `SIGINT`, and `SIGTERM` request graceful shutdown.
-Autostarted instances are the same command detached with stderr appended to the default daemon log.
+Autostarted instances run through the OS service manager using the stable launcher path when the
+launcher supplied one; a directly executed binary registers its own path.
 
 `--no-embedding` disables the global embedding socket and per-project AST/wiki embedding loops for
 that process. `--no-dream` disables per-project Dream runners. These process flags override module
-configuration. A binary/grammar replacement preserves them; `graphit daemon restart` starts with
-default flags and the default log path.
+configuration. Manual foreground replacement preserves them; managed instances restart through the
+OS manager with the service's default flags. `graphit daemon restart` also uses those defaults.
 
 ### Lifecycle commands
 
@@ -52,32 +55,58 @@ graphit daemon stop
 graphit daemon restart
 ```
 
-`status` reports PID, start time, uptime, PID path, machine-wide scope, scheduler state, and the last
+`status` reports PID, start time, uptime, PID path, machine-wide scope, service state, and the last
 ten lines of the **default** log. If the daemon was started with `--log`, inspect that file directly.
-`stop` sends `SIGTERM`, waits up to ten seconds, then sends `SIGKILL`, clears the PID stamp, and
-removes MCP discovery files if graceful shutdown did not finish. `restart` performs that stop sequence, starts the daemon
-detached with default flags, waits until the new PID-file lock is ready, and then returns to the
-terminal.
+`stop` tells the OS manager to stop the service, preventing automatic relaunch; it also stops a
+remaining foreground or legacy daemon. A later eligible command or explicit `start` can start it
+again. `restart` stops and starts through the OS manager and waits for the PID lock.
 
-### Optional OS watchdog
+### Per-user OS service
 
-The scheduler is not required for normal CLI use. Install it when Graphit must return after login,
-reboot, or a crash even if no command is executed:
+The service is registered automatically on the first eligible command, without login startup.
+Enable startup at **user login** explicitly:
 
 ```bash
-graphit daemon scheduler install
-graphit daemon scheduler status
-graphit daemon scheduler remove
+graphit daemon service install --login
+graphit daemon service status
+graphit daemon service stop
+graphit daemon service start
+graphit daemon service remove
 ```
 
 | OS | Installed mechanism | Behavior |
 |---|---|---|
-| Linux | User crontab | Runs `<resolved-executable> daemon` every minute, output to `/dev/null` |
-| macOS | `~/Library/LaunchAgents/<brand-label>.plist` | `RunAtLoad=true`, `StartInterval=60`, stdout/stderr to `/dev/null` |
-| Windows | User Task Scheduler entry | Runs every minute through `schtasks` |
+| Linux | `systemd --user` unit | `Restart=on-failure`; `enable` only with `--login` |
+| macOS | LaunchAgent | `KeepAlive` after nonzero exit; login plist only with `--login` |
+| Windows | User Task Scheduler task | `RestartOnFailure` (up to 255 retries, one minute apart); separate login task only with `--login` |
 
-Each invocation exits immediately when the PID-file lock is already held. Installation replaces
-only Graphit's marked entry/task and does not require administrator privileges.
+All three mechanisms run under the current user without normal administrator elevation. The
+managed daemon starts its UI module using the configured `ui.host` and `ui.port` and publishes the
+actual address it binds. The service uses no one-minute cron or timer. Installation removes only
+Graphit's identified legacy watchdog entry. `graphit daemon scheduler` remains an alias for
+`daemon service`.
+
+### System tray
+
+In a graphical session, eligible CLI commands start a separate `graphit tray` process if one is
+not already running. The daemon service remains headless. The tray menu shows running, starting,
+stopped, or error state and the age of its last recorded log event; an older event is labeled as
+such and is not presented as current work. The menu can **Open UI**, **Start daemon**, **Stop daemon**,
+or **Stop daemon and quit**. That last action stops the OS-managed service and daemon before
+closing the tray; if stopping fails, the tray stays open and shows an error. The service remains
+registered: the next eligible command can start it again, and login startup runs at the next login
+when enabled. Open UI only opens the daemon's published UI URL in the default browser; it does not
+start another server. The published address includes the actual port when the configured port was
+already occupied. If the daemon is stopped,
+use **Start daemon** first. A browser launch failure produces a tray notification.
+
+`graphit daemon service install --login` also enables the tray at user login. Tray login startup can
+be managed separately with `graphit tray login enable`, `disable`, and `status`. The daemon and tray
+use separate locks and processes; a missing graphical session never blocks the daemon. Linux tray
+display requires a desktop that exposes a StatusNotifier/AppIndicator watcher over the session D-Bus.
+If that support is absent, `graphit tray` reports the missing watcher and the daemon continues
+without an icon. macOS uses the menu bar; Windows uses the notification area. Native display behavior
+on macOS and Windows still needs on-device verification.
 
 ## Boot sequence
 
@@ -243,10 +272,10 @@ headers are rejected. The daemon may cache authorized Hub metadata below
 
 ### Daemon-hosted Observatory
 
-`modules.daemon_ui=true` starts the unified UI as a supervised global module. It selects the first
-active registered project, or the global directory when none exists, and opens the AST store read-
-only. Hub unavailability does not stop the mostly local UI. This mode is intended primarily for the
-container/server deployment; workstation users normally run `graphit ui` on demand.
+The OS-managed daemon starts the unified UI as a supervised global module. An explicitly foreground
+daemon can opt in with `modules.daemon_ui=true`. The module selects the first active registered
+project, or the global directory when none exists, and opens the AST store read-only. Hub
+unavailability does not stop the mostly local UI.
 
 The UI listener uses `ui.host` and its own port behavior. It is distinct from the MCP listener and
 has no built-in authentication.
@@ -311,11 +340,12 @@ graphit daemon status
 tail -n 100 ~/.graphit/daemon/daemon.log
 tail -n 100 .graphit/runtime/daemon/daemon.log
 tail -n 100 .graphit/runtime/daemon/rebuild.log
-graphit daemon scheduler status
+graphit daemon service status
 ```
 
-- No daemon after an ordinary command: verify `modules.daemon`, executable resolution, and global
-  directory permissions; then start `graphit daemon` in the foreground to see the error.
+- No daemon after an ordinary command: verify `modules.daemon`, launcher resolution, the user
+  service manager, and global directory permissions. Run `graphit daemon service status`; start
+  `graphit daemon` in the foreground to inspect daemon-specific startup errors.
 - A project is absent: confirm it still has `graphit.lock.json` and is registered in the global
   lock, then check whether it is parked by `daemon.activity_window`.
 - A pipeline does not react: check `modules.sync`, its AST/Knowledge gate, the relevant ignore file,
