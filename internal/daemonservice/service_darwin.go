@@ -109,6 +109,27 @@ func Start() error {
 	return launchctlRun("launchctl", "bootstrap", launchDomain(), sourcePlist())
 }
 
+func setLogin(enabled bool) error {
+	content, err := os.ReadFile(sourcePlist())
+	if os.IsNotExist(err) {
+		return ErrNotInstalled
+	}
+	if err != nil {
+		return err
+	}
+	login, err := loginPlist()
+	if err != nil {
+		return err
+	}
+	if enabled {
+		return writeFileAtomic(login, content)
+	}
+	if err := os.Remove(login); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func Stop() error {
 	if _, err := os.Stat(sourcePlist()); os.IsNotExist(err) {
 		return ErrNotInstalled

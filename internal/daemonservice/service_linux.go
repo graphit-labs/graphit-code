@@ -116,6 +116,19 @@ func Start() error {
 	return systemctlRun("systemctl", "--user", "start", unitName())
 }
 
+func setLogin(enabled bool) error {
+	if installed, err := installed(); err != nil {
+		return err
+	} else if !installed {
+		return ErrNotInstalled
+	}
+	verb := "disable"
+	if enabled {
+		verb = "enable"
+	}
+	return systemctlRun("systemctl", "--user", verb, unitName())
+}
+
 func Stop() error {
 	if installed, _ := installed(); !installed {
 		return ErrNotInstalled

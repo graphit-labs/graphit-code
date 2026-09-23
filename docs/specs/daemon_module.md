@@ -162,7 +162,7 @@ Modules that run once per daemon (not per-project):
 - **`EmbedServer`**: Lazy Unix-socket proxy for the configured local or remote embedding provider.
 - **User `MemoryMaintenanceModule`**: exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
 - **UI module**: the OS-managed daemon hosts the Observatory automatically; an explicitly foreground
-  daemon opts in with `modules.daemon_ui=true`. Its daemon surface is read-only and reports status
+  daemon opts in with `--ui` or `modules.daemon_ui=true`. Its daemon surface is read-only and reports status
   and connection details only. Lifecycle administration remains in the `graphit daemon` CLI.
 
 The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp` and an
@@ -247,13 +247,22 @@ It serializes startup, registers the user service on first use with login startu
 off, stops a prior unmanaged daemon if one holds the PID lock, starts the OS
 service, then waits for the daemon's lock. Daemon installation itself has a
 separate process lock. The `daemon.pid` lock is the final singleton guarantee.
-The existing root-command exceptions and `modules.daemon=false` still apply.
+The existing root-command exceptions and `modules.daemon=false` still apply to ordinary CLI
+autostart. `mcp` is excluded from that hook because the stdio proxy requests the daemon itself;
+it depends on the daemon's MCP listener even when ordinary CLI autostart is disabled.
+The proxy reports service-start errors on stderr while retrying. Codex's generated MCP entry uses
+`startup_timeout_sec=120` for cold starts; its default 30-second deadline can expire before the
+service and runtime are ready.
 CLI manager errors are shown as warnings so foreground commands still run;
 explicit service commands return the error. `graphit daemon` remains an explicit
 foreground command.
 
 `graphit daemon service install --login` opts in to starting at user login;
-`start`, `stop`, `restart`, `status`, and `remove` control the service. The old
+`service login enable|disable|status` changes or reports daemon and tray login startup without
+stopping the current daemon. `start`, `stop`, `restart`, `status`, and `uninstall` control the service;
+`remove` aliases `uninstall`. Uninstall stops the daemon and removes both service registration and
+login startup. The internal `daemon --managed` flag is supplied by the OS service definition and
+forces the UI module on; manual foreground use does not require that flag. The old
 `daemon scheduler` name aliases the new command. An intentional stop uses the
 OS manager so its failure restart does not relaunch the daemon. Installation
 removes only legacy Graphit watchdog entries: the marked Linux cron pair, the

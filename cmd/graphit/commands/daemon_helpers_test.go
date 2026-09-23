@@ -121,15 +121,48 @@ func TestManagedReplacementReturnsFailureForSupervisor(t *testing.T) {
 func TestManagedDaemonAlwaysServesUI(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), "false")
-	if !daemonShouldServeUI(true) {
+	if !daemonShouldServeUI(true, false) {
 		t.Fatal("managed daemon must serve its UI even when the optional module is disabled")
 	}
-	if daemonShouldServeUI(false) {
+	if daemonShouldServeUI(false, false) {
 		t.Fatal("foreground daemon should keep the configured opt-in behavior")
 	}
+	if !daemonShouldServeUI(false, true) {
+		t.Fatal("--ui should enable the foreground daemon UI")
+	}
 	t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), "true")
-	if !daemonShouldServeUI(false) {
+	if !daemonShouldServeUI(false, false) {
 		t.Fatal("foreground daemon should honor explicit UI enablement")
+	}
+}
+
+func TestDaemonFlagsAndServiceCommands(t *testing.T) {
+	cmd := newDaemonCmd()
+	if cmd.Flags().Lookup("ui") == nil || cmd.Flags().Lookup("ui").Hidden {
+		t.Fatal("--ui must be visible for foreground use")
+	}
+	if flag := cmd.Flags().Lookup("managed"); flag == nil || !flag.Hidden {
+		t.Fatal("--managed must remain an internal flag")
+	}
+	service, _, err := cmd.Find([]string{"service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"uninstall": "uninstall", "remove": "uninstall", "login": "login"} {
+		found, _, err := service.Find([]string{name})
+		if err != nil || found == nil || found.Name() != want {
+			t.Errorf("service command %q = %v, %v; want %q", name, found, err, want)
+		}
+	}
+	login, _, err := service.Find([]string{"login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"enable", "disable", "status"} {
+		found, _, err := login.Find([]string{name})
+		if err != nil || found == nil || found.Name() != name {
+			t.Errorf("login command %q = %v, %v", name, found, err)
+		}
 	}
 }
 

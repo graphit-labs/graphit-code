@@ -56,7 +56,7 @@ func runMCPStdioProxy() error {
 	cfg := mcpproxy.Config{
 		PortFile:      daemonctl.PortFilePath(),
 		KeyFile:       daemonctl.KeyFilePath(),
-		EnsureDaemon:  func() { _, _ = daemon.EnsureRunning() },
+		EnsureDaemon:  func() error { _, err := daemon.EnsureRunning(); return err },
 		ResolveBearer: resolveMCPStdioBearer,
 		Stderr:        os.Stderr,
 	}
@@ -93,7 +93,9 @@ func resolveMCPStdioBearer(ctx context.Context) (string, error) {
 
 func showMCPEndpoint() error {
 	p := output.NewPrinter("")
-	_, _ = daemon.EnsureRunning()
+	if _, err := daemon.EnsureRunning(); err != nil {
+		return fmt.Errorf("starting daemon for MCP: %w", err)
+	}
 
 	var port int
 	for i := 0; i < 20; i++ {

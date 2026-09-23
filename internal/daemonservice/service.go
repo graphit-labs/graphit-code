@@ -110,6 +110,19 @@ func EnsureInstalled() error {
 	return install(false)
 }
 
+// SetLogin changes only login startup; it does not stop or start the daemon.
+func SetLogin(enabled bool) error {
+	if err := os.MkdirAll(serviceDir(), 0o700); err != nil {
+		return err
+	}
+	lock, err := lockfile.Acquire(filepath.Join(serviceDir(), ".service-install.lock"), 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("acquiring service install lock: %w", err)
+	}
+	defer lock.Release()
+	return setLogin(enabled)
+}
+
 // ResolveExecutable prefers the stable launcher when the launcher provided its
 // path. A directly executed binary uses its own path, even if another Graphit
 // binary appears first on PATH.

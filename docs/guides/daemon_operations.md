@@ -18,10 +18,13 @@ graph: project stores remain independent and are opened when a module or request
 
 Ordinary `graphit` commands register a per-user OS service on first use, then ask the OS manager to
 start it before the command runs. Registration leaves login startup off. Existing exceptions in the
-CLI root hook remain: `daemon`, `setup`, `uninstall`, `self-update`, `provider`, `login`, `logout`,
+CLI root hook remain: `daemon`, `mcp`, `setup`, `uninstall`, `self-update`, `provider`, `login`, `logout`,
 `account`, and internal commands do not autostart; `modules.daemon=false` also disables it. Setup
 performs its own start near completion. Both stdio MCP entry points ensure the daemon at startup,
-and the MCP server retries the same check for tool calls. The ordinary CLI warns on manager errors
+and the MCP server retries the same check for tool calls. MCP startup reports service errors on
+stderr while it waits for the daemon endpoint. Codex installs this proxy with a 120-second startup
+timeout because the OS service and runtime can take longer than its 30-second default after a cold
+start. The ordinary CLI warns on manager errors
 and still runs the requested foreground command; explicit service commands return the error.
 
 Autostart serializes callers through `~/.graphit/daemon/.spawn.lock` and service registration through
@@ -33,18 +36,21 @@ so simultaneous CLI invocations and OS starts cannot produce two active daemons.
 
 ```bash
 graphit daemon
+graphit daemon --ui
 graphit daemon --no-embedding
 graphit daemon --no-dream
 graphit daemon --log /absolute/path/daemon.log
 ```
 
 The command remains in the foreground; `Ctrl+C`, `SIGINT`, and `SIGTERM` request graceful shutdown.
+`--ui` serves the Observatory from this foreground daemon. The managed service enables the same UI
+automatically. A foreground daemon can also opt in with `modules.daemon_ui=true`.
 Autostarted instances run through the OS service manager using the stable launcher path when the
 launcher supplied one; a directly executed binary registers its own path.
 
 `--no-embedding` disables the global embedding socket and per-project AST/wiki embedding loops for
 that process. `--no-dream` disables per-project Dream runners. These process flags override module
-configuration. Manual foreground replacement preserves them; managed instances restart through the
+configuration. Manual foreground replacement preserves them and `--ui`; managed instances restart through the
 OS manager with the service's default flags. `graphit daemon restart` also uses those defaults.
 
 ### Lifecycle commands
@@ -68,10 +74,13 @@ Enable startup at **user login** explicitly:
 
 ```bash
 graphit daemon service install --login
+graphit daemon service login disable
+graphit daemon service login enable
+graphit daemon service login status
 graphit daemon service status
 graphit daemon service stop
 graphit daemon service start
-graphit daemon service remove
+graphit daemon service uninstall
 ```
 
 | OS | Installed mechanism | Behavior |
@@ -84,7 +93,11 @@ All three mechanisms run under the current user without normal administrator ele
 managed daemon starts its UI module using the configured `ui.host` and `ui.port` and publishes the
 actual address it binds. The service uses no one-minute cron or timer. Installation removes only
 Graphit's identified legacy watchdog entry. `graphit daemon scheduler` remains an alias for
-`daemon service`.
+`daemon service`. `service uninstall` stops and removes the service and its login startup; `remove`
+is an alias. `service login disable` turns off daemon and tray startup at login without stopping the
+running daemon or removing its service registration. `--managed` is an internal service flag and is
+not needed when starting the daemon manually. A later eligible command registers an uninstalled
+service again with login startup off.
 
 ### System tray
 
@@ -273,7 +286,7 @@ headers are rejected. The daemon may cache authorized Hub metadata below
 ### Daemon-hosted Observatory
 
 The OS-managed daemon starts the unified UI as a supervised global module. An explicitly foreground
-daemon can opt in with `modules.daemon_ui=true`. The module selects the first active registered
+daemon can opt in with `graphit daemon --ui` or `modules.daemon_ui=true`. The module selects the first active registered
 project, or the global directory when none exists, and opens the AST store read-only. Hub
 unavailability does not stop the mostly local UI.
 

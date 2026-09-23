@@ -1,8 +1,10 @@
 package mcpproxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -20,6 +22,19 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 )
+
+func TestEnsureDaemonReportsStartFailureWithoutFloodingStderr(t *testing.T) {
+	var stderr bytes.Buffer
+	cfg := Config{
+		EnsureDaemon: func() error { return errors.New("manager unavailable") },
+		Stderr:       &stderr,
+	}
+	cfg.ensureDaemon()
+	cfg.ensureDaemon()
+	if got := strings.Count(stderr.String(), "manager unavailable"); got != 1 {
+		t.Fatalf("startup error logged %d times: %q", got, stderr.String())
+	}
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -255,8 +270,9 @@ func TestWaitForDaemon_StaleFilesPreserved(t *testing.T) {
 		PortFile:      portFile,
 		KeyFile:       keyFile,
 		RetryInterval: 10 * time.Millisecond,
-		EnsureDaemon: func() {
+		EnsureDaemon: func() error {
 			ensureCalled++
+			return nil
 		},
 	}
 	cfg.applyDefaults()
@@ -264,7 +280,7 @@ func TestWaitForDaemon_StaleFilesPreserved(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, _, err := waitForDaemon(ctx, cfg)
+	_, _, err := waitForDaemon(ctx, &cfg)
 	if err == nil {
 		t.Fatal("expected error when daemon is not available")
 	}
@@ -307,7 +323,7 @@ func TestWaitForDaemon_LiveDaemon(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	gotPort, gotKey, err := waitForDaemon(ctx, cfg)
+	gotPort, gotKey, err := waitForDaemon(ctx, &cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

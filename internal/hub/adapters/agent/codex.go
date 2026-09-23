@@ -6,6 +6,7 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
@@ -80,6 +81,15 @@ func (a *CodexAdapter) syncCodexMCP(projectDir, mcpTarget string, installed map[
 		delete(servers, name)
 	}
 	desired := DesiredMCPServers(installed)
+	name := brand.MCPServerName("code-stdio")
+	if server, ok := desired[name].(map[string]any); ok {
+		server["startup_timeout_sec"] = int64(120)
+		if previous, ok := servers[name].(map[string]any); ok {
+			if configured, ok := previous["startup_timeout_sec"]; ok {
+				server["startup_timeout_sec"] = configured
+			}
+		}
+	}
 	for name, server := range desired {
 		servers[name] = server
 	}

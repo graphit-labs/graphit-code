@@ -1240,6 +1240,9 @@ func TestCodexAdapter_Sync(t *testing.T) {
 	if !strings.Contains(content, coreKey) {
 		t.Errorf("expected %q in TOML config", coreKey)
 	}
+	if !strings.Contains(content, "startup_timeout_sec = 120") {
+		t.Errorf("expected daemon startup timeout in TOML config: %s", content)
+	}
 }
 
 func TestCodexAdapter_Remove(t *testing.T) {

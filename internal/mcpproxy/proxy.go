@@ -31,12 +31,13 @@ type Config struct {
 	PortFile          string
 	KeyFile           string
 	MCPPath           string // default "/mcp"
-	EnsureDaemon      func()
+	EnsureDaemon      func() error
 	RetryInterval     time.Duration // default 500ms
 	Stderr            io.Writer
 	AgentSessionID    string
 	CapabilityProfile string
 	CapabilityToken   string
+	lastEnsureLog     time.Time
 }
 
 func (c *Config) applyDefaults() {
@@ -60,6 +61,16 @@ func (c *Config) applyDefaults() {
 func (c *Config) logf(format string, args ...any) {
 	if c.Stderr != nil {
 		fmt.Fprintf(c.Stderr, "[mcp-proxy] "+format+"\n", args...)
+	}
+}
+
+func (c *Config) ensureDaemon() {
+	if c.EnsureDaemon == nil {
+		return
+	}
+	if err := c.EnsureDaemon(); err != nil && (c.lastEnsureLog.IsZero() || time.Since(c.lastEnsureLog) >= 15*time.Second) {
+		c.logf("starting daemon service failed: %v", err)
+		c.lastEnsureLog = time.Now()
 	}
 }
 
@@ -91,9 +102,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	cfg.applyDefaults()
 	ctx := context.Background()
 
-	if cfg.EnsureDaemon != nil {
-		cfg.EnsureDaemon()
-	}
+	cfg.ensureDaemon()
 	stdioTransport := &mcp.IOTransport{Reader: stdin, Writer: stdout}
 	stdioConn, err := stdioTransport.Connect(ctx)
 	if err != nil {
@@ -105,7 +114,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	firstConnect := true
 
 	for {
-		port, key, err := waitForDaemon(ctx, cfg)
+		port, key, err := waitForDaemon(ctx, &cfg)
 		if err != nil {
 			return err
 		}
@@ -115,9 +124,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		httpConn, err := connectHTTP(ctx, endpoint, key, cfg.ResolveBearer, cfg.AgentSessionID, cfg.CapabilityProfile)
 		if err != nil {
 			cfg.logf("HTTP connect failed: %v, retrying…", err)
-			if cfg.EnsureDaemon != nil {
-				cfg.EnsureDaemon()
-			}
+			cfg.ensureDaemon()
 			time.Sleep(cfg.RetryInterval)
 			continue
 		}
@@ -196,9 +203,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		}
 		time.Sleep(cfg.RetryInterval)
 
-		if cfg.EnsureDaemon != nil {
-			cfg.EnsureDaemon()
-		}
+		cfg.ensureDaemon()
 	}
 }
 
@@ -261,19 +266,17 @@ func connectHTTP(ctx context.Context, endpoint, apiKey string, resolveBearer fun
 	return httpTransport.Connect(ctx)
 }
 
-func waitForDaemon(ctx context.Context, cfg Config) (int, string, error) {
+func waitForDaemon(ctx context.Context, cfg *Config) (int, string, error) {
 	for {
 		port, perr := ReadPort(cfg.PortFile)
-		key, kerr := daemonCredential(cfg)
+		key, kerr := daemonCredential(*cfg)
 		if perr == nil && kerr == nil && port > 0 && key != "" {
 			if isPortAlive(port) {
 				return port, key, nil
 			}
 			cfg.logf("port %d not reachable, retrying…", port)
 		}
-		if cfg.EnsureDaemon != nil {
-			cfg.EnsureDaemon()
-		}
+		cfg.ensureDaemon()
 		select {
 		case <-ctx.Done():
 			return 0, "", ctx.Err()

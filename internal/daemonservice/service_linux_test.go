@@ -118,6 +118,39 @@ func TestLinuxAutoStartIsSeparateChoice(t *testing.T) {
 	}
 }
 
+func TestLinuxSetLoginDoesNotChangeRunningState(t *testing.T) {
+	testServiceEnv(t)
+	old := systemctlRun
+	var calls []string
+	systemctlRun = func(_ string, args ...string) error {
+		calls = append(calls, strings.Join(args, " "))
+		return nil
+	}
+	t.Cleanup(func() { systemctlRun = old })
+	if err := SetLogin(true); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("missing service: %v", err)
+	}
+	if err := Install(false); err != nil {
+		t.Fatal(err)
+	}
+	calls = nil
+	if err := SetLogin(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetLogin(false); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(calls, "\n")
+	for _, want := range []string{"enable " + unitName(), "disable " + unitName()} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, " start ") || strings.Contains(joined, " stop ") || strings.Contains(joined, " restart ") {
+		t.Fatalf("login setting changed daemon process: %s", joined)
+	}
+}
+
 func TestInstallRollsBackUnitWhenManagerRejectsIt(t *testing.T) {
 	testServiceEnv(t)
 	old := systemctlRun

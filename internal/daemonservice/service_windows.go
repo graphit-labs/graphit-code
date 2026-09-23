@@ -113,6 +113,27 @@ func Start() error {
 	return schtasksRun("schtasks", "/run", "/tn", taskName())
 }
 
+func setLogin(enabled bool) error {
+	if !taskExists(taskName()) {
+		return ErrNotInstalled
+	}
+	if enabled {
+		exe, err := ResolveExecutable()
+		if err != nil {
+			return err
+		}
+		u, err := user.Current()
+		if err != nil {
+			return err
+		}
+		return registerTask(loginTaskName(), taskXML(exe, "daemon service start", u.Username, true, false))
+	}
+	if taskExists(loginTaskName()) {
+		return schtasksRun("schtasks", "/delete", "/tn", loginTaskName(), "/f")
+	}
+	return nil
+}
+
 func Stop() error {
 	if !taskExists(taskName()) {
 		return ErrNotInstalled
