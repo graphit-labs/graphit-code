@@ -247,6 +247,12 @@ It serializes startup, registers the user service on first use with login startu
 off, stops a prior unmanaged daemon if one holds the PID lock, starts the OS
 service, then waits for the daemon's lock. Daemon installation itself has a
 separate process lock. The `daemon.pid` lock is the final singleton guarantee.
+On Linux, when `systemd --user` cannot be reached, the same serialized path
+starts a detached `daemon --ui` process directly and waits for its PID lock.
+It does not register a service, restart after a crash, or enable login startup.
+`daemonctl.Stop` terminates that direct process. When the manager is reachable,
+an installation or start error remains an error and does not trigger direct spawn.
+An explicit `daemon service install` requires the manager and reports its absence.
 The existing root-command exceptions and `modules.daemon=false` still apply to ordinary CLI
 autostart. `mcp` is excluded from that hook because the stdio proxy requests the daemon itself;
 it depends on the daemon's MCP listener even when ordinary CLI autostart is disabled.
@@ -256,8 +262,13 @@ service and runtime are ready.
 On Linux, the systemd user-manager command fills missing `XDG_RUNTIME_DIR` and
 `DBUS_SESSION_BUS_ADDRESS` from the current user's `/run/user/<uid>` runtime bus. This handles
 agent hosts that strip graphical session variables before launching the stdio MCP proxy.
-CLI manager errors are shown as warnings so foreground commands still run;
-explicit service commands return the error. `graphit daemon` remains an explicit
+After daemon startup, both stdio proxy entry points request the tray once without making the
+graphical process a dependency of MCP. On Linux the tray launcher may recover a small allowlist
+of graphical session addresses from `systemd --user`; the child itself checks for a
+StatusNotifier watcher and records startup errors in `daemon/tray.log`.
+CLI manager errors are shown as warnings so foreground commands still run,
+except that a missing Linux user manager triggers the direct daemon fallback;
+explicit service installation returns the error. `graphit daemon` remains an explicit
 foreground command.
 
 `graphit daemon service install --login` opts in to starting at user login;
@@ -281,12 +292,14 @@ It uses the existing bracket mark from `internal/ui/public/favicon.svg` as a
 It reads daemon state and the global authentication state on a three-second interval. The menu
 shows the active login provider and profile, or offers configured first-class Broker providers
 through the existing browser login command. Menu actions start or restart the daemon, open the
-daemon's published UI URL in the default browser, and stop the managed service and daemon on Quit.
+daemon's published UI URL in the default browser, and stop the service, when available, and daemon on Quit.
 A stop failure keeps the tray visible for retry. The UI module publishes
 the actual selected address in `daemon/ui.url` with its PID so a stale file is ignored. The
 service's login option also installs tray login startup; `graphit tray login`
 controls it separately. Linux requires a StatusNotifier watcher; without one,
 the tray exits with a clear error while the daemon remains headless.
+When Linux's user manager is unavailable, tray status instead uses the daemon PID lock,
+so the direct fallback remains startable and restartable from the menu.
 
 Linux behavior was tested with a simulated manager and a transient native
 systemd user unit. macOS and Windows files cross-compile and have structural

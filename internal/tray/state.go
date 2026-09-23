@@ -1,6 +1,7 @@
 package tray
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/daemonservice"
@@ -17,14 +18,25 @@ type snapshot struct {
 
 func capture() snapshot {
 	service, err := daemonservice.GetStatus()
-	if err != nil {
+	if err != nil && !errors.Is(err, daemonservice.ErrManagerUnavailable) {
 		return snapshot{state: "Service error", err: err}
 	}
+	managerUnavailable := errors.Is(err, daemonservice.ErrManagerUnavailable)
 	running, err := daemonservice.IsRunning()
 	if err != nil {
 		return snapshot{state: "Daemon status error", err: err}
 	}
+	if managerUnavailable {
+		return describeUnavailable(running)
+	}
 	return describe(service, running)
+}
+
+func describeUnavailable(running bool) snapshot {
+	if running {
+		return snapshot{state: "Daemon running directly", running: true, canStop: true}
+	}
+	return snapshot{state: "Daemon stopped; service unavailable", canStart: true}
 }
 
 func describe(service daemonservice.Status, running bool) snapshot {

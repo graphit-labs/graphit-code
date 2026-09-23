@@ -15,6 +15,7 @@ import (
 )
 
 var ErrNotInstalled = errors.New("daemon service is not installed")
+var ErrManagerUnavailable = errors.New("daemon service manager is unavailable")
 
 type Status struct {
 	Installed bool

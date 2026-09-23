@@ -3,10 +3,12 @@
 package daemonctl
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 const (
@@ -65,6 +68,9 @@ func EnsureRunning() (bool, error) {
 
 	status, err := daemonservice.GetStatus()
 	if err != nil {
+		if linuxManagerUnavailable(err) {
+			return ensureDirectDaemon()
+		}
 		return false, fmt.Errorf("checking daemon service: %w", err)
 	}
 	if !status.Installed {
@@ -93,11 +99,44 @@ func EnsureRunning() (bool, error) {
 	return true, nil
 }
 
+func linuxManagerUnavailable(err error) bool {
+	return runtime.GOOS == "linux" && errors.Is(err, daemonservice.ErrManagerUnavailable)
+}
+
+// ensureDirectDaemon is the Linux fallback when no systemd user manager is
+// reachable. EnsureRunning already holds the spawn lock; the daemon's PID lock
+// remains the final guard against another direct or managed instance.
+func ensureDirectDaemon() (bool, error) {
+	locked, err := fileLockState(PIDFilePath())
+	if err != nil {
+		return false, fmt.Errorf("checking daemon lock: %w", err)
+	}
+	if locked {
+		return false, nil
+	}
+	exe, err := daemonservice.ResolveExecutable()
+	if err != nil {
+		return false, err
+	}
+	cmd := exec.Command(exe, "daemon", "--ui")
+	closeLog := AttachLogStderr(cmd)
+	defer closeLog()
+	sysutil.DetachProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return false, fmt.Errorf("starting daemon without a service manager: %w", err)
+	}
+	_ = cmd.Process.Release()
+	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll); err != nil {
+		return true, fmt.Errorf("waiting for direct daemon readiness: %w", err)
+	}
+	return true, nil
+}
+
 // Stop intentionally disables the supervisor's restart path before stopping
 // any remaining foreground or legacy daemon that still holds the PID lock.
 func Stop() error {
 	status, err := daemonservice.GetStatus()
-	if err != nil {
+	if err != nil && !linuxManagerUnavailable(err) {
 		return err
 	}
 	if status.Installed {

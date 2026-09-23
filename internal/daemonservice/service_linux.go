@@ -20,11 +20,17 @@ var systemctlRun commandRunner = runSystemctl
 // runtime bus, so give systemctl the standard addresses when they are absent.
 func runSystemctl(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Env = systemctlEnvironment(os.Environ(), os.Getuid())
+	cmd.Env = UserManagerEnvironment()
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
 	}
 	return nil
+}
+
+// UserManagerEnvironment provides the current user's systemd bus address when
+// an agent host starts a subprocess without desktop session variables.
+func UserManagerEnvironment() []string {
+	return systemctlEnvironment(os.Environ(), os.Getuid())
 }
 
 func systemctlEnvironment(base []string, uid int) []string {
@@ -212,7 +218,7 @@ func installed() (bool, error) {
 func GetStatus() (Status, error) {
 	s := Status{Manager: "systemd --user"}
 	if err := systemctlRun("systemctl", "--user", "show-environment"); err != nil {
-		return s, fmt.Errorf("systemd user manager unavailable: %w", err)
+		return s, fmt.Errorf("%w: %w", ErrManagerUnavailable, err)
 	}
 	var err error
 	s.Installed, err = installed()

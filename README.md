@@ -74,7 +74,9 @@ instead of reconstructing it in every session.
 
 ## The Graphit Observatory
 
-The web UI is an operational view over the same project context exposed to agents.
+The web UI is an operational view over the same project context exposed to agents. On a local
+desktop with a supported system tray, choose **Open UI** from the Graphit icon to open the
+daemon's UI in your browser.
 
 ### Retain intent with its sources
 
@@ -135,6 +137,12 @@ graphit provider show local
 graphit login --profile personal --provider local --username "$USER"
 ```
 
+Where a system tray is available, the Graphit icon shows the active login provider and profile.
+If you configured a Broker provider and are signed out, choose **Sign in with Broker** from its
+menu to open the browser login flow. The same menu offers **Open UI**, **Start daemon**,
+**Restart daemon**, and **Quit**. On Linux, the icon requires StatusNotifier/AppIndicator support
+from the desktop; the daemon still runs when the icon is unavailable.
+
 Use `graphit provider update local` to select CPU, CUDA, CoreML, or remote AI services. Local models
 download lazily on first use.
 
@@ -144,6 +152,10 @@ installs the selected agent's native MCP/hooks, and performs the first synchroni
 is the explicit all-system checkpoint; the daemon keeps incremental indexes current afterwards.
 
 Use the exact agent identifier supported by your environment; `graphit init --help` lists the available values.
+Eligible local commands start the daemon through the current user's OS service. On Linux without
+`systemd --user`, they start it directly instead; that fallback has no automatic crash restart or
+login startup. See [daemon operations](docs/guides/daemon_operations.md) for service, login startup,
+tray controls, and fallback behavior.
 
 ## Optional deployment: server for teams and enterprise
 
@@ -338,7 +350,7 @@ Start with the document that matches your intent:
 - [User manual](docs/guides/user_manual.md) — daily workflows and operational concepts.
 - [Configuration reference](docs/guides/configuration.md) — every setting, default, feature switch, provider, and environment override.
 - [AI models, providers, and agent CLIs](docs/guides/ai_models.md) — completion delegation, every CLI protocol, embedding models, credentials, dimensions, rerank, and local/remote boundaries.
-- [Daemon operations and monitoring](docs/guides/daemon_operations.md) — start paths, schedulers, watched signals, module loops, MCP service, logs, parking, and recovery.
+- [Daemon operations and monitoring](docs/guides/daemon_operations.md) — user service, Linux fallback, system tray, watched signals, MCP, logs, parking, and recovery.
 - [Capability and surface matrix](docs/guides/capability_matrix.md) — every module, CLI/MCP/UI exposure, gate, and current limitation.
 - [Filesystem, state, and watchers](docs/guides/filesystem_contract.md) — special files, generated state, adapter layouts, and change detection.
 - [AST grammars and parser extensibility](docs/guides/ast_extensibility.md) — every YAML field, selector, parser extension path, precedence rule, and validation workflow.

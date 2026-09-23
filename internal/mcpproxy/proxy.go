@@ -193,6 +193,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		httpConn.Close()
 
 		if isStdioClosed(err) {
+			cfg.logf("agent closed stdio; stopping proxy")
 			return nil
 		}
 

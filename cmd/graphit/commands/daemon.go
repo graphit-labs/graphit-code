@@ -90,7 +90,7 @@ Lifecycle:
   ` + brand.BinName() + ` daemon --ui                     Start in foreground with the UI
   ` + brand.BinName() + ` daemon stop                      Stop the running daemon
   ` + brand.BinName() + ` daemon status                    Show daemon health
-  ` + brand.BinName() + ` daemon restart                   Restart through the OS manager
+  ` + brand.BinName() + ` daemon restart                   Restart through the OS manager when available
 
 Managed service (current user):
   ` + brand.BinName() + ` daemon service start             Start through the OS manager
@@ -103,6 +103,8 @@ Managed service (current user):
 The managed daemon always serves the UI itself. --managed is an internal flag
 used by the OS service, not needed for foreground use. The tray opens the
 published UI URL in your browser; it does not start a second UI server.
+On Linux without systemd --user, eligible commands start a detached daemon
+with UI directly; crash restart and login startup require the OS service.
 
 PID file: ~/` + brand.DotDir() + `/daemon/daemon.pid (global, one daemon per machine)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -658,9 +660,9 @@ func newDaemonRestartCmdWithEnsure(ensureRunning func() (bool, error)) *cobra.Co
 			if err := daemonctl.Stop(); err != nil {
 				return fmt.Errorf("stopping daemon: %w", err)
 			}
-			p.Running("Starting managed daemon…")
+			p.Running("Starting daemon…")
 			if _, err := ensureRunning(); err != nil {
-				return fmt.Errorf("starting managed daemon: %w", err)
+				return fmt.Errorf("starting daemon: %w", err)
 			}
 			p.Success("Daemon restarted")
 			return nil

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
@@ -15,6 +16,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/tray"
 	"github.com/spf13/cobra"
 )
 
@@ -53,10 +55,21 @@ Examples:
 }
 
 func runMCPStdioProxy() error {
+	var trayOnce sync.Once
 	cfg := mcpproxy.Config{
-		PortFile:      daemonctl.PortFilePath(),
-		KeyFile:       daemonctl.KeyFilePath(),
-		EnsureDaemon:  func() error { _, err := daemon.EnsureRunning(); return err },
+		PortFile: daemonctl.PortFilePath(),
+		KeyFile:  daemonctl.KeyFilePath(),
+		EnsureDaemon: func() error {
+			if _, err := daemon.EnsureRunning(); err != nil {
+				return err
+			}
+			trayOnce.Do(func() {
+				if err := tray.EnsureRunning(); err != nil {
+					fmt.Fprintf(os.Stderr, "[mcp-proxy] starting tray failed: %v\n", err)
+				}
+			})
+			return nil
+		},
 		ResolveBearer: resolveMCPStdioBearer,
 		Stderr:        os.Stderr,
 	}

@@ -20,8 +20,9 @@ Ordinary `graphit` commands register a per-user OS service on first use, then as
 start it before the command runs. Registration leaves login startup off. Existing exceptions in the
 CLI root hook remain: `daemon`, `mcp`, `setup`, `uninstall`, `self-update`, `provider`, `login`, `logout`,
 `account`, and internal commands do not autostart; `modules.daemon=false` also disables it. Setup
-performs its own start near completion. Both stdio MCP entry points ensure the daemon at startup,
-and the MCP server retries the same check for tool calls. MCP startup reports service errors on
+performs its own start near completion. Both stdio MCP entry points ensure the daemon at startup
+and request the tray in a graphical session. The MCP proxy retries the daemon check while waiting
+for its endpoint. MCP startup reports service errors on
 stderr while it waits for the daemon endpoint. Codex installs this proxy with a 120-second startup
 timeout because the OS service and runtime can take longer than its 30-second default after a cold
 start. The ordinary CLI warns on manager errors
@@ -89,6 +90,13 @@ graphit daemon service uninstall
 | macOS | LaunchAgent | `KeepAlive` after nonzero exit; login plist only with `--login` |
 | Windows | User Task Scheduler task | `RestartOnFailure` (up to 255 retries, one minute apart); separate login task only with `--login` |
 
+On Linux without a reachable `systemd --user` manager, an eligible command still starts one
+detached daemon directly with its UI enabled. The PID lock prevents a second daemon, and
+`graphit daemon stop` or the tray's **Quit** stops it. This fallback has no OS supervisor:
+it does not restart after a crash or start at login. `graphit daemon service install` reports
+the unavailable manager instead of installing a service. If `systemd --user` responds but
+service installation or startup fails, Graphit reports that error rather than using the fallback.
+
 All three mechanisms run under the current user without normal administrator elevation. The
 Linux MCP proxy can start `systemd --user` even when its agent host omits desktop session
 variables: Graphit supplies this user's `/run/user/<uid>` bus address to `systemctl` when needed.
@@ -104,24 +112,33 @@ service again with login startup off.
 
 ### System tray
 
-In a graphical session, eligible CLI commands start a separate `graphit tray` process if one is
+In a graphical session, eligible CLI commands and the stdio MCP proxy start a separate
+`graphit tray` process if one is
 not already running. The daemon service remains headless. The tray menu shows running, starting,
 stopped, or error state and the active login provider and profile. When there is no active login,
 it lists configured first-class Broker providers under **Sign in with Broker**. Selecting one opens
 the existing browser login flow and activates a profile named after the provider unless a profile
 for that provider already exists. The menu can **Open UI**, **Start daemon**, **Restart daemon**,
-or **Quit**. Quit stops the OS-managed service and daemon before
-closing the tray; if stopping fails, the tray stays open and shows an error. The service remains
-registered: the next eligible command can start it again, and login startup runs at the next login
-when enabled. Open UI only opens the daemon's published UI URL in the default browser; it does not
+or **Quit**. Quit stops the service, when available, and the daemon before
+closing the tray; if stopping fails, the tray stays open and shows an error. When a service is
+installed, it remains registered: the next eligible command can start it again, and login startup
+runs at the next login when enabled. Without `systemd --user`, the tray shows direct daemon state
+and keeps **Start daemon** and **Restart daemon** available. Open UI only opens the daemon's published UI URL in the default browser; it does not
 start another server. The published address includes the actual port when the configured port was
 already occupied. If the daemon is stopped,
 use **Start daemon** first. A browser launch failure produces a tray notification.
+
+To check why an icon is missing, run `graphit tray` from a terminal in the graphical session.
+On Linux it reports when the desktop lacks a StatusNotifier/AppIndicator watcher; enable that
+desktop support to display the icon. The daemon and MCP continue working without the tray.
 
 `graphit daemon service install --login` also enables the tray at user login. Tray login startup can
 be managed separately with `graphit tray login enable`, `disable`, and `status`. The daemon and tray
 use separate locks and processes; a missing graphical session never blocks the daemon. Linux tray
 display requires a desktop that exposes a StatusNotifier/AppIndicator watcher over the session D-Bus.
+When an agent host omits the desktop variables, the Linux MCP proxy retrieves only the session
+addresses needed for the tray from `systemd --user`. A tray startup failure never stops MCP or the
+daemon; the tray's stderr is written to `~/.graphit/daemon/tray.log`.
 If that support is absent, `graphit tray` reports the missing watcher and the daemon continues
 without an icon. macOS uses the menu bar; Windows uses the notification area. Native display behavior
 on macOS and Windows still needs on-device verification.

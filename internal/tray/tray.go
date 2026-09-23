@@ -40,11 +40,9 @@ func graphicalSession() bool {
 
 // EnsureRunning is best-effort session UI startup. It never starts the daemon.
 func EnsureRunning() error {
-	if !graphicalSession() {
+	env, graphical := graphicalEnvironment()
+	if !graphical {
 		return nil
-	}
-	if err := trayAvailable(); err != nil {
-		return err
 	}
 	if err := os.MkdirAll(daemonctl.DaemonDir(), 0o700); err != nil {
 		return err
@@ -64,6 +62,7 @@ func EnsureRunning() error {
 		return fmt.Errorf("cannot resolve Graphit launcher for tray")
 	}
 	cmd := exec.Command(exe, "tray")
+	cmd.Env = env
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	closeLog := daemonctl.AttachStderrToFile(cmd, filepath.Join(daemonctl.DaemonDir(), "tray.log"))
