@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build linux || darwin
 
 package daemonctl
 
@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), root)
+	t.Setenv("HOME", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv(brand.EnvVar("LAUNCHER_PATH"), launcherPath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_HELPER", testExe)
@@ -40,20 +42,7 @@ func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
 	t.Setenv("GRAPHIT_DAEMON_TEST_RELEASE", releasePath)
 	managerState := filepath.Join(root, "manager-active")
 	t.Setenv("GRAPHIT_DAEMON_TEST_MANAGER", managerState)
-	manager := "#!/bin/sh\ncase \"$2\" in\n" +
-		"is-active) test -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
-		"is-enabled) exit 1 ;;\n" +
-		"start) /bin/touch \"$GRAPHIT_DAEMON_TEST_MANAGER\"; \"$GRAPHIT_LAUNCHER_PATH\" daemon --managed >/dev/null 2>&1 & ;;\n" +
-		"stop) /bin/rm -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
-		"*) exit 0 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(manager), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	crontab := "#!/bin/sh\necho 'no crontab for test' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(root, "crontab"), []byte(crontab), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	installFakeServiceManager(t, root)
 	t.Setenv("PATH", root)
 	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), 0o600) })
 
@@ -143,6 +132,7 @@ func TestEnsureRunningAdoptsLegacyDaemonBeforeManagedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), root)
+	t.Setenv("HOME", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv(brand.EnvVar("LAUNCHER_PATH"), launcherPath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_HELPER", testExe)
@@ -151,19 +141,7 @@ func TestEnsureRunningAdoptsLegacyDaemonBeforeManagedStart(t *testing.T) {
 	t.Setenv("GRAPHIT_DAEMON_TEST_PID", pidPath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_RELEASE", releasePath)
 	t.Setenv("GRAPHIT_DAEMON_TEST_MANAGER", filepath.Join(root, "manager-active"))
-	manager := "#!/bin/sh\ncase \"$2\" in\n" +
-		"is-active) test -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
-		"is-enabled) exit 1 ;;\n" +
-		"start) /bin/touch \"$GRAPHIT_DAEMON_TEST_MANAGER\"; \"$GRAPHIT_LAUNCHER_PATH\" daemon --managed >/dev/null 2>&1 & ;;\n" +
-		"stop) /bin/rm -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
-		"*) exit 0 ;;\n" +
-		"esac\n"
-	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(manager), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "crontab"), []byte("#!/bin/sh\necho 'no crontab for test' >&2\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	installFakeServiceManager(t, root)
 	t.Setenv("PATH", root)
 	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), 0o600) })
 	if err := os.MkdirAll(filepath.Dir(pidPath), 0o700); err != nil {
@@ -195,6 +173,36 @@ func TestEnsureRunningAdoptsLegacyDaemonBeforeManagedStart(t *testing.T) {
 	}
 	if string(starts) != "started\nstarted\n" {
 		t.Fatalf("expected one legacy and one managed start, got %q", starts)
+	}
+}
+
+func installFakeServiceManager(t *testing.T, root string) {
+	t.Helper()
+	var name, manager string
+	switch runtime.GOOS {
+	case "linux":
+		name = "systemctl"
+		manager = "#!/bin/sh\ncase \"$2\" in\n" +
+			"is-active) test -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+			"is-enabled) exit 1 ;;\n" +
+			"start) /bin/touch \"$GRAPHIT_DAEMON_TEST_MANAGER\"; \"$GRAPHIT_LAUNCHER_PATH\" daemon --managed >/dev/null 2>&1 & ;;\n" +
+			"stop) /bin/rm -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+			"*) exit 0 ;;\n" +
+			"esac\n"
+		if err := os.WriteFile(filepath.Join(root, "crontab"), []byte("#!/bin/sh\necho 'no crontab for test' >&2\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	case "darwin":
+		name = "launchctl"
+		manager = "#!/bin/sh\ncase \"$1\" in\n" +
+			"print) test -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+			"bootstrap) /bin/touch \"$GRAPHIT_DAEMON_TEST_MANAGER\"; \"$GRAPHIT_LAUNCHER_PATH\" daemon --managed >/dev/null 2>&1 & ;;\n" +
+			"bootout) /bin/rm -f \"$GRAPHIT_DAEMON_TEST_MANAGER\" ;;\n" +
+			"*) exit 1 ;;\n" +
+			"esac\n"
+	}
+	if err := os.WriteFile(filepath.Join(root, name), []byte(manager), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 
