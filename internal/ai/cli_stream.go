@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -137,7 +136,7 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 		if req.AllowNonGitWorkspace {
 			args = append(args, "--skip-git-repo-check")
 		}
-		if req.AllowTools {
+		if useConfiguredAgentArgs(req) {
 			args = append(args, c.agentArgs...)
 		}
 		args = append(args, "-")
@@ -149,7 +148,7 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 		if structured {
 			args = append(args, stream.args...)
 		}
-		if req.AllowTools {
+		if useConfiguredAgentArgs(req) {
 			args = append(args, c.agentArgs...)
 		}
 		args = append(args, prompt)
@@ -162,7 +161,7 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 		if structured {
 			args = append(args, stream.args...)
 		}
-		if req.AllowTools {
+		if useConfiguredAgentArgs(req) {
 			args = append(args, c.agentArgs...)
 		}
 	}
@@ -176,12 +175,24 @@ func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit 
 		args = append(args, prompt)
 	}
 
-	cmd := exec.CommandContext(ctx, c.executablePath, args...)
+	executable, commandArgs, policyEnv, policyCleanup, err := c.applyCapabilityPolicy(req, args)
+	if err != nil {
+		send(Event{Kind: EventError, Text: err.Error()})
+		send(Event{Kind: EventDone})
+		return nil, err
+	}
+	if policyCleanup != nil {
+		defer policyCleanup()
+	}
+	cmd := exec.CommandContext(ctx, executable, commandArgs...)
 	configureStreamProcess(cmd)
 
 	cmd.Dir = req.WorkDir
 
-	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
+	cmd.Env = append(processEnvironment(req), "NO_COLOR=1", "TERM=dumb")
+	for k, v := range policyEnv {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	for k, v := range req.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

@@ -221,11 +221,16 @@ selected profile; it never activates another profile implicitly.
 ## Storage and redaction
 
 State lives in `~/.graphit/auth.json` (or `$GRAPHIT_GLOBAL_DIR/auth.json`), under an owner-only
-directory (`0700`) and file (`0600`) with atomic replacement and cross-process locking. Command
-output redacts OIDC client secrets, tokens, MCP/broker keys, direct AI keys, and temporary or direct
+directory (`0700`) and file (`0600`) with atomic replacement and cross-process locking. Replacement
+stages the next image in the owner-only `.auth-tmp/` directory beside the file; that directory is
+empty after a completed write and is hidden together with `auth.json` from Dream. Command output
+redacts OIDC client secrets, tokens, MCP/broker keys, direct AI keys, and temporary or direct
 S3 secrets. Direct OIDC and Broker STS credentials are held only in process memory, separately for
 each project, user-memory, or Hub-metadata scope; restart causes fresh scoped exchanges. Older
 direct OIDC STS credentials are removed from `auth.json` on first load.
+
+A Dream launch ensures the valid empty state exists when authentication has never been initialized,
+then masks that stable pathname. Semantics are unchanged: no provider or active profile is created.
 
 There is no migration or compatibility path for incompatible provider/profile schema versions.
 Recreate providers and log in again after a development schema change.

@@ -19,27 +19,21 @@ type dreamStatusInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
-type dreamReportsInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	All         bool   `json:"all,omitempty" jsonschema:"Show all reports (not just new ones)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
-}
-
 type DreamStatusResult struct {
-	Enabled        bool      `json:"enabled"`
-	DaemonRunning  bool      `json:"daemon_running"`
-	DaemonPID      int       `json:"daemon_pid,omitempty"`
-	Status         string    `json:"status"`
-	SessionID      string    `json:"session_id,omitempty"`
-	LastDreamAt    time.Time `json:"last_dream_at,omitempty"`
-	LastUserEditAt time.Time `json:"last_user_edit_at,omitempty"`
-	IdleTimeout    string    `json:"idle_timeout"`
-	MaxDuration    string    `json:"max_duration"`
-	TotalReports   int       `json:"total_reports"`
+	Enabled        bool             `json:"enabled"`
+	DaemonRunning  bool             `json:"daemon_running"`
+	DaemonPID      int              `json:"daemon_pid,omitempty"`
+	Status         string           `json:"status"`
+	SessionID      string           `json:"session_id,omitempty"`
+	LastDreamAt    time.Time        `json:"last_dream_at,omitempty"`
+	LastUserEditAt time.Time        `json:"last_user_edit_at,omitempty"`
+	IdleTimeout    string           `json:"idle_timeout"`
+	MaxDuration    string           `json:"max_duration"`
+	LastRun        *dream.RunRecord `json:"last_run,omitempty"`
 }
 
 func registerDreamTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("dream", "status"),
 		Description: "Show status and configuration of the dream module.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamStatusInput) (*mcp.CallToolResult, any, error) {
@@ -88,9 +82,7 @@ func registerDreamTools(server *mcp.Server) {
 			}
 			_ = sleepingSince
 
-			if reports, err := dream.ListReports(projectDir); err == nil {
-				res.TotalReports = len(reports)
-			}
+			res.LastRun, _ = dream.LatestRun(ctx, projectDir)
 
 			return nil
 		})
@@ -101,41 +93,5 @@ func registerDreamTools(server *mcp.Server) {
 			return toonResult(res)
 		}
 		return jsonResult(res)
-	}))
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("dream", "reports"),
-		Description: "List dream session reports.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamReportsInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		var display []dream.Report
-		err = withProjectDir(projectDir, func() error {
-			lastSeen := dream.LoadLastSeen(projectDir)
-
-			reports, err := dream.ListReports(projectDir)
-			if err != nil {
-				return err
-			}
-
-			if input.All {
-				display = reports
-			} else {
-				display = dream.ReportsSince(reports, lastSeen.LastViewed)
-			}
-
-			dream.MarkReportsSeen(projectDir)
-			return nil
-		})
-		if err != nil {
-			return errResult(err)
-		}
-		if aiOpt(input.AiOptimized) {
-			return toonResult(display)
-		}
-		return jsonResult(display)
 	}))
 }

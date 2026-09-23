@@ -20,6 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -224,7 +225,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		}
 
 		mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-			return mcpstdio.NewServer()
+			return mcpstdio.NewServerForProfile(r.Header.Get(agentpolicy.ProfileHeader))
 		}, nil)
 
 		mcpMux := newDaemonMCPMux(mcpHandler, daemonMCPMuxOptions{

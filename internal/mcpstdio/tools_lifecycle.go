@@ -104,7 +104,7 @@ func syncASTPipelineOptions(projectDir string, projectCfg config.ConfigMap) ast.
 }
 
 func registerLifecycleTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("mandates"),
 		Description: "Return the dynamic Graphit mandates resolved from global config, global rule overrides, and framework defaults. Takes no parameters and does not read project state.",
 		Annotations: &mcp.ToolAnnotations{
@@ -116,7 +116,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		}, nil, nil
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("module", "skill"),
 		Description: "Read one core module skill immediately before its first matching action. Reuse loaded guidance for this scope. Without reference, returns the resolved skill and available framework reference names; set reference to load only the needed detailed guide/example. If no mandate was supplied, call graphit_mandates once. Resolves skill overrides without a local agent filesystem.",
 		Annotations: &mcp.ToolAnnotations{
@@ -177,7 +177,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("init"),
 		Description: "Initialize a new project in the given project directory, creating project identity and lockfiles.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input initInput) (*mcp.CallToolResult, any, error) {
@@ -242,7 +242,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Project %q initialized successfully (ID: %s, Agent: %s)", lf.Project.Name, lf.Project.ID, resolvedAgent))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("sync"),
 		Description: "Sync and reindex local modules, AST DB, authoritative memory indexes, Agent rules, MCP configuration, and native Agent hooks.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input syncInput) (*mcp.CallToolResult, any, error) {
@@ -362,7 +362,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult("Sync completed successfully.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("update"),
 		Description: "Update all installed Hub artifacts and refresh dynamic hooks and skills.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input updateInput) (*mcp.CallToolResult, any, error) {
@@ -397,7 +397,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult("Update completed successfully.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("remove"),
 		Description: "Uninstall and remove Graphit from the current project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input removeInput) (*mcp.CallToolResult, any, error) {
@@ -431,7 +431,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult("Graphit removed from this project successfully.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("config", "set"),
 		Description: "Set a configuration key to the specified value globally or locally.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configSetInput) (*mcp.CallToolResult, any, error) {
@@ -463,7 +463,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Project config set: %s=%s", input.Key, input.Value))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("config", "get"),
 		Description: "Get the value of a configuration key.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configGetInput) (*mcp.CallToolResult, any, error) {
@@ -495,7 +495,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult(val)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("config", "unset"),
 		Description: "Unset a configuration key.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configUnsetInput) (*mcp.CallToolResult, any, error) {
@@ -524,7 +524,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Project key %q unset.", input.Key))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("config", "list"),
 		Description: "List all configuration keys and their values.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configListInput) (*mcp.CallToolResult, any, error) {
@@ -554,7 +554,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		return jsonResult(entries)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("version"),
 		Description: "Get the current version of the Graphit CLI and MCP server.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {

@@ -91,16 +91,18 @@ func TestOIDCSTSConfigExchangesPerScopeWithoutPersistingGrants(t *testing.T) {
 	ctx := context.Background()
 	projectA := ProjectS3Config(ctx, "project-a", auth.BrokerStorageModuleTask)
 	projectAAgain := ProjectS3Config(ctx, "project-a", auth.BrokerStorageModuleTask)
+	dreamA := ProjectS3Config(ctx, "project-a", auth.BrokerStorageModuleDream)
 	projectB := ProjectS3Config(ctx, "project-b", auth.BrokerStorageModuleTask)
 	user := UserS3Config(ctx)
 	hub := HubMetadataS3Config(ctx)
-	for _, cfg := range []S3Config{projectA, projectAAgain, projectB, user, hub} {
+	for _, cfg := range []S3Config{projectA, projectAAgain, dreamA, projectB, user, hub} {
 		if cfg.ResolutionError != nil || !cfg.HasStaticCredentials() || cfg.SessionToken == "" || cfg.Prefix != "graphit" {
 			t.Fatalf("scoped config = %#v", cfg)
 		}
 	}
-	if projectA.AccessKeyID != projectAAgain.AccessKeyID || projectA.AccessKeyID == projectB.AccessKeyID ||
-		projectA.AccessKeyID == user.AccessKeyID || projectA.AccessKeyID == hub.AccessKeyID || calls.Load() != 4 {
+	if projectA.AccessKeyID != projectAAgain.AccessKeyID || projectA.AccessKeyID == dreamA.AccessKeyID ||
+		projectA.AccessKeyID == projectB.AccessKeyID || projectA.AccessKeyID == user.AccessKeyID ||
+		projectA.AccessKeyID == hub.AccessKeyID || calls.Load() != 5 {
 		t.Fatalf("STS credentials were reused across scopes; calls = %d", calls.Load())
 	}
 	unscoped := HubS3Config()
@@ -160,6 +162,7 @@ func TestS3ConfigForURIResolvesPhysicalBrokerModuleAndFailsClosed(t *testing.T) 
 	for _, uri := range []string{
 		"s3://bucket/root/v2/projects/" + projectID + "/tasks",
 		"s3://bucket/root/v2/projects/" + projectID + "/memory",
+		"s3://bucket/root/v2/projects/" + projectID + "/dream",
 		"s3://bucket/root/v2/projects/" + projectID + "/knowledge/search",
 		"s3://bucket/root/v2/projects/" + projectID + "/ast/graph",
 		"s3://bucket/root/v2/projects/" + projectID + "/project.json",
@@ -182,6 +185,7 @@ func TestS3ConfigForURIResolvesPhysicalBrokerModuleAndFailsClosed(t *testing.T) 
 	want := map[auth.BrokerStorageScope]bool{
 		auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleTask):      true,
 		auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleMemory):    true,
+		auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleDream):     true,
 		auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleKnowledge): true,
 		auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleAST):       true,
 		auth.ProjectStorageScope(projectID, auth.BrokerStorageModuleHub):       true,

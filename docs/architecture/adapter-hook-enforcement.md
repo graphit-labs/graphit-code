@@ -2,7 +2,7 @@
 title: Adapter hook enforcement
 type: architecture
 status: active
-updated: 2026-09-22
+updated: 2026-09-23
 tags: [adapters, hooks, mandates, skills, enforcement]
 ---
 
@@ -100,6 +100,26 @@ Adapters do not block native tools. A tool-use hook payload does not prove that 
 For supported local code, the skill still requires AST-first discovery. Unindexed content, unsupported formats, or unavailable tools use native discovery directly. Imported contexts have no native fallback because their source is not present in the agent's workspace.
 
 ## Adapter matrix
+
+### Dream is a runtime capability, not a lifecycle hook
+
+The nine workspace adapters below synchronize each host's durable MCP configuration and lifecycle
+hooks. Dream does not add a hook, skill, rule, command, or adapter artifact. It uses the selected
+CLI's existing project MCP discovery and applies `dream-memory-v1` at launch: native CLI restrictions
+on model-invoked file/command tools plus an exact Graphit MCP allowlist. The whole CLI process is
+not placed in a filesystem jail, so its own state remains writable on Windows, macOS and Linux.
+If a CLI has no verified per-run policy, Dream runs it without a restriction flag; that CLI may
+modify project files through its own tools. The Graphit MCP bearer still restricts Graphit tools.
+Unstructured CLIs record successful process exit as `completed_unobserved`, because tool counts
+cannot be inferred from prose.
+
+Authorization comes from a separate HMAC-authenticated bearer bound to the Dream profile; the
+local proxy refuses a missing scoped bearer while the Dream profile is active, and the daemon
+forces the authenticated bearer profile instead of trusting the client header. Native CLI
+permissions do not isolate the process from the daemon key on the same OS account; this is a
+documented trust limit. This is separate from normal session
+hooks: no mandatory-memory bootstrap, Task checkpoint hook, or final synchronization hook grants or
+widens Dream authority.
 
 ### Work lifecycle
 

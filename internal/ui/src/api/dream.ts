@@ -10,21 +10,24 @@ export interface DreamStatus {
   last_user_edit_at?: string
   idle_timeout: string
   max_duration: string
-  total_reports: number
+  last_run?: DreamRunRecord
 }
 
-export interface DreamReport {
-  id: string
-  path: string
-  created: string
-  title: string
-  size: number
-  has_deep_sleep: boolean
+export interface DreamRunRecord {
+  run_id: string
+  project_id?: string
+  agent?: string
+  cli?: string
+  started_at: string
+  finished_at?: string
+  status: string
+  tool_calls: number
+  memory_mutation_attempts: number
+  target_ids?: string[]
+  error_summary?: string
 }
 
 export const dreamApi = {
   getStatus: (projectDir: string) =>
     api.get<DreamStatus>(`/dream/status?project_dir=${encodeURIComponent(projectDir)}`),
-  getReports: (projectDir: string) =>
-    api.get<DreamReport[]>(`/dream/reports?project_dir=${encodeURIComponent(projectDir)}`),
 }

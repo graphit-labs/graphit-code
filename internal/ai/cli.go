@@ -26,7 +26,7 @@ const (
 // knows it MUST NOT attempt interactive actions (tool calls that block waiting
 // for human approval, clarifying questions, TUI interactions, etc.).
 // This replaces dangerous permission-bypass flags (--yolo, --dangerously-skip-permissions)
-// with a prompt-level instruction that keeps the agent sandboxed.
+// with a prompt-level instruction for ordinary non-Dream runs.
 const nonInteractivePreamble = `You are running in non-interactive, autonomous mode.
 Constraints you MUST follow:
 - Do NOT ask the user any questions or request clarification.

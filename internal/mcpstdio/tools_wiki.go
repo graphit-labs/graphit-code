@@ -197,7 +197,7 @@ func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName str
 }
 
 func registerWikiTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("wiki", "search"),
 		Description: "Search across multiple wiki sources using BM25 full-text and optional semantic search. " +
 			"Answers with page titles and scores, not page text: pick the page from the titles, then read it with " +
@@ -354,7 +354,7 @@ func registerWikiTools(server *mcp.Server) {
 		}
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "browse"),
 		Description: "Browse knowledge-wiki documents.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiBrowseInput) (*mcp.CallToolResult, any, error) {
@@ -414,7 +414,7 @@ func registerWikiTools(server *mcp.Server) {
 		return textResult(b.String())
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "log"),
 		Description: "Show knowledge-wiki synchronization history.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiLogInput) (*mcp.CallToolResult, any, error) {
@@ -469,7 +469,7 @@ func registerWikiTools(server *mcp.Server) {
 		return textResult(b.String())
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "xrefs"),
 		Description: "Show knowledge-wiki cross-references.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiXRefsInput) (*mcp.CallToolResult, any, error) {
@@ -538,7 +538,7 @@ func registerWikiTools(server *mcp.Server) {
 		return textResult(b.String())
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "embed"),
 		Description: "Generate or update vector embeddings for wiki document chunks. Embeddings enable semantic and hybrid search.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiEmbedInput) (*mcp.CallToolResult, any, error) {
@@ -570,7 +570,7 @@ func registerWikiTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("%d wiki chunks embedded.", total))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("wiki", "source"),
 		Description: "Read the content of a knowledge-wiki page, with head/tail, line ranges and pattern search. " +
 			"This is the ONLY way to read a page: wikis are stored once, in the global directory, so there is no page file inside the project to open.",

@@ -3,6 +3,7 @@ title: "Troubleshooting"
 description: "Diagnose and resolve common issues with Graphit Code — daemon, AST indexing, AI/embedding, memory, hub, MCP, and configuration problems."
 content-type: guide
 audience: developers
+updated: 2026-09-23
 keywords:
   - troubleshooting
   - errors
@@ -1091,15 +1092,28 @@ graphit config modules.dream true
 graphit sync  # Ensures daemon is running
 ```
 
-### Dream reports not generated
+### A Dream run creates no report
 
-**Cause:** The Dream module only activates after an idle timeout (configurable, default varies). Reports contain skill-generation findings, conversation analysis results, and newly created memories or skills. Graphit Task is not a Dream input.
+**Cause:** This is the current design. Dream performs one agentic Memory consolidation pass after
+the idle timeout. It may insert, update, delete, promote, or demote Memory through its constrained
+MCP profile, but it does not generate skills, files, or narrative reports. Task, Knowledge/Wiki,
+AST, Hub, and References are read-only evidence sources.
 
 **Solutions:**
-1. Check dream status for timing:
+1. Check Dream state and timing:
    ```bash
    graphit dream status
    ```
+2. Inspect Memory through `graphit memory list/search/source`. The authoritative Memory table and
+   revision history are the semantic result.
+3. Use `graphit dream status` for the latest operational run. The shared provider-aware ledger lives
+   under the Dream module (`brand.GlobalDir()/dream/dreams/<project_id>` locally, or the project
+   Dream S3 prefix remotely) and intentionally contains no model output or memory bodies.
+4. If the run failed before agent execution, verify the selected CLI's authentication and project
+   Graphit MCP configuration. Dream does not require Linux `bubblewrap`; known CLIs without a
+   verified native write restriction still run, with the file-write risk described in the
+   [Dream CLI matrix](../specs/dream_module.md#cli-tool-permissions-and-mcp-enforcement). A
+   `completed_unobserved` run means process exit succeeded but tool calls were not measurable.
 
 ### Agents do not see the same tasks
 

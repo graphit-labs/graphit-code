@@ -550,26 +550,6 @@ func ResolveTaskVersionRetention(inlineCfg, projectCfg ConfigMap) time.Duration 
 	return duration
 }
 
-// ResolveDreamReportsDir returns the directory holding dream session reports,
-// relative to the project root. Override it with dream.reports_dir — inline,
-// GRAPHIT_DREAM_REPORTS_DIR, project lockfile, global config, in that order of
-// precedence.
-//
-// The default lives under the project's ignored runtime tree. Task intent belongs
-// to Graphit Task's authoritative tables, while dream reports, sentinels and the
-// per-developer read marker are generated output. This key lets a project move the
-// whole vault to a versionable location such as docs/ when publication is explicit.
-// An empty return means "unset": the caller applies the default, which lives in
-// the dream package because it depends on the brand directory and this package
-// stays below brand deliberately.
-func ResolveDreamReportsDir(inlineCfg, projectCfg ConfigMap) string {
-	val := strings.TrimSpace(ResolveConfig("dream.reports_dir", inlineCfg, projectCfg))
-	if val == "" {
-		return ""
-	}
-	return filepath.Clean(filepath.FromSlash(val))
-}
-
 // LoadProjectConfig reads the `config` object out of a project's lockfile.
 //
 // It duplicates a sliver of hub.LoadLockfile on purpose: hub imports ast, so ast

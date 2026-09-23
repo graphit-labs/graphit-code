@@ -38,7 +38,7 @@ type referencesReconcileInput struct {
 }
 
 func registerReferenceTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("references", "reconcile"), Description: "Repair persisted relations from explicit metadata and structural Task links in the project's writable stores. Does not infer links from prose or edit record contents. Imported Knowledge is not modified. Reports every module failure; repeat safely after repair."}, safeTool(func(ctx context.Context, _ *mcp.CallToolRequest, in referencesReconcileInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("references", "reconcile"), Description: "Repair persisted relations from explicit metadata and structural Task links in the project's writable stores. Does not infer links from prose or edit record contents. Imported Knowledge is not modified. Reports every module failure; repeat safely after repair."}, safeTool(func(ctx context.Context, _ *mcp.CallToolRequest, in referencesReconcileInput) (*mcp.CallToolResult, any, error) {
 		dir, err := resolveProjectDir(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -50,7 +50,7 @@ func registerReferenceTools(server *mcp.Server) {
 		}{len(failures) == 0, failures}, in.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("references", "query"), Description: "Analyze persisted typed relationships across authorized Task, Session, Memory and Knowledge stores. Filter source for outgoing links or target for backlinks. Never infers from prose. Missing projections are explicitly reported. Targets may remain unresolved outside current access; a relation grants no target access."}, safeTool(func(ctx context.Context, _ *mcp.CallToolRequest, in referencesQueryInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("references", "query"), Description: "Analyze persisted typed relationships across authorized Task, Session, Memory and Knowledge stores. Filter source for outgoing links or target for backlinks. Never infers from prose. Missing projections are explicitly reported. Targets may remain unresolved outside current access; a relation grants no target access."}, safeTool(func(ctx context.Context, _ *mcp.CallToolRequest, in referencesQueryInput) (*mcp.CallToolResult, any, error) {
 		dir, err := resolveProjectDir(in.ProjectDir)
 		if err != nil {
 			return errResult(err)

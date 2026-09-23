@@ -59,6 +59,9 @@ func (t *Table) DeleteByKey(_ context.Context, _ string, _ []string) error {
 	return ErrNotBuilt
 }
 func (t *Table) Upsert(_ context.Context, _ string, _ []Row) error { return ErrNotBuilt }
+func (t *Table) CompareAndSwap(_ context.Context, _ string, _ Row, _ string) (bool, error) {
+	return false, ErrNotBuilt
+}
 func (t *Table) ReplaceSnapshot(_ context.Context, _ []string, _ []Row) (uint64, error) {
 	return 0, ErrNotBuilt
 }

@@ -129,18 +129,15 @@ func TestKnowledgeExportFormats(t *testing.T) {
 	}
 }
 
-func TestDreamHelpUsesRuntimeReportsDir(t *testing.T) {
-	wantDir := brand.ProjectRuntimePath(".", "dream")
-
+func TestDreamHelpDescribesMemoryOnlyRuns(t *testing.T) {
 	dreamCmd := newDreamCmd()
-	if !strings.Contains(dreamCmd.Long, wantDir) {
-		t.Fatalf("dream help does not mention default runtime reports directory %q", wantDir)
+	if !strings.Contains(dreamCmd.Long, "do not create reports") {
+		t.Fatalf("dream help does not describe current no-report behavior: %q", dreamCmd.Long)
 	}
-
-	reportsCmd := newDreamReportsCmd()
-	wantReport := filepath.Join(wantDir, "<id>.md")
-	if !strings.Contains(reportsCmd.Long, wantReport) {
-		t.Fatalf("dream reports help does not mention default runtime report path %q", wantReport)
+	for _, sub := range dreamCmd.Commands() {
+		if sub.Name() == "reports" {
+			t.Fatal("legacy dream reports command is still registered")
+		}
 	}
 }
 

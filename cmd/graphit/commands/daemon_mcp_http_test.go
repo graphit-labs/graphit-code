@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
@@ -336,6 +337,37 @@ func TestMCPBearerKeepsRuntimeKeyLocalKeyAndIdentityContext(t *testing.T) {
 	mux.ServeHTTP(recorder, rejected)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Errorf("invalid token status = %d; want %d", recorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestMCPBindsCapabilityProfileToScopedBearer(t *testing.T) {
+	var seenProfile string
+	mux := newDaemonMCPMux(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenProfile = r.Header.Get(agentpolicy.ProfileHeader)
+		w.WriteHeader(http.StatusNoContent)
+	}), daemonMCPMuxOptions{RuntimeKey: "runtime-key"})
+
+	token, err := agentpolicy.MintCapabilityToken("runtime-key", agentpolicy.ProfileDreamMemory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/mcp", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set(agentpolicy.ProfileHeader, "unrestricted")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent || seenProfile != agentpolicy.ProfileDreamMemory {
+		t.Fatalf("scoped request status=%d profile=%q", recorder.Code, seenProfile)
+	}
+
+	seenProfile = "not-reached"
+	request = httptest.NewRequest(http.MethodPost, "http://127.0.0.1/mcp", nil)
+	request.Header.Set("Authorization", "Bearer runtime-key")
+	request.Header.Set(agentpolicy.ProfileHeader, agentpolicy.ProfileDreamMemory)
+	recorder = httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent || seenProfile != "" {
+		t.Fatalf("master-key request status=%d retained client profile=%q", recorder.Code, seenProfile)
 	}
 }
 

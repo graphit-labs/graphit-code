@@ -340,10 +340,9 @@ configuration for the active project rather than baking checkout paths into gene
 | `daemon.activity_window` | `30m` | How recently a registered project must change to stay supervised. `0` disables parking. Invalid/negative values use the default. |
 | `dream.idle_timeout` | `7200` seconds | Idle time before an enabled Dream cycle starts. |
 | `dream.max_duration` | `28800` seconds | Maximum Dream session duration; `0` means unlimited. |
-| `dream.reports_dir` | `.graphit/runtime/dream` | Project-relative report location. Move under `docs/` only when reports are intentionally versioned. |
 | `memory.version_retention` | `720h` (30 days) | Minimum retention for old authoritative memory versions. Values below one second use the default. |
 
-Dream improves memory and documentation during idle time but never consumes the Task backlog.
+Dream consolidates Memory during idle time but never mutates documentation or consumes the Task backlog.
 Task ownership and completion remain explicit, fenced actions.
 
 ## Runtime-only environment controls

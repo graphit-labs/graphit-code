@@ -308,7 +308,7 @@ type taskQueryInput struct {
 }
 
 func registerTaskInspectionTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("task", "schema"),
 		Description: "Show the Task LanceDB tables: every column with its type, and the row count. " +
 			"Read this before writing a task_query filter.",
@@ -328,7 +328,7 @@ func registerTaskInspectionTools(server *mcp.Server) {
 		return lanceSchemaResult(value, in.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("task", "query"),
 		Description: "Answer a structured question about known task records: filter rows by predicate and return only the columns asked for. " +
 			"Use this instead of reading whole records when the question is \"which of these, and what state\" — the status of a set of ids is one call. " +
@@ -418,7 +418,7 @@ func taskSearchResult(value page.Page[graphtask.SearchResult], optimized *bool) 
 func registerTaskTools(server *mcp.Server) {
 	registerTaskSessionTools(server)
 	registerTaskInspectionTools(server)
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "batch"), Description: "Run 1-100 task mutations in input order and return an explicit success or error for every item. Existing fencing and lifecycle checks apply to each item."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskBatchInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "batch"), Description: "Run 1-100 task mutations in input order and return an explicit success or error for every item. Existing fencing and lifecycle checks apply to each item."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskBatchInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -429,7 +429,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "create"), Description: "Create an idempotent open task in the shared LanceDB task store. Open and unclaimed is the backlog state."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCreateInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "create"), Description: "Create an idempotent open task in the shared LanceDB task store. Open and unclaimed is the backlog state."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCreateInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -448,7 +448,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(created, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "get"), Description: "Read one authoritative task snapshot and its ordered audit history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskGetInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "get"), Description: "Read one authoritative task snapshot and its ordered audit history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskGetInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -459,7 +459,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "export"), Description: "Export stable complete JSON for every project task or one exact task and its subtasks, including all public Task entities and audit history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskExportInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "export"), Description: "Export stable complete JSON for every project task or one exact task and its subtasks, including all public Task entities and audit history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskExportInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -470,7 +470,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return jsonResult(value)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "list"), Description: "List authoritative tasks. ready=true is the dependency-aware work queue; open and unclaimed tasks are the backlog."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "list"), Description: "List authoritative tasks. ready=true is the dependency-aware work queue; open and unclaimed tasks are the backlog."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskListInput) (*mcp.CallToolResult, any, error) {
 		if in.Status != "" && in.Status != "blocked" && in.Status != "flagged" && !graphtask.ValidStatus(in.Status) {
 			return errResult(fmt.Errorf("invalid task status %q", in.Status))
 		}
@@ -484,7 +484,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "search"), Description: "Search prior and current tasks with LanceDB full-text ranking and opaque cursor pagination; use task_get for authoritative details."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSearchInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "search"), Description: "Search prior and current tasks with LanceDB full-text ranking and opaque cursor pagination; use task_get for authoritative details."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSearchInput) (*mcp.CallToolResult, any, error) {
 		svc, projectDir, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -496,7 +496,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskSearchResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "claim"), Description: "Atomically claim one ready task. Returns the fencing token required by every owner mutation."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskClaimInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "claim"), Description: "Atomically claim one ready task. Returns the fencing token required by every owner mutation."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskClaimInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -511,7 +511,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "force", "takeover"), Description: "Explicitly recover an unexpired in-progress claim from an unrecoverable owner using exact-ID confirmation, revision fencing, a reason, and token rotation."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskForceTakeoverInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "force", "takeover"), Description: "Explicitly recover an unexpired in-progress claim from an unrecoverable owner using exact-ID confirmation, revision fencing, a reason, and token rotation."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskForceTakeoverInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -526,7 +526,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "progress"), Description: "Record a durable checkpoint and exact next step, fenced by the active claim."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskProgressInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "progress"), Description: "Record a durable checkpoint and exact next step, fenced by the active claim."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskProgressInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -545,7 +545,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "heartbeat"), Description: "Renew the active task lease without changing its progress summary."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskHeartbeatInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "heartbeat"), Description: "Renew the active task lease without changing its progress summary."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskHeartbeatInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -560,7 +560,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "release"), Description: "Checkpoint and release a claim so another agent can continue immediately."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReleaseInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "release"), Description: "Checkpoint and release a claim so another agent can continue immediately."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReleaseInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -575,7 +575,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "complete"), Description: "Complete a claimed task after acceptance checks pass, releasing its dependents."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCompleteInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "complete"), Description: "Complete a claimed task after acceptance checks pass, releasing its dependents."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCompleteInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -590,7 +590,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "cancel"), Description: "Cancel a task with an audited reason. In-progress cancellation requires the current claim token."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCancelInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "cancel"), Description: "Cancel a task with an audited reason. In-progress cancellation requires the current claim token."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCancelInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -605,7 +605,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "remove"), Description: "Hard-remove an unreferenced task only when exact-ID confirmation and a reason establish that deletion is correct."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskRemoveInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "remove"), Description: "Hard-remove an unreferenced task only when exact-ID confirmation and a reason establish that deletion is correct."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskRemoveInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -616,7 +616,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "flag"), Description: "Flag a claimed task with a required reason. Work may continue or transfer, but completion is fenced until unflagged."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskFlagInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "flag"), Description: "Flag a claimed task with a required reason. Work may continue or transfer, but completion is fenced until unflagged."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskFlagInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -631,7 +631,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "unflag"), Description: "Remove a claimed task's flag after its reason has been resolved, allowing completion."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskUnflagInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "unflag"), Description: "Remove a claimed task's flag after its reason has been resolved, allowing completion."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskUnflagInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -646,7 +646,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check"), Description: "Record pass/fail and concrete evidence for one acceptance or test check. Completion requires every check to pass."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check"), Description: "Record pass/fail and concrete evidence for one acceptance or test check. Completion requires every check to pass."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -665,7 +665,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "revise"), Description: "Revise a claimed task specification with claim and expected-revision fencing, a required reason, and immutable before/after history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReviseInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "revise"), Description: "Revise a claimed task specification with claim and expected-revision fencing, a required reason, and immutable before/after history."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskReviseInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -684,7 +684,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check", "supersede"), Description: "Supersede an obsolete acceptance or test check without deleting history, optionally adding a replacement check."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckSupersedeInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "check", "supersede"), Description: "Supersede an obsolete acceptance or test check without deleting history, optionally adding a replacement check."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCheckSupersedeInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -703,7 +703,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "comment", "add"), Description: "Append an idempotent, typed task comment for decisions, problems, lessons, knowledge, or other relevant work context."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCommentInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "comment", "add"), Description: "Append an idempotent, typed task comment for decisions, problems, lessons, knowledge, or other relevant work context."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCommentInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -722,7 +722,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "dependency", "add"), Description: "Add an explicit blocking dependency to an open task; cycles are rejected."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskDependencyInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "dependency", "add"), Description: "Add an explicit blocking dependency to an open task; cycles are rejected."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskDependencyInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -733,7 +733,7 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "dependency", "remove"), Description: "Remove an explicit blocking dependency from an open task."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskDependencyInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "dependency", "remove"), Description: "Remove an explicit blocking dependency from an open task."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskDependencyInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)

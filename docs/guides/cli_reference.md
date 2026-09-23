@@ -3,6 +3,7 @@ title: "CLI Command Reference"
 description: "Reference manual detailing every subcommand, flag, and configuration override option in the Graphit CLI."
 content-type: reference
 audience: developers
+updated: 2026-09-23
 keywords:
   - CLI
   - commands
@@ -578,8 +579,9 @@ survive a merge, an important or mandatory memory is never deleted outright, the
 never deleted, and every refusal is reported with its reason. Without an AI CLI, only
 the deterministic staleness check runs.
 
-This is the same pass the [dream module](../specs/dream_module.md) performs on idle.
-Run it here to have it now, or when the dream module is off.
+This manual command remains a separate deterministic analysis/apply workflow. The
+[dream module](../specs/dream_module.md) instead lets a constrained agent make individual,
+CAS-fenced Memory tool calls during idle time; Dream does not invoke this command.
 
 > `gc` was removed. Collecting memories by age answers the wrong question: age says a
 > memory has not been revised, not that it is wrong. Consolidation reasons about
@@ -642,19 +644,18 @@ Watching defaults to enabled. Disabling it stops incremental AST/Knowledge react
 manual `graphit sync` and direct index commands available.
 
 ### `dream`
-Controls autonomous skill generation and knowledge mining.
+Inspects autonomous, idle-triggered Memory consolidation.
 ```bash
 graphit dream <subcommand> [flags]
 ```
 **Subcommands:**
-- `status`: Show dream state (active/idle/exhausted), report count, and timing configuration.
-- `reports`: List dream session reports.
-  - `--all`: Show all reports.
+- `status`: Show Dream state, latest operational run, and timing configuration.
 
-The default reports vault is `.graphit/runtime/dream/`, which is covered by the generated
-`.gitignore`. Set `dream.reports_dir` to a versioned directory such as `docs/dream` when
-reports are intended to be reviewed and committed. Existing `.graphit/dream/` reports are
-not moved or deleted automatically.
+Current runs write `.graphit/runtime/dream/dream.state`; their semantic result is the Memory table.
+The provider-aware operational ledger is the shared Dream-module store: locally
+`<brand.GlobalDir()>/dream/dreams/<project_id>`, or remotely
+`v2/projects/<project_id>/dream`. The brand alone resolves the global root and its default. Runs do
+not create a Markdown report, sentinel, or last-seen marker.
 
 ### `task`
 Manages deterministic project work in the shared LanceDB task store.

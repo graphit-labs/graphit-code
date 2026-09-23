@@ -391,6 +391,43 @@ func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error 
 	return nil
 }
 
+// CompareAndSwap replaces one existing row only when the target-side SQL
+// condition still holds. It never inserts a missing row. The returned boolean
+// is false when the key exists with a newer value (or no longer exists).
+func (t *Table) CompareAndSwap(ctx context.Context, keyColumn string, row Row, condition string) (bool, error) {
+	if t.store.readOnly {
+		return false, ErrReadOnly
+	}
+	if strings.TrimSpace(condition) == "" {
+		return false, errors.New("lancestore: compare-and-swap needs a target condition")
+	}
+	if _, ok := row[keyColumn].(string); !ok {
+		return false, fmt.Errorf("lancestore: compare-and-swap key %q is missing or not a string", keyColumn)
+	}
+	rec, err := recordOf(t.schema, []Row{row})
+	if err != nil {
+		return false, err
+	}
+	defer rec.Release()
+
+	var updated uint64
+	what := fmt.Sprintf("compare-and-swapping one row in %s", t.name)
+	if err := withCommitRetry(ctx, what,
+		func() error {
+			result, mergeErr := t.tbl.MergeInsert([]string{keyColumn}).
+				WhenMatchedUpdateAll(&condition).
+				Execute(ctx, []arrow.Record{rec})
+			if mergeErr == nil {
+				updated = result.NumUpdatedRows
+			}
+			return mergeErr
+		},
+		func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return false, fmt.Errorf("lancestore: %s: %w", what, err)
+	}
+	return updated == 1, nil
+}
+
 // ReplaceSnapshot atomically makes the table contain exactly rows, matched by keyColumns.
 func (t *Table) ReplaceSnapshot(ctx context.Context, keyColumns []string, rows []Row) (uint64, error) {
 	if t.store.readOnly {

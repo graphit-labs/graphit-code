@@ -19,20 +19,24 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 )
 
 const watchPollInterval = 500 * time.Millisecond
 const AgentSessionHeader = "X-Graphit-Agent-Session"
 
 type Config struct {
-	ResolveBearer  func(context.Context) (string, error)
-	PortFile       string
-	KeyFile        string
-	MCPPath        string // default "/mcp"
-	EnsureDaemon   func()
-	RetryInterval  time.Duration // default 500ms
-	Stderr         io.Writer
-	AgentSessionID string
+	ResolveBearer     func(context.Context) (string, error)
+	PortFile          string
+	KeyFile           string
+	MCPPath           string // default "/mcp"
+	EnsureDaemon      func()
+	RetryInterval     time.Duration // default 500ms
+	Stderr            io.Writer
+	AgentSessionID    string
+	CapabilityProfile string
+	CapabilityToken   string
 }
 
 func (c *Config) applyDefaults() {
@@ -44,6 +48,12 @@ func (c *Config) applyDefaults() {
 	}
 	if strings.TrimSpace(c.AgentSessionID) == "" {
 		c.AgentSessionID = hostAgentSessionID()
+	}
+	if strings.TrimSpace(c.CapabilityProfile) == "" {
+		c.CapabilityProfile = agentpolicy.DetectProfile()
+	}
+	if strings.TrimSpace(c.CapabilityToken) == "" {
+		c.CapabilityToken = agentpolicy.CapabilityTokenFromEnv()
 	}
 }
 
@@ -102,7 +112,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		endpoint := fmt.Sprintf("http://127.0.0.1:%d%s", port, cfg.MCPPath)
 		cfg.logf("connecting to MCP endpoint at %s", endpoint)
 
-		httpConn, err := connectHTTP(ctx, endpoint, key, cfg.ResolveBearer, cfg.AgentSessionID)
+		httpConn, err := connectHTTP(ctx, endpoint, key, cfg.ResolveBearer, cfg.AgentSessionID, cfg.CapabilityProfile)
 		if err != nil {
 			cfg.logf("HTTP connect failed: %v, retrying…", err)
 			if cfg.EnsureDaemon != nil {
@@ -218,7 +228,7 @@ func watchDaemonFiles(ctx context.Context, cfg Config, port int, key string, rel
 			return
 		case <-ticker.C:
 			newPort, perr := ReadPort(cfg.PortFile)
-			newKey, kerr := ReadKey(cfg.KeyFile)
+			newKey, kerr := daemonCredential(cfg)
 			if perr != nil || kerr != nil {
 				relayCancel()
 				return
@@ -240,12 +250,12 @@ func isDaemonRestarted(err error) bool {
 	return strings.Contains(err.Error(), errDaemonRestartedMsg)
 }
 
-func connectHTTP(ctx context.Context, endpoint, apiKey string, resolveBearer func(context.Context) (string, error), agentSessionID string) (mcp.Connection, error) {
+func connectHTTP(ctx context.Context, endpoint, apiKey string, resolveBearer func(context.Context) (string, error), agentSessionID, capabilityProfile string) (mcp.Connection, error) {
 	httpTransport := &mcp.StreamableClientTransport{
 		Endpoint: endpoint,
 		HTTPClient: &http.Client{
 			Timeout:   5 * time.Minute,
-			Transport: &authRoundTripper{key: apiKey, resolveBearer: resolveBearer, agentSessionID: agentSessionID, base: http.DefaultTransport},
+			Transport: &authRoundTripper{key: apiKey, resolveBearer: resolveBearer, agentSessionID: agentSessionID, capabilityProfile: capabilityProfile, base: http.DefaultTransport},
 		},
 	}
 	return httpTransport.Connect(ctx)
@@ -254,7 +264,7 @@ func connectHTTP(ctx context.Context, endpoint, apiKey string, resolveBearer fun
 func waitForDaemon(ctx context.Context, cfg Config) (int, string, error) {
 	for {
 		port, perr := ReadPort(cfg.PortFile)
-		key, kerr := ReadKey(cfg.KeyFile)
+		key, kerr := daemonCredential(cfg)
 		if perr == nil && kerr == nil && port > 0 && key != "" {
 			if isPortAlive(port) {
 				return port, key, nil
@@ -270,6 +280,16 @@ func waitForDaemon(ctx context.Context, cfg Config) (int, string, error) {
 		case <-time.After(cfg.RetryInterval):
 		}
 	}
+}
+
+func daemonCredential(cfg Config) (string, error) {
+	if token := strings.TrimSpace(cfg.CapabilityToken); token != "" {
+		return token, nil
+	}
+	if strings.TrimSpace(cfg.CapabilityProfile) != "" {
+		return "", fmt.Errorf("scoped capability token required for profile %q", cfg.CapabilityProfile)
+	}
+	return ReadKey(cfg.KeyFile)
 }
 
 func isPortAlive(port int) bool {
@@ -324,10 +344,11 @@ func isStdioClosed(err error) bool {
 }
 
 type authRoundTripper struct {
-	key            string
-	resolveBearer  func(context.Context) (string, error)
-	agentSessionID string
-	base           http.RoundTripper
+	key               string
+	resolveBearer     func(context.Context) (string, error)
+	agentSessionID    string
+	capabilityProfile string
+	base              http.RoundTripper
 }
 
 func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -346,6 +367,9 @@ func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	req.Header.Set("Authorization", "Bearer "+key)
 	if t.agentSessionID != "" {
 		req.Header.Set(AgentSessionHeader, t.agentSessionID)
+	}
+	if t.capabilityProfile != "" {
+		req.Header.Set(agentpolicy.ProfileHeader, t.capabilityProfile)
 	}
 	return t.base.RoundTrip(req)
 }

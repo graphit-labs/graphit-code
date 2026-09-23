@@ -306,6 +306,99 @@ func (t *MemoryTable) Put(ctx context.Context, records ...MemoryRecord) error {
 	return nil
 }
 
+// CompareAndSwap atomically replaces one live head when its persisted revision
+// and/or content hash still match the caller's observation. It never inserts.
+func (t *MemoryTable) CompareAndSwap(ctx context.Context, record MemoryRecord, expectedRevision *int, expectedHash string) (bool, error) {
+	if record.RevisionID != "" || record.Superseded {
+		return false, fmt.Errorf("compare-and-swap requires a live memory head")
+	}
+	if err := relations.Validate(relations.Inputs(ctx)); err != nil {
+		return false, err
+	}
+	conditions := make([]string, 0, 2)
+	if expectedRevision != nil {
+		conditions = append(conditions, fmt.Sprintf("target.revision = %d", *expectedRevision))
+	}
+	if expectedHash != "" {
+		conditions = append(conditions, "target.content_hash = "+sqlQuoteMemory(expectedHash))
+	}
+	if len(conditions) == 0 {
+		return false, fmt.Errorf("compare-and-swap requires expected_revision or expected_content_hash")
+	}
+
+	// Preserve the same partial-reference semantics as Put. The head is committed
+	// first so a stale writer cannot publish a relation generation for a record it
+	// failed to update; readers report an incomplete projection if the subsequent
+	// relation append fails instead of silently serving stale edges.
+	source := relations.Entity{Type: "memory", ID: record.ID, Scope: record.Scope, ScopeID: record.ScopeID}
+	refs := []relations.Ref{}
+	old, exists, err := t.Get(ctx, record.ID)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	edges, _, err := relations.ReadMatching(ctx, t.store, map[string]string{source.Key(): relations.Fingerprint([]string{old.Title, old.Body, old.ContentHash})})
+	if err != nil {
+		return false, err
+	}
+	for _, edge := range edges {
+		refs = append(refs, relations.Ref{Target: edge.Target, Relation: edge.Relation, Field: edge.Field})
+	}
+	if input := relations.Inputs(ctx); input != nil {
+		refs = relations.Qualify(source, *input)
+	}
+	if relations.Inputs(ctx) != nil || len(refs) > 0 {
+		record.ContentHash = relations.Fingerprint(struct {
+			Title, Body string
+			References  []relations.Ref
+		}{record.Title, record.Body, refs})
+	}
+	row, err := memoryRow(record)
+	if err != nil {
+		return false, err
+	}
+	ok, err := t.table.CompareAndSwap(ctx, "key", row, strings.Join(conditions, " AND "))
+	if err != nil {
+		return false, fmt.Errorf("updating memory %q conditionally: %w", record.ID, err)
+	}
+	if ok && (relations.Inputs(ctx) != nil || len(refs) > 0) {
+		if err := relations.Replace(ctx, t.store, source, int64(record.Revision), "record", refs, relations.Fingerprint([]string{record.Title, record.Body, record.ContentHash})); err != nil {
+			return false, fmt.Errorf("updating memory %q references: %w", record.ID, err)
+		}
+	}
+	return ok, nil
+}
+
+// DeleteIf atomically removes one live head only while the supplied
+// precondition still matches. A false result means the caller observed stale
+// state; no record was removed.
+func (t *MemoryTable) DeleteIf(ctx context.Context, id string, expectedRevision *int, expectedHash string) (bool, error) {
+	conditions := []string{"key = " + sqlQuoteMemory(id)}
+	if expectedRevision != nil {
+		conditions = append(conditions, fmt.Sprintf("revision = %d", *expectedRevision))
+	}
+	if expectedHash != "" {
+		conditions = append(conditions, "content_hash = "+sqlQuoteMemory(expectedHash))
+	}
+	if expectedRevision == nil && expectedHash == "" {
+		return false, fmt.Errorf("conditional delete requires expected_revision or expected_content_hash")
+	}
+	if err := t.table.DeleteWhere(ctx, strings.Join(conditions, " AND ")); err != nil {
+		return false, fmt.Errorf("deleting memory %q conditionally: %w", id, err)
+	}
+	if _, exists, err := t.Get(ctx, id); err != nil {
+		return false, err
+	} else if exists {
+		return false, nil
+	}
+	if err := relations.Remove(ctx, t.store, "memory", id); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Delete removes records by key. A key that is not there is not an error: the caller's intent is
 // that it must not be there.
 func (t *MemoryTable) Delete(ctx context.Context, keys ...string) error {

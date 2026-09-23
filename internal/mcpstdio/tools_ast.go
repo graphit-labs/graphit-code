@@ -125,7 +125,7 @@ type astSearchInput struct {
 }
 
 func registerASTTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "index"),
 		Description: "Build or repair the project's AST code graph when it is absent or explicit reindexing is needed. The daemon normally indexes edits; adapter stop hooks dispatch final sync. Do not duplicate that work after each edit or session.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astIndexInput) (*mcp.CallToolResult, any, error) {
@@ -210,7 +210,7 @@ func registerASTTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "query"),
 		Description: "Execute a Cypher query against the AST code graph database. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astQueryInput) (*mcp.CallToolResult, any, error) {
@@ -253,7 +253,7 @@ func registerASTTools(server *mcp.Server) {
 		return jsonResult(paged)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("ast", "schema"),
 		Description: "Return the AST GRAPH schema: node labels, properties, and relationship types, for writing Cypher with " +
 			brand.MCPToolName("ast", "query") + ". " +
@@ -280,7 +280,7 @@ func registerASTTools(server *mcp.Server) {
 		return textResult(schemaText)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("ast", "fts", "schema"),
 		Description: "Show the AST full-text tables: every column with its type, and the row count. " +
 			"Read this before writing an " + brand.MCPToolName("ast", "fts", "query") + " filter. " +
@@ -308,7 +308,7 @@ func registerASTTools(server *mcp.Server) {
 		return lanceSchemaResult(value, input.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("ast", "fts", "query"),
 		Description: "Answer a structured question about the indexed code: filter rows by predicate and return only the columns asked for. " +
 			"Use it for questions ranking cannot answer — every entity in a file, how many of a kind exist, what is project code and what is a dependency. " +
@@ -348,7 +348,7 @@ func registerASTTools(server *mcp.Server) {
 		return lanceQueryResult(page.FinishFetched(window, result.Rows), input.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "install"),
 		Description: "Import another local repository's code graph as a named context. The graph is built once in the global store and shared; the project records that it may query it.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astInstallInput) (*mcp.CallToolResult, any, error) {
@@ -418,7 +418,7 @@ func registerASTTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "remove"),
 		Description: "Remove an imported context or clear the main project code graph. Removing a context drops this project's claim on it; the shared store stays for whoever else imported it.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astRemoveInput) (*mcp.CallToolResult, any, error) {
@@ -455,7 +455,7 @@ func registerASTTools(server *mcp.Server) {
 		return textResult("Project code graph cleared.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "list"),
 		Description: "List all imported AST contexts and their repository paths. Without project_dir, lists the artifacts installed globally, which are the ones a project-less caller can query.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astListInput) (*mcp.CallToolResult, any, error) {
@@ -471,7 +471,7 @@ func registerASTTools(server *mcp.Server) {
 		return jsonResult(contexts)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "source"),
 		Description: "Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context. This is the only way to read the source of an imported context or another project: the graph and its file text live in the global store, not in any project directory. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSourceInput) (*mcp.CallToolResult, any, error) {
@@ -513,7 +513,7 @@ func registerASTTools(server *mcp.Server) {
 		return textResult(result.Source)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "export"),
 		Description: "Export the AST database to an Obsidian vault or an importable .ast package.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astExportInput) (*mcp.CallToolResult, any, error) {
@@ -556,7 +556,7 @@ func registerASTTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Exported successfully to %s", absDir))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "embed"),
 		Description: "Run embedding cycle to precompute or update semantic embeddings.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astEmbedInput) (*mcp.CallToolResult, any, error) {
@@ -591,7 +591,7 @@ func registerASTTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("%d entities embedded successfully.", count))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "search"),
 		Description: "Hybrid search combining BM25 full-text and semantic vector search with Reciprocal Rank Fusion (RRF). Supports three modes: hybrid (default, best results), fts (keyword only), semantic (vector only). Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSearchInput) (*mcp.CallToolResult, any, error) {

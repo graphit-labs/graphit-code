@@ -150,6 +150,7 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 		"knowledge project":  KnowledgeProjectDir(projectDir),
 		"knowledge context":  KnowledgeContextDir("some-docs"),
 		"memory table":       MemoryTableDir("project", storeTestProjectID),
+		"dream table":        DreamTableDir(storeTestProjectID),
 	}
 	for label, got := range cases {
 		rel, err := filepath.Rel(global, got)
@@ -170,6 +171,7 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 		KnowledgeProjectDir(projectDir):               filepath.Join(global, "wiki", "knowledge", "project", storeTestProjectID),
 		KnowledgeContextDir("Some Docs"):              filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
 		MemoryTableDir("project", storeTestProjectID): filepath.Join(global, "memory", "memory-project-"+storeTestProjectID),
+		DreamTableDir(storeTestProjectID):             filepath.Join(global, "dream", "dreams", storeTestProjectID),
 	}
 	for got, expected := range want {
 		if got != expected {
@@ -181,6 +183,19 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 		if strings.Contains(got, "memory-raw") {
 			t.Errorf("%s = %q resolves into the retired raw memory store", label, got)
 		}
+	}
+}
+
+func TestDreamTableDirFollowsBrandGlobalDirDynamically(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), first)
+	if got, want := DreamTableDir(storeTestProjectID), filepath.Join(first, "dream", "dreams", storeTestProjectID); got != want {
+		t.Fatalf("DreamTableDir with first global dir = %q, want %q", got, want)
+	}
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), second)
+	if got, want := DreamTableDir(storeTestProjectID), filepath.Join(second, "dream", "dreams", storeTestProjectID); got != want {
+		t.Fatalf("DreamTableDir with second global dir = %q, want %q", got, want)
 	}
 }
 

@@ -52,7 +52,7 @@ type ConsolidationOutcome struct {
 	CoverageNote string
 }
 
-// Markdown renders the outcome for the dream report.
+// Markdown renders the outcome of the explicit memory consolidation command.
 func (o *ConsolidationOutcome) Markdown() string {
 	var b strings.Builder
 	_, _ = fmt.Fprintf(&b, "### Memory consolidation — %s scope\n\n", o.Scope)

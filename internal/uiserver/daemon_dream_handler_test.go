@@ -2,7 +2,6 @@ package uiserver
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/dream"
 )
 
 func TestHandleDaemonStatus(t *testing.T) {
@@ -92,6 +90,19 @@ func TestDaemonStopRouteIsNotRegistered(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d; want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestDreamReportsRouteIsNotRegistered(t *testing.T) {
+	h := NewDaemonDreamHandler(nil)
+	mux := http.NewServeMux()
+	h.RegisterAPIRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports?project_dir=/tmp", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("legacy reports route status = %d; want %d", w.Code, http.StatusNotFound)
 	}
 }
 
@@ -190,219 +201,6 @@ func TestHandleDreamStatus_NoLockFile(t *testing.T) {
 	}
 }
 
-func TestHandleDreamStatus_WithDreamDir(t *testing.T) {
-	tmp := t.TempDir()
-	dreamDir := dream.ReportsDir(tmp)
-	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dreamDir, "report1.md"), []byte("---\ntitle: Report 1\n---\n# Report"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/status?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var res struct {
-		TotalReports int `json:"total_reports"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if res.TotalReports != 1 {
-		t.Errorf("TotalReports = %d; want 1", res.TotalReports)
-	}
-}
-
-func TestHandleDreamReports(t *testing.T) {
-	tmp := t.TempDir()
-	dreamDir := dream.ReportsDir(tmp)
-	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	reportContent := []byte("---\ntitle: \"Fake Dream Report\"\n---\n# Reflection\nAutonomous improvements.")
-	if err := os.WriteFile(filepath.Join(dreamDir, "session1.md"), reportContent, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var reports []dream.Report
-	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
-		t.Fatalf("failed to decode: %v", err)
-	}
-
-	if len(reports) != 1 {
-		t.Errorf("expected 1 report, got %d", len(reports))
-	} else if reports[0].Title != "Fake Dream Report" {
-		t.Errorf("expected title 'Fake Dream Report', got %s", reports[0].Title)
-	}
-}
-
-func TestHandleDreamReports_MissingDir(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleDreamReports_NoDreamDir(t *testing.T) {
-	tmp := t.TempDir()
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var reports []dream.Report
-	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(reports) != 0 {
-		t.Errorf("expected 0 reports, got %d", len(reports))
-	}
-}
-
-func TestHandleDreamReports_MultipleReports(t *testing.T) {
-	tmp := t.TempDir()
-	dreamDir := dream.ReportsDir(tmp)
-	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("session%d.md", i)
-		content := fmt.Sprintf("---\ntitle: \"Report %d\"\n---\n# Report %d", i, i)
-		if err := os.WriteFile(filepath.Join(dreamDir, name), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	var reports []dream.Report
-	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(reports) != 3 {
-		t.Errorf("expected 3 reports, got %d", len(reports))
-	}
-
-	for i := 1; i < len(reports); i++ {
-		if reports[i].Created.After(reports[i-1].Created) {
-			t.Errorf("reports not sorted by date descending: %v > %v", reports[i].Created, reports[i-1].Created)
-		}
-	}
-}
-
-func TestHandleDreamReports_WithDeepSleep(t *testing.T) {
-	tmp := t.TempDir()
-	dreamDir := dream.ReportsDir(tmp)
-	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	reportContent := []byte("---\ntitle: \"Deep Sleep Report\"\n---\n# Deep sleep content")
-	if err := os.WriteFile(filepath.Join(dreamDir, "deep1.md"), reportContent, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dreamDir, "deep1.exhausted"), []byte(""), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	var reports []dream.Report
-	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(reports) != 1 {
-		t.Fatalf("expected 1 report, got %d", len(reports))
-	}
-	if !reports[0].HasDeepSleep {
-		t.Error("expected HasDeepSleep=true for report with .exhausted sentinel")
-	}
-}
-
-func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
-	tmp := t.TempDir()
-	dreamDir := dream.ReportsDir(tmp)
-	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(dreamDir, "state.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dreamDir, "data.txt"), []byte("data"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dreamDir, "subdir"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/reports?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	var reports []dream.Report
-	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(reports) != 0 {
-		t.Errorf("expected 0 reports (only non-md files), got %d", len(reports))
-	}
-}
-
 func TestSplitLastNLocal(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -450,7 +248,6 @@ func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/daemon/status"},
 		{http.MethodGet, "/api/dream/status?project_dir=/tmp"},
-		{http.MethodGet, "/api/dream/reports?project_dir=/tmp"},
 	}
 	for _, ep := range endpoints {
 		req := httptest.NewRequest(ep.method, ep.path, nil)

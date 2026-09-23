@@ -17,25 +17,55 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestAuthRoundTripperSendsBearerAndSession(t *testing.T) {
-	transport := &authRoundTripper{key: "access-token", agentSessionID: "agent-1", base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+func TestAuthRoundTripperSendsBearerSessionAndCapabilityProfile(t *testing.T) {
+	transport := &authRoundTripper{key: "access-token", agentSessionID: "agent-1", capabilityProfile: agentpolicy.ProfileDreamMemory, base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if got := req.Header.Get("Authorization"); got != "Bearer access-token" {
 			t.Fatalf("Authorization = %q", got)
 		}
 		if got := req.Header.Get(AgentSessionHeader); got != "agent-1" {
 			t.Fatalf("session = %q", got)
 		}
+		if got := req.Header.Get(agentpolicy.ProfileHeader); got != agentpolicy.ProfileDreamMemory {
+			t.Fatalf("capability profile = %q", got)
+		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Header: make(http.Header)}, nil
 	})}
 	req, _ := http.NewRequest(http.MethodGet, "http://mcp.example", nil)
 	if _, err := transport.RoundTrip(req); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDaemonCredentialPrefersScopedCapabilityToken(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "mcp.key")
+	if err := os.WriteFile(keyFile, []byte("master-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := daemonCredential(Config{KeyFile: keyFile, CapabilityToken: "scoped-token"})
+	if err != nil || got != "scoped-token" {
+		t.Fatalf("daemon credential = %q, %v; want scoped token", got, err)
+	}
+}
+
+func TestDreamProxyDoesNotFallBackToMasterKey(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "mcp.key")
+	if err := os.WriteFile(keyFile, []byte("master-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemonCredential(Config{KeyFile: keyFile, CapabilityProfile: agentpolicy.ProfileDreamMemory}); err == nil || !strings.Contains(err.Error(), "scoped capability token required") {
+		t.Fatalf("Dream proxy master-key fallback = %v", err)
+	}
+	got, err := daemonCredential(Config{KeyFile: keyFile})
+	if err != nil || got != "master-key" {
+		t.Fatalf("ordinary proxy credential = %q, %v", got, err)
 	}
 }
 

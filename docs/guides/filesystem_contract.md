@@ -1,7 +1,7 @@
 ---
 title: Filesystem, State, and Watchers
 type: guide
-updated: 2026-09-08
+updated: 2026-09-23
 tags: [filesystem, configuration, daemon, watchers, state, adapters]
 ---
 
@@ -27,7 +27,7 @@ override, see the [Configuration Reference](configuration.md).
 | `.graphit/rules/<module>_skill.md` | Project override for the full managed Task, Memory, AST, Hub, or Knowledge skill; may include the default-content placeholder | Yes |
 | `.graphit/ast/queries/*.yaml` | Project grammar-query overrides, unless `ast.queries_dir` moves them | Yes |
 | `.graphit/grammars/{treesitter,antlr}/` | Platform-specific local parser libraries | No |
-| `.graphit/runtime/` | Generated caches, locks, stamps, exports, Dream output, and per-project logs | No |
+| `.graphit/runtime/` | Generated caches, locks, stamps, exports, Dream state, and per-project logs | No |
 
 The first operation that must persist project state creates a minimal lockfile with an immutable
 project ULID and a mutable discovery name. `graphit init` then creates or reconciles the remaining
@@ -47,9 +47,8 @@ The default generated tree is:
 ```text
 .graphit/runtime/
 ├── ast/export/                    default AST export destination
-├── dream/                         reports, state markers, and last-seen data
+├── dream/dream.state              current Dream timing/session/exhaustion state
 ├── daemon/daemon.log              project supervision log
-├── daemon/dream.state             current Dream timing/session state
 ├── cache/skills/<adapter>/<name>  managed-skill content and mtime cache
 ├── cache/artifacts/...            managed-artifact synchronization cache
 ├── sync.stamp                     recent-sync debounce marker
@@ -57,9 +56,8 @@ The default generated tree is:
 └── sync-heavy.lock                heavyweight synchronization lock
 ```
 
-This tree is disposable machine state, except for an export or Dream report that you deliberately
-want to preserve. Use an explicit AST export destination or `dream.reports_dir` when output should
-live in a versioned or externally managed location.
+This tree is disposable machine state, except for an export you deliberately want to preserve.
+Dream runs do not create a result document: Memory is the semantic source of truth.
 
 ## Global state
 
@@ -80,6 +78,7 @@ Important global paths include:
 | `daemon/daemon.log` | Daemon log |
 | `daemon/mcp.port` | Actual MCP port, including an OS-selected port |
 | `auth.json` | Named providers, isolated account profiles, sessions, credentials, and active selection; atomic, mode `0600` |
+| `.auth-tmp/` | Fixed private staging directory for atomic `auth.json` replacement; mode `0700`, empty after a completed write |
 | `daemon/mcp.key` | Local runtime MCP bearer key generated per daemon start; mode `0600` |
 | `daemon/embed.sock` | Local embedding service socket on supported platforms |
 | `logs/graphit.log` | Process-wide structured log, truncated after 5 MiB |
@@ -91,6 +90,7 @@ Important global paths include:
 | `hub/rules/` | Installed Hub overrides used after project and user-global rules |
 | `grammars/{treesitter,antlr}/`, `ast/queries/` | Globally installed parser binaries and user/Hub grammar profiles |
 | `ast/`, `wiki/`, `memory/`, `task/` | Authoritative compiled graphs, indexes, memories, and task state |
+| `dream/dreams/<project_id>/` | Local provider-aware Dream operational ledger, shared per project |
 | `ast/project/.*.lifecycle.lock`, `wiki/knowledge/project/.*.lifecycle.lock` | Advisory cross-process locks beside mutable AST/Knowledge stores; they remain in place across destructive reset |
 | `sessions/<project-hash>/{meta,messages}/` | Saved AI chat metadata and JSONL messages |
 | `sessions/<session-id>/` | Ephemeral multi-artifact Live Search workspaces and event history |
@@ -116,10 +116,10 @@ but it cannot authorize content or a remote mount. See
 In the supplied container, `GRAPHIT_GLOBAL_DIR=/home/graphit/.graphit`, so daemon files are under
 `/home/graphit/.graphit/daemon/`, not under a project `.graphit/runtime/` tree.
 
-The default Dream directory contains `<session-id>.md` reports, an optional
-`<session-id>.exhausted` deep-sleep marker, and `dream_last_seen.json`. When
-`dream.reports_dir` moves the report directory, those files move with it; `daemon/dream.state`
-remains generated runtime state.
+The project Dream runtime directory contains `dream.state`. Runs do not create a report or sentinel.
+Deep sleep is the `exhausted` field in `dream.state`. The operational `dream_runs` table is not project runtime state: locally it resolves
+dynamically from `brand.GlobalDir()` to `dream/dreams/<project_id>`; remote providers use the Dream
+S3 prefix and temporary credentials.
 
 ## Agent adapter files
 

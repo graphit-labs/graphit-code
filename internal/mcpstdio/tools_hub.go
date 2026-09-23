@@ -108,7 +108,7 @@ type hubTypePathInput struct {
 }
 
 func registerHubTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "list"),
 		Description: "List available artifacts in the Graphit Hub registry.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubListInput) (*mcp.CallToolResult, any, error) {
@@ -127,7 +127,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(entries)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "search"),
 		Description: "Search the Graphit Hub registry for artifacts by name, ID, or description.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubSearchInput) (*mcp.CallToolResult, any, error) {
@@ -146,7 +146,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(entries)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "show"),
 		Description: "Show detailed information about a specific artifact in the Graphit Hub.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubShowInput) (*mcp.CallToolResult, any, error) {
@@ -165,7 +165,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(entry)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("hub", "install"),
 		Description: "Install an artifact from the Graphit Hub into the current project, or globally when project_dir is omitted. " +
 			"A global install needs no project: it populates the same shared, version-keyed store, and the artifact is " +
@@ -201,7 +201,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "uninstall"),
 		Description: "Remove an installed artifact from the current project, or drop a global install when project_dir is omitted.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubUninstallInput) (*mcp.CallToolResult, any, error) {
@@ -229,7 +229,7 @@ func registerHubTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Artifact %q uninstalled.", input.ID))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "update"),
 		Description: "Update installed hub artifacts in the current project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubUpdateInput) (*mcp.CallToolResult, any, error) {
@@ -269,7 +269,7 @@ func registerHubTools(server *mcp.Server) {
 		return textResult("Hub update completed successfully.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "submit"),
 		Description: "Publish a local artifact to the hub.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubSubmitInput) (*mcp.CallToolResult, any, error) {
@@ -340,7 +340,7 @@ func registerHubTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Artifact %q@%s published successfully.", input.ID, version))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "link"),
 		Description: "Link a local project's artifacts into the current project via symlinks.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubLinkInput) (*mcp.CallToolResult, any, error) {
@@ -373,7 +373,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "unlink"),
 		Description: "Remove a linked artifact from the current project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubUnlinkInput) (*mcp.CallToolResult, any, error) {
@@ -401,7 +401,7 @@ func registerHubTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Artifact %q unlinked.", input.Name))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("hub", "content"),
 		Description: "Read the CONTENT of an installed rule, skill, command or agent artifact. " +
 			"An artifact is often several files — a skill is — so the answer is a map KEYED BY the artifact-relative " +
@@ -436,7 +436,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(content)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "projects"),
 		Description: "List one page of Hub projects visible to the trusted subject.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubProjectsInput) (*mcp.CallToolResult, any, error) {
@@ -455,7 +455,7 @@ func registerHubTools(server *mcp.Server) {
 		return jsonResult(projects)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "type-path"),
 		Description: "Resolve the absolute Agent path where a physical skill, command, or agent artifact should be created. Hub rules are hook-delivered and intentionally have no Agent path.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubTypePathInput) (*mcp.CallToolResult, any, error) {

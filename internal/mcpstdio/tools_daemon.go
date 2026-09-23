@@ -27,7 +27,7 @@ type DaemonStatusResult struct {
 }
 
 func registerDaemonTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("daemon", "status"),
 		Description: "Check status of the global background daemon process.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input daemonStatusInput) (*mcp.CallToolResult, any, error) {

@@ -93,6 +93,10 @@ func ProjectMemoryPrefix(projectID string) string {
 	return joinProjectKey(projectID, "memory")
 }
 
+func ProjectDreamPrefix(projectID string) string {
+	return joinProjectKey(projectID, "dream")
+}
+
 func ProjectTaskPrefix(projectID, taskPrefix string) string {
 	taskPrefix = strings.Trim(strings.TrimSpace(taskPrefix), "/")
 	if taskPrefix == "" {

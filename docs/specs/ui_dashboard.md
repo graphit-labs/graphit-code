@@ -260,12 +260,12 @@ and **Use Hub context** change the one global selector. Cluster editing and unre
 local-only operations with explicit confirmation. A partial source failure keeps the available
 catalogue visible and identifies the unavailable source. **Daemon** starts with process/connection
 state and polling logs; stopping uses a focused confirmation. **Dream** separates runtime
-conditions, report directory and reading view, with scope changes clearing previous evidence.
+conditions from latest-run metadata, with scope changes clearing previous evidence.
 **Workspace** is a job chooser (Continue, Understand, Reuse & share, Operate) with project metadata
 and a link to project administration. Global context selection stays in the header.
 
 - **Daemon** exposes process status and recent operational information.
-- **Dream** exposes configuration and session/report state.
+- **Dream** exposes configuration, session state, and the latest operational run. Memory holds the semantic result.
 - **Ecosystem** lists registered projects, labels, and active project identity.
 
 ## Go server boundary

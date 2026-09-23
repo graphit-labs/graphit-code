@@ -30,7 +30,7 @@ Source of route truth: [App.tsx](../../../internal/ui/src/App.tsx). Source paths
 | `/live` | What evidence boundary should an agent investigate? Prepare context → Run & evidence → Recent sessions | Compatible artifact selection, brief, start/follow-up/cancel; streamed output/activity and source tabs with concise citations; reconnect/dedup; reopen/remove sessions; ephemeral scope | `live/LiveSearchPage.tsx`, `live/LiveEvidence.tsx` |
 | `/system/ecosystem` | Which project identity is relevant, and should its working context come from Workspace or Hub? Unified directory → identity/presence/cluster dossier | All/Same Cluster filters; Workspace/Hub presence; use local or remote context; inspect/copy path; local label add/remove and registration removal confirmation | `system/EcosystemDashboard.tsx` |
 | `/system/daemon` | Is the background service available and how do I connect? Runtime band → logs and process details → agent connection and control | Poll/refresh; actual endpoint/key fields; copy where available; explicit stop confirmation and restart guidance | `daemon/DaemonDashboard.tsx` |
-| `/system/dream` | What did autonomous maintenance produce? Conditions → report directory → report reading | Scoped polling/refresh, report filter and content, links to recorded work; no invented quality metric | `dream/DreamDashboard.tsx` |
+| `/system/dream` | Is Dream enabled or idle, and what happened in its latest run? State → latest run → conditions | Scoped polling/refresh, state/config, latest operational run; Memory holds the semantic result. No invented quality metric or narrative output | `dream/DreamDashboard.tsx` |
 
 `/wiki` is a compatibility redirect to Live or Knowledge according to the existing agent feature gate. The default redirect opens AST contexts in AST app mode and Workspace otherwise. Live remains feature-gated. Preserve these routing contracts when evolving navigation.
 
@@ -139,7 +139,7 @@ The header always refreshes the project/agent catalogue once. `WorkspaceRefreshP
 | Hub registry / Project artifacts | Catalogue, installed/owned artifacts and resolved metadata; filters and inspection selection retained where available |
 | Publication | None: preserve package, metadata and review step; refresh global destination catalogue only |
 | Daemon | Current service status/log snapshot; automatic polling remains active |
-| Dream | Conditions, report catalogue and selected report content; polling remains active |
+| Dream | Conditions and latest-run metadata; polling remains active |
 | Live | Available artifacts and recent sessions; current transcript, question and SSE subscription stay intact |
 | AST investigation | Schema/context metadata, previously submitted search, open source, current relation evidence and last explicitly executed graph query/sample; never run an edited draft or generate AI output |
 
@@ -162,7 +162,7 @@ All Code routes and their internal reading/editing compositions were reviewed ag
 | Knowledge library / Wiki alias | Content-first `knowledge-directory` | Right side describes the collection; document opens in the Reading view |
 | Knowledge reading / answers | Content-first `reader-body` / `knowledge-answer` | Preserve reading measure; give provenance and cited documents adequate space |
 | AST Query lab | Content-first `query-lab-layout` | Query authoring primary, vocabulary alongside; execution opens results in Relationship map |
-| Daemon / Dream | Content-first `operations-layout` | Logs and report reading primary; conditions and controls alongside |
+| Daemon / Dream | Content-first `operations-layout` | Daemon logs or latest-run metadata primary; conditions and controls alongside |
 | Live run | Content-first `live-run-layout` | Transcript and output primary; run context alongside |
 | Workspace | Content-first `workspace-launchpad` | Work entry points primary; project metadata alongside |
 | AST symbol investigation | Keep bounded results rail; source/relation pane remains flexible | Source code needs long lines; a proportional wide search list would take space from the investigation |

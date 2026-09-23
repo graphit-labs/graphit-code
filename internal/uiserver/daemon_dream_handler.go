@@ -30,7 +30,6 @@ func NewDaemonDreamHandler(hubSvc *hub.HubService) *DaemonDreamHandler {
 func (h *DaemonDreamHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/daemon/status", corsJSON(h.handleDaemonStatus))
 	mux.HandleFunc("GET /api/dream/status", corsJSON(h.handleDreamStatus))
-	mux.HandleFunc("GET /api/dream/reports", corsJSON(h.handleDreamReports))
 }
 
 func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
@@ -124,16 +123,16 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 	cfg := dream.ResolveDreamConfig(projectCfg)
 
 	type DreamStatusResult struct {
-		Enabled        bool      `json:"enabled"`
-		DaemonRunning  bool      `json:"daemon_running"`
-		DaemonPID      int       `json:"daemon_pid,omitempty"`
-		Status         string    `json:"status"`
-		SessionID      string    `json:"session_id,omitempty"`
-		LastDreamAt    time.Time `json:"last_dream_at,omitempty"`
-		LastUserEditAt time.Time `json:"last_user_edit_at,omitempty"`
-		IdleTimeout    string    `json:"idle_timeout"`
-		MaxDuration    string    `json:"max_duration"`
-		TotalReports   int       `json:"total_reports"`
+		Enabled        bool             `json:"enabled"`
+		DaemonRunning  bool             `json:"daemon_running"`
+		DaemonPID      int              `json:"daemon_pid,omitempty"`
+		Status         string           `json:"status"`
+		SessionID      string           `json:"session_id,omitempty"`
+		LastDreamAt    time.Time        `json:"last_dream_at,omitempty"`
+		LastUserEditAt time.Time        `json:"last_user_edit_at,omitempty"`
+		IdleTimeout    string           `json:"idle_timeout"`
+		MaxDuration    string           `json:"max_duration"`
+		LastRun        *dream.RunRecord `json:"last_run,omitempty"`
 	}
 
 	var res DreamStatusResult
@@ -167,30 +166,9 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 		res.Status = "inactive"
 	}
 
-	if reports, err := dream.ListReports(projectDir); err == nil {
-		res.TotalReports = len(reports)
-	}
+	res.LastRun, _ = dream.LatestRun(r.Context(), projectDir)
 
 	writeJSON(w, res)
-}
-
-func (h *DaemonDreamHandler) handleDreamReports(w http.ResponseWriter, r *http.Request) {
-	projectDir := r.URL.Query().Get("project_dir")
-	if projectDir == "" {
-		http.Error(w, "project_dir required", http.StatusBadRequest)
-		return
-	}
-
-	reports, err := dream.ListReports(projectDir)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if reports == nil {
-		reports = []dream.Report{}
-	}
-
-	writeJSON(w, reports)
 }
 
 func splitLastNLocal(s string, n int) []string {

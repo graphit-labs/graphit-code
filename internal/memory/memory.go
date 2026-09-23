@@ -3,12 +3,13 @@ package memory
 import (
 	"context"
 	"fmt"
-	"github.com/graphit-labs/graphit-code/internal/relations"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/oklog/ulid/v2"
 	"gopkg.in/yaml.v3"
@@ -63,6 +64,9 @@ type MemoryService struct {
 	store    *MemoryStore
 	tableURI string
 	baseCtx  context.Context
+	// archiveRevisionOverride is a narrow failure-injection seam used to prove
+	// that destructive deletes never continue after history persistence fails.
+	archiveRevisionOverride func(context.Context, *MemoryTable, string, string, string) (string, error)
 }
 
 func (m *MemoryService) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
@@ -182,6 +186,13 @@ type MemoryOpts struct {
 	Tags      []string
 }
 
+// MutationPrecondition fences an update against the exact live head the caller
+// inspected. At least one field must be supplied when a precondition is used.
+type MutationPrecondition struct {
+	ExpectedRevision    *int
+	ExpectedContentHash string
+}
+
 func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, error) {
 	if m.store == nil {
 		return "", fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
@@ -220,7 +231,11 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 // UpdateMemory rewrites a memory's title and/or body, preserving every
 // classification field. Pass an empty string to leave title or body unchanged.
 func (m *MemoryService) UpdateMemory(id, newTitle, newBody string) error {
-	return m.updateMemory(id, newTitle, newBody, "")
+	return m.updateMemory(id, newTitle, newBody, "", nil)
+}
+
+func (m *MemoryService) UpdateMemoryIf(id, newTitle, newBody string, pre MutationPrecondition) error {
+	return m.updateMemory(id, newTitle, newBody, "", &pre)
 }
 
 // UpdateMemoryTyped is UpdateMemory with an explicit type. It exists for
@@ -228,10 +243,10 @@ func (m *MemoryService) UpdateMemory(id, newTitle, newBody string) error {
 // with the most specific type in the group, and that can differ from the type it
 // had. An empty memType leaves the existing type alone.
 func (m *MemoryService) UpdateMemoryTyped(id, newTitle, newBody, memType string) error {
-	return m.updateMemory(id, newTitle, newBody, memType)
+	return m.updateMemory(id, newTitle, newBody, memType, nil)
 }
 
-func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) error {
+func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string, pre *MutationPrecondition) error {
 	if m.store == nil {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
@@ -252,7 +267,7 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		return fmt.Errorf("memory %q not found", id)
 	}
 
-	archived, err := m.archiveRevision(ctx, tbl, id, data, relPath)
+	archived, err := m.stageArchiveRevision(ctx, tbl, id, data, relPath)
 	if err != nil {
 		return err
 	}
@@ -267,8 +282,27 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		Previous: archived,
 	})
 
-	if err := m.putMarkdown(ctx, tbl, relPath, content); err != nil {
-		return fmt.Errorf("storing the updated memory: %w", err)
+	if pre == nil {
+		if err := m.putMarkdown(ctx, tbl, relPath, content); err != nil {
+			return fmt.Errorf("storing the updated memory: %w", err)
+		}
+	} else {
+		record, parsed := recordFromMarkdown(relPath, []byte(content))
+		if !parsed {
+			return fmt.Errorf("storing the updated memory: generated frontmatter did not parse")
+		}
+		ok, err := tbl.CompareAndSwap(ctx, record, pre.ExpectedRevision, pre.ExpectedContentHash)
+		if err != nil {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return err
+		}
+		if !ok {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return staleMemoryError(id, *pre)
+		}
+	}
+	if err := m.commitArchiveLink(ctx, tbl, data, archived); err != nil {
+		return err
 	}
 
 	if err := tbl.RefreshIndexes(ctx); err != nil {
@@ -278,6 +312,14 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 }
 
 func (m *MemoryService) RemoveMemory(id string) error {
+	return m.removeMemory(id, nil)
+}
+
+func (m *MemoryService) RemoveMemoryIf(id string, pre MutationPrecondition) error {
+	return m.removeMemory(id, &pre)
+}
+
+func (m *MemoryService) removeMemory(id string, pre *MutationPrecondition) error {
 	if m.store == nil {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
@@ -295,10 +337,35 @@ func (m *MemoryService) RemoveMemory(id string) error {
 		return fmt.Errorf("memory %q not found", id)
 	}
 
-	m.archiveBeforeDelete(ctx, tbl, id)
+	data, ok, err := m.readMarkdown(ctx, tbl, id)
+	if err != nil || !ok {
+		if err != nil {
+			return fmt.Errorf("reading memory %q before delete: %w", id, err)
+		}
+		return fmt.Errorf("memory %q not found", id)
+	}
+	archived, err := m.stageArchiveRevision(ctx, tbl, id, data, "")
+	if err != nil {
+		return fmt.Errorf("archiving before delete: %w", err)
+	}
 
-	if err := tbl.Delete(ctx, id); err != nil {
-		return fmt.Errorf("removing the memory: %w", err)
+	if pre == nil {
+		if err := tbl.Delete(ctx, id); err != nil {
+			return fmt.Errorf("removing the memory: %w", err)
+		}
+	} else {
+		deleted, err := tbl.DeleteIf(ctx, id, pre.ExpectedRevision, pre.ExpectedContentHash)
+		if err != nil {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return err
+		}
+		if !deleted {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return staleMemoryError(id, *pre)
+		}
+	}
+	if err := m.commitArchiveLink(ctx, tbl, data, archived); err != nil {
+		return err
 	}
 
 	if err := tbl.RefreshIndexes(ctx); err != nil {
@@ -307,17 +374,22 @@ func (m *MemoryService) RemoveMemory(id string) error {
 	return nil
 }
 
-func (m *MemoryService) archiveBeforeDelete(ctx context.Context, tbl *MemoryTable, id string) {
-	data, ok, err := m.readMarkdown(ctx, tbl, id)
-	if err != nil || !ok {
-		return
+func staleMemoryError(id string, pre MutationPrecondition) error {
+	revision := "unset"
+	if pre.ExpectedRevision != nil {
+		revision = strconv.Itoa(*pre.ExpectedRevision)
 	}
-	if _, err := m.archiveRevision(ctx, tbl, id, data, ""); err != nil {
-		m.log().Warn("archiving before delete failed", "id", id, "error", err)
-	}
+	return fmt.Errorf("memory %q changed since it was read (expected revision=%s content_hash=%q)", id, revision, pre.ExpectedContentHash)
 }
 
-func (m *MemoryService) archiveRevision(ctx context.Context, tbl *MemoryTable, id, content, nextPath string) (string, error) {
+func (m *MemoryService) discardStagedArchive(ctx context.Context, tbl *MemoryTable, archived string) {
+	_ = tbl.Delete(ctx, archiveKeyFromPath(archived))
+}
+
+func (m *MemoryService) stageArchiveRevision(ctx context.Context, tbl *MemoryTable, id, content, nextPath string) (string, error) {
+	if m.archiveRevisionOverride != nil {
+		return m.archiveRevisionOverride(ctx, tbl, id, content, nextPath)
+	}
 	revisionID := NewRevisionID()
 	archived := HistoryPath(id, revisionID)
 
@@ -325,29 +397,34 @@ func (m *MemoryService) archiveRevision(ctx context.Context, tbl *MemoryTable, i
 		return "", fmt.Errorf("archiving the previous revision: %w", err)
 	}
 
-	m.repointArchiveNext(ctx, tbl, ParseMemoryFrontmatter(content).Previous, archived)
 	return archived, nil
 }
 
-func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable, archiveRel, nextPath string) {
+func (m *MemoryService) commitArchiveLink(ctx context.Context, tbl *MemoryTable, oldContent, archived string) error {
+	return m.repointArchiveNext(ctx, tbl, ParseMemoryFrontmatter(oldContent).Previous, archived)
+}
+
+func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable, archiveRel, nextPath string) error {
 	if archiveRel == "" {
-		return
+		return nil
 	}
 	key := archiveKeyFromPath(archiveRel)
 	if key == "" {
-		return
+		return nil
 	}
 	data, ok, err := m.readMarkdown(ctx, tbl, key)
-	if err != nil || !ok {
-		return
+	if err != nil {
+		return fmt.Errorf("reading previous archive %q: %w", archiveRel, err)
+	}
+	if !ok {
+		return fmt.Errorf("previous archive %q not found", archiveRel)
 	}
 	fm, parsed := ParseMemoryFrontmatterOK(data)
 	if !parsed {
-		m.log().Warn("archive frontmatter unreadable; leaving it alone", "archive", archiveRel)
-		return
+		return fmt.Errorf("previous archive %q has unreadable frontmatter", archiveRel)
 	}
 	if fm.Next == nextPath {
-		return
+		return nil
 	}
 	fm.Next = nextPath
 	if fm.RevisionID == "" {
@@ -355,8 +432,9 @@ func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable
 	}
 	body := extractBodyAfterFrontmatter(data)
 	if err := m.putMarkdown(ctx, tbl, archiveRel, renderMemoryFile(fm, body)); err != nil {
-		m.log().Warn("repointing the previous archive failed", "archive", archiveRel, "error", err)
+		return fmt.Errorf("repointing previous archive %q: %w", archiveRel, err)
 	}
+	return nil
 }
 
 func archiveKeyFromPath(archiveRel string) string {
@@ -369,30 +447,38 @@ func archiveKeyFromPath(archiveRel string) string {
 }
 
 func (m *MemoryService) PromoteMemory(id string) error {
-	return m.changeImportance(id, true)
+	return m.changeImportance(id, true, nil)
+}
+
+func (m *MemoryService) PromoteMemoryIf(id string, pre MutationPrecondition) error {
+	return m.changeImportance(id, true, &pre)
 }
 
 func (m *MemoryService) DemoteMemory(id string) error {
-	return m.changeImportance(id, false)
+	return m.changeImportance(id, false, nil)
+}
+
+func (m *MemoryService) DemoteMemoryIf(id string, pre MutationPrecondition) error {
+	return m.changeImportance(id, false, &pre)
 }
 
 func (m *MemoryService) MarkMandatory(id string) error {
-	return m.changeMandatory(id, true)
+	return m.changeMandatory(id, true, nil)
 }
 
 func (m *MemoryService) UnmarkMandatory(id string) error {
-	return m.changeMandatory(id, false)
+	return m.changeMandatory(id, false, nil)
 }
 
-func (m *MemoryService) changeImportance(id string, promote bool) error {
-	return m.changeRelevance(id, "importance", promote)
+func (m *MemoryService) changeImportance(id string, promote bool, pre *MutationPrecondition) error {
+	return m.changeRelevance(id, "importance", promote, pre)
 }
 
-func (m *MemoryService) changeMandatory(id string, mandatory bool) error {
-	return m.changeRelevance(id, "mandatory", mandatory)
+func (m *MemoryService) changeMandatory(id string, mandatory bool, pre *MutationPrecondition) error {
+	return m.changeRelevance(id, "mandatory", mandatory, pre)
 }
 
-func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
+func (m *MemoryService) changeRelevance(id, field string, enabled bool, pre *MutationPrecondition) error {
 	if m.store == nil {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
@@ -422,15 +508,51 @@ func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 		current = fm.Mandatory
 	}
 	if current == enabled {
+		if pre != nil {
+			matches, err := memoryPreconditionMatches(ctx, tbl, id, *pre)
+			if err != nil {
+				return err
+			}
+			if !matches {
+				return staleMemoryError(id, *pre)
+			}
+		}
 		return nil
 	}
 
-	updated := withImportantFlag(data, enabled)
+	changed := withImportantFlag(data, enabled)
 	if field == "mandatory" {
-		updated = withMandatoryFlag(data, enabled)
+		changed = withMandatoryFlag(data, enabled)
 	}
-	if err := m.putMarkdown(ctx, tbl, relPath, updated); err != nil {
-		return fmt.Errorf("storing the relevance change: %w", err)
+	archived, err := m.stageArchiveRevision(ctx, tbl, id, data, relPath)
+	if err != nil {
+		return err
+	}
+	updated := updatedMemoryContent(changed, memoryUpdate{
+		ID: id, Scope: string(m.scope), ScopeID: m.scopeID, Previous: archived,
+	})
+	if pre == nil {
+		if err := m.putMarkdown(ctx, tbl, relPath, updated); err != nil {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return fmt.Errorf("storing the relevance change: %w", err)
+		}
+	} else {
+		record, ok := recordFromMarkdown(relPath, []byte(updated))
+		if !ok {
+			return fmt.Errorf("storing the relevance change: generated frontmatter did not parse")
+		}
+		swapped, err := tbl.CompareAndSwap(ctx, record, pre.ExpectedRevision, pre.ExpectedContentHash)
+		if err != nil {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return err
+		}
+		if !swapped {
+			m.discardStagedArchive(ctx, tbl, archived)
+			return staleMemoryError(id, *pre)
+		}
+	}
+	if err := m.commitArchiveLink(ctx, tbl, data, archived); err != nil {
+		return err
 	}
 
 	verb := "promote"
@@ -448,6 +570,23 @@ func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 		m.log().Warn("post-write index refresh failed", "op", verb, "id", id, "error", err)
 	}
 	return nil
+}
+
+func memoryPreconditionMatches(ctx context.Context, tbl *MemoryTable, id string, pre MutationPrecondition) (bool, error) {
+	if pre.ExpectedRevision == nil && pre.ExpectedContentHash == "" {
+		return false, fmt.Errorf("conditional memory mutation requires expected_revision or expected_content_hash")
+	}
+	record, ok, err := tbl.Get(ctx, id)
+	if err != nil || !ok {
+		return false, err
+	}
+	if pre.ExpectedRevision != nil && record.Revision != *pre.ExpectedRevision {
+		return false, nil
+	}
+	if pre.ExpectedContentHash != "" && record.ContentHash != pre.ExpectedContentHash {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {

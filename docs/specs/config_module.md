@@ -145,7 +145,6 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
 | `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
 | `task.prefix` | Namespace for authoritative Task LanceDB tables inside `v2/projects/<project-ulid>/` when S3 is configured. | `tasks` |
-| `dream.reports_dir` | Relative path to the dream reports vault. Move it under `docs/` to commit reports as a matter of course. | `.graphit/runtime/dream` |
 | `dream.idle_timeout` | Inactivity in **seconds** before a dream cycle starts | `7200` (2 hours) |
 | `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
 | `daemon.activity_window` | Go duration string; how recently a project must have changed to stay supervised. `0` disables parking. | `30m` |
@@ -808,6 +807,11 @@ scope/module pair. There is no `hub.repo` or
 
 The object-key contract is documented in
 [Hub S3 Object Layout](hub-s3-object-layout.md).
+
+Dream applies a narrower provider rule at its ledger boundary: `ProviderLocal` always uses
+`brand.GlobalDir()/dream/dreams/<project_id>` and therefore does not call the ambient local S3 view.
+Broker and OIDC providers with Dream S3 enabled call `ProjectS3Config(..., module=dream)` and require
+the temporary scoped grant; an OIDC S3 topology without STS fails closed.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Storage Layout
 type: architecture
-updated: 2026-09-08
+updated: 2026-09-23
 tags: [architecture, storage, ast, knowledge, memory, hub]
 related:
   - "docs/guides/github-actions-artifacts.md"
@@ -89,6 +89,7 @@ Things worth knowing before you set it:
 ~/.graphit/
 ├── config.json                         global configuration (mode `0600`)
 ├── auth.json                           provider/profile credentials and active account (mode `0600`, atomic)
+├── .auth-tmp/                          owner-only staging for atomic auth replacement (empty between writes)
 ├── global.lock.json                    registered projects and installed artifact metadata
 ├── memory.lock.json                    external memory context mappings
 ├── hub/
@@ -349,8 +350,8 @@ than asserted.
     │   └── antlr/
     └── runtime/                           generated output and state — gitignored
         ├── ast/export/                    default `graphit ast export` output
-        ├── dream/                         reports, sentinels, last-seen marker
-        ├── daemon/                        daemon.log and dream.state
+        ├── dream/                         dream.state
+        ├── daemon/                        daemon.log
         ├── cache/skills/<agent>/<skill>/    sync cache
         ├── cache/artifacts/<agent>/<type>/  artifact sync cache
 		├── sync.stamp
@@ -379,8 +380,8 @@ machine-local trees (`**/.graphit/runtime/` and `**/.graphit/grammars/` — see
 | `rules/` | module mandate and skill source overrides | yes — written by a human for the team |
 | `grammars/{treesitter,antlr}` | local parser libraries added or customized for this checkout | **no** — platform-specific binaries; distribute shared grammars through a Hub language artifact |
 | `runtime/ast/export/` | default output of `graphit ast export` | **no** — an explicit `--output` remains user-owned |
-| `runtime/dream/` | default Dream reports, deep-sleep sentinels, and last-seen marker | **no** — set `dream.reports_dir` to publish them elsewhere |
-| `runtime/daemon/` | this project's daemon log, dream state | **no** |
+| `runtime/dream/` | Dream state | **no** — runs create no report artifact |
+| `runtime/daemon/` | this project's daemon log | **no** |
 | `runtime/cache/{skills,artifacts}/` | content hashes that let `sync` skip unchanged artifacts | **no** |
 | `runtime/sync.stamp`, `runtime/sync.lock`, `runtime/sync-heavy.lock` | the sync's debounce stamp and its two locks | **no** |
 
@@ -389,13 +390,25 @@ of the helper: a path built by hand somewhere else lands outside the generated-o
 boundary and can appear in `git status`. Grammar loaders resolve the separate ignored
 `grammars/` tree because it stores platform-specific parser libraries, not runtime state.
 
-Nothing under `runtime/` is repository source. It contains generated exports and reports,
-caches, locks, stamps, and logs. Delete it only when those local outputs are no longer
-needed; the framework recreates the directories as required.
+Nothing under `runtime/` is repository source. It contains generated exports, operational state,
+local state, caches, locks, stamps, and logs. Delete it only when those local outputs are no
+longer needed; the framework recreates the directories as required.
 
 > `runtime/` is also where the **degenerate** store path goes: `store.globalOr` falls
 > back to it on a machine with no home directory, since a store is machine state too.
 > On a normal machine no store is ever written inside a project.
+
+The Dream operational table follows the Task/Memory store selection rule. Without configured S3,
+including a local provider by default or a Broker profile with S3 disabled, it resolves
+`brand.GlobalDir()` dynamically and uses `dream/dreams/<project_id>`; the brand alone owns the
+environment/default global-directory rule. An explicit S3 bucket on a local provider, or a Broker
+or OIDC+S3 provider, opens `v2/projects/<project_id>/dream` directly. Broker/OIDC STS credentials
+are resolved on the fly for `module=dream`; resolution failures do not fall back to local. The
+table is shared per project and uses
+globally unique run IDs. Local writers serialize refresh-plus-merge with a cross-process lock; S3
+writers rely on refresh plus conditional commit retry across hosts. Concurrent agents therefore
+preserve independent runs. The table contains operational metadata only; Memory and its revision
+history remain semantic truth.
 
 The whole brand directory stays out of the **code graph** regardless, through a default
 `.astignore` pattern — being versioned and being indexed are different questions. See

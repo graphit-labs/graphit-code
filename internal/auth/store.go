@@ -14,7 +14,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
 )
 
-const stateFile = "auth.json"
+const (
+	stateFile   = "auth.json"
+	tempDirName = ".auth-tmp"
+)
 
 var ErrNoActiveProfile = errors.New("no active account profile; run `graphit login`")
 
@@ -35,6 +38,35 @@ func Open() (*Store, error) {
 func OpenAt(path string) *Store { return &Store{path: path, now: time.Now} }
 
 func (s *Store) Path() string { return s.path }
+
+// Ensure creates a valid empty authentication state when the store has never
+// been initialized. It is equivalent to the state Load returns for an absent
+// file and is serialized with the same cross-process lock as login/update.
+func (s *Store) Ensure() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return fmt.Errorf("create authentication directory: %w", err)
+	}
+	lock, err := lockfile.Acquire(s.path+".lock", 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("lock authentication state initialization: %w", err)
+	}
+	defer lock.Release()
+	if _, err := os.Stat(s.path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check authentication state: %w", err)
+	}
+	return s.saveUnlocked(emptyState())
+}
+
+// TempDir is the fixed private directory used for atomic auth-state writes.
+// Keeping temporary credentials out of the global root lets restricted agent
+// namespaces hide the entire transient class instead of chasing random names.
+func TempDir() string { return filepath.Join(brand.GlobalDir(), tempDirName) }
+
+func tempDirForPath(path string) string { return filepath.Join(filepath.Dir(path), tempDirName) }
 
 func (s *Store) Load() (State, error) {
 	s.mu.Lock()
@@ -138,8 +170,14 @@ func (s *Store) saveUnlocked(state State) error {
 		return fmt.Errorf("serialize authentication state: %w", err)
 	}
 	data = append(data, '\n')
-	dir := filepath.Dir(s.path)
-	f, err := os.CreateTemp(dir, ".auth-*.tmp")
+	tempDir := tempDirForPath(s.path)
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
+		return fmt.Errorf("create authentication temporary directory: %w", err)
+	}
+	if err := os.Chmod(tempDir, 0o700); err != nil {
+		return fmt.Errorf("restrict authentication temporary directory: %w", err)
+	}
+	f, err := os.CreateTemp(tempDir, "auth-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create authentication state: %w", err)
 	}

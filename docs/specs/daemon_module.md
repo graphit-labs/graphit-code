@@ -99,7 +99,9 @@ Each active project has an isolated supervisor thread monitoring watch modules:
   - Reads per-project config from the project lockfile (inline → env → project → global → compiled defaults)
 - **`EmbeddingModule`**: Triggers every 2 minutes. It scans files for modified AST nodes, generates high-dimensional embeddings, and writes them into the vector column of the local LadybugDB store.
 - **`MemoryMaintenanceModule`**: owns the active project's authoritative memory table. It checks once at startup and every 15 minutes thereafter; the store's due-time metadata prevents unnecessary work. Empty tables are skipped, and maintenance errors terminate the module so the supervisor can report and restart it.
-- **`DreamModule`**: Initiates background agent routines during processor idle periods, mining conversation patterns and generating skills, memories, and integration artifacts.
+- **`DreamModule`**: After the configured project-idle threshold, initiates one constrained agentic
+  Memory consolidation pass. It reads contextual MCP evidence, mutates only Memory through the
+  allowed tools, and creates no skill, rule, command, source, or narrative report artifact.
 
 #### Cross-Pipeline Resource Gate
 

@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"github.com/rs/cors"
 
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 	"github.com/graphit-labs/graphit-code/internal/auth"
 )
 
@@ -43,6 +44,7 @@ func newMCPCORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			"Last-Event-ID",
 			mcpSessionIDHeader,
 			mcpProtocolVersionHeader,
+			agentpolicy.ProfileHeader,
 		},
 		// Without WWW-Authenticate exposed, a browser client receives the 401 but cannot
 		// read the challenge, so it never learns where to authenticate and the whole
@@ -106,6 +108,7 @@ func (h *mcpBearerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// daemon derives lives in a context. Capturing it here is safe because the closure and
 	// the middleware are both scoped to this single request.
 	var authorized context.Context
+	var authorizedProfile string
 
 	// Production leaves Verifier unset; only tests inject one. Resolving the default here
 	// rather than dereferencing a nil interface is what keeps a real broker token from
@@ -120,7 +123,15 @@ func (h *mcpBearerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	acceptedAudiences, _ := mcpAcceptedAudiences(h.resolver, r)
 
 	verifier := func(ctx context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
-		requestContext, allowed := daemonBearerContextWithVerifier(ctx, token, h.runtimeKey, tokenVerifier, acceptedAudiences)
+		requestContext := ctx
+		allowed := false
+		if profile, ok := agentpolicy.VerifyCapabilityToken(h.runtimeKey, token); ok {
+			authorizedProfile = profile
+			allowed = true
+		} else {
+			authorizedProfile = ""
+			requestContext, allowed = daemonBearerContextWithVerifier(ctx, token, h.runtimeKey, tokenVerifier, acceptedAudiences)
+		}
 		if !allowed {
 			return nil, mcpauth.ErrInvalidToken
 		}
@@ -144,6 +155,11 @@ func (h *mcpBearerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	authenticated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if authorized != nil {
 			r = r.WithContext(authorized)
+		}
+		r = r.Clone(r.Context())
+		r.Header.Del(agentpolicy.ProfileHeader)
+		if authorizedProfile != "" {
+			r.Header.Set(agentpolicy.ProfileHeader, authorizedProfile)
 		}
 		h.next.ServeHTTP(w, r)
 	})

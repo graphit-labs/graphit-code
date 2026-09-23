@@ -4,9 +4,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func TestStoreEnsureDoesNotOverwriteConcurrentInitialization(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	stores := []*Store{OpenAt(path), OpenAt(path)}
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errs[0] = stores[0].Ensure()
+	}()
+	go func() {
+		defer wg.Done()
+		errs[1] = stores[1].AddProvider(Provider{Name: "local", Type: ProviderLocal, Local: &LocalConfig{}})
+	}()
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := stores[0].Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Providers["local"]; !ok {
+		t.Fatalf("concurrent Ensure overwrote initialized state: %#v", state)
+	}
+}
 
 func TestStoreProviderProfileLifecycleAndPermissions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "global", "auth.json")
@@ -31,6 +61,18 @@ func TestStoreProviderProfileLifecycleAndPermissions(t *testing.T) {
 	}
 	if mode := mustMode(t, path); mode.Perm() != 0o600 {
 		t.Fatalf("file mode = %o", mode.Perm())
+	}
+	tempDir := tempDirForPath(path)
+	if mode := mustMode(t, tempDir); mode.Perm() != 0o700 {
+		t.Fatalf("auth temp dir mode = %o", mode.Perm())
+	}
+	entries, err := os.ReadDir(tempDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("auth temp directory entries = %v, err=%v", entries, err)
+	}
+	legacyTemps, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".auth-*.tmp"))
+	if err != nil || len(legacyTemps) != 0 {
+		t.Fatalf("legacy auth temp files = %v, err=%v", legacyTemps, err)
 	}
 
 	state, err := store.Load()

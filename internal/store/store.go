@@ -360,6 +360,14 @@ func MemoryTableDir(scope, scopeID string) string {
 // TaskTableRoot is the filesystem fallback for authoritative Task tables when S3 is not configured.
 func TaskTableRoot() string { return globalOr("", "task") }
 
+// DreamTableRoot is the filesystem fallback for the Dream module's operational
+// LanceDB tables when no remote storage provider is configured.
+func DreamTableRoot() string { return globalOr("", "dream", "dreams") }
+
+func DreamTableDir(projectID string) string {
+	return filepath.Join(DreamTableRoot(), SanitizeSegment(projectID))
+}
+
 // memoryScopeSegment is the single directory name a scope maps to, shared by every local memory
 // artifact so two of them can never disagree about which directory a scope owns.
 func memoryScopeSegment(scope, scopeID string) string {

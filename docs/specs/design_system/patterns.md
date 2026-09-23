@@ -226,7 +226,6 @@ Artifact and project descriptions are authored prose and support Markdown. Rende
 | Memory bodies, historical revisions and snippets | Shared Markdown renderer; compact snippets outside selection controls | Project and personal memory |
 | Knowledge documents, search snippets and AI synthesis | Wiki viewer with document navigation; explicit raw view retains source | Knowledge and installed contexts |
 | Live final answers and cited documents | Wiki viewer scoped to the investigation | Agent output and source tabs |
-| Dream report body | Wiki viewer | Dream report reader |
 | Artifact descriptions | Shared Markdown renderer, including publication preview | Hub catalogue, registry/project/imported inspectors, Upload and Submit reviews |
 | Project descriptions | Shared Markdown renderer | Workspace context and ecosystem inspector |
 | Titles, identifiers, statuses, tags, dates, commands, Cypher, source files, query rows, JSON and YAML | Literal or structured/code view | All domains, including Broker administration |

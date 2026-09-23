@@ -24,7 +24,9 @@ related:
 
 Graphit Code uses a **multi-layer instruction override system** that allows users to customize module mandates and skills. Overrides follow a strict precedence hierarchy: the most specific source wins, with each layer falling through to the next until a match is found or the compiled-in default is used.
 
-This system applies to the four agent-facing modules: `ast`, `knowledge`, `memory`, and `hub`. Dream consumes its own analysis override internally and does not install an agent mandate or skill.
+This system applies to the agent-facing modules that publish managed mandates or skills. Dream uses
+a compiled Memory-only runtime prompt and does not resolve an analysis override or install an agent
+mandate, skill, rule, or command.
 
 ---
 
@@ -309,8 +311,8 @@ every supported Agent and reads them back the way an Agent would, and additional
 descriptions still contain `": "` — otherwise valid frontmatter would only prove the content had
 become bland, not that quoting works.
 
-Agents also write skill frontmatter by hand, so the same contract is stated in the Dream
-module's skill-crystallization prompt (`internal/dream/prompt.go`).
+Dream does not create or edit skills. Agent-generated skill frontmatter in other authorized flows
+must still satisfy the same adapter validation before synchronization.
 
 ---
 

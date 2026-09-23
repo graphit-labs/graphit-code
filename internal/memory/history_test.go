@@ -346,6 +346,153 @@ func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 	}
 }
 
+func TestConditionalUpdateRejectsAStaleHead(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc := newLocalService(t)
+	id, err := svc.AddMemory("First", "body one", MemoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := svc.openTable(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, ok, err := tbl.Get(context.Background(), id)
+	_ = tbl.Close()
+	if err != nil || !ok {
+		t.Fatalf("reading head: ok=%t err=%v", ok, err)
+	}
+	expectedRevision := before.Revision
+	pre := MutationPrecondition{ExpectedRevision: &expectedRevision, ExpectedContentHash: before.ContentHash}
+	if err := svc.UpdateMemoryIf(id, "Second", "body two", pre); err != nil {
+		t.Fatalf("fresh conditional update: %v", err)
+	}
+	if err := svc.UpdateMemoryIf(id, "Stale", "must not win", pre); err == nil || !strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("stale conditional update error = %v", err)
+	}
+	data := mustReadStored(t, svc, MemoryFileName(id))
+	if fm := ParseMemoryFrontmatter(string(data)); fm.Title != "Second" || fm.Revision != 2 {
+		t.Fatalf("stale write changed the head: title=%q revision=%d", fm.Title, fm.Revision)
+	}
+	if got := len(archivePaths(t, svc, id)); got != 1 {
+		t.Fatalf("stale write left %d archives, want only the committed revision", got)
+	}
+}
+
+func TestStaleConditionalUpdateDoesNotRepointCommittedHistory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc := newLocalService(t)
+	id, err := svc.AddMemory("v1", "body one", MemoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.UpdateMemory(id, "v2", "body two"); err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := svc.openTable(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, ok, err := tbl.Get(context.Background(), id)
+	_ = tbl.Close()
+	if err != nil || !ok {
+		t.Fatalf("reading v2: ok=%t err=%v", ok, err)
+	}
+	expected := v2.Revision
+	pre := MutationPrecondition{ExpectedRevision: &expected, ExpectedContentHash: v2.ContentHash}
+	if err := svc.UpdateMemoryIf(id, "v3", "body three", pre); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.UpdateMemoryIf(id, "stale", "must not win", pre); err == nil {
+		t.Fatal("stale update unexpectedly succeeded")
+	}
+
+	head := ParseMemoryFrontmatter(string(mustReadStored(t, svc, MemoryFileName(id))))
+	v2Archive := ParseMemoryFrontmatter(string(mustReadStored(t, svc, head.Previous)))
+	if v2Archive.Next != MemoryFileName(id) {
+		t.Fatalf("v2 archive next = %q, want live head", v2Archive.Next)
+	}
+	v1Archive := ParseMemoryFrontmatter(string(mustReadStored(t, svc, v2Archive.Previous)))
+	if v1Archive.Next != head.Previous {
+		t.Fatalf("stale rollback broke history: v1 next=%q want %q", v1Archive.Next, head.Previous)
+	}
+}
+
+func TestConditionalImportanceChangeAdvancesRevisionAndRejectsStaleNoop(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc := newLocalService(t)
+	id, err := svc.AddMemory("remember", "body", MemoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := svc.openTable(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, ok, err := tbl.Get(context.Background(), id)
+	_ = tbl.Close()
+	if err != nil || !ok {
+		t.Fatalf("reading head: ok=%t err=%v", ok, err)
+	}
+	expected := before.Revision
+	pre := MutationPrecondition{ExpectedRevision: &expected, ExpectedContentHash: before.ContentHash}
+	if err := svc.PromoteMemoryIf(id, pre); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	after := ParseMemoryFrontmatter(string(mustReadStored(t, svc, MemoryFileName(id))))
+	if !after.Important || after.Revision != before.Revision+1 || after.Previous == "" {
+		t.Fatalf("promotion did not create a revisioned head: %+v", after)
+	}
+	if err := svc.PromoteMemoryIf(id, pre); err == nil || !strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("stale no-op promotion error = %v", err)
+	}
+	if err := svc.DemoteMemoryIf(id, pre); err == nil || !strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("stale demotion error = %v", err)
+	}
+	current := ParseMemoryFrontmatter(string(mustReadStored(t, svc, MemoryFileName(id))))
+	if !current.Important || current.Revision != after.Revision {
+		t.Fatalf("stale relevance mutation changed the head: %+v", current)
+	}
+}
+
+func TestConditionalDeleteRejectsAStaleHead(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc := newLocalService(t)
+	id, err := svc.AddMemory("Keep", "body", MemoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleRevision := 99
+	err = svc.RemoveMemoryIf(id, MutationPrecondition{ExpectedRevision: &staleRevision})
+	if err == nil || !strings.Contains(err.Error(), "changed since it was read") {
+		t.Fatalf("stale conditional delete error = %v", err)
+	}
+	if _, ok := readStored(t, svc, MemoryFileName(id)); !ok {
+		t.Fatal("stale conditional delete removed the live memory")
+	}
+	if got := len(archivePaths(t, svc, id)); got != 0 {
+		t.Fatalf("stale conditional delete left %d orphan archives", got)
+	}
+}
+
+func TestDeleteStopsWhenArchivingFails(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc := newLocalService(t)
+	id, err := svc.AddMemory("Do not lose", "body", MemoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.archiveRevisionOverride = func(context.Context, *MemoryTable, string, string, string) (string, error) {
+		return "", fmt.Errorf("injected archive failure")
+	}
+	if err := svc.RemoveMemory(id); err == nil || !strings.Contains(err.Error(), "archiving before delete") {
+		t.Fatalf("RemoveMemory error = %v", err)
+	}
+	if _, ok := readStored(t, svc, MemoryFileName(id)); !ok {
+		t.Fatal("delete continued after the archive failed")
+	}
+}
+
 // The chain walks forward as well as back: every archive names its successor, and the newest one
 // names the live memory.
 func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {

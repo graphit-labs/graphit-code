@@ -3,6 +3,7 @@ title: "MCP Stdio Module Specification"
 description: "Technical specification of the MCP stdio server, tool registration, JSON-RPC message flow, request context resolution, and error handling."
 content-type: reference
 audience: developers
+updated: 2026-09-23
 keywords:
   - mcp
   - stdio
@@ -44,7 +45,7 @@ graph TD
 ### Server Startup
 
 1. `NewServer()` creates an `mcp.Server` instance with the branded server name (`graphit-code-stdio`) and the current `version.Version`.
-2. Tool groups are registered in order: Lifecycle → AST → Knowledge → Memory → Task → Hub → Wiki → Dream → Daemon → Cluster.
+2. Tool groups are registered in order: Lifecycle → AST → Knowledge → Memory → Task → References → Hub → Wiki → Dream → Daemon → Cluster. Every registration passes through `addTool`, which applies any active capability profile before the tool enters the catalog.
 3. `Serve(ctx)` mutes CLI output via `output.Mute()`, redirects Go's `log` to stderr, then constructs a decoupled `IOTransport` using `io.NopCloser(os.Stdin)` and a `nopWriteCloser{os.Stdout}` to prevent interference from `os.Stdout` reassignment.
 
 ### Transport Decoupling
@@ -87,7 +88,30 @@ type syncInput struct {
 
 ## 🔧 Tool Registration
 
-Tools are registered via `mcp.AddTool(server, toolDefinition, handlerFunc)`. Each tool group has a dedicated `register*Tools(server *mcp.Server)` function.
+Tools are registered via the package-level `addTool` wrapper around `mcp.AddTool`. Each tool group
+has a dedicated `register*Tools(server *mcp.Server)` function. Centralizing registration is a
+security boundary: a capability profile can deny a newly added tool by default instead of relying
+on every group author to remember a separate check.
+
+### Dream Memory profile
+
+`dream-memory-v1` registers an exact allowlist of contextual reads from Memory, Task/session,
+Knowledge/Wiki, AST, Hub, and References, plus only five mutations:
+`graphit_memory_insert`, `graphit_memory_update`, `graphit_memory_delete`,
+`graphit_memory_promote`, and `graphit_memory_demote`. A tool absent from that list is not exposed,
+including future tools added to an existing group.
+
+For direct in-process stdio use, the profile is selected by `GRAPHIT_MCP_CAPABILITY_PROFILE`.
+For the normal daemon path, the launcher derives an HMAC-authenticated bearer from the daemon
+runtime key and binds it to `dream-memory-v1`; the child environment is reduced to known
+runtime/model-provider inputs, and the local proxy refuses master-key fallback while the Dream
+profile is active. There is no process sandbox or credential-file mask: the CLI remains on the
+same OS account and that account can read its own daemon key. The HTTP boundary verifies the bearer
+and forces its authenticated profile onto the request, ignoring client attempts to forge or remove
+the profile header. The factory then creates the restricted server before registration. An unknown
+non-empty profile exposes no tools. Under the
+Dream profile, update/delete/promote/demote also require `expected_revision` or
+`expected_content_hash`; insert remains available for verified missing durable knowledge.
 
 ### The `safeTool` Wrapper
 
@@ -252,12 +276,7 @@ content or mount access. See [Hub Access Control](hub_access_control.md).
 
 | Tool | Description |
 |---|---|
-| `graphit_dream_status` | Show status (dreaming/standby/deep sleep/inactive), daemon info, report count, and config. |
-| `graphit_dream_reports` | List dream session reports. Supports filtering by new-only or all. Tracks last-viewed timestamp. |
-
-Both delegate to `internal/dream` (`ListReports`, `ReportsSince`, `LoadLastSeen`,
-`MarkReportsSeen`) rather than walking the reports directory here. That scanner used to be
-copied into this package, the CLI and the UI server; it now has one owner.
+| `graphit_dream_status` | Show status (dreaming/standby/deep sleep/inactive), daemon info, config, and the latest operational run. |
 
 Task control is registered independently through Task tools. Dream never consumes or executes
 tasks; deterministic ownership belongs to the Task module.
@@ -333,7 +352,7 @@ Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from han
 | `internal/brand` | Tool naming, directory conventions, lockfile names. |
 | `internal/config` | Configuration resolution, module enable/disable, Agent/CLI resolution. |
 | `internal/daemon` | Background daemon management, PID file, ensure running. |
-| `internal/dream` | Dream module state, reports, configuration. |
+| `internal/dream` | Dream state/configuration and latest operational run lookup. |
 | `internal/task` | Shared LanceDB task lifecycle, claims, checks, comments, dependencies, and hooks. |
 | `internal/hub` | Hub registry, artifact management, lockfile operations, global lock. |
 | `internal/knowledge` | Knowledge indexing pipeline, wiki management. |

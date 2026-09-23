@@ -214,7 +214,10 @@ CLI name and reject that ID after a CLI or project change.
 *Inspect the work contract and the evidence together. The example contains an illustrative documentation review, not a production test result.*
 
 
-Dream runs during configured idle periods to analyze conversation history and improve project knowledge or reusable agent artifacts. It is a knowledge-improvement process, not a task scheduler.
+Dream runs during configured idle periods as one constrained agentic pass over Memory. It reads
+Memory plus supporting Task, Knowledge/Wiki, AST, Hub, and References evidence through MCP and may
+only insert, update, delete, promote, or demote Memory. It does not generate reusable agent
+artifacts, edit project files, or consume the Task backlog.
 
 Task is separate. Open, unclaimed LanceDB tasks are backlog. Dependencies decide readiness; an
 atomic claim returns a fencing token that every owner mutation must present. Agents checkpoint the

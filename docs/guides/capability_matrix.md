@@ -37,7 +37,7 @@ from a similar command on another interface.
 | Daemon status and stop | Yes | Yes | Daemon dashboard | `modules.daemon`, `mcp.*`, `daemon.activity_window` |
 | Background filesystem synchronization | Daemon | Lifecycle sync only | Status | `modules.sync`, AST/Knowledge switches, ignores, extensions, watcher limits; 1 s/5 s event batching |
 | Background embeddings | Daemon and explicit commands | Explicit embed tools | Status | `modules.embedding`, embedding provider, runtime resource variables |
-| Dream status and reports | Yes | Yes | Dream dashboard | `modules.dream` is opt-in; Dream does not consume Task work |
+| Dream status/latest run | Yes | Yes | Dream dashboard | `modules.dream` is opt-in; runs mutate only Memory and do not create reports or consume Task work |
 | Ecosystem cluster labels and project lookup | Yes | Yes | Ecosystem view | Cluster labels are separate from AST node `ast.cluster_map` tagging |
 | Daemon-hosted UI | Daemon | No | The hosted application | `modules.daemon_ui` is opt-in; `ui.host`, `ui.allowed_origins` |
 | Standalone UI | `graphit ui` | No | The application | UI is unauthenticated; loopback is the default trust boundary |

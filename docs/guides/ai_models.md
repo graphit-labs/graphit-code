@@ -1,7 +1,7 @@
 ---
 title: AI Models, Providers, and Agent CLIs
 type: guide
-updated: 2026-09-08
+updated: 2026-09-23
 tags: [ai, models, completions, embeddings, rerank, agents, broker]
 ---
 
@@ -67,8 +67,10 @@ executables:
 | Kimi Code | `kimi` | yes: the `session.resume_hint` ID is captured and resumed with `--session` |
 
 The matrix contains eleven executable names for eleven products. `deepseek` is not a CLI alias.
-Graphit uses each CLI's non-interactive stdin/argument protocol. `ai.agent_args` is appended only to explicitly
-agentic Live Search/Dream work; it is split on whitespace and is never evaluated by a shell.
+Graphit uses each CLI's non-interactive stdin/argument protocol. `ai.agent_args` is appended to
+ordinary explicitly agentic work and is split on whitespace without shell evaluation. A
+capability-governed Dream run deliberately ignores it so operator-supplied flags cannot widen the
+Dream native tool policy.
 
 Live Search binds execution to the agent selected in the workspace header. Its nine workspace
 adapters are Claude, Gemini, Antigravity, Cursor, Codex, OpenCode, Kiro, Qwen, and Kimi; Grok and
@@ -90,10 +92,42 @@ output and failure propagation with local subprocess fixtures. They do not certi
 inference, account permissions, or every upstream version. A CLI accepting an option in `--help`
 also does not by itself prove its stdin semantics; provider integration testing remains separate.
 
+### Dream capability profile
+
+Dream makes one `CompleteStream` call without a resumable native session and grants an exact
+Graphit MCP profile: contextual reads plus `graphit_memory_insert`, `update`, `delete`, `promote`,
+and `demote`. Existing-memory mutations require an expected revision or content hash. The daemon
+mediates Memory writes; the agent does not edit the raw store.
+
+Dream does **not** put the whole CLI process in a Linux-specific filesystem jail. This lets the
+CLI write its own cache, session and authentication state on Windows, macOS and Linux. It applies
+the CLI's native permissions to model-invoked tools: Claude uses `--restricted --tools
+Read,Glob,Grep`; Gemini uses a per-run default-deny `--policy` that allows read tools and Graphit
+MCP; Codex uses `--sandbox read-only --ask-for-approval never` for model-generated commands; and
+OpenCode gets a per-run default-deny permission configuration allowing reads and Graphit MCP. Kimi
+uses a temporary custom agent file listing only read-only built-in tools, while its MCP tools load
+separately. Antigravity and Qwen run without a native restriction because no compatible per-run
+policy is verified. Grok, Cursor Agent, Kiro, and Copilot likewise run without native restriction
+and without structured tool telemetry. Those six CLIs may write project files through their own
+tools; the Memory-only prompt is guidance, not enforcement. An unknown custom executable is
+rejected. Each CLI still needs authenticated model access and its Graphit MCP setup.
+These launch policies and the no-flag fallback are covered by unit tests; authenticated behavior
+across all installed CLI versions and operating systems is not implied. Successful unstructured
+turns are recorded as `completed_unobserved`: zero tool counters mean unavailable telemetry, not
+zero work.
+
+The launcher derives a bearer cryptographically bound to `dream-memory-v1` and passes that scoped
+credential in a filtered child environment, not the daemon master key. The local proxy fails if a
+Dream profile is active without the bearer. The daemon verifies the bearer and forces its profile
+onto the request; forging `X-Graphit-Capability-Profile` does not widen the Graphit MCP catalog.
+However, native tool permissions do not isolate a process running as the same OS user: that process
+can in principle read the daemon key file outside model-invoked tools. This is an accepted trust
+limit, not an adversarial credential boundary.
+
 Saved Graphit chats keep both `agent_session_id` and `agent_cli`, so a later turn can resume only
 the matching native agent under the same project directory. Live Search, wiki retries, memory
-consolidation batches, Dream, and multi-step AST generation use the same conversation within their
-logical flow. The Cypher generation API also returns `agent_session_id` and `agent_cli` for
+consolidation batches, and multi-step AST generation use the same conversation within their
+logical flow. Dream is intentionally one-shot with `PersistSession=false`. The Cypher generation API also returns `agent_session_id` and `agent_cli` for
 observability. Native sessions stay in the selected CLI's own storage; for example, inspect a Codex
 execution with:
 

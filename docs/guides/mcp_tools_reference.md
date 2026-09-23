@@ -3,6 +3,7 @@ title: "MCP Tools Reference"
 description: "Complete reference of all MCP tools available to AI agents through Graphit Code."
 content-type: reference
 audience: developers, ai-agents
+updated: 2026-09-23
 keywords:
   - mcp
   - tools
@@ -606,6 +607,11 @@ Tools for managing the project and user persistent memory store.
 | `content` | string | | New content |
 | `title` | string | | New title |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `expected_revision` | integer | | Compare-and-swap fence against the live revision |
+| `expected_content_hash` | string | | Compare-and-swap fence against the live content hash |
+
+Ordinary callers may omit both fences for compatibility. Under the Dream capability profile, at
+least one is required so an autonomous decision cannot overwrite a newer change.
 
 ---
 
@@ -618,6 +624,11 @@ Tools for managing the project and user persistent memory store.
 | `project_dir` | string | ✅ | Project directory |
 | `id` | string | ✅ | Memory ID to delete |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `expected_revision` | integer | | Delete only while the live revision still matches |
+| `expected_content_hash` | string | | Delete only while the live content hash still matches |
+
+Deletion archives the current revision first. If archival fails, the live record is not removed.
+Under the Dream capability profile at least one fence is required.
 
 ---
 
@@ -706,6 +717,8 @@ This is the first phase of session recall and does not take a search query.
 | `project_dir` | string | ✅ | Project directory |
 | `id` | string | ✅ | Memory ID to promote |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `expected_revision` | integer | | Promote only while the live revision still matches |
+| `expected_content_hash` | string | | Promote only while the live content hash still matches |
 
 ---
 
@@ -718,6 +731,8 @@ This is the first phase of session recall and does not take a search query.
 | `project_dir` | string | ✅ | Project directory |
 | `id` | string | ✅ | Memory ID to demote |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `expected_revision` | integer | | Demote only while the live revision still matches |
+| `expected_content_hash` | string | | Demote only while the live content hash still matches |
 
 ---
 
@@ -746,7 +761,7 @@ independent states.
 
 ---
 
-> **There is no memory garbage-collection or consolidation tool, by design.**
+> **There is no MCP garbage-collection or bulk-consolidation tool, by design.**
 >
 > `graphit_memory_gc` existed and was removed. Collecting memories by age answers the
 > wrong question: age says a memory has not been revised, not that it is wrong, and the
@@ -760,9 +775,10 @@ independent states.
 > them, carrying content into the surviving memory first. A tool would let it trade
 > that judgement for a batch job's caution.
 >
-> The whole-store pass exists outside MCP: on idle in the
-> [dream module](../specs/dream_module.md), and on demand as `graphit memory
-> consolidate` for a developer at a terminal.
+> Dream is itself one agentic consolidation pass: it reads contextual MCP tools and directly calls
+> `graphit_memory_insert`, `update`, `delete`, `promote`, or `demote`. It does not ask a Go apply
+> stage to execute a model-produced plan. The separate `graphit memory consolidate` terminal
+> command remains available as an explicit deterministic workflow.
 
 ---
 
@@ -1151,7 +1167,10 @@ own reason and deliberately **without** that list, so the reason is not buried.
 
 ## Dream Tools
 
-Tools for managing the autonomous dream module — skill generation and knowledge mining during idle periods.
+Compatibility and status tools for the idle-triggered Memory consolidation module. New Dream runs
+store their semantic result only in Memory and operational metadata in the provider-aware Dream
+LanceDB ledger;
+they do not create report files.
 
 ### `graphit_dream_status`
 
@@ -1167,19 +1186,7 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 - `daemon_running` — whether the background daemon is running
 - `status` — current status: `dreaming`, `deep sleep`, `standby`, or `inactive`
 - `idle_timeout` / `max_duration` — dream timing configuration
-- `total_reports` — number of dream session reports
-
----
-
-### `graphit_dream_reports`
-
-**Description:** List dream session reports.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `all` | boolean | | Show all reports (not just new ones) |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
+- `last_run` — latest operational `dream_runs` row, without prompt, output, or memory body
 
 ---
 

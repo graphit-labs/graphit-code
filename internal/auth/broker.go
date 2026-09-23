@@ -192,6 +192,7 @@ type BrokerStorageModule string
 const (
 	BrokerStorageModuleTask      BrokerStorageModule = "task"
 	BrokerStorageModuleMemory    BrokerStorageModule = "memory"
+	BrokerStorageModuleDream     BrokerStorageModule = "dream"
 	BrokerStorageModuleKnowledge BrokerStorageModule = "knowledge"
 	BrokerStorageModuleAST       BrokerStorageModule = "ast"
 	BrokerStorageModuleHub       BrokerStorageModule = "hub"
@@ -222,7 +223,7 @@ func (s BrokerStorageScope) validate() error {
 			return errors.New("project storage scope requires a safe project ID")
 		}
 		switch s.Module {
-		case BrokerStorageModuleTask, BrokerStorageModuleMemory, BrokerStorageModuleKnowledge, BrokerStorageModuleAST, BrokerStorageModuleHub:
+		case BrokerStorageModuleTask, BrokerStorageModuleMemory, BrokerStorageModuleDream, BrokerStorageModuleKnowledge, BrokerStorageModuleAST, BrokerStorageModuleHub:
 		default:
 			return fmt.Errorf("project storage scope does not support module %q", s.Module)
 		}
@@ -285,6 +286,8 @@ func brokerStorageScopeAtV2(parts []string) (BrokerStorageScope, bool) {
 			return ProjectStorageScope(projectID, BrokerStorageModuleTask), true
 		case "memory":
 			return ProjectStorageScope(projectID, BrokerStorageModuleMemory), true
+		case "dream":
+			return ProjectStorageScope(projectID, BrokerStorageModuleDream), true
 		case "knowledge":
 			return ProjectStorageScope(projectID, BrokerStorageModuleKnowledge), true
 		case "ast":

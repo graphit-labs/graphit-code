@@ -82,8 +82,20 @@ type StreamRequest struct {
 	// is a deliberate choice and not a default.
 	AllowTools bool
 
+	// Capabilities is a caller-owned, fail-closed tool/MCP policy. When set,
+	// native CLI controls restrict model-invoked tools independently of prompts.
+	Capabilities *CapabilityPolicy
+
 	// Env adds environment variables to the child process.
 	Env map[string]string
+}
+
+// CapabilityPolicy separates Graphit MCP authority from native agent tools.
+// RestrictNativeToolsWhenAvailable governs model-invoked tools, not the whole
+// CLI process. A known CLI without a verified native control still runs.
+type CapabilityPolicy struct {
+	MCPProfile                       string
+	RestrictNativeToolsWhenAvailable bool
 }
 
 // StreamResult is what a completed run amounts to.

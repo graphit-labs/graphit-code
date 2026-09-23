@@ -170,7 +170,7 @@ func taskSessionPageResult[T any](value page.Page[T], optimized *bool) (*mcp.Cal
 }
 
 func registerTaskSessionTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "create"), Description: "Create an idempotent durable request session with its complete description and strategy. Does not claim coordination or create tasks."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCreateInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "create"), Description: "Create an idempotent durable request session with its complete description and strategy. Does not claim coordination or create tasks."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCreateInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -185,7 +185,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "get"), Description: "Read a session's authoritative request, strategy, ordered checkpoints and revisions, and associated task summaries without private tokens."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionGetInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "get"), Description: "Read a session's authoritative request, strategy, ordered checkpoints and revisions, and associated task summaries without private tokens."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionGetInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -196,7 +196,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "list"), Description: "Discover durable request sessions; active=true selects unfinished requests, including released work another coordinator can resume."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionListInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "list"), Description: "Discover durable request sessions; active=true selects unfinished requests, including released work another coordinator can resume."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionListInput) (*mcp.CallToolResult, any, error) {
 		svc, dir, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -214,7 +214,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskSessionPageResult(page.Finish(window, v), in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "search"), Description: "Search session requests, strategies and durable history with LanceDB ranking; read selected sessions and their tasks to recover prior reasoning."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionSearchInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "search"), Description: "Search session requests, strategies and durable history with LanceDB ranking; read selected sessions and their tasks to recover prior reasoning."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionSearchInput) (*mcp.CallToolResult, any, error) {
 		svc, dir, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -226,7 +226,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskSessionPageResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "claim"), Description: "Claim exclusive session coordination with a fenced lease, independent of task worker claims."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionClaimInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "claim"), Description: "Claim exclusive session coordination with a fenced lease, independent of task worker claims."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionClaimInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -241,7 +241,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "revise"), Description: "Revise the current request or strategy when user direction or discoveries change it; preserve immutable prior specifications and require the current revision."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionReviseInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "revise"), Description: "Revise the current request or strategy when user direction or discoveries change it; preserve immutable prior specifications and require the current revision."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionReviseInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -260,7 +260,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "checkpoint"), Description: "Append a descriptive session checkpoint: actual progress, problems, decisions, strategy and exact continuation. Does not replace a changed request specification."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCheckpointInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "checkpoint"), Description: "Append a descriptive session checkpoint: actual progress, problems, decisions, strategy and exact continuation. Does not replace a changed request specification."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCheckpointInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -279,7 +279,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "heartbeat"), Description: "Renew session coordination without inventing progress; descriptive checkpoints remain explicit."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionHeartbeatInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "heartbeat"), Description: "Renew session coordination without inventing progress; descriptive checkpoints remain explicit."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionHeartbeatInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)
 		if err != nil {
 			return errResult(err)
@@ -294,7 +294,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "release"), Description: "Hand off session coordination with durable results and an exact next step. The request stays open and tasks retain their independent lifecycle."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionReleaseInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "release"), Description: "Hand off session coordination with durable results and an exact next step. The request stays open and tasks retain their independent lifecycle."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionReleaseInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -309,7 +309,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "complete"), Description: "Explicitly close a fulfilled request with a final evidence-based summary. Refuses any associated task that is not completed or cancelled."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCompleteInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "complete"), Description: "Explicitly close a fulfilled request with a final evidence-based summary. Refuses any associated task that is not completed or cancelled."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCompleteInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -324,7 +324,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "cancel"), Description: "Cancel an obsolete request with an audited reason only after its tasks are terminal; never silently cancels associated work."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCancelInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "cancel"), Description: "Cancel an obsolete request with an audited reason only after its tasks are terminal; never silently cancels associated work."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionCancelInput) (*mcp.CallToolResult, any, error) {
 		if err := relations.Validate(in.References); err != nil {
 			return errResult(err)
 		}
@@ -339,7 +339,7 @@ func registerTaskSessionTools(server *mcp.Server) {
 		}
 		return taskResult(v, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "force", "takeover"), Description: "Recover a live session from an unrecoverable coordinator using exact ID confirmation, current revision, reason, replacement lease and a different identity."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionForceTakeoverInput) (*mcp.CallToolResult, any, error) {
+	addTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "session", "force", "takeover"), Description: "Recover a live session from an unrecoverable coordinator using exact ID confirmation, current revision, reason, replacement lease and a different identity."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSessionForceTakeoverInput) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(in.Lease) == "" {
 			return errResult(errors.New("session takeover requires an explicit positive replacement lease"))
 		}

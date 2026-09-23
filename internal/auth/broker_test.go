@@ -158,6 +158,7 @@ func TestBrokerStorageScopeValidation(t *testing.T) {
 	valid := []BrokerStorageScope{
 		ProjectStorageScope("project-a", BrokerStorageModuleTask),
 		ProjectStorageScope("project-a", BrokerStorageModuleMemory),
+		ProjectStorageScope("project-a", BrokerStorageModuleDream),
 		ProjectStorageScope("project-a", BrokerStorageModuleKnowledge),
 		ProjectStorageScope("project-a", BrokerStorageModuleAST),
 		ProjectStorageScope("project-a", BrokerStorageModuleHub),
@@ -194,6 +195,7 @@ func TestBrokerStorageScopeForObjectKeyUsesPhysicalModule(t *testing.T) {
 	}{
 		{"v2/projects/project-a/tasks", project(BrokerStorageModuleTask)},
 		{"prefix/v2/projects/project-a/memory/table.lance", project(BrokerStorageModuleMemory)},
+		{"v2/projects/project-a/dream/dream_runs.lance", project(BrokerStorageModuleDream)},
 		{"v2/projects/project-a/knowledge/search", project(BrokerStorageModuleKnowledge)},
 		{"v2/projects/project-a/ast/graph", project(BrokerStorageModuleAST)},
 		{"v2/projects/project-a/project.json", project(BrokerStorageModuleHub)},

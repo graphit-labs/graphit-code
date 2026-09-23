@@ -89,7 +89,7 @@ type knowledgeExportInput struct {
 }
 
 func registerKnowledgeTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "index"),
 		Description: "Index the documentation tree (knowledge.docs_dir, default docs/) plus the project's root README into the knowledge index and regenerate the wiki. Pass path to index a specific directory wholesale instead.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeIndexInput) (*mcp.CallToolResult, any, error) {
@@ -135,7 +135,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "export"),
 		Description: "Export Knowledge as an importable .knowledge package, Open Knowledge Format, or an Obsidian vault.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeExportInput) (*mcp.CallToolResult, any, error) {
@@ -174,7 +174,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Exported successfully to %s", absOutput))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("knowledge", "search"),
 		Description: "Search the project knowledge wiki using BM25 keyword ranking. " +
 			"Answers with page titles and scores, not page text: pick the page from the titles, then read it with " +
@@ -217,7 +217,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return jsonResult(paged)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("knowledge", "schema"),
 		Description: "Show the knowledge index tables: every column with its type, and the row count. " +
 			"Read this before writing a knowledge_query filter. The index is LanceDB, not a graph database: " +
@@ -247,7 +247,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return lanceSchemaResult(value, input.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("knowledge", "query"),
 		Description: "Answer a structured question about the knowledge index: filter rows by predicate and return only the columns asked for. " +
 			"Use it for questions a ranked search cannot answer — which pages are stale, what a page's doc_type is, " +
@@ -291,7 +291,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return lanceQueryResult(page.FinishFetched(window, rows), input.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "lint"),
 		Description: "Audit the knowledge wiki for structural issues.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeLintInput) (*mcp.CallToolResult, any, error) {
@@ -324,7 +324,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return jsonResult(report)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "remove"),
 		Description: "Remove the project knowledge index or an imported context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeRemoveInput) (*mcp.CallToolResult, any, error) {
@@ -357,7 +357,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return textResult("Project knowledge wiki cleared.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "sync"),
 		Description: "Rebuild the local project knowledge wiki from its configured documentation scope.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSyncInput) (*mcp.CallToolResult, any, error) {
@@ -388,7 +388,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "list"),
 		Description: "List all articles in the project knowledge wiki or a named installed context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeListInput) (*mcp.CallToolResult, any, error) {

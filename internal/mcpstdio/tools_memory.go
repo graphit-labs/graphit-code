@@ -31,18 +31,22 @@ type memoryInsertInput struct {
 }
 
 type memoryUpdateInput struct {
-	References *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
-	ProjectDir string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID         string           `json:"id" jsonschema:"Memory ID to update (required)"`
-	Content    string           `json:"content,omitempty" jsonschema:"New content"`
-	Title      string           `json:"title,omitempty" jsonschema:"New title"`
-	Scope      string           `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	References          *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir          string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ID                  string           `json:"id" jsonschema:"Memory ID to update (required)"`
+	Content             string           `json:"content,omitempty" jsonschema:"New content"`
+	Title               string           `json:"title,omitempty" jsonschema:"New title"`
+	Scope               string           `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ExpectedRevision    *int             `json:"expected_revision,omitempty" jsonschema:"Only update when the live memory still has this revision"`
+	ExpectedContentHash string           `json:"expected_content_hash,omitempty" jsonschema:"Only update when the live memory still has this content_hash"`
 }
 
 type memoryDeleteInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID         string `json:"id" jsonschema:"Memory ID to delete (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir          string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ID                  string `json:"id" jsonschema:"Memory ID to delete (required)"`
+	Scope               string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ExpectedRevision    *int   `json:"expected_revision,omitempty" jsonschema:"Only delete when the live memory still has this revision"`
+	ExpectedContentHash string `json:"expected_content_hash,omitempty" jsonschema:"Only delete when the live memory still has this content_hash"`
 }
 
 type memoryListInput struct {
@@ -93,15 +97,19 @@ type memoryMandatoryChangeInput struct {
 }
 
 type memoryPromoteInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID         string `json:"id" jsonschema:"Memory ID to promote (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir          string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ID                  string `json:"id" jsonschema:"Memory ID to promote (required)"`
+	Scope               string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ExpectedRevision    *int   `json:"expected_revision,omitempty" jsonschema:"Only promote when the live memory still has this revision"`
+	ExpectedContentHash string `json:"expected_content_hash,omitempty" jsonschema:"Only promote when the live memory still has this content_hash"`
 }
 
 type memoryDemoteInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID         string `json:"id" jsonschema:"Memory ID to demote (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir          string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ID                  string `json:"id" jsonschema:"Memory ID to demote (required)"`
+	Scope               string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ExpectedRevision    *int   `json:"expected_revision,omitempty" jsonschema:"Only demote when the live memory still has this revision"`
+	ExpectedContentHash string `json:"expected_content_hash,omitempty" jsonschema:"Only demote when the live memory still has this content_hash"`
 }
 
 type memoryIndexInput struct {
@@ -137,7 +145,7 @@ type memorySyncInput struct {
 }
 
 func registerMemoryTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "insert"),
 		Description: "Add a new memory to the project or user memory store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryInsertInput) (*mcp.CallToolResult, any, error) {
@@ -198,10 +206,13 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(msg)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "update"),
 		Description: "Update the title or content of an existing memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryUpdateInput) (*mcp.CallToolResult, any, error) {
+		if err := requireDreamMemoryPrecondition(req, input.ExpectedRevision, input.ExpectedContentHash); err != nil {
+			return errResult(err)
+		}
 		if err := relations.Validate(input.References); err != nil {
 			return errResult(err)
 		}
@@ -219,6 +230,11 @@ func registerMemoryTools(server *mcp.Server) {
 			}
 			defer func() { _ = svc.Close() }()
 
+			if input.ExpectedRevision != nil || input.ExpectedContentHash != "" {
+				return svc.UpdateMemoryIf(input.ID, input.Title, input.Content, memory.MutationPrecondition{
+					ExpectedRevision: input.ExpectedRevision, ExpectedContentHash: input.ExpectedContentHash,
+				})
+			}
 			return svc.UpdateMemory(input.ID, input.Title, input.Content)
 		})
 		if err != nil {
@@ -227,10 +243,13 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory %q updated", input.ID))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "delete"),
 		Description: "Delete a memory entry by ID.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryDeleteInput) (*mcp.CallToolResult, any, error) {
+		if err := requireDreamMemoryPrecondition(req, input.ExpectedRevision, input.ExpectedContentHash); err != nil {
+			return errResult(err)
+		}
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -244,6 +263,11 @@ func registerMemoryTools(server *mcp.Server) {
 			}
 			defer func() { _ = svc.Close() }()
 
+			if input.ExpectedRevision != nil || input.ExpectedContentHash != "" {
+				return svc.RemoveMemoryIf(input.ID, memory.MutationPrecondition{
+					ExpectedRevision: input.ExpectedRevision, ExpectedContentHash: input.ExpectedContentHash,
+				})
+			}
 			return svc.RemoveMemory(input.ID)
 		})
 		if err != nil {
@@ -252,7 +276,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory %q deleted", input.ID))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "list"),
 		Description: "List all memories in the project or user store, ordered mandatory, important, normal and newest first within each group.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryListInput) (*mcp.CallToolResult, any, error) {
@@ -282,7 +306,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return jsonResult(memories)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("memory", "search"),
 		Description: "Search the authoritative memory table, ordered mandatory, important, normal and newest first within each group. Match score is metadata, not the primary order. " +
 			"Answers with memory IDs, titles and scores, not memory text: pick a result and read it with " +
@@ -340,7 +364,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return jsonResult(paged)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "source"),
 		Description: "Read one current memory or archived revision directly from the authoritative table, with optional line and pattern slicing.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySourceInput) (*mcp.CallToolResult, any, error) {
@@ -383,7 +407,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(result.Source)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("memory", "mandatory"),
 		Description: "Return every mandatory memory with full content, without search. " +
 			"Use once per project/scope when the host hook has not already loaded them or reports fallback. Consume all mandatory entries before contextual recall; do not repeat a successful hook bootstrap.",
@@ -420,7 +444,7 @@ func registerMemoryTools(server *mcp.Server) {
 		{"unmark_mandatory", "Remove mandatory status when unconditional recall is no longer required.", false},
 	} {
 		spec := spec
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, &mcp.Tool{
 			Name: brand.MCPToolName("memory", spec.name), Description: spec.description,
 		}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryMandatoryChangeInput) (*mcp.CallToolResult, any, error) {
 			projectDir, err := resolveProjectDirOptional(input.ProjectDir)
@@ -446,7 +470,7 @@ func registerMemoryTools(server *mcp.Server) {
 		}))
 	}
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "important"),
 		Description: "List all memories marked as important, with mandatory entries first and newest first within each group.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryImportantInput) (*mcp.CallToolResult, any, error) {
@@ -475,10 +499,13 @@ func registerMemoryTools(server *mcp.Server) {
 		return jsonResult(entries)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "promote"),
 		Description: "Promote a memory to important status.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryPromoteInput) (*mcp.CallToolResult, any, error) {
+		if err := requireDreamMemoryPrecondition(req, input.ExpectedRevision, input.ExpectedContentHash); err != nil {
+			return errResult(err)
+		}
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -492,6 +519,11 @@ func registerMemoryTools(server *mcp.Server) {
 			}
 			defer func() { _ = svc.Close() }()
 
+			if input.ExpectedRevision != nil || input.ExpectedContentHash != "" {
+				return svc.PromoteMemoryIf(input.ID, memory.MutationPrecondition{
+					ExpectedRevision: input.ExpectedRevision, ExpectedContentHash: input.ExpectedContentHash,
+				})
+			}
 			return svc.PromoteMemory(input.ID)
 		})
 		if err != nil {
@@ -500,10 +532,13 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory %q promoted", input.ID))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "demote"),
 		Description: "Demote a memory from important status.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryDemoteInput) (*mcp.CallToolResult, any, error) {
+		if err := requireDreamMemoryPrecondition(req, input.ExpectedRevision, input.ExpectedContentHash); err != nil {
+			return errResult(err)
+		}
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -517,6 +552,11 @@ func registerMemoryTools(server *mcp.Server) {
 			}
 			defer func() { _ = svc.Close() }()
 
+			if input.ExpectedRevision != nil || input.ExpectedContentHash != "" {
+				return svc.DemoteMemoryIf(input.ID, memory.MutationPrecondition{
+					ExpectedRevision: input.ExpectedRevision, ExpectedContentHash: input.ExpectedContentHash,
+				})
+			}
 			return svc.DemoteMemory(input.ID)
 		})
 		if err != nil {
@@ -525,7 +565,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory %q demoted", input.ID))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "index"),
 		Description: "Ensure and refresh the search indexes on the authoritative memory table.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryIndexInput) (*mcp.CallToolResult, any, error) {
@@ -550,7 +590,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult("Memory indexing completed.")
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("memory", "schema"),
 		Description: "Show the authoritative memory table: every column with its type, and the record count. " +
 			"Read this before writing a memory_query filter. Memory is a LanceDB table, not a graph: there are no node labels and no Cypher.",
@@ -575,7 +615,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return lanceSchemaResult(value, input.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("memory", "query"),
 		Description: "Answer a structured question about memory records: filter rows by predicate and return only the columns asked for. " +
 			"Use it to count, group or list by a field — every mandatory record, everything of one type, what changed since a date. " +
@@ -622,7 +662,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return lanceQueryResult(page.FinishFetched(window, rows), input.AiOptimized)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "remove"),
 		Description: "Remove a memory context sync connection.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryRemoveInput) (*mcp.CallToolResult, any, error) {
@@ -646,7 +686,7 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory context %q disconnected; its local table was removed if present and any remote authoritative table was left unchanged", cleanCtx))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "sync"),
 		Description: "Ensure direct search indexes for an external authoritative memory context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySyncInput) (*mcp.CallToolResult, any, error) {

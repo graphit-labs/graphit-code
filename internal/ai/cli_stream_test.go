@@ -372,7 +372,7 @@ func TestSupportsStructuredStream(t *testing.T) {
 			t.Errorf("%s has a structured mode", bin)
 		}
 	}
-	for _, bin := range []string{"kiro-cli", "unknown"} {
+	for _, bin := range []string{"grok", "cursor-agent", "kiro-cli", "copilot", "unknown"} {
 		if (&cliClient{binaryName: bin}).SupportsStructuredStream() {
 			t.Errorf("%s must not claim a structured mode it has no parser for", bin)
 		}
@@ -477,8 +477,8 @@ func TestRenderToolPayload(t *testing.T) {
 	}
 }
 
-// The two preambles are the sandbox decision, so the difference is asserted rather
-// than left to inspection: one forbids tool use, the other requires it.
+// The two preambles distinguish ordinary conversational and agentic behavior.
+// Dream's actual tool controls are applied separately by its capability policy.
 func TestPreambleFor(t *testing.T) {
 	t.Parallel()
 

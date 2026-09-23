@@ -35,7 +35,7 @@ type clusterProjectsInput struct {
 }
 
 func registerClusterTools(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("cluster", "set"),
 		Description: "Set a cluster label for grouping the project in the ecosystem.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterSetInput) (*mcp.CallToolResult, any, error) {
@@ -68,7 +68,7 @@ func registerClusterTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Cluster label %s=%s set successfully.", input.Key, input.Value))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("cluster", "get"),
 		Description: "Get a specific cluster label value, or all cluster labels set on the project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterGetInput) (*mcp.CallToolResult, any, error) {
@@ -106,7 +106,7 @@ func registerClusterTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("cluster", "unset"),
 		Description: "Remove a cluster label from the project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterUnsetInput) (*mcp.CallToolResult, any, error) {
@@ -139,7 +139,7 @@ func registerClusterTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Cluster label %q removed successfully.", input.Key))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("cluster", "projects"),
 		Description: "List Graphit-managed projects in the current project's cluster (including itself), optionally filtered by label. Use the selected returned dir as project_dir for that target's enabled AST, Knowledge, Memory, Task and other MCP tools. Read the needed target module skill; do not switch to native grep or file walks merely because the project is outside the working directory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterProjectsInput) (*mcp.CallToolResult, any, error) {

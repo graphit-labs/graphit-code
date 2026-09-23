@@ -11,21 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-func TestDeepSleepSentinelName(t *testing.T) {
-	name := DeepSleepSentinelName()
-	if name != ".exhausted" {
-		t.Errorf("expected '.exhausted', got %q", name)
-	}
-}
-
 func TestStatePath(t *testing.T) {
 	p := StatePath("/tmp/myproject")
-	if !strings.Contains(p, "daemon") || !strings.Contains(p, "dream.state") {
+	if !strings.Contains(p, filepath.Join("runtime", "dream", "dream.state")) {
 		t.Errorf("unexpected state path: %q", p)
+	}
+	if strings.Contains(p, filepath.Join("runtime", "daemon")) {
+		t.Errorf("Dream state must not remain under daemon runtime: %q", p)
 	}
 }
 
@@ -40,24 +37,6 @@ func TestGenerateDreamID(t *testing.T) {
 	}
 	if id1 == id2 {
 		t.Error("two generated IDs should differ")
-	}
-}
-
-func TestFileExists(t *testing.T) {
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "exists.txt")
-	_ = os.WriteFile(filePath, []byte("data"), 0644)
-
-	if !fileExists(filePath) {
-		t.Error("expected fileExists to return true for existing file")
-	}
-
-	if fileExists(filepath.Join(dir, "nope.txt")) {
-		t.Error("expected fileExists to return false for non-existing file")
-	}
-
-	if fileExists(dir) {
-		t.Error("expected fileExists to return false for directory")
 	}
 }
 
@@ -366,34 +345,14 @@ func TestResolveDreamConfig(t *testing.T) {
 
 func TestRunnerCheckDeepSleep(t *testing.T) {
 	dir := t.TempDir()
-
-	t.Run("no sentinel file", func(t *testing.T) {
-		r := NewRunner(dir, "agent", nil)
-		r.checkDeepSleep("test-session")
-		if r.state.Exhausted {
-			t.Error("expected exhausted=false when no sentinel")
-		}
-	})
-
-	t.Run("with sentinel file", func(t *testing.T) {
-		r := NewRunner(dir, "agent", nil)
-		var logged []string
-		r.logFn = func(format string, args ...any) {
-			logged = append(logged, format)
-		}
-		sentinelDir := ReportsDir(dir)
-		_ = os.MkdirAll(sentinelDir, 0o755)
-		sentinelPath := filepath.Join(sentinelDir, "test-session"+exhaustedSentinel)
-		_ = os.WriteFile(sentinelPath, nil, 0644)
-
-		r.checkDeepSleep("test-session")
-		if !r.state.Exhausted {
-			t.Error("expected exhausted=true when sentinel exists")
-		}
-		if len(logged) == 0 {
-			t.Error("expected log message about deep sleep")
-		}
-	})
+	r := NewRunner(dir, "agent", nil)
+	r.checkDeepSleep("test-session")
+	if !r.state.Exhausted {
+		t.Error("a completed consolidation must exhaust the current idle session")
+	}
+	if _, err := os.Stat(filepath.Join(brand.ProjectRuntimePath(dir, "dream"), "test-session.exhausted")); !os.IsNotExist(err) {
+		t.Error("deep sleep must be represented only in dream.state")
+	}
 }
 
 func TestRunnerResolveSessionID(t *testing.T) {
@@ -687,74 +646,23 @@ func TestLastModifiedTimeWithIgnoredFile(t *testing.T) {
 }
 
 func TestBuildDreamPrompt(t *testing.T) {
-	projectDir := "/tmp/project"
-	result := buildDreamPrompt(projectDir, "test-session", "vscode", nil)
+	result := buildDreamPrompt("test-session", "vscode")
 	if result == "" {
 		t.Error("expected non-empty prompt")
 	}
-	if !strings.Contains(result, "test-session") {
-		t.Error("prompt should contain the session id")
+	for _, want := range []string{
+		"graphit_memory_insert", "graphit_memory_update", "graphit_memory_delete",
+		"graphit_memory_promote", "graphit_memory_demote", "expected_revision",
+		"Task/session", "Knowledge/Wiki", "AST", "Hub", "References",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("prompt should contain %q", want)
+		}
 	}
-	if !strings.Contains(result, projectDir) {
-		t.Error("prompt should contain the project dir")
-	}
-	if !strings.Contains(result, "vscode") {
-		t.Error("prompt should contain the Agent name")
-	}
-	if !strings.Contains(result, ReportsDir(projectDir)) {
-		t.Errorf("prompt should contain resolved reports directory %q", ReportsDir(projectDir))
-	}
-	if strings.Contains(strings.ToLower(result), "backlog") {
-		t.Error("dream prompt must not reference the task backlog")
-	}
-}
-
-func TestBuildDreamContext(t *testing.T) {
-	result := buildDreamContext("/tmp/project", "session1", "ide1")
-	if !strings.Contains(result, "session1") {
-		t.Error("context should contain the session id")
-	}
-	if !strings.Contains(result, "Phase 1") {
-		t.Error("context should contain mission phases")
-	}
-	if strings.Contains(strings.ToLower(result), "backlog") {
-		t.Error("dream context must not reference the task backlog")
-	}
-}
-
-func TestBuildDreamEnvelope(t *testing.T) {
-	projectDir := "/tmp/project"
-	result := buildDreamEnvelope(projectDir, "session1")
-	if !strings.Contains(result, "session1") {
-		t.Error("envelope should contain the session id")
-	}
-	if !strings.Contains(result, "Dream Report") {
-		t.Error("envelope should contain Dream Report section")
-	}
-	if !strings.Contains(result, "Deep Sleep") {
-		t.Error("envelope should contain deep sleep section")
-	}
-	if strings.Contains(strings.ToLower(result), "backlog") {
-		t.Error("dream report envelope must not reference the task backlog")
-	}
-	if !strings.Contains(result, filepath.Join(ReportsDir(projectDir), "session1"+reportExt)) {
-		t.Error("envelope should contain the resolved runtime report path")
-	}
-}
-
-func TestBuildDreamArtifact(t *testing.T) {
-	result := buildDreamArtifact("test-session", "Agent did things.\nMore details.", "")
-	if !strings.Contains(result, "test-session") {
-		t.Error("artifact should contain the session id")
-	}
-	if !strings.Contains(result, "Agent did things") {
-		t.Error("artifact should contain agent output")
-	}
-	if !strings.Contains(result, "---") {
-		t.Error("artifact should contain frontmatter")
-	}
-	if !strings.Contains(result, "Dream Report") {
-		t.Error("artifact should contain Dream Report header")
+	for _, forbidden := range []string{"Dream Report", "skill generation", "create skills", "/tmp/project"} {
+		if strings.Contains(strings.ToLower(result), strings.ToLower(forbidden)) {
+			t.Errorf("Memory-only prompt contains forbidden concept %q", forbidden)
+		}
 	}
 }
 
@@ -798,165 +706,172 @@ func TestRunnerSaveStateLocked(t *testing.T) {
 	}
 }
 
-func TestExecuteDreamMkdirError(t *testing.T) {
-	dir := t.TempDir()
-	dreamDir := ReportsDir(dir)
-	dreamParent := filepath.Dir(dreamDir)
-	_ = os.MkdirAll(dreamParent, 0o755)
-	_ = os.WriteFile(dreamDir, []byte("blocker"), 0o644)
-
-	r := NewRunner(dir, "agent", nil)
-
-	err := r.executeDream(context.Background(), "test-session")
-	if err == nil {
-		t.Error("expected error when MkdirAll fails for dream artifact dir")
-	}
-	if !strings.Contains(err.Error(), "creating dream artifact dir") {
-		t.Errorf("unexpected error message: %v", err)
-	}
+type fakeDreamClient struct {
+	mu     sync.Mutex
+	calls  int
+	reqs   []ai.StreamRequest
+	events []ai.Event
+	err    error
 }
 
-func TestExecuteDreamExecuteLocalError(t *testing.T) {
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := r.executeDream(ctx, "test-session")
-	if err == nil {
-		t.Error("expected error from executeDream")
-	}
-	if !strings.Contains(err.Error(), "executing dream agent") && !strings.Contains(err.Error(), "creating") {
-		t.Errorf("unexpected error message: %v", err)
-	}
+func (c *fakeDreamClient) Complete(context.Context, string, string) (string, error) {
+	return "", c.err
 }
 
-func TestExecuteLocalCancelledContext(t *testing.T) {
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
-
-	dreamDir := ReportsDir(dir)
-	_ = os.MkdirAll(dreamDir, 0o755)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	result, err := r.executeLocal(ctx, "test prompt", "test-session")
-	if err == nil {
-		t.Error("expected error from executeLocal")
+func (c *fakeDreamClient) CompleteStream(_ context.Context, req ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
+	c.mu.Lock()
+	c.calls++
+	c.reqs = append(c.reqs, req)
+	c.mu.Unlock()
+	for _, ev := range c.events {
+		emit(ev)
 	}
-	if result != "" {
-		t.Error("expected empty result on error")
-	}
+	return &ai.StreamResult{Structured: true, Binary: "codex", Text: "discard me"}, c.err
 }
 
-func TestExecuteLocalNoAIClientOnPath(t *testing.T) {
-	oldPath := os.Getenv("PATH")
-	t.Setenv("PATH", "")
-	defer os.Setenv("PATH", oldPath)
+func (c *fakeDreamClient) SupportsStructuredStream() bool { return true }
+func (c *fakeDreamClient) AgentCLI() string               { return "codex" }
 
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
+type fakeNonStreamingClient struct{}
 
-	dreamDir := ReportsDir(dir)
-	_ = os.MkdirAll(dreamDir, 0o755)
-
-	result, err := r.executeLocal(context.Background(), "test prompt", "test-session")
-	if err == nil {
-		t.Error("expected error when no AI CLI is on PATH")
-	}
-	if !strings.Contains(err.Error(), "creating AI client") {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if result != "" {
-		t.Error("expected empty result on error")
-	}
+func (fakeNonStreamingClient) Complete(context.Context, string, string) (string, error) {
+	return "must not run", nil
 }
 
-func TestExecuteLocalSuccessWithFakeCLI(t *testing.T) {
-	fakeBinDir := filepath.Join(t.TempDir(), "bin")
-	_ = os.MkdirAll(fakeBinDir, 0o755)
-	fakeCLI := filepath.Join(fakeBinDir, "gemini")
-	_ = os.WriteFile(fakeCLI, []byte("#!/bin/sh\necho 'Dream report output'\n"), 0o755)
+type fakeUnstructuredDreamClient struct{ fakeDreamClient }
 
-	t.Setenv("PATH", fakeBinDir)
+func (*fakeUnstructuredDreamClient) SupportsStructuredStream() bool { return false }
+func (c *fakeUnstructuredDreamClient) CompleteStream(ctx context.Context, req ai.StreamRequest, emit ai.EventFunc) (*ai.StreamResult, error) {
+	result, err := c.fakeDreamClient.CompleteStream(ctx, req, emit)
+	if result != nil {
+		result.Structured = false
+	}
+	return result, err
+}
 
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
+type fakeRunLedger struct {
+	mu      sync.Mutex
+	records []RunRecord
+}
 
-	dreamDir := ReportsDir(dir)
-	_ = os.MkdirAll(dreamDir, 0o755)
+func (l *fakeRunLedger) Put(_ context.Context, record RunRecord) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.records = append(l.records, record)
+	return nil
+}
+func (l *fakeRunLedger) Close() error { return nil }
 
-	result, err := r.executeLocal(context.Background(), "test prompt", "test-session")
+func newTestDreamRunner(t *testing.T, client ai.Client) (*Runner, *fakeRunLedger) {
+	t.Helper()
+	r := NewRunner(t.TempDir(), "test-agent", nil)
+	ledger := &fakeRunLedger{}
+	r.newClient = func() (ai.Client, error) { return client, nil }
+	r.newLedger = func(context.Context, string) (runLedgerWriter, error) { return ledger, nil }
+	return r, ledger
+}
+
+func TestExecuteDreamRunsOneMemoryOnlyAgenticCallAndWritesNoResultFile(t *testing.T) {
+	const memoryID = "01AAAAAAAAAAAAAAAAAAAAAAAA"
+	client := &fakeDreamClient{events: []ai.Event{
+		{Kind: ai.EventToolUse, Tool: "graphit_memory_update", ToolCallID: "call-1", Detail: `{"id":"` + memoryID + `"}`},
+		{Kind: ai.EventToolResult, ToolCallID: "call-1", Detail: `{"id":"` + memoryID + `","revision":2}`},
+	}}
+	r, ledger := newTestDreamRunner(t, client)
+
+	if err := r.executeDream(context.Background(), "test-session"); err != nil {
+		t.Fatalf("executeDream: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("CompleteStream calls = %d, want exactly 1", client.calls)
+	}
+	req := client.reqs[0]
+	if req.PersistSession || !req.AllowTools || req.WorkDir != r.projectDir {
+		t.Fatalf("unexpected request: %+v", req)
+	}
+	if req.Capabilities == nil || !req.Capabilities.RestrictNativeToolsWhenAvailable || req.Capabilities.MCPProfile != agentpolicy.ProfileDreamMemory {
+		t.Fatalf("missing exact Dream capability policy: %+v", req.Capabilities)
+	}
+	if req.Env["GRAPHIT_DREAM_RUN_ID"] == "" || req.Env["GRAPHIT_DREAM_RUN_ID"] == "test-session" ||
+		req.Env["GRAPHIT_UNIT_ID"] != "dream:"+req.Env["GRAPHIT_DREAM_RUN_ID"] {
+		t.Fatalf("missing provenance env: %#v", req.Env)
+	}
+	if len(ledger.records) != 2 || ledger.records[1].Status != "completed" || ledger.records[1].MemoryMutationAttempts != 1 {
+		t.Fatalf("unexpected run ledger: %#v", ledger.records)
+	}
+	if ledger.records[0].RunID != req.Env["GRAPHIT_DREAM_RUN_ID"] || ledger.records[1].RunID != ledger.records[0].RunID {
+		t.Fatalf("run provenance and ledger disagree: env=%#v ledger=%#v", req.Env, ledger.records)
+	}
+	if len(ledger.records[1].TargetIDs) != 1 || ledger.records[1].TargetIDs[0] != memoryID {
+		t.Fatalf("target IDs were not captured: %#v", ledger.records[1].TargetIDs)
+	}
+	entries, err := os.ReadDir(brand.ProjectRuntimePath(r.projectDir, "dream"))
 	if err != nil {
-		t.Fatalf("executeLocal failed unexpectedly: %v", err)
+		t.Fatal(err)
 	}
-	if result == "" {
-		t.Error("expected non-empty result from executeLocal")
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".md") || strings.HasSuffix(entry.Name(), ".exhausted") {
+			t.Fatalf("Dream wrote a forbidden result artifact: %s", entry.Name())
+		}
 	}
 }
 
-func TestExecuteDreamSuccessWithFakeCLI(t *testing.T) {
-	fakeBinDir := filepath.Join(t.TempDir(), "bin")
-	_ = os.MkdirAll(fakeBinDir, 0o755)
-	fakeCLI := filepath.Join(fakeBinDir, "gemini")
-	_ = os.WriteFile(fakeCLI, []byte("#!/bin/sh\necho 'Dream session complete'\n"), 0o755)
-
-	t.Setenv("PATH", fakeBinDir)
-
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
-	var logged []string
-	r.logFn = func(format string, args ...any) {
-		logged = append(logged, fmt.Sprintf(format, args...))
+func TestExecuteDreamFailsClosedForNonStreamingClient(t *testing.T) {
+	r, ledger := newTestDreamRunner(t, fakeNonStreamingClient{})
+	err := r.executeDream(context.Background(), "test-session")
+	if err == nil || !strings.Contains(err.Error(), "does not support agentic streaming") {
+		t.Fatalf("unexpected error: %v", err)
 	}
+	if got := ledger.records[len(ledger.records)-1].Status; got != "failed" {
+		t.Fatalf("ledger status = %q, want failed", got)
+	}
+}
 
+func TestExecuteDreamAllowsUnstructuredCLIWithHonestTelemetry(t *testing.T) {
+	client := &fakeUnstructuredDreamClient{}
+	r, ledger := newTestDreamRunner(t, client)
 	err := r.executeDream(context.Background(), "test-session")
 	if err != nil {
-		t.Fatalf("executeDream failed: %v", err)
+		t.Fatalf("unstructured CLI should run: %v", err)
 	}
-
-	dreamDir := ReportsDir(dir)
-	artifactPath := filepath.Join(dreamDir, "test-session.md")
-	if !fileExists(artifactPath) {
-		t.Error("expected dream artifact file to be created")
+	if client.calls != 1 {
+		t.Fatalf("unstructured CLI was invoked %d times, want once", client.calls)
+	}
+	last := ledger.records[len(ledger.records)-1]
+	if last.Status != "completed_unobserved" || last.ToolCalls != 0 || last.MemoryMutationAttempts != 0 {
+		t.Fatalf("ledger did not distinguish unavailable telemetry: %#v", last)
 	}
 }
 
-func TestExecuteDreamWriteFileError(t *testing.T) {
-	fakeBinDir := filepath.Join(t.TempDir(), "bin")
-	_ = os.MkdirAll(fakeBinDir, 0o755)
-	fakeCLI := filepath.Join(fakeBinDir, "gemini")
-	_ = os.WriteFile(fakeCLI, []byte("#!/bin/sh\necho 'Dream output'\n"), 0o755)
-
-	t.Setenv("PATH", fakeBinDir)
-
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
-
-	dreamDir := ReportsDir(dir)
-	_ = os.MkdirAll(dreamDir, 0o755)
-	_ = os.Chmod(dreamDir, 0o555)
-	defer func() { _ = os.Chmod(dreamDir, 0o755) }()
-
+func TestExecuteDreamRecordsAgentFailureWithoutPersistingOutput(t *testing.T) {
+	client := &fakeDreamClient{err: context.DeadlineExceeded}
+	r, ledger := newTestDreamRunner(t, client)
 	err := r.executeDream(context.Background(), "test-session")
 	if err == nil {
-		t.Error("expected error from WriteFile")
+		t.Fatal("expected agent failure")
 	}
-	if !strings.Contains(err.Error(), "writing dream artifact") {
-		t.Errorf("unexpected error: %v", err)
+	last := ledger.records[len(ledger.records)-1]
+	if last.Status != "failed" || !strings.Contains(last.ErrorSummary, "deadline") {
+		t.Fatalf("unexpected failed ledger record: %#v", last)
+	}
+}
+
+func TestExecuteDreamRejectsStructuredProseOnlyRun(t *testing.T) {
+	client := &fakeDreamClient{}
+	r, ledger := newTestDreamRunner(t, client)
+	err := r.executeDream(context.Background(), "test-session")
+	if err == nil || !strings.Contains(err.Error(), "without using any MCP tools") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("CompleteStream calls = %d, want 1", client.calls)
+	}
+	if got := ledger.records[len(ledger.records)-1].Status; got != "failed" {
+		t.Fatalf("ledger status = %q, want failed", got)
 	}
 }
 
 func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
-	fakeBinDir := filepath.Join(t.TempDir(), "bin")
-	_ = os.MkdirAll(fakeBinDir, 0o755)
-	fakeCLI := filepath.Join(fakeBinDir, "gemini")
-	_ = os.WriteFile(fakeCLI, []byte("#!/bin/sh\necho 'Dream output'\n"), 0o755)
-
-	t.Setenv("PATH", fakeBinDir)
-
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "old.txt")
 	_ = os.WriteFile(filePath, []byte("data"), 0644)
@@ -970,6 +885,10 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "agent", loader)
+	client := &fakeDreamClient{events: []ai.Event{{Kind: ai.EventToolUse, Tool: "graphit_memory_list", ToolCallID: "read-1"}}}
+	ledger := &fakeRunLedger{}
+	r.newClient = func() (ai.Client, error) { return client, nil }
+	r.newLedger = func(context.Context, string) (runLedgerWriter, error) { return ledger, nil }
 	var mu sync.Mutex
 	var logged []string
 	r.logFn = func(format string, args ...any) {
@@ -1089,6 +1008,10 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "agent", loader)
+	client := &fakeDreamClient{events: []ai.Event{{Kind: ai.EventToolUse, Tool: "graphit_memory_list", ToolCallID: "read-1"}}}
+	ledger := &fakeRunLedger{}
+	r.newClient = func() (ai.Client, error) { return client, nil }
+	r.newLedger = func(context.Context, string) (runLedgerWriter, error) { return ledger, nil }
 	var mu sync.Mutex
 	var logged []string
 	r.logFn = func(format string, args ...any) {
@@ -1114,8 +1037,8 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 	}
 
 	r.mu.Lock()
-	if r.state.Exhausted {
-		t.Error("expected Exhausted=false without sentinel file")
+	if !r.state.Exhausted {
+		t.Error("expected Exhausted=true after a successful run without any sentinel")
 	}
 	r.mu.Unlock()
 }
@@ -1187,19 +1110,6 @@ func TestLastModifiedTimeNonExistentDir(t *testing.T) {
 	}
 }
 
-func TestExecuteDreamWriteArtifactError(t *testing.T) {
-	dir := t.TempDir()
-	r := NewRunner(dir, "agent", nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := r.executeDream(ctx, "test-session")
-	if err == nil {
-		t.Error("expected error")
-	}
-}
-
 func TestRunWithTickerC(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "agent", nil)
@@ -1213,47 +1123,5 @@ func TestRunWithTickerC(t *testing.T) {
 	err := r.Run(ctx)
 	if err != nil {
 		t.Errorf("Run should return nil: %v", err)
-	}
-}
-
-func TestToollessRunNamesTheLikelyCauseInTheReport(t *testing.T) {
-	d := toollessRunDiagnostic(&ai.StreamResult{Binary: "claude", Structured: true})
-
-	for _, want := range []string{"ai.agent_args", "claude", "model call was spent"} {
-		if !strings.Contains(d, want) {
-			t.Errorf("diagnostic does not mention %q:\n%s", want, d)
-		}
-	}
-
-	report := buildDreamArtifact("s1", "some prose", d)
-	if !strings.Contains(report, "No artifacts were produced") {
-		t.Fatalf("diagnostic never reached the report:\n%s", report)
-	}
-	if strings.Index(report, "ai.agent_args") > strings.Index(report, "## Agent Output") {
-		t.Error("the diagnostic sits below the output it is warning about")
-	}
-}
-
-// The mirror, and the reason this stays a hypothesis: with the setting already in
-// place, the report must NOT send someone to fix it. A correctly configured CLI can
-// still decide a session needs no tools.
-func TestToollessRunDoesNotBlameAConfiguredSetting(t *testing.T) {
-	d := toollessRunDiagnostic(&ai.StreamResult{
-		Binary: "claude", Structured: true, AgentArgsConfigured: true,
-	})
-
-	if !strings.Contains(d, "IS configured") {
-		t.Errorf("diagnostic does not acknowledge the setting is present:\n%s", d)
-	}
-	if strings.Contains(d, "config ai.agent_args.") {
-		t.Errorf("it still tells the operator to set what is already set:\n%s", d)
-	}
-}
-
-// A healthy session must carry no warning at all — the section exists to be rare.
-func TestAReportWithNoDiagnosticHasNoWarningSection(t *testing.T) {
-	report := buildDreamArtifact("s1", "did real work", "")
-	if strings.Contains(report, "No artifacts were produced") {
-		t.Errorf("a clean session carries a warning:\n%s", report)
 	}
 }

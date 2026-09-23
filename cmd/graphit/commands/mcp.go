@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -63,6 +64,9 @@ func runMCPStdioProxy() error {
 }
 
 func resolveMCPStdioBearer(ctx context.Context) (string, error) {
+	if token := agentpolicy.CapabilityTokenFromEnv(); token != "" {
+		return token, nil
+	}
 	snapshot, err := auth.ResolveActive(ctx)
 	if err != nil {
 		if errors.Is(err, auth.ErrNoActiveProfile) {
