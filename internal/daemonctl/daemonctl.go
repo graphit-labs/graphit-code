@@ -24,6 +24,10 @@ const (
 	daemonReadyPoll    = 10 * time.Millisecond
 )
 
+// The file lock coordinates separate processes. Keep concurrent callers in
+// this process behind one gate as well, regardless of host flock semantics.
+var localSpawnGate = make(chan struct{}, 1)
+
 func DaemonDir() string {
 	return filepath.Join(brand.GlobalDir(), "daemon")
 }
@@ -55,6 +59,13 @@ func AttachLogStderr(cmd *exec.Cmd) func() {
 }
 
 func EnsureRunning() (bool, error) {
+	select {
+	case localSpawnGate <- struct{}{}:
+		defer func() { <-localSpawnGate }()
+	case <-time.After(2 * daemonReadyTimeout):
+		return false, fmt.Errorf("acquiring in-process daemon spawn lock: timed out")
+	}
+
 	if err := os.MkdirAll(DaemonDir(), 0o755); err != nil {
 		return false, err
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/daemonservice"
 )
 
 func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
@@ -82,7 +83,11 @@ func TestConcurrentEnsureRunningStartsOneReadyDaemon(t *testing.T) {
 		}
 	}
 	if startedCount != 1 {
-		t.Fatalf("started results = %d, want 1", startedCount)
+		status, statusErr := daemonservice.GetStatus()
+		locked, lockErr := fileLockState(pidPath)
+		starts, startsErr := os.ReadFile(countPath)
+		t.Fatalf("started results = %d, want 1 (service=%+v serviceErr=%v pidLocked=%t lockErr=%v starts=%q startsErr=%v)",
+			startedCount, status, statusErr, locked, lockErr, starts, startsErr)
 	}
 	data, err := os.ReadFile(countPath)
 	if err != nil {
