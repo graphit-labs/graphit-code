@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,20 @@ func testServiceEnv(t *testing.T) string {
 	}
 	t.Setenv("PATH", dir)
 	return exe
+}
+
+func TestSystemctlEnvironmentRestoresUserBusForAgentProcess(t *testing.T) {
+	got := systemctlEnvironment([]string{"HOME=/home/test", "PATH=/usr/bin"}, 1000)
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"XDG_RUNTIME_DIR=/run/user/1000", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in %q", want, joined)
+		}
+	}
+	custom := []string{"XDG_RUNTIME_DIR=/custom/runtime", "DBUS_SESSION_BUS_ADDRESS=unix:path=/custom/bus"}
+	if got := systemctlEnvironment(custom, 1000); !reflect.DeepEqual(got, custom) {
+		t.Fatalf("custom bus was replaced: %q", got)
+	}
 }
 
 func TestLinuxServiceLifecycle(t *testing.T) {

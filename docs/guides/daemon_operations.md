@@ -90,7 +90,10 @@ graphit daemon service uninstall
 | Windows | User Task Scheduler task | `RestartOnFailure` (up to 255 retries, one minute apart); separate login task only with `--login` |
 
 All three mechanisms run under the current user without normal administrator elevation. The
-managed daemon starts its UI module using the configured `ui.host` and `ui.port` and publishes the
+Linux MCP proxy can start `systemd --user` even when its agent host omits desktop session
+variables: Graphit supplies this user's `/run/user/<uid>` bus address to `systemctl` when needed.
+macOS addresses the `launchd` GUI domain by user ID, and Windows uses the current user's Task
+Scheduler registration. The managed daemon starts its UI module using the configured `ui.host` and `ui.port` and publishes the
 actual address it binds. The service uses no one-minute cron or timer. Installation removes only
 Graphit's identified legacy watchdog entry. `graphit daemon scheduler` remains an alias for
 `daemon service`. `service uninstall` stops and removes the service and its login startup; `remove`

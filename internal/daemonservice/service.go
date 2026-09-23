@@ -40,14 +40,6 @@ func (s Status) String() string {
 
 type commandRunner func(name string, args ...string) error
 
-func run(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
-	}
-	return nil
-}
-
 func serviceDir() string { return filepath.Join(brand.GlobalDir(), "daemon") }
 
 func serviceName() string { return brand.Brand + "-daemon" }

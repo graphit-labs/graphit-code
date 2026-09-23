@@ -13,7 +13,39 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-var systemctlRun commandRunner = run
+var systemctlRun commandRunner = runSystemctl
+
+// Agent hosts may start the MCP proxy with a minimal environment that omits
+// desktop session variables. The user manager still listens on this user's
+// runtime bus, so give systemctl the standard addresses when they are absent.
+func runSystemctl(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Env = systemctlEnvironment(os.Environ(), os.Getuid())
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s %v: %w: %s", name, args, err, output)
+	}
+	return nil
+}
+
+func systemctlEnvironment(base []string, uid int) []string {
+	env := append([]string(nil), base...)
+	values := make(map[string]string, 2)
+	for _, entry := range base {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && (key == "XDG_RUNTIME_DIR" || key == "DBUS_SESSION_BUS_ADDRESS") {
+			values[key] = value
+		}
+	}
+	runtimeDir := values["XDG_RUNTIME_DIR"]
+	if runtimeDir == "" {
+		runtimeDir = fmt.Sprintf("/run/user/%d", uid)
+		env = append(env, "XDG_RUNTIME_DIR="+runtimeDir)
+	}
+	if values["DBUS_SESSION_BUS_ADDRESS"] == "" {
+		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+filepath.Join(runtimeDir, "bus"))
+	}
+	return env
+}
 
 func unitName() string { return serviceName() + ".service" }
 

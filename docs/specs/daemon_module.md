@@ -253,6 +253,9 @@ it depends on the daemon's MCP listener even when ordinary CLI autostart is disa
 The proxy reports service-start errors on stderr while retrying. Codex's generated MCP entry uses
 `startup_timeout_sec=120` for cold starts; its default 30-second deadline can expire before the
 service and runtime are ready.
+On Linux, the systemd user-manager command fills missing `XDG_RUNTIME_DIR` and
+`DBUS_SESSION_BUS_ADDRESS` from the current user's `/run/user/<uid>` runtime bus. This handles
+agent hosts that strip graphical session variables before launching the stdio MCP proxy.
 CLI manager errors are shown as warnings so foreground commands still run;
 explicit service commands return the error. `graphit daemon` remains an explicit
 foreground command.
