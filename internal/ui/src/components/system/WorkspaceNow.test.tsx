@@ -35,6 +35,30 @@ it('renders sessions and memories created after the initial snapshot on the next
  expect(screen.getByRole('link',{name:'New memory'}).getAttribute('href')).toBe('/memory/explorer/project/mem-new');
  expect(useAppStore.getState().activeProjectDir).toBe('/project');
 });
+it('renders session task progress and refreshes changed counts on the next poll', async () => {
+ const initial = withItems(snapshot(), 'sessions', [
+  { id:'ses-partial', title:'Partial session', href:'/task/sessions/ses-partial', completed_tasks:1, total_tasks:3 },
+  { id:'ses-empty', title:'Empty session', href:'/task/sessions/ses-empty', completed_tasks:0, total_tasks:0 },
+  { id:'ses-complete', title:'Complete session', href:'/task/sessions/ses-complete', completed_tasks:2, total_tasks:2 },
+ ]);
+ const current = withItems(snapshot(), 'sessions', [
+  { id:'ses-partial', title:'Partial session', href:'/task/sessions/ses-partial', completed_tasks:2, total_tasks:3 },
+  { id:'ses-empty', title:'Empty session', href:'/task/sessions/ses-empty', completed_tasks:0, total_tasks:0 },
+  { id:'ses-complete', title:'Complete session', href:'/task/sessions/ses-complete', completed_tasks:2, total_tasks:2 },
+ ]);
+ vi.mocked(api.get).mockResolvedValueOnce(initial).mockResolvedValueOnce(current);
+ render(<MemoryRouter><WorkspaceNow/></MemoryRouter>);
+ await act(async()=>{});
+ expect(screen.getByText('1 of 3 complete')).toBeTruthy();
+ expect(screen.getByText('2 of 2 complete')).toBeTruthy();
+ expect(screen.getByText('No tasks')).toBeTruthy();
+ expect(screen.getByRole('progressbar', { name:'Task progress: 1 of 3 complete' }).getAttribute('aria-valuenow')).toBe('1');
+ expect(screen.getAllByRole('progressbar')).toHaveLength(2);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000)});
+ expect(screen.queryByText('1 of 3 complete')).toBeNull();
+ expect(screen.getByRole('progressbar', { name:'Task progress: 2 of 3 complete' }).getAttribute('aria-valuenow')).toBe('2');
+ expect(screen.getAllByRole('progressbar')).toHaveLength(2);
+});
 it('does not overlap requests and ignores the previous project response',async()=>{
  let resolve!:(x:NowSnapshot)=>void;
  vi.mocked(api.get).mockImplementationOnce(()=>new Promise(r=>{resolve=r}));
@@ -66,7 +90,7 @@ it('joins the header refresh and deduplicates it with polling', async () => {
  });
  it('renders a fresh multi-source snapshot from the header refresh', async () => {
   const loadProjects = vi.fn(async () => {});
-  const current = withItems(withItems(snapshot(), 'sessions', [{ id:'ses-header', title:'Header session', href:'/task/sessions/ses-header' }]), 'knowledge', [{ id:'fresh-doc', title:'Fresh document', href:'/knowledge/explorer?page=fresh-doc' }]);
+  const current = withItems(withItems(snapshot(), 'sessions', [{ id:'ses-header', title:'Header session', href:'/task/sessions/ses-header', completed_tasks:2, total_tasks:3 }]), 'knowledge', [{ id:'fresh-doc', title:'Fresh document', href:'/knowledge/explorer?page=fresh-doc' }]);
   vi.mocked(api.get).mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(current);
   useAppStore.setState({ loadProjects, projectsError: '' });
   function Header() { const refresh = useWorkspaceRefresh(); return <button onClick={() => void refresh?.refresh()}>Refresh workspace</button>; }
@@ -74,6 +98,7 @@ it('joins the header refresh and deduplicates it with polling', async () => {
   await act(async () => {});
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh workspace' })); });
   expect(screen.getByRole('link',{name:'Header session'})).toBeTruthy();
+  expect(screen.getByRole('progressbar',{name:'Task progress: 2 of 3 complete'})).toBeTruthy();
   expect(screen.getByRole('link',{name:'Fresh document'})).toBeTruthy();
   expect(loadProjects).toHaveBeenCalledTimes(1);
   expect(api.get).toHaveBeenCalledTimes(2);

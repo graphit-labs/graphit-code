@@ -73,6 +73,7 @@ Implementation: [EngineeringUI.tsx](../../../internal/ui/src/components/shared/E
 | `RecordLink` | Title, metadata, click action, optional selected state/children | Select an inspectable record; actual destinations should use links where appropriate |
 | `WorkNotice` | Title, optional content; neutral/error/success tone | Meaningful context or result; error uses alert role. It does not invent async announcement for other tones |
 | `WorkEmpty` | Title, explanation, optional recovery action | Explain this region's absence; distinguish filtering from retrieval failure |
+| `SessionTaskProgress` | Completed and total linked-Task counts; explicit text, semantic progressbar and zero state | Use for session progress in catalogues and NOW. Text is authoritative, the bar is complementary when total is positive, and zero renders `No tasks` without a progressbar |
 
 Example composition:
 
@@ -173,9 +174,9 @@ AST map entry loads the bounded sample once per scope when no explicit search or
 
 ### Workspace Now
 
-The initial Now tab shows active sessions and tasks plus recently maintained project memories and Knowledge. Work is active only with `in_progress` status, a responsible identity and an unexpired lease. The view includes all project contributors: the global agent selector identifies a CLI context, not the owner identity of a Task claim. Memory uses its recorded author identity; Knowledge does not invent an author. Personal memory is excluded.
+The initial Now tab shows active sessions and tasks plus recently maintained project memories and Knowledge. Work is active only with `in_progress` status, a responsible identity and an unexpired lease. Each session record uses `SessionTaskProgress` to show the authoritative completed/total linked-Task count: cancelled Tasks remain in the total and only `completed` increments the numerator. The view includes all project contributors: the global agent selector identifies a CLI context, not the owner identity of a Task claim. Memory uses its recorded author identity; Knowledge does not invent an author. Personal memory is excluded.
 
-Now refreshes every five seconds while mounted, shares its loader with the header refresh, and marks both the live request and response `no-store` so an unchanged project URL cannot reuse an older snapshot. It deduplicates in-flight requests and aborts/ignores responses after a project or agent change or navigation. Keep the previous snapshot visible while updating; identify stale data after a failed refresh and retry automatically. Individual source errors remain visible without hiding successful sections. Each section shows at most the latest 20 records, sorted before limiting, with its total and links to the full record. Preserve the timestamp precision supplied by the source: old date-only Knowledge values remain dates.
+Now refreshes every five seconds while mounted, shares its loader with the header refresh, and marks both the live request and response `no-store` so an unchanged project URL cannot reuse an older snapshot. It deduplicates in-flight requests and aborts/ignores responses after a project or agent change or navigation. Keep the previous snapshot visible while updating; identify stale data after a failed refresh and retry automatically. Individual source errors remain visible without hiding successful sections: a failed session-progress read does not suppress successfully loaded active Tasks. Each section shows at most the latest 20 records, sorted before limiting, with its total and links to the full record. Preserve the timestamp precision supplied by the source: old date-only Knowledge values remain dates.
 
 ### Live source selection
 

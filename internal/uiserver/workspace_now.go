@@ -25,6 +25,8 @@ type nowItem struct {
 	LeaseExpiresAt string `json:"lease_expires_at,omitempty"`
 	Progress       string `json:"progress,omitempty"`
 	NextStep       string `json:"next_step,omitempty"`
+	CompletedTasks *int   `json:"completed_tasks,omitempty"`
+	TotalTasks     *int   `json:"total_tasks,omitempty"`
 }
 type nowSection struct {
 	Items   []nowItem `json:"items"`
@@ -71,6 +73,10 @@ type metadataQuerier interface {
 	QueryStore(context.Context, lancequery.Request) (lancequery.Result, error)
 }
 
+type workspaceActivityReader interface {
+	CurrentActivitySections(context.Context, time.Time) ([]task.ActivityRecord, []task.ActivityRecord, error, error)
+}
+
 func activityMetadata(ctx context.Context, q metadataQuerier, req lancequery.Request, kind string) ([]nowItem, error) {
 	items := []nowItem{}
 	req.Limit = 1024
@@ -93,23 +99,49 @@ func activityMetadata(ctx context.Context, q metadataQuerier, req lancequery.Req
 	}
 	return items, nil
 }
-func readWorkspaceNow(ctx context.Context, dir string, now time.Time) nowView {
-	out := nowView{ProjectID: store.ProjectID(dir), GeneratedAt: now.UTC().Format(time.RFC3339Nano), Sections: map[string]nowSection{}}
-	svc, err := task.Open(dir)
-	var tasks, sessions []task.ActivityRecord
-	if err == nil {
-		tasks, sessions, err = svc.CurrentActivity(ctx, now)
-	}
-	for kind, rows := range map[string][]task.ActivityRecord{"tasks": tasks, "sessions": sessions} {
+
+func workspaceActivitySections(ctx context.Context, svc workspaceActivityReader, now time.Time) map[string]nowSection {
+	tasks, sessions, taskErr, sessionErr := svc.CurrentActivitySections(ctx, now)
+	out := make(map[string]nowSection, 2)
+	for kind, activity := range map[string]struct {
+		rows []task.ActivityRecord
+		err  error
+	}{
+		"tasks":    {rows: tasks, err: taskErr},
+		"sessions": {rows: sessions, err: sessionErr},
+	} {
 		items := []nowItem{}
 		entity := "task"
 		if kind == "sessions" {
 			entity = "session"
 		}
-		for _, v := range rows {
-			items = append(items, nowItem{ID: v.ID, Title: v.Title, Href: referenceHref(entity, v.ID, "project", ""), Owner: v.Owner, UpdatedAt: v.UpdatedAt, Status: v.Status, LeaseExpiresAt: v.LeaseExpiresAt, Progress: v.Progress, NextStep: v.NextStep})
+		for _, v := range activity.rows {
+			item := nowItem{
+				ID: v.ID, Title: v.Title, Href: referenceHref(entity, v.ID, "project", ""),
+				Owner: v.Owner, UpdatedAt: v.UpdatedAt, Status: v.Status, LeaseExpiresAt: v.LeaseExpiresAt,
+				Progress: v.Progress, NextStep: v.NextStep,
+			}
+			if kind == "sessions" {
+				completed, total := v.CompletedTasks, v.TotalTasks
+				item.CompletedTasks, item.TotalTasks = &completed, &total
+			}
+			items = append(items, item)
 		}
-		out.Sections[kind] = finishNow(items, err)
+		out[kind] = finishNow(items, activity.err)
+	}
+	return out
+}
+
+func readWorkspaceNow(ctx context.Context, dir string, now time.Time) nowView {
+	out := nowView{ProjectID: store.ProjectID(dir), GeneratedAt: now.UTC().Format(time.RFC3339Nano), Sections: map[string]nowSection{}}
+	svc, err := task.Open(dir)
+	if err != nil {
+		out.Sections["tasks"] = finishNow(nil, err)
+		out.Sections["sessions"] = finishNow(nil, err)
+	} else {
+		for kind, section := range workspaceActivitySections(ctx, svc, now) {
+			out.Sections[kind] = section
+		}
 	}
 	ms, e := memory.NewMemoryStore()
 	var memories []nowItem

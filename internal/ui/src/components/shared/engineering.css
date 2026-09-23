@@ -1561,6 +1561,7 @@
 .now-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; margin-top: 1.5rem; }
 .now-record { border-bottom: 1px solid hsl(var(--border)); padding: 1rem 0; overflow-wrap: anywhere; }
 .now-record-meta { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: .5rem 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.now-record > .session-task-progress { margin: .75rem 0; }
 .now-record summary { cursor: pointer; font-size: .8125rem; }
 @container (max-width: 900px) { .now-grid { grid-template-columns: minmax(0, 1fr); } }
 

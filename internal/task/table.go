@@ -562,11 +562,24 @@ type taskSessionStatus struct {
 	status    Status
 }
 
-func (t *tables) sessionTaskStatuses(ctx context.Context) ([]taskSessionStatus, error) {
+func (t *tables) sessionTaskStatuses(ctx context.Context, sessionIDs ...string) ([]taskSessionStatus, error) {
+	filter := "revision >= 1"
+	if len(sessionIDs) > 0 {
+		quoted := make([]string, 0, len(sessionIDs))
+		for _, id := range sessionIDs {
+			if id != "" {
+				quoted = append(quoted, quote(id))
+			}
+		}
+		if len(quoted) == 0 {
+			return []taskSessionStatus{}, nil
+		}
+		filter += " AND session_id IN (" + strings.Join(quoted, ",") + ")"
+	}
 	var out []taskSessionStatus
 	for offset := 0; ; offset += pageSize {
 		hits, err := t.tasks.Search(ctx, lancestore.Query{
-			Filter: "revision >= 1", Columns: []string{"session_id", "status"}, Limit: pageSize, Offset: offset,
+			Filter: filter, Columns: []string{"session_id", "status"}, Limit: pageSize, Offset: offset,
 		})
 		if err != nil {
 			return nil, err

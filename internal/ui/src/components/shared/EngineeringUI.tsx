@@ -240,3 +240,32 @@ export function WorkStatusBadge({ status }: { status: string }) {
     </WorkBadge>
   );
 }
+
+export function SessionTaskProgress({ completed, total }: { completed: number; total: number }) {
+  return (
+    <div className="session-task-progress">
+      {total > 0 ? (
+        <>
+          <span className="session-task-progress-label">
+            {completed} of {total} complete
+          </span>
+          <span
+            className="session-task-progress-track"
+            role="progressbar"
+            aria-label={`Task progress: ${completed} of ${total} complete`}
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={completed}
+          >
+            <span
+              className="session-task-progress-fill"
+              style={{ width: `${Math.min(100, Math.max(0, (completed / total) * 100))}%` }}
+            />
+          </span>
+        </>
+      ) : (
+        <span className="session-task-progress-label empty">No tasks</span>
+      )}
+    </div>
+  );
+}

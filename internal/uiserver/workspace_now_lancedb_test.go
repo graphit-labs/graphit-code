@@ -65,8 +65,17 @@ func TestActivityUsesRealProjectRecordsWithoutTokens(t *testing.T) {
 	if result.Sections["tasks"].Items[0].Owner != "unit:worker" || result.Sections["memories"].Items[0].ID != id {
 		t.Fatal(result)
 	}
+	if session := result.Sections["sessions"].Items[0]; session.CompletedTasks == nil || *session.CompletedTasks != 0 || session.TotalTasks == nil || *session.TotalTasks != 1 {
+		t.Fatalf("session task progress = %+v", session)
+	}
+	if taskItem := result.Sections["tasks"].Items[0]; taskItem.CompletedTasks != nil || taskItem.TotalTasks != nil {
+		t.Fatalf("task item received session-only progress fields: %+v", taskItem)
+	}
 	bytes, _ := json.Marshal(result)
 	body := string(bytes)
+	if !strings.Contains(body, `"completed_tasks":0`) || !strings.Contains(body, `"total_tasks":1`) {
+		t.Fatalf("session task progress missing from response: %s", body)
+	}
 	for _, secret := range []string{v.ClaimToken, s.ClaimToken, "snapshot_json", "secret memory body", "secret wiki body", "private long body"} {
 		if secret != "" && strings.Contains(body, secret) {
 			t.Fatalf("private data escaped: %s", secret)

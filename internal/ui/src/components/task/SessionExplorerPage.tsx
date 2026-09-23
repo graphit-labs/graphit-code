@@ -11,6 +11,7 @@ import {
   WorkSearch,
   WorkEmpty,
   RecordLink,
+  SessionTaskProgress,
 } from "@/components/shared/EngineeringUI";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -508,30 +509,7 @@ export default function SessionExplorerPage() {
                   <WorkStatusBadge status={session.status} />
                 </td>
                 <td>
-                  <div className="session-task-progress">
-                    {session.total_tasks > 0 ? (
-                      <>
-                        <span className="session-task-progress-label">
-                          {session.completed_tasks} of {session.total_tasks} complete
-                        </span>
-                        <span
-                          className="session-task-progress-track"
-                          role="progressbar"
-                          aria-label={`Task progress: ${session.completed_tasks} of ${session.total_tasks} complete`}
-                          aria-valuemin={0}
-                          aria-valuemax={session.total_tasks}
-                          aria-valuenow={session.completed_tasks}
-                        >
-                          <span
-                            className="session-task-progress-fill"
-                            style={{ width: `${Math.min(100, Math.max(0, (session.completed_tasks / session.total_tasks) * 100))}%` }}
-                          />
-                        </span>
-                      </>
-                    ) : (
-                      <span className="session-task-progress-label empty">No tasks</span>
-                    )}
-                  </div>
+                  <SessionTaskProgress completed={session.completed_tasks} total={session.total_tasks} />
                 </td>
                 <td>{session.owner || "Unclaimed"}</td>
                 <td>{shortDate(session.updated_at)}</td>

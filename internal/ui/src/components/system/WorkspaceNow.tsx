@@ -4,9 +4,9 @@ import { api } from '@/api/client';
 import { useAppStore } from '@/store/appStore';
 import { usePageRefresh } from '../layout/WorkspaceRefresh';
 import { MarkdownContent } from '../wiki/WikiMarkdown';
-import { WorkEmpty, WorkNotice, WorkSection } from '../shared/EngineeringUI';
+import { SessionTaskProgress, WorkEmpty, WorkNotice, WorkSection } from '../shared/EngineeringUI';
 
-interface Item { id: string; title: string; href: string; owner?: string; updated_at?: string; status?: string; lease_expires_at?: string; progress?: string; next_step?: string }
+interface Item { id: string; title: string; href: string; owner?: string; updated_at?: string; status?: string; lease_expires_at?: string; progress?: string; next_step?: string; completed_tasks?: number; total_tasks?: number }
 interface Section { items: Item[]; total: number; has_more: boolean; error?: string }
 export interface NowSnapshot { project_id: string; generated_at: string; sections: Record<string, Section> }
 const sections = [['sessions', 'Active sessions', 'No session is currently claimed.'], ['tasks', 'Active tasks', 'No task is currently claimed.'], ['memories', 'Recent memory', 'No project memories yet.'], ['knowledge', 'Recently maintained knowledge', 'No indexed project documents yet.']] as const;
@@ -67,6 +67,7 @@ export function WorkspaceNow() {
         {!section || section.error ? <WorkNotice title="This source is unavailable" tone="error">{section?.error || 'No response from this source.'}</WorkNotice> : !section.items.length ? <p className="text-sm text-muted-foreground">{empty}</p> : section.items.map(item => <article className="now-record" key={item.id}>
           <Link className="record-title" to={item.href}>{item.title || item.id}</Link>
           <div className="now-record-meta"><code>{item.id}</code>{item.owner && <span>Responsible: {item.owner}</span>}{item.updated_at && <time dateTime={item.updated_at}>{dateLabel(item.updated_at)}</time>}</div>
+          {key === 'sessions' && <SessionTaskProgress completed={item.completed_tasks ?? 0} total={item.total_tasks ?? 0} />}
           {item.progress && <div className="markdown-preview"><MarkdownContent content={item.progress} /></div>}
           {item.next_step && <details><summary>Next action</summary><div className="markdown-preview"><MarkdownContent content={item.next_step} /></div></details>}
         </article>)}
