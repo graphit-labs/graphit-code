@@ -11,6 +11,7 @@ import { useAppStore } from '@/store/appStore'
 import SessionExplorerPage from './SessionExplorerPage'
 
 vi.mock('@/hooks/useToast', () => ({ showToast: vi.fn() }))
+vi.mock('@/api/client', () => ({ api: { get: vi.fn(() => new Promise(() => {})) } }))
 vi.mock('@/api/taskSession', async importOriginal => {
   const actual = await importOriginal<typeof import('@/api/taskSession')>()
   return { ...actual, sessionApi: { list: vi.fn(), get: vi.fn() } }
@@ -103,6 +104,14 @@ describe('Session Explorer', () => {
     expect(screen.getByText('Retry identifier was late.')).toBeTruthy()
     expect(screen.getByText('Preserve the existing job id.')).toBeTruthy()
     expect(screen.getByText('Linked worker task')).toBeTruthy()
+    const linkedTasks = screen.getByRole('heading', { name: 'Linked tasks' })
+    const completeRecord = screen.getByText('Complete JSON record')
+    const continuity = screen.getByRole('heading', { name: 'Continuity' })
+    const recordLinks = screen.getByRole('heading', { name: 'Record links' })
+    expect(linkedTasks.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(completeRecord.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(continuity.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('Resolving references…').getAttribute('role')).toBe('status')
     expect(sessionApi.list).toHaveBeenCalledWith({ projectDir: '/project', query: undefined, status: 'all', active: false, pageSize: 20, cursor: undefined })
     expect(sessionApi.get).toHaveBeenCalledWith('/project', 'ses-aaaa')
 

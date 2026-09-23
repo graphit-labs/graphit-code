@@ -375,7 +375,6 @@ function TaskDetail({
               ["Ready", task.ready ? "Ready for execution" : "Not ready"],
             ]}
           />
-          <RecordReferences kind="task" id={task.id} />
           {task.session_id && (
             <button
               className="work-button"
@@ -384,6 +383,7 @@ function TaskDetail({
               Open session
             </button>
           )}
+          <RecordReferences kind="task" id={task.id} />
         </aside>
       </div>
     </article>

@@ -160,7 +160,7 @@ The explorer provides:
 - importance and mandatory controls; and
 - explicit confirmation before removal.
 
-Memory presents a compact current-record catalogue followed by a guidance dossier. Its revision strip exposes current and historical versions, with an explicit historical notice. Editing from a historical view updates the current memory; it does not restore or overwrite the selected historical version. Authoritative identity, timestamps, author, scope, hash and predecessor/successor addresses remain inspectable beside the guidance.
+Memory presents a compact current-record catalogue followed by a guidance dossier. Its revision strip exposes current and historical versions, with an explicit historical notice. Editing from a historical view updates the current memory; it does not restore or overwrite the selected historical version. Authoritative identity, timestamps, author, scope, hash and predecessor/successor addresses remain inspectable beside the guidance. Persisted record relationships follow that metadata in the supporting column, after the guidance and classification in mobile DOM order, so their asynchronous loading extends the dossier without moving earlier content.
 
 Create/edit uses a focused modal: content and title are primary, while classification and startup policy explain how future work will retrieve the memory. Existing tags remain unchanged during edits. The editor keeps its actions visible while long content scrolls and restores focus when closed. Removal requires explicit confirmation.
 
@@ -174,9 +174,9 @@ directly addressable scopes.
 
 ### Task Explorer
 
-Tasks and Sessions share a full-width, bounded catalogue followed by a reading dossier. Tasks start with next action, active acceptance-check progress and evidence; specification, comments, lifecycle and immutable revisions remain directly addressable. Accountability and relationships sit alongside the reading column and stack below it on mobile. Superseded checks remain visible but do not count toward active acceptance progress.
+Tasks and Sessions share a full-width, bounded catalogue followed by a reading dossier. Tasks start with next action, active acceptance-check progress and evidence; specification, comments, lifecycle and immutable revisions remain directly addressable. Accountability and the session action sit alongside the reading column, followed by persisted record relationships; that supporting column stacks below the reading content on mobile. Superseded checks remain visible but do not count toward active acceptance progress.
 
-Sessions preserve one evolving request: next step and latest checkpoint come first, followed by request/strategy, linked tasks, checkpoint decisions/problems, specification revisions and a readable lifecycle timeline. The complete JSON record remains available for inspection. The catalogue retains status, search, active-only and cursor pagination; task/session links preserve the selected project.
+Sessions preserve one evolving request: next step and latest checkpoint come first, followed by request/strategy, linked tasks, checkpoint decisions/problems, specification revisions and a readable lifecycle timeline. The complete JSON record remains available for inspection. Continuity metadata and its notice lead the supporting column; persisted record relationships come last in that column and in mobile DOM order. This prevents asynchronously loaded links and backlinks from shifting the session's primary work or continuity context. The catalogue retains status, search, active-only and cursor pagination; task/session links preserve the selected project.
 
 The Task Explorer uses the lightweight `GET /api/tasks` catalogue for paginated discovery. Its
 server-side text and lifecycle filters show status, priority, flags, and dependency blocks without

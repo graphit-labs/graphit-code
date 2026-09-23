@@ -149,7 +149,6 @@ function SessionDetailView({
           <WorkSection title="Strategy">
             <SessionMarkdown content={session.strategy} />
           </WorkSection>
-          <RecordReferences kind="session" id={session.id} />
           <WorkSection
             id="session-work"
             title="Linked tasks"
@@ -279,6 +278,7 @@ function SessionDetailView({
           <WorkNotice title="One evolving request">
             The session preserves intent across tasks and agent handoffs.
           </WorkNotice>
+          <RecordReferences kind="session" id={session.id} />
         </aside>
       </div>
     </article>

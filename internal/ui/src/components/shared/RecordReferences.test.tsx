@@ -21,3 +21,39 @@ it('renders persisted links and backlinks, keeping unresolved identities noninte
   expect(screen.queryByRole('link', {name: /missing/})).toBeNull();
   expect(api.get).toHaveBeenCalledWith(expect.stringContaining('kind=task&id=t'));
 });
+
+it('keeps both directions explicit when a complete record has no relationships', async () => {
+  vi.mocked(api.get).mockResolvedValue({ complete: true, warnings: [], outgoing: [], incoming: [] });
+
+  render(<MemoryRouter><RecordReferences kind="memory" id="m" /></MemoryRouter>);
+
+  expect(await screen.findAllByText('No linked records.')).toHaveLength(2);
+  expect(screen.getByRole('heading', { name: 'References' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Referenced by' })).toBeTruthy();
+});
+
+it('labels partial relationship results and their unavailable directions', async () => {
+  vi.mocked(api.get).mockResolvedValue({
+    complete: false,
+    warnings: ['Memory references are unavailable.'],
+    outgoing: [],
+    incoming: [],
+  });
+
+  render(<MemoryRouter><RecordReferences kind="session" id="s" /></MemoryRouter>);
+
+  expect(await screen.findByText('Partial reference view')).toBeTruthy();
+  expect(screen.getByText('Memory references are unavailable.')).toBeTruthy();
+  expect(screen.getAllByText('No links found in available sources.')).toHaveLength(2);
+});
+
+it('announces a failed relationship request without hiding the record section', async () => {
+  vi.mocked(api.get).mockRejectedValue(new Error('reference store offline'));
+
+  render(<MemoryRouter><RecordReferences kind="task" id="t" /></MemoryRouter>);
+
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('References unavailable');
+  expect(alert.textContent).toContain('reference store offline');
+  expect(screen.getByRole('heading', { name: 'Record links' })).toBeTruthy();
+});

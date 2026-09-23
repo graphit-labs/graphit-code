@@ -10,6 +10,7 @@ import { useAppStore } from '@/store/appStore'
 import TaskExplorerPage from './TaskExplorerPage'
 
 vi.mock('@/hooks/useToast', () => ({ showToast: vi.fn() }))
+vi.mock('@/api/client', () => ({ api: { get: vi.fn(() => new Promise(() => {})) } }))
 vi.mock('@/api/task', async importOriginal => {
   const actual = await importOriginal<typeof import('@/api/task')>()
   return { ...actual, taskApi: { list: vi.fn(), export: vi.fn() } }
@@ -143,6 +144,12 @@ describe('Task Explorer', () => {
     expect(within(specification!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Preserve audit history', 'Render rich fields'])
     expect(within(specification!).getByText('go test').tagName).toBe('CODE')
     expect(within(specification!).getByRole('link', { name: 'the contract' }).getAttribute('href')).toBe('https://example.com/contract')
+    const accountability = screen.getByRole('heading', { name: 'Accountability' })
+    const openSession = screen.getByRole('button', { name: 'Open session' })
+    const recordLinks = screen.getByRole('heading', { name: 'Record links' })
+    expect(accountability.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(openSession.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('Resolving references…').getAttribute('role')).toBe('status')
     expect(taskApi.list).toHaveBeenCalledWith({ projectDir: '/project', query: undefined, status: 'all', pageSize: 20, cursor: undefined })
     expect(taskApi.export).toHaveBeenCalledWith('/project', 'tsk-aaaa')
     expect(taskApi.export).not.toHaveBeenCalledWith('/project')

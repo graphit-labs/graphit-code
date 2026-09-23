@@ -10,6 +10,7 @@ import { useAppStore } from '@/store/appStore'
 import MemoryExplorerPage from './MemoryExplorerPage'
 
 vi.mock('@/hooks/useToast', () => ({ showToast: vi.fn() }))
+vi.mock('@/api/client', () => ({ api: { get: vi.fn(() => new Promise(() => {})) } }))
 vi.mock('@/api/memory', async importOriginal => {
   const actual = await importOriginal<typeof import('@/api/memory')>()
   return {
@@ -113,6 +114,14 @@ describe('Memory Explorer', () => {
     expect(screen.getByText('unit-current')).toBeTruthy()
     expect(screen.getByText('current-hash')).toBeTruthy()
     expect(screen.getByText('Revision chain')).toBeTruthy()
+    const guidance = screen.getByRole('heading', { name: 'Recorded guidance' })
+    const classification = screen.getByRole('heading', { name: 'Classification' })
+    const metadata = screen.getByRole('heading', { name: 'Authoritative metadata' })
+    const recordLinks = screen.getByRole('heading', { name: 'Record links' })
+    expect(guidance.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(classification.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(metadata.compareDocumentPosition(recordLinks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByText('Resolving references…').getAttribute('role')).toBe('status')
     expect(memoryApi.detail).toHaveBeenCalledWith('/project', 'project', '01MEMORY')
 
     await user.click(screen.getByRole('button', { name: /Revision 1/ }))

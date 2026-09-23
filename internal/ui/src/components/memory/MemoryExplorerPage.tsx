@@ -359,7 +359,6 @@ function MemoryDetail({
               memory.
             </WorkNotice>
           )}
-          <RecordReferences kind="memory" id={trace.memory_id} scope={selected.scope} />
           <WorkSection title="Recorded guidance">
             <MemoryMarkdown content={selected.body} title={selected.title} />
           </WorkSection>
@@ -390,6 +389,7 @@ function MemoryDetail({
               ["Revision address", selected.revision_id || selected.key],
             ]}
           />
+          <RecordReferences kind="memory" id={trace.memory_id} scope={selected.scope} />
         </aside>
       </div>
     </article>
