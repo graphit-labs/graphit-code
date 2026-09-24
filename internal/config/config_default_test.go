@@ -150,6 +150,33 @@ func TestResolveConfig(t *testing.T) {
 	}
 }
 
+func TestResolveAstSCIPVersion(t *testing.T) {
+	t.Setenv("GRAPHIT_GLOBAL_DIR", t.TempDir())
+	t.Setenv("GRAPHIT_AST_SCIP_VERSION", "")
+	if got := ResolveAstSCIPVersion(nil, nil); got != "v1" {
+		t.Fatalf("unset SCIP version = %q; want v1", got)
+	}
+	if err := SetGlobalConfigValue("ast.scip.version", "0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveAstSCIPVersion(nil, nil); got != "0.1.0" {
+		t.Fatalf("global SCIP version = %q; want 0.1.0", got)
+	}
+
+	projectCfg := ConfigMap{"ast": map[string]any{"scip.version": "0.2.1"}}
+	if got := ResolveAstSCIPVersion(nil, projectCfg); got != "0.2.1" {
+		t.Fatalf("project SCIP version = %q; want 0.2.1", got)
+	}
+	t.Setenv("GRAPHIT_AST_SCIP_VERSION", "0.3.0")
+	if got := ResolveAstSCIPVersion(nil, projectCfg); got != "0.3.0" {
+		t.Fatalf("environment SCIP version = %q; want 0.3.0", got)
+	}
+	inlineCfg := ConfigMap{"ast": map[string]any{"scip.version": "0.4.0"}}
+	if got := ResolveAstSCIPVersion(inlineCfg, projectCfg); got != "0.4.0" {
+		t.Fatalf("inline SCIP version = %q; want 0.4.0", got)
+	}
+}
+
 func TestResolveAgentAndCLI(t *testing.T) {
 	origBrand := brand.Brand
 	brand.Brand = "graphit"
@@ -346,6 +373,28 @@ func TestResolveAstIndexDocs(t *testing.T) {
 	off := ConfigMap{"ast": map[string]any{"index_docs": "false"}}
 	if ResolveAstIndexDocs(off, nil) {
 		t.Error("ast.index_docs=false enabled docs indexing")
+	}
+}
+
+func TestResolveAstSCIPEnabledLayers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := SetGlobalConfigValue("ast.scip.enabled", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if !ResolveAstSCIPEnabled(nil, nil) {
+		t.Fatal("global opt-in was ignored")
+	}
+	project := ConfigMap{"ast": map[string]any{"scip.enabled": "false"}}
+	if ResolveAstSCIPEnabled(nil, project) {
+		t.Fatal("project override did not beat global config")
+	}
+	t.Setenv(ConfigEnvVar("ast.scip.enabled"), "true")
+	if !ResolveAstSCIPEnabled(nil, project) {
+		t.Fatal("environment override did not beat project config")
+	}
+	inline := ConfigMap{"ast": map[string]any{"scip.enabled": "false"}}
+	if ResolveAstSCIPEnabled(inline, project) {
+		t.Fatal("inline override did not beat environment")
 	}
 }
 

@@ -4,7 +4,7 @@ type ParsedFile struct {
 	Path     string
 	RepoPath string
 	Language string
-	Parser   string // "tree-sitter" or "antlr4"
+	Parser   string // "tree-sitter", "antlr4", or "scip"
 	IsDepend bool
 	HasError bool
 
@@ -15,6 +15,9 @@ type ParsedFile struct {
 	CallSites []CallInfo
 
 	References []ReferenceInfo
+	// SCIPEntry carries the already resolved, canonical SCIP graph rows. It never
+	// passes through name-based Tree-sitter/ANTLR conversion.
+	SCIPEntry *parseCacheEntry
 
 	// mergeIdx locates entities by identity for AddOrMergeEntity. Unexported, so it
 	// never reaches the shard cache.
@@ -189,6 +192,9 @@ func (pf *ParsedFile) AllEntities() []Entity {
 }
 
 func (pf *ParsedFile) EntityCount() int {
+	if pf.SCIPEntry != nil {
+		return len(pf.SCIPEntry.Entities)
+	}
 	n := 0
 	for _, entities := range pf.Entities {
 		n += len(entities)

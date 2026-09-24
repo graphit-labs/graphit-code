@@ -1,0 +1,17 @@
+# SCIP's SymbolInformation.Kind is the graph label for every declared kind.
+# "*" includes future SCIP kinds; unknown values become Symbol.
+parser: scip
+family: clang
+extensions: [.c, .h, .cpp, .hpp, .cc, .cxx, .hxx, .hh]
+entities:
+  kinds: ["*"]
+  labels:
+    UnspecifiedKind: Symbol
+relations:
+  - CONTAINS
+  - REFERENCES
+  - IMPLEMENTS
+  - TYPE_DEFINITION
+  - DEFINITION
+documentation: true
+external_symbols: true

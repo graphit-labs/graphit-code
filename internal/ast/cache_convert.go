@@ -8,6 +8,10 @@ import (
 )
 
 func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *parseCacheEntry {
+	if pf.SCIPEntry != nil {
+		pf.SCIPEntry.Cluster = cluster
+		return pf.SCIPEntry
+	}
 	abs, _ := filepath.Abs(pf.Path)
 	relPath := computeRelPath(rootPath, abs)
 	if relPath == "" {

@@ -86,9 +86,10 @@ The walker will:
 
 ## File Placement
 
-Ignore files are collected by walking **up** from a start directory to the git root,
-and each file's patterns are scoped to the directory it sits in ("its domain"),
-relative to the root the checker resolves against:
+The checker first collects rules by walking **up** from its start directory to the
+project root. AST file discovery then loads `.gitignore` and `.astignore` again as
+it enters each nested directory. Each file's patterns are scoped to the directory
+it sits in ("its domain"), relative to the project root:
 
 - **Project root**: rules apply to every path
 - **The scoped start directory**: rules apply within it — `rascunho.md` in
@@ -96,13 +97,9 @@ relative to the root the checker resolves against:
 
 For the Knowledge module the start directory is `knowledge.docs_dir`, so **both**
 `.wikiignore` at the project root and `.wikiignore` inside the docs tree are read.
-For the AST module the start directory is the indexed root, so `.astignore` is read
-there.
-
-> ⚠️ **Collection only walks upward.** An ignore file *deeper* than the start
-> directory — `docs/specs/.wikiignore`, `internal/x/.astignore` — is never read.
-> Patterns for a nested directory belong in the ignore file at the start
-> directory or the root, written with the path in them (`specs/rascunhos/`).
+For the AST module the start directory is the indexed root. A nested file such
+as `internal/x/.astignore` applies to files under `internal/x/`; the AST walker
+also honors negations when deciding whether to enter an ignored directory.
 
 ## Default Patterns
 

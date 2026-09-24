@@ -510,6 +510,21 @@ func ResolveAstIndexDocs(inlineCfg, projectCfg ConfigMap) bool {
 	return strings.EqualFold(val, "true")
 }
 
+// ResolveAstSCIPEnabled enables the project-wide, opt-in SCIP backend through
+// the same inline, environment, project, global and compiled config layers.
+func ResolveAstSCIPEnabled(inlineCfg, projectCfg ConfigMap) bool {
+	return strings.EqualFold(ResolveConfig("ast.scip.enabled", inlineCfg, projectCfg), "true")
+}
+
+// ResolveAstSCIPVersion returns the effective tag for language-specific SCIP
+// images. An unset version uses the v1 major-version alias.
+func ResolveAstSCIPVersion(inlineCfg, projectCfg ConfigMap) string {
+	if version := strings.TrimSpace(ResolveConfig("ast.scip.version", inlineCfg, projectCfg)); version != "" {
+		return version
+	}
+	return "v1"
+}
+
 // ResolveTaskPrefix returns the namespace that holds authoritative task tables.
 // It follows the ordinary configuration precedence and is nested under the Hub
 // prefix when object storage is configured.

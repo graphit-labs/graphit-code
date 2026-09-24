@@ -32,6 +32,7 @@ type rebuildIndex struct {
 	hasImports              bool
 
 	entityUIDs   map[string]string
+	scipStubUIDs map[string]string
 	fieldUIDs    map[string]bool
 	dirPathSet   map[string]bool
 	fileEntries  []fileEntry
@@ -58,6 +59,7 @@ func newRebuildIndex(entries map[string]*parseCacheEntry, rules *TargetRules) *r
 		rules:        rules,
 		labelSet:     make(map[string]bool),
 		entityUIDs:   make(map[string]string),
+		scipStubUIDs: make(map[string]string),
 		fieldUIDs:    make(map[string]bool),
 		dirPathSet:   make(map[string]bool),
 		emittedTable: make(map[string]string),
@@ -136,7 +138,13 @@ func (ri *rebuildIndex) scan() {
 	annKindSet := make(map[string]bool)
 	decls := make(map[string][]declRef)
 
-	for relPath, entry := range ri.entries {
+	paths := make([]string, 0, len(ri.entries))
+	for relPath := range ri.entries {
+		paths = append(paths, relPath)
+	}
+	sort.Strings(paths)
+	for _, relPath := range paths {
+		entry := ri.entries[relPath]
 		ri.fileEntries = append(ri.fileEntries, fileEntry{relPath, entry})
 
 		for _, dp := range entry.DirPaths {
@@ -237,6 +245,39 @@ func (ri *rebuildIndex) scan() {
 
 		for _, ce := range entry.ContainsEdges {
 			containsSet[[2]string{ce.ParentLabel, ce.ChildLabel}] = true
+		}
+	}
+	// An index can refer to dependency symbols without shipping their source
+	// documents. Keep their exact SCIP identity as a Symbol stub so those edges
+	// remain queryable without guessing a declaration by display name.
+	for _, fe := range ri.fileEntries {
+		for _, ref := range fe.entry.References {
+			uid := ref.TargetUID
+			if strings.HasPrefix(uid, "scip:") && ri.entityUIDs[uid] == "" {
+				ri.scipStubUIDs[uid] = langOr(ref.Lang, fe.entry.Language)
+			}
+		}
+		for _, inh := range fe.entry.Inheritance {
+			uid := inh.ParentUID
+			if strings.HasPrefix(uid, "scip:") && ri.entityUIDs[uid] == "" {
+				ri.scipStubUIDs[uid] = fe.entry.Language
+			}
+		}
+	}
+	if len(ri.scipStubUIDs) > 0 {
+		labelSet["Symbol"] = true
+		for uid := range ri.scipStubUIDs {
+			ri.entityUIDs[uid] = "Symbol"
+		}
+	}
+	for _, fe := range ri.fileEntries {
+		for _, inh := range fe.entry.Inheritance {
+			if child := ri.entityUIDs[inh.ChildUID]; child != "" {
+				inheritLabelSet[child] = true
+			}
+			if parent := ri.entityUIDs[inh.ParentUID]; parent != "" {
+				inheritLabelSet[parent] = true
+			}
 		}
 	}
 
@@ -418,7 +459,21 @@ func (ri *rebuildIndex) streamEntities(label string, emit func(map[string]any)) 
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
 			if ent.Label == label && ri.emitUID(ent.UID, label) {
-				emit(entityToJSON(ent, false, fe.entry.Cluster))
+				emit(entityToJSON(ent, ent.IsStub, fe.entry.Cluster))
+			}
+		}
+	}
+	if label == "Symbol" {
+		uids := make([]string, 0, len(ri.scipStubUIDs))
+		for uid := range ri.scipStubUIDs {
+			uids = append(uids, uid)
+		}
+		sort.Strings(uids)
+		for _, uid := range uids {
+			if ri.emitUID(uid, label) {
+				row := stubJSON(uid, ri.scipStubUIDs[uid], "")
+				row["is_dependency"] = true
+				emit(row)
 			}
 		}
 	}
@@ -477,6 +532,12 @@ func (ri *rebuildIndex) resolveNamed(name, lang string, rule TargetRule) (declRe
 //     repository. Without this guard the merge fabricated a tsx-to-Go edge, which is
 //     worse than the stub it replaced.
 func (ri *rebuildIndex) resolveCallee(calleeUID, callerLang string) (uid, label string) {
+	if strings.HasPrefix(calleeUID, "scip:") || strings.HasPrefix(calleeUID, "scip-local:") {
+		if label := ri.entityUIDs[calleeUID]; label != "" {
+			return calleeUID, label
+		}
+		return calleeUID, LabelFunction
+	}
 	rule := ri.rules.ForRelation(callerLang, RelCalls)
 	if d, ok := ri.resolveNamed(calleeUID, callerLang, rule); ok {
 		return d.uid, d.label
@@ -507,7 +568,7 @@ func (ri *rebuildIndex) streamStubFunctions(emit func(map[string]any)) {
 func (ri *rebuildIndex) streamStubClasses(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
-			if inh.RelType == "INHERITS" && !ri.emittedAny(inh.ParentUID) {
+			if inh.RelType == "INHERITS" && ri.entityUIDs[inh.ParentUID] == "" && !ri.emittedAny(inh.ParentUID) {
 				ri.emitUID(inh.ParentUID, "Class")
 				emit(stubJSON(inh.ParentUID, fe.entry.Language, fe.entry.Cluster))
 			}
@@ -518,7 +579,7 @@ func (ri *rebuildIndex) streamStubClasses(emit func(map[string]any)) {
 func (ri *rebuildIndex) streamStubInterfaces(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
-			if inh.RelType == "IMPLEMENTS" && !ri.emittedAny(inh.ParentUID) {
+			if inh.RelType == "IMPLEMENTS" && ri.entityUIDs[inh.ParentUID] == "" && !ri.emittedAny(inh.ParentUID) {
 				ri.emitUID(inh.ParentUID, "Interface")
 				emit(stubJSON(inh.ParentUID, fe.entry.Language, fe.entry.Cluster))
 			}
@@ -579,6 +640,12 @@ func (ri *rebuildIndex) streamStubFields(emit func(map[string]any)) {
 // SQL into a File → File self-loop — the SQL grammar's `fallback: Table` rule was
 // never consulted, and resolveNamed could not cross into the `plsql` declarations.
 func (ri *rebuildIndex) resolveRefTarget(ref cachedReference, lang string) (uid, label string) {
+	if strings.HasPrefix(ref.TargetUID, "scip:") || strings.HasPrefix(ref.TargetUID, "scip-local:") {
+		if label := ri.entityUIDs[ref.TargetUID]; label != "" {
+			return ref.TargetUID, label
+		}
+		return ref.TargetUID, "Symbol"
+	}
 	lang = langOr(ref.Lang, lang)
 	rule := ri.refRule(ref, lang)
 	if d, ok := ri.resolveNamed(ref.TargetUID, lang, rule); ok {

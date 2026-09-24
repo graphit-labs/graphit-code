@@ -815,6 +815,9 @@ func HasParserForExtension(ext string) bool {
 // project declares for itself, and the grammar its configuration binds to the
 // extension — which is the only way an exclusive grammar is ever reached.
 func HasParserForExtensionIn(projectDir, ext string) bool {
+	if scipFamilyFor(projectDir, ext) != "" {
+		return true
+	}
 	if grammar := overriddenGrammarFor(projectDir, ext); grammar != "" {
 		return grammarKnownIn(projectDir, grammar)
 	}

@@ -33,6 +33,7 @@ type cachedEntity struct {
 	Context     string
 	ContextType string
 	IsDep       bool
+	IsStub      bool
 	IsExported  bool
 	Decorators  []string
 	Args        []string

@@ -284,9 +284,34 @@ resolution, and new-parser workflow, see [AST Grammars and Parser Extensibility]
 | `ast.index_docs` | `false` | Adds `knowledge.docs_dir` to the code graph. Use only for code-shaped documentation such as schemas. |
 | `ast.queries_dir` | `.graphit/ast/queries` | Project-relative, versionable directory for grammar query overrides. |
 | `ast.grammar` | empty | Comma-separated `.extension=grammar` bindings. This is how exclusive SQL dialect grammars become reachable. |
+| `ast.scip.enabled` | `false` | Opts into semantic SCIP indexing for supported source extensions. A successful SCIP document takes precedence over Tree-sitter and ANTLR; a failed or missing SCIP document falls back to the existing parser chain. Requires Docker and the corresponding `graphit-scip` image. |
+| `ast.scip.version` | `v1` | Tag shared by the language-specific images `ghcr.io/graphit-labs/graphit-scip-<family>:<tag>`. Choose a specific release tag to avoid the moving `v1` alias; registry tags can still be replaced. |
 | `ast.grammars_blacklist` | empty | Disables matching language/grammar names. |
 | `ast.grammars_whitelist` | empty | When non-empty, enables only matching names; the blacklist still wins. |
 | `ast.cluster_map` | empty | Comma-separated `path=cluster` prefixes. The longest matching path wins. |
+
+For example, `graphit config ast.scip.enabled true` enables SCIP for the current
+project, while `graphit config --global ast.scip.enabled true` makes it the global
+default. `graphit config ast.scip.version 0.2.1` pins the image series. The
+indexer runs when the AST pipeline parses affected source. Graphit checks the
+registry tag with Docker's `--pull=always` policy before each indexer container
+is created, so a moved tag uses the new image. A failed pull falls back to
+syntax parsing instead of using an older local image. For an unpublished local
+image, set `GRAPHIT_AST_SCIP_PULL_POLICY=missing` to use the cached tag without
+a registry check. This environment variable accepts `always` (the default) or
+`missing`. The project is mounted read-only, output and persistent
+language cache live in the global AST directory, and each run uses a fresh
+container and temporary OverlayFS volume.
+Windows and macOS use Docker Desktop's Linux containers. Docker Desktop and
+rootless Docker use UID/GID 0 in the container so bind-mounted files map to
+the invoking host user; a native Linux daemon uses the host UID/GID.
+The file selection still follows recursive `.gitignore` and `.astignore` rules.
+SCIP entity and relation extraction is declared in `scip-<family>.yaml` profiles;
+project overrides go in `<ast.queries_dir>/scip/` and global overrides in
+`~/.graphit/ast/queries/scip/`. Editing a profile forces reindexing even when
+source files have not changed.
+See [AST grammars and parser extensibility](ast_extensibility.md#scip-semantic-indexing)
+for the supported language families and fallback behavior.
 
 `graphit ast index --cluster <name>` applies a default cluster to that invocation, and
 `--cluster-path path=name` adds path mappings. The command persists an `ast.cluster` field for

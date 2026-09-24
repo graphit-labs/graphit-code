@@ -37,16 +37,17 @@ func antlrCachePressure() (uint64, bool) {
 }
 
 type PipelineOptions struct {
-	Workers          int
-	IsDepend         bool
-	IndexSource      bool
-	SkipExternal     bool
-	CacheDir         string
-	ExcludeExts      map[string]bool
-	GrammarOverrides map[string]string
-	Cluster          string
-	ClusterPathMap   map[string]string
-	ForceRebuild     bool
+	scipConfigChanged bool
+	Workers           int
+	IsDepend          bool
+	IndexSource       bool
+	SkipExternal      bool
+	CacheDir          string
+	ExcludeExts       map[string]bool
+	GrammarOverrides  map[string]string
+	Cluster           string
+	ClusterPathMap    map[string]string
+	ForceRebuild      bool
 	// SearchBaseCommit identifies a shallow-cloned Hub search index. Only paths
 	// differing from this Git commit are written to the local Lance overlay.
 	SearchBaseCommit string
@@ -64,14 +65,17 @@ type PipelineOptions struct {
 }
 
 type PipelineResult struct {
-	TotalFiles   int
-	ParsedFiles  int
-	DiscoverTime time.Duration
-	HashTime     time.Duration
-	ParseTime    time.Duration
-	WriteTime    time.Duration
-	TotalTime    time.Duration
-	WritePhases  WritePhaseTiming
+	scipFailed         bool
+	scipTSSelection    string
+	scipClangSelection string
+	TotalFiles         int
+	ParsedFiles        int
+	DiscoverTime       time.Duration
+	HashTime           time.Duration
+	ParseTime          time.Duration
+	WriteTime          time.Duration
+	TotalTime          time.Duration
+	WritePhases        WritePhaseTiming
 
 	// SearchIndexRebuilt reports that nothing was reparsed and nothing was written to the
 	// graph, but the search index was replayed from the shard cache because it was missing
@@ -160,11 +164,37 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 		defer lifecycleLock.Release()
 		ctx = lockedCtx
 	}
+	scipSignature := scipConfigurationSignature(abs)
+	refreshSCIPSelection(abs)
+	if opts.CacheDir != "" {
+		old, err := os.ReadFile(filepath.Join(opts.CacheDir, "scip-configuration"))
+		if (err == nil && string(old) != scipSignature) || (os.IsNotExist(err) && scipFamilyConfigured(abs)) {
+			opts.ForceRebuild = true
+			opts.scipConfigChanged = true
+			opts.ChangedPaths = nil
+			opts.DeletedPaths = nil
+		}
+	}
 
 	writer := NewGraphWriter(db, abs, opts.IndexSource)
 
 	parser := NewCompositeParser(abs, opts.GrammarOverrides)
-	return runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
+	result, err := runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
+	if err == nil && opts.CacheDir != "" {
+		marker := filepath.Join(opts.CacheDir, "scip-configuration")
+		if result != nil && result.scipFailed {
+			_ = os.Remove(marker)
+		} else {
+			_ = os.WriteFile(marker, []byte(scipSignature), 0o644)
+		}
+		if result != nil && result.scipTSSelection != "" && !result.scipFailed && result.WriteErrorCount == 0 && result.ErrorCount == 0 && result.TimeoutCount == 0 {
+			_ = os.WriteFile(filepath.Join(opts.CacheDir, "scip-typescript-selection"), []byte(result.scipTSSelection), 0o644)
+		}
+		if result != nil && result.scipClangSelection != "" && !result.scipFailed && result.WriteErrorCount == 0 && result.ErrorCount == 0 && result.TimeoutCount == 0 {
+			_ = os.WriteFile(filepath.Join(opts.CacheDir, "scip-clang-selection"), []byte(result.scipClangSelection), 0o644)
+		}
+	}
+	return result, err
 }
 
 // RunPipelineForPaths indexes only the named changed and deleted paths, skipping
@@ -209,7 +239,29 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			return nil, fmt.Errorf("reconcile shallow AST base: %w", err)
 		}
 	}
+	opts.ChangedPaths = repoRelativePaths(abs, opts.ChangedPaths)
+	opts.DeletedPaths = repoRelativePaths(abs, opts.DeletedPaths)
 	scoped := !shallowFullOverlay && (len(opts.ChangedPaths) > 0 || len(opts.DeletedPaths) > 0)
+	selectionEvent := false
+	for _, rel := range append(append([]string(nil), opts.ChangedPaths...), opts.DeletedPaths...) {
+		base := filepath.Base(rel)
+		if base == ".gitignore" || base == AstIgnoreFile || isSCIPTypeScriptConfigPath(rel) || base == "compile_commands.json" || base == "CMakeLists.txt" || scipFamilies[strings.ToLower(filepath.Ext(rel))] == "typescript" || scipFamilies[strings.ToLower(filepath.Ext(rel))] == "clang" {
+			selectionEvent = true
+		}
+		if base == ".gitignore" || base == AstIgnoreFile || isSCIPTypeScriptConfigPath(rel) && scipFamilyConfigured(abs) {
+			// Rule changes can invalidate cached paths that were not named by
+			// the watcher. A full discovery is required only for these events.
+			scoped = false
+		}
+	}
+	if scoped {
+		for _, rel := range opts.DeletedPaths {
+			if family := scipFamilies[strings.ToLower(filepath.Ext(rel))]; family == "typescript" || family == "clang" {
+				scoped = false
+				break
+			}
+		}
+	}
 
 	discover := func() ([]string, error) {
 		found, err := collectFiles(abs)
@@ -236,6 +288,43 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		if files, err = discover(); err != nil {
 			return nil, err
 		}
+	}
+	var scipSelectedFiles []string
+	var scipTSSelection string
+	var scipTSChanged bool
+	var scipTSCount int
+	var scipClangSelection string
+	var scipClangChanged bool
+	var scipClangCount int
+	if opts.CacheDir != "" && scipFamilyConfigured(abs) && (!scoped || selectionEvent) {
+		if scoped {
+			var err error
+			scipSelectedFiles, err = discover()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			scipSelectedFiles = files
+		}
+		var err error
+		scipTSSelection, scipTSCount, err = scipTypeScriptSelectionSignature(abs, scipSelectedFiles, opts.ExcludeExts)
+		if err != nil {
+			return nil, fmt.Errorf("SCIP TypeScript selection: %w", err)
+		}
+		old, err := os.ReadFile(filepath.Join(opts.CacheDir, "scip-typescript-selection"))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		scipTSChanged = string(old) != scipTSSelection
+		scipClangSelection, scipClangCount, err = scipClangSelectionSignature(abs, scipSelectedFiles, opts.ExcludeExts)
+		if err != nil {
+			return nil, fmt.Errorf("SCIP Clang selection: %w", err)
+		}
+		old, err = os.ReadFile(filepath.Join(opts.CacheDir, "scip-clang-selection"))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		scipClangChanged = string(old) != scipClangSelection
 	}
 	discoverTime := time.Since(tDiscover)
 
@@ -307,10 +396,22 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			}
 		}
 		if len(opts.ChangedPaths) > 0 {
+			var admitted []string
+			ignoreScope := NewAstIgnoreChecker(abs)
+			for _, rel := range opts.ChangedPaths {
+				if opts.ExcludeExts[strings.ToLower(filepath.Ext(rel))] || !allowedScopedFile(abs, rel, ignoreScope) {
+					if jsonCache != nil && jsonCache.GetHash(rel) != "" {
+						jsonCache.Remove(rel)
+						deletedFiles = append(deletedFiles, rel)
+					}
+					continue
+				}
+				admitted = append(admitted, rel)
+			}
 			type hres struct {
 				path, hash string
 			}
-			parallelForEach(opts.ChangedPaths, SafeWorkers(0),
+			parallelForEach(admitted, SafeWorkers(0),
 				func(rel string) hres {
 					p := filepath.Join(abs, rel)
 					return hres{p, fileContentHash(p)}
@@ -402,6 +503,24 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 	}
 	hashTime := time.Since(tHash)
+	if opts.scipConfigChanged {
+		changedFiles = files
+	}
+	if scipTSChanged || scipClangChanged {
+		seen := make(map[string]bool, len(changedFiles)+scipTSCount+scipClangCount)
+		for _, file := range changedFiles {
+			seen[file] = true
+		}
+		for _, file := range scipSelectedFiles {
+			family := scipFamilies[strings.ToLower(filepath.Ext(file))]
+			if ((scipTSChanged && family == "typescript") || (scipClangChanged && family == "clang")) && !seen[file] {
+				// A new tsconfig can stop emitting a still-allowed document.
+				// Reparse it through syntax if the new SCIP index omits it.
+				changedFiles = append(changedFiles, file)
+				seen[file] = true
+			}
+		}
+	}
 
 	// In scoped mode the tree was never walked, so the corpus size comes from the
 	// parse cache rather than from a file listing.
@@ -419,7 +538,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 	}
 
-	if graphPresent && len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild && len(shallowChanged)+len(shallowDeleted) == 0 {
+	if graphPresent && len(changedFiles) == 0 && len(deletedFiles) == 0 && !scipTSChanged && !scipClangChanged && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild && len(shallowChanged)+len(shallowDeleted) == 0 {
 
 		if storeDir != "" && !SearchIndexBuilt(ctx, storeDir) {
 			if opts.OnProgress != nil {
@@ -464,6 +583,45 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			TotalTime:    totalTime,
 			EngineStats:  make(map[string]int),
 		}, nil
+	}
+	// SCIP indexers operate on a workspace, not a file. Run each affected family
+	// once, before parallel parsing, and republish all of its returned documents:
+	// a change in one source may alter references in an unchanged source.
+	var scipEntries map[string]*parseCacheEntry
+	var scipFailures []error
+	if scipTSSelection != "" {
+		scipEntries, scipFailures = prepareSCIPEntries(ctx, abs, opts.CacheDir, changedFiles, opts.ExcludeExts, scipSelection{files: scipSelectedFiles, forceTS: scipTSChanged && scipTSCount > 0, forceClang: scipClangChanged && scipClangCount > 0})
+	} else {
+		scipEntries, scipFailures = prepareSCIPEntries(ctx, abs, opts.CacheDir, changedFiles, opts.ExcludeExts)
+	}
+	if scipTSChanged && scipTSCount == 0 {
+		for _, stale := range []string{filepath.Join(scipCacheDir(abs, opts.CacheDir, "typescript"), "graphit-tsconfig.json"), filepath.Join(scipOutputDir(abs, opts.CacheDir, "typescript"), "index.scip")} {
+			if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
+				scipFailures = append(scipFailures, fmt.Errorf("clear stale TypeScript SCIP artifact: %w", err))
+			}
+		}
+	}
+	if scipClangChanged && scipClangCount == 0 {
+		for _, stale := range []string{filepath.Join(scipCacheDir(abs, opts.CacheDir, "clang"), "graphit-allowed-files.json"), filepath.Join(scipCacheDir(abs, opts.CacheDir, "clang"), "graphit-compile-commands.json"), filepath.Join(scipOutputDir(abs, opts.CacheDir, "clang"), "index.scip")} {
+			if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
+				scipFailures = append(scipFailures, fmt.Errorf("clear stale Clang SCIP artifact: %w", err))
+			}
+		}
+	}
+	for _, failure := range scipFailures {
+		logger.Warn("SCIP unavailable; using syntax parser", "error", failure)
+	}
+	if len(scipEntries) != 0 {
+		seen := make(map[string]bool, len(changedFiles)+len(scipEntries))
+		for _, path := range changedFiles {
+			seen[path] = true
+		}
+		for path := range scipEntries {
+			if !seen[path] {
+				changedFiles = append(changedFiles, path)
+				seen[path] = true
+			}
+		}
 	}
 
 	t1 := time.Now()
@@ -562,6 +720,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			go func() {
 				defer wg.Done()
 				wp := NewCompositeParser(abs, opts.GrammarOverrides)
+				wp.SetSCIPEntries(scipEntries)
 				for path := range paths {
 					if ctx.Err() != nil {
 						return
@@ -871,22 +1030,25 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	totalTime := time.Since(t0)
 
 	return &PipelineResult{
-		TotalFiles:      totalFiles,
-		ParsedFiles:     parsedFilesCount,
-		DiscoverTime:    discoverTime,
-		HashTime:        hashTime,
-		ParseTime:       parseTime,
-		WriteTime:       writeDuration,
-		TotalTime:       totalTime,
-		WritePhases:     writePhases,
-		ErrorCount:      parseErrors,
-		TimeoutCount:    timeoutCount,
-		EmptyCount:      emptyCount,
-		WriteErrorCount: writeErrors,
-		EmptyFiles:      emptyFiles,
-		ErrorFiles:      errorFiles,
-		WriteErrorFiles: writeErrorFiles,
-		EngineStats:     engineStats,
+		scipFailed:         len(scipFailures) != 0,
+		scipTSSelection:    scipTSSelection,
+		scipClangSelection: scipClangSelection,
+		TotalFiles:         totalFiles,
+		ParsedFiles:        parsedFilesCount,
+		DiscoverTime:       discoverTime,
+		HashTime:           hashTime,
+		ParseTime:          parseTime,
+		WriteTime:          writeDuration,
+		TotalTime:          totalTime,
+		WritePhases:        writePhases,
+		ErrorCount:         parseErrors,
+		TimeoutCount:       timeoutCount,
+		EmptyCount:         emptyCount,
+		WriteErrorCount:    writeErrors,
+		EmptyFiles:         emptyFiles,
+		ErrorFiles:         errorFiles,
+		WriteErrorFiles:    writeErrorFiles,
+		EngineStats:        engineStats,
 	}, nil
 }
 

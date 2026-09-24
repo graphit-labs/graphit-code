@@ -77,6 +77,36 @@ func collectFiles(rootPath string) ([]string, error) {
 	return files, err
 }
 
+// allowedScopedFile follows the same directory scopes as collectFiles without
+// walking unrelated siblings. Watcher paths must not bypass nested ignore rules.
+func allowedScopedFile(rootPath, rel string, base ...ignorer.DirScope) bool {
+	rel = filepath.Clean(rel)
+	if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	ic := ignorer.DirScope(NewAstIgnoreChecker(rootPath))
+	if len(base) > 0 {
+		ic = base[0]
+	}
+	parent := filepath.Dir(rel)
+	if parent != "." {
+		parts := strings.Split(filepath.ToSlash(parent), "/")
+		prefix := ""
+		for _, part := range parts {
+			if prefix == "" {
+				prefix = part
+			} else {
+				prefix += "/" + part
+			}
+			if ic.IsIgnored(prefix, true) && !ic.ShouldDescend(prefix) {
+				return false
+			}
+			ic = ic.At(prefix)
+		}
+	}
+	return !ic.IsIgnored(filepath.ToSlash(rel), false)
+}
+
 func contextTypeToLabel(contextType string) string {
 	if contextType == "" {
 		return ""

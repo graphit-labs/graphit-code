@@ -38,6 +38,160 @@ Graphit contributor to add and register its generated `GrammarDriver` and sideca
 build target. The five registered ANTLR grammar names are `antlr-plsql`,
 `antlr-postgresql`, `antlr-tsql`, `antlr-db2`, and `antlr-cobol85`.
 
+## SCIP semantic indexing
+
+SCIP is an opt-in third parser path. Set `ast.scip.enabled=true` at the project
+or global configuration layer and install Docker. At parse time Graphit creates
+one indexer container per affected language family. The source is bound
+read-only at `/source`; a fresh anonymous Docker volume holds OverlayFS
+`upperdir` and `workdir`, and the image mounts their merged view at
+`/workspace`. This lets indexers and build tools write beside source files
+without copying or modifying the source tree. The container and volume are
+removed after each parse. Indexers write `/output/index.scip` directly, while
+output and persistent `/cache` stay under the project's global AST directory.
+TypeScript's inferred configuration, home and temporary files also stay in
+that cache. A failed mount or indexer uses the syntax parser for affected
+files without making the project writable. OverlayFS retains POSIX permissions
+on source entries: a nested directory that is mode `0555` for the indexer UID
+can still reject a generated file, causing that family to fall back safely.
+`GRAPHIT_SCIP_UID` and `GRAPHIT_SCIP_GID` make the output readable by the
+Graphit process. The image drops all capabilities and sets `no-new-privs`
+after mounting. Docker must permit the OverlayFS mount with `SYS_ADMIN` and
+`apparmor=unconfined`. The default `ast.scip.version` is `v1`. Graphit also
+binds `/workspace` read-only for compatibility with images built before this
+mount contract. Such an image cannot modify the project; if it requires a
+workspace write, that family falls back to syntax parsing.
+
+Each time a language family's indexer runs, Graphit creates its container with
+Docker's `--pull=always` policy. Docker checks the registry tag and downloads
+new image content when that tag has moved; unchanged layers remain cached. If
+the registry cannot be reached or the pull fails, that family falls back to
+syntax parsing rather than silently running an older local image. A project
+with no affected SCIP family does not start a container or check its tag.
+For a locally built image that has not been published, set
+`GRAPHIT_AST_SCIP_PULL_POLICY=missing` explicitly. This uses a cached image
+when present and does not detect registry updates for that tag.
+
+| Image family | Source extensions |
+|---|---|
+| `go` | `.go` |
+| `typescript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` |
+| `python` | `.py`, `.pyi` |
+| `java` | `.java`, `.kt`, `.kts` |
+| `clang` | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh` |
+| `dotnet` | `.cs`, `.vb` |
+| `rust` | `.rs` |
+| `ruby` | `.rb` |
+| `dart` | `.dart` |
+| `php` | `.php` |
+
+Scala remains on its existing syntax grammar: the pinned scip-java release
+indexes Java and Kotlin but no longer indexes Scala.
+
+The Linux images run through Docker on Linux, Windows and macOS. Images for
+Go, TypeScript, Python, Java/Kotlin, .NET, Rust, Dart and PHP publish amd64 and
+arm64 variants. The upstream scip-clang and scip-ruby binaries currently
+require Linux amd64; Docker Desktop can emulate that architecture on ARM hosts,
+with slower indexing and the compatibility limits of emulation.
+The shared OverlayFS integration has been exercised with Java, .NET, Go and
+TypeScript projects on Linux. Docker Desktop Windows/macOS execution still
+needs native verification. On those platforms, `upperdir` and `workdir` must
+reside in the Docker daemon's Linux filesystem, so Graphit uses a Docker
+volume rather than a host bind mount for them.
+
+For a document produced by SCIP, Graphit uses the SCIP symbol as its canonical
+identity and does not run Tree-sitter or ANTLR on that file. The semantic grammar
+maps SCIP symbol kinds, documentation, containment, references, implementations,
+type-definition and definition relationships into the code graph. Multiple
+relationship flags create distinct edges; referenced dependency symbols without
+source documents remain canonical stubs, enriched with kind and documentation
+when the index provides `external_symbols`. A symbol documented without a
+definition occurrence also remains a canonical stub with its relationships.
+If Docker, the indexer, or one document fails, affected files use the existing
+syntax-parser chain. The
+`ast.grammar` override remains the fallback grammar for that extension. The
+same recursive `.gitignore` and `.astignore` selection, including negations,
+filters SCIP documents before they enter the graph. Existing language
+`ast.grammars_whitelist` and `ast.grammars_blacklist` filters also apply to
+SCIP selection. For TypeScript/JavaScript projects without `tsconfig.json`,
+Graphit also writes an inferred config in the AST cache whose root `files` are
+exactly the selected sources. This reduces raw SCIP documents from ignored
+roots. A project-owned `tsconfig.json` keeps its own compilation behavior.
+The image still receives the whole workspace: an indexer may read ignored
+dependencies, and other families or project-owned configurations may include
+them in raw `index.scip`. The final Graphit document filter remains in effect.
+An incremental
+run invokes the affected indexer family once and republishes its returned
+documents because a change in one file may alter semantic references in
+another.
+Graphit stores a compact signature of the permitted TypeScript/JavaScript
+roots, the project `tsconfig.json`, and discovered `tsconfig*.json`/
+`jsconfig*.json` files in the global AST cache. Changes only to
+`.gitignore`, `.astignore`, or those configuration files, and source removals, refresh that
+family even without a source edit; an empty selection removes its old raw
+`index.scip` and inferred config. Watcher paths are checked against the same
+nested ignore rules before either SCIP or syntax parsing, and newly ignored
+files are removed from the graph. A config that stops emitting a still permitted
+source makes that source fall back to syntax parsing. Ignore/config events reconcile the full file
+list; ordinary scoped edits retain the narrower path check.
+For C/C++, Graphit writes its permitted source list and a filtered translation
+database under the global AST cache before `scip-clang` runs. Resolvable
+compilation units excluded by nested ignore rules are omitted; units with
+unresolved source paths remain for the final document filter. Edits to ignores,
+the compilation database or `CMakeLists.txt`, and source removals refresh Clang's
+selection. When no permitted translation unit remains, Graphit removes the old
+raw Clang index. A permitted source omitted by a new compilation database uses
+the syntax parser instead of retaining an old SCIP shard.
+Enabling or disabling SCIP reparses an existing AST cache. After an indexer
+failure, the next run retries SCIP even when source files have not changed.
+
+### SCIP grammar profiles
+
+Graphit ships one declarative `scip-<family>.yaml` profile for each image family
+in `internal/ast/scip_profiles/`. The files state the supported extensions,
+which `SymbolInformation.Kind` values become graph entities, optional Kind to
+graph-label mappings, and which SCIP relationship flags are stored. The shipped
+`kinds: ["*"]` includes every Kind reported by the installed SCIP schema,
+including future kinds; an unspecified or unknown Kind becomes `Symbol`.
+No entity is identified by its display name: profile changes never alter its
+canonical SCIP UID.
+
+To customize a family, create `scip/scip-<family>.yaml` under the configured
+`ast.queries_dir` (by default, `.graphit/ast/queries/` in the project). A global
+override can live at `~/.graphit/ast/queries/scip/`. Project settings take
+precedence over global settings and the shipped profile. With `merge: true`,
+only fields supplied in the override replace inherited values; `entities.labels`
+merges by Kind. Without `merge: true`, the file must be a complete profile.
+
+For example, this project override relabels Go functions and omits
+implementation edges while retaining the other shipped rules:
+
+```yaml
+merge: true
+entities:
+  labels:
+    Function: Routine
+relations: [CONTAINS, REFERENCES, TYPE_DEFINITION, DEFINITION]
+```
+
+The profile fields are `parser: scip`, `family`, `extensions`, `entities.kinds`
+(`"*"` or explicit SCIP Kind names), `entities.labels`, `relations`,
+`documentation`, and `external_symbols`. Supported relation names are
+`CONTAINS`, `REFERENCES`, `IMPLEMENTS`, `TYPE_DEFINITION`, and `DEFINITION`.
+Invalid Kind, label or relation names reject the profile for that family;
+affected files use the syntax parser and the next run retries SCIP. Changing an
+effective profile invalidates the AST parse cache and reindexes the project,
+even if source files have not changed. These SCIP files live in a `scip/`
+subdirectory so they cannot replace Tree-sitter or ANTLR language profiles.
+An extension omitted from a valid family profile also uses the syntax parser.
+
+SCIP depends on each language's native build metadata and dependencies. For
+example, C/C++ requires a compilation database or CMake project. Absolute host
+paths in a compilation database are translated to the container's `/workspace`
+path, including Windows drive paths. PHP requires `composer.json` and
+`composer.lock`. If those prerequisites are absent, Graphit
+falls back to the available syntax parser for that family.
+
 ## The complete YAML shape
 
 The following example intentionally shows every supported key. It is a schema

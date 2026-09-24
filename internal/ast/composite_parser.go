@@ -17,6 +17,13 @@ type CompositeParser struct {
 	treeSitter       *TreeSitterParser
 	antlr            *AntlrParser
 	grammarOverrides map[string]string
+	scipEntries      map[string]*parseCacheEntry
+}
+
+// SetSCIPEntries supplies the per-pipeline index. It is set before workers
+// start, then read concurrently without mutation.
+func (c *CompositeParser) SetSCIPEntries(entries map[string]*parseCacheEntry) {
+	c.scipEntries = entries
 }
 
 func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *CompositeParser {
@@ -34,6 +41,15 @@ func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *
 func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
 
+	if scipFamilyFor(c.treeSitter.projectDir, ext) != "" {
+		if entry := c.scipEntries[path]; entry != nil {
+			parsedEntry := *entry
+			parsedEntry.IsDepend = isDepend
+			return &ParsedFile{Path: path, RepoPath: entry.RelPath, Language: entry.Language,
+				Parser: "scip", IsDepend: isDepend, SCIPEntry: &parsedEntry}, nil
+		}
+		// Missing/failed SCIP output is handled by the established parser chain.
+	}
 	if grammar, ok := c.grammarOverrides[ext]; ok {
 		return c.parseWithGrammar(path, grammar, isDepend, opts)
 	}
