@@ -156,6 +156,26 @@ func TestAProjectWithNoCompiledWikiReportsNoModules(t *testing.T) {
 	}
 }
 
+func TestHandleModulesReturnsEmptyArrayForProjectWithoutWiki(t *testing.T) {
+	isolateHome(t)
+	project := t.TempDir()
+	initProject(t, project, "acme")
+
+	h := &WikiHandler{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/wiki/modules", corsJSON(h.handleModules))
+	req := httptest.NewRequest(http.MethodGet, "/api/wiki/modules?project_dir="+project, nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
+	}
+	if got := strings.TrimSpace(w.Body.String()); got != "[]" {
+		t.Errorf("body = %q; want []", got)
+	}
+}
+
 func TestHandleModulesServesTheResolvedWikisSorted(t *testing.T) {
 	isolateHome(t)
 	project := t.TempDir()

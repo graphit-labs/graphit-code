@@ -93,7 +93,7 @@ func (h *WikiHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 
 func (h *WikiHandler) handleModules(w http.ResponseWriter, r *http.Request) {
 	projectDir := r.URL.Query().Get("project_dir")
-	var modules []WikiModule
+	modules := make([]WikiModule, 0)
 	modules = append(modules, discoverModules(projectDir)...)
 	sort.Slice(modules, func(i, j int) bool { return modules[i].ID < modules[j].ID })
 	writeJSON(w, modules)

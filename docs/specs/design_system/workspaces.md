@@ -124,6 +124,9 @@ selectors — artifact and version — and visibly show the resolved exact `id@v
 never remain an ambiguous request value. Remote-compatible pages clear results on `activeProjectKey`
 changes. Checkout-only pages use one shared unavailable composition with the selected Hub identity
 and a global-selector next action, preserving the target instead of falling back to a local path.
+Knowledge contexts shows a prompt to use the global Project menu when no project is selected and
+does not request a local collection in that state. An empty selected project's collection directory
+is a separate empty state; the local `/api/wiki/modules` endpoint returns `[]` for it.
 
 ## Combined refresh by route
 

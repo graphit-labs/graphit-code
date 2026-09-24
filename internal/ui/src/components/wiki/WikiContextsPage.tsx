@@ -1,5 +1,5 @@
 import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchModules, type WikiModule } from "@/api/wiki";
 import { hubApi } from "@/api/hub";
@@ -24,14 +24,24 @@ export default function WikiContextsPage({
   const projectKey = activeProjectKey || (remote ? `hub:${activeProjectId}` : `workspace:${activeProjectDir}`);
   const projectDir = remote ? undefined : activeProjectDir || undefined;
   const projectId = remote ? activeProjectId || undefined : undefined;
+  const hasProject = remote ? Boolean(projectId) : Boolean(projectDir);
   const [modules, setModules] = useState<WikiModule[]>([]),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState<WikiModule | null>(null),
     [loading, setLoading] = useState(false),
     [error, setError] = useState("");
   const request = useRef(0);
+  const currentScope = useRef(projectKey);
+  useLayoutEffect(() => { currentScope.current = projectKey; }, [projectKey]);
   const load = useCallback(async () => {
     const id = ++request.current;
+    if (!hasProject) {
+      setModules([]);
+      setSelected(null);
+      setLoading(false);
+      setError("");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -40,20 +50,21 @@ export default function WikiContextsPage({
             .filter(entry => entry.type === "knowledge" && entry.qualified_latest)
             .map(entry => ({ id: entry.qualified_latest!, label: entry.name || entry.id, path: "", context: entry.qualified_latest!, pages: 0, hasLog: false }))
         : await fetchModules(projectDir);
-      if (id === request.current) {
-        setSelected(current => ms.find(m => m.id === current?.id) || null);
+      if (id === request.current && currentScope.current === projectKey) {
+        const available = ms ?? [];
+        setSelected(current => available.find(m => m.id === current?.id) || null);
         setModules(
-          (ms || []).filter(
+          available.filter(
             (m) => remote || m.id === moduleFilter || m.id.startsWith(moduleFilter + "/"),
           ),
         );
       }
     } catch (e) {
-      if (id === request.current) setError((e as Error).message);
+      if (id === request.current && currentScope.current === projectKey) setError((e as Error).message);
     } finally {
-      if (id === request.current) setLoading(false);
+      if (id === request.current && currentScope.current === projectKey) setLoading(false);
     }
-  }, [projectDir, projectId, remote, moduleFilter]);
+  }, [hasProject, projectKey, projectDir, projectId, remote, moduleFilter]);
   const scope = JSON.stringify([projectKey, moduleFilter]);
   const [dataScope, setDataScope] = useState(scope);
   if (dataScope !== scope) { setDataScope(scope); setSelected(null); setModules([]); }
@@ -88,7 +99,11 @@ export default function WikiContextsPage({
           {error}
         </WorkNotice>
       )}
-      {loading ? (
+      {!hasProject ? (
+        <WorkEmpty title="Select a project">
+          Use the Project menu in the header to choose a Workspace or Hub project.
+        </WorkEmpty>
+      ) : loading ? (
         <LoadingSpinner label="Loading contexts…" />
       ) : !modules.length ? (
         <WorkEmpty title="No contexts available">
