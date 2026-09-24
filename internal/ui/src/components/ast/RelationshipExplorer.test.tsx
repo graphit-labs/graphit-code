@@ -8,10 +8,10 @@ import { RelationshipExplorer } from "./RelationshipExplorer";
 import { boundaries, groupGraph, observedGraph } from "./relationshipModel";
 
 const nodes: GraphNode[] = [
-  { id: "a", name: "CreateOrder", label: "Function", type: "Function", file: "orders/service.go", properties: { lang: "go", cluster: 0 } },
-  { id: "b", name: "ReserveStock", label: "Function", type: "Function", file: "inventory/stock.go", properties: { lang: "go", cluster: "Fulfillment" } },
-  { id: "c", name: "Checkout", label: "Function", type: "Function", file: "web/checkout.ts", properties: { lang: "typescript" } },
-  { id: "d", name: "External", label: "Module", type: "Module" },
+  { id: "a", name: "CreateOrder", label: "Function", type: "Function", file: "orders/service.go", properties: { uid: "orders/service.go::CreateOrder", lang: "go", cluster: 0 } },
+  { id: "b", name: "ReserveStock", label: "Function", type: "Function", file: "inventory/stock.go", properties: { uid: "inventory/stock.go::ReserveStock", lang: "go", cluster: "Fulfillment" } },
+  { id: "c", name: "Checkout", label: "Function", type: "Function", file: "web/checkout.ts", properties: { uid: "web/checkout.ts::Checkout", lang: "typescript" } },
+  { id: "d", name: "External", label: "Module", type: "Module", properties: { uid: "external::Module" } },
 ];
 const links = [
   { source: "c", target: "a", type: "CALLS" },
@@ -32,6 +32,22 @@ it("orders and deduplicates observed triples without inventing missing endpoints
   expect(b.internal).toEqual([{ source: "a", target: "a", type: "CALLS" }]);
   expect(groupGraph(g.nodes, g.links, "cluster").map(x=>x.name)).toEqual(["0", "Fulfillment", "Unassigned cluster"]);
   expect(groupGraph(g.nodes, g.links, "directory").some(x=>x.name === "No source path")).toBe(true);
+});
+it("keeps parallel relation UIDs as separate rendered links and count", async () => {
+  const parallel = [
+    { source: "a", target: "b", type: "CALLS", id: "native:1", uid: "rel:one" },
+    { source: "a", target: "b", type: "CALLS", id: "native:2", uid: "rel:two" },
+  ];
+  expect(observedGraph(nodes, parallel).links).toHaveLength(2);
+  const user = userEvent.setup();
+  render(<RelationshipExplorer nodes={nodes} links={parallel} onInspect={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: /^orders 1 entities/ }));
+  await user.click(screen.getByRole("button", { name: /^CreateOrder orders/ }));
+  expect(screen.getByRole("heading", { name: "Outgoing 2" })).toBeTruthy();
+  expect(document.querySelectorAll('[data-relationship-uid="rel:one"]')).toHaveLength(1);
+  expect(document.querySelectorAll('[data-relationship-uid="rel:two"]')).toHaveLength(1);
+  expect(document.querySelector('[data-relationship-uid="rel:one"]')?.getAttribute("data-native-relation-id")).toBe("native:1");
+  expect(document.querySelector('[data-relationship-uid="rel:two"]')?.getAttribute("data-native-relation-id")).toBe("native:2");
 });
 it("follows directed neighbors locally, retains focus on refresh, and opens source only on explicit action", async () => {
   const onInspect = vi.fn(); const user = userEvent.setup();
@@ -72,6 +88,18 @@ it("does not transfer selection when a refreshed result reuses a renderer ID for
   rerender(<RelationshipExplorer nodes={replacement} links={links} onInspect={vi.fn()} />);
   expect(screen.queryByRole("heading", { name: "DeleteOrder" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Inspect source & impact" })).toBeNull();
+});
+
+it("refuses local selection without indexed identity instead of using the renderer ID", async () => {
+  const user = userEvent.setup();
+  const loader = vi.fn<NeighborhoodLoader>();
+  const missing = { ...nodes[0], properties: { lang: "go" } };
+  render(<RelationshipExplorer nodes={[missing]} links={[]} onInspect={vi.fn()} loadNeighborhood={loader} />);
+  await user.click(screen.getByRole("button", { name: /^CreateOrder orders/ }));
+  expect(screen.getByRole("alert").textContent).toMatch(/Indexed identity unavailable/);
+  expect(screen.getByRole("heading", { name: "CreateOrder" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Inspect source & impact" })).toBeTruthy();
+  expect(loader).not.toHaveBeenCalled();
 });
 
 const neighborhoodFor = (anchor: GraphNode, neighbor = nodes[1]): Neighborhood => ({ anchor, nodes: [anchor, neighbor], links: [{ source: anchor.id, target: neighbor.id, type: "CALLS" }], partitions: [] });

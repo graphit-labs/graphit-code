@@ -16,7 +16,10 @@ interface Props {
   loading?: boolean;
   error?: boolean;
 }
-const entityIdentity = (n: GraphNode) => JSON.stringify([n.id, n.label, n.name, n.file ?? null, n.line ?? null, n.properties?.uid ?? null, n.properties?.path ?? null]);
+const entityIdentity = (n: GraphNode): string | null => {
+  const identity = n.label === "File" || n.label === "Directory" ? n.properties?.path : n.properties?.uid;
+  return typeof identity === "string" && identity ? JSON.stringify([n.label, identity]) : null;
+};
 const groupingLabels: Record<Grouping, string> = { directory: "Directory", file: "File", language: "Language", cluster: "Configured cluster" };
 
 export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood, loading = false, error = false }: Props) {
@@ -28,6 +31,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
   const [neighborhood, setNeighborhood] = useState<Neighborhood | null>(null);
   const [neighborhoodLoading, setNeighborhoodLoading] = useState(false);
   const [neighborhoodError, setNeighborhoodError] = useState("");
+  const [selectionError, setSelectionError] = useState("");
   const request = useRef<AbortController | null>(null);
   const fetchNeighborhood = useCallback(async (node: GraphNode, previous?: Neighborhood) => {
     if (!loadNeighborhood) return;
@@ -63,7 +67,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
   const q = filter.trim().toLowerCase();
   const matched = groups.filter(g => !q || g.name.toLowerCase().includes(q) || g.members.some(n => (n.name + " " + n.file).toLowerCase().includes(q)));
   const active = matched.find(g => g.name === groupName) || matched[0];
-  const focus = loadNeighborhood ? (neighborhood?.anchor || focusNode) : visible.nodes.find(n => entityIdentity(n) === focusId);
+  const focus = loadNeighborhood ? (neighborhood?.anchor || focusNode) : focusId ? visible.nodes.find(n => entityIdentity(n) === focusId) : null;
   const evidence = loadNeighborhood ? observedGraph(neighborhood?.nodes || [], neighborhood?.links || []) : { ...graph, links: visible.links };
   const incoming = focus ? evidence.links.filter(e => e.target === focus.id && e.source !== focus.id) : [];
   const outgoing = focus ? evidence.links.filter(e => e.source === focus.id && e.target !== focus.id) : [];
@@ -72,12 +76,21 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
   const failed = neighborhood?.partitions.filter(p => p.error) || [];
   const select = (n: GraphNode | null) => {
     request.current?.abort();
+    const identity = n ? entityIdentity(n) : null;
+    if (n && !identity) {
+      setNeighborhood(null); setNeighborhoodLoading(false); setNeighborhoodError("");
+      setFocusNode(n); setFocusId(null);
+      setSelectionError("Indexed identity unavailable; reindex this context before exploring the entity.");
+      setNavigation(v => v + 1);
+      return;
+    }
+    setSelectionError("");
     setNeighborhood(null); setNeighborhoodError(""); setNeighborhoodLoading(Boolean(n && loadNeighborhood));
-    setFocusNode(n); setFocusId(n ? entityIdentity(n) : null); setNavigation(v => v + 1);
+    setFocusNode(n); setFocusId(identity); setNavigation(v => v + 1);
     if (n) void fetchNeighborhood(n);
   };
   const follow = (n: GraphNode) => {
-    if (focus && focus.id !== n.id) setHistory(h => [...h, focus]);
+    if (focus && entityIdentity(focus) !== entityIdentity(n) && entityIdentity(n)) setHistory(h => [...h, focus]);
     select(n);
   };
   const chooseGroup = (name: string) => { setGroupName(name); select(null); setHistory([]); };
@@ -94,12 +107,12 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
     return items.length ? items.map(e => {
       const endpoint = (focus ? evidence : graph).byId.get(side === "incoming" ? e.source : e.target)!;
       const inner = (focus ? evidence : graph).byId.get(side === "incoming" ? e.target : e.source)!;
-      return <div className="relationship-edge" key={JSON.stringify([prefix,e.source,e.type,e.target])}>
-        <span className="relationship-edge-type">{e.type}</span>
+      return <div className="relationship-edge" key={e.uid || JSON.stringify([prefix,e.source,e.type,e.target])} data-relationship-uid={e.uid} data-native-relation-id={e.id}>
+        <span className="relationship-edge-type" title={e.uid ? `Relationship UID: ${e.uid}` : undefined}>{e.type}</span>
         {entity(endpoint, prefix)}
         {!focus && <small>{side === "incoming" ? "To " : "From "}<button className="relationship-inline" onClick={() => follow(inner)}>{inner.name}</button></small>}
       </div>;
-    }) : <p className="relationship-none">{focus && loadNeighborhood ? (neighborhoodLoading ? "Loading " + side + " relationships…" : neighborhoodError || failed.length ? "Relationship coverage is incomplete." : "No " + side + " relationships found in the queried index.") : "No " + side + " relationships in this result."}</p>;
+    }) : <p className="relationship-none">{selectionError ? "Relationship coverage is unavailable." : focus && loadNeighborhood ? (neighborhoodLoading ? "Loading " + side + " relationships…" : neighborhoodError || failed.length ? "Relationship coverage is incomplete." : "No " + side + " relationships found in the queried index.") : "No " + side + " relationships in this result."}</p>;
   }
   return <section className="relationship-explorer" aria-label="Relationship exploration">
     <div className="relationship-filters">
@@ -130,11 +143,12 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
         <p className="relationship-explanation">Groups describe this loaded result. Missing links do not prove independence.</p>
       </aside>
       <section ref={reader} tabIndex={-1} className="relationship-reader" aria-label="Relationship evidence">
+        {selectionError && <p role="alert">{selectionError}</p>}
         {!active && !focus ? <WorkEmpty title="No matching entities" action={<button className="work-button" onClick={clearFilters}>Clear filters</button>}>Try another path, name or filter.</WorkEmpty> : focus ? <>
           <header className="relationship-reader-header"><div className="relationship-breadcrumb"><button className="work-button" onClick={() => { select(null); setHistory([]); }}>All boundaries</button>{history.length > 0 && <button className="work-button" onClick={() => { select(history[history.length-1]); setHistory(h => h.slice(0,-1)); }}><ArrowLeft size={14} />Back</button>}<span>Entity neighborhood</span></div>
             <div className="relationship-focus-heading"><div><WorkBadge>{focus.label}</WorkBadge><h2>{focus.name || focus.id}</h2><code>{focus.file || "No indexed source path"}{focus.line ? `:${focus.line}` : ""}</code></div><button className="work-button primary" onClick={() => onInspect(focus)}><FileCode2 size={16} />Inspect source & impact</button></div>
           </header>
-          {loadNeighborhood && <div className="relationship-neighborhood-status" aria-live="polite">
+          {loadNeighborhood && !selectionError && <div className="relationship-neighborhood-status" aria-live="polite">
             <p>{neighborhoodLoading ? "Loading indexed neighborhood…" : "Direct relationships from the selected index. Search results and catalogue remain unchanged."}</p>
             {neighborhoodError && <p role="alert">{neighborhoodError}</p>}
             {failed.length > 0 && <details><summary>{failed.length} relationship queries failed · partial evidence</summary><ul>{failed.map(p => <li key={[p.direction,p.type,p.target.label].join(":")}>{p.direction} · {p.type} · {p.target.label}: {p.error}</li>)}</ul></details>}
@@ -143,7 +157,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
           </div>}
           <div className="relationship-flow">
             <section><h3>Incoming <span>{incoming.length}</span></h3><p>Entities pointing to this one</p>{edges(incoming,"incoming","focus-in")}</section>
-            <section className="relationship-anchor"><Crosshair size={22} aria-hidden="true" /><span>Selected entity</span><strong>{focus.name || focus.id}</strong><WorkBadge>{languageOf(focus)}</WorkBadge><dl><dt>Directory</dt><dd>{groupOf(focus,"directory")}</dd><dt>Configured cluster</dt><dd>{clusterOf(focus)}</dd></dl>{self.length > 0 && <p>Self relationships: {self.map(e=>e.type).join(", ")}</p>}</section>
+            <section className="relationship-anchor"><Crosshair size={22} aria-hidden="true" /><span>Selected entity</span><strong>{focus.name || focus.id}</strong><WorkBadge>{languageOf(focus)}</WorkBadge><dl><dt>UID</dt><dd><code>{String(focus.properties?.uid || focus.properties?.path || "Unavailable")}</code></dd><dt>Directory</dt><dd>{groupOf(focus,"directory")}</dd><dt>Configured cluster</dt><dd>{clusterOf(focus)}</dd></dl>{self.length > 0 && <p>Self relationships: {self.map(e=>e.type).join(", ")}</p>}</section>
             <section><h3>Outgoing <span>{outgoing.length}</span></h3><p>Entities this one points to</p>{edges(outgoing,"outgoing","focus-out")}</section>
           </div>
         </> : active && <>

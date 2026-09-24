@@ -146,6 +146,17 @@ func TestDeduplicationKey(t *testing.T) {
 	}
 }
 
+func TestSortResultsDeterministicDistinguishesHomonymsByUID(t *testing.T) {
+	results := []SearchResult{
+		{Path: "a.go", Name: "Run", Line: 10, UID: "uid-b"},
+		{Path: "a.go", Name: "Run", Line: 10, UID: "uid-a"},
+	}
+	sortResultsDeterministic(results)
+	if results[0].UID != "uid-a" || results[1].UID != "uid-b" {
+		t.Fatalf("search homonyms sorted by UID = %q, %q", results[0].UID, results[1].UID)
+	}
+}
+
 func assertContains(t *testing.T, tokens []string, expected string) {
 	t.Helper()
 	for _, tok := range tokens {

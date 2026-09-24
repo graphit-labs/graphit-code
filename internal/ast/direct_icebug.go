@@ -1,12 +1,14 @@
 package ast
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -21,6 +23,18 @@ import (
 const maxRowGroupRows = 1 << 40
 
 const parquetChunkRows = 64 << 10
+
+// The graph's internal relation ID is assigned when Icebug mounts a member and may
+// change when tables are rebuilt. A relation UID instead depends on its indexed
+// evidence. Exact duplicate occurrences receive separate, deterministic ordinals.
+func stableRelationshipUID(relType, from, to string, row map[string]any, occurrences map[string]int) string {
+	payload, _ := json.Marshal([]any{relType, from, to, row})
+	sum := sha256.Sum256(payload)
+	base := fmt.Sprintf("rel:%x", sum)
+	ordinal := occurrences[base]
+	occurrences[base] = ordinal + 1
+	return fmt.Sprintf("%s:%d", base, ordinal)
+}
 
 func ExportDirectFromRebuildIndex(ri *rebuildIndex, outDir, storageURI string) (*ladybug.CanonicalManifest, error) {
 	return exportDirectWithReverse(ri, outDir, storageURI, nil, nil, true)
@@ -38,12 +52,14 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 	var labelIDs = map[string]map[string]uint64{}
 
 	man := &ladybug.CanonicalManifest{
-		Version:  ladybug.CanonicalManifestVersion,
-		Format:   "icebug-canonical",
-		Storage:  storageURI,
-		Schema:   "schema.cypher",
-		Reverse:  reverse,
-		Finished: false,
+		Version:      ladybug.CanonicalManifestVersion,
+		Format:       "icebug-canonical",
+		Storage:      storageURI,
+		Schema:       "schema.cypher",
+		Reverse:      reverse,
+		Finished:     false,
+		RelationUIDs: true,
+		Generation:   fmt.Sprintf("%d", time.Now().UnixNano()),
 		Invariants: ladybug.CanonicalInvariants{
 			IndptrRowGroups: 1,
 			SelfLoops:       "forward-once",
@@ -166,14 +182,23 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 		// on would land on the wrong edge. The rows themselves are never retained.
 		var edges []csrEdgeDirect
 		propTable := newNodeColumns()
+		occurrences := map[string]int{}
 		job.stream(func(r map[string]any) {
 			s, okS := fromIDs[fmt.Sprint(r[job.fromCol])]
 			t, okT := toIDs[fmt.Sprint(r[job.toCol])]
 			if !okS || !okT {
 				return
 			}
+			relationUID := stableRelationshipUID(job.relType, job.from, job.to, r, occurrences)
 			edges = append(edges, csrEdgeDirect{source: s, target: t})
-			propTable.appendRowExcept(r, job.fromCol, job.toCol)
+			properties := make(map[string]any, len(r))
+			for key, value := range r {
+				if key != job.fromCol && key != job.toCol {
+					properties[key] = value
+				}
+			}
+			properties["uid"] = relationUID
+			propTable.appendRow(properties)
 		})
 		if len(edges) == 0 {
 			return res
@@ -389,7 +414,7 @@ func ExportDirectIncrementalWithReverse(ri *rebuildIndex, outDir, finalDir, stor
 		return ExportDirectFromRebuildIndexWithReverse(ri, outDir, storageURI, reverse)
 	}
 	var oldMan ladybug.CanonicalManifest
-	if json.Unmarshal(oldRaw, &oldMan) != nil || oldMan.Format != "icebug-canonical" || oldMan.Version != ladybug.CanonicalManifestVersion {
+	if json.Unmarshal(oldRaw, &oldMan) != nil || oldMan.Format != "icebug-canonical" || oldMan.Version != ladybug.CanonicalManifestVersion || !oldMan.RelationUIDs {
 		return ExportDirectFromRebuildIndexWithReverse(ri, outDir, storageURI, reverse)
 	}
 	if len(deleted) > 0 {
@@ -465,6 +490,17 @@ func ExportDirectIncrementalWithReverse(ri *rebuildIndex, outDir, finalDir, stor
 			affectedRels[r.RelType] = true
 		}
 	}
+	// CSR indices use row offsets in their endpoint node tables. Rewriting a
+	// node table can shift those offsets even when the changed file contributed
+	// no edges of that type; every touching relation group must be regenerated.
+	for _, group := range oldMan.RelGroups {
+		for _, member := range group.Members {
+			if affectedLabels[member.From] || affectedLabels[member.To] {
+				affectedRels[group.Type] = true
+				break
+			}
+		}
+	}
 
 	if len(affectedLabels) > len(oldMan.NodeTables)/2 && len(affectedLabels) > 4 {
 		return ExportDirectFromRebuildIndexWithReverse(ri, outDir, storageURI, reverse)
@@ -502,6 +538,27 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 	newRel := map[string]ladybug.CanonicalRelGroup{}
 	for _, rg := range fresh.RelGroups {
 		newRel[rg.Type] = rg
+	}
+	// A changed file can lose its last entity or edge of a type while other
+	// files still contain that type. Its new shard cannot reveal the old type;
+	// compare aggregate rows before deciding which old tables can be reused.
+	for label, oldNT := range oldNode {
+		newNT, ok := newNode[label]
+		if !ok || oldNT.Rows != newNT.Rows {
+			affectedLabels[label] = true
+		}
+	}
+	for relType, oldRG := range oldRel {
+		newRG, ok := newRel[relType]
+		if !ok || relGroupRows(oldRG) != relGroupRows(newRG) {
+			affectedRels[relType] = true
+		}
+		for _, member := range oldRG.Members {
+			if affectedLabels[member.From] || affectedLabels[member.To] {
+				affectedRels[relType] = true
+				break
+			}
+		}
 	}
 
 	survivingNodes := []ladybug.CanonicalNodeTable{}
@@ -608,12 +665,14 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 	}
 
 	man := &ladybug.CanonicalManifest{
-		Version:  ladybug.CanonicalManifestVersion,
-		Format:   "icebug-canonical",
-		Storage:  storageURI,
-		Schema:   "schema.cypher",
-		Reverse:  true,
-		Finished: false,
+		Version:      ladybug.CanonicalManifestVersion,
+		Format:       "icebug-canonical",
+		Storage:      storageURI,
+		Schema:       "schema.cypher",
+		Reverse:      true,
+		Finished:     false,
+		RelationUIDs: true,
+		Generation:   fmt.Sprintf("%d", time.Now().UnixNano()),
 		Invariants: ladybug.CanonicalInvariants{
 			IndptrRowGroups: 1,
 			SelfLoops:       "forward-once",
@@ -638,6 +697,14 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 		return nil, err
 	}
 	return man, nil
+}
+
+func relGroupRows(group ladybug.CanonicalRelGroup) int64 {
+	var rows int64
+	for _, member := range group.Members {
+		rows += member.Rows
+	}
+	return rows
 }
 
 func labelInBatches(ri *rebuildIndex, label string) (map[string]any, bool) {
@@ -819,16 +886,17 @@ func propsForMember(man *ladybug.CanonicalManifest, table string) []ladybug.Fiel
 }
 
 func propShapeOfRelType(relType string) []ladybug.Field {
+	var fields []ladybug.Field
 	switch relType {
 	case "CALLS":
-		return []ladybug.Field{
+		fields = []ladybug.Field{
 			{Name: "source_file", Type: "STRING"},
 			{Name: "line_number", Type: "INT64"},
 			{Name: "full_call_name", Type: "STRING"},
 			{Name: "receiver_type", Type: "STRING"},
 		}
 	case "IMPORTS":
-		return []ladybug.Field{
+		fields = []ladybug.Field{
 			{Name: "alias", Type: "STRING"},
 			{Name: "full_import_name", Type: "STRING"},
 			{Name: "imported_name", Type: "STRING"},
@@ -836,13 +904,14 @@ func propShapeOfRelType(relType string) []ladybug.Field {
 			{Name: "source_file", Type: "STRING"},
 		}
 	case "CONTAINS":
-		return nil
+		// Structural relations still need a persistent identity.
 	default:
-		return []ladybug.Field{
+		fields = []ladybug.Field{
 			{Name: "source_file", Type: "STRING"},
 			{Name: "line_number", Type: "INT64"},
 		}
 	}
+	return append(fields, ladybug.Field{Name: "uid", Type: "STRING"})
 }
 
 func copyRelMember(srcDir, outDir string, m ladybug.CanonicalMember) error {

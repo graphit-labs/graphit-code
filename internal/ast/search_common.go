@@ -96,7 +96,14 @@ func sortResultsDeterministic(results []SearchResult) {
 		if results[i].RelevanceScore != results[j].RelevanceScore {
 			return results[i].RelevanceScore > results[j].RelevanceScore
 		}
-		return deduplicationKey(results[i]) < deduplicationKey(results[j])
+		left, right := deduplicationKey(results[i]), deduplicationKey(results[j])
+		if left != right {
+			return left < right
+		}
+		if results[i].UID != results[j].UID {
+			return results[i].UID < results[j].UID
+		}
+		return results[i].Type < results[j].Type
 	})
 }
 

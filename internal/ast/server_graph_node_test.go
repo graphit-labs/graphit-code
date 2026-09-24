@@ -67,7 +67,7 @@ func TestUserQueryGraphNodeLabelIsTheGraphLabel(t *testing.T) {
 		"n": map[string]any{
 			"ID":         map[string]any{"TableID": 0, "Offset": 7},
 			"Label":      "Function",
-			"Properties": map[string]any{"name": "handleFile", "path": "internal/ast/server.go"},
+			"Properties": map[string]any{"uid": "internal/ast/server.go::handleFile", "name": "handleFile", "path": "internal/ast/server.go"},
 		},
 	}
 
@@ -87,6 +87,9 @@ func TestUserQueryGraphNodeLabelIsTheGraphLabel(t *testing.T) {
 	}
 	if n["name"] != "handleFile" {
 		t.Errorf("name = %v, want handleFile", n["name"])
+	}
+	if n["properties"].(map[string]any)["uid"] != "internal/ast/server.go::handleFile" {
+		t.Errorf("RETURN n lost the indexed uid: %v", n)
 	}
 }
 

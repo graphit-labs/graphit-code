@@ -9,6 +9,7 @@ import (
 
 type SearchResult struct {
 	Type           string
+	UID            string
 	Name           string
 	Path           string
 	Line           int

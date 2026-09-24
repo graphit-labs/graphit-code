@@ -186,9 +186,9 @@ export default function ExplorerPage() {
         : await astApi.search(text, context, projectDir);
       if (id !== graphRequest.current || scope.current !== startedScope) return;
       setNodes((rows || []).map((r, index) => ({
-        id: JSON.stringify([r.Type, r.Path, r.Line, r.Name]),
+        id: JSON.stringify([r.Type, r.UID || r.Path, r.Line, r.Name]),
         name: r.Name, label: r.Type, type: r.Type, file: r.Path, line: r.Line,
-        properties: { search_rank: index + 1, docstring: r.Docstring, search_type: r.SearchType, relevance_score: r.RelevanceScore },
+        properties: { ...(r.UID ? { uid: r.UID } : {}), ...(r.Type === "File" || r.Type === "Directory" ? { path: r.Path } : {}), search_rank: index + 1, docstring: r.Docstring, search_type: r.SearchType, relevance_score: r.RelevanceScore },
       })));
       setLinks([]); setTabular(null);
     } catch (e) {
@@ -301,56 +301,10 @@ export default function ExplorerPage() {
       ];
       if (identifiers.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)))
         throw new Error("This schema requires an explicit query in Query lab.");
-      let identity = selected.properties?.[anchor.identity_property];
-      if (identity == null && anchor.identity_property === "path")
-        identity = selected.file;
-      if (identity == null || identity === "") {
-        const filters: string[] = [];
-        if (anchor.properties.includes("name"))
-          filters.push("n.name = " + quote(selected.name));
-        if (anchor.properties.includes("path") && selected.file)
-          filters.push("n.path = " + quote(selected.file));
-        if (anchor.properties.includes("line_number") && selected.line)
-          filters.push("n.line_number = " + selected.line);
-        if (!filters.length)
-          throw new Error(
-            "Search an indexed entity with a stable identity before tracing relationships.",
-          );
-        const resolved = await astApi.getGraph({
-          context,
-          project_dir: projectDir,
-          ...(projectId ? { project_id: projectId } : {}),
-          cypher_query:
-            "MATCH (n:" +
-            anchor.label +
-            ") WHERE " +
-            filters.join(" AND ") +
-            " RETURN n LIMIT 2",
-        });
-        if (id !== relationRequest.current) return;
-        if (resolved.nodes.length !== 1)
-          throw new Error(
-            resolved.nodes.length
-              ? "Multiple indexed symbols match this location. Refine the symbol in Query lab before tracing relationships."
-              : "This symbol is no longer present in the current index. Refresh the search before tracing relationships.",
-          );
-        identity = resolved.nodes[0].properties?.[anchor.identity_property];
-        if (identity == null || identity === "")
-          throw new Error(
-            "The indexed symbol has no stable identity. Renderer IDs cannot identify indexed entities.",
-          );
-        setSelected((previous) =>
-          previous?.id === selected.id
-            ? {
-                ...previous,
-                properties: {
-                  ...previous.properties,
-                  [anchor.identity_property]: identity,
-                },
-              }
-            : previous,
-        );
-      }
+      const identity = selected.properties?.[anchor.identity_property] ??
+        (anchor.identity_property === "path" ? selected.file : undefined);
+      if (identity == null || identity === "")
+        throw new Error("This entity has no indexed unique identifier. Refresh the result or reindex before tracing relationships.");
       const pattern =
         kind === "outgoing"
           ? "(anchor:" +

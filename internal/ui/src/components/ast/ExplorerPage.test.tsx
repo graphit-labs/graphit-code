@@ -15,6 +15,7 @@ vi.mock("@/api/ast", () => ({
     getSchema: vi.fn(),
     getContexts: vi.fn(),
     getGraph: vi.fn(),
+    getGraphNeighborhood: vi.fn(),
     getFile: vi.fn(),
     search: vi.fn(),
     generateCypher: vi.fn(),
@@ -51,8 +52,9 @@ beforeEach(() => {
     project_name: "Demo",
   });
   vi.mocked(astApi.getGraph).mockResolvedValue(empty);
+  vi.mocked(astApi.getGraphNeighborhood).mockResolvedValue({ nodes: [], links: [], next_cursor: "" });
   vi.mocked(astApi.search).mockResolvedValue([
-    { Name: "validate", Type: "Function", Path: "src/check.ts", Line: 12 },
+    { UID: "indexed-uid", Name: "validate", Type: "Function", Path: "src/check.ts", Line: 12 },
   ]);
   vi.mocked(astApi.getFile).mockResolvedValue({
     content: "export function validate() {}",
@@ -107,29 +109,15 @@ it("searches the full scoped index without loading a sample, then reads indexed 
   await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
   expect(screen.getByRole("tab", { name: "Relationship map" })).toHaveAttribute("aria-selected", "true");
   expect(astApi.search).toHaveBeenCalledWith("validate", "library", "/project");
-  expect(astApi.getGraph).toHaveBeenCalledWith(expect.objectContaining({ cypher_query: expect.stringContaining("RETURN n LIMIT 2") }));
+  expect(astApi.getGraphNeighborhood).toHaveBeenCalledWith(expect.objectContaining({ anchor_identity: "indexed-uid" }));
+  expect(vi.mocked(astApi.getGraph).mock.calls.some(([args]) => args.cypher_query?.includes("RETURN n LIMIT 2"))).toBe(false);
   expect(await screen.findByText("export function validate() {}")).toBeTruthy();
   expect(astApi.getFile).toHaveBeenCalledWith(
     "src/check.ts",
     "library",
     "/project",
   );
-  vi.mocked(astApi.getGraph)
-    .mockResolvedValueOnce({
-      ...empty,
-      nodes: [
-        {
-          id: "render:1",
-          properties: { uid: "indexed-uid" },
-          name: "validate",
-          label: "Function",
-          type: "Function",
-          file: "src/check.ts",
-          line: 12,
-        },
-      ],
-    })
-    .mockResolvedValue({
+  vi.mocked(astApi.getGraph).mockResolvedValue({
       ...empty,
       tabular: {
         columns: ["identity", "name", "path", "line"],
@@ -167,7 +155,8 @@ it("discards search results returned after switching project", async () => {
   );
 });
 
-it("refuses to merge relationships from ambiguous indexed symbols", async () => {
+it("refuses a search symbol without uid before tracing relationships", async () => {
+  vi.mocked(astApi.search).mockResolvedValue([{ Name: "validate", Type: "Function", Path: "src/check.ts", Line: 12 }]);
   const user = setup();
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
   await user.click(screen.getByRole("button", { name: "Search index" }));
@@ -175,16 +164,9 @@ it("refuses to merge relationships from ambiguous indexed symbols", async () => 
     await screen.findByRole("button", { name: /validate src\/check.ts/ }),
   );
   await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
-  vi.mocked(astApi.getGraph).mockResolvedValue({
-    ...empty,
-    nodes: [
-      { id: "one", name: "validate", label: "Function", type: "Function" },
-      { id: "two", name: "validate", label: "Function", type: "Function" },
-    ],
-  });
   await user.click(screen.getByRole("tab", { name: "Incoming" }));
-  expect(await screen.findByText(/Multiple indexed symbols/)).toBeTruthy();
-  expect(astApi.getGraph).toHaveBeenCalledTimes(2);
+  expect((await screen.findAllByRole("alert")).some(alert => /no indexed unique identifier/.test(alert.textContent || ""))).toBe(true);
+  expect(astApi.getGraph).not.toHaveBeenCalled();
 });
 
 it("traces file imports using path identity and Module-only properties", async () => {
@@ -232,6 +214,7 @@ it("traces file imports using path identity and Module-only properties", async (
 });
 
 it("never uses renderer IDs as persistent symbol identity", async () => {
+  vi.mocked(astApi.search).mockResolvedValue([{ Name: "validate", Type: "Function", Path: "src/check.ts", Line: 12 }]);
   const user = setup();
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
   await user.click(screen.getByRole("button", { name: "Search index" }));
@@ -239,15 +222,9 @@ it("never uses renderer IDs as persistent symbol identity", async () => {
     await screen.findByRole("button", { name: /validate src\/check.ts/ }),
   );
   await user.click(screen.getByRole("button", { name: "Inspect source & impact" }));
-  vi.mocked(astApi.getGraph).mockResolvedValue({
-    ...empty,
-    nodes: [
-      { id: "render:1", name: "validate", label: "Function", type: "Function" },
-    ],
-  });
   await user.click(screen.getByRole("tab", { name: "Incoming" }));
-  expect(await screen.findByText(/Renderer IDs cannot/)).toBeTruthy();
-  expect(astApi.getGraph).toHaveBeenCalledTimes(2);
+  expect((await screen.findAllByRole("alert")).some(alert => /no indexed unique identifier/.test(alert.textContent || ""))).toBe(true);
+  expect(astApi.getGraph).not.toHaveBeenCalled();
 });
 
 it("keeps a newer explicit query when an older graph refresh resolves last", async () => {
@@ -398,24 +375,27 @@ it('lets header refresh supersede an older pending Cypher execution', async () =
 });
 
 it("queries an independent scoped neighborhood from a search selection and refreshes both without replacing the catalogue", async () => {
-  const anchor = { id: "render:1", name: "validate", label: "Function", type: "Function", file: "src/check.ts", line: 12, properties: { uid: "validate-uid" } };
-  vi.mocked(astApi.getGraph).mockImplementation(async ({ cypher_query: q }) => q?.includes("RETURN n LIMIT 2") ? { ...empty, nodes: [anchor] } : {
-    ...empty, tabular: { columns: ["identity", "name", "path", "line_number"], rows: q?.startsWith("MATCH (anchor:") ? [["external-uid", "Ship", "delivery/ship.ts", 7]] : [] },
-  });
+  vi.mocked(astApi.getGraphNeighborhood).mockImplementation(async args => args.direction === "outgoing" ? {
+    nodes: [
+      { id: "native:1", name: "validate", label: "Function", type: "Function", properties: { uid: "indexed-uid" } },
+      { id: "native:2", name: "Ship", label: "Function", type: "Function", file: "delivery/ship.ts", properties: { uid: "external-uid", path: "delivery/ship.ts" } },
+    ],
+    links: [{ source: "native:1", target: "native:2", type: "CALLS", uid: "rel:ship" }], next_cursor: "",
+  } : { nodes: [], links: [], next_cursor: "" });
   const user = setup();
   await user.type(screen.getByLabelText("Search indexed code"), "validate");
   await user.click(screen.getByRole("button", { name: "Search index" }));
   await user.click(await screen.findByRole("button", { name: /validate src\/check.ts/ }));
   expect(await screen.findByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeTruthy();
   expect(screen.getByText("Search results · validate · 1 entities")).toBeTruthy();
-  expect(astApi.getGraph).toHaveBeenCalledTimes(3);
+  expect(astApi.getGraphNeighborhood).toHaveBeenCalledTimes(2);
   await user.click(screen.getByRole("button", { name: "Refresh" }));
-  await waitFor(() => expect(astApi.getGraph).toHaveBeenCalledTimes(6));
+  await waitFor(() => expect(astApi.getGraphNeighborhood).toHaveBeenCalledTimes(4));
   await waitFor(() => expect(screen.queryByText("Loading indexed neighborhood…")).toBeNull());
   expect(astApi.search).toHaveBeenCalledTimes(2);
   expect(screen.getByRole("heading", { name: "validate" })).toBeTruthy();
   expect(screen.getByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeTruthy();
-  for (const [args] of vi.mocked(astApi.getGraph).mock.calls) expect(args).toMatchObject({ context: "library", project_dir: "/project" });
+  for (const [args] of vi.mocked(astApi.getGraphNeighborhood).mock.calls) expect(args).toMatchObject({ context: "library", project_dir: "/project" });
   act(() => useAppStore.setState({ activeProjectKey: "workspace:new:/new", activeProjectOrigin: "workspace", activeProjectId: "new", activeProjectDir: "/new" }));
   expect(screen.queryByRole("button", { name: /Ship delivery\/ship.ts/ })).toBeNull();
 });

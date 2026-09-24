@@ -108,6 +108,30 @@ func TestBothSamplesReachTheDrawing(t *testing.T) {
 	}
 }
 
+func TestGraphSampleKeepsPathlessHomonymsDistinct(t *testing.T) {
+	if !strings.Contains(defaultGraphQueryText(), "n.uid AS src_uid") ||
+		!strings.Contains(defaultGraphEdgeQueryText(), "m.uid AS dst_uid") {
+		t.Fatal("sample queries must project persistent identities for both endpoints")
+	}
+	nodes := map[string]map[string]any{}
+	var edges []map[string]any
+	for _, tc := range []struct{ id, uid string }{
+		{"0:1", "scip:os/exec.Cmd#Run()."},
+		{"0:2", "scip:example.Run()."},
+	} {
+		extractBuiltinQueryGraph(map[string]any{
+			"src_id": tc.id, "src_label": "Function", "src_name": "Run", "src_uid": tc.uid,
+		}, nodes, &edges)
+		props := nodes[tc.id]["properties"].(map[string]any)
+		if props["uid"] != tc.uid || nodes[tc.id]["file"] != "" {
+			t.Fatalf("pathless Run lost persistent identity: %v", nodes[tc.id])
+		}
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("homonymous nodes merged: %v", nodes)
+	}
+}
+
 // And the samples have to actually run against a real graph — this one holding a
 // single file, which is the shape that breaks them.
 //
@@ -146,7 +170,7 @@ func TestGraphSamplesRunOnAGraphWithoutEntities(t *testing.T) {
 			"exercised here and needs a graph that still lacks the property")
 	}
 
-	res, err := querySample(context.Background(), graph, defaultGraphQuery, graphNodeSampleQuery(false))
+	res, err := querySampleWithOptionalUID(context.Background(), graph, defaultGraphQuery, graphNodeSampleQuery(false, true), graphNodeSampleQuery(true, false), graphNodeSampleQuery(false, false))
 	if err != nil {
 		t.Fatalf("the explorer's node sample must run on any graph: %v", err)
 	}
@@ -181,7 +205,28 @@ func TestGraphSamplePreservesCanonicalRelationships(t *testing.T) {
 	_ = db.Close()
 	db = NewLadybugDB(cfg)
 	defer db.Close()
-	for _, query := range []string{"MATCH (n)-[r]->(m) RETURN n,r,m", "MATCH (n)-->(m) RETURN m"} {
+	for _, query := range []string{"MATCH (n)-[r]->(m) RETURN n,r,m"} {
+		for _, paged := range []bool{false, true} {
+			var result *QueryResult
+			var err error
+			if paged {
+				result, err = db.QueryPage(ctx, query, nil, 0, 10)
+			} else {
+				result, err = db.Query(ctx, query, nil)
+			}
+			if err != nil || len(result.Records) == 0 {
+				t.Fatalf("safe typed-member triple query: %v, %v", result, err)
+			}
+			for _, row := range result.Records {
+				rel := row["r"].(map[string]any)
+				props := rel["Properties"].(map[string]any)
+				if props["uid"] == nil || props["uid"] == "" {
+					t.Fatalf("triple query relation has no stable UID: %v", row)
+				}
+			}
+		}
+	}
+	for _, query := range []string{"MATCH (n)-->(m) RETURN m"} {
 		if _, err := db.Query(ctx, query, nil); err == nil || !strings.Contains(err.Error(), "incorrect endpoints") {
 			t.Fatalf("Query must refuse unsafe scan: %v", err)
 		}
@@ -219,6 +264,12 @@ func TestGraphSamplePreservesCanonicalRelationships(t *testing.T) {
 		nodes := map[string]map[string]any{}
 		for _, n := range graph.Nodes {
 			nodes[n["id"].(string)] = n
+			if n["type"] == "Function" {
+				props := n["properties"].(map[string]any)
+				if props["uid"] == nil || props["uid"] == "" {
+					t.Fatalf("sample Function lacks persistent uid: %v", n)
+				}
+			}
 		}
 		calls := map[string]bool{}
 		for _, e := range graph.Links {

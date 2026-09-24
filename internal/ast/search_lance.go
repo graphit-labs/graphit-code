@@ -891,6 +891,7 @@ func (s *SearchIndex) search(ctx context.Context, q lancestore.Query, topK int) 
 func entityHitsToResults(hits []lancestore.Hit, mode string) []SearchResult {
 	out := make([]SearchResult, 0, len(hits))
 	for _, h := range hits {
+		uid, _ := h.Row["uid"].(string)
 		name, _ := h.Row["name"].(string)
 		etype, _ := h.Row["etype"].(string)
 		path, _ := h.Row["path"].(string)
@@ -904,7 +905,7 @@ func entityHitsToResults(hits []lancestore.Hit, mode string) []SearchResult {
 			line = int(n)
 		}
 		out = append(out, SearchResult{
-			Type: etype, Name: name, Path: path, Line: line,
+			Type: etype, UID: uid, Name: name, Path: path, Line: line,
 			Docstring: doc, IsDepend: isDep,
 			SearchType: mode, RelevanceScore: h.Score, Distance: h.Distance,
 		})

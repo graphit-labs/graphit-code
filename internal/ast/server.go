@@ -71,6 +71,7 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/schema", s.handleSchema)
 
 	mux.HandleFunc("GET /api/graph", s.handleGraph)
+	mux.HandleFunc("GET /api/graph/neighborhood", s.handleGraphNeighborhood)
 	mux.HandleFunc("GET /api/file", s.handleFile)
 	mux.HandleFunc("GET /api/contexts", s.handleContexts)
 	mux.HandleFunc("POST /api/generate-cypher", s.handleGenerateCypher)
@@ -449,36 +450,43 @@ const (
 	graphSampleEdges = 1000
 )
 
-func graphNodeSampleQuery(withLine bool) string {
+func graphNodeSampleQuery(withLine, withUID bool) string {
 	return fmt.Sprintf(`
 	MATCH (n)
 	WITH n LIMIT %d
 	RETURN
-		%s`, graphSampleNodes, graphSideColumns("n", "src", withLine))
+		%s`, graphSampleNodes, graphSideColumns("n", "src", withLine, withUID))
 }
 
-var defaultGraphQuery = graphNodeSampleQuery(true)
+var defaultGraphQuery = graphNodeSampleQuery(true, true)
 
-func graphEdgeSampleQuery(withLine bool) string {
+func graphEdgeSampleQuery(withLine, withUID bool) string {
 	return fmt.Sprintf(`
 	MATCH (n)-[r]->(m)
 	WITH n, r, m LIMIT %d
 	RETURN
 		%s,
 		%s,
-		label(r) AS rel_type`, graphSampleEdges,
-		graphSideColumns("n", "src", withLine), graphSideColumns("m", "dst", withLine))
+		label(r) AS rel_type,
+		CAST(id(r) AS STRING) AS rel_id,
+		r.uid AS rel_uid`, graphSampleEdges,
+		graphSideColumns("n", "src", withLine, withUID), graphSideColumns("m", "dst", withLine, withUID))
 }
 
-var defaultGraphEdgeQuery = graphEdgeSampleQuery(true)
+var defaultGraphEdgeQuery = graphEdgeSampleQuery(true, true)
 
-func graphSideColumns(v, prefix string, withLine bool) string {
+func graphSideColumns(v, prefix string, withLine, withUID bool) string {
 	cols := fmt.Sprintf(`CAST(id(%[1]s) AS STRING) AS %[2]s_id,
 		label(%[1]s) AS %[2]s_label,
 		%[1]s.name AS %[2]s_name,
 		%[1]s.path AS %[2]s_path,
 		%[1]s.cluster AS %[2]s_cluster,
 		%[1]s.lang AS %[2]s_lang`, v, prefix)
+	if withUID {
+		cols += fmt.Sprintf(",\n\t\t%s.uid AS %s_uid", v, prefix)
+	} else {
+		cols += fmt.Sprintf(",\n\t\tNULL AS %s_uid", prefix)
+	}
 	if withLine {
 		cols += fmt.Sprintf(`,
 		%s.line_number AS %s_line`, v, prefix)
@@ -492,6 +500,14 @@ func querySample(ctx context.Context, db GraphDB, withLine, withoutLine string) 
 		return res, err
 	}
 	return db.Query(ctx, withoutLine, nil)
+}
+
+func querySampleWithOptionalUID(ctx context.Context, db GraphDB, withLine, withoutLine, withLineNoUID, withoutLineNoUID string) (*QueryResult, error) {
+	res, err := querySample(ctx, db, withLine, withoutLine)
+	if err == nil || !strings.Contains(err.Error(), "Cannot find property uid") {
+		return res, err
+	}
+	return querySample(ctx, db, withLineNoUID, withoutLineNoUID)
 }
 
 func defaultGraphQueryText() string { return defaultGraphQuery }
@@ -520,7 +536,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	if isUserQuery {
 		result, err = db.Query(ctx, cypher, nil)
 	} else {
-		result, err = querySample(ctx, db, defaultGraphQuery, graphNodeSampleQuery(false))
+		result, err = querySampleWithOptionalUID(ctx, db, defaultGraphQuery, graphNodeSampleQuery(false, true), graphNodeSampleQuery(true, false), graphNodeSampleQuery(false, false))
 	}
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -553,6 +569,20 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, rec := range edgeResult.Records {
 			extractBuiltinQueryGraph(rec, nodesMap, &edges)
+		}
+	}
+	if provider, ok := db.(canonicalManifestProvider); ok {
+		if manifest, ok := provider.canonicalManifestSnapshot(); ok && len(edges) > 0 {
+			if !manifest.RelationUIDs {
+				writeError(w, http.StatusConflict, "this index has no stable relationship UIDs; reindex before exploring relationships")
+				return
+			}
+			for _, edge := range edges {
+				if safeStr(edge["uid"]) == "" {
+					writeError(w, http.StatusConflict, "an indexed relationship has no stable UID; reindex before exploring")
+					return
+				}
+			}
 		}
 	}
 
@@ -729,9 +759,19 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 					dstID = fmt.Sprintf("%v:%v", dst["TableID"], dst["Offset"])
 				}
 				if srcID != "" && dstID != "" {
-					*edges = append(*edges, map[string]any{
+					edge := map[string]any{
 						"source": srcID, "target": dstID, "type": strings.ToUpper(relLabel),
-					})
+					}
+					if id := ladybugIDStr(rm["ID"]); id != "" {
+						edge["id"] = id
+					}
+					if props, ok := rm["Properties"].(map[string]any); ok {
+						edge["properties"] = props
+						if uid := safeStr(props["uid"]); uid != "" {
+							edge["uid"] = uid
+						}
+					}
+					*edges = append(*edges, edge)
 				}
 			}
 		}
@@ -740,6 +780,7 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 
 type graphNodeSide struct {
 	id      string
+	uid     string
 	label   string
 	name    string
 	path    string
@@ -751,6 +792,7 @@ type graphNodeSide struct {
 func graphNodeSideFrom(rec map[string]any, prefix string) graphNodeSide {
 	return graphNodeSide{
 		id:      ladybugIDStr(rec[prefix+"_id"]),
+		uid:     safeStr(rec[prefix+"_uid"]),
 		label:   safeStr(rec[prefix+"_label"]),
 		name:    safeStr(rec[prefix+"_name"]),
 		path:    safeStr(rec[prefix+"_path"]),
@@ -776,9 +818,16 @@ func extractBuiltinQueryGraph(rec map[string]any, nodesMap map[string]map[string
 		if _, exists := nodesMap[dst.id]; !exists {
 			nodesMap[dst.id] = buildGraphNode(dst)
 		}
-		*edges = append(*edges, map[string]any{
+		edge := map[string]any{
 			"source": src.id, "target": dst.id, "type": strings.ToUpper(relType),
-		})
+		}
+		if id := ladybugIDStr(rec["rel_id"]); id != "" {
+			edge["id"] = id
+		}
+		if uid := safeStr(rec["rel_uid"]); uid != "" {
+			edge["uid"] = uid
+		}
+		*edges = append(*edges, edge)
 	}
 }
 
@@ -1110,6 +1159,9 @@ func buildGraphNode(s graphNodeSide) map[string]any {
 	}
 	if s.path != "" {
 		props["path"] = s.path
+	}
+	if s.uid != "" {
+		props["uid"] = s.uid
 	}
 	if s.cluster != "" {
 		props["cluster"] = s.cluster

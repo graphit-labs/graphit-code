@@ -70,6 +70,8 @@ type CanonicalManifest struct {
 	Schema          string               `json:"schema_file"`
 	NodeTables      []CanonicalNodeTable `json:"node_tables"`
 	RelGroups       []CanonicalRelGroup  `json:"relationships"`
+	RelationUIDs    bool                 `json:"relation_uids,omitempty"`
+	Generation      string               `json:"generation,omitempty"`
 	EdgeCount       int64                `json:"n_edges"`
 	RepairedStrings int64                `json:"repaired_strings"`
 	Invariants      CanonicalInvariants  `json:"invariants"`

@@ -31,9 +31,19 @@ export interface GraphNode {
 }
 
 export interface GraphEdge {
+  id?: string;
+  uid?: string;
   source: string;
   target: string;
   type: string;
+  properties?: Record<string, unknown>;
+}
+
+export interface GraphNeighborhoodResponse {
+  nodes: GraphNode[];
+  links: GraphEdge[];
+  next_cursor: string;
+  index_generation?: string;
 }
 
 export interface TabularResult {
@@ -99,6 +109,7 @@ export interface StatusResponse {
 
 export interface CodeSearchResult {
   Type: string;
+  UID?: string;
   Name: string;
   Path: string;
   Line: number;
@@ -147,6 +158,25 @@ export const astApi = {
     return params.signal
       ? api.get<GraphResponse>(`/api/graph?${qs}`, { signal: params.signal })
       : api.get<GraphResponse>(`/api/graph?${qs}`);
+  },
+  getGraphNeighborhood: (params: {
+    anchor_label: string;
+    anchor_identity: string;
+    relationship_type: string;
+    target_label: string;
+    direction: "incoming" | "outgoing";
+    cursor?: string;
+    limit?: number;
+    context?: string;
+    project_dir?: string;
+    project_id?: string;
+    signal?: AbortSignal;
+  }) => {
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (key !== "signal" && value !== undefined && value !== "") qs.set(key, String(value));
+    }
+    return api.get<GraphNeighborhoodResponse>(`/api/graph/neighborhood?${qs}`, { signal: params.signal });
   },
   getFile: (path: string, context?: string, projectDir?: string, projectId?: string) => {
     const qs = new URLSearchParams({ path });

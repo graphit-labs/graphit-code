@@ -20,11 +20,11 @@ The boundary search matches names and paths within the loaded result. Language, 
 
 ## Understand what the numbers mean
 
-An **entity** is an indexed node, such as a function, class, file or module. A **relationship** is a directed source/type/target triple returned by the index. Repeated query rows do not increase the relationship count. Different types between the same entities remain distinct; self relationships remain explicit.
+An **entity** is an indexed node, such as a function, class, file or module. A **relationship** is an indexed occurrence with its own `uid`, source, type and target. Repeated query rows for the same relation UID do not increase the count; two real calls between the same entities remain distinct. Self relationships remain explicit.
 
 Directory and file boundaries come from source paths. Language comes from indexed metadata. A configured cluster is a path-based grouping, **not an inferred community, team owner or architectural guarantee**. Missing path, language and cluster metadata have explicit fallback labels rather than guessed values.
 
-Catalogue and boundary counts describe the **loaded result**, not the entire repository. A selected entity’s Incoming/Outgoing reader is separate: it queries direct indexed relationships beyond that result. Each direction/relationship/entity-type branch loads 100 neighbors at a time; **Load more relationships** continues unfinished branches in persistent-identity order. Counts in that reader describe the neighbors loaded so far. These pages are not an index snapshot: refresh after an index rebuild. The initial sample includes up to 300 initial nodes and the endpoints of up to 1,000 relationships, so it can contain more than 300 entities. It has no completeness guarantee. Catalogue filters remove connections to hidden result endpoints, but do not hide independently queried neighbors. No visible link does not prove independence; dynamic dispatch and unresolved calls may be absent even in a wider query.
+Catalogue and boundary counts describe the **loaded result**, not the entire repository. A selected entity’s Incoming/Outgoing reader is separate: it queries direct indexed relationships beyond that result. Each direction/relationship/entity-type branch loads 100 relations at a time; **Load more relationships** continues by relation UID. Counts in that reader describe the relations loaded so far. If an incremental reindex happens between pages, the reader reloads the selected entity by its indexed UID and restarts the neighborhood on the new index generation. An edited or removed relation may disappear from that refreshed result. The initial sample includes up to 300 initial nodes and the endpoints of up to 1,000 relationships, so it can contain more than 300 entities. It has no completeness guarantee. Catalogue filters remove connections to hidden result endpoints, but do not hide independently queried neighbors. No visible link does not prove independence; dynamic dispatch and unresolved calls may be absent even in a wider query.
 
 ## Ask a precise question
 
@@ -36,19 +36,21 @@ Potential impact follows incoming calls up to two hops and returns up to 100 dis
 
 - **No graph entities:** load a sample, inspect the query table or check whether the chosen context has been indexed.
 - **No matching entities:** clear filters or use a different name/path. Use full-index search if the entity is outside the sample.
-- **No source path:** the entity may represent an external or structural node. Its available relationships remain inspectable; source is not fabricated.
+- **No source path:** the entity may represent an external or structural node. The index sample carries its persistent identity when available, so its relationships remain inspectable without a file; source is not fabricated.
 - **Request failed:** read the error and use **Retry neighborhood**, the failed-branch retry, or the common header refresh. An error is not evidence of an empty repository.
-- **Ambiguous identity:** refine the symbol/path in Find & inspect before requesting traversal. A presentation ID is not a persistent graph identity.
+- **Missing unique identifier:** refresh the result or reindex. Symbol nodes need their indexed `uid`; File/Directory nodes use `path`. Search and sample results carry that identity, and a full node returned by Query lab retains it. The map never guesses from a name, file or line.
+- **Missing relationship UID:** reindex the selected context. Older graph bundles cannot support stable relation navigation. Ladybug's internal `ID(r)` identifies a relation in the current mounted snapshot and may change after reindexing.
 
 The [design system](../specs/design_system.md) defines this stable, keyboard-accessible catalogue and evidence-reader pattern.
 
 ### Query safety with the current native engine
 
-Icebug 0.19 has a multi-table relationship scan defect. Graphit refuses wildcard
-relationships and type alternation instead of displaying incorrect endpoints.
-The Relationship map sample avoids that scanner by reading forward relation
-members separately. For an investigation query, filter an anchor and project
-the reached endpoint, for example:
+Icebug 0.19 has a multi-table relationship scan defect. Graphit reads physical
+forward members separately for the map and for simple `MATCH (n)-[r]-(m)
+RETURN n,r,m` queries, preserving each relation's UID. Other wildcard and
+type-alternation forms can still be refused when their endpoints cannot be
+verified. For a reached-node investigation, filter an anchor and project the
+reached endpoint, for example:
 
 ```cypher
 MATCH (a:Function)-[:CALLS]->(b:Function)

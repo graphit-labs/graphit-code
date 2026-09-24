@@ -752,6 +752,9 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 		return nil, err
 	}
 	if k.canonical != nil {
+		if res, handled, err := k.tryCanonicalTriples(ctx, cypher, 1000, true); handled {
+			return res, err
+		}
 		cypher = sanitizeCanonicalUIDEquality(cypher)
 		cypher = sanitizeCanonicalPKEquality(k.canonical, cypher)
 		if res, handled, err := k.tryCanonicalBoundedTraversal(ctx, cypher, params); handled {
@@ -820,6 +823,16 @@ func (k *LadybugBackend) QueryPage(ctx context.Context, cypher string, params ma
 		return nil, err
 	}
 	if k.canonical != nil {
+		tripleRows := 10001
+		if offset <= 10000 && limit <= 10000-offset {
+			tripleRows = offset + limit
+		}
+		if res, handled, err := k.tryCanonicalTriples(ctx, cypher, tripleRows, false); handled {
+			if err != nil {
+				return nil, err
+			}
+			return sliceQueryResult(res, offset, limit), nil
+		}
 		cypher = sanitizeCanonicalUIDEquality(cypher)
 		cypher = sanitizeCanonicalPKEquality(k.canonical, cypher)
 		if res, handled, err := k.tryCanonicalBoundedTraversal(ctx, cypher, params); handled {

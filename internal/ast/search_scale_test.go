@@ -221,6 +221,9 @@ func TestHybridSearchTopKPrefersEntities(t *testing.T) {
 		if r.Type == LabelFile {
 			t.Errorf("result[%d] is a File under topK=2 while entities matched the query", i)
 		}
+		if r.Type != LabelFile && r.UID == "" {
+			t.Errorf("result[%d] lost the indexed entity uid: %+v", i, r)
+		}
 	}
 }
 
