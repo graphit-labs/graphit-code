@@ -84,7 +84,7 @@ export async function loadNeighborhood(node: GraphNode, schema: SchemaResponse, 
     }
   })); } catch (e) {
     if (e instanceof IndexChanged && refreshAttempts === 0) return loadNeighborhood(node, schema, context, projectDir, undefined, signal, projectId, 1);
-    if (e instanceof IndexChanged) throw new Error("Index changed during exploration. Retry the neighborhood.");
+    if (e instanceof IndexChanged) throw Object.assign(new Error("Index changed during exploration. Retry the neighborhood."), { cause: e });
     throw e;
   }
   check();
