@@ -2,15 +2,11 @@ package auth
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -118,11 +114,6 @@ func signEdDSAJWT(t *testing.T, key ed25519.PrivateKey, claims map[string]any) s
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
-func rsaJWKSForBrokerTest(key *rsa.PrivateKey) map[string]any {
-	return map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "test", "alg": "RS256",
-		"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}}
-}
-
 func cloneClaims(input map[string]any) map[string]any {
 	output := make(map[string]any, len(input))
 	for key, value := range input {
@@ -220,18 +211,6 @@ func TestOIDCClaimMappingsSupportJSONPathAndExactTopLevelClaims(t *testing.T) {
 	}
 }
 
-func signJWT(t *testing.T, key *rsa.PrivateKey, claims map[string]any) string {
-	t.Helper()
-	header, _ := json.Marshal(map[string]any{"alg": "RS256", "kid": "test", "typ": "JWT"})
-	payload, _ := json.Marshal(claims)
-	unsigned := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
-	digest := sha256.Sum256([]byte(unsigned))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	return unsigned + "." + base64.RawURLEncoding.EncodeToString(sig)
-}
 func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")

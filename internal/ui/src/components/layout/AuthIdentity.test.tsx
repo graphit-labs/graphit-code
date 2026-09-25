@@ -6,6 +6,17 @@ import { AuthIdentity } from './AuthIdentity';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('workspace identity', () => {
+  it.each([
+    ['local', 'Lia', 'Local'],
+    ['Broker CLI', 'Bruna', 'Company'],
+  ])('shows the active %s CLI account when web auth is disabled', async (_kind, username, provider) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ enabled: false, authenticated: true, username, provider, providers: [] }) })));
+    render(<AuthIdentity />);
+    expect(await screen.findByText(username)).not.toBeNull();
+    expect(screen.getByLabelText('Identidade de acesso').querySelector('.auth-identity-chip')?.getAttribute('title')).toBe(`${username} · ${provider}`);
+    expect(screen.queryByRole('button', { name: 'Entrar com Broker' })).toBeNull();
+  });
+
   it('shows anonymous without offering login when web auth is disabled', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ enabled: false, authenticated: false, username: 'Anônimo', provider: '', providers: [] }) })));
     render(<AuthIdentity />);

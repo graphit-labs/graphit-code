@@ -172,15 +172,25 @@ it reasons over. One container can serve a team without requiring each remote cl
 anything locally.
 
 ```bash
-VERSION=0.1.1
+VERSION=latest
 docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 
 docker run -d --name graphit \
   -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:8081:8081 \
+  -e GRAPHIT_UI_AUTH_ENABLED=false \
   -v graphit-global:/home/graphit/.graphit \
   "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 ```
+
+This loopback example disables browser login for a local trial. The Docker image enables Broker
+browser login by default. Before exposing the UI over HTTPS, configure a `broker` provider and
+Broker dynamic client registration, set `GRAPHIT_UI_AUTH_PUBLIC_URL` to the public origin, and
+**strongly set `GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY`** to the same cryptographically random secret
+of at least 32 bytes on every Code instance. Without that secret, each instance generates its own
+cookie key at startup, so a restart or a request routed to another instance requires a new login.
+See [Authentication](docs/guides/authentication.md#web-ui-login) and the
+[container guide](docs/guides/container.md) for the complete setup.
 
 To build the image locally, first run `make build-linux VERSION=dev`, then
 `docker build -t graphit-code:dev .`; the Dockerfile copies that CI-compatible binary and performs
@@ -209,7 +219,13 @@ The published base image intentionally installs no coding-agent CLI and sets
 image or at runtime. These are normal configuration overrides, not Docker-only settings. See the
 [container guide](docs/guides/container.md#extend-the-image-with-an-agent-cli) for an example.
 
-Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`. In the UI, open **System → Daemon** to copy the full active key from **MCP bearer key** and confirm the endpoint. The server holds no source checkouts and needs none—it answers about Hub artifacts addressed reproducibly as `id@version`.
+Point a client at `http://your-server:8081/mcp`. With a local provider, the caller can use the
+runtime key shown under **System → Daemon** or a configured static MCP key. With a Broker provider,
+the HTTP MCP endpoint challenges the caller with OAuth protected resource metadata; the client
+obtains a Broker access token for this endpoint's exact resource URI and sends it as
+`Authorization: Bearer <token>`. The server holds no source checkouts and needs none—it answers
+about Hub artifacts addressed reproducibly as `id@version`. See
+[OIDC integration](docs/guides/oidc-integration.md#protect-an-http-mcp-endpoint).
 
 Remote agents can load the server's current routing contract with `graphit_mandates` and fetch the
 complete source of any core module skill with `graphit_module_skill`. Start from the copy-ready
@@ -232,9 +248,11 @@ page and may offer local password/MFA, upstream OIDC, or both without exposing t
 upstream tokens to Graphit.
 Provider/profile secrets live in the
 mode-`0600` global authentication store, while the generated runtime key remains in its restricted
-runtime file. The UI has no built-in authentication, and CORS is not authorization,
-so keep both ports on a trusted
-network or put an authenticated proxy in front. Read
+runtime file. The Observatory header shows the active CLI profile when web login is disabled, or
+**Anônimo** when no profile is active. With `ui.auth.enabled=true`, each browser signs in to a
+configured Broker provider and Code protects UI data APIs with an encrypted `HttpOnly` cookie;
+the CLI profile is separate. Cookies are `Secure` by default. CORS is not authorization, so keep
+the MCP listener and any UI without web login on a trusted network. Read
 [Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
 
 ## What agents gain
@@ -326,8 +344,11 @@ default, switch, provider, network boundary, and runtime resource control.
   as the provider's one ACL authority. `~/.<brand>/hub` is only a bounded, subject-isolated metadata
   cache; it never grants access or replaces remote validation.
 - A project name is mutable discovery metadata. Its immutable ULID owns remote paths, locks, and exact grants.
-- The UI binds according to `ui.host` and has no built-in authentication layer.
-- Remote UI access requires an appropriate firewall, VPN, or authenticated reverse proxy; CORS is not authorization.
+- The UI binds according to `ui.host`. With `ui.auth.enabled=true`, Broker browser login is required
+  for data APIs; without it, the UI shows the active CLI profile or **Anônimo**. The Docker image
+  enables web login by default. Use HTTPS and a shared random cookie secret for exposed instances.
+- Remote UI access without web login requires an appropriate firewall, VPN, or authenticated reverse
+  proxy; CORS is not authorization.
 - Local work uses its active profile. HTTP MCP verifies each caller's Broker access token and carries that
   same bearer to Broker APIs; local providers may use a static
   broker key. The Broker maps its current ACL to a short-lived STS session policy; S3 bucket/IAM
@@ -343,6 +364,8 @@ The normative contracts are [Project identity](docs/specs/project_identity.md),
 Start with the document that matches your intent:
 
 - [Getting started](docs/guides/getting_started.md) — install and initialize a project.
+- [Authentication](docs/guides/authentication.md) — local and Broker profiles, browser login,
+  encrypted cookies, and HTTP MCP access.
 - [OIDC integration](docs/guides/oidc-integration.md) — register native consumer and confidential broker-admin clients, map claims, propagate HTTP MCP identity, configure web-identity STS, and troubleshoot Keycloak, Entra ID, or Auth0.
 - [Graphit Broker](docs/guides/auth-broker.md) — operate the SQL/OIDC/RBAC control plane, centralize transactional consumer ACLs, issue restricted STS sessions, and own embedding/rerank credentials, routes and caches.
 - [User manual](docs/guides/user_manual.md) — daily workflows and operational concepts.

@@ -45,9 +45,14 @@ path works without runtime ownership repair.
 
 The image sets `GRAPHIT_UI_AUTH_ENABLED=true`, so UI data APIs require a browser Broker login.
 Set `GRAPHIT_UI_AUTH_PUBLIC_URL` to the external HTTPS origin and enable the Broker's dynamic client
-registration before exposing the UI. The login cookie is `Secure` by default. For loopback HTTP
-development only, set `GRAPHIT_UI_AUTH_COOKIE_SECURE=false`; set `GRAPHIT_UI_AUTH_ENABLED=false`
-to disable web login in a container.
+registration before exposing the UI. **Strongly set `GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY`** to
+the same cryptographically random secret string of at least 32 bytes on every replica, supplied through
+your secret manager. You can generate one with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+Without it, each Code process encrypts cookies with a different startup key; restart or a request
+to another replica requires a new browser login. A shared key does not synchronize concurrent
+refreshes between replicas. The cookies are `Secure` by default. For loopback HTTP development
+only, set `GRAPHIT_UI_AUTH_COOKIE_SECURE=false`; set `GRAPHIT_UI_AUTH_ENABLED=false` to disable
+web login in a container.
 
 A bind mount or custom `GRAPHIT_GLOBAL_DIR` must already be readable, writable, and traversable by
 UID/GID `10001`. Provision it on the host, use an init container, or configure the orchestrator's

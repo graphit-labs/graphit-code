@@ -699,6 +699,20 @@ p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.command-panel .setup-note {
+  margin: 18px 0 0;
+  color: #c2d1ed;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.command-panel .setup-note a {
+  color: #e1e9ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.command-panel .setup-note code {
+  overflow-wrap: anywhere;
+}
 .copy-button {
   position: absolute;
   top: 15px;

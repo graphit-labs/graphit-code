@@ -43,7 +43,7 @@ func NewUnifiedServer(
 	host := config.ResolveUIHost(nil, projectCfg)
 	startPort := config.ResolveUIPort(nil, projectCfg)
 	allowedOrigins := config.ResolveUIAllowedOrigins(nil, projectCfg)
-	webAuthentication, err := newWebAuth(config.ResolveUIAuthEnabled(nil, projectCfg), config.ResolveUIAuthCookieSecure(nil, projectCfg), config.ResolveUIAuthPublicURL(nil, projectCfg))
+	webAuthentication, err := newWebAuth(config.ResolveUIAuthEnabled(nil, projectCfg), config.ResolveUIAuthCookieSecure(nil, projectCfg), config.ResolveUIAuthPublicURL(nil, projectCfg), config.ResolveUIAuthCookieEncryptionKey(nil, projectCfg))
 	if err != nil {
 		return nil, fmt.Errorf("web authentication: %w", err)
 	}

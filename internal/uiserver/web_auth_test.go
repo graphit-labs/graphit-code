@@ -28,6 +28,10 @@ func signedWebTestJWT(t *testing.T, key ed25519.PrivateKey, claims map[string]an
 	return input + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, []byte(input)))
 }
 
+func webTestEncryptionKey() string {
+	return "0123456789abcdef0123456789abcdef"
+}
+
 func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -59,7 +63,10 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 			}
 			now := time.Now().Unix()
 			if r.Form.Get("grant_type") == "refresh_token" {
-				refreshCalls.Add(1)
+				if revoked.Load() || refreshCalls.Add(1) != 1 {
+					http.Error(w, "refresh grant invalid", http.StatusBadRequest)
+					return
+				}
 				if r.Form.Get("refresh_token") != "refresh-1" {
 					t.Errorf("wrong refresh grant: %v", r.Form)
 				}
@@ -89,6 +96,9 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 			}
 			revoked.Store(true)
 			w.WriteHeader(http.StatusOK)
+		case "/userinfo":
+			t.Error("web session unexpectedly called UserInfo")
+			http.Error(w, "unexpected UserInfo", http.StatusInternalServerError)
 		default:
 			http.NotFound(w, r)
 		}
@@ -101,7 +111,7 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "auth.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newWebAuth(true, false, "http://127.0.0.1:8080")
+	a, err := newWebAuth(true, false, "http://127.0.0.1:8080", webTestEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +162,7 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 		t.Fatalf("web login persisted global profile: %v, %v", unchanged.Profiles, err)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/session", a.session)
 	mux.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		snapshot, err := auth.ResolveActive(r.Context())
 		if err != nil || snapshot.Profile.Username != "Alice" {
@@ -165,6 +176,31 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 	a.wrap(mux).ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("browser API status=%d", w.Code)
+	}
+	other, err := newWebAuth(true, false, "http://127.0.0.1:8080", webTestEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.client.HTTP = broker.Client()
+	updatedCookie := sessionCookie
+	for _, candidate := range w.Result().Cookies() {
+		if candidate.Name == webSessionCookie {
+			updatedCookie = candidate
+		}
+	}
+	sessionRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/auth/session", nil)
+	sessionRequest.AddCookie(updatedCookie)
+	sessionResponse := httptest.NewRecorder()
+	a.wrap(mux).ServeHTTP(sessionResponse, sessionRequest)
+	if sessionResponse.Code != http.StatusOK || !strings.Contains(sessionResponse.Body.String(), `"authenticated":true`) || !strings.Contains(sessionResponse.Body.String(), `"username":"Alice"`) {
+		t.Fatalf("browser identity session status=%d body=%s", sessionResponse.Code, sessionResponse.Body.String())
+	}
+	otherRequest := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/data", nil)
+	otherRequest.AddCookie(updatedCookie)
+	betweenInstances := httptest.NewRecorder()
+	other.wrap(mux).ServeHTTP(betweenInstances, otherRequest)
+	if betweenInstances.Code != http.StatusNoContent {
+		t.Fatalf("shared-key instance API status=%d", betweenInstances.Code)
 	}
 	// Two requests with the same stale cookie must share one rotated refresh grant.
 	var group sync.WaitGroup
@@ -193,15 +229,17 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 	if out.Code != http.StatusOK || !revoked.Load() {
 		t.Fatalf("logout status=%d revoked=%t body=%s", out.Code, revoked.Load(), out.Body.String())
 	}
+	replayedAfterLogout := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/data", nil)
+	replayedAfterLogout.AddCookie(updatedCookie)
 	w = httptest.NewRecorder()
-	a.wrap(mux).ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("revoked cookie status=%d", w.Code)
+	a.wrap(mux).ServeHTTP(w, replayedAfterLogout)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("locally accepted copied cookie status=%d", w.Code)
 	}
 }
 
-func TestWebAuthCookieIsEncryptedHttpOnlyAndSecureByDefault(t *testing.T) {
-	a, err := newWebAuth(true, true, "https://code.example")
+func TestWebAuthCookieEncryptionIsConfigured(t *testing.T) {
+	a, err := newWebAuth(true, true, "https://code.example", webTestEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +255,9 @@ func TestWebAuthCookieIsEncryptedHttpOnlyAndSecureByDefault(t *testing.T) {
 	if strings.Contains(cookies[0].Value, "secret") {
 		t.Fatal("authentication material is visible in cookie ciphertext")
 	}
+	if !strings.HasPrefix(cookies[0].Value, "e.") {
+		t.Fatal("configured cookie was not encrypted")
+	}
 	var decoded webSession
 	if err := a.open(cookies[0].Value, &decoded); err != nil {
 		t.Fatal(err)
@@ -224,16 +265,143 @@ func TestWebAuthCookieIsEncryptedHttpOnlyAndSecureByDefault(t *testing.T) {
 	if decoded.Profile.OIDC.AccessToken != "secret-access" || decoded.Profile.OIDC.IDToken != "" {
 		t.Fatalf("cookie session=%+v", decoded.Profile.OIDC)
 	}
-	other, _ := newWebAuth(true, true, "https://code.example")
-	if err := other.open(cookies[0].Value, &decoded); err == nil {
-		t.Fatal("another server key accepted the cookie")
+	other, _ := newWebAuth(true, true, "https://code.example", webTestEncryptionKey())
+	if err := other.open(cookies[0].Value, &decoded); err != nil {
+		t.Fatalf("same configured key could not open cookie: %v", err)
 	}
-	local, err := newWebAuth(true, false, "http://127.0.0.1:8080")
+	transaction, err := a.seal(webLogin{State: "state", Verifier: "verifier"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var login webLogin
+	if err := other.open(transaction, &login); err != nil || login.Verifier != "verifier" {
+		t.Fatalf("same configured key could not open login cookie: %v", err)
+	}
+	wrong, _ := newWebAuth(true, true, "https://code.example", "abcdef0123456789abcdef0123456789")
+	if err := wrong.open(cookies[0].Value, &decoded); err == nil {
+		t.Fatal("different server key accepted the cookie")
+	}
+	if err := a.open("p."+base64.RawURLEncoding.EncodeToString([]byte(`{}`)), &decoded); err == nil {
+		t.Fatal("configured encryption accepted a plain cookie")
+	}
+	replacement := byte('A')
+	if cookies[0].Value[5] == replacement {
+		replacement = 'B'
+	}
+	modified := cookies[0].Value[:5] + string(replacement) + cookies[0].Value[6:]
+	if err := a.open(modified, &decoded); err == nil {
+		t.Fatal("tampered ciphertext was accepted")
+	}
+	local, err := newWebAuth(true, false, "http://127.0.0.1:8080", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if local.cookie("test", "value", 100, http.SameSiteStrictMode).Secure {
 		t.Fatal("Secure flag could not be disabled")
+	}
+	if _, err := newWebAuth(true, true, "https://code.example", "short"); err == nil {
+		t.Fatal("invalid encryption key was accepted")
+	}
+	longKey, err := newWebAuth(true, true, "https://code.example", webTestEncryptionKey()+"extra random bytes")
+	if err != nil || len(longKey.key) != 32 {
+		t.Fatalf("long encryption key rejected: %v", err)
+	}
+	if _, err := newWebAuth(false, true, "", "short"); err != nil {
+		t.Fatalf("unused key must not prevent disabled web auth: %v", err)
+	}
+}
+
+func TestWebAuthWithoutKeyUsesEphemeralEncryption(t *testing.T) {
+	a, err := newWebAuth(true, true, "https://code.example", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := auth.Profile{Username: "Alice", OIDC: &auth.OIDCSession{AccessToken: "secret-access", RefreshToken: "secret-refresh", ExpiresAt: time.Now().Add(time.Hour)}}
+	w := httptest.NewRecorder()
+	if err := a.setSession(w, webSession{ID: "session-1", Expires: time.Now().Add(7 * 24 * time.Hour).Unix(), Provider: "company", Revision: 1, ClientID: "client", Profile: profile}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := w.Result().Cookies()[0]
+	if !cookie.HttpOnly || !cookie.Secure || !strings.HasPrefix(cookie.Value, "e.") {
+		t.Fatalf("ephemeral cookie flags/format: %+v", cookie)
+	}
+	if strings.Contains(cookie.Value, "secret-refresh") {
+		t.Fatal("ephemeral cookie exposed refresh token")
+	}
+	other, _ := newWebAuth(true, true, "https://code.example", "")
+	var decoded webSession
+	if err := a.open(cookie.Value, &decoded); err != nil || decoded.Profile.OIDC.AccessToken != "secret-access" {
+		t.Fatalf("same ephemeral instance could not open cookie: %v", err)
+	}
+	if err := other.open(cookie.Value, &decoded); err == nil {
+		t.Fatal("another ephemeral instance accepted cookie")
+	}
+	withKey, _ := newWebAuth(true, true, "https://code.example", webTestEncryptionKey())
+	if err := withKey.open(cookie.Value, &decoded); err == nil {
+		t.Fatal("configured key accepted ephemeral cookie")
+	}
+	transaction, err := a.seal(webLogin{State: "state", Verifier: "verifier"})
+	if err != nil || !strings.HasPrefix(transaction, "e.") {
+		t.Fatalf("login cookie was not encrypted: %v", err)
+	}
+	var login webLogin
+	if err := a.open(transaction, &login); err != nil || login.Verifier != "verifier" {
+		t.Fatalf("same ephemeral instance could not open login cookie: %v", err)
+	}
+	if err := other.open(transaction, &login); err == nil {
+		t.Fatal("another ephemeral instance accepted login cookie")
+	}
+}
+
+func TestWebAuthSessionShowsActiveCLIProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		provider auth.Provider
+		profile  auth.Profile
+	}{
+		{
+			name:     "local",
+			provider: auth.Provider{Name: "local", Type: auth.ProviderLocal, Revision: 1, Local: &auth.LocalConfig{}},
+			profile:  auth.Profile{Name: "local-user", Provider: "local", ProviderRevision: 1, Username: "Lia", Issuer: "local:local", Subject: "lia"},
+		},
+		{
+			name:     "broker CLI",
+			provider: auth.Provider{Name: "company", Type: auth.ProviderBroker, Revision: 1, Broker: &auth.BrokerConfig{Endpoint: "https://broker.example"}, AI: auth.AIConfig{Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker}, Rerank: auth.AIServiceConfig{Mode: auth.ServiceBroker}}},
+			profile:  auth.Profile{Name: "broker-user", Provider: "company", ProviderRevision: 1, Username: "Bruna", Issuer: "https://broker.example", Subject: "broker-sub", OIDC: &auth.OIDCSession{AccessToken: "broker-access", RefreshToken: "broker-refresh", IDToken: "broker-id", ExpiresAt: time.Now().Add(time.Hour)}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GRAPHIT_GLOBAL_DIR", t.TempDir())
+			store, err := auth.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.AddProvider(tc.provider); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Login(tc.profile); err != nil {
+				t.Fatal(err)
+			}
+			a, err := newWebAuth(false, true, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/auth/session", nil)
+			out := httptest.NewRecorder()
+			a.wrap(http.HandlerFunc(a.session)).ServeHTTP(out, req)
+			var session struct {
+				Enabled       bool   `json:"enabled"`
+				Authenticated bool   `json:"authenticated"`
+				Username      string `json:"username"`
+				Provider      string `json:"provider"`
+			}
+			if err := json.Unmarshal(out.Body.Bytes(), &session); err != nil {
+				t.Fatal(err)
+			}
+			if out.Code != http.StatusOK || session.Enabled || !session.Authenticated || session.Username != tc.profile.Username || session.Provider != tc.provider.Name {
+				t.Fatalf("CLI session status=%d session=%+v", out.Code, session)
+			}
+		})
 	}
 }
 
@@ -250,7 +418,7 @@ func TestWebAuthUsesBrowserIdentityAndRejectsAnonymousAPIs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "auth.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newWebAuth(true, true, "https://code.example")
+	a, err := newWebAuth(true, true, "https://code.example", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +445,7 @@ func TestWebAuthUsesBrowserIdentityAndRejectsAnonymousAPIs(t *testing.T) {
 	if anonymous.Code != http.StatusOK || !strings.Contains(anonymous.Body.String(), `"username":"Anônimo"`) {
 		t.Fatalf("anonymous session=%s", anonymous.Body.String())
 	}
-	profile := auth.Profile{Username: "Alice", OIDC: &auth.OIDCSession{AccessToken: "browser-token", RefreshToken: "refresh", ExpiresAt: time.Now().Add(time.Hour)}}
+	profile := auth.Profile{Username: "Alice", Subject: "person-1", OIDC: &auth.OIDCSession{AccessToken: "browser-token", RefreshToken: "refresh", ExpiresAt: time.Now().Add(time.Hour)}}
 	cookieResponse := httptest.NewRecorder()
 	if err := a.setSession(cookieResponse, webSession{ID: "session-1", Expires: time.Now().Add(7 * 24 * time.Hour).Unix(), Provider: "company", Revision: 1, ClientID: "web-client", Profile: profile}); err != nil {
 		t.Fatal(err)
@@ -319,7 +487,7 @@ func TestWebAuthUsesBrowserIdentityAndRejectsAnonymousAPIs(t *testing.T) {
 }
 
 func TestWebAuthCallbackRejectsMismatchedState(t *testing.T) {
-	a, err := newWebAuth(true, false, "http://127.0.0.1:8080")
+	a, err := newWebAuth(true, false, "http://127.0.0.1:8080", "")
 	if err != nil {
 		t.Fatal(err)
 	}

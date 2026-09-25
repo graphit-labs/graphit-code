@@ -14,8 +14,9 @@ See the [code investigation workflow](guides/code_investigation.md) and
 | I want to… | Start here | Continue with |
 |---|---|---|
 | Install Graphit and initialize a repository | [Getting Started](guides/getting_started.md) | [CLI Reference](guides/cli_reference.md) |
-| Configure local accounts, enterprise OIDC, broker storage, or multiple profiles | [Authentication](guides/authentication.md) | [Broker Storage and UI Network](guides/s3-and-ui-network.md) |
+| Configure local or Broker profiles and browser login | [Authentication](guides/authentication.md) | [Configuration Reference](guides/configuration.md) |
 | Integrate an enterprise identity provider end to end | [OIDC Integration](guides/oidc-integration.md) | [Hub Access Control](specs/hub_access_control.md) |
+| Expose an authenticated UI or HTTP MCP endpoint | [Container deployment](guides/container.md) | [OIDC Integration](guides/oidc-integration.md) |
 | Centralize OIDC/anonymous ACLs, restricted S3 sessions, embeddings and rerank | [Graphit Broker](guides/auth-broker.md) | [Authentication](guides/authentication.md) |
 | Use Graphit day to day | [User Manual](guides/user_manual.md) | [Troubleshooting](guides/troubleshooting.md) |
 | Understand every setting and feature switch | [Configuration Reference](guides/configuration.md) | [Configuration Specification](specs/config_module.md) |

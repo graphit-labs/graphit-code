@@ -592,11 +592,25 @@ graphit ui</code></pre>
             <button class="copy-button" type="button">Copy</button>
             <pre><code>VERSION=latest
 docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
+# Loopback trial without Broker browser login
 docker run -d --name graphit \
   -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -e GRAPHIT_UI_AUTH_ENABLED=false \
   -v graphit-global:/home/graphit/.graphit \
   "ghcr.io/graphit-labs/graphit-code:${VERSION}"
 docker exec graphit cat /home/graphit/.graphit/daemon/mcp.key</code></pre>
+            <p class="setup-note">
+              For external UI access, Docker enables Broker browser login by
+              default. Configure a Broker provider with dynamic client
+              registration. Set <code>GRAPHIT_UI_AUTH_PUBLIC_URL</code> to the
+              HTTPS origin and
+              <code>GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY</code> to the same
+              random secret string of at least 32 bytes on every instance. See
+              the
+              <a href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/authentication.md#web-ui-login">authentication guide</a>
+              and
+              <a href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md">container guide</a>.
+            </p>
           </div>
           <div
             class="command-panel"
@@ -651,6 +665,12 @@ graphit setup</code></pre>
           <summary>More guides and references</summary>
           <div>
             <a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/authentication.md"
+              >Authentication and web UI</a
+            ><a
+              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"
+              >Run as a server</a
+            ><a
               href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/user_manual.md"
               >User manual</a
             ><a
@@ -668,9 +688,6 @@ graphit setup</code></pre>
             ><a
               href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/daemon_operations.md"
               >Daemon operations</a
-            ><a
-              href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"
-              >Run as a server</a
             ><a
               href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/oidc-integration.md"
               >OIDC integration</a

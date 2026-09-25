@@ -7,6 +7,7 @@ import (
 
 const DefaultUIHost = "127.0.0.1"
 const DefaultUIPort = 8080
+const UIAuthCookieEncryptionKey = "ui.auth.cookie_encryption_key"
 
 func ResolveUIHost(inlineCfg, projectCfg ConfigMap) string {
 	host := strings.TrimSpace(ResolveConfig("ui.host", inlineCfg, projectCfg))
@@ -44,6 +45,10 @@ func ResolveUIAuthCookieSecure(inlineCfg, projectCfg ConfigMap) bool {
 
 func ResolveUIAuthPublicURL(inlineCfg, projectCfg ConfigMap) string {
 	return strings.TrimRight(strings.TrimSpace(ResolveConfig("ui.auth.public_url", inlineCfg, projectCfg)), "/")
+}
+
+func ResolveUIAuthCookieEncryptionKey(inlineCfg, projectCfg ConfigMap) string {
+	return strings.TrimSpace(ResolveConfig(UIAuthCookieEncryptionKey, inlineCfg, projectCfg))
 }
 
 // splitAllowedOrigins parses the comma-separated origin list shared by every listener that

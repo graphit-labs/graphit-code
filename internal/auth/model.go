@@ -383,15 +383,6 @@ func validateMCPResourceURI(raw string) error {
 	return nil
 }
 
-func reservedOIDCAuthParameter(key string) bool {
-	switch strings.ToLower(key) {
-	case "response_type", "client_id", "redirect_uri", "scope", "state", "nonce", "code_challenge", "code_challenge_method", "audience", "resource":
-		return true
-	default:
-		return false
-	}
-}
-
 func ValidateProfile(p Profile) error {
 	if strings.TrimSpace(p.Name) == "" {
 		return errors.New("profile name is required")

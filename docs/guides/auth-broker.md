@@ -141,13 +141,15 @@ JWTs locally through standard discovery/JWKS for HTTP MCP. Near expiry, it re-di
 uses the ordinary OIDC refresh grant, requires a new rotated refresh token, and atomically replaces
 the saved `OIDCSession`. Reuse of an older refresh token is rejected by the Broker and revokes that
 token family. The daemon also checks userinfo for each inbound MCP access token, so a revoked token
-is rejected even before its JWT expiry.
+is rejected even before its JWT expiry. Web UI sessions use encrypted browser cookies and are accepted
+locally without a per-request UserInfo call; see [Authentication](authentication.md).
 
 Explicit revocation follows the same path. Revoking a refresh token at the Broker ends the whole
-grant — that token, every access token minted from it, and any further renewal — so an MCP client
-holding one of those access tokens is refused on its next request. Revoking an access token ends
-only that token and leaves its refresh token working. Revoke the refresh token when someone's
-access has to stop.
+grant — that token, every access token minted from it, and any further renewal. An MCP client
+holding one of those access tokens is refused on its next request because Code checks UserInfo.
+Code-local UI APIs may still accept a copied cookie until local expiry; Broker APIs reject its bearer.
+Revoking an access token ends only that token and leaves its refresh token working. Revoke the refresh
+token when someone's access has to stop.
 
 ## Local provider with a broker key
 

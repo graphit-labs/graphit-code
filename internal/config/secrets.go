@@ -14,6 +14,7 @@ import "strings"
 // the restricted authentication store and are never configuration keys.
 var SecretConfigKeys = []string{
 	ClientSecretConfigKey,
+	UIAuthCookieEncryptionKey,
 }
 
 // IsSecretConfigKey reports whether a key's value must be redacted when configuration is

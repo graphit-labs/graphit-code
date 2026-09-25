@@ -56,21 +56,29 @@ type webAuth struct {
 	clients   map[string]string
 	used      map[string]time.Time
 	refreshed map[[32]byte]webSession
-	revoked   map[string]time.Time
 }
 
-func newWebAuth(enabled, secure bool, publicURL string) (*webAuth, error) {
-	a := &webAuth{enabled: enabled, secure: secure, publicURL: publicURL, client: auth.NewOIDCClient(), clients: map[string]string{}, used: map[string]time.Time{}, refreshed: map[[32]byte]webSession{}, revoked: map[string]time.Time{}}
+func newWebAuth(enabled, secure bool, publicURL, encryptionKey string) (*webAuth, error) {
+	a := &webAuth{enabled: enabled, secure: secure, publicURL: publicURL, client: auth.NewOIDCClient(), clients: map[string]string{}, used: map[string]time.Time{}, refreshed: map[[32]byte]webSession{}}
 	if !enabled {
 		return a, nil
 	}
-	a.key = make([]byte, 32)
-	if _, err := rand.Read(a.key); err != nil {
-		return nil, fmt.Errorf("generate web authentication key: %w", err)
+	if encryptionKey != "" {
+		if len(encryptionKey) < 32 {
+			return nil, errors.New("ui.auth.cookie_encryption_key must contain at least 32 bytes")
+		}
+		key := sha256.Sum256([]byte(encryptionKey))
+		a.key = key[:]
+	} else {
+		a.key = make([]byte, 32)
+		if _, err := rand.Read(a.key); err != nil {
+			return nil, fmt.Errorf("generate web authentication key: %w", err)
+		}
 	}
 	if publicURL != "" {
 		u, err := url.Parse(publicURL)
-		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || (u.Scheme != "https" && !(u.Scheme == "http" && !secure)) {
+		validScheme := err == nil && (u.Scheme == "https" || (u.Scheme == "http" && !secure))
+		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" || !validScheme {
 			return nil, errors.New("ui.auth.public_url must be an origin (HTTPS, or HTTP with ui.auth.cookie_secure=false)")
 		}
 	}
@@ -120,11 +128,14 @@ func (a *webAuth) seal(value any) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", err
 	}
-	return base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, plain, nil)), nil
+	return "e." + base64.RawURLEncoding.EncodeToString(gcm.Seal(nonce, nonce, plain, nil)), nil
 }
 
 func (a *webAuth) open(raw string, dst any) error {
-	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if !strings.HasPrefix(raw, "e.") {
+		return errors.New("invalid web cookie format")
+	}
+	data, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "e."))
 	if err != nil {
 		return err
 	}
@@ -144,6 +155,7 @@ func (a *webAuth) open(raw string, dst any) error {
 }
 
 func (a *webAuth) cookie(name, value string, age int, sameSite http.SameSite) *http.Cookie {
+	// #nosec G124 -- Secure is configurable for HTTP development; HttpOnly and SameSite stay enabled.
 	return &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: a.secure, SameSite: sameSite, MaxAge: age}
 }
 
@@ -159,7 +171,7 @@ func (a *webAuth) setSession(w http.ResponseWriter, session webSession) error {
 		return err
 	}
 	if len(value) > 3800 {
-		return errors.New("Broker session exceeds cookie size")
+		return errors.New("broker session exceeds cookie size")
 	}
 	http.SetCookie(w, a.cookie(webSessionCookie, value, 7*24*3600, http.SameSiteStrictMode))
 	return nil
@@ -185,12 +197,12 @@ func (a *webAuth) providers() (map[string]auth.Provider, error) {
 
 func (a *webAuth) registeredClient(ctx context.Context, discovery auth.OIDCDiscovery, redirect string) (string, error) {
 	if discovery.RegistrationEndpoint == "" {
-		return "", errors.New("Broker dynamic client registration is unavailable")
+		return "", errors.New("broker dynamic client registration is unavailable")
 	}
 	endpoint, err := url.Parse(discovery.RegistrationEndpoint)
 	issuer, issuerErr := url.Parse(discovery.Issuer)
 	if err != nil || issuerErr != nil || endpoint.Scheme != issuer.Scheme || endpoint.Host != issuer.Host {
-		return "", errors.New("Broker registration endpoint has an unexpected origin")
+		return "", errors.New("broker registration endpoint has an unexpected origin")
 	}
 	key := discovery.Issuer + "\x00" + redirect
 	a.mu.Lock()
@@ -210,13 +222,13 @@ func (a *webAuth) registeredClient(ctx context.Context, discovery auth.OIDCDisco
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("Broker client registration failed: HTTP %d", res.StatusCode)
+		return "", fmt.Errorf("broker client registration failed: HTTP %d", res.StatusCode)
 	}
 	var registration struct {
 		ClientID string `json:"client_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 65536)).Decode(&registration); err != nil || registration.ClientID == "" {
-		return "", errors.New("Broker returned an invalid client registration")
+		return "", errors.New("broker returned an invalid client registration")
 	}
 	a.clients[key] = registration.ClientID
 	return registration.ClientID, nil
@@ -444,7 +456,6 @@ func (a *webAuth) logout(w http.ResponseWriter, r *http.Request) {
 		}
 		if session.ID != "" {
 			a.mu.Lock()
-			a.revoked[session.ID] = time.Now().Add(7 * 24 * time.Hour)
 			for key, refreshed := range a.refreshed {
 				if refreshed.ID == session.ID {
 					delete(a.refreshed, key)
@@ -465,17 +476,6 @@ func (a *webAuth) requestSession(w http.ResponseWriter, r *http.Request) (auth.S
 	}
 	var session webSession
 	if err := a.open(cookie.Value, &session); err != nil || session.Profile.OIDC == nil || session.ClientID == "" || session.ID == "" || time.Now().Unix() >= session.Expires {
-		return auth.Snapshot{}, false
-	}
-	a.mu.Lock()
-	for id, until := range a.revoked {
-		if time.Now().After(until) {
-			delete(a.revoked, id)
-		}
-	}
-	_, isRevoked := a.revoked[session.ID]
-	a.mu.Unlock()
-	if isRevoked {
 		return auth.Snapshot{}, false
 	}
 	providers, err := a.providers()

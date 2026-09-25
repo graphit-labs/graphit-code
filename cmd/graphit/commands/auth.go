@@ -547,17 +547,6 @@ func populateBrokerStorageForLogin(ctx context.Context, provider auth.Provider, 
 	return nil
 }
 
-func cloneStringMap(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make(map[string]string, len(values))
-	for key, value := range values {
-		cloned[strings.TrimSpace(key)] = strings.TrimSpace(value)
-	}
-	return cloned
-}
-
 func newLogoutCmd() *cobra.Command {
 	var profile string
 	cmd := &cobra.Command{Use: "logout", Short: "Remove credentials and the selected account profile", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -689,15 +678,6 @@ func confirm(question string) (bool, error) {
 		return false, err
 	}
 	return strings.EqualFold(value, "y") || strings.EqualFold(value, "yes"), nil
-}
-func splitCSV(value string) []string {
-	var out []string
-	for _, item := range strings.Split(value, ",") {
-		if item = strings.TrimSpace(item); item != "" {
-			out = append(out, item)
-		}
-	}
-	return out
 }
 func printJSON(value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")

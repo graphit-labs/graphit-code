@@ -1,11 +1,9 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -170,16 +168,4 @@ func TestBrokerLoginDropsS3MaterialBeforePersistence(t *testing.T) {
 	if !persisted.Profile.S3.Empty() {
 		t.Fatalf("Broker S3 grant was persisted: %#v", persisted.Profile.S3.RedactedForTest())
 	}
-}
-
-func storeS3Absent(data []byte) bool {
-	var state struct {
-		Profiles map[string]map[string]json.RawMessage `json:"profiles"`
-	}
-	if json.Unmarshal(data, &state) != nil {
-		return false
-	}
-	_, hasS3 := state.Profiles["alice"]["s3"]
-	return !hasS3 && !bytes.Contains(data, []byte("legacy-access")) && !bytes.Contains(data, []byte("legacy-secret")) &&
-		!bytes.Contains(data, []byte("legacy-session")) && !bytes.Contains(data, []byte("should-not-save"))
 }
