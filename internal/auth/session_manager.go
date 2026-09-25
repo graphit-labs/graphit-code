@@ -19,6 +19,9 @@ var resolveActiveMu sync.Mutex
 
 // ResolveActive returns one coherent, refreshed view of the globally active profile.
 func ResolveActive(ctx context.Context) (Snapshot, error) {
+	if snapshot, ok := RequestSnapshot(ctx); ok {
+		return snapshot, nil
+	}
 	resolveActiveMu.Lock()
 	defer resolveActiveMu.Unlock()
 	store, err := Open()

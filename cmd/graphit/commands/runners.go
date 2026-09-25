@@ -19,6 +19,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/artifactpackage"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher"
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -655,6 +656,9 @@ func runUnifiedServe(repoPath string) error {
 	}
 
 	ctx := context.Background()
+	if config.ResolveUIAuthEnabled(nil, config.LoadProjectConfig(repoPath)) {
+		ctx = auth.WithWebAuthServer(ctx)
+	}
 	reg, err := hub.NewRegistryManager(ctx)
 	if err != nil {
 		p.StepWarn("Hub registry unavailable — running in offline mode")

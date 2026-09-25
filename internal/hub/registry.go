@@ -730,7 +730,7 @@ func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, 
 
 	switch meta.Type {
 	case TypeAST:
-		storageURI := m.store.ArtifactURI(TypeAST, entryID, version, meta.ProjectID, ast.IcebugBundleDir)
+		storageURI := m.store.ArtifactURIFor(ctx, TypeAST, entryID, version, meta.ProjectID, ast.IcebugBundleDir)
 		if storageURI == "" {
 			return fmt.Errorf("preparing AST publish: the hub is not configured, so there is no " +
 				"location to point the published graph at")

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
 	"github.com/graphit-labs/graphit-code/internal/livesearch/prep"
 )
@@ -25,6 +26,27 @@ var heartbeatInterval = sseHeartbeat
 // LiveHandler serves the live search API.
 type LiveHandler struct {
 	mgr *livesearch.Manager
+}
+
+func liveOwner(r *http.Request) (string, bool) {
+	snapshot, ok := auth.RequestSnapshot(r.Context())
+	if !ok {
+		return "", false
+	}
+	return snapshot.Profile.Issuer + "|" + snapshot.Profile.Subject, true
+}
+
+func (h *LiveHandler) requireOwner(w http.ResponseWriter, r *http.Request) bool {
+	owner, scoped := liveOwner(r)
+	if !scoped {
+		return true
+	}
+	meta, err := h.mgr.Meta(r.PathValue("id"))
+	if err != nil || meta.Owner == "" || meta.Owner != owner {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return false
+	}
+	return true
 }
 
 // NewLiveHandler wires the API to a session manager.
@@ -108,6 +130,7 @@ func (h *LiveHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s, err := h.mgr.Create(livesearch.Options{
+		Owner:     func() string { owner, _ := liveOwner(r); return owner }(),
 		Agent:     req.Agent,
 		Title:     req.Title,
 		Artifacts: req.Artifacts,
@@ -131,10 +154,22 @@ func (h *LiveHandler) handleList(w http.ResponseWriter, r *http.Request) {
 	if sessions == nil {
 		sessions = []livesearch.Meta{}
 	}
+	if owner, scoped := liveOwner(r); scoped {
+		visible := make([]livesearch.Meta, 0, len(sessions))
+		for _, session := range sessions {
+			if session.Owner != "" && session.Owner == owner {
+				visible = append(visible, session)
+			}
+		}
+		sessions = visible
+	}
 	writeJSON(w, sessions)
 }
 
 func (h *LiveHandler) handleGet(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwner(w, r) {
+		return
+	}
 	id := r.PathValue("id")
 	meta, err := h.mgr.Meta(id)
 	if err != nil {
@@ -149,6 +184,9 @@ func (h *LiveHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *LiveHandler) handleRemove(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwner(w, r) {
+		return
+	}
 	if err := h.mgr.Remove(r.PathValue("id")); err != nil {
 		writeLiveError(w, err)
 		return
@@ -161,6 +199,9 @@ type sendLiveMessageRequest struct {
 }
 
 func (h *LiveHandler) handleSend(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwner(w, r) {
+		return
+	}
 	s, err := h.mgr.Get(r.PathValue("id"))
 	if err != nil {
 		writeLiveError(w, err)
@@ -182,6 +223,9 @@ func (h *LiveHandler) handleSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *LiveHandler) handleCancel(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwner(w, r) {
+		return
+	}
 	s, err := h.mgr.Get(r.PathValue("id"))
 	if err != nil {
 		writeLiveError(w, err)
@@ -192,6 +236,9 @@ func (h *LiveHandler) handleCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *LiveHandler) handleStream(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwner(w, r) {
+		return
+	}
 	id := r.PathValue("id")
 	flusher, ok := w.(http.Flusher)
 	if !ok {

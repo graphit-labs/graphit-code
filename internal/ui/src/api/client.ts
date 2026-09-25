@@ -22,17 +22,13 @@ async function request<T>(
 
   const url = `${fullBase}${cleanPath}`
 
-  const token = getCookie('graphit_id_token')
-  if (token && window.__WEB_MODE__) {
-    options.headers = {
-      ...(options.headers ?? {}),
-      Authorization: `Bearer ${token}`,
-    }
+  if (options.method && options.method !== 'GET') {
+    options.headers = { ...(options.headers ?? {}), 'X-Graphit-Request': 'ui' }
   }
 
   useAppStore.getState().incrementLoading()
   try {
-    const res = await fetch(url, { ...options })
+    const res = await fetch(url, { credentials: 'same-origin', ...options })
     if (!res.ok) {
       let msg = `HTTP ${res.status}`
       try { msg = (await res.json()).error ?? msg } catch { /* ignored */ }
@@ -42,11 +38,6 @@ async function request<T>(
   } finally {
     useAppStore.getState().decrementLoading()
   }
-}
-
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
-  return match ? match[2] : null
 }
 
 export const api = {
@@ -72,10 +63,9 @@ export function openAPIStream(path: string, body: unknown, signal?: AbortSignal)
   const base = getApiBase();
   const fullBase = base.endsWith('/api') ? base : `${base}/api`;
   const cleanPath = path.startsWith('/api/') ? path.slice(4) : path;
-  const token = getCookie('graphit_id_token');
   return fetch(`${fullBase}${cleanPath}`, {
-    method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(token && window.__WEB_MODE__ ? { Authorization: `Bearer ${token}` } : {}) },
+    method: 'POST', signal, credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Graphit-Request': 'ui' },
     body: JSON.stringify(body),
   });
 }

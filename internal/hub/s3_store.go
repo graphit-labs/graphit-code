@@ -40,6 +40,7 @@ type S3Store struct {
 	brokerACL         *auth.BrokerHubAccessClient
 	broker            bool
 	scopedCredentials bool
+	webAuth           bool
 	storageID         string
 	mu                sync.Mutex
 	scoped            map[string]scopedS3Store
@@ -61,6 +62,12 @@ func NewS3Store(ctx context.Context, inlineCfg, projectCfg config.ConfigMap) (*S
 
 	cfg := config.ResolveHubS3(inlineCfg, projectCfg)
 	hubStore := &S3Store{cfg: cfg, cacheBase: cacheDir, scoped: map[string]scopedS3Store{}}
+	if auth.WebAuthServer(ctx) {
+		// The daemon is constructed before any browser request. Resolve its Broker
+		// provider, ACL and S3 grant from each verified cookie, never the CLI profile.
+		hubStore.webAuth, hubStore.broker, hubStore.scopedCredentials = true, true, true
+		return hubStore, nil
+	}
 	if snapshot, activeErr := auth.ResolveActive(ctx); activeErr == nil {
 		hubStore.broker = snapshot.Provider.Type == auth.ProviderBroker
 		hubStore.scopedCredentials = hubStore.broker
@@ -93,11 +100,22 @@ func NewS3Store(ctx context.Context, inlineCfg, projectCfg config.ConfigMap) (*S
 }
 
 func (s *S3Store) ResolveAccess(ctx context.Context) (hubaccess.Grants, hubaccess.Subject, string, error) {
-	if s.brokerACL == nil {
+	brokerACL := s.brokerACL
+	if s.webAuth {
+		if _, ok := auth.RequestSnapshot(ctx); !ok {
+			return hubaccess.Grants{}, hubaccess.Subject{}, "", auth.ErrNoActiveProfile
+		}
+		var err error
+		brokerACL, err = auth.NewBrokerHubAccessClient(ctx, nil)
+		if err != nil {
+			return hubaccess.Grants{}, hubaccess.Subject{}, "", err
+		}
+	}
+	if brokerACL == nil {
 		grants, subject, err := hubaccess.ResolveTrusted(ctx, s)
 		return grants, subject, "projects-json", err
 	}
-	response, err := s.brokerACL.Resolve(ctx)
+	response, err := brokerACL.Resolve(ctx)
 	if err != nil {
 		return hubaccess.Grants{}, hubaccess.Subject{}, "", err
 	}
@@ -126,7 +144,7 @@ func brokerCacheSubject(canonical string, local hubaccess.Subject) hubaccess.Sub
 }
 
 func (s *S3Store) Authorize(ctx context.Context, projectID, normalizedName string) error {
-	if s.brokerACL == nil {
+	if s.brokerACL == nil && !s.webAuth {
 		return hubaccess.Authorize(ctx, s, projectID, normalizedName)
 	}
 	grants, _, _, err := s.ResolveAccess(ctx)
@@ -140,7 +158,7 @@ func (s *S3Store) Authorize(ctx context.Context, projectID, normalizedName strin
 }
 
 func (s *S3Store) AuthorizeProject(ctx context.Context, projectID string) error {
-	if s.brokerACL == nil {
+	if s.brokerACL == nil && !s.webAuth {
 		return hubaccess.AuthorizeProject(ctx, s, projectID)
 	}
 	if err := hubaccess.ValidateProjectID(projectID); err != nil {
@@ -184,6 +202,9 @@ func (s *S3Store) AuthorizeProject(ctx context.Context, projectID string) error 
 
 // Configured reports whether there is a remote at all.
 func (s *S3Store) Configured() bool {
+	if s.webAuth {
+		return true
+	}
 	if !s.scopedCredentials {
 		return s.objects != nil
 	}
@@ -206,6 +227,11 @@ func (s *S3Store) Bucket() string {
 }
 
 func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope) (scopedS3Store, error) {
+	if s.webAuth {
+		if _, ok := auth.RequestSnapshot(ctx); !ok {
+			return scopedS3Store{}, auth.ErrNoActiveProfile
+		}
+	}
 	if !s.scopedCredentials {
 		return scopedS3Store{objects: s.objects, cfg: s.cfg}, nil
 	}
@@ -215,8 +241,11 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 	}
 	identity := auth.BrokerStorageIdentity(snapshot)
 	key := storageScopeCacheKey(scope)
+	if s.webAuth {
+		key = identity + "\x00" + key
+	}
 	s.mu.Lock()
-	if identity != s.storageID {
+	if !s.webAuth && identity != s.storageID {
 		s.scoped = map[string]scopedS3Store{}
 		s.storageID = identity
 	}
@@ -240,7 +269,7 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 	}
 	resolved := scopedS3Store{objects: objects, cfg: cfg}
 	s.mu.Lock()
-	if identity != s.storageID {
+	if !s.webAuth && identity != s.storageID {
 		s.mu.Unlock()
 		return s.scopeStore(ctx, scope)
 	}
@@ -249,7 +278,10 @@ func (s *S3Store) scopeStore(ctx context.Context, scope auth.BrokerStorageScope)
 		return cached, nil
 	}
 	s.scoped[key] = resolved
-	if scope.Kind == "hub" {
+	if s.webAuth && len(s.scoped) > 128 {
+		s.scoped = map[string]scopedS3Store{key: resolved}
+	}
+	if scope.Kind == "hub" && !s.webAuth {
 		s.objects, s.cfg = resolved.objects, resolved.cfg
 	}
 	s.mu.Unlock()
@@ -470,6 +502,23 @@ func (s *S3Store) ArtifactURI(artType ArtifactType, id, version, projectID strin
 	return objects.URI(s3store.JoinKey(append([]string{prefix}, parts...)...))
 }
 
+// ArtifactURIFor resolves the project's storage through the caller's browser
+// session. It prevents a URI cached for one user being reused by another.
+func (s *S3Store) ArtifactURIFor(ctx context.Context, artType ArtifactType, id, version, projectID string, parts ...string) string {
+	if !s.webAuth {
+		return s.ArtifactURI(artType, id, version, projectID, parts...)
+	}
+	prefix := ArtifactPrefix(artType, id, version, projectID)
+	if prefix == "" {
+		return ""
+	}
+	storage, err := s.projectStore(ctx, projectID)
+	if err != nil {
+		return ""
+	}
+	return storage.objects.URI(s3store.JoinKey(append([]string{prefix}, parts...)...))
+}
+
 // IsMountable reports whether this type is read in place rather than downloaded.
 func IsMountable(artType ArtifactType) bool { return mountableTypes[artType] }
 
@@ -620,7 +669,7 @@ func ArtifactCacheDirIn(globalRoot string, artType ArtifactType, id, version, pr
 func (s *S3Store) EnsureArtifactLocal(ctx context.Context, artType ArtifactType, id, version, projectID string) (string, error) {
 	if mountableTypes[artType] {
 		return "", fmt.Errorf("%s artifacts are mounted from %s, not downloaded — use ArtifactURI",
-			artType, s.ArtifactURI(artType, id, version, projectID))
+			artType, s.ArtifactURIFor(ctx, artType, id, version, projectID))
 	}
 	return s.DownloadArtifact(ctx, artType, id, version, projectID)
 }
@@ -698,6 +747,7 @@ func (s *S3Store) WriteEventFile(ctx context.Context, projectID, key string, dat
 	objectKey := key
 	payload := append([]byte(nil), data...)
 	requestBearer := auth.RequestBrokerBearer(ctx)
+	requestSnapshot, hasRequestSnapshot := auth.RequestSnapshot(ctx)
 
 	pendingEvents.Add(1)
 	go func() {
@@ -707,6 +757,9 @@ func (s *S3Store) WriteEventFile(ctx context.Context, projectID, key string, dat
 		defer cancel()
 		if requestBearer != "" {
 			ctx = auth.WithBrokerBearer(ctx, requestBearer)
+		}
+		if hasRequestSnapshot {
+			ctx = auth.WithRequestSnapshot(ctx, requestSnapshot)
 		}
 		ctx, err := hubaccess.WithTrustedSubject(ctx, subject)
 		if err != nil {

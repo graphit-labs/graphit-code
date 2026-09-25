@@ -184,3 +184,20 @@ func TestS3StoreBrokerHubAccessFailureDoesNotFallBackToProjectsJSON(t *testing.T
 		t.Fatalf("broker authorization outage unexpectedly refreshed S3 grant %d times", credentialCalls)
 	}
 }
+
+func TestWebHubStoreDoesNotRequireOrInheritCLIProfile(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	store, err := NewS3Store(auth.WithWebAuthServer(context.Background()), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.Configured() {
+		t.Fatal("web Hub store was not made available for request credentials")
+	}
+	if _, _, _, err := store.ResolveAccess(context.Background()); !errors.Is(err, auth.ErrNoActiveProfile) {
+		t.Fatalf("background request used an unrelated profile: %v", err)
+	}
+	if _, err := store.scopeStore(context.Background(), auth.HubStorageScope()); !errors.Is(err, auth.ErrNoActiveProfile) {
+		t.Fatalf("background S3 access used an unrelated profile: %v", err)
+	}
+}

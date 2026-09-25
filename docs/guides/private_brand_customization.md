@@ -88,8 +88,8 @@ organizations and projects dynamically without updating or re-logging client pro
 
 The unified UI binds to `127.0.0.1` by default and selects a free port. Browser CORS
 remains limited to localhost until `ui.allowed_origins` is explicitly configured.
-The server has no authentication, and CORS does not stop scripts or direct network
-clients.
+Set `ui.auth.enabled=true` for Broker browser login and protected UI data APIs.
+CORS alone does not stop scripts or direct network clients.
 
 For a workstation-only private build:
 
@@ -97,17 +97,17 @@ For a workstation-only private build:
 acme-code config --global ui.host 127.0.0.1
 ```
 
-For a shared deployment, keep the service on a private network and put it behind
-an authenticated TLS reverse proxy:
+For a shared deployment, publish it through a TLS reverse proxy and set its canonical origin:
 
 ```bash
 acme-code config --global ui.host 0.0.0.0
 acme-code config --global ui.allowed_origins https://code.acme.internal
+acme-code config --global ui.auth.enabled true
+acme-code config --global ui.auth.public_url https://code.acme.internal
 ```
 
-Do not expose the raw server directly to the public Internet. Configure firewall
-rules, VPN access, authentication, request limits, and TLS at the proxy or platform
-boundary.
+Configure firewall rules, request limits and TLS at the proxy or platform boundary.
+The Broker must enable dynamic client registration for browser login.
 
 ## Private model and API policy
 

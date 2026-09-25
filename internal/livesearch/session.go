@@ -85,6 +85,7 @@ type Artifact struct {
 // Meta is the part of a session that survives a restart.
 type Meta struct {
 	ID        string     `json:"id"`
+	Owner     string     `json:"owner,omitempty"`
 	State     State      `json:"state"`
 	Agent     string     `json:"agent"`
 	Title     string     `json:"title,omitempty"`
@@ -97,6 +98,8 @@ type Meta struct {
 
 // Options describes a session to create.
 type Options struct {
+	// Owner is the verified browser identity that may reopen this session.
+	Owner string
 	// Agent selects both the workspace adapter and the CLI used for every turn.
 	Agent string
 	// Title is a human label, usually the first question.
@@ -296,6 +299,7 @@ func (m *Manager) Create(opts Options) (*Session, error) {
 		subs:          make(map[int64]chan Event),
 		meta: Meta{
 			ID:        id,
+			Owner:     opts.Owner,
 			State:     StatePreparing,
 			Agent:     opts.Agent,
 			Title:     label,

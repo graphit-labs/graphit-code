@@ -994,9 +994,10 @@ comma-separated `ui.allowed_origins`. A configured list replaces the localhost d
 The embedded UI itself uses same-origin `/api` and normally needs no entry. `*` allows
 every browser origin and is unsafe for most deployments.
 
-The UI has no authentication. A curl request can succeed even when browser CORS blocks a
-page, because CORS is browser enforcement rather than server authorization. Protect remote
-access with a firewall, VPN, or authenticated TLS reverse proxy. See
+When `ui.auth.enabled=false`, a curl request can succeed even when browser CORS blocks a
+page, because CORS is browser enforcement rather than server authorization. With web login
+enabled, data APIs require a Broker browser session cookie. Protect remote access with TLS and
+an intended network boundary. See
 [S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
 
 ---

@@ -44,6 +44,14 @@ Graphit Code checks exact issuer and Broker origin, discovery capabilities, the 
 
 The active profile stores the Broker issuer and stable Broker subject, plus short-lived access and opaque refresh tokens. It never receives an upstream IdP token or password. Broker providers default embedding and rerank to Broker mode. When the Broker advertises S3, Graphit obtains restricted, temporary credentials for each requested storage scope and holds them only in process memory; otherwise storage stays local.
 
+## Web UI login
+
+The Observatory header always shows the current account or **Anônimo**. Set `ui.auth.enabled=true` (or `GRAPHIT_UI_AUTH_ENABLED=true`) to offer login for configured `broker` providers. The CLI profile remains separate: each browser logs in to the Broker with its own public client, Authorization Code, PKCE S256, state and nonce. The Broker must enable `authentication.local.tokens.dynamic_registration`. The web client requests the Broker API resource `<issuer>/v1`; the Broker returns an access token with both that resource and its own API audience. Local providers do not appear as web login choices.
+
+Graphit verifies the Broker ID and access JWTs, then stores the browser's access and rotating refresh tokens in an encrypted `HttpOnly`, `SameSite=Strict` cookie. The temporary callback cookie is `HttpOnly` and `SameSite=Lax`. Both cookies are `Secure` by default. Web tokens are not written to `auth.json` or exposed to JavaScript. When web auth is enabled, the UI's data APIs accept only the browser cookie and use its Broker identity for downstream calls; missing or invalid cookies return `401` while the session endpoint reports **Anônimo**. Logout revokes the refresh grant at the Broker and clears the browser cookie. A daemon restart changes the in-memory encryption key and requires a new browser login.
+
+For external HTTPS access, set `ui.auth.public_url` to the exact public origin, such as `https://code.example.com`. If developing on loopback HTTP, set `ui.auth.cookie_secure=false`; the callback URL then follows the loopback request host and port. Mutating UI requests require a same-origin request header, and the server checks the browser `Origin` when provided. See [Configuration](configuration.md) and [Container deployment](container.md).
+
 ## HTTP MCP access
 
 For a Broker-backed HTTP MCP endpoint, configure its canonical public URI in both the Broker's `authentication.local.tokens.mcp_resources` and the Code provider:

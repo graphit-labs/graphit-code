@@ -113,7 +113,7 @@ func (s *HubService) mountASTGraph(ctx context.Context, artifact artifactRef, ve
 		}
 	}
 
-	searchURI := st.ArtifactURI(TypeAST, artifact.ID, version, artifact.ProjectID, ast.SearchBundleDir)
+	searchURI := st.ArtifactURIFor(ctx, TypeAST, artifact.ID, version, artifact.ProjectID, ast.SearchBundleDir)
 	if searchURI == "" {
 		return fmt.Errorf("mounting the AST context %s@%s: the hub produced no location for the "+
 			"search index", artifact.ID, version)

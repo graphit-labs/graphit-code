@@ -198,14 +198,10 @@ export const hubApi = {
   upload: (formData: FormData) => {
     const base = window.__API_BASE__ ?? ''
     const fullBase = base.endsWith('/api') ? base : `${base}/api`
-    const headers: Record<string, string> = {}
-    const token = document.cookie.match(/(^| )graphit_id_token=([^;]+)/)?.[2]
-    if (token && window.__WEB_MODE__) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
     return fetch(`${fullBase}/upload`, {
       method: 'POST',
-      headers,
+      credentials: 'same-origin',
+      headers: { 'X-Graphit-Request': 'ui' },
       body: formData,
     }).then((r) => r.json())
   },

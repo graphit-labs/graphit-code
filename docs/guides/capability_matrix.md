@@ -40,7 +40,7 @@ from a similar command on another interface.
 | Dream status/latest run | Yes | Yes | Dream dashboard | `modules.dream` is opt-in; runs mutate only Memory and do not create reports or consume Task work |
 | Ecosystem cluster labels and project lookup | Yes | Yes | Ecosystem view | Cluster labels are separate from AST node `ast.cluster_map` tagging |
 | Daemon-hosted UI | Daemon | No | The hosted application | `modules.daemon_ui` is opt-in; `ui.host`, `ui.allowed_origins` |
-| Standalone UI | `graphit ui` | No | The application | UI is unauthenticated; loopback is the default trust boundary |
+| Standalone UI | `graphit ui` | No | The application | Local by default; optional Broker browser login protects data APIs |
 
 ## Retrieval stages
 

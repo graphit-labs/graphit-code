@@ -47,7 +47,7 @@ func (s *S3Store) MountedWikiAt(ctx context.Context, artifactID, version, projec
 	if err != nil {
 		return MountedWiki{}, false, err
 	}
-	uri := s.ArtifactURI(TypeKnowledge, artifactID, version, projectID, wiki.WikiIndexDirName)
+	uri := s.ArtifactURIFor(ctx, TypeKnowledge, artifactID, version, projectID, wiki.WikiIndexDirName)
 	if uri == "" {
 		return MountedWiki{}, false, nil
 	}

@@ -79,7 +79,8 @@ async function refuse(r: Response): Promise<never> {
 export async function createLiveSession(req: CreateLiveSessionRequest): Promise<LiveSession> {
   const r = await fetch(`${API()}/api/live/sessions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Graphit-Request': 'ui' },
     body: JSON.stringify(req),
   })
   if (!r.ok) return refuse(r)
@@ -100,7 +101,7 @@ export async function getLiveSession(id: string): Promise<LiveSession> {
 
 
 export async function removeLiveSession(id: string): Promise<void> {
-  const r = await fetch(`${API()}/api/live/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const r = await fetch(`${API()}/api/live/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin', headers: { 'X-Graphit-Request': 'ui' } })
   if (!r.ok) return refuse(r)
 }
 
@@ -108,7 +109,8 @@ export async function removeLiveSession(id: string): Promise<void> {
 export async function sendLiveMessage(id: string, prompt: string): Promise<LiveSession> {
   const r = await fetch(`${API()}/api/live/sessions/${encodeURIComponent(id)}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Graphit-Request': 'ui' },
     body: JSON.stringify({ prompt }),
   })
   if (!r.ok) return refuse(r)
@@ -117,7 +119,7 @@ export async function sendLiveMessage(id: string, prompt: string): Promise<LiveS
 
 
 export async function cancelLiveTurn(id: string): Promise<void> {
-  const r = await fetch(`${API()}/api/live/sessions/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+  const r = await fetch(`${API()}/api/live/sessions/${encodeURIComponent(id)}/cancel`, { method: 'POST', credentials: 'same-origin', headers: { 'X-Graphit-Request': 'ui' } })
   if (!r.ok) return refuse(r)
 }
 

@@ -99,6 +99,9 @@ prefix:
 	return matches, nil
 }
 func (h *LiveHandler) handleKnowledgePage(w http.ResponseWriter, r *http.Request) {
+	if !h.requireOwner(w, r) {
+		return
+	}
 	dir, err := h.mgr.WorkspaceForRead(r.PathValue("id"))
 	if err != nil {
 		writeLiveError(w, err)

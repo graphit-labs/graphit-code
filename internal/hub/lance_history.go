@@ -211,7 +211,7 @@ func (m *RegistryManager) publishBranchLance(ctx context.Context, entryID, branc
 		return lanceBranchHistory{}, errors.New("publishing a branch requires a clean Git worktree so the Lance snapshot maps to exactly one commit")
 	}
 	localURI := publishedLanceStorePath(meta.Type, stagedRoot)
-	remoteURI := m.store.ArtifactURI(meta.Type, entryID, branchVersion, meta.ProjectID, publishedLanceStorePart(meta.Type))
+	remoteURI := m.store.ArtifactURIFor(ctx, meta.Type, entryID, branchVersion, meta.ProjectID, publishedLanceStorePart(meta.Type))
 	localConfig := m.store.lanceConfigFor(ctx, localURI, false)
 	if sourceURI := lancestore.ShallowSourceURI(localURI); sourceURI != "" {
 		localConfig = m.store.lanceConfigFor(ctx, sourceURI, false)
@@ -428,7 +428,7 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 			}
 		}
 		selected := localLanceBase{EntryID: entryID, Branch: branchVersion,
-			SourceURI: s3.ArtifactURI(target.artType, entryID, branchVersion, lock.Project.ID, publishedLanceStorePart(target.artType)), Base: base}
+			SourceURI: s3.ArtifactURIFor(lockedCtx, target.artType, entryID, branchVersion, lock.Project.ID, publishedLanceStorePart(target.artType)), Base: base}
 		if !sameLocalLanceBase(target.path, selected) {
 			if err := hydrateLanceStore(lockedCtx, s3, branchVersion, target.path, base, selected); err != nil {
 				lifecycleLock.Release()
@@ -475,7 +475,7 @@ func selectNonGitLatestEntry(entries []*Entry, projectID string, artType Artifac
 }
 
 func readLatestLanceBase(ctx context.Context, s3 *S3Store, artType ArtifactType, entryID, latestVersion, projectID, fingerprint string) (lanceCommit, error) {
-	remoteURI := s3.ArtifactURI(artType, entryID, latestVersion, projectID, publishedLanceStorePart(artType))
+	remoteURI := s3.ArtifactURIFor(ctx, artType, entryID, latestVersion, projectID, publishedLanceStorePart(artType))
 	remote, err := lancestore.Open(ctx, s3.lanceConfigFor(ctx, remoteURI, false))
 	if err != nil {
 		return lanceCommit{}, fmt.Errorf("open %s: %w", remoteURI, err)

@@ -4,6 +4,7 @@ import { Sidebar, MobileSidebar } from "./Sidebar";
 import { ToastContainer } from "@/components/shared/Toast";
 import { WorkspaceRefreshProvider } from "./WorkspaceRefresh";
 import { WorkspaceSelectors } from "./WorkspaceSelectors";
+import { AuthIdentity } from "./AuthIdentity";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return <WorkspaceRefreshProvider><ShellLayout>{children}</ShellLayout></WorkspaceRefreshProvider>;
@@ -52,6 +53,7 @@ function ShellLayout({ children }: { children: React.ReactNode }) {
             Source <ArrowUpRight size={14} />
           </a>
           <WorkspaceSelectors />
+          <AuthIdentity />
         </header>
         <main
           id="workspace-content"

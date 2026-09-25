@@ -261,8 +261,9 @@ data. Remote Hub discovery and publishing remain unavailable until the Hub works
 
 The server binds to `ui.host` (`127.0.0.1` by default). Browser origins use the exact,
 comma-separated `ui.allowed_origins` policy; without an override, only same-origin and
-localhost loopback origins are accepted. The server has no authentication, so a reachable
-instance needs a firewall, VPN, or authenticated reverse proxy. `--repo` selects the
+localhost loopback origins are accepted. Set `ui.auth.enabled=true` to require Broker
+browser login for data APIs; otherwise protect a reachable instance with a firewall,
+VPN or authenticated reverse proxy. `--repo` selects the
 repository to visualize; there is no fixed-port flag. See
 [S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
 

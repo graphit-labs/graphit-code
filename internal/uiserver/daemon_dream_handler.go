@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -49,17 +50,7 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 		MCPPort         int       `json:"mcp_port,omitempty"`
 		MCPEndpoint     string    `json:"mcp_endpoint,omitempty"`
 		MCPKeyFile      string    `json:"mcp_key_file,omitempty"`
-		// MCPKey is the bearer token itself, so the UI can offer a copy button — pointing an
-		// external MCP client at this daemon needs the endpoint AND the key, and reading a
-		// 0600 file out of the global directory is not something a browser can do.
-		//
-		// SECURITY: this endpoint has no authentication of its own; it is protected only by the
-		// UI server's bind address and CORS policy. Anyone who can reach the UI port can
-		// therefore read the MCP bearer key. That is a smaller step than it sounds — the same
-		// port already exposes every project's graph, wiki and memory over unauthenticated
-		// routes, so it grants no access the caller did not already have — but it is the reason
-		// the UI must stay behind a loopback bind or an authenticating proxy. See
-		// docs/guides/s3-and-ui-network.md.
+		// The local MCP key is never returned to a Broker-authenticated browser.
 		MCPKey string `json:"mcp_key,omitempty"`
 	}
 	res.PIDFilePath = pid.Path()
@@ -83,8 +74,11 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 	res.UptimeSeconds = int64(time.Since(alive.StartedAt).Seconds())
 
 	logPath := filepath.Join(daemon.GlobalDaemonDir(), "daemon.log")
-	if data, err := os.ReadFile(logPath); err == nil {
-		res.RecentLogs = splitLastNLocal(string(data), 50)
+	_, browser := auth.RequestSnapshot(r.Context())
+	if !browser {
+		if data, err := os.ReadFile(logPath); err == nil {
+			res.RecentLogs = splitLastNLocal(string(data), 50)
+		}
 	}
 
 	if port, err := mcpproxy.ReadPort(daemonctl.PortFilePath()); err == nil {
@@ -92,9 +86,11 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 		mcpHost := advertisedMCPHost(config.ResolveMCPHost(nil, nil), r.Host)
 		res.MCPEndpoint = fmt.Sprintf("http://%s/mcp", net.JoinHostPort(mcpHost, strconv.Itoa(port)))
 	}
-	res.MCPKeyFile = daemonctl.KeyFilePath()
-	if key, err := mcpproxy.ReadKey(daemonctl.KeyFilePath()); err == nil {
-		res.MCPKey = key
+	if !browser {
+		res.MCPKeyFile = daemonctl.KeyFilePath()
+		if key, err := mcpproxy.ReadKey(daemonctl.KeyFilePath()); err == nil {
+			res.MCPKey = key
+		}
 	}
 
 	writeJSON(w, res)

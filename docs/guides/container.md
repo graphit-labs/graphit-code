@@ -43,6 +43,12 @@ root phase or privilege drop. `GRAPHIT_GLOBAL_DIR` defaults to
 is created and assigned to `graphit` while the image is built, so the default writable named-volume
 path works without runtime ownership repair.
 
+The image sets `GRAPHIT_UI_AUTH_ENABLED=true`, so UI data APIs require a browser Broker login.
+Set `GRAPHIT_UI_AUTH_PUBLIC_URL` to the external HTTPS origin and enable the Broker's dynamic client
+registration before exposing the UI. The login cookie is `Secure` by default. For loopback HTTP
+development only, set `GRAPHIT_UI_AUTH_COOKIE_SECURE=false`; set `GRAPHIT_UI_AUTH_ENABLED=false`
+to disable web login in a container.
+
 A bind mount or custom `GRAPHIT_GLOBAL_DIR` must already be readable, writable, and traversable by
 UID/GID `10001`. Provision it on the host, use an init container, or configure the orchestrator's
 volume ownership mechanism such as Kubernetes `fsGroup`. The entrypoint checks access and fails
@@ -147,9 +153,9 @@ and port match; a freshly started container, whose provider is still `local`, an
 
 A browser-based MCP client additionally needs its origin declared in `mcp.allowed_origins`
 (`GRAPHIT_MCP_ALLOWED_ORIGINS`), which is empty by default and then emits no CORS headers at all.
-An agent whose runtime connects server-side does not need it. The Observatory UI has no built-in
-authentication. CORS does not authenticate non-browser clients. Keep both ports on
-loopback/private networking or place an authenticated reverse proxy in front.
+An agent whose runtime connects server-side does not need it. The Observatory UI requires a
+Broker browser session by default in this image. CORS does not authenticate non-browser clients.
+Keep both ports on intended private networking or behind TLS.
 
 ## Multiple accounts
 

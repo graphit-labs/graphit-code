@@ -312,8 +312,8 @@ daemon can opt in with `graphit daemon --ui` or `modules.daemon_ui=true`. The mo
 project, or the global directory when none exists, and opens the AST store read-only. Hub
 unavailability does not stop the mostly local UI.
 
-The UI listener uses `ui.host` and its own port behavior. It is distinct from the MCP listener and
-has no built-in authentication.
+The UI listener uses `ui.host` and its own port behavior. It is distinct from the MCP listener;
+`ui.auth.enabled` enables Broker browser login and protects its data APIs.
 
 ## Resource control and failure recovery
 

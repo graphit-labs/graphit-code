@@ -75,9 +75,9 @@ calls, but it must configure its own S3 access if it needs remote storage.
 
 ## UI and MCP listeners
 
-`ui.host` and `ui.allowed_origins` remain runtime settings. The UI has no built-in authentication,
-and CORS is not authorization. Bind to loopback unless a VPN, firewall, or authenticated reverse
-proxy establishes the boundary.
+`ui.host` and `ui.allowed_origins` remain runtime settings. Set `ui.auth.enabled=true` to require
+a Broker browser session for UI data APIs; CORS is not authorization. Keep the listener behind
+TLS and an intended network boundary when exposed remotely.
 
 `mcp.host` and `mcp.port` configure the daemon listener. Its generated runtime key rotates at each
 start. A local provider may use a static MCP key. With a Broker provider, each remote HTTP caller

@@ -32,6 +32,20 @@ func ResolveUIAllowedOrigins(inlineCfg, projectCfg ConfigMap) []string {
 	return splitAllowedOrigins(ResolveConfig("ui.allowed_origins", inlineCfg, projectCfg))
 }
 
+// Web authentication is opt-in for local installations. The container image
+// enables it through the same environment override as every other config key.
+func ResolveUIAuthEnabled(inlineCfg, projectCfg ConfigMap) bool {
+	return strings.EqualFold(strings.TrimSpace(ResolveConfig("ui.auth.enabled", inlineCfg, projectCfg)), "true")
+}
+
+func ResolveUIAuthCookieSecure(inlineCfg, projectCfg ConfigMap) bool {
+	return !strings.EqualFold(strings.TrimSpace(ResolveConfig("ui.auth.cookie_secure", inlineCfg, projectCfg)), "false")
+}
+
+func ResolveUIAuthPublicURL(inlineCfg, projectCfg ConfigMap) string {
+	return strings.TrimRight(strings.TrimSpace(ResolveConfig("ui.auth.public_url", inlineCfg, projectCfg)), "/")
+}
+
 // splitAllowedOrigins parses the comma-separated origin list shared by every listener that
 // accepts one, so ui.allowed_origins and mcp.allowed_origins cannot drift in how they read
 // the same kind of value.

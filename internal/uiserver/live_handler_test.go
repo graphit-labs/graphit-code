@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
 )
 
@@ -55,6 +56,32 @@ func newLiveTestServer(t *testing.T, client ai.StreamClient, prepare livesearch.
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, mgr
+}
+
+func TestLiveSessionsAreScopedToBrowserIdentity(t *testing.T) {
+	mgr := livesearch.NewManager(t.TempDir(), answering("done"), func(context.Context, *livesearch.Session, func(string)) error { return nil })
+	t.Cleanup(mgr.CloseAll)
+	alice, err := mgr.Create(livesearch.Options{Agent: "codex", Owner: "https://broker.example|alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := mgr.Create(livesearch.Options{Agent: "codex", Owner: "https://broker.example|bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	NewLiveHandler(mgr).RegisterAPIRoutes(mux)
+	ctx := auth.WithRequestSnapshot(context.Background(), auth.Snapshot{Profile: auth.Profile{Issuer: "https://broker.example", Subject: "alice"}})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/live/sessions", nil).WithContext(ctx))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), alice.Meta().ID) || strings.Contains(w.Body.String(), bob.Meta().ID) {
+		t.Fatalf("browser session listing leaked another owner: status=%d body=%s", w.Code, w.Body.String())
+	}
+	denied := httptest.NewRecorder()
+	mux.ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/api/live/sessions/"+bob.Meta().ID, nil).WithContext(ctx))
+	if denied.Code != http.StatusNotFound {
+		t.Fatalf("another owner's session status=%d", denied.Code)
+	}
 }
 
 type sseEvent struct {

@@ -15,7 +15,7 @@ The UI provides:
 - live multi-source agent sessions;
 - daemon, Dream, and ecosystem status.
 
-It does not add authentication, replace network controls, or maintain an independent copy of domain data.
+It uses the optional Broker browser session for authenticated data APIs and does not maintain an independent copy of domain data.
 
 ## Frontend architecture
 
@@ -280,10 +280,8 @@ and a link to project administration. Global context selection stays in the head
 
 The built-in UI host is the IPv4 loopback address. The frontend uses same-origin `/api` URLs so it continues to work behind a correctly configured reverse proxy.
 
-The server has no built-in user authentication. CORS limits browser origins but does not authorize
-non-browser clients. A multi-user Hub deployment must put the UI behind an authenticated proxy or
-another trusted identity adapter that supplies user and team identity; otherwise only a
-single-user deployment subject is valid. See
+When `ui.auth.enabled=true`, the server requires an encrypted Broker browser session cookie for data APIs; the header shows the verified identity or Anônimo. CORS still limits browser origins but does not authorize
+non-browser clients. A multi-user Hub deployment must also protect its listener and configure Broker Hub grants per user. See
 [S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md) and
 [Hub Access Control](hub_access_control.md).
 

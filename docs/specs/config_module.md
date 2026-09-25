@@ -295,9 +295,10 @@ graphit config ui.allowed_origins http://localhost:5173,https://preview.example.
 
 The unified page uses the same-origin `/api` path, so a browser connecting through
 a remote hostname or reverse proxy does not try to call its own `localhost`.
-The server has no authentication: CORS limits browser reads but is not a network
-authorization boundary. A server bound to `0.0.0.0` must be protected by network
-policy or an authenticated reverse proxy. See the complete
+With `ui.auth.enabled=true`, data APIs require a Broker browser session; without it,
+the listener retains its local development access model. CORS limits browser reads
+but is not a network authorization boundary. A server bound to `0.0.0.0` should
+use HTTPS and appropriate network policy. See the complete
 [S3 and UI network operator guide](../guides/s3-and-ui-network.md).
 
 ### The documentation tree: `knowledge.docs_dir`

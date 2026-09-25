@@ -28,6 +28,7 @@ type UnifiedServer struct {
 	mux            *http.ServeMux
 	live           *LiveHandler
 	agentFeatures  bool
+	auth           *webAuth
 }
 
 func NewUnifiedServer(
@@ -42,6 +43,10 @@ func NewUnifiedServer(
 	host := config.ResolveUIHost(nil, projectCfg)
 	startPort := config.ResolveUIPort(nil, projectCfg)
 	allowedOrigins := config.ResolveUIAllowedOrigins(nil, projectCfg)
+	webAuthentication, err := newWebAuth(config.ResolveUIAuthEnabled(nil, projectCfg), config.ResolveUIAuthCookieSecure(nil, projectCfg), config.ResolveUIAuthPublicURL(nil, projectCfg))
+	if err != nil {
+		return nil, fmt.Errorf("web authentication: %w", err)
+	}
 
 	port, err := netutil.FindFreePortOnHost(host, startPort)
 	if err != nil {
@@ -85,6 +90,13 @@ func NewUnifiedServer(
 		port: port, host: host, allowedOrigins: allowedOrigins,
 		projectName: projectName, mux: mux, live: liveHandler,
 		agentFeatures: agentFeatures,
+		auth:          webAuthentication,
+	}
+	mux.HandleFunc("/api/auth/session", webAuthentication.session)
+	if webAuthentication.enabled {
+		mux.HandleFunc("/api/auth/login", webAuthentication.login)
+		mux.HandleFunc("/api/auth/callback", webAuthentication.callback)
+		mux.HandleFunc("/api/auth/logout", webAuthentication.logout)
 	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +140,7 @@ func (s *UnifiedServer) StartWithReady(ctx context.Context, ready func() error) 
 
 	srv := &http.Server{
 		Addr:    net.JoinHostPort(s.host, strconv.Itoa(s.port)),
-		Handler: hub.CorsWrapWithAllowedOrigins(s.mux, s.allowedOrigins),
+		Handler: hub.CorsWrapWithAllowedOrigins(s.auth.wrap(s.mux), s.allowedOrigins),
 	}
 
 	errCh := make(chan error, 1)

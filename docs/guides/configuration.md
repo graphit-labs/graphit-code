@@ -76,7 +76,7 @@ read from the global configuration used by the completion client. Set them with 
 | Local workstation | local auth provider without broker storage; local embedding; default modules | Sources, graphs, wikis, memory, and tasks stay on the machine while profiles remain isolated. |
 | Shared S3 state | local provider with direct S3 or S3-enabled Broker provider with Broker-issued temporary credentials | Hub artifacts and authenticated Memory/Task tables use direct S3 access; Broker-routed AI remains independently selectable. |
 | CI artifact publisher | non-interactive provider creation and login; agent, Dream, daemon, watcher, and hooks disabled | An ephemeral runner explicitly builds and publishes current AST and knowledge contexts without prompts. |
-| Headless server | `modules.agent=false`, `modules.daemon_ui=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and the unauthenticated Observatory UI. |
+| Headless server | `modules.agent=false`, `modules.daemon_ui=true`, `ui.auth.enabled=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and a browser-session protected Observatory UI. |
 | Private distribution | build-time `COMPILE_CONFIG` and brand variables | Defaults and identity ship with an internally distributed launcher. |
 
 See [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for a complete
@@ -212,9 +212,12 @@ validation and noninteractive setup sequence.
 
 | Key | Default | Effect |
 |---|---|---|
-| `ui.host` | `127.0.0.1` | Interface used by `graphit ui` and daemon-hosted UI. The UI has no built-in authentication. |
+| `ui.host` | `127.0.0.1` | Interface used by `graphit ui` and daemon-hosted UI. |
 | `ui.port` | `8080` | First UI port to bind. Invalid values fall back to `8080`; the environment name is `GRAPHIT_UI_PORT`. |
 | `ui.allowed_origins` | plain-HTTP loopback origins | Comma-separated exact CORS allowlist covering **every** UI surface. A configured list replaces the loopback defaults; `*` allows any browser origin. |
+| `ui.auth.enabled` | `false` | Enables Broker login and requires a valid browser session for data APIs. The Docker image sets `GRAPHIT_UI_AUTH_ENABLED=true`; set that environment variable to `false` to disable it there. Environment values take precedence over project and global config. |
+| `ui.auth.cookie_secure` | `true` | Sets `Secure` on the HttpOnly browser session and login cookies. Set `false` only for loopback HTTP development. |
+| `ui.auth.public_url` | empty | Canonical UI origin used for the exact Broker callback `<origin>/api/auth/callback` and Origin checks. Set it to the public HTTPS origin behind a reverse proxy; omit paths. Without it, login is available only from loopback. |
 | `mcp.host` | `127.0.0.1` | Interface for the daemon's streamable HTTP MCP listener. |
 | `mcp.port` | `0` | Fixed port, or `0` for an OS-assigned port written to the daemon runtime directory. Invalid values fall back to `0`. |
 | `mcp.allowed_origins` | empty | Comma-separated exact CORS allowlist for the MCP endpoint; the environment name is `GRAPHIT_MCP_ALLOWED_ORIGINS`. Empty emits no CORS headers at all. Only a browser-based MCP client needs it; an agent whose runtime connects server-side is unaffected. |
