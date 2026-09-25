@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/theory/jsonpath"
 )
 
 type OIDCDiscovery struct {
@@ -124,12 +126,12 @@ func (c *OIDCClient) LoginInteractive(ctx context.Context, provider Provider, op
 }
 
 func (c *OIDCClient) Discovery(ctx context.Context, issuer string) (OIDCDiscovery, error) {
-	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+	issuer = strings.TrimSpace(issuer)
 	var discovery OIDCDiscovery
-	if err := c.getJSON(ctx, issuer+"/.well-known/openid-configuration", &discovery); err != nil {
+	if err := c.getJSON(ctx, strings.TrimRight(issuer, "/")+"/.well-known/openid-configuration", &discovery); err != nil {
 		return discovery, fmt.Errorf("OIDC discovery: %w", err)
 	}
-	if strings.TrimRight(discovery.Issuer, "/") != issuer {
+	if discovery.Issuer != issuer {
 		return discovery, errors.New("OIDC discovery issuer does not match configured issuer")
 	}
 	if discovery.AuthorizationEndpoint == "" || discovery.TokenEndpoint == "" || discovery.JWKSURI == "" {
@@ -150,9 +152,12 @@ func (c *OIDCClient) AuthorizationRequest(provider Provider, discovery OIDCDisco
 	if err != nil {
 		return AuthorizationRequest{}, err
 	}
-	nonce, err := randomURLSafe(32)
-	if err != nil {
-		return AuthorizationRequest{}, err
+	var nonce string
+	if provider.OIDC.UseNonce() {
+		nonce, err = randomURLSafe(32)
+		if err != nil {
+			return AuthorizationRequest{}, err
+		}
 	}
 	verifier, err := randomURLSafe(48)
 	if err != nil {
@@ -165,26 +170,14 @@ func (c *OIDCClient) AuthorizationRequest(provider Provider, discovery OIDCDisco
 	}
 	values := url.Values{
 		"response_type": {"code"}, "client_id": {provider.OIDC.ClientID}, "redirect_uri": {redirectURI},
-		"scope": {strings.Join(scopes, " ")}, "state": {state}, "nonce": {nonce},
+		"scope": {strings.Join(scopes, " ")}, "state": {state},
 		"code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}, "code_challenge_method": {"S256"},
 	}
-	audience, resource := provider.OIDC.MCPAudience, provider.OIDC.MCPResource
-	// In relay mode the login token is minted for the shared MCP/broker audience.
-	// In token-exchange mode it must remain a token for MCP; a request-scoped RFC
-	// 8693 exchange obtains the distinct broker token later.
-	if provider.Broker != nil && provider.Broker.TokenStrategy != "token-exchange" {
-		if provider.Broker.Audience != "" {
-			audience = provider.Broker.Audience
-		}
-		if provider.Broker.Resource != "" {
-			resource = provider.Broker.Resource
-		}
+	if nonce != "" {
+		values.Set("nonce", nonce)
 	}
-	if audience != "" {
-		values.Set("audience", audience)
-	}
-	if resource != "" {
-		values.Set("resource", resource)
+	if provider.OIDC.MCPResource != "" {
+		values.Set("resource", provider.OIDC.MCPResource)
 	}
 	for key, value := range provider.OIDC.AuthParams {
 		values.Set(key, value)
@@ -214,11 +207,6 @@ type VerifiedIdentity struct {
 	ExpiresAt time.Time
 }
 
-type ExchangedAccessToken struct {
-	AccessToken string
-	ExpiresAt   time.Time
-}
-
 // VerifyAccessToken validates a JWT access token against provider discovery/JWKS and maps only
 // claims from that verified token. It is used by Streamable HTTP MCP before request context exists.
 func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, raw string, audiences []string) (VerifiedIdentity, error) {
@@ -231,38 +219,37 @@ func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, r
 			accepted = append(accepted, trimmed)
 		}
 	}
-	if strings.TrimSpace(raw) == "" || len(accepted) == 0 {
-		return VerifiedIdentity{}, errors.New("access token and at least one accepted MCP audience are required")
+	if strings.TrimSpace(raw) == "" {
+		return VerifiedIdentity{}, errors.New("access token is required")
+	}
+	if provider.Type != ProviderBroker || len(accepted) != 1 {
+		return VerifiedIdentity{}, errors.New("one canonical MCP resource audience is required for a broker provider")
 	}
 	discovery, err := c.Discovery(ctx, provider.OIDC.Issuer)
 	if err != nil {
 		return VerifiedIdentity{}, err
 	}
-	requireAudience := provider.Type != ProviderOIDC || provider.Broker != nil || provider.OIDC.RequireMCPAudience()
-	claims, err := c.verifySignedToken(ctx, discovery, accepted, raw, "", "access token", requireAudience)
+	claims, err := c.verifySignedToken(ctx, discovery, accepted, raw, "", "Broker access token", true)
 	if err != nil {
 		return VerifiedIdentity{}, fmt.Errorf("verify access token: %w", err)
 	}
-	if use, present := claims["token_use"]; present && use != "access" {
+	if claims["token_use"] != "access" {
 		return VerifiedIdentity{}, errors.New("verified token is not an access token")
 	}
-	if !requireAudience {
-		if claims["token_use"] != "access" {
-			return VerifiedIdentity{}, errors.New("audience-free MCP token must declare token_use=access")
-		}
-		clientID, err := stringClaim(claims, "client_id", true)
-		if err != nil || clientID != provider.OIDC.ClientID {
-			return VerifiedIdentity{}, errors.New("audience-free MCP token has an invalid client_id")
-		}
+	if clientID, ok := claims["client_id"].(string); !ok || clientID == "" {
+		return VerifiedIdentity{}, errors.New("broker access token has no client_id")
 	}
-	// No product-specific scope is required here. What makes a token usable at this endpoint
-	// is that it was issued for it, which the audience check above establishes per RFC 8707.
-	// Requiring a scope on top of that would narrow which identity providers can serve the
-	// endpoint without adding a guarantee the audience does not already give.
-	//
-	// The client identifier is likewise not pinned to the one a broker advertises for the
-	// CLI: an MCP client registers with the authorization server for itself, so the server is
-	// what attests which clients exist.
+	if _, ok := claims["iat"].(float64); !ok {
+		return VerifiedIdentity{}, errors.New("broker access token has no numeric issued-at time")
+	}
+	if _, ok := claims["exp"].(float64); !ok {
+		return VerifiedIdentity{}, errors.New("broker access token has no numeric expiration")
+	}
+	if jti, ok := claims["jti"].(string); !ok || jti == "" {
+		return VerifiedIdentity{}, errors.New("broker access token has no token identifier")
+	}
+	// A registered MCP client has its own client_id, distinct from graphit-cli.
+	// The Broker's UserInfo endpoint checks its grant and revocation state.
 	username, err := stringClaim(claims, provider.OIDC.UsernameClaim, true)
 	if err != nil {
 		return VerifiedIdentity{}, err
@@ -287,57 +274,16 @@ func (c *OIDCClient) VerifyAccessToken(ctx context.Context, provider Provider, r
 	return VerifiedIdentity{Issuer: issuer, Subject: subject, Username: username, Organization: organization, Teams: teams, ExpiresAt: expiresAt}, nil
 }
 
-// ExchangeAccessToken performs OAuth 2.0 Token Exchange (RFC 8693) for a broker-scoped token.
-func (c *OIDCClient) ExchangeAccessToken(ctx context.Context, provider Provider, subjectToken string) (ExchangedAccessToken, error) {
-	if provider.OIDC == nil || provider.Broker == nil {
-		return ExchangedAccessToken{}, errors.New("OIDC provider with broker configuration is required")
-	}
-	endpoint := strings.TrimSpace(provider.Broker.TokenExchangeEndpoint)
-	if endpoint == "" {
-		discovery, err := c.Discovery(ctx, provider.OIDC.Issuer)
-		if err != nil {
-			return ExchangedAccessToken{}, err
-		}
-		endpoint = discovery.TokenEndpoint
-	}
-	form := url.Values{
-		"grant_type":           {"urn:ietf:params:oauth:grant-type:token-exchange"},
-		"subject_token":        {subjectToken},
-		"subject_token_type":   {"urn:ietf:params:oauth:token-type:access_token"},
-		"requested_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
-		"client_id":            {provider.OIDC.ClientID},
-	}
-	if provider.Broker.Audience != "" {
-		form.Set("audience", provider.Broker.Audience)
-	}
-	if provider.Broker.Resource != "" {
-		form.Set("resource", provider.Broker.Resource)
-	}
-	token, err := c.token(ctx, endpoint, form, provider.OIDC)
-	if err != nil {
-		return ExchangedAccessToken{}, fmt.Errorf("exchange broker access token: %w", err)
-	}
-	if token.AccessToken == "" || token.ExpiresIn <= 0 || (token.TokenType != "" && !strings.EqualFold(token.TokenType, "Bearer")) {
-		return ExchangedAccessToken{}, errors.New("token exchange response must contain a bearer access_token with positive expires_in")
-	}
-	return ExchangedAccessToken{AccessToken: token.AccessToken, ExpiresAt: c.now().Add(time.Duration(token.ExpiresIn) * time.Second)}, nil
-}
-
 func (c *OIDCClient) ExchangeCode(ctx context.Context, provider Provider, discovery OIDCDiscovery, code, verifier, redirectURI, nonce string) (Profile, error) {
 	form := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {provider.OIDC.ClientID}, "redirect_uri": {redirectURI}, "code_verifier": {verifier}}
-	token, err := c.token(ctx, discovery.TokenEndpoint, form, provider.OIDC)
+	if provider.OIDC.MCPResource != "" {
+		form.Set("resource", provider.OIDC.MCPResource)
+	}
+	token, err := c.token(ctx, discovery.TokenEndpoint, form)
 	if err != nil {
 		return Profile{}, err
 	}
 	return c.profileFromToken(ctx, provider, discovery, token, nonce)
-}
-
-func (c *OIDCClient) LoginWithTokens(ctx context.Context, provider Provider, accessToken, refreshToken, idToken string, expiresAt time.Time) (Profile, error) {
-	discovery, err := c.Discovery(ctx, provider.OIDC.Issuer)
-	if err != nil {
-		return Profile{}, err
-	}
-	return c.profileFromToken(ctx, provider, discovery, tokenResponse{AccessToken: accessToken, RefreshToken: refreshToken, IDToken: idToken, TokenType: "Bearer", ExpiresIn: secondsUntil(c.now(), expiresAt)}, "")
 }
 
 func (c *OIDCClient) Refresh(ctx context.Context, provider Provider, profile Profile) (Profile, error) {
@@ -350,12 +296,18 @@ func (c *OIDCClient) Refresh(ctx context.Context, provider Provider, profile Pro
 		return Profile{}, err
 	}
 	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {session.RefreshToken}, "client_id": {provider.OIDC.ClientID}}
+	if provider.OIDC.MCPResource != "" {
+		form.Set("resource", provider.OIDC.MCPResource)
+	}
 	if len(provider.OIDC.Scopes) > 0 {
 		form.Set("scope", strings.Join(provider.OIDC.Scopes, " "))
 	}
-	token, err := c.token(ctx, discovery.TokenEndpoint, form, provider.OIDC)
+	token, err := c.token(ctx, discovery.TokenEndpoint, form)
 	if err != nil {
 		return Profile{}, err
+	}
+	if provider.Type == ProviderBroker && (!strings.EqualFold(token.TokenType, "Bearer") || token.ExpiresIn <= 0) {
+		return Profile{}, errors.New("broker refresh must return a Bearer token with positive expires_in")
 	}
 	if provider.Type == ProviderBroker && (token.RefreshToken == "" || token.RefreshToken == session.RefreshToken) {
 		return Profile{}, errors.New("broker did not rotate the refresh token")
@@ -364,29 +316,39 @@ func (c *OIDCClient) Refresh(ctx context.Context, provider Provider, profile Pro
 		token.RefreshToken = session.RefreshToken
 	}
 	if token.IDToken == "" {
+		if token.AccessToken == "" {
+			return Profile{}, errors.New("OIDC refresh response must include access_token")
+		}
+		if provider.Type == ProviderBroker {
+			if err := c.verifyBrokerAccessToken(ctx, provider, discovery, token, profile.Subject); err != nil {
+				return Profile{}, err
+			}
+		}
 		profile.OIDC = &OIDCSession{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: session.IDToken, TokenType: token.TokenType, ExpiresAt: c.now().Add(time.Duration(token.ExpiresIn) * time.Second)}
 		return profile, nil
 	}
-	return c.profileFromToken(ctx, provider, discovery, token, "")
+	updated, err := c.profileFromToken(ctx, provider, discovery, token, "")
+	if err != nil {
+		return Profile{}, err
+	}
+	if updated.Issuer != profile.Issuer || updated.Subject != profile.Subject {
+		return Profile{}, errors.New("refreshed ID token identity does not match the existing profile")
+	}
+	return updated, nil
 }
 
 func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, discovery OIDCDiscovery, token tokenResponse, nonce string) (Profile, error) {
 	if token.AccessToken == "" || token.IDToken == "" {
 		return Profile{}, errors.New("OIDC token response must include access_token and id_token")
 	}
-	claims, err := c.verifySignedToken(ctx, discovery, []string{provider.OIDC.ClientID}, token.IDToken, nonce, "ID token", true)
-	if err != nil {
-		return Profile{}, err
+	if provider.Type == ProviderBroker && (!strings.EqualFold(token.TokenType, "Bearer") || token.ExpiresIn <= 0) {
+		return Profile{}, errors.New("broker token response must contain a Bearer token with positive expires_in")
 	}
-	username, err := stringClaim(claims, provider.OIDC.UsernameClaim, true)
-	if err != nil {
-		return Profile{}, err
+	idTokenKind := "ID token"
+	if provider.Type == ProviderBroker {
+		idTokenKind = "Broker ID token"
 	}
-	organization, err := stringClaim(claims, provider.OIDC.OrganizationClaim, false)
-	if err != nil {
-		return Profile{}, err
-	}
-	teams, err := stringSliceClaim(claims, provider.OIDC.TeamsClaim)
+	claims, err := c.verifySignedToken(ctx, discovery, []string{provider.OIDC.ClientID}, token.IDToken, nonce, idTokenKind, true)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -395,26 +357,88 @@ func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, di
 	if subject == "" {
 		return Profile{}, errors.New("verified ID token has no subject")
 	}
-	return Profile{Provider: provider.Name, ProviderRevision: provider.Revision, Issuer: issuer, Subject: subject, Username: username, Organization: organization, Teams: teams,
-		OIDC: &OIDCSession{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, TokenType: token.TokenType, ExpiresAt: c.now().Add(time.Duration(token.ExpiresIn) * time.Second)}}, nil
+	if provider.Type == ProviderBroker {
+		if !audienceOnly(claims["aud"], provider.OIDC.ClientID) {
+			return Profile{}, errors.New("broker ID token has an unexpected audience")
+		}
+		if _, ok := claims["iat"].(float64); !ok {
+			return Profile{}, errors.New("broker ID token has no numeric issued-at time")
+		}
+		if _, ok := claims["exp"].(float64); !ok {
+			return Profile{}, errors.New("broker ID token has no numeric expiration")
+		}
+		if err := c.verifyBrokerAccessToken(ctx, provider, discovery, token, subject); err != nil {
+			return Profile{}, err
+		}
+	}
+	profile := Profile{Provider: provider.Name, ProviderRevision: provider.Revision, Issuer: issuer, Subject: subject,
+		OIDC: &OIDCSession{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, TokenType: token.TokenType, ExpiresAt: c.now().Add(time.Duration(token.ExpiresIn) * time.Second)}}
+	if err := mapProfileClaims(&profile, provider.OIDC, claims); err != nil {
+		return Profile{}, err
+	}
+	return profile, nil
 }
 
-func (c *OIDCClient) token(ctx context.Context, endpoint string, form url.Values, oidc *OIDCConfig) (tokenResponse, error) {
-	var token tokenResponse
-	if oidc != nil && oidc.ClientSecret != "" && oidc.TokenAuthMethod != "client_secret_basic" && oidc.TokenAuthMethod != "none" {
-		form.Set("client_secret", oidc.ClientSecret)
+func (c *OIDCClient) verifyBrokerAccessToken(ctx context.Context, provider Provider, discovery OIDCDiscovery, token tokenResponse, subject string) error {
+	if token.AccessToken == "" || provider.OIDC == nil || provider.OIDC.MCPAudience == "" {
+		return errors.New("broker access token or audience is missing")
 	}
+	claims, err := c.verifySignedToken(ctx, discovery, []string{provider.OIDC.MCPAudience}, token.AccessToken, "", "Broker access token", true)
+	if err != nil {
+		return fmt.Errorf("verify broker access token: %w", err)
+	}
+	if claims["token_use"] != "access" || claims["client_id"] != provider.OIDC.ClientID || claims["sub"] != subject {
+		return errors.New("broker access token use, client, or subject does not match login")
+	}
+	if _, ok := claims["iat"].(float64); !ok {
+		return errors.New("broker access token has no numeric issued-at time")
+	}
+	if _, ok := claims["exp"].(float64); !ok {
+		return errors.New("broker access token has no numeric expiration")
+	}
+	if jti, ok := claims["jti"].(string); !ok || jti == "" {
+		return errors.New("broker access token has no token identifier")
+	}
+	if resource := provider.OIDC.MCPResource; resource != "" && !audienceContainsAny(claims["aud"], []string{resource}) {
+		return errors.New("broker access token does not target the configured MCP resource")
+	}
+	return nil
+}
+
+func audienceOnly(value any, want string) bool {
+	switch audience := value.(type) {
+	case string:
+		return audience == want
+	case []any:
+		return len(audience) == 1 && audience[0] == want
+	}
+	return false
+}
+
+func mapProfileClaims(profile *Profile, config *OIDCConfig, claims map[string]any) error {
+	username, err := stringClaim(claims, config.UsernameClaim, true)
+	if err != nil {
+		return err
+	}
+	organization, err := stringClaim(claims, config.OrganizationClaim, false)
+	if err != nil {
+		return err
+	}
+	teams, err := stringSliceClaim(claims, config.TeamsClaim)
+	if err != nil {
+		return err
+	}
+	profile.Username, profile.Organization, profile.Teams = username, organization, teams
+	return nil
+}
+
+func (c *OIDCClient) token(ctx context.Context, endpoint string, form url.Values) (tokenResponse, error) {
+	var token tokenResponse
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return token, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if oidc != nil && oidc.ClientSecret != "" {
-		switch oidc.TokenAuthMethod {
-		case "client_secret_basic":
-			req.SetBasicAuth(oidc.ClientID, oidc.ClientSecret)
-		}
-	}
 	resp, err := c.client().Do(req)
 	if err != nil {
 		return token, fmt.Errorf("OIDC token request: %w", err)
@@ -456,6 +480,9 @@ func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscov
 	if json.Unmarshal(headerBytes, &header) != nil || header.Alg == "" || header.Alg == "none" {
 		return nil, fmt.Errorf("invalid %s algorithm", kind)
 	}
+	if (kind == "Broker ID token" || kind == "Broker access token") && header.Alg != "EdDSA" {
+		return nil, fmt.Errorf("%s must use the Broker EdDSA signing algorithm", kind)
+	}
 	var set jwkSet
 	if err := c.getJSON(ctx, discovery.JWKSURI, &set); err != nil {
 		return nil, fmt.Errorf("OIDC JWKS: %w", err)
@@ -478,11 +505,11 @@ func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscov
 	if err := json.Unmarshal(claimBytes, &claims); err != nil {
 		return nil, fmt.Errorf("invalid %s claims", kind)
 	}
-	if iss, _ := claims["iss"].(string); strings.TrimRight(iss, "/") != strings.TrimRight(discovery.Issuer, "/") {
+	if iss, _ := claims["iss"].(string); iss != discovery.Issuer {
 		return nil, fmt.Errorf("%s issuer does not match provider", kind)
 	}
 	_, hasAudience := claims["aud"]
-	if (requireAudience || hasAudience) && !audienceContainsAny(claims["aud"], acceptedAudiences) {
+	if (requireAudience || hasAudience && len(acceptedAudiences) > 0) && !audienceContainsAny(claims["aud"], acceptedAudiences) {
 		return nil, fmt.Errorf("%s audience does not include the required audience", kind)
 	}
 	exp, ok := numberClaim(claims["exp"])
@@ -608,7 +635,15 @@ func (c *OIDCClient) now() time.Time {
 	return time.Now()
 }
 func decodeLimited(r io.Reader, out any) error {
-	return json.NewDecoder(io.LimitReader(r, 2<<20)).Decode(out)
+	const maxJSON = 2 << 20
+	data, err := io.ReadAll(io.LimitReader(r, maxJSON+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > maxJSON {
+		return errors.New("JSON response exceeds 2 MiB")
+	}
+	return json.Unmarshal(data, out)
 }
 func randomURLSafe(n int) (string, error) {
 	b := make([]byte, n)
@@ -632,16 +667,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return "unknown error"
-}
-func secondsUntil(now, then time.Time) int64 {
-	if then.IsZero() {
-		return 3600
-	}
-	n := int64(then.Sub(now).Seconds())
-	if n < 0 {
-		return 0
-	}
-	return n
 }
 func numberClaim(v any) (int64, bool) {
 	switch n := v.(type) {
@@ -688,16 +713,22 @@ func stringClaim(claims map[string]any, name string, required bool) (string, err
 		}
 		return "", nil
 	}
-	v, ok := claimValue(claims, name)
-	if !ok {
+	values, err := selectClaimValues(claims, name)
+	if err != nil {
+		return "", err
+	}
+	if len(values) == 0 {
 		if required {
-			return "", fmt.Errorf("verified ID token has no %q claim", name)
+			return "", fmt.Errorf("verified claims have no %q claim", name)
 		}
 		return "", nil
 	}
-	s, ok := v.(string)
+	if len(values) != 1 {
+		return "", fmt.Errorf("claim selector %q must select exactly one value, got %d", name, len(values))
+	}
+	s, ok := values[0].(string)
 	if !ok || strings.TrimSpace(s) == "" {
-		return "", fmt.Errorf("verified ID token claim %q must be a non-empty string", name)
+		return "", fmt.Errorf("verified claim %q must be a non-empty string", name)
 	}
 	return s, nil
 }
@@ -705,47 +736,42 @@ func stringSliceClaim(claims map[string]any, name string) ([]string, error) {
 	if name == "" {
 		return nil, nil
 	}
-	v, ok := claimValue(claims, name)
-	if !ok {
+	values, err := selectClaimValues(claims, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(values) == 0 {
 		return nil, nil
 	}
-	switch x := v.(type) {
-	case string:
-		if x == "" {
-			return nil, nil
+	if len(values) == 1 {
+		if array, ok := values[0].([]any); ok {
+			values = array
 		}
-		return []string{x}, nil
-	case []any:
-		out := make([]string, 0, len(x))
-		for _, item := range x {
-			s, ok := item.(string)
-			if !ok {
-				return nil, fmt.Errorf("verified ID token claim %q must contain only strings", name)
-			}
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("verified claim %q must select strings or one string array", name)
+		}
+		if s != "" {
 			out = append(out, s)
 		}
-		return out, nil
-	default:
-		return nil, fmt.Errorf("verified ID token claim %q must be a string or string array", name)
 	}
+	return out, nil
 }
 
-// claimValue keeps exact namespaced claims working and otherwise permits dotted traversal for
-// IdPs that group custom claims in nested objects.
-func claimValue(claims map[string]any, name string) (any, bool) {
-	if value, ok := claims[name]; ok {
-		return value, true
-	}
-	var current any = claims
-	for _, segment := range strings.Split(name, ".") {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
+// selectClaimValues treats non-JSONPath selectors as literal top-level keys.
+func selectClaimValues(claims map[string]any, name string) ([]any, error) {
+	if !strings.HasPrefix(name, "$") {
+		if value, ok := claims[name]; ok {
+			return []any{value}, nil
 		}
-		current, ok = object[segment]
-		if !ok {
-			return nil, false
-		}
+		return nil, nil
 	}
-	return current, true
+	path, err := jsonpath.Parse(name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid claim JSONPath %q: %w", name, err)
+	}
+	return path.Select(claims), nil
 }

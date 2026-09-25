@@ -9,13 +9,10 @@ repository is involved in the persistence model.
 ## Backend and configuration
 
 The active profile's named provider supplies the storage mode. Local providers may configure S3
-directly; direct OIDC providers obtain renewable web-identity STS credentials when S3/STS is
-configured; first-class Broker providers obtain a restricted STS session plus topology when
-discovery advertises `graphit-s3-credentials-v3`; all STS credentials are resolved and cached only
-in memory for each project, user-memory, or Hub-metadata scope and physical module. Direct OIDC exchanges include a
-scope-limiting STS session policy. Local, OIDC, and Broker providers without S3
-remain filesystem-only. A configured STS exchange, advertised Broker capability, or renewal of an
-existing Broker S3 grant fails closed on error.
+directly. Broker providers obtain a restricted temporary S3 session plus topology when discovery
+advertises `graphit-s3-credentials-v3`; those grants are resolved and cached only in memory for
+each project, user-memory, or Hub-metadata scope and physical module. Providers without S3 remain
+filesystem-only. An advertised Broker capability or renewal of an existing grant fails closed on error.
 
 AST publication also resolves `hub.icebug.reverse_edges` through the standard
 inline → environment → project → global → default chain. Its default is `true`, and
@@ -276,7 +273,7 @@ without S3 they use the global filesystem directory. See [Memory Module](memory_
   user-memory, or Hub-metadata scope. The Broker retains its permanent identity and converts current grants into the STS session policy.
   A Broker provider whose valid discovery omits storage keeps its authenticated identity but uses
   filesystem paths.
-  Local and OIDC providers use their explicitly configured S3 topology. Bucket/IAM policy remains
+  Local providers use their explicitly configured S3 topology. Bucket/IAM policy remains
   the data-plane boundary.
 - A registry entry whose payload is missing is a hard integrity error. A valid Broker discovery
   document without the optional storage capability selects local storage, so remote Hub operations

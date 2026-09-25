@@ -307,7 +307,7 @@ See [Storage Layout](../architecture/storage_layout.md) for the exact structure 
 
 ## Network and security
 
-The UI is designed for local operation and has no built-in authentication. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients. The daemon's MCP HTTP endpoint is a separate authenticated listener. Open **System → Daemon** to copy its per-start runtime key; a local provider may use a static MCP key, while direct OIDC and Broker-managed providers verify each caller's access token and propagate its identity to the broker. See [Authentication](authentication.md).
+The UI is designed for local operation and has no built-in authentication. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients. The daemon's MCP HTTP endpoint is a separate authenticated listener. Open **System → Daemon** to copy its per-start runtime key; a local provider may use a static MCP key, while a Broker provider verifies each caller's Broker-issued access JWT for the configured MCP resource and forwards it to the Broker. See [Authentication](authentication.md).
 
 Before remote access:
 

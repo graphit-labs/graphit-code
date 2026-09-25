@@ -42,8 +42,8 @@ See the [code investigation workflow](guides/code_investigation.md) and
 Guides explain workflows from a user or operator perspective.
 
 - [Getting Started](guides/getting_started.md) — installation, setup, project initialization, first sync, and the Observatory.
-- [Authentication providers and account profiles](guides/authentication.md) — named local, direct OIDC, and Broker-managed providers, login/logout, multiple profiles, MCP/Broker Bearer, dynamic broker storage, and non-interactive operation.
-- [OIDC Integration](guides/oidc-integration.md) — native consumer and confidential broker-admin registration, PKCE, claims, HTTP MCP bearer propagation, direct relay/RFC 8693 exchange, Keycloak, Entra ID, Auth0, CI, and troubleshooting.
+- [Authentication providers and account profiles](guides/authentication.md) — named local and Broker providers, login/logout, multiple profiles, MCP/Broker Bearer, dynamic broker storage, and local non-interactive operation.
+- [OIDC Integration](guides/oidc-integration.md) — Broker-issued tokens, Authorization Code with PKCE, MCP OAuth discovery and resource binding, dual access-token audiences, and bearer forwarding to Broker APIs.
 - [Graphit Broker](guides/auth-broker.md) — provider modes, SQLite/PostgreSQL/MySQL persistence, OIDC/RBAC administration, transactional SQL ACLs, restricted STS issuance, embeddings/rerank, revision rollout, and troubleshooting.
 - [User Manual](guides/user_manual.md) — everyday AST, knowledge, memory, Hub, daemon, Dream, and ecosystem workflows.
 - [Configuration Reference](guides/configuration.md) — every supported key, default, module switch, provider, deployment profile, and runtime environment control.

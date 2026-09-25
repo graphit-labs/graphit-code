@@ -152,7 +152,7 @@ cannot prevent the agent's own file or command tools from modifying the project.
 is verified by argument/configuration tests, not by authenticated end-to-end runs of every provider.
 
 The child receives a filtered environment: runtime/config paths on Windows, macOS and Linux,
-proxy and certificate settings, and known model-provider credentials; generic OIDC/Broker tokens
+proxy and certificate settings, and known model-provider credentials; Broker access tokens
 and arbitrary parent variables are not inherited. Before launch, Graphit derives an HMAC-authenticated bearer bound to
 `dream-memory-v1`. The local MCP proxy refuses to fall back to the daemon master key when a Dream
 profile is active but its bearer is missing. The daemon verifies the bearer and overwrites any

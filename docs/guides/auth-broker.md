@@ -19,7 +19,7 @@ credential for AI and ACL calls.
 
 ```text
 Graphit login profile
-  └─ refreshable Broker/OIDC access token or static broker credential
+  └─ refreshable Broker access token or static broker credential
        ├─ /v1/hub/access/resolve ─ current SQL grants ─ authorized project selectors
        ├─ /v1/embeddings ─ ACL ─ broker-owned embedding upstream/key/model
        ├─ /v1/rerank     ─ ACL ─ broker-owned rerank upstream/key/model
@@ -87,13 +87,13 @@ It opens the Broker-owned sign-in page.
 The Broker performs local password/change/MFA verification or its upstream OIDC flow, then returns
 a one-time code to Graphit. Graphit exchanges it for EdDSA-signed ID/access JWTs and an opaque
 rotating refresh token; both signed tokens contain the stable Broker `sub`. It never handles the local
-password or upstream IdP tokens. The same `OIDCSession` model and refresh path used by direct OIDC
-providers is used here; there is no Broker-specific OAuth session or token response.
+password or upstream IdP tokens. Graphit verifies both signed tokens at login and on refresh,
+including refresh responses that omit a new ID token.
 
 Before opening the browser, Graphit requires the Broker-specific discovery issuer to match the
 configured endpoint and the standard discovery issuer. It also requires Authorization Code and
-refresh grants, PKCE S256, public-client token authentication (`none`), EdDSA ID tokens, an explicit
-Broker access-token audience, and same-origin authorization/token/JWKS endpoints. This prevents a compromised discovery
+refresh grants, PKCE S256, public-client token authentication (`none`), EdDSA ID tokens, a Broker
+access-token audience, and same-origin authorization/token/JWKS endpoints. These checks prevent a compromised discovery
 document from sending credentials or codes to another origin.
 
 Only methods currently available at the Broker appear. Local login is governed by
@@ -106,9 +106,9 @@ advertised path.
 Broker provider setup rejects static credentials, anonymous mode, direct upstream OIDC flags and
 token exchange. The same Broker-issued access token is used for broker requests. A Graphit daemon
 using this provider validates inbound Bearer JWTs locally through the Broker's discovered
-issuer/audience/JWKS and checks that token with the Broker's userinfo endpoint before binding its
+issuer, the endpoint's configured resource audience and JWKS, then checks that token with the Broker's userinfo endpoint before binding its
 identity to request context. A remote MCP client therefore needs only its Broker access token:
-Graphit exchanges that caller's token for temporary STS credentials when it accesses a project or
+Graphit uses that caller's token to request temporary STS credentials when it accesses a project or
 Hub scope. Those S3 credentials remain in the daemon's process memory, isolated by caller and
 scope; they are never sent to the MCP client or saved in the login profile.
 
@@ -125,18 +125,18 @@ discovery chain does the rest:
 4. The agent registers itself there (RFC 7591). The Broker only ever issues a **public** client, so
    the response carries no `client_secret`.
 5. It then runs Authorization Code with PKCE S256, passing `resource` (RFC 8707) with the canonical
-   resource identifier it read in step 2. The person authenticates in the browser through whatever
+   resource identifier in the authorization, code exchange and refresh requests. The person authenticates in the browser through whatever
    the Broker is configured to use — an upstream IdP or a Broker local user; the MCP path is the
    same either way, because the Broker is itself the OpenID Provider for this exchange.
 6. The resulting access token carries both the Broker audience and that resource in `aud`, and it
    is accepted at the MCP endpoint.
 
 The client registered in step 4 lives in the Broker, not in any upstream IdP, and the token is
-signed by the Broker's own key. A client that skips `resource` — `graphit login` is one — receives
-only the Broker audience and is equally valid at the same endpoint.
+signed by the Broker's own key. A client that skips `resource` is rejected. A Graphit login without
+`--mcp-resource` receives a token for Broker API calls, which is not valid at the HTTP MCP endpoint.
 
 The saved profile's issuer is the Broker and its subject is the stable Broker `sub`, never the
-upstream IdP `sub`. Graphit verifies the signed ID token at login and validates signed Broker access
+upstream IdP `sub`. Graphit verifies the signed ID and access JWTs at login and validates Broker access
 JWTs locally through standard discovery/JWKS for HTTP MCP. Near expiry, it re-discovers the Broker,
 uses the ordinary OIDC refresh grant, requires a new rotated refresh token, and atomically replaces
 the saved `OIDCSession`. Reuse of an older refresh token is rejected by the Broker and revokes that
@@ -204,106 +204,13 @@ is never retried anonymously. Broker `global` grants include anonymous and authe
 `anonymous` grants match only no-token calls. Keep public S3 grants read-only unless public writes
 are a deliberate product requirement.
 
-## Direct OIDC provider with all broker capabilities
+## HTTP MCP bearer propagation
 
-Register a public/native OIDC client for Authorization Code + PKCE. In the default relay mode the
-access token targets one shared MCP/broker audience and carries the claims/scopes the broker
-validates.
+A remote Streamable HTTP MCP client sends a Broker-issued access JWT as `Authorization: Bearer ...`. Graphit verifies its signature through the Broker JWKS, exact issuer, expiration, access-token use and the exact canonical MCP resource in `aud`. It then calls Broker UserInfo with that same bearer to confirm the token is still valid and its `sub` matches. The Broker API audience alone does not authorize access to MCP. The accepted resource is configured with `--mcp-resource` and must be advertised by the Broker.
 
-This is a distinct advanced topology in which Graphit itself is the upstream IdP client. Prefer
-the Broker-managed provider above when users should choose local or OIDC login on a Broker page.
+Every broker call made by that MCP request uses the verified caller's bearer and identity. Concurrent callers remain isolated; the daemon's own login token cannot replace an inbound token. The Broker evaluates current SQL grants independently. The inbound client owns renewal of its token, while the daemon refreshes only its own login profile. Local stdio MCP uses the daemon's local runtime credential.
 
-```bash
-graphit provider add company --type oidc \
-  --issuer https://id.example.com/realms/acme \
-  --client-id graphit-cli \
-  --token-auth-method none \
-  --redirect-uri http://127.0.0.1:8765/callback \
-  --scopes openid,profile,offline_access \
-  --username-claim preferred_username \
-  --organization-claim organization.id \
-  --teams-claim groups \
-  --s3-bucket graphit-artifacts --s3-region us-east-1 --s3-prefix graphit \
-  --s3-credential-source sts \
-  --sts-role-arn arn:aws:iam::123456789012:role/graphit-user \
-  --broker-endpoint https://broker.example.com \
-  --broker-token-strategy relay \
-  --broker-audience graphit-services \
-  --mcp-audience graphit-services \
-  --embedding-mode broker --rerank-mode broker
-
-graphit login --provider company --profile alice-acme
-```
-
-Login opens the browser, verifies the ID token, stores the refreshable OIDC session in the
-restricted global auth file, and activates `alice-acme`. STS exchange occurs only when a project,
-user-memory, or Hub-metadata scope first needs S3; temporary credentials stay in memory and are
-renewed before expiry. For remote MCP callers, configure `--sts-use-access-token` only when the
-STS endpoint accepts the caller's access token.
-
-### HTTP MCP bearer propagation
-
-When Graphit serves Streamable HTTP MCP with this provider active, the client sends its OIDC access
-token as `Authorization: Bearer ...`. Graphit verifies signature, issuer, expiry, MCP audience and
-the configured claims before creating request context. Every broker call made by that MCP request
-uses that request's bearer and identity—not the daemon's active account token and not a static
-credential. Concurrent users remain isolated. The broker validates the bearer independently and
-evaluates current SQL grants; Graphit-supplied identity fields never authorize the request.
-
-A token is accepted on the strength of its issuer, not on which client obtained it. Graphit does
-not require the `client_id` claim to match the client the Broker advertises for the CLI, because an
-MCP client registers with the Broker for itself and the Broker is what attests which clients exist.
-Everything else stays in force: EdDSA signature against the issuer's JWKS, `iss`, `exp`, `nbf`,
-`token_use`, an accepted audience, and revalidation against the Broker's userinfo endpoint with a
-matching `sub`.
-
-No product-specific scope is required either. A token's right to reach this endpoint comes from
-its audience, which the Broker binds per RFC 8707, so demanding a scope name on top would only
-narrow which authorization servers can serve the endpoint without adding a guarantee. Whatever
-scopes the Broker does advertise reach clients through the protected resource metadata document.
-
-The accepted audiences are the Broker's own `access_token_audience` and the canonical MCP resource
-the Broker advertises for this deployment, and nothing else. A client that follows RFC 8707 asks for
-that resource and receives it in `aud`; a client that asks for nothing receives the Broker audience.
-Both are legitimate for the same endpoint. With a direct OIDC provider the same rule applies to
-`oidc.mcp_audience` and `oidc.mcp_resource`.
-
-The caller owns renewal of an inbound MCP token. Refresh tokens in the active Graphit profile are
-used only for Graphit-initiated work; the daemon never swaps an expired inbound token for another
-user's profile token.
-
-Direct relay is the default and simplest deployment. MCP and broker must accept the same audience
-and resource indicator; the framework rejects divergent non-empty values:
-
-```bash
-graphit provider update company \
-  --mcp-audience graphit-services \
-  --broker-audience graphit-services \
-  --broker-token-strategy relay
-```
-
-Use RFC 8693 only when the IdP supports token exchange and the broker requires a distinct
-audience. Login requests an MCP-audience subject token; each MCP request exchanges that exact token
-for a broker-audience token:
-
-```bash
-graphit provider update company \
-  --mcp-audience graphit-mcp \
-  --mcp-resource https://graphit.example/mcp \
-  --broker-audience graphit-broker \
-  --broker-resource https://broker.example.com/ \
-  --broker-token-strategy token-exchange \
-  --broker-token-exchange-endpoint https://id.example.com/oauth2/token
-```
-
-Omit `--broker-token-exchange-endpoint` to use discovery's `token_endpoint`. Graphit sends the RFC
-8693 subject-token grant with the configured OIDC client authentication method, caches only the
-resulting bearer until shortly before its expiry, and keys that cache by provider, source token and
-target. Exchange failure is final: Graphit never retries by relaying a token minted for the wrong
-audience. The broker must list `graphit-broker` as an accepted consumer audience.
-
-Static `--mcp-key` and `--broker-key` are local-provider mechanisms. OIDC login rejects both so an
-OIDC deployment cannot silently bypass its identity provider.
+The Broker's access JWT format is documented by the Broker and includes `token_use: access`; it does not claim the optional RFC 9068 profile. The Broker may include both its API audience and the MCP resource audience so that one token can serve calls to both protected resources. No product-specific scope is required beyond the scopes advertised by the Broker.
 
 ## Direct providers
 
@@ -455,20 +362,19 @@ dependent profiles to log in again.
 | no active account profile | Run `graphit login` or `graphit account use`. |
 | broker credential missing | OIDC profile needs an access token; local profile needs `--broker-key`, unless provider/login intentionally use anonymous. |
 | discovery version/protocol invalid | Upgrade the client or broker so their contract versions overlap. |
-| Broker OIDC metadata rejected | Verify exact issuer/origin, Authorization Code + refresh grants, PKCE S256, auth method `none`, EdDSA, access-token audience/JWKS, and the advertised loopback path. |
+| Broker OIDC metadata rejected | Verify exact issuer/origin, Authorization Code + refresh grants, PKCE S256, auth method `none`, EdDSA, JWKS, the advertised loopback path, and the Broker access-token audience. |
 | Broker login opens but callback fails | Check that the loopback listener path matches Broker discovery and that state/nonce were not changed by a proxy or browser extension. |
 | Broker refresh fails | Log in again; the Broker requires refresh rotation and rejects reuse of an older family member. |
 | 401 | Check access-token issuer/audience/expiry/scopes or static key. |
-| MCP answers 401 with no `WWW-Authenticate` challenge | The daemon has no authorization server to advertise. Confirm the active provider is the Broker one, that the Broker lists this deployment's URL in `mcp_resources`, and that the request arrives at that host. Bearer authentication keeps working for callers that already hold a token. |
+| MCP answers 401 with a generic Bearer challenge but no `resource_metadata` | Confirm the active Broker provider has `--mcp-resource` set to this endpoint's exact canonical URI, that the Broker lists it in `mcp_resources`, and that the request host and port match. |
 | dynamic registration returns 404 | The Broker has `dynamic_registration` disabled, so `/.well-known/openid-configuration` omits `registration_endpoint`. Enable it, or register the client by hand and configure the agent with that `client_id`. |
 | dynamic registration returns `invalid_client_metadata` | The request asked for something a registered client may not have. Registration requires `token_endpoint_auth_method: none`, grants within `authorization_code`/`refresh_token`, `response_types: ["code"]`, and scopes the Broker already supports. Each redirect URI must be absolute, with no fragment or embedded credentials, and either `https` on a non-loopback host or plain `http` on loopback — `https` on a loopback host is refused, as is `http` anywhere else. |
 | authorization returns `invalid_target` | The `resource` indicator is not in the Broker's `mcp_resources`, is relative, carries a fragment, or more than one was sent. It must be the exact canonical identifier from the protected resource metadata document. |
-| MCP rejects a token the Broker just issued | Compare `aud` against the accepted set: the Broker's `access_token_audience` and this deployment's canonical MCP resource. A token carrying neither is for some other resource. |
+| MCP rejects a token the Broker just issued | Require this deployment's exact canonical MCP resource in `aud`; a token with only the Broker API audience is insufficient. Also check JWT signature/claims and the Broker UserInfo response. |
 | MCP rejects a token that worked a moment ago | The Broker's `access_ttl` is short, 10 minutes by default. Refresh instead of reusing, and check clock sync between the Broker and the daemon. |
 | browser MCP client blocked by CORS | Declare the agent's origin in `mcp.allowed_origins` (`GRAPHIT_MCP_ALLOWED_ORIGINS`), empty by default. The metadata document itself is readable by any origin; the configured policy applies to the MCP endpoint. |
 | 403 | Token is valid; inspect broker ACL principal/project/operation. |
-| token exchange fails | Verify IdP RFC 8693 support, token endpoint, client authentication, subject-token audience, requested broker audience/resource and consent; there is intentionally no relay fallback. |
-| MCP works but broker returns 401 | In relay mode, align accepted audiences; in exchange mode, verify that the broker accepts the exchanged audience. |
+| MCP works but broker returns 401 | Confirm the access JWT also carries the Broker API audience and has not been revoked. |
 | broker Hub access is unavailable | Restore the broker; `projects.json` is intentionally not a fallback for this provider. |
 | broker embedding revision or dimensions changed | Rebuild vectors for the current embedding revision and dimensions. |
 | broker rerank revision changed | Rebuild the rerank client for the current service revision. |

@@ -30,15 +30,12 @@ func ResolveActive(ctx context.Context) (Snapshot, error) {
 		if err != nil {
 			return Snapshot{}, err
 		}
-		if snapshot.Provider.Type == ProviderBroker || snapshot.Provider.Type == ProviderOIDC {
+		if snapshot.Provider.Type == ProviderBroker {
 			// Keep scoped S3 exchanges tied to the verified HTTP caller. Never
 			// refresh or persist the daemon's unrelated profile.
 			profile := snapshot.Profile
 			profile.OIDC = &OIDCSession{AccessToken: bearer, TokenType: "Bearer"}
 			identity, ok := RequestIdentity(ctx)
-			if snapshot.Provider.Type == ProviderOIDC && !ok {
-				return Snapshot{}, errors.New("verified OIDC request identity is unavailable")
-			}
 			if ok {
 				profile.Issuer, profile.Subject = identity.Issuer, identity.Subject
 				profile.Username, profile.Organization = identity.Username, identity.Organization

@@ -124,28 +124,26 @@ Avoid passing secrets in a shared shell history. In orchestration, inject them f
 secret store into the one-shot login process. `auth.json` is stored in the mounted global volume,
 mode `0600`, under a mode-`0700` directory.
 
-For enterprise identity, configure an OIDC provider as documented in [Authentication](authentication.md).
-A non-interactive workload supplies access/ID/refresh tokens to `login`; Graphit verifies the ID
-token and renews the OIDC session. Storage topology and S3 credentials exist only in the
-separately deployed broker.
+For enterprise identity, configure a Broker provider as documented in [Authentication](authentication.md).
+Its interactive login uses the Broker OpenID Provider; storage topology and temporary S3
+credentials come from the separately deployed Broker.
 
 ## MCP authentication
 
 The local daemon creates a new runtime key at each start; it is visible in **System → Daemon** and
 `/home/graphit/.graphit/daemon/mcp.key`. A local provider may also supply a static MCP key. With an active
-direct OIDC or Broker-managed provider, every remote client sends its own access token as
-`Authorization: Bearer ...`; Graphit verifies it against the configured or Broker-discovered
-issuer/audience/JWKS and uses
-that request identity for all broker calls. Direct OIDC may use relay or configured RFC 8693
-exchange. It never substitutes the service profile's token for an inbound user.
+Broker provider, every remote client sends its own Broker-issued access token as
+`Authorization: Bearer ...`. Graphit verifies the signature, issuer, token purpose and exact MCP
+resource audience; it forwards that same bearer to Broker APIs. The token may also contain the
+Broker API audience, which those APIs validate independently.
 
 A remote client that has no token yet discovers where to get one. An unauthenticated call to the
 MCP endpoint returns `401` with a `WWW-Authenticate: Bearer` challenge pointing at this server's
 OAuth 2.0 protected resource metadata (RFC 9728), which names the Broker as the authorization
 server. The client then registers with the Broker and runs Authorization Code with PKCE on its
 own, with no `graphit login` on this container. The daemon advertises this only when the Broker
-lists this deployment's public URL among its accepted MCP resources and the request arrives at
-that host; a freshly started container, whose provider is still `local`, announces nothing.
+lists the configured `--mcp-resource` URI among its accepted MCP resources and the request host
+and port match; a freshly started container, whose provider is still `local`, announces nothing.
 
 A browser-based MCP client additionally needs its origin declared in `mcp.allowed_origins`
 (`GRAPHIT_MCP_ALLOWED_ORIGINS`), which is empty by default and then emits no CORS headers at all.

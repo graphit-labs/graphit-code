@@ -130,9 +130,6 @@ func BrokerStorageIdentity(snapshot Snapshot) string {
 	endpoint := ""
 	if snapshot.Provider.Broker != nil {
 		endpoint = snapshot.Provider.Broker.Endpoint
-	} else if snapshot.Provider.STS != nil {
-		endpoint = snapshot.Provider.STS.Endpoint + "\x00" + snapshot.Provider.STS.RoleARN + "\x00" +
-			snapshot.Provider.S3.Bucket + "\x00" + snapshot.Provider.S3.Prefix
 	}
 	if snapshot.Profile.OIDC != nil {
 		digest := sha256.Sum256([]byte(snapshot.Profile.OIDC.IDToken + "\x00" + snapshot.Profile.OIDC.AccessToken))

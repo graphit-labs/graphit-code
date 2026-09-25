@@ -231,6 +231,8 @@ github.com/testcontainers/testcontainers-go v0.33.0 h1:zJS9PfXYT5O0ZFXM2xxXfk4J5
 github.com/testcontainers/testcontainers-go v0.33.0/go.mod h1:W80YpTa8D5C3Yy16icheD01UTDu+LmXIA2Keo+jWtT8=
 github.com/testcontainers/testcontainers-go/modules/minio v0.33.0 h1:lHhjYlm0Oh+PfM03NIwCqNg2zSz9VuNTwUKi4MQfYAA=
 github.com/testcontainers/testcontainers-go/modules/minio v0.33.0/go.mod h1:3WRFF6lLI3IqXb7lvOx6OpEcH1jgs59mbzZiPTJeEJg=
+github.com/theory/jsonpath v0.12.1 h1:ngpBcZo/aiwY5exwjtmdq3J16pLtUC21+k3f/VH/ghI=
+github.com/theory/jsonpath v0.12.1/go.mod h1:fYTXa8TVFAnyGzDL5JyaFlfaHzKMm+2XfwK3rbEzTC4=
 github.com/tklauser/go-sysconf v0.3.16 h1:frioLaCQSsF5Cy1jgRBrzr6t502KIIwQ0MArYICU0nA=
 github.com/tklauser/go-sysconf v0.3.16/go.mod h1:/qNL9xxDhc7tx3HSRsLWNnuzbVfh3e7gh/BmM179nYI=
 github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9RXw=

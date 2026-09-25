@@ -63,7 +63,7 @@ func NewS3Store(ctx context.Context, inlineCfg, projectCfg config.ConfigMap) (*S
 	hubStore := &S3Store{cfg: cfg, cacheBase: cacheDir, scoped: map[string]scopedS3Store{}}
 	if snapshot, activeErr := auth.ResolveActive(ctx); activeErr == nil {
 		hubStore.broker = snapshot.Provider.Type == auth.ProviderBroker
-		hubStore.scopedCredentials = hubStore.broker || (snapshot.Provider.Type == auth.ProviderOIDC && snapshot.Provider.STS != nil && snapshot.Provider.S3.Bucket != "")
+		hubStore.scopedCredentials = hubStore.broker
 		if hubStore.scopedCredentials {
 			hubStore.storageID = auth.BrokerStorageIdentity(snapshot)
 			cfg = config.HubMetadataS3Config(ctx)
@@ -280,12 +280,6 @@ func (s *S3Store) EnsureReachable(ctx context.Context) error {
 	}
 	storage, err := s.scopeStore(ctx, auth.HubStorageScope())
 	if err != nil {
-		return err
-	}
-	if s.scopedCredentials && !s.broker {
-		// HeadBucket would require an unscoped ListBucket grant. Probe the
-		// registry namespace instead so OIDC STS retains its session policy.
-		_, err := storage.objects.ListPage(ctx, "v2/registry/", 1, "")
 		return err
 	}
 	return storage.objects.EnsureBucket(ctx)

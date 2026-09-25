@@ -18,7 +18,7 @@ func TestTableURIUsesLocalPathForBrokerWithoutS3(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := auth.Provider{Name: "company", Type: auth.ProviderBroker,
-		Broker: &auth.BrokerConfig{Endpoint: "https://broker.example", TokenStrategy: "relay"},
+		Broker: &auth.BrokerConfig{Endpoint: "https://broker.example"},
 		AI:     auth.AIConfig{Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker}, Rerank: auth.AIServiceConfig{Mode: auth.ServiceBroker}},
 		S3:     auth.S3Config{CredentialSource: "broker"}}
 	if err := authStore.AddProvider(provider); err != nil {

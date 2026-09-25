@@ -44,8 +44,15 @@ func TestResolveMCPStdioBearerUsesDaemonKeyWithoutActiveProfile(t *testing.T) {
 	}
 }
 
-func TestResolveMCPStdioBearerTracksActiveProfileCredential(t *testing.T) {
+func TestResolveMCPStdioBearerDoesNotUseActiveProfileCredential(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	keyPath := daemonctl.KeyFilePath()
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte("runtime-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, err := auth.Open()
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +65,7 @@ func TestResolveMCPStdioBearerTracksActiveProfileCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := resolveMCPStdioBearer(context.Background())
-	if err != nil || got != "local-key" {
+	if err != nil || got != "runtime-key" {
 		t.Fatalf("local bearer=%q err=%v", got, err)
 	}
 
@@ -80,7 +87,7 @@ func TestResolveMCPStdioBearerTracksActiveProfileCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err = resolveMCPStdioBearer(context.Background())
-	if err != nil || got != "broker-access-token" {
+	if err != nil || got != "runtime-key" {
 		t.Fatalf("broker bearer=%q err=%v", got, err)
 	}
 }

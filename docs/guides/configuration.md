@@ -74,7 +74,7 @@ read from the global configuration used by the completion client. Set them with 
 | Profile | Essential settings | Result |
 |---|---|---|
 | Local workstation | local auth provider without broker storage; local embedding; default modules | Sources, graphs, wikis, memory, and tasks stay on the machine while profiles remain isolated. |
-| Shared S3 state | local provider with direct S3, OIDC provider with web-identity STS, or S3-enabled Broker provider with Broker-issued STS | Hub artifacts and authenticated Memory/Task tables use direct S3 access; Broker-routed AI remains independently selectable. |
+| Shared S3 state | local provider with direct S3 or S3-enabled Broker provider with Broker-issued temporary credentials | Hub artifacts and authenticated Memory/Task tables use direct S3 access; Broker-routed AI remains independently selectable. |
 | CI artifact publisher | non-interactive provider creation and login; agent, Dream, daemon, watcher, and hooks disabled | An ephemeral runner explicitly builds and publishes current AST and knowledge contexts without prompts. |
 | Headless server | `modules.agent=false`, `modules.daemon_ui=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and the unauthenticated Observatory UI. |
 | Private distribution | build-time `COMPILE_CONFIG` and brand variables | Defaults and identity ship with an internally distributed launcher. |
@@ -150,7 +150,7 @@ In non-interactive provider commands, `--embedding-device*` and `--rerank-device
 corresponding local service. Omitted values preserve the provider's current value or use `cpu`/`0`
 for a new local service. Direct, broker, and disabled services store no ONNX block and reject these
 flags. This rule follows service mode regardless of whether provider authentication is local,
-direct OIDC, or Broker-managed.
+or Broker-managed.
 
 On providers without broker configuration, the active provider selects local/direct/broker/disabled
 for this backend independently. A broker-configured provider must use broker mode for both embedding
@@ -171,8 +171,7 @@ query/document retrieval task or textual instruction and requests the configured
 ## Hub, shared state, and published artifacts
 
 Hub storage and identity are not layered configuration keys. A local provider may own direct S3
-topology and choose login credentials, an AWS profile, or the allowed AWS chain. A direct OIDC
-provider owns S3 topology plus an STS role and exchanges web identity. A first-class Broker provider
+topology and choose login credentials, an AWS profile, or the allowed AWS chain. A first-class Broker provider
 resolves topology and a restricted temporary session in memory for each project/user/Hub scope when discovery
 advertises `graphit-s3-credentials-v3`; when the capability is absent because Broker S3 is disabled,
 the profile remains authenticated and storage is local. A profile owns identity, service keys and
@@ -221,38 +220,27 @@ validation and noninteractive setup sequence.
 | `mcp.allowed_origins` | empty | Comma-separated exact CORS allowlist for the MCP endpoint; the environment name is `GRAPHIT_MCP_ALLOWED_ORIGINS`. Empty emits no CORS headers at all. Only a browser-based MCP client needs it; an agent whose runtime connects server-side is unaffected. |
 
 The daemon writes a fresh local runtime key to `~/.graphit/daemon/mcp.key` with mode `0600` on
-each start. Static MCP keys are local-provider credentials. With an active direct OIDC or
-Broker-managed provider, the listener also verifies each caller's access token; Broker-managed
-tokens use the audience and JWKS discovered from the Broker, while direct OIDC checks
-`oidc.mcp_audience`. Broker calls made by
-that request use the same bearer (`relay`) or, for direct OIDC, a request-scoped RFC 8693 exchanged
-token. A direct HTTP caller must supply its own identity. The stdio bridge always targets this local
-daemon and deliberately uses the renewable access token of its active OIDC/Broker session, resolving
-it again before every request; local/no-profile use falls back to a static local MCP key or the
-current runtime key. `oidc.mcp_audience` and `oidc.mcp_resource` configure only the direct OIDC token
-requested for this daemon listener, never a remote MCP endpoint.
-`oidc.mcp_require_audience` defaults to true even when absent from an older provider; setting it
-to false accepts an audience-free direct OIDC access token only after signature, issuer, expiry,
-`client_id`, and `token_use=access` verification, while still rejecting a different `aud`. This is
-a compatibility exception that weakens token isolation and does not apply to Broker providers.
+each start. Static MCP keys are local-provider credentials. With an active Broker provider, remote
+HTTP MCP callers present their own Broker-issued access JWT. The daemon verifies its EdDSA signature,
+issuer, access-token claims, UserInfo subject, and the exact canonical MCP resource in `aud`.
+The JWT may also carry the Broker API audience so the Code can forward the same bearer to Broker
+APIs. A token bearing only the Broker API audience cannot enter the MCP listener. The stdio bridge
+uses the local daemon runtime key or a scoped capability token; it does not use an active login's
+access token to impersonate that user over HTTP.
 
 A client that holds no credential yet is told where to get one. An unauthenticated request to
 the MCP endpoint answers `401` with a `WWW-Authenticate: Bearer` challenge carrying
 `resource_metadata`, and that URL serves an OAuth 2.0 protected resource metadata document
 (RFC 9728) naming the authorization server, the supported scopes, and this endpoint's canonical
-resource identifier. With a Broker-managed provider every one of those values comes from Broker
-discovery — Graphit holds no local issuer, client, audience, or resource setting for that provider
-type. The daemon advertises only when the Broker lists this deployment's own URL among its
-accepted MCP resources and the request arrives at that host; otherwise it announces no
-authorization server rather than guessing one, and bearer authentication keeps working for
-callers that already hold a token. With a direct OIDC provider the same values come from
-`oidc.mcp_resource` and `oidc.mcp_audience` on this daemon, which an operator configured here
-rather than discovering, so they do not depend on the request host.
+resource identifier. A Broker provider stores that canonical URI in `broker.mcp_resource`; the
+daemon advertises it only when Broker discovery lists the same URI in `mcp_resources` and the
+request host and port match. The authorization server comes from Broker discovery. When no
+resource can be confirmed, the daemon announces no authorization server.
 
 When there is nothing to advertise — a `local` provider, or a Broker that does not list this
-deployment — the two surfaces stay consistent with each other: the `401` carries no
-`WWW-Authenticate` header at all, and the metadata path answers `404` rather than an empty
-or partial document. A client learns that this endpoint has no
+deployment — the `401` carries a generic `WWW-Authenticate: Bearer` challenge without
+`resource_metadata`, and the metadata path answers `404` rather than an empty or partial document.
+A client learns that this endpoint has no
 authorization server to point it at, instead of being sent somewhere that cannot issue a
 usable token. The metadata document itself is readable by any origin, because its whole
 purpose is discovery by a client that cannot authenticate yet.

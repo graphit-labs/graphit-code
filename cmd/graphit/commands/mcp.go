@@ -2,15 +2,12 @@ package commands
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
-	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
@@ -76,32 +73,11 @@ func runMCPStdioProxy() error {
 	return mcpproxy.RunProxy(cfg, os.Stdin, os.Stdout)
 }
 
-func resolveMCPStdioBearer(ctx context.Context) (string, error) {
+func resolveMCPStdioBearer(_ context.Context) (string, error) {
 	if token := agentpolicy.CapabilityTokenFromEnv(); token != "" {
 		return token, nil
 	}
-	snapshot, err := auth.ResolveActive(ctx)
-	if err != nil {
-		if errors.Is(err, auth.ErrNoActiveProfile) {
-			return mcpproxy.ReadKey(daemonctl.KeyFilePath())
-		}
-		return "", err
-	}
-
-	switch snapshot.Provider.Type {
-	case auth.ProviderOIDC, auth.ProviderBroker:
-		if snapshot.Profile.OIDC == nil || strings.TrimSpace(snapshot.Profile.OIDC.AccessToken) == "" {
-			return "", fmt.Errorf("active profile %q has no OIDC access token", snapshot.Profile.Name)
-		}
-		return snapshot.Profile.OIDC.AccessToken, nil
-	case auth.ProviderLocal:
-		if key := strings.TrimSpace(snapshot.Profile.MCPKey); key != "" {
-			return key, nil
-		}
-		return mcpproxy.ReadKey(daemonctl.KeyFilePath())
-	default:
-		return "", fmt.Errorf("active profile %q uses unsupported provider type %q", snapshot.Profile.Name, snapshot.Provider.Type)
-	}
+	return mcpproxy.ReadKey(daemonctl.KeyFilePath())
 }
 
 func showMCPEndpoint() error {
@@ -129,7 +105,7 @@ func showMCPEndpoint() error {
 	p.Header("MCP Server")
 	p.KeyValue("Endpoint", fmt.Sprintf("http://127.0.0.1:%d/mcp", port))
 	p.KeyValue("Transport", "Streamable HTTP")
-	p.KeyValue("Auth", "Bearer: active OIDC/Broker token, local profile key, or ~/"+brand.DotDir()+"/daemon/mcp.key")
+	p.KeyValue("Auth", "Bearer: daemon runtime key or local profile key; remote clients use Broker access tokens")
 	p.Step("For Agent integration: %s mcp --stdio", brand.BinName())
 
 	return nil

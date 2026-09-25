@@ -427,7 +427,7 @@ CoreML is compiled into the macOS dylib; there is no separate `providers_coreml`
 
 - Local embedding/rerank keeps query and indexed text on the machine after model download.
 - Direct providers receive text and authenticate with the active profile's API key.
-- Broker providers receive text and the active OIDC access token/static broker key; their upstream
+- Broker providers receive text and the active Broker access token; local providers can use a static Broker key. Broker upstream
   AI keys never enter the Graphit client.
 - Completion CLIs receive prompts/retrieved context and may send them to their own provider.
 - BM25, exact Cypher, source slicing and deterministic coordination do not require a model.

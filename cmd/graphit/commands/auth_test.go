@@ -147,42 +147,36 @@ func TestBrokerAuthenticationProviderDiscoversLoginAndRejectsStaticIdentityFlags
 	if _, err := executeCommand("--non-interactive", "login", "--profile", "alice", "--provider", "company"); err == nil || !strings.Contains(err.Error(), "interactive browser") {
 		t.Fatalf("non-interactive broker login err=%v", err)
 	}
-	if _, err := executeCommand("--non-interactive", "provider", "add", "invalid", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--issuer", "https://identity.example"); err == nil || !strings.Contains(err.Error(), "do not accept upstream OIDC") {
+	if _, err := executeCommand("--non-interactive", "provider", "add", "invalid", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--issuer", "https://identity.example"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("broker provider accepted OIDC flags: %v", err)
 	}
-	if _, err := executeCommand("--non-interactive", "provider", "add", "invalid-mcp", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--mcp-audience", "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "do not accept MCP audience") {
+	if _, err := executeCommand("--non-interactive", "provider", "add", "invalid-mcp", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--mcp-audience", "graphit-mcp"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("broker provider accepted MCP token flags: %v", err)
 	}
 }
 
-func TestOIDCMCPAudiencePolicyFlags(t *testing.T) {
+func TestProviderCLIExposesOnlyLocalAndBroker(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	t.Setenv("GRAPHIT_MODULES_DAEMON", "false")
-	base := []string{"--non-interactive", "provider", "add", "oidc", "--type", "oidc", "--issuer", "https://id.example", "--client-id", "mcp-client", "--username-claim", "sub", "--mcp-audience", "https://mcp.example/mcp", "--embedding-mode", "disabled", "--rerank-mode", "disabled"}
-	if out, err := executeCommand(base...); err != nil {
-		t.Fatalf("default provider add: %v\n%s", err, out)
+	if _, err := executeCommand("--non-interactive", "provider", "add", "old", "--type", "oidc"); err == nil || !strings.Contains(err.Error(), "unsupported provider type oidc") {
+		t.Fatalf("direct oidc provider accepted: %v", err)
+	}
+	if _, err := executeCommand("--non-interactive", "provider", "add", "broker", "--type", "broker", "--broker-endpoint", "http://127.0.0.1:8080", "--mcp-resource", "https://graphit.example.com/mcp"); err != nil {
+		t.Fatalf("broker MCP resource rejected: %v", err)
 	}
 	store, err := auth.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.Load()
-	if err != nil || !state.Providers["oidc"].OIDC.RequireMCPAudience() {
-		t.Fatalf("default audience policy: %v", err)
+	if err != nil || state.Providers["broker"].Broker.MCPResource != "https://graphit.example.com/mcp" {
+		t.Fatalf("broker MCP resource not persisted: state=%#v err=%v", state.Providers["broker"], err)
 	}
-	if out, err := executeCommand("--non-interactive", "provider", "update", "oidc", "--mcp-require-audience=false"); err != nil {
-		t.Fatalf("compatibility update: %v\n%s", err, out)
+	if _, err := executeCommand("--non-interactive", "provider", "add", "local", "--type", "local", "--mcp-resource", "https://graphit.example.com/mcp"); err == nil || !strings.Contains(err.Error(), "requires a broker provider") {
+		t.Fatalf("local accepted broker MCP resource: %v", err)
 	}
-	state, err = store.Load()
-	if err != nil || state.Providers["oidc"].OIDC.RequireMCPAudience() {
-		t.Fatalf("compatibility policy was not persisted: %v", err)
-	}
-	if out, err := executeCommand("--non-interactive", "provider", "update", "oidc", "--mcp-require-audience=true"); err != nil {
-		t.Fatalf("strict update: %v\n%s", err, out)
-	}
-	state, err = store.Load()
-	if err != nil || !state.Providers["oidc"].OIDC.RequireMCPAudience() {
-		t.Fatalf("strict policy was not restored: %v", err)
+	if _, err := executeCommand("--non-interactive", "provider", "update", "broker", "--mcp-require-audience=false"); err == nil {
+		t.Fatal("obsolete optional audience flag was accepted")
 	}
 }
 
@@ -313,30 +307,6 @@ func TestProviderLocalONNXDefaultsAndIndependentSettings(t *testing.T) {
 	}
 	if got := tuned.AI.Rerank.ONNX; got == nil || got.Device != auth.ONNXDeviceCPU || got.DeviceID != 0 {
 		t.Fatalf("rerank changed unexpectedly = %#v", got)
-	}
-}
-
-func TestProviderLocalONNXAppliesToOIDCAuthentication(t *testing.T) {
-	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
-	t.Setenv("GRAPHIT_MODULES_DAEMON", "false")
-	out, err := executeCommand("--non-interactive", "provider", "add", "oidc-local", "--type", "oidc",
-		"--issuer", "https://issuer.example", "--client-id", "client", "--username-claim", "preferred_username",
-		"--embedding-device", "cpu", "--embedding-device-id", "2",
-		"--rerank-device", "auto", "--rerank-device-id", "0")
-	if err != nil {
-		t.Fatalf("OIDC provider add: %v\n%s", err, out)
-	}
-	store, err := auth.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := state.Providers["oidc-local"]
-	if provider.Type != auth.ProviderOIDC || provider.AI.Embedding.ONNX == nil || provider.AI.Embedding.ONNX.Device != auth.ONNXDeviceCPU || provider.AI.Rerank.ONNX == nil || provider.AI.Rerank.ONNX.Device != auth.ONNXDeviceAuto {
-		t.Fatalf("OIDC local ONNX configuration = %#v", provider)
 	}
 }
 

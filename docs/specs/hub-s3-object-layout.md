@@ -18,8 +18,7 @@ discovery are defined by [Hub Access Control](hub_access_control.md).
 
 Every key below is relative to the active provider's S3 prefix. Local providers configure the
 bucket, region, endpoint and prefix directly and use login credentials, an AWS profile or the AWS
-credential chain. Direct OIDC providers configure that topology and obtain renewable credentials
-with `AssumeRoleWithWebIdentity`. When first-class Broker discovery advertises
+credential chain. When first-class Broker discovery advertises
 `graphit-s3-credentials-v3`, the Broker selects its private route, derives an STS session policy
 from the authenticated principal's current grants for the requested project, user-memory, or Hub
 metadata scope and physical module, and returns the topology plus temporary credentials. Broker credentials/topology
@@ -218,7 +217,7 @@ mirror and `~/.<brand>/hub.registry.json` authority are removed.
 
 | Condition | Behaviour |
 |---|---|
-| No S3 configured on a local or direct OIDC provider | Filesystem-only behavior |
+| No S3 configured on a local provider | Filesystem-only behavior |
 | Valid first-class Broker discovery omits `graphit-s3-credentials-v3` | Filesystem-only behavior; remote Hub operations are unavailable |
 | Broker advertises an invalid S3 capability, cannot be discovered/authenticated, fails issuance, or loses the capability while renewing an existing grant | Fail closed; do not silently change storage authority |
 | ACL document absent | No grant from that level |

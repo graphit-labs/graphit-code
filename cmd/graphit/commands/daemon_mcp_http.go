@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -161,9 +163,69 @@ func (h *mcpBearerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if authorizedProfile != "" {
 			r.Header.Set(agentpolicy.ProfileHeader, authorizedProfile)
 		}
-		h.next.ServeHTTP(w, r)
+		h.next.ServeHTTP(&mcpPermissionChallengeWriter{ResponseWriter: w, resourceMetadataURL: opts.ResourceMetadataURL}, r)
 	})
-	mcpauth.RequireBearerToken(verifier, opts)(authenticated).ServeHTTP(w, r)
+	mcpauth.RequireBearerToken(verifier, opts)(authenticated).ServeHTTP(&mcpBearerChallengeWriter{
+		ResponseWriter: w, authorization: r.Header.Get("Authorization"),
+	}, r)
+}
+
+// The SDK omits WWW-Authenticate when resource metadata cannot be resolved and
+// does not distinguish an invalid bearer from an absent one in its challenge.
+// RFC 6750 still requires a Bearer challenge on 401, with invalid_token for an
+// attempted bearer that verification rejected.
+type mcpBearerChallengeWriter struct {
+	http.ResponseWriter
+	authorization string
+}
+
+func (w *mcpBearerChallengeWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *mcpBearerChallengeWriter) WriteHeader(status int) {
+	if status == http.StatusUnauthorized {
+		challenge := ""
+		for _, candidate := range w.Header().Values("WWW-Authenticate") {
+			if candidate == "Bearer" || strings.HasPrefix(candidate, "Bearer ") {
+				challenge = candidate
+				break
+			}
+		}
+		if challenge == "" {
+			challenge = "Bearer"
+		}
+		fields := strings.Fields(w.authorization)
+		if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") && fields[1] != "" && !strings.Contains(challenge, "error=") {
+			if challenge == "Bearer" {
+				challenge += ` error="invalid_token"`
+			} else {
+				challenge += `, error="invalid_token"`
+			}
+		}
+		w.Header().Set("WWW-Authenticate", challenge)
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+// A downstream operation can identify its required scope after the bearer has been
+// verified. Keep that 403 and its scope challenge, and make the same discovery URL
+// available as on the initial 401.
+type mcpPermissionChallengeWriter struct {
+	http.ResponseWriter
+	resourceMetadataURL string
+}
+
+func (w *mcpPermissionChallengeWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *mcpPermissionChallengeWriter) WriteHeader(status int) {
+	if status == http.StatusForbidden && w.resourceMetadataURL != "" {
+		for _, challenge := range w.Header().Values("WWW-Authenticate") {
+			if strings.HasPrefix(challenge, "Bearer ") && strings.Contains(challenge, `error="insufficient_scope"`) && !strings.Contains(challenge, "resource_metadata=") {
+				w.Header().Set("WWW-Authenticate", challenge+", "+fmt.Sprintf("resource_metadata=%q", w.resourceMetadataURL))
+				break
+			}
+		}
+	}
+	w.ResponseWriter.WriteHeader(status)
 }
 
 // mcpMetadataHandler serves the protected resource metadata document (RFC 9728).
@@ -175,7 +237,7 @@ func (h *mcpBearerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func mcpMetadataHandler(resolver *auth.ProtectedResourceResolver) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, ok := mcpProtectedResource(resolver, r)
-		if !ok {
+		if !ok || (r.URL.Path != resource.MetadataPath() && r.URL.Path != "/.well-known/oauth-protected-resource") {
 			http.NotFound(w, r)
 			return
 		}

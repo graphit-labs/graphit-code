@@ -26,12 +26,11 @@ agents use these tools to index code, query graphs, manage memories, search know
 
 Remote clients send `Authorization: Bearer <credential>`. The local runtime key is available from
 **System → Daemon** and the daemon's mode-`0600` `mcp.key` file; it is random and rotates on every
-start. A local provider may use its login's static MCP key. With an active direct OIDC or
-Broker-managed provider, the credential is the caller's access token: Graphit validates it against
-the configured or Broker-discovered issuer/audience/JWKS and propagates that request identity to
-the broker. Direct OIDC may
-use relay or configured RFC 8693 exchange. It never replaces one caller's token with the active
-profile token.
+start. A local provider may use its login's static MCP key. With an active Broker provider, the
+credential is the caller's Broker-issued access JWT: Graphit validates its signature, issuer,
+token purpose, subject, and exact configured MCP resource audience, then forwards that same bearer
+to Broker APIs. Those APIs validate their own audience in the token. The daemon never replaces an
+inbound caller's token with the active profile token.
 
 The tools are organized by module. Every tool name follows the pattern `graphit_<module>_<action>` (e.g., `graphit_ast_query`).
 

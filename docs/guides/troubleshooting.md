@@ -697,7 +697,7 @@ invalid memory type "<type>"
 has a resolved S3 topology and credentials. Without S3 it falls back to the global filesystem;
 anonymous user memory is always local.
 
-**Solutions:** Configure direct S3 on a local provider, web-identity STS on an OIDC provider, or use
+**Solutions:** Configure direct S3 on a local provider or use
 a Broker provider whose discovery advertises `graphit-s3-credentials-v3`. Re-login if the provider
 revision changed, then inspect the redacted account state. Broker credential expiry is managed only
 in process memory and is intentionally absent from account output.
@@ -899,9 +899,9 @@ revalidated. Graphit does not fall back to a cached positive decision.
 3. Check the broker's private route key, object-store endpoint, bucket policy, and ACL logs;
    none of these settings belongs in Graphit provider/login configuration.
 4. Re-run `graphit login` if the OIDC session or static broker key is invalid.
-5. For multi-user OIDC deployments, verify that the MCP bearer is valid for the configured MCP
-   audience and that relay or RFC 8693 exchange produces a bearer accepted independently by the
-   broker. Graphit never trusts user/team values supplied in a request body.
+5. For multi-user Broker deployments, verify that the MCP bearer contains both the configured MCP
+   resource audience and the Broker API audience. Graphit forwards that same bearer to Broker APIs
+   and never trusts user/team values supplied in a request body.
 
 ### Hub lists no projects
 

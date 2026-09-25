@@ -102,16 +102,42 @@ func TestStoreRejectsPreviousStateVersionWithoutMigration(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsDirectOIDCProviderType(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	state := `{"version":4,"providers":{"old":{"name":"old","type":"oidc","oidc":{"issuer":"https://issuer.example","client_id":"client"}}},"profiles":{}}`
+	if err := os.WriteFile(path, []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenAt(path).Load(); err == nil || !strings.Contains(err.Error(), `unsupported type "oidc"`) {
+		t.Fatalf("direct OIDC provider load error = %v", err)
+	}
+	embedded := `{"version":4,"providers":{"broker":{"name":"broker","type":"broker","oidc":{"issuer":"https://issuer.example","client_id":"client"}}},"profiles":{}}`
+	if err := os.WriteFile(path, []byte(embedded), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenAt(path).Load(); err == nil || !strings.Contains(err.Error(), "unsupported OIDC configuration") {
+		t.Fatalf("embedded direct OIDC config load error = %v", err)
+	}
+	valid := `{"version":4,"providers":{"local":{"name":"local","type":"local"}},"profiles":{}}`
+	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := OpenAt(path).Load()
+	if err != nil || loaded.Providers["local"].Type != ProviderLocal {
+		t.Fatalf("valid local state = %#v, err = %v", loaded, err)
+	}
+}
+
 func TestProviderRevisionInvalidatesProfilesAndCascadeIsExplicit(t *testing.T) {
 	store := OpenAt(filepath.Join(t.TempDir(), "auth.json"))
-	p := Provider{Name: "corp", Type: ProviderOIDC, OIDC: &OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "preferred_username"}}
+	p := Provider{Name: "corp", Type: ProviderBroker, Broker: &BrokerConfig{Endpoint: "https://broker.example"}, AI: AIConfig{Embedding: AIServiceConfig{Mode: ServiceBroker}, Rerank: AIServiceConfig{Mode: ServiceBroker}}}
 	if err := store.AddProvider(p); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Login(Profile{Name: "me", Provider: "corp", Username: "me", Issuer: p.OIDC.Issuer, Subject: "subject", OIDC: &OIDCSession{AccessToken: "access", IDToken: "id", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
+	if err := store.Login(Profile{Name: "me", Provider: "corp", Username: "me", Issuer: p.Broker.Endpoint, Subject: "subject", OIDC: &OIDCSession{AccessToken: "access", IDToken: "id", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
-	p.OIDC.ClientID = "new-client"
+	p.Broker.Endpoint = "https://new-broker.example"
 	if err := store.UpdateProvider(p); err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +303,7 @@ func TestActiveOrDefaultLocalDoesNotCreateLocalWithActiveProfile(t *testing.T) {
 
 func TestEnsureDefaultLocalProviderRejectsConflictingType(t *testing.T) {
 	store := OpenAt(filepath.Join(t.TempDir(), "auth.json"))
-	conflict := Provider{Name: DefaultLocalProviderName, Type: ProviderOIDC, OIDC: &OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "preferred_username"}}
+	conflict := Provider{Name: DefaultLocalProviderName, Type: ProviderBroker, Broker: &BrokerConfig{Endpoint: "https://broker.example"}, AI: AIConfig{Embedding: AIServiceConfig{Mode: ServiceBroker}, Rerank: AIServiceConfig{Mode: ServiceBroker}}}
 	if err := store.AddProvider(conflict); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +314,7 @@ func TestEnsureDefaultLocalProviderRejectsConflictingType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Providers[DefaultLocalProviderName].Type != ProviderOIDC {
+	if state.Providers[DefaultLocalProviderName].Type != ProviderBroker {
 		t.Fatalf("conflicting provider was overwritten: %#v", state.Providers[DefaultLocalProviderName])
 	}
 }

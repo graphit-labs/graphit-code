@@ -402,7 +402,7 @@ The Dream operational table follows the Task/Memory store selection rule. Withou
 including a local provider by default or a Broker profile with S3 disabled, it resolves
 `brand.GlobalDir()` dynamically and uses `dream/dreams/<project_id>`; the brand alone owns the
 environment/default global-directory rule. An explicit S3 bucket on a local provider, or a Broker
-or OIDC+S3 provider, opens `v2/projects/<project_id>/dream` directly. Broker/OIDC STS credentials
+provider with S3 enabled, opens `v2/projects/<project_id>/dream` directly. Broker STS credentials
 are resolved on the fly for `module=dream`; resolution failures do not fall back to local. The
 table is shared per project and uses
 globally unique run IDs. Local writers serialize refresh-plus-merge with a cross-process lock; S3

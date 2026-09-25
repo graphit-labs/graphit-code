@@ -80,8 +80,7 @@ func hubS3Config(ctx context.Context, storageScope *auth.BrokerStorageScope) S3C
 		return S3Config{ResolutionError: err}
 	}
 	broker := snapshot.Provider.Type == auth.ProviderBroker
-	sts := snapshot.Provider.Type == auth.ProviderOIDC && snapshot.Provider.STS != nil && snapshot.Provider.S3.Bucket != ""
-	if broker || sts {
+	if broker {
 		if snapshot.Profile.BrokerS3Disabled {
 			return S3Config{}
 		}
@@ -90,12 +89,7 @@ func hubS3Config(ctx context.Context, storageScope *auth.BrokerStorageScope) S3C
 				Endpoint: snapshot.Provider.S3.Endpoint, Prefix: normalizePrefix(snapshot.Provider.S3.Prefix),
 				ResolutionError: errors.New("temporary S3 credentials require a project, user, or Hub metadata scope")}
 		}
-		var credentials auth.S3Credentials
-		if broker {
-			credentials, err = auth.ResolveBrokerS3(ctx, *storageScope)
-		} else {
-			credentials, err = auth.ResolveOIDCSTS(ctx, *storageScope)
-		}
+		credentials, err := auth.ResolveBrokerS3(ctx, *storageScope)
 		if err != nil {
 			return S3Config{ResolutionError: err}
 		}

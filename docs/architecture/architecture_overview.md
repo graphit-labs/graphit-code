@@ -172,8 +172,7 @@ See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 - S3-enabled Broker providers receive a short-lived S3 session and topology per project, user-memory,
   or Hub-metadata scope and physical module, and keep those values only in process memory. The Broker retains
   permanent credentials, derives the STS policy from current ACLs, and never carries object bodies.
-  When Broker discovery omits storage, the authenticated provider uses local paths. Direct OIDC
-  providers use web-identity STS when configured; without it they also use local paths. Local
+  When Broker discovery omits storage, the authenticated provider uses local paths. Local
   providers use explicitly configured AWS credentials when S3 is configured.
 - Multi-user Hub authorization requires a trusted user and team subject. CORS, request parameters,
   `unit.id`, and a shared daemon bearer token are not that identity.

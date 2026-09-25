@@ -18,13 +18,11 @@ type ProviderType string
 
 const (
 	ProviderLocal  ProviderType = "local"
-	ProviderOIDC   ProviderType = "oidc"
 	ProviderBroker ProviderType = "broker"
 )
 
 func UsesScopedS3(provider Provider) bool {
-	return provider.Type == ProviderBroker ||
-		(provider.Type == ProviderOIDC && provider.STS != nil && provider.S3.Bucket != "")
+	return provider.Type == ProviderBroker
 }
 
 type Provider struct {
@@ -36,7 +34,6 @@ type Provider struct {
 	Broker    *BrokerConfig `json:"broker,omitempty"`
 	AI        AIConfig      `json:"ai,omitempty"`
 	S3        S3Config      `json:"s3,omitempty"`
-	STS       *STSConfig    `json:"sts,omitempty"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`
 }
@@ -51,12 +48,9 @@ const (
 )
 
 type BrokerConfig struct {
-	Endpoint              string `json:"endpoint"`
-	Audience              string `json:"audience,omitempty"`
-	Resource              string `json:"resource,omitempty"`
-	TokenStrategy         string `json:"token_strategy,omitempty"`
-	TokenExchangeEndpoint string `json:"token_exchange_endpoint,omitempty"`
-	AllowAnonymous        bool   `json:"allow_anonymous,omitempty"`
+	Endpoint       string `json:"endpoint"`
+	MCPResource    string `json:"mcp_resource,omitempty"`
+	AllowAnonymous bool   `json:"allow_anonymous,omitempty"`
 }
 
 type AIConfig struct {
@@ -78,25 +72,23 @@ type LocalConfig struct {
 }
 
 type OIDCConfig struct {
-	Issuer             string            `json:"issuer"`
-	ClientID           string            `json:"client_id"`
-	ClientSecret       string            `json:"client_secret,omitempty"`
-	TokenAuthMethod    string            `json:"token_auth_method,omitempty"`
-	Scopes             []string          `json:"scopes,omitempty"`
-	RedirectURI        string            `json:"redirect_uri,omitempty"`
-	RedirectURIPath    string            `json:"redirect_uri_path,omitempty"`
-	UsernameClaim      string            `json:"username_claim,omitempty"`
-	OrganizationClaim  string            `json:"organization_claim,omitempty"`
-	TeamsClaim         string            `json:"teams_claim,omitempty"`
-	MCPAudience        string            `json:"mcp_audience,omitempty"`
-	MCPResource        string            `json:"mcp_resource,omitempty"`
-	MCPRequireAudience *bool             `json:"mcp_require_audience,omitempty"`
-	AuthParams         map[string]string `json:"auth_params,omitempty"`
+	Issuer            string            `json:"issuer"`
+	ClientID          string            `json:"client_id"`
+	NonceEnabled      *bool             `json:"nonce_enabled,omitempty"`
+	Scopes            []string          `json:"scopes,omitempty"`
+	RedirectURI       string            `json:"redirect_uri,omitempty"`
+	RedirectURIPath   string            `json:"redirect_uri_path,omitempty"`
+	UsernameClaim     string            `json:"username_claim,omitempty"`
+	OrganizationClaim string            `json:"organization_claim,omitempty"`
+	TeamsClaim        string            `json:"teams_claim,omitempty"`
+	MCPAudience       string            `json:"mcp_audience,omitempty"`
+	MCPResource       string            `json:"mcp_resource,omitempty"`
+	AuthParams        map[string]string `json:"auth_params,omitempty"`
 }
 
-// RequireMCPAudience defaults to true for existing provider configurations.
-func (c *OIDCConfig) RequireMCPAudience() bool {
-	return c == nil || c.MCPRequireAudience == nil || *c.MCPRequireAudience
+// UseNonce sends a nonce by default; Authorization Code permits omitting it.
+func (c *OIDCConfig) UseNonce() bool {
+	return c == nil || c.NonceEnabled == nil || *c.NonceEnabled
 }
 
 // S3Config describes the stable object-store location. Authentication material
@@ -107,14 +99,6 @@ type S3Config struct {
 	Endpoint         string `json:"endpoint,omitempty"`
 	Prefix           string `json:"prefix,omitempty"`
 	CredentialSource string `json:"credential_source,omitempty"`
-}
-
-type STSConfig struct {
-	Endpoint        string `json:"endpoint,omitempty"`
-	RoleARN         string `json:"role_arn"`
-	RoleSessionName string `json:"role_session_name,omitempty"`
-	DurationSeconds int32  `json:"duration_seconds,omitempty"`
-	UseAccessToken  bool   `json:"use_access_token,omitempty"`
 }
 
 type Profile struct {
@@ -137,8 +121,8 @@ type Profile struct {
 	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
-// An empty S3 grant has no serialized representation. In particular, OIDC STS
-// and Broker profiles must not leave even a placeholder grant in auth.json.
+// An empty S3 grant has no serialized representation. Broker profiles do not
+// leave even a placeholder grant in auth.json.
 func (p Profile) MarshalJSON() ([]byte, error) {
 	type profileAlias Profile
 	var s3 *S3Credentials
@@ -242,38 +226,8 @@ func ValidateProvider(p Provider) error {
 		if p.Local == nil {
 			p.Local = &LocalConfig{}
 		}
-	case ProviderOIDC:
-		if p.OIDC == nil {
-			return errors.New("OIDC provider configuration is required")
-		}
-		if err := validateServiceURL(p.OIDC.Issuer, "OIDC issuer"); err != nil {
-			return err
-		}
-		if strings.TrimSpace(p.OIDC.ClientID) == "" {
-			return errors.New("OIDC client ID is required")
-		}
-		if strings.TrimSpace(p.OIDC.UsernameClaim) == "" {
-			return errors.New("OIDC username claim is required")
-		}
-		if !p.OIDC.RequireMCPAudience() {
-			if p.Broker != nil {
-				return errors.New("MCP audience compatibility mode is supported only for direct OIDC without a broker")
-			}
-			if strings.TrimSpace(p.OIDC.MCPAudience) == "" {
-				return errors.New("MCP audience compatibility mode requires --mcp-audience to reject mismatched audiences")
-			}
-		}
-		if method := p.OIDC.TokenAuthMethod; method != "" && method != "none" && method != "client_secret_post" && method != "client_secret_basic" {
-			return fmt.Errorf("unsupported OIDC token auth method %q", method)
-		}
-		for key := range p.OIDC.AuthParams {
-			key = strings.TrimSpace(key)
-			if key == "" {
-				return errors.New("OIDC authorization parameter name is required")
-			}
-			if reservedOIDCAuthParameter(key) {
-				return fmt.Errorf("OIDC authorization parameter %q is reserved", key)
-			}
+		if p.OIDC != nil {
+			return errors.New("local provider cannot contain OIDC configuration")
 		}
 	case ProviderBroker:
 		if p.Broker == nil {
@@ -285,53 +239,19 @@ func ValidateProvider(p Provider) error {
 	default:
 		return fmt.Errorf("unsupported provider type %q", p.Type)
 	}
-	if p.STS != nil {
-		if p.Type != ProviderOIDC {
-			return errors.New("STS web identity exchange is supported only for OIDC providers")
-		}
-		if strings.TrimSpace(p.STS.RoleARN) == "" {
-			return errors.New("STS role ARN is required")
-		}
-		if p.STS.Endpoint != "" {
-			if err := validateServiceURL(p.STS.Endpoint, "STS endpoint"); err != nil {
-				return err
-			}
-		}
-	}
 	if p.Broker != nil {
 		if err := validateServiceURL(p.Broker.Endpoint, "broker endpoint"); err != nil {
 			return err
 		}
-		strategy := strings.TrimSpace(p.Broker.TokenStrategy)
-		if strategy == "" {
-			strategy = "relay"
-		}
-		if strategy != "relay" && strategy != "token-exchange" {
-			return fmt.Errorf("unsupported broker token strategy %q", p.Broker.TokenStrategy)
-		}
-		if p.Type == ProviderBroker && strategy != "relay" {
-			return errors.New("broker authentication provider uses broker-issued tokens and requires relay strategy")
-		}
 		if p.Type == ProviderBroker && p.Broker.AllowAnonymous {
 			return errors.New("broker authentication provider cannot allow anonymous login")
 		}
-		if p.Type == ProviderBroker && (strings.TrimSpace(p.Broker.Audience) != "" || strings.TrimSpace(p.Broker.Resource) != "" || strings.TrimSpace(p.Broker.TokenExchangeEndpoint) != "") {
-			return errors.New("broker authentication provider discovers its token contract and cannot configure audience, resource, or token exchange")
-		}
-		if strategy == "token-exchange" {
-			if p.Type != ProviderOIDC {
-				return errors.New("broker token exchange requires an OIDC provider")
+		if p.Broker.MCPResource != "" {
+			if p.Type != ProviderBroker {
+				return errors.New("MCP resource requires a broker provider")
 			}
-			if strings.TrimSpace(p.Broker.Audience) == "" && strings.TrimSpace(p.Broker.Resource) == "" {
-				return errors.New("broker token exchange requires broker audience or resource")
-			}
-			if p.Broker.TokenExchangeEndpoint != "" {
-				if err := validateServiceURL(p.Broker.TokenExchangeEndpoint, "broker token exchange endpoint"); err != nil {
-					return err
-				}
-			}
-			if strings.TrimSpace(p.OIDC.MCPAudience) == "" {
-				return errors.New("broker token exchange requires an MCP audience for the subject access token")
+			if err := validateMCPResourceURI(p.Broker.MCPResource); err != nil {
+				return err
 			}
 		}
 		if p.AI.Embedding.Mode != ServiceBroker || p.AI.Rerank.Mode != ServiceBroker {
@@ -349,35 +269,19 @@ func ValidateProvider(p Provider) error {
 	}
 	source := strings.TrimSpace(p.S3.CredentialSource)
 	switch source {
-	case "", "login", "aws-chain", "sts", "broker":
+	case "", "login", "aws-chain", "broker":
 	default:
 		return fmt.Errorf("unsupported S3 credential source %q", p.S3.CredentialSource)
 	}
 	switch p.Type {
 	case ProviderLocal:
-		if source == "sts" || source == "broker" {
+		if source == "broker" {
 			return fmt.Errorf("local provider cannot use S3 credential source %q", source)
-		}
-	case ProviderOIDC:
-		if source != "" && source != "sts" {
-			return fmt.Errorf("OIDC provider must use STS for S3 credentials, got %q", source)
-		}
-		if strings.TrimSpace(p.S3.Bucket) != "" && p.STS == nil {
-			return errors.New("OIDC provider with S3 storage requires STS configuration")
 		}
 	case ProviderBroker:
 		if source != "" && source != "broker" {
 			return fmt.Errorf("broker provider must obtain S3 credentials from the broker, got %q", source)
 		}
-		if p.STS != nil {
-			return errors.New("broker provider obtains temporary S3 credentials from the broker and cannot configure direct STS")
-		}
-	}
-	if p.Type == ProviderOIDC && p.Broker != nil && p.Broker.TokenStrategy != "token-exchange" && p.Broker.Audience != "" && p.OIDC.MCPAudience != "" && p.Broker.Audience != p.OIDC.MCPAudience {
-		return errors.New("MCP and broker audiences must match while the profile uses one OIDC access-token session")
-	}
-	if p.Type == ProviderOIDC && p.Broker != nil && p.Broker.TokenStrategy != "token-exchange" && p.Broker.Resource != "" && p.OIDC.MCPResource != "" && p.Broker.Resource != p.OIDC.MCPResource {
-		return errors.New("MCP and broker resources must match while direct token relay is enabled")
 	}
 	return nil
 }
@@ -465,6 +369,20 @@ func validateServiceURL(raw, name string) error {
 	return nil
 }
 
+func validateMCPResourceURI(raw string) error {
+	if raw != strings.TrimSpace(raw) {
+		return errors.New("MCP resource URI must not contain surrounding whitespace")
+	}
+	if err := validateServiceURL(raw, "MCP resource URI"); err != nil {
+		return err
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.Hostname() == "" {
+		return errors.New("MCP resource URI must be an absolute HTTP(S) URI without query or fragment")
+	}
+	return nil
+}
+
 func reservedOIDCAuthParameter(key string) bool {
 	switch strings.ToLower(key) {
 	case "response_type", "client_id", "redirect_uri", "scope", "state", "nonce", "code_challenge", "code_challenge_method", "audience", "resource":
@@ -494,13 +412,6 @@ func ValidateProfile(p Profile) error {
 }
 
 func (p Provider) Redacted() Provider {
-	if p.OIDC != nil {
-		c := *p.OIDC
-		if c.ClientSecret != "" {
-			c.ClientSecret = "[redacted]"
-		}
-		p.OIDC = &c
-	}
 	return p
 }
 

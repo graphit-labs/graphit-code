@@ -231,11 +231,10 @@ A container needs the opposite of an ephemeral port — one known before the pro
 be declared in the image and mapped on the host. The chosen port is published to
 `<DaemonDir>/mcp.port` either way, and a freshly generated runtime bearer key to
 `<DaemonDir>/mcp.key` (mode `0600`). The listener additionally accepts the active account profile's
-static MCP key for a local provider. With an active direct OIDC or Broker-managed provider, it
-accepts and verifies each caller's access token, then propagates that request identity to the
-broker instead of substituting the active profile token. Direct OIDC supports relay or RFC 8693
-exchange; Broker-managed identity validates the signed access JWT through the Broker-discovered
-issuer, audience and JWKS.
+static MCP key for a local provider. With an active Broker provider, it accepts and verifies each
+caller's Broker access JWT for the configured canonical MCP resource audience, then forwards the
+same bearer to Broker APIs. The token also contains the Broker API audience, which those APIs
+verify independently.
 
 An unparseable or out-of-range `mcp.port` falls back to `0` rather than failing the daemon. That is
 deliberate: in a container the daemon is PID 1, so refusing to start over a typo in one key would
@@ -783,7 +782,7 @@ Agent-to-CLI mapping, and terminal fallbacks above still apply.
 
 ## 🔗 Active-profile S3 resolution
 
-Hub artifacts and shared memories use the active provider. Local and direct OIDC providers expose
+Hub artifacts and shared memories use the active provider. Local providers expose
 one ambient S3 configuration. Broker providers require a project, user-memory, or Hub-metadata
 scope plus its physical storage module and resolve a separate in-memory configuration for each
 scope/module pair. There is no `hub.repo` or
@@ -791,7 +790,7 @@ scope/module pair. There is no `hub.repo` or
 
 | Function | Description |
 |---|---|
-| `ResolveHubS3(inline, project)` / `HubS3Config()` | Return the ambient local/direct-OIDC `S3Config`; Broker callers must use a scoped resolver. Inline/project config cannot override authentication. |
+| `ResolveHubS3(inline, project)` / `HubS3Config()` | Return the ambient local `S3Config`; Broker callers must use a scoped resolver. Inline/project config cannot override authentication. |
 | `ProjectS3Config(ctx, id, module)` | Resolve or renew the Broker grant/topology for one project and physical module; other providers return their ambient S3 view. |
 | `UserS3Config(ctx)` | Resolve or renew the authenticated user-memory scope. |
 | `HubMetadataS3Config(ctx)` | Resolve or renew registry and global-rule storage. |
@@ -810,8 +809,8 @@ The object-key contract is documented in
 
 Dream applies a narrower provider rule at its ledger boundary: `ProviderLocal` always uses
 `brand.GlobalDir()/dream/dreams/<project_id>` and therefore does not call the ambient local S3 view.
-Broker and OIDC providers with Dream S3 enabled call `ProjectS3Config(..., module=dream)` and require
-the temporary scoped grant; an OIDC S3 topology without STS fails closed.
+Broker providers with Dream S3 enabled call `ProjectS3Config(..., module=dream)` and require
+the temporary scoped grant.
 
 ---
 

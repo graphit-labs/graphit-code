@@ -284,41 +284,6 @@ func (f daemonVerifierFunc) VerifyAccessToken(ctx context.Context, provider auth
 	return f(ctx, provider, token, audiences)
 }
 
-func TestDaemonBearerAcceptsRuntimeAndVerifiedOIDCAccessTokens(t *testing.T) {
-	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
-	store, err := auth.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := auth.Provider{Name: "oidc", Type: auth.ProviderOIDC, OIDC: &auth.OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name", MCPAudience: "graphit-mcp"}}
-	if err := store.AddProvider(provider); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Login(auth.Profile{Name: "alice", Provider: "oidc", Issuer: "https://issuer.example", Subject: "subject", Username: "alice", OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
-		t.Fatal(err)
-	}
-	verifier := daemonVerifierFunc(func(_ context.Context, _ auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
-		if token != "user-token" || !slices.Contains(audiences, "graphit-mcp") {
-			return auth.VerifiedIdentity{}, errors.New("invalid token")
-		}
-		return auth.VerifiedIdentity{Issuer: "https://issuer.example", Subject: "other-subject", Username: "bob", Teams: []string{"platform"}}, nil
-	})
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier, nil); !allowed {
-		t.Fatal("runtime key rejected")
-	}
-	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "user-token", "runtime-key", verifier, nil)
-	if !allowed || auth.RequestBrokerBearer(requestContext) != "user-token" {
-		t.Fatalf("verified OIDC bearer was not bound to request: allowed=%v token=%q", allowed, auth.RequestBrokerBearer(requestContext))
-	}
-	subject, err := hubaccess.TrustedSubject(requestContext)
-	if err != nil || subject.UserID != "bob" || len(subject.TeamIDs) != 1 || subject.TeamIDs[0] != "platform" {
-		t.Fatalf("trusted subject=%#v err=%v", subject, err)
-	}
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier, nil); allowed {
-		t.Fatal("wrong token accepted")
-	}
-}
-
 func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	store, err := auth.Open()
@@ -327,7 +292,7 @@ func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	}
 	provider := auth.Provider{
 		Name: "broker", Type: auth.ProviderBroker,
-		Broker: &auth.BrokerConfig{Endpoint: "https://broker.example"},
+		Broker: &auth.BrokerConfig{Endpoint: "https://broker.example", MCPResource: "https://graphit.example.com/mcp"},
 		AI: auth.AIConfig{
 			Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker},
 			Rerank:    auth.AIServiceConfig{Mode: auth.ServiceBroker},
@@ -351,7 +316,7 @@ func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "runtime-key", "runtime-key", verifier, nil); !allowed {
 		t.Fatal("runtime key rejected")
 	}
-	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "broker-token", "runtime-key", verifier, nil)
+	requestContext, allowed := daemonBearerContextWithVerifier(context.Background(), "broker-token", "runtime-key", verifier, []string{"https://graphit.example.com/mcp"})
 	if !allowed || auth.RequestBrokerBearer(requestContext) != "broker-token" {
 		t.Fatalf("verified Broker bearer was not bound: allowed=%v token=%q", allowed, auth.RequestBrokerBearer(requestContext))
 	}
@@ -359,7 +324,7 @@ func TestDaemonBearerAcceptsRuntimeAndBrokerAccessTokens(t *testing.T) {
 	if err != nil || subject.UserID != "bob" || len(subject.TeamIDs) != 1 || subject.TeamIDs[0] != "platform" {
 		t.Fatalf("trusted subject=%#v err=%v", subject, err)
 	}
-	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier, nil); allowed {
+	if _, allowed := daemonBearerContextWithVerifier(context.Background(), "wrong", "runtime-key", verifier, []string{"https://graphit.example.com/mcp"}); allowed {
 		t.Fatal("invalid Broker token accepted")
 	}
 }
@@ -391,19 +356,18 @@ func TestConcurrentOIDCMCPRequestsKeepTheirBearerThroughBrokerResolution(t *test
 		t.Fatal(err)
 	}
 	provider := auth.Provider{
-		Name: "oidc", Type: auth.ProviderOIDC,
-		OIDC:   &auth.OIDCConfig{Issuer: "https://issuer.example", ClientID: "client", UsernameClaim: "name", MCPAudience: "graphit-services"},
-		Broker: &auth.BrokerConfig{Endpoint: broker.URL, Audience: "graphit-services", TokenStrategy: "relay"},
+		Name: "broker", Type: auth.ProviderBroker,
+		Broker: &auth.BrokerConfig{Endpoint: broker.URL, MCPResource: "https://graphit.example.com/mcp"},
 		AI:     auth.AIConfig{Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker}, Rerank: auth.AIServiceConfig{Mode: auth.ServiceBroker}},
 	}
 	if err := store.AddProvider(provider); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Login(auth.Profile{Name: "daemon", Provider: provider.Name, Issuer: "https://issuer.example", Subject: "daemon-subject", Username: "daemon", OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "synthetic-id-token", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
+	if err := store.Login(auth.Profile{Name: "daemon", Provider: provider.Name, Issuer: broker.URL, Subject: "daemon-subject", Username: "daemon", OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "synthetic-id-token", ExpiresAt: time.Now().Add(time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
 	verifier := daemonVerifierFunc(func(_ context.Context, _ auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
-		if !slices.Contains(audiences, "graphit-services") || (token != "alice-token" && token != "bob-token") {
+		if !slices.Equal(audiences, []string{"https://graphit.example.com/mcp"}) || (token != "alice-token" && token != "bob-token") {
 			return auth.VerifiedIdentity{}, errors.New("invalid synthetic token")
 		}
 		return auth.VerifiedIdentity{Issuer: "issuer", Subject: token, Username: strings.TrimSuffix(token, "-token")}, nil
@@ -419,7 +383,7 @@ func TestConcurrentOIDCMCPRequestsKeepTheirBearerThroughBrokerResolution(t *test
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, allowed := daemonBearerContextWithVerifier(context.Background(), token, "runtime-key", verifier, nil)
+			ctx, allowed := daemonBearerContextWithVerifier(context.Background(), token, "runtime-key", verifier, []string{"https://graphit.example.com/mcp"})
 			if !allowed {
 				t.Errorf("%s was rejected by MCP authentication", token)
 				return

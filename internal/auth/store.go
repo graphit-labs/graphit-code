@@ -75,7 +75,7 @@ func (s *Store) Load() (State, error) {
 	if err != nil || !hasPersistedTemporaryS3(state) {
 		return state, err
 	}
-	// Migrate credentials written by older OIDC STS versions on the first read.
+	// Broker S3 credentials are transient and never persisted with profiles.
 	// Re-read under the cross-process lock so a concurrent login is not lost.
 	lock, err := lockfile.Acquire(s.path+".lock", 3*time.Second)
 	if err != nil {
@@ -122,6 +122,14 @@ func (s *Store) loadUnlocked() (State, error) {
 	}
 	if state.Profiles == nil {
 		state.Profiles = map[string]Profile{}
+	}
+	for name, provider := range state.Providers {
+		if provider.Type != ProviderLocal && provider.Type != ProviderBroker {
+			return State{}, fmt.Errorf("provider %q has unsupported type %q; only local and broker are supported", name, provider.Type)
+		}
+		if provider.OIDC != nil {
+			return State{}, fmt.Errorf("provider %q contains unsupported OIDC configuration", name)
+		}
 	}
 	return state, nil
 }
@@ -285,21 +293,11 @@ func (s *Store) Login(profile Profile) error {
 				return errors.New("local profile cannot contain an OIDC session")
 			}
 			local := provider.Local
-			if provider.S3.Bucket != "" && provider.S3.CredentialSource != "broker" && provider.STS == nil && !profile.S3.Complete() && profile.S3.AWSProfile == "" && (local == nil || !local.AllowAWSCredentialChain) {
+			if provider.S3.Bucket != "" && provider.S3.CredentialSource != "broker" && !profile.S3.Complete() && profile.S3.AWSProfile == "" && (local == nil || !local.AllowAWSCredentialChain) {
 				return errors.New("local profile requires S3 credentials, an AWS profile, or a provider that allows the AWS credential chain")
 			}
 			if (provider.AI.Embedding.Mode == ServiceBroker || provider.AI.Rerank.Mode == ServiceBroker) && profile.BrokerKey == "" && (provider.Broker == nil || !provider.Broker.AllowAnonymous) {
 				return errors.New("local profile requires a broker key for broker capabilities")
-			}
-		case ProviderOIDC:
-			if profile.OIDC == nil || profile.OIDC.AccessToken == "" || profile.OIDC.IDToken == "" || profile.Issuer == "" || profile.Subject == "" {
-				return errors.New("OIDC profile requires a verified identity and token session")
-			}
-			if profile.MCPKey != "" {
-				return errors.New("OIDC profile cannot contain a static MCP key")
-			}
-			if provider.STS != nil {
-				profile.S3 = S3Credentials{}
 			}
 		case ProviderBroker:
 			if profile.OIDC == nil || profile.OIDC.AccessToken == "" || profile.OIDC.IDToken == "" || profile.Issuer == "" || profile.Subject == "" {
@@ -341,7 +339,7 @@ func (s *Store) Login(profile Profile) error {
 func hasPersistedTemporaryS3(state State) bool {
 	for _, profile := range state.Profiles {
 		provider, ok := state.Providers[profile.Provider]
-		if ok && (provider.Type == ProviderBroker || provider.STS != nil) && !profile.S3.Empty() {
+		if ok && provider.Type == ProviderBroker && !profile.S3.Empty() {
 			return true
 		}
 	}
@@ -352,7 +350,7 @@ func stripTemporaryS3ForPersistence(state *State) bool {
 	changed := false
 	for name, profile := range state.Profiles {
 		provider, ok := state.Providers[profile.Provider]
-		if !ok || (provider.Type != ProviderBroker && provider.STS == nil) || profile.S3.Empty() {
+		if !ok || provider.Type != ProviderBroker || profile.S3.Empty() {
 			continue
 		}
 		profile.S3 = S3Credentials{}
@@ -397,7 +395,7 @@ func (s *Store) Logout(name string) error {
 }
 
 // UpdateActive replaces the active profile only if its provider revision still matches.
-// It is used for token and STS renewals so readers never observe a partially refreshed session.
+// It is used for token renewals so readers never observe a partially refreshed session.
 func (s *Store) UpdateActive(profile Profile) error {
 	return s.update(func(state *State) error {
 		if state.ActiveProfile == "" || state.ActiveProfile != profile.Name {
@@ -407,7 +405,7 @@ func (s *Store) UpdateActive(profile Profile) error {
 		if !exists || provider.Revision != profile.ProviderRevision {
 			return errors.New("provider changed while refreshing credentials")
 		}
-		if provider.STS != nil {
+		if provider.Type == ProviderBroker {
 			profile.S3 = S3Credentials{}
 		}
 		profile.CreatedAt = state.Profiles[profile.Name].CreatedAt

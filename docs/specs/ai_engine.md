@@ -136,9 +136,9 @@ the normalization applies to new executions, including new turns in existing ses
 - `broker`: require provider broker topology; downstream model is deliberately absent;
 - `disabled`: explicit failure when a caller requests the capability.
 
-Provider validation runs before persistence. OIDC providers using both the daemon MCP listener and
-broker relay with non-empty audiences must configure the same audience because one profile owns one
-refreshable access token.
+Provider validation runs before persistence. Broker-issued access JWTs can contain both the Broker
+API audience and a configured MCP resource audience. The MCP listener verifies its exact resource;
+Broker APIs verify their own audience.
 
 Broker topology is an exclusive boundary for the two retrieval services. If `Provider.Broker` is
 present, both `AI.Embedding.Mode` and `AI.Rerank.Mode` must be `broker`; omitted, `local`, `direct`,
@@ -200,7 +200,7 @@ Endpoint, model and dimensions come from the provider. The key comes only from
 The client calls unauthenticated `GET /.well-known/graphit-broker`, requires discovery version 1
 and `openai-embeddings-v1`, then constructs an exact-path client using the advertised route,
 revision, dimensions and max batch. Each request resolves/refreshed the active credential and
-sends `Authorization: Bearer` with the Broker-issued access token, direct OIDC access token, or
+sends `Authorization: Bearer` with the Broker-issued access token or
 static broker credential. For an explicitly
 anonymous provider/profile it omits the header; the server must still grant `anonymous` or
 `global` access, and an invalid present token is never downgraded.
@@ -286,7 +286,7 @@ without eagerly loading a model. Failure to connect falls back to direct active-
 - broker configuration with either AI mode not set to `broker`: provider validation fails before persistence;
 - stale provider revision: login/session resolution fails and requires a new login;
 - refresh failure: fail closed without using a stale broker token;
-- missing direct/broker secret: login or client construction fails explicitly;
+- missing direct AI credential: client construction fails explicitly;
 - broker discovery/protocol/revision mismatch: fail before using output;
 - vector dimension mismatch: reject before storage;
 - rerank failure: Lance returns first-stage trimmed hits plus an error; public callers report the
@@ -294,7 +294,7 @@ without eagerly loading a model. Failure to connect falls back to direct active-
 
 ## Security boundary
 
-Provider topology is non-secret except an optional OIDC client secret. Direct AI keys and static
+Provider topology is non-secret. Direct AI keys and static
 broker/MCP keys reside in the mode-0600 auth file and are redacted. Broker configuration ensures
 organizational AI and cloud-storage keys never enter the client. Remote direct/broker AI modes send
 candidate/indexed text to their configured service; local mode does not after model acquisition.

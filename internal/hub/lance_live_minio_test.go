@@ -72,7 +72,7 @@ func TestLiveMinIOBranchHydration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := account.AddProvider(auth.Provider{Name: "broker-e2e", Type: auth.ProviderBroker,
-		Broker: &auth.BrokerConfig{Endpoint: brokerEndpoint, TokenStrategy: "relay"},
+		Broker: &auth.BrokerConfig{Endpoint: brokerEndpoint},
 		AI:     auth.AIConfig{Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker}, Rerank: auth.AIServiceConfig{Mode: auth.ServiceBroker}},
 		S3:     auth.S3Config{CredentialSource: "broker"}}); err != nil {
 		t.Fatal(err)

@@ -310,21 +310,13 @@ func TestProviderAcceptsBrokerForBothAIServices(t *testing.T) {
 	}
 }
 
-func TestBrokerAuthenticationProviderRejectsClientSelectedTokenContract(t *testing.T) {
-	for name, mutate := range map[string]func(*BrokerConfig){
-		"audience": func(c *BrokerConfig) { c.Audience = "selected-by-client" },
-		"resource": func(c *BrokerConfig) { c.Resource = "https://other.example" },
-		"exchange": func(c *BrokerConfig) { c.TokenExchangeEndpoint = "https://id.example/token" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			config := &BrokerConfig{Endpoint: "https://broker.example", TokenStrategy: "relay"}
-			mutate(config)
-			provider := Provider{Name: "broker", Type: ProviderBroker, Broker: config, AI: AIConfig{
-				Embedding: AIServiceConfig{Mode: ServiceBroker}, Rerank: AIServiceConfig{Mode: ServiceBroker}}}
-			if err := ValidateProvider(provider); err == nil || !strings.Contains(err.Error(), "discovers its token contract") {
-				t.Fatalf("provider validation error = %v", err)
-			}
-		})
+func TestBrokerProviderRequiresCanonicalMCPResourceURI(t *testing.T) {
+	for _, resource := range []string{"mcp.example.com", "https://example.com/mcp#fragment", "https://example.com/mcp?token=x", "http://example.com/mcp"} {
+		provider := Provider{Name: "broker", Type: ProviderBroker, Broker: &BrokerConfig{Endpoint: "https://broker.example", MCPResource: resource}, AI: AIConfig{
+			Embedding: AIServiceConfig{Mode: ServiceBroker}, Rerank: AIServiceConfig{Mode: ServiceBroker}}}
+		if err := ValidateProvider(provider); err == nil {
+			t.Fatalf("invalid MCP resource %q accepted", resource)
+		}
 	}
 }
 

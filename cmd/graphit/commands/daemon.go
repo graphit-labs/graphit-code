@@ -76,7 +76,7 @@ Filesystem watch (enabled by default):
 
 MCP bearer authentication:
   The daemon always generates a restricted runtime key for local stdio clients.
-  Local providers may use their static MCP key. Direct OIDC and Broker-managed providers
+  Local providers may use their static MCP key. Broker providers
   require a verified end-user access token; that same request identity is propagated to
   broker calls. Broker-issued tokens are verified through Broker discovery and userinfo.
 
@@ -465,16 +465,10 @@ func daemonBearerContextWithVerifier(ctx context.Context, bearer, runtimeKey str
 	if snapshot.Provider.Type == auth.ProviderLocal {
 		return ctx, secretEqual(bearer, snapshot.Profile.MCPKey)
 	}
-	if snapshot.Provider.Type != auth.ProviderOIDC && snapshot.Provider.Type != auth.ProviderBroker {
+	if snapshot.Provider.Type != auth.ProviderBroker || len(acceptedAudiences) != 1 {
 		return ctx, false
 	}
-	audiences := append([]string(nil), acceptedAudiences...)
-	if snapshot.Provider.OIDC != nil {
-		// A direct OIDC provider names its own audience; the resource it publishes arrives
-		// through acceptedAudiences.
-		audiences = append(audiences, snapshot.Provider.OIDC.MCPAudience)
-	}
-	identity, err := verifier.VerifyAccessToken(ctx, snapshot.Provider, bearer, audiences)
+	identity, err := verifier.VerifyAccessToken(ctx, snapshot.Provider, bearer, acceptedAudiences)
 	if err != nil {
 		return ctx, false
 	}

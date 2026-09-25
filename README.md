@@ -221,14 +221,12 @@ centralized identity, access control, shared storage, and embedding/rerank servi
 required for the local workflow or for a basic MCP server.
 
 The MCP endpoint accepts the fresh runtime key shown in **System → Daemon**. A local provider may
-also define a static MCP key. With a direct OIDC or Broker-managed provider, each remote caller
-sends its own access token; Graphit verifies its JWT signature, issuer, audience, expiry, client,
-scope, and identity claims through the configured or Broker-discovered JWKS and
-preserves that identity through broker Hub ACL, S3, embedding and rerank calls. Direct OIDC may use
-bearer relay or explicit RFC 8693 exchange; Broker-managed login uses the Broker-issued token.
-`graphit mcp --stdio` always bridges to this daemon listener and resolves the active profile before
-each HTTP request, so OIDC/Broker token refresh is picked up automatically; without such a session,
-it uses the local profile key or current daemon runtime key.
+also define a static MCP key. With a Broker provider, each remote caller presents a Broker-issued
+access JWT whose audience includes this MCP endpoint's configured canonical URI. Graphit verifies
+its signature, issuer, audience, expiry, token purpose and subject against Broker discovery and
+UserInfo, then forwards that same bearer to Broker Hub ACL, S3, embedding and rerank calls. The
+token also carries the Broker API audience so those APIs can accept it. `graphit mcp --stdio`
+bridges to the local daemon with its runtime key or a scoped capability token.
 For a `broker` provider, Graphit is always a standard native OIDC client: the Broker owns the login
 page and may offer local password/MFA, upstream OIDC, or both without exposing those credentials or
 upstream tokens to Graphit.
@@ -301,8 +299,8 @@ bundles; direct AST, Wiki, Memory, and Task tools remain the cheaper path for fo
 | Goal | Setting |
 |---|---|
 | Keep everything local | configure no broker and use local embedding/rerank modes |
-| Share Hub artifacts | configure S3 on a local provider, configure STS on a direct OIDC provider, or use a Broker provider that advertises `graphit-s3-credentials-v3` |
-| Use enterprise SSO | configure an OIDC provider with claim mappings, an MCP audience, and either shared-audience broker relay or RFC 8693 exchange |
+| Share Hub artifacts | configure S3 on a local provider or use a Broker provider that advertises `graphit-s3-credentials-v3` |
+| Use enterprise SSO | configure a Broker provider; the Broker owns local and external IdP login and issues the tokens Graphit accepts |
 | Run without an installed coding-agent CLI | `modules.agent=false` |
 | Keep autonomous Dream work off/on | `modules.dream=false` (default) or `true` |
 | Serve the Observatory from the daemon | `modules.daemon_ui=true` |
@@ -321,7 +319,7 @@ default, switch, provider, network boundary, and runtime resource control.
 
 - Mutable project sources and compiled local stores remain on the machine by default.
 - Hub publication is optional. When enabled, Graphit mounts S3 directly. Local providers use the
-  configured AWS identity; direct OIDC and Broker providers receive short-lived, scope-specific STS
+  configured AWS identity; Broker providers receive short-lived, scope-specific temporary
   credentials only in process memory when storage is configured or the Broker advertises
   storage. Without that capability, the authenticated Broker profile uses local storage.
 - S3 is authoritative for Hub artifact data; broker SQL or standalone `projects.json` is selected
@@ -330,8 +328,8 @@ default, switch, provider, network boundary, and runtime resource control.
 - A project name is mutable discovery metadata. Its immutable ULID owns remote paths, locks, and exact grants.
 - The UI binds according to `ui.host` and has no built-in authentication layer.
 - Remote UI access requires an appropriate firewall, VPN, or authenticated reverse proxy; CORS is not authorization.
-- Local work uses its active profile. HTTP MCP verifies each caller's OIDC token and carries that
-  request identity to the broker by relay or RFC 8693 exchange; local providers may use a static
+- Local work uses its active profile. HTTP MCP verifies each caller's Broker access token and carries that
+  same bearer to Broker APIs; local providers may use a static
   broker key. The Broker maps its current ACL to a short-lived STS session policy; S3 bucket/IAM
   policy remains the final data-plane boundary and object bodies travel directly between Graphit and S3.
 

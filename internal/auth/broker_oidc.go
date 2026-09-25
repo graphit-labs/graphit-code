@@ -30,7 +30,7 @@ func BrokerOIDCProvider(ctx context.Context, provider Provider, client *http.Cli
 	if err := sameBrokerOrigin(provider.Broker.Endpoint, authentication.Issuer); err != nil {
 		return Provider{}, fmt.Errorf("broker OIDC issuer: %w", err)
 	}
-	if strings.TrimRight(authentication.Issuer, "/") != strings.TrimRight(discovery.Issuer, "/") {
+	if authentication.Issuer != discovery.Issuer {
 		return Provider{}, errors.New("broker OIDC issuer does not match broker discovery")
 	}
 	if authentication.RedirectURIPath == "" || !strings.HasPrefix(authentication.RedirectURIPath, "/") || strings.ContainsAny(authentication.RedirectURIPath, "?#") {
@@ -42,8 +42,12 @@ func BrokerOIDCProvider(ctx context.Context, provider Provider, client *http.Cli
 	if !contains(authentication.Scopes, "openid") {
 		return Provider{}, errors.New("broker OIDC scopes must include openid")
 	}
-	if strings.TrimSpace(authentication.AccessTokenAudience) == "" || !contains(authentication.Audiences, authentication.AccessTokenAudience) {
+	audience := strings.TrimSpace(authentication.AccessTokenAudience)
+	if audience == "" || !contains(authentication.Audiences, audience) {
 		return Provider{}, errors.New("broker OIDC access token audience is missing or inconsistent with advertised audiences")
+	}
+	if resource := provider.Broker.MCPResource; resource != "" && !contains(authentication.MCPResources, resource) {
+		return Provider{}, errors.New("configured MCP resource is not advertised by the broker")
 	}
 	oidcClient := &OIDCClient{HTTP: client}
 	standard, err := oidcClient.Discovery(ctx, authentication.Issuer)
@@ -65,15 +69,15 @@ func BrokerOIDCProvider(ctx context.Context, provider Provider, client *http.Cli
 	}
 	resolved := provider
 	resolved.OIDC = &OIDCConfig{
-		Issuer:            strings.TrimRight(authentication.Issuer, "/"),
+		Issuer:            authentication.Issuer,
 		ClientID:          authentication.ClientID,
-		TokenAuthMethod:   "none",
 		Scopes:            append([]string(nil), authentication.Scopes...),
 		RedirectURIPath:   authentication.RedirectURIPath,
 		UsernameClaim:     "preferred_username",
 		OrganizationClaim: "organization",
 		TeamsClaim:        "groups",
 		MCPAudience:       authentication.AccessTokenAudience,
+		MCPResource:       provider.Broker.MCPResource,
 	}
 	return resolved, nil
 }
@@ -90,17 +94,15 @@ func (v *ProviderAccessTokenVerifier) VerifyAccessToken(ctx context.Context, pro
 		client = NewOIDCClient()
 	}
 	switch provider.Type {
-	case ProviderOIDC:
-		return client.VerifyAccessToken(ctx, provider, raw, audiences)
 	case ProviderBroker:
+		if len(audiences) != 1 || audiences[0] == "" || provider.Broker == nil || audiences[0] != provider.Broker.MCPResource {
+			return VerifiedIdentity{}, errors.New("configured MCP resource audience is required")
+		}
 		resolved, err := BrokerOIDCProvider(ctx, provider, client.client())
 		if err != nil {
 			return VerifiedIdentity{}, err
 		}
-		// The broker's own audience is always acceptable; the caller adds any resource the
-		// broker advertises for this endpoint.
-		accepted := append([]string{resolved.OIDC.MCPAudience}, audiences...)
-		identity, err := client.VerifyAccessToken(ctx, resolved, raw, accepted)
+		identity, err := client.VerifyAccessToken(ctx, resolved, raw, audiences)
 		if err != nil {
 			return VerifiedIdentity{}, err
 		}

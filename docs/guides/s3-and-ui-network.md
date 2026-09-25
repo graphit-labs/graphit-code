@@ -60,18 +60,6 @@ graphit login --profile alice --provider workstation \
   --s3-access-key "$S3_ACCESS_KEY" --s3-secret-key "$S3_SECRET_KEY"
 ```
 
-Direct OIDC web-identity STS:
-
-```bash
-graphit provider add corporate --type oidc \
-  --issuer https://id.example.com --client-id graphit-cli \
-  --username-claim preferred_username \
-  --s3-bucket graphit --s3-region us-east-1 --s3-prefix tenant/acme \
-  --s3-credential-source sts \
-  --sts-role-arn arn:aws:iam::123456789012:role/graphit-user
-graphit login --profile alice --provider corporate
-```
-
 Broker-issued STS:
 
 ```bash
@@ -92,14 +80,12 @@ and CORS is not authorization. Bind to loopback unless a VPN, firewall, or authe
 proxy establishes the boundary.
 
 `mcp.host` and `mcp.port` configure the daemon listener. Its generated runtime key rotates at each
-start. A local provider may use a static MCP key. With a direct OIDC or Broker-managed provider,
-the caller sends an access token that Graphit verifies against the configured or Broker-discovered
-issuer/audience/JWKS and
-propagates to the broker. Direct OIDC may use relay or RFC 8693 exchange and keeps its daemon-MCP
-audience/resource under the OIDC configuration. `graphit mcp --stdio` always targets the local
-daemon and resolves the active session token before each HTTP request, so refreshed tokens are used
-without restarting the bridge. A first-class Broker provider discovers its token contract and has
-no MCP configuration block.
+start. A local provider may use a static MCP key. With a Broker provider, each remote HTTP caller
+sends a Broker access JWT whose `aud` includes this endpoint's configured `--mcp-resource` URI.
+Graphit verifies the JWT and forwards the same bearer to Broker APIs, which require their own
+audience in that token. `graphit mcp --stdio` targets the local daemon using its runtime key or a
+scoped capability token. The Broker provider discovers issuer and signing keys; its MCP resource
+URI is configured locally and must appear in Broker discovery.
 
 ## Diagnostics
 
@@ -111,5 +97,5 @@ graphit mcp
 ```
 
 Inspect `~/.graphit/auth.json` permissions, but never publish its contents. It contains identity
-and service credentials. STS credentials from both Broker and direct OIDC providers are never
+and service credentials. Broker-issued temporary S3 credentials are never
 stored there; local profiles may contain their configured S3 credentials.

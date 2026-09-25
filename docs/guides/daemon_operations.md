@@ -277,9 +277,9 @@ The daemon always attempts to expose authenticated streamable HTTP MCP at `/mcp`
 - each daemon start generates a fresh local runtime key;
 - the runtime key is written to `~/.graphit/daemon/mcp.key` with mode `0600`;
 - a local provider's static MCP key is also accepted;
-- with an active direct OIDC or Broker-managed provider, each caller's token is verified and
-  propagated to broker calls without using another caller's profile token; direct OIDC may use
-  relay or RFC 8693 exchange, while Broker tokens use the discovered audience and JWKS;
+- with an active Broker provider, each caller's access JWT must contain the configured MCP
+  resource audience and is forwarded unchanged to Broker calls; Broker APIs validate their own
+  audience in that same token;
 - every `/mcp` request must send `Authorization: Bearer <key>`.
 
 The same listener exposes unauthenticated `GET /health`, which returns HTTP 200 and

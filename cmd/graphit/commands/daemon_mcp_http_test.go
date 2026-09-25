@@ -6,7 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"slices"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -24,11 +24,21 @@ import (
 func brokerDiscovery(t *testing.T, resources []string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issuer := "http://" + r.Host
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer": issuer, "authorization_endpoint": issuer + "/authorize",
+				"token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks",
+				"registration_endpoint":            issuer + "/register",
+				"grant_types_supported":            []string{"authorization_code", "refresh_token"},
+				"code_challenge_methods_supported": []string{"S256"},
+			})
+			return
+		}
 		if r.URL.Path != "/.well-known/graphit-broker" {
 			http.NotFound(w, r)
 			return
 		}
-		issuer := "http://" + r.Host
 		authentication := map[string]any{
 			"type":                  "openid_connect",
 			"issuer":                issuer,
@@ -53,6 +63,10 @@ func brokerDiscovery(t *testing.T, resources []string) *httptest.Server {
 
 // activateBrokerProvider makes a broker provider the active one for the process under test.
 func activateBrokerProvider(t *testing.T, endpoint string) {
+	activateBrokerProviderWithResource(t, endpoint, "https://graphit.example.com/mcp")
+}
+
+func activateBrokerProviderWithResource(t *testing.T, endpoint, resource string) {
 	t.Helper()
 	store, err := auth.Open()
 	if err != nil {
@@ -60,7 +74,7 @@ func activateBrokerProvider(t *testing.T, endpoint string) {
 	}
 	provider := auth.Provider{
 		Name: "broker", Type: auth.ProviderBroker,
-		Broker: &auth.BrokerConfig{Endpoint: endpoint},
+		Broker: &auth.BrokerConfig{Endpoint: endpoint, MCPResource: resource},
 		AI: auth.AIConfig{
 			Embedding: auth.AIServiceConfig{Mode: auth.ServiceBroker},
 			Rerank:    auth.AIServiceConfig{Mode: auth.ServiceBroker},
@@ -111,6 +125,75 @@ func TestMCPChallengeAdvertisesBrokerResourceMetadata(t *testing.T) {
 	}
 }
 
+func TestMCPBootstrapChallengeMetadataAndBrokerDiscovery(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	discovery := brokerDiscovery(t, []string{"https://graphit.example.com/mcp"})
+	activateBrokerProvider(t, discovery.URL)
+	reached := false
+	mux := newDaemonMCPMux(recordingMCPHandler(&reached), daemonMCPMuxOptions{
+		RuntimeKey: "runtime-key", Resolver: auth.NewProtectedResourceResolver(),
+	})
+	for _, bearer := range []string{"", "Bearer invalid-token"} {
+		request := httptest.NewRequest(http.MethodPost, "https://graphit.example.com/mcp", nil)
+		if bearer != "" {
+			request.Header.Set("Authorization", bearer)
+		}
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized || reached {
+			t.Fatalf("bearer=%q status=%d reached=%v", bearer, response.Code, reached)
+		}
+		challenge := response.Header().Get("WWW-Authenticate")
+		metadataURL := "https://graphit.example.com/.well-known/oauth-protected-resource/mcp"
+		if !strings.HasPrefix(challenge, "Bearer ") || !strings.Contains(challenge, `resource_metadata="`+metadataURL+`"`) {
+			t.Fatalf("bearer=%q challenge=%q", bearer, challenge)
+		}
+		if bearer == "" && strings.Contains(challenge, "error=") {
+			t.Fatalf("missing bearer challenge exposed an error: %q", challenge)
+		}
+		if bearer != "" && !strings.Contains(challenge, `error="invalid_token"`) {
+			t.Fatalf("invalid bearer challenge has no invalid_token error: %q", challenge)
+		}
+		parsed, err := url.Parse(metadataURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata := httptest.NewRecorder()
+		mux.ServeHTTP(metadata, httptest.NewRequest(http.MethodGet, parsed.String(), nil))
+		if metadata.Code != http.StatusOK {
+			t.Fatalf("metadata status=%d", metadata.Code)
+		}
+		var document struct {
+			Resource             string   `json:"resource"`
+			AuthorizationServers []string `json:"authorization_servers"`
+		}
+		if err := json.NewDecoder(metadata.Body).Decode(&document); err != nil {
+			t.Fatal(err)
+		}
+		if document.Resource != "https://graphit.example.com/mcp" || len(document.AuthorizationServers) != 1 || document.AuthorizationServers[0] != discovery.URL {
+			t.Fatalf("metadata=%#v", document)
+		}
+		issuerResponse, err := discovery.Client().Get(document.AuthorizationServers[0] + "/.well-known/openid-configuration")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var oidc struct {
+			Issuer                string `json:"issuer"`
+			AuthorizationEndpoint string `json:"authorization_endpoint"`
+			TokenEndpoint         string `json:"token_endpoint"`
+			RegistrationEndpoint  string `json:"registration_endpoint"`
+		}
+		if err := json.NewDecoder(issuerResponse.Body).Decode(&oidc); err != nil {
+			issuerResponse.Body.Close()
+			t.Fatal(err)
+		}
+		issuerResponse.Body.Close()
+		if issuerResponse.StatusCode != http.StatusOK || oidc.Issuer != discovery.URL || oidc.AuthorizationEndpoint == "" || oidc.TokenEndpoint == "" || oidc.RegistrationEndpoint == "" {
+			t.Fatalf("OIDC discovery=%#v status=%d", oidc, issuerResponse.StatusCode)
+		}
+	}
+}
+
 func TestMCPMetadataDocumentDerivesFromBrokerDiscovery(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	discovery := brokerDiscovery(t, []string{"https://graphit.example.com/mcp"})
@@ -143,8 +226,8 @@ func TestMCPMetadataDocumentDerivesFromBrokerDiscovery(t *testing.T) {
 		if len(document.AuthorizationServers) != 1 || document.AuthorizationServers[0] != discovery.URL {
 			t.Errorf("%s authorization_servers = %v; want [%s]", path, document.AuthorizationServers, discovery.URL)
 		}
-		if strings.Join(document.ScopesSupported, ",") != "openid,profile" {
-			t.Errorf("%s scopes_supported = %v; want the scopes the broker advertised", path, document.ScopesSupported)
+		if strings.Join(document.ScopesSupported, ",") != "openid" {
+			t.Errorf("%s scopes_supported = %v; want openid", path, document.ScopesSupported)
 		}
 		if len(document.BearerMethodsSupported) != 1 || document.BearerMethodsSupported[0] != "header" {
 			t.Errorf("%s bearer_methods_supported = %v", path, document.BearerMethodsSupported)
@@ -199,8 +282,8 @@ func TestMCPAdvertisesNothingWithoutResolvableResource(t *testing.T) {
 			if challenge.Code != http.StatusUnauthorized {
 				t.Errorf("challenge status = %d; want %d", challenge.Code, http.StatusUnauthorized)
 			}
-			if header := challenge.Header().Get("WWW-Authenticate"); strings.Contains(header, "resource_metadata") {
-				t.Errorf("WWW-Authenticate = %q; want no resource_metadata", header)
+			if header := challenge.Header().Get("WWW-Authenticate"); header != "Bearer" {
+				t.Errorf("WWW-Authenticate = %q; want a generic Bearer challenge without resource metadata", header)
 			}
 
 			// Bearer authentication must keep working in this state.
@@ -215,10 +298,10 @@ func TestMCPAdvertisesNothingWithoutResolvableResource(t *testing.T) {
 	}
 }
 
-func TestMCPSelectsAdvertisedResourceByRequestHost(t *testing.T) {
+func TestMCPUsesConfiguredResourceAndRejectsOtherHosts(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	discovery := brokerDiscovery(t, []string{"https://one.example.com/mcp", "https://two.example.com/mcp"})
-	activateBrokerProvider(t, discovery.URL)
+	activateBrokerProviderWithResource(t, discovery.URL, "https://one.example.com/mcp")
 
 	reached := false
 	mux := newDaemonMCPMux(recordingMCPHandler(&reached), daemonMCPMuxOptions{
@@ -226,24 +309,24 @@ func TestMCPSelectsAdvertisedResourceByRequestHost(t *testing.T) {
 		Resolver:   auth.NewProtectedResourceResolver(),
 	})
 
-	for host, want := range map[string]string{
-		"https://one.example.com": "https://one.example.com/mcp",
-		"https://two.example.com": "https://two.example.com/mcp",
-	} {
-		recorder := httptest.NewRecorder()
-		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, host+"/.well-known/oauth-protected-resource", nil))
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("%s metadata status = %d", host, recorder.Code)
-		}
-		var document struct {
-			Resource string `json:"resource"`
-		}
-		if err := json.NewDecoder(recorder.Body).Decode(&document); err != nil {
-			t.Fatal(err)
-		}
-		if document.Resource != want {
-			t.Errorf("%s resource = %q; want %q", host, document.Resource, want)
-		}
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://one.example.com/.well-known/oauth-protected-resource", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("configured host metadata status = %d", recorder.Code)
+	}
+	var document struct {
+		Resource string `json:"resource"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Resource != "https://one.example.com/mcp" {
+		t.Errorf("resource = %q", document.Resource)
+	}
+	other := httptest.NewRecorder()
+	mux.ServeHTTP(other, httptest.NewRequest(http.MethodGet, "https://two.example.com/.well-known/oauth-protected-resource", nil))
+	if other.Code != http.StatusNotFound {
+		t.Errorf("other advertised host status = %d", other.Code)
 	}
 
 	// A host the broker never vouched for selects nothing, so no value is derived from it.
@@ -337,6 +420,31 @@ func TestMCPBearerKeepsRuntimeKeyLocalKeyAndIdentityContext(t *testing.T) {
 	mux.ServeHTTP(recorder, rejected)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Errorf("invalid token status = %d; want %d", recorder.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestMCPPermissionDenialRemainsForbidden(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	discovery := brokerDiscovery(t, []string{"https://graphit.example.com/mcp"})
+	activateBrokerProvider(t, discovery.URL)
+	mux := newDaemonMCPMux(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="files:write"`)
+		http.Error(w, "write permission required", http.StatusForbidden)
+	}), daemonMCPMuxOptions{
+		RuntimeKey: "runtime-key", Resolver: auth.NewProtectedResourceResolver(),
+		Verifier: daemonVerifierFunc(func(_ context.Context, provider auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
+			if provider.Type != auth.ProviderBroker || token != "valid-broker-token" || len(audiences) != 1 || audiences[0] != "https://graphit.example.com/mcp" {
+				return auth.VerifiedIdentity{}, errors.New("invalid token")
+			}
+			return auth.VerifiedIdentity{Issuer: discovery.URL, Subject: "caller", Username: "alice", ExpiresAt: time.Now().Add(time.Hour)}, nil
+		}),
+	})
+	request := httptest.NewRequest(http.MethodPost, "https://graphit.example.com/mcp", nil)
+	request.Header.Set("Authorization", "Bearer valid-broker-token")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Header().Get("WWW-Authenticate"), `error="insufficient_scope"`) || !strings.Contains(response.Header().Get("WWW-Authenticate"), `resource_metadata="https://graphit.example.com/.well-known/oauth-protected-resource/mcp"`) {
+		t.Fatalf("status=%d challenge=%q", response.Code, response.Header().Get("WWW-Authenticate"))
 	}
 }
 
@@ -555,7 +663,24 @@ func TestMCPTransportHeaderNamesMatchSDK(t *testing.T) {
 	}
 }
 
-func TestMCPMetadataSurvivesBrokerOutage(t *testing.T) {
+func TestMCPAuthenticatedStreamableInitialize(t *testing.T) {
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return mcp.NewServer(&mcp.Implementation{Name: "graphit-test", Version: "1"}, nil)
+	}, nil)
+	mux := newDaemonMCPMux(handler, daemonMCPMuxOptions{RuntimeKey: "runtime-key"})
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/mcp", strings.NewReader(initialize))
+	request.Header.Set("Authorization", "Bearer runtime-key")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get(mcpSessionIDHeader) == "" {
+		t.Fatalf("authenticated MCP initialize status=%d session=%q body=%s", response.Code, response.Header().Get(mcpSessionIDHeader), response.Body.String())
+	}
+}
+
+func TestMCPMetadataFailsClosedAfterBrokerOutage(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 
 	reachable := true
@@ -590,21 +715,12 @@ func TestMCPMetadataSurvivesBrokerOutage(t *testing.T) {
 	}
 
 	reachable = false
-	resolver.TTL = -time.Second // force the cache to be considered stale
+	resolver.Now = func() time.Time { return time.Now().Add(time.Hour) } // expire the verified advertisement
 
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "https://graphit.example.com/.well-known/oauth-protected-resource/mcp", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("metadata status during outage = %d; want the last good advertisement", recorder.Code)
-	}
-	var document struct {
-		AuthorizationServers []string `json:"authorization_servers"`
-	}
-	if err := json.NewDecoder(recorder.Body).Decode(&document); err != nil {
-		t.Fatal(err)
-	}
-	if len(document.AuthorizationServers) != 1 || document.AuthorizationServers[0] != server.URL {
-		t.Fatalf("authorization_servers during outage = %v; want the broker that was verified earlier", document.AuthorizationServers)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("metadata status during outage = %d; want fail closed", recorder.Code)
 	}
 }
 
@@ -640,116 +756,3 @@ func TestMCPMetadataStaysSilentWhenBrokerWasNeverReachable(t *testing.T) {
 // activateDirectOIDCProvider makes a direct OIDC provider the active one. Its issuer, scopes
 // and MCP resource come from the provider's own configuration, which is what that provider
 // type means: there is no broker to discover them from.
-func activateDirectOIDCProvider(t *testing.T, issuer, resource string) {
-	t.Helper()
-	store, err := auth.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider := auth.Provider{Name: "oidc", Type: auth.ProviderOIDC, OIDC: &auth.OIDCConfig{
-		Issuer: issuer, ClientID: "graphit-cli", UsernameClaim: "preferred_username",
-		Scopes: []string{"openid", "profile"}, MCPAudience: "graphit-mcp", MCPResource: resource,
-	}}
-	if err := store.AddProvider(provider); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Login(auth.Profile{
-		Name: "alice", Provider: provider.Name, Issuer: issuer, Subject: "subject", Username: "alice",
-		OIDC: &auth.OIDCSession{AccessToken: "profile-token", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)},
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestDirectOIDCProviderServesChallengeAndMetadata(t *testing.T) {
-	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
-	activateDirectOIDCProvider(t, "https://issuer.example/realms/acme", "https://graphit.example.com/mcp")
-
-	reached := false
-	mux := newDaemonMCPMux(recordingMCPHandler(&reached), daemonMCPMuxOptions{
-		RuntimeKey: "runtime-key",
-		Resolver:   auth.NewProtectedResourceResolver(),
-	})
-
-	challenge := httptest.NewRecorder()
-	mux.ServeHTTP(challenge, httptest.NewRequest(http.MethodPost, "https://graphit.example.com/mcp", nil))
-	if challenge.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d; want %d", challenge.Code, http.StatusUnauthorized)
-	}
-	want := `resource_metadata="https://graphit.example.com/.well-known/oauth-protected-resource/mcp"`
-	if got := challenge.Header().Get("WWW-Authenticate"); !strings.Contains(got, want) {
-		t.Fatalf("WWW-Authenticate = %q; want %s", got, want)
-	}
-
-	metadata := httptest.NewRecorder()
-	mux.ServeHTTP(metadata, httptest.NewRequest(http.MethodGet, "https://graphit.example.com/.well-known/oauth-protected-resource/mcp", nil))
-	if metadata.Code != http.StatusOK {
-		t.Fatalf("metadata status = %d", metadata.Code)
-	}
-	var document struct {
-		Resource               string   `json:"resource"`
-		AuthorizationServers   []string `json:"authorization_servers"`
-		ScopesSupported        []string `json:"scopes_supported"`
-		BearerMethodsSupported []string `json:"bearer_methods_supported"`
-	}
-	if err := json.NewDecoder(metadata.Body).Decode(&document); err != nil {
-		t.Fatal(err)
-	}
-	if document.Resource != "https://graphit.example.com/mcp" {
-		t.Errorf("resource = %q", document.Resource)
-	}
-	if len(document.AuthorizationServers) != 1 || document.AuthorizationServers[0] != "https://issuer.example/realms/acme" {
-		t.Errorf("authorization_servers = %v; want the provider's own issuer", document.AuthorizationServers)
-	}
-	if strings.Join(document.ScopesSupported, ",") != "openid,profile" {
-		t.Errorf("scopes_supported = %v", document.ScopesSupported)
-	}
-	if len(document.BearerMethodsSupported) != 1 || document.BearerMethodsSupported[0] != "header" {
-		t.Errorf("bearer_methods_supported = %v", document.BearerMethodsSupported)
-	}
-}
-
-func TestDirectOIDCProviderAcceptsResourceAudienceToken(t *testing.T) {
-	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
-	activateDirectOIDCProvider(t, "https://issuer.example/realms/acme", "https://graphit.example.com/mcp")
-
-	var seenAudiences []string
-	var seen *http.Request
-	mux := newDaemonMCPMux(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seen = r
-		w.WriteHeader(http.StatusNoContent)
-	}), daemonMCPMuxOptions{
-		RuntimeKey: "runtime-key",
-		Resolver:   auth.NewProtectedResourceResolver(),
-		Verifier: daemonVerifierFunc(func(_ context.Context, provider auth.Provider, token string, audiences []string) (auth.VerifiedIdentity, error) {
-			seenAudiences = audiences
-			if provider.Type != auth.ProviderOIDC || token != "agent-token" {
-				return auth.VerifiedIdentity{}, errors.New("invalid token")
-			}
-			return auth.VerifiedIdentity{
-				Issuer: "https://issuer.example/realms/acme", Subject: "caller", Username: "bob",
-				Teams: []string{"platform"}, ExpiresAt: time.Now().Add(time.Hour),
-			}, nil
-		}),
-	})
-
-	request := httptest.NewRequest(http.MethodPost, "https://graphit.example.com/mcp", nil)
-	request.Header.Set("Authorization", "Bearer agent-token")
-	recorder := httptest.NewRecorder()
-	mux.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusNoContent || seen == nil {
-		t.Fatalf("status = %d, handler reached = %v", recorder.Code, seen != nil)
-	}
-	// An agent that asked for the MCP resource as its RFC 8707 target gets a token whose aud
-	// is that resource; the provider's own audience remains acceptable too.
-	if !slices.Contains(seenAudiences, "https://graphit.example.com/mcp") {
-		t.Errorf("accepted audiences = %v; want the canonical resource", seenAudiences)
-	}
-	if !slices.Contains(seenAudiences, "graphit-mcp") {
-		t.Errorf("accepted audiences = %v; want the provider's configured audience", seenAudiences)
-	}
-	if identity, ok := auth.RequestIdentity(seen.Context()); !ok || identity.Username != "bob" {
-		t.Errorf("request identity = %#v ok=%v", identity, ok)
-	}
-}

@@ -153,8 +153,8 @@ graphit self-update
 
 ### `provider`
 
-`provider add <name> --type local|oidc|broker` creates reusable identity, MCP/broker and AI service
-topology. Provider outputs redact an OIDC client secret.
+`provider add <name> --type local|broker` creates reusable identity, MCP/broker and AI service
+topology. Provider outputs redact configured secrets.
 `provider list`, `provider show`, `provider update`, and `provider remove` manage it. Updates advance
 the provider revision and force dependent profiles to log in again. Removal requires confirmation;
 referenced providers additionally require `--cascade`. If `local` is removed while no profile is
@@ -165,18 +165,15 @@ another profile is active, that profile's provider wins and `local` remains abse
 
 `login --profile <name> --provider <name>` authenticates and always activates the profile. Local
 login accepts `--username`, `--organization`, repeatable `--team`, `--mcp-key`, `--broker-key`,
-`--embedding-api-key`, and `--rerank-api-key`. OIDC login uses
-Authorization Code + PKCE interactively; non-interactive OIDC login requires `--access-token` and
-`--id-token`, with optional refresh token and expiry. OIDC login rejects static MCP/broker keys;
-HTTP MCP uses the verified access token and broker calls relay or exchange that request bearer.
+`--embedding-api-key`, and `--rerank-api-key`.
 Broker login is browser-only: Graphit discovers the OpenID issuer, public client ID, scopes and
 callback path from `--broker-endpoint`, then uses standard OIDC discovery and endpoints; the Broker
 page chooses between enabled local and upstream OIDC methods and returns a signed ID token plus
 an EdDSA-signed access JWT and opaque rotating refresh token. Graphit verifies exact issuer,
 advertised access-token audience, and same-origin endpoints plus Authorization Code, refresh, PKCE
-S256, public-client, EdDSA, and JWKS capabilities before
-opening the browser. Broker providers reject direct OIDC, static-key,
-anonymous, audience/resource, and token-exchange flags.
+S256, public-client, EdDSA, and JWKS capabilities before opening the browser. Broker providers
+reject local identity, static-key, and token flags. `--mcp-resource` configures the exact canonical
+URI of this daemon's HTTP MCP endpoint; the Broker must advertise it in `mcp_resources`.
 Login always activates the profile.
 For a provider configured with `--broker-allow-anonymous`, local login may instead use
 `--anonymous`; it cannot be combined with username/organization/team/broker-key flags.
@@ -185,14 +182,11 @@ Important provider option groups:
 
 | Capability | Options |
 |---|---|
-| Broker identity | `--type broker --broker-endpoint URL`; login contract is discovered from that Broker |
-| OIDC | `--issuer`, `--client-id`, `--client-secret`, `--token-auth-method`, `--scopes`, `--redirect-uri`, claim mappings, repeatable `--auth-param` |
-| Direct OIDC token for daemon MCP | `--mcp-audience`, `--mcp-resource`, `--mcp-require-audience=true|false` (default `true`; `false` is an explicit compatibility exception) |
-| Broker | `--broker-endpoint`, `--broker-audience`, `--broker-resource`, `--broker-token-strategy relay|token-exchange`, `--broker-token-exchange-endpoint`, `--broker-allow-anonymous` |
+| Broker identity and HTTP MCP | `--type broker --broker-endpoint URL [--mcp-resource URI]`; the login contract is discovered from that Broker and HTTP MCP tokens require the configured resource audience |
+| Local identity | `--type local`; optional `--broker-endpoint` and `--broker-allow-anonymous` support local profiles with Broker services |
 | Embedding | `--embedding-mode local|direct|broker|disabled`; local `--embedding-device auto|cpu|cuda|coreml` and `--embedding-device-id`; direct protocol/endpoint/model/dimensions |
 | Rerank | `--rerank-mode local|direct|broker|disabled`; local `--rerank-device auto|cpu|cuda|coreml` and `--rerank-device-id`; direct protocol/endpoint/model plus `--rerank-dimensions` for OpenAI/OpenAI-compatible/Google embedding-simulated rerank |
-| S3 topology | `--s3-bucket`, `--s3-region`, `--s3-endpoint`, `--s3-prefix`, `--s3-credential-source login|aws-chain|sts`; first-class Broker providers resolve these values in memory per project/user/Hub scope and physical module when Broker S3 is enabled and otherwise use local storage |
-| OIDC STS | `--sts-endpoint`, `--sts-role-arn`, `--sts-session-name`, `--sts-duration`, `--sts-use-access-token`, `--clear-sts` |
+| S3 topology | `--s3-bucket`, `--s3-region`, `--s3-endpoint`, `--s3-prefix`, `--s3-credential-source login|aws-chain`; first-class Broker providers resolve grants in memory per project/user/Hub scope and physical module when Broker S3 is enabled and otherwise use local storage |
 | Local S3 login | `--s3-access-key`, `--s3-secret-key`, `--s3-session-token`, or `--aws-profile`; `--allow-aws-credential-chain` enables the ambient chain |
 
 Adding broker configuration requires both `--embedding-mode broker` and `--rerank-mode broker`;
@@ -202,7 +196,7 @@ remove the broker block and set both AI modes to the desired non-broker values i
 Interactive add/update prompts for device and device ID only for local services, preselecting the
 provider's current values or `cpu`/`0`. Non-interactive add/update may omit either value to preserve
 the current value or accept the new-service default. Device flags are rejected for direct, broker,
-and disabled services. The rule follows AI service mode for both local and OIDC auth providers.
+and disabled services. The rule follows AI service mode for both local and Broker auth providers.
 
 `account list`, `account show [profile]`, and `account use <profile>` inspect or atomically select
 profiles. `logout [--profile <name>]` deletes that profile's credentials. Full provider flags are
@@ -293,12 +287,10 @@ graphit mcp [flags]
 
 **Architecture:**
 - The daemon listens on `127.0.0.1:<dynamic-port>/mcp` (Streamable HTTP transport)
-- Authentication: generated runtime key; local-provider static MCP key; or, with an active OIDC
-  or Broker provider, a verified access token propagated to the broker by relay or RFC 8693
-  exchange when applicable
-- The stdio proxy always connects to this local daemon. Before every HTTP request it resolves the
-  active profile again, using its renewable OIDC/Broker access token, a local static MCP key, or
-  the current daemon runtime key when no profile credential applies
+- Authentication: generated runtime key; local-provider static MCP key; or, with an active Broker
+  provider, a verified Broker access token propagated to Broker APIs
+- The stdio proxy always connects to this local daemon. It uses the current daemon runtime key
+  or the active local provider's static MCP key. Remote HTTP clients send their Broker access token.
 - Port: Written to `~/.graphit/daemon/mcp.port`
 - The stdio proxy auto-recovers if the daemon restarts, preserves its host-agent identity, replays the MCP handshake, and sends `notifications/tools/list_changed` so clients that implement catalog invalidation refresh their tools. Fresh sessions always receive the new catalog.
 

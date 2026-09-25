@@ -68,9 +68,9 @@ acme-code setup
 
 Setup collects installation preferences, ensures the branded default provider `local`, and
 provisions model bundles whose manifest requests the `setup` fetch policy. Create another named
-local or OIDC provider with
-`--broker-endpoint`, `--embedding-mode broker`, and `--rerank-mode broker`, then login with OIDC or
-`--broker-key`; login activates that profile. Broker configuration rejects local, direct, disabled,
+local or Broker provider with
+`--broker-endpoint`, `--embedding-mode broker`, and `--rerank-mode broker`, then login with the
+Broker browser flow or a local `--broker-key`; login activates that profile. Broker configuration rejects local, direct, disabled,
 or omitted AI service modes; `search.rerank` still controls whether reranking runs. The
 owner-only global auth file stores identity sessions and broker/MCP/direct-AI keys, never AWS
 credentials or bucket configuration. Broker ACL, bucket/IAM policy, endpoint TLS, and network
