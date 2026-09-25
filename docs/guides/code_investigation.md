@@ -37,7 +37,7 @@ Potential impact follows incoming calls up to two hops and returns up to 100 dis
 - **No graph entities:** load a sample, inspect the query table or check whether the chosen context has been indexed.
 - **No matching entities:** clear filters or use a different name/path. Use full-index search if the entity is outside the sample.
 - **No source path:** the entity may represent an external or structural node. The index sample carries its persistent identity when available, so its relationships remain inspectable without a file; source is not fabricated.
-- **Request failed:** read the error and use **Retry neighborhood**, the failed-branch retry, or the common header refresh. An error is not evidence of an empty repository.
+- **Request failed:** read the error and use **Retry neighborhood**, the failed-branch retry, or the common header refresh. If the same branches keep failing after the daemon is available, update Graphit and reindex the selected project or context; Retry cannot repair an invalid persisted graph bundle. An error is not evidence of an empty repository.
 - **Missing unique identifier:** refresh the result or reindex. Symbol nodes need their indexed `uid`; File/Directory nodes use `path`. Search and sample results carry that identity, and a full node returned by Query lab retains it. The map never guesses from a name, file or line.
 - **Missing relationship UID:** reindex the selected context. Older graph bundles cannot support stable relation navigation. Ladybug's internal `ID(r)` identifies a relation in the current mounted snapshot and may change after reindexing.
 

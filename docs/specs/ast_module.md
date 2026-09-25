@@ -153,6 +153,8 @@ For every supported language, the parser extracts the following relationship dat
 The AST database is backed by **LadybugDB** (`github.com/LadybugDB/go-ladybug`) with **icebug-disk** storage.
 The graph lives as Parquet CSR bundles at `graph.icebug/` (`nodes_*.parquet`, `indices_*.parquet`, `indptr_*.parquet`) whose `schema.cypher` declares `storage='<abs>/graph.icebug', format='icebug-disk'`. The Ladybug catalog is `:memory:` and rebuilt per connection from `schema.cypher`; no `ladybugdb` file, no `.wal`/`.shadow`, no `CHECKPOINT`, no `AtomicSwapDB`. Local graphs are calculated and queried on the filesystem. Hub publish uploads the same canonical bundle through the provider's S3 store; Hub consumers open the remote prefix and LadybugDB reads its Parquets directly with the active credentials.
 
+For every relationship member, `indices_*.parquet` starts with the CSR `target` column and then writes the declared properties in exactly the order and types of its `CREATE REL TABLE` statement in `schema.cypher`. Missing declared properties are nullable columns; undeclared properties and type mismatches fail export. `indptr_*.parquet` retains the CSR `ptr` column, and every Parquet member retains `icebug_disk_version` metadata. This is the same [Icebug disk layout](https://github.com/Ladybug-Memory/icebug-format#output-structure) for local and S3 mounts.
+
 ### Node Schemas
 
 The database initializes node tables with the following attributes:

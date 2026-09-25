@@ -294,33 +294,4 @@ func (c *nodeColumn) valueAt(i int) (any, bool) {
 	}
 }
 
-func (t *nodeColumns) appendRowExcept(r map[string]any, skipA, skipB string) {
-	for name, v := range r {
-		if name == skipA || name == skipB {
-			continue
-		}
-		ci, ok := t.index[name]
-		if !ok {
-			ci = len(t.cols)
-			t.index[name] = ci
-			t.cols = append(t.cols, &nodeColumn{name: name, kind: kindOfNodeValue(v)})
-		}
-		t.cols[ci].set(t.rows, v)
-	}
-	t.rows++
-	for _, c := range t.cols {
-		c.padTo(t.rows)
-	}
-}
-
-func (t *nodeColumns) sortedFields() ([]ladybug.Field, []*nodeColumn) {
-	ordered := append([]*nodeColumn(nil), t.cols...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].name < ordered[j].name })
-	fields := make([]ladybug.Field, len(ordered))
-	for i, c := range ordered {
-		fields[i] = ladybug.Field{Name: c.name, Type: c.cypherType()}
-	}
-	return fields, ordered
-}
-
 func (c *nodeColumn) len() int { return len(c.present) }

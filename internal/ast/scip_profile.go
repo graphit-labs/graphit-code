@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,7 +57,7 @@ func readSCIPProfile(data []byte, path string) (SCIPProfile, error) {
 		return profile, fmt.Errorf("SCIP profile %s: %w", path, err)
 	}
 	var trailing any
-	if err := dec.Decode(&trailing); err != io.EOF {
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
 		if err == nil {
 			err = fmt.Errorf("multiple YAML documents")
 		}

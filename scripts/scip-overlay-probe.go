@@ -31,7 +31,7 @@ func main() {
 	}
 }
 
-func probe(scratch string) error {
+func probe(scratch string) (err error) {
 	base := scratch
 	if base == "" {
 		base = os.TempDir()
@@ -61,7 +61,12 @@ func probe(scratch string) error {
 	if result, err := docker("volume", "create", volume); err != nil {
 		return fmt.Errorf("create Docker volume: %w: %s", err, result)
 	}
-	defer docker("volume", "rm", volume)
+	defer func() {
+		result, cleanupErr := docker("volume", "rm", volume)
+		if cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove Docker volume: %w: %s", cleanupErr, result))
+		}
+	}()
 	if err := runCase("docker-volume", source, output, "", volume); err != nil {
 		return err
 	}
@@ -108,22 +113,33 @@ setpriv --no-new-privs --bounding-set=-all --reuid %d --regid %d --clear-groups 
 	}
 	for name, want := range map[string]string{"existing.txt": "original", "deleted.txt": "preserved"} {
 		got, err := os.ReadFile(filepath.Join(source, name))
-		if err != nil || string(got) != want {
-			return fmt.Errorf("%s: source %s changed or unreadable: %v", label, name, err)
+		if err != nil {
+			return fmt.Errorf("%s: source %s unreadable: %w", label, name, err)
+		}
+		if string(got) != want {
+			return fmt.Errorf("%s: source %s changed", label, name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(source, "new.txt")); !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s: new file appeared in source: %v", label, err)
+	if _, err := os.Stat(filepath.Join(source, "new.txt")); err == nil {
+		return fmt.Errorf("%s: new file appeared in source", label)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s: inspect source: %w", label, err)
 	}
 	got, err := os.ReadFile(filepath.Join(output, "result.txt"))
-	if err != nil || string(got) != "changed" {
-		return fmt.Errorf("%s: output missing or wrong: %v", label, err)
+	if err != nil {
+		return fmt.Errorf("%s: output unreadable: %w", label, err)
+	}
+	if string(got) != "changed" {
+		return fmt.Errorf("%s: output wrong", label)
 	}
 	if volume == "" {
 		for name, want := range map[string]string{"existing.txt": "changed", "new.txt": "new"} {
 			got, err := os.ReadFile(filepath.Join(upper, "upper", name))
-			if err != nil || string(got) != want {
-				return fmt.Errorf("%s: upper %s missing or wrong: %v", label, name, err)
+			if err != nil {
+				return fmt.Errorf("%s: upper %s unreadable: %w", label, name, err)
+			}
+			if string(got) != want {
+				return fmt.Errorf("%s: upper %s wrong", label, name)
 			}
 		}
 	} else {

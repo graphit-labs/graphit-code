@@ -203,7 +203,11 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 		if len(edges) == 0 {
 			return res
 		}
-		props, propColumns := propTable.sortedFields()
+		props, propColumns, err := relationshipColumnsDirect(propTable, job.relType)
+		if err != nil {
+			res.err = fmt.Errorf("%s %s->%s properties: %w", job.relType, job.from, job.to, err)
+			return res
+		}
 
 		res.fwdName = canonicalMemberNameDirect(job.relType, job.from, job.to)
 		fwdCSR := csrMemberDirect{edges: edges, props: propColumns}
@@ -914,6 +918,31 @@ func propShapeOfRelType(relType string) []ladybug.Field {
 	return append(fields, ladybug.Field{Name: "uid", Type: "STRING"})
 }
 
+// Icebug reads relationship properties by position. Build the Parquet columns
+// from the same declared shape used by schema.cypher, including null columns
+// for properties that no row in this member supplied.
+func relationshipColumnsDirect(table *nodeColumns, relType string) ([]ladybug.Field, []*nodeColumn, error) {
+	fields := propShapeOfRelType(relType)
+	columns := make([]*nodeColumn, len(fields))
+	declared := make(map[string]bool, len(fields))
+	for i, field := range fields {
+		declared[field.Name] = true
+		if at, ok := table.index[field.Name]; ok {
+			column := table.cols[at]
+			if got := column.cypherType(); got != field.Type {
+				return nil, nil, fmt.Errorf("property %s has type %s, declared %s", field.Name, got, field.Type)
+			}
+			columns[i] = column
+		}
+	}
+	for _, column := range table.cols {
+		if !declared[column.name] {
+			return nil, nil, fmt.Errorf("undeclared property %s", column.name)
+		}
+	}
+	return fields, columns, nil
+}
+
 func copyRelMember(srcDir, outDir string, m ladybug.CanonicalMember) error {
 	for _, f := range []string{m.Indices, m.Indptr} {
 		if f == "" {
@@ -1053,7 +1082,7 @@ func writeIndicesDirect(dest string, m csrMemberDirect, propFields []arrow.Field
 			col := b.Field(ci + 1)
 			for i := from; i < to; i++ {
 				row := int(m.propRow(m.order[i]))
-				if ci < len(m.props) && row < m.props[ci].len() {
+				if ci < len(m.props) && m.props[ci] != nil && row < m.props[ci].len() {
 					m.props[ci].appendTo(col, row)
 				} else {
 					col.AppendNull()

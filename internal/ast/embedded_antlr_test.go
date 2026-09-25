@@ -1,6 +1,8 @@
 package ast
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 )
 
@@ -74,6 +76,25 @@ func TestEmbeddedANTLRBlockProducesDMLEdges(t *testing.T) {
 			got = append(got, r.RelType+"->"+r.TargetName)
 		}
 		t.Errorf("no reference to the selected table; references: %v", got)
+	}
+	storeDir := t.TempDir()
+	db := NewLadybugDB(LadybugConfig{StoreDir: storeDir, IcebugDir: filepath.Join(storeDir, "graph.icebug")})
+	defer func() { _ = db.Close() }()
+	ctx := context.Background()
+	if _, err := RunPipeline(ctx, db, projectDir, PipelineOptions{CacheDir: storeDir, SkipExternal: true}); err != nil {
+		t.Fatal(err)
+	}
+	relations, err := db.Query(ctx, "MATCH (p:Procedure)-[r:SELECTS]->(t:Table) RETURN r LIMIT 1", nil)
+	if err != nil || len(relations.Records) != 1 {
+		t.Fatalf("ANTLR relationship materialization: rows=%v err=%v", relations, err)
+	}
+	relationship, ok := relations.Records[0]["r"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected ANTLR relation: %v", relations.Records[0])
+	}
+	properties, _ := relationship["Properties"].(map[string]any)
+	if properties["source_file"] != "q.xml" || properties["uid"] == "" {
+		t.Fatalf("ANTLR relation properties: %v", properties)
 	}
 }
 

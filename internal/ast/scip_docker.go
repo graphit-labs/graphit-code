@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -304,8 +305,11 @@ func inspectSCIPContainer(ctx context.Context, name string) (*scipContainer, err
 		return nil, err
 	}
 	var containers []scipContainer
-	if err := json.Unmarshal(output, &containers); err != nil || len(containers) != 1 {
-		return nil, fmt.Errorf("decode Docker container inspection: %v", err)
+	if err := json.Unmarshal(output, &containers); err != nil {
+		return nil, fmt.Errorf("decode Docker container inspection: %w", err)
+	}
+	if len(containers) != 1 {
+		return nil, fmt.Errorf("decode Docker container inspection: expected one container, got %d", len(containers))
 	}
 	return &containers[0], nil
 }
@@ -355,7 +359,7 @@ func ensureSCIPContainer(ctx context.Context, root, cacheDir, outDir, family str
 		defer cancel()
 		if existing, inspectErr := inspectSCIPContainer(cleanupCtx, name); inspectErr == nil && !existing.State.Running && existing.Config.Labels["graphit.scip.nonce"] == nonce {
 			if cleanupOutput, cleanupErr := exec.CommandContext(cleanupCtx, "docker", "container", "rm", "-v", existing.ID).CombinedOutput(); cleanupErr != nil {
-				return "", fmt.Errorf("create SCIP container %s: %w: %s; remove partial container: %v: %s", name, err, strings.TrimSpace(stderr.String()), cleanupErr, strings.TrimSpace(string(cleanupOutput)))
+				return "", fmt.Errorf("create SCIP container %s: %w: %s; remove partial container: %w: %s", name, err, strings.TrimSpace(stderr.String()), cleanupErr, strings.TrimSpace(string(cleanupOutput)))
 			}
 		}
 		return "", fmt.Errorf("create SCIP container %s: %w: %s", name, err, strings.TrimSpace(stderr.String()))
@@ -418,7 +422,8 @@ var runSCIPImage = func(ctx context.Context, root, graphCacheDir, family string,
 		}
 	}
 	uid, gid := scipHostIdentity(ctx)
-	if family == "typescript" {
+	switch family {
+	case "typescript":
 		var selected map[string]bool
 		if len(allowed) > 0 {
 			selected = allowed[0]
@@ -426,7 +431,7 @@ var runSCIPImage = func(ctx context.Context, root, graphCacheDir, family string,
 		if err := writeSCIPTypeScriptConfig(root, cacheDir, selected); err != nil {
 			return nil, err
 		}
-	} else if family == "clang" {
+	case "clang":
 		var selected map[string]bool
 		if len(allowed) > 0 {
 			selected = allowed[0]
@@ -448,11 +453,7 @@ var runSCIPImage = func(ctx context.Context, root, graphCacheDir, family string,
 		defer cancel()
 		if output, err := exec.CommandContext(cleanupCtx, "docker", "container", "rm", "-f", "-v", containerID).CombinedOutput(); err != nil {
 			cleanupErr := fmt.Errorf("remove SCIP container and overlay volume %s: %w: %s", containerID, err, strings.TrimSpace(string(output)))
-			if runErr == nil {
-				runErr = cleanupErr
-			} else {
-				runErr = fmt.Errorf("%w; %v", runErr, cleanupErr)
-			}
+			runErr = errors.Join(runErr, cleanupErr)
 		}
 	}()
 	cmd := exec.CommandContext(ctx, "docker", "container", "start", "--attach", containerID)
@@ -464,13 +465,15 @@ var runSCIPImage = func(ctx context.Context, root, graphCacheDir, family string,
 	}
 	state, inspectErr := inspectSCIPContainer(ctx, containerID)
 	if err != nil || inspectErr != nil || state.State.ExitCode != 0 {
-		return nil, fmt.Errorf("docker SCIP %s failed: start=%v inspect=%v exit=%v: %s", family, err, inspectErr,
-			func() int {
-				if state != nil {
-					return state.State.ExitCode
-				}
-				return -1
-			}(), strings.TrimSpace(string(logs.data)))
+		exitCode := -1
+		if state != nil {
+			exitCode = state.State.ExitCode
+		}
+		cause := errors.Join(err, inspectErr)
+		if cause == nil {
+			cause = fmt.Errorf("exit code %d", exitCode)
+		}
+		return nil, fmt.Errorf("docker SCIP %s failed: %w; exit=%d: %s", family, cause, exitCode, strings.TrimSpace(string(logs.data)))
 	}
 	data, err = os.ReadFile(indexPath)
 	if err != nil {

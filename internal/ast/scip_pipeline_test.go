@@ -363,6 +363,18 @@ func TestSCIPPipelineFullIncrementalAndFallback(t *testing.T) {
 	if len(stubRows.Records) != 1 || stubRows.Records[0]["target"] != scipUID("b.go", external) || stubRows.Records[0]["stub"] != true {
 		t.Fatalf("external canonical relationship missing: %+v", stubRows.Records)
 	}
+	references, err := db.Query(ctx, fmt.Sprintf("MATCH (f:Function)-[r:REFERENCES]->(s:Symbol) WHERE f.uid = '%s' RETURN r", scipUID("b.go", bSymbol)), nil)
+	if err != nil || len(references.Records) != 1 {
+		t.Fatalf("SCIP relationship materialization: rows=%v err=%v", references, err)
+	}
+	ref, ok := references.Records[0]["r"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected SCIP relation: %v", references.Records[0])
+	}
+	properties, _ := ref["Properties"].(map[string]any)
+	if properties["source_file"] != "b.go" || properties["uid"] == "" {
+		t.Fatalf("SCIP relation properties: %v", properties)
+	}
 	implementationRows, err := db.Query(ctx, fmt.Sprintf("MATCH (f:Function)-[:IMPLEMENTS]->(s:Symbol) WHERE f.uid = '%s' RETURN DISTINCT s.uid AS target", scipUID("b.go", bSymbol)), nil)
 	if err != nil || len(implementationRows.Records) != 1 || implementationRows.Records[0]["target"] != scipUID("b.go", external) {
 		t.Fatalf("SCIP implementation relationship missing: rows=%v err=%v", implementationRows, err)

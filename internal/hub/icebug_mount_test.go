@@ -165,6 +165,19 @@ func helper() {}
 	} else {
 		t.Logf("mounted graph answers: %d CALLS edges", asInt(res.Records[0]["n"]))
 	}
+	res, err = mounted.Query(ctx,
+		"MATCH (:Function)-[r:calls__function_function]->(:Function) RETURN r LIMIT 1", nil)
+	if err != nil || len(res.Records) != 1 {
+		t.Fatalf("reading a published relationship: rows=%v err=%v", res, err)
+	}
+	relationship, ok := res.Records[0]["r"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected published relationship: %v", res.Records[0])
+	}
+	properties, _ := relationship["Properties"].(map[string]any)
+	if properties["source_file"] != "main.go" || properties["uid"] == "" {
+		t.Fatalf("wrong published relationship properties: %v", properties)
+	}
 }
 
 // Mounting a schema that names nothing has to fail, rather than leaving an empty catalog that
