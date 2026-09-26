@@ -137,6 +137,11 @@ identity only when none exists and otherwise preserving the existing ULID.
 | `name` | string | | Initial or renamed human-readable discovery name; remote uniqueness is conditional |
 | `description` | string | | Project description |
 
+`graphit_init` attempts the same Git hook installation as the CLI: `pre-commit`
+plus the events named under `hooks` in the project lockfile.
+On failure its successful result includes a warning and the exact manual
+integration steps.
+
 ---
 
 ### `graphit_sync`
@@ -155,7 +160,10 @@ This tool performs a full sync cycle:
 4. Authorized per-project Hub metadata and managed-artifact reconciliation
 5. managed module-skill refresh
 6. native Agent MCP and lifecycle-hook reconciliation
-7. Git hook reconciliation when enabled
+7. Git hook installation or cleanup according to `modules.hooks` and lockfile
+   event names. Git 2.54+ uses local configured hooks; older Git uses
+   `.git/hooks/<event>`. Failed events are reported with manual instructions
+   in the result notes.
 
 ---
 

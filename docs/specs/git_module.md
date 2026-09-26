@@ -47,7 +47,6 @@ graph TD
         HookManager["HookManager"]
         HookManager --> Install["Install()"]
         HookManager --> Remove["Remove()"]
-        HookManager --> Status["Status()"]
     end
     
     subgraph "Ignore"
@@ -227,66 +226,49 @@ Generic versions that accept a `BlockStyle` parameter, enabling both shell and H
 
 ## 🪝 Hooks
 
-### `HookManager`
+`HookManager` installs `pre-commit` by default and each additional event named in
+the lockfile's top-level `hooks` map. Keys must be event names from Git's
+[githooks manual](https://git-scm.com/docs/githooks/2.54.0); unknown names fail
+lockfile loading. On Git 2.54 or later it writes one repository-local
+`hook.<brand>-<event>.command` and `.event=<event>` pair per selected event
+(`hook.graphit-pre-push` for `pre-push` in the default build). The command checks
+that the brand executable exists before invoking `<brand> _git-hook <event>` with
+Git's arguments. This follows Git's
+[configured hook contract](https://git-scm.com/docs/git-hook/2.54.0).
 
-```go
-type HookManager struct {
-    projectDir string
-    hooksDir   string
-}
-```
+On older Git, `Install` injects a marked shell block into each selected literal
+project path `.git/hooks/<event>`. The block checks the Git version, confirms that the
+configured Graphit hook is absent, and checks the executable before invoking the
+same runner. Thus an old file left in place after a Git upgrade does not run Graphit
+twice. The marked block is placed immediately after the shebang so an existing
+third-party `exit` cannot bypass the Graphit checks. Existing shell content is
+preserved. A non-shell or unsupported shell shebang causes an actionable
+installation warning and leaves the file intact.
 
-Manages Graphit's git hooks. Created via `NewHookManager(projectDir)`, which resolves the hooks directory by examining `.git` (supports regular repos and worktrees where `.git` is a file pointing to the actual git directory).
+The runner reads the project's `graphit.lock.json` `hooks.<event>` array and runs
+all commands in order from the project root through `sh -c` on Unix or `cmd /C`
+on Windows. A project-owned executable uses a path relative to that root; an
+external executable is resolved by name from the system `PATH`. No check requires
+`sh` as its executable, and commands must not embed machine-dependent paths.
+All commands must succeed; their stdout and stderr remain visible to Git.
+Git's positional arguments are `$1`, `$2`, etc. in Unix commands;
+all platforms receive `GRAPHIT_HOOK_NAME`, `GRAPHIT_HOOK_ARG_COUNT`, and
+`GRAPHIT_HOOK_ARG_1` (and subsequent indices). Git-supplied finite stdin is
+replayed to every command for `pre-push`, `pre-receive`, `post-receive`,
+`post-rewrite`, and `reference-transaction`. Other events inherit stdin without
+reading it in advance, so an open terminal does not delay `pre-commit`.
+Protocol events `proc-receive` and `fsmonitor-watchman` accept only one
+command; `proc-receive` keeps its interactive stdin stream. Missing brand executable
+causes Graphit checks to be skipped. `init` and `sync` report installation failures
+with manual integration instructions for each failed event. Events removed from the
+lockfile are cleaned on sync. `remove` and `modules.hooks=false` remove all Graphit
+registrations and marked blocks without changing third-party hook content.
 
-### Managed Hooks
-
-| Hook | Purpose |
-|---|---|
-| `post-commit` | Runs `graphit sync` silently in the background after each commit. |
-| `pre-push` | Runs `graphit sync` silently in the background before pushes. |
-| `post-merge` | Runs `graphit sync` silently in the background after merges. |
-
-### Hook Script Template
-
-Each hook script:
-1. Checks if the `graphit` binary exists in PATH (`command -v graphit`).
-2. If available, runs `graphit sync --debounce 60s </dev/null >/dev/null 2>&1 &` (backgrounded, detached from stdio).
-3. If the binary is not found, exits silently (`exit 0`).
-
-### Hook Debouncing
-
-The three managed hooks fire on events that routinely arrive together over a tree
-that changed once — commit, then push, then (on the far side of a pull) merge. Each
-one used to trigger a full Phase 1 reindex, so a routine commit-and-push paid for two
-concurrent reindexes on top of whatever the daemon was already doing about the same
-file writes.
-
-`hookDebounce` (`internal/git/hooks.go`) is the window passed to `graphit sync
---debounce`. The sync command reads `.graphit/runtime/sync.stamp` and returns immediately when
-a previous sync finished inside the window. A missing or unparseable stamp reads as
-"no idea" and runs the sync, so the debounce can only ever suppress work it can prove
-is redundant.
-
-The window is one of two independent guards; the other is the
-`.graphit/runtime/sync.lock` file lock, which stops two syncs that overlap rather
-than merely follow each other.
-See `docs/specs/daemon_module.md` for the in-process counterpart.
-
-### `Install(_ bool) error`
-
-1. Verifies `.git` exists (skips non-git directories).
-2. Creates the hooks directory if needed.
-3. For each hook type, reads the existing hook file.
-4. **Skips files with non-shell shebangs** (e.g., Python, Ruby hooks) to avoid breaking third-party hook managers.
-5. Injects the Graphit block via `InjectBlock()`.
-
-### `Remove() error`
-
-Removes the Graphit block from all managed hooks. If the hook file contains only the shebang after removal, deletes it entirely.
-
-### `Status() map[HookType]string`
-
-Returns the installation status for each hook: `"not installed"`, `"installed (graphit)"`, or `"installed (third-party)"`.
+The older path deliberately ignores `core.hooksPath`, linked-worktree `.git` pointer
+files and third-party hook managers. The configured Git 2.54+ path does not depend
+on `.git/hooks`. If the active hook is not installed or manually integrated,
+configured checks do not run and the project's consistency gate loses substantial
+determinism. No migration of earlier development hooks is performed.
 
 ---
 

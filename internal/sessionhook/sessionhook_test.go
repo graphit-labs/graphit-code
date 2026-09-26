@@ -217,6 +217,11 @@ func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 	if !strings.Contains(invariant, "new/resumed action") || !strings.Contains(invariant, "reload after compaction if lost") {
 		t.Fatalf("invariant does not restore Graphit-first routing on resume: %s", invariant)
 	}
+	for _, phrase := range []string{"Install missing commands needed for delivery validation", "user-requested check", "user-reported missing-validation error", "one Windows/macOS/Linux invocation", "project-relative path", "system PATH name", "never machine paths"} {
+		if !strings.Contains(invariant, phrase) {
+			t.Fatalf("invariant lacks validation policy %q", phrase)
+		}
+	}
 	for _, want := range []string{"Delegation", "applicable instruction that explicitly assigns bounded work to a delegated role", "authorizes and requires only that role/work", "recall→scout", "impact→tracker", "transcription→scribe", "otherwise no subagents", "host cannot run it", "coordinator performs only that role", "Acceptance, checkpoints, Task/session claims, revisions, completion and lifecycle stay with the coordinator"} {
 		if !strings.Contains(invariant, want) {
 			t.Fatalf("invariant does not preserve the bounded delegation rule %q after compaction: %s", want, invariant)
@@ -233,7 +238,12 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 	t.Parallel()
 
 	reminder := UnitCompletionReminder()
-	for _, want := range []string{"after meaningful work", "graphit_task_progress", "Reads/bookkeeping alone need none", "graphit_task_session_checkpoint", "coordinator", "problems, decisions, strategy, next step", "Revise changed intent", "close delivered sessions explicitly", "acceptance checks", "code/documentation consistency in both directions", "targets/evidence", "Resolve divergence before closing"} {
+	for _, phrase := range []string{"Install checks: project-relative or PATH", "same Windows/macOS/Linux call", "User-requested or reported gaps stay necessary"} {
+		if !strings.Contains(reminder, phrase) {
+			t.Fatalf("unit reminder lacks validation policy %q", phrase)
+		}
+	}
+	for _, want := range []string{"after meaningful work", "graphit_task_progress", "Reads need none", "graphit_task_session_checkpoint", "coordinator", "problems, decisions, strategy, next step", "Revise/close sessions", "acceptance checks", "code/documentation consistency in both directions", "targets/evidence", "Resolve divergence before closing"} {
 		if !strings.Contains(reminder, want) {
 			t.Fatalf("unit reminder missing %q: %s", want, reminder)
 		}
@@ -261,6 +271,17 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 				t.Fatalf("%s did not carry %q through %s: %s", tc.agent, want, tc.format, payload)
 			}
 		}
+	}
+}
+
+func TestGenericWorkerReceivesValidationCommandPolicy(t *testing.T) {
+	worker := RoleProtocol(Role{}, Context{})
+	if !strings.Contains(worker, "install missing quality, conformance and test commands") || !strings.Contains(worker, "user-reported missing-validation errors") || !strings.Contains(worker, "one Windows/macOS/Linux invocation: project executables by project-relative path, others by system PATH name") {
+		t.Fatalf("generic worker lacks validation policy: %s", worker)
+	}
+	scout := RoleProtocol(RoleScout, Context{})
+	if strings.Contains(scout, "install missing quality, conformance and test commands") {
+		t.Fatal("read-only scout was instructed to install commands")
 	}
 }
 
@@ -460,7 +481,7 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 		}
 		// The recurring payload carries the complete delegation boundary after
 		// compaction, including coordinator-only lifecycle and host fallback.
-		if strings.Contains(invocation, `:1`) && len(payload) > 2000 {
+		if strings.Contains(invocation, `:1`) && len(payload) > 2250 {
 			t.Fatalf("repeated Antigravity compensation is too large: %d bytes", len(payload))
 		}
 	}

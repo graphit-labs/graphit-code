@@ -228,6 +228,11 @@ func registerLifecycleTools(server *mcp.Server) {
 		gitignorePath := filepath.Join(projectDir, ".gitignore")
 		_ = git.InjectGitignore(gitignorePath, brand.GitignoreContent())
 
+		hookNote := reconcileGitHooks(projectDir, config.IsModuleDisabled("hooks", nil, lf.Config), hookEventNames(lf.Hooks))
+		if hookNote != "" {
+			hookNote = "\n" + hookNote
+		}
+
 		if mgr, err := hub.NewGlobalLockManager(); err == nil {
 			var regOpts []func(*hub.InstanceEntry)
 			if lf.Project.Name != "" {
@@ -239,7 +244,7 @@ func registerLifecycleTools(server *mcp.Server) {
 			_ = mgr.RegisterProject(lf.Project.ID, projectDir, regOpts...)
 		}
 
-		return textResult(fmt.Sprintf("Project %q initialized successfully (ID: %s, Agent: %s)", lf.Project.Name, lf.Project.ID, resolvedAgent))
+		return textResult(fmt.Sprintf("Project %q initialized successfully (ID: %s, Agent: %s)%s", lf.Project.Name, lf.Project.ID, resolvedAgent, hookNote))
 	}))
 
 	addTool(server, &mcp.Tool{
@@ -356,6 +361,14 @@ func registerLifecycleTools(server *mcp.Server) {
 			}
 		}
 
+		var events []string
+		if lf != nil {
+			events = hookEventNames(lf.Hooks)
+		}
+		if note := reconcileGitHooks(projectDir, config.IsModuleDisabled("hooks", nil, projectCfg), events); note != "" {
+			notes = append(notes, note)
+		}
+
 		if len(notes) > 0 {
 			return textResult("Sync completed.\n\n" + strings.Join(notes, "\n"))
 		}
@@ -410,7 +423,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		resolvedAgent := config.ResolveProjectAgent(input.Agent, nil, projectCfg, agents)
 
 		hm := git.NewHookManager(projectDir)
-		_ = hm.Remove()
+		hookErr := hm.Remove()
 
 		_, _ = git.RemoveGitignore(filepath.Join(projectDir, ".gitignore"))
 
@@ -428,6 +441,9 @@ func registerLifecycleTools(server *mcp.Server) {
 		}
 		removeRetiredImprovementsGuidance(projectDir, resolvedAgent)
 
+		if hookErr != nil {
+			return textResult(fmt.Sprintf("Graphit removed from this project; Git pre-commit hook cleanup warning: %v", hookErr))
+		}
 		return textResult("Graphit removed from this project successfully.")
 	}))
 
@@ -560,6 +576,28 @@ func registerLifecycleTools(server *mcp.Server) {
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {
 		return textResult(version.Version)
 	}))
+}
+
+func hookEventNames(hooks map[string][]string) []string {
+	events := make([]string, 0, len(hooks))
+	for event := range hooks {
+		events = append(events, event)
+	}
+	return events
+}
+
+func reconcileGitHooks(projectDir string, disabled bool, events []string) string {
+	hm := git.NewHookManager(projectDir)
+	if disabled {
+		if err := hm.Remove(); err != nil {
+			return fmt.Sprintf("Git hooks cleanup warning: %v", err)
+		}
+		return ""
+	}
+	if err := hm.Install(false, events...); err != nil {
+		return fmt.Sprintf("Git hooks warning: %v", err)
+	}
+	return ""
 }
 
 func removeRetiredImprovementsGuidance(projectDir, agentName string) {

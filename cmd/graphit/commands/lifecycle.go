@@ -1037,10 +1037,17 @@ func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *out
 			task.Done("Git hooks removed (disabled by config)")
 		}
 	} else {
-		if err := hm.Install(false); err != nil {
-			task.Fail("Git hooks: %v", err)
+		var events []string
+		if lf != nil {
+			for event := range lf.Hooks {
+				events = append(events, event)
+			}
+		}
+		if err := hm.Install(false, events...); err != nil {
+			task.Done("Git hooks require manual integration")
+			p.StepWarn("%v", err)
 		} else {
-			task.Done("Git hooks synced")
+			task.Done("Git hooks installed")
 		}
 	}
 

@@ -99,11 +99,42 @@ type ProjectIdentity struct {
 	Ephemeral bool `json:"ephemeral,omitempty"`
 }
 
+// HookCommands keeps the lockfile contract strict: each hook contains an array
+// of command strings. A null value must not silently disable a commit gate.
+type HookCommands map[string][]string
+
+func (h *HookCommands) UnmarshalJSON(data []byte) error {
+	if strings.TrimSpace(string(data)) == "null" {
+		return fmt.Errorf("hooks must be an object of command arrays")
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("hooks must be an object of command arrays: %w", err)
+	}
+	commands := make(HookCommands, len(raw))
+	for name, value := range raw {
+		if !gitmod.IsSupportedHookEvent(name) {
+			return fmt.Errorf("hooks.%s is not a supported Git hook event", name)
+		}
+		if strings.TrimSpace(string(value)) == "null" {
+			return fmt.Errorf("hooks.%s must be an array of commands", name)
+		}
+		var entries []string
+		if err := json.Unmarshal(value, &entries); err != nil {
+			return fmt.Errorf("hooks.%s must be an array of commands: %w", name, err)
+		}
+		commands[name] = entries
+	}
+	*h = commands
+	return nil
+}
+
 type Lockfile struct {
 	Project   ProjectIdentity                           `json:"project"`
 	Agents    []string                                  `json:"agents,omitempty"`
 	Artifacts map[ArtifactType]map[string]*ArtifactMeta `json:"artifacts"`
 	Config    map[string]any                            `json:"config,omitempty"`
+	Hooks     HookCommands                              `json:"hooks,omitempty"`
 }
 
 // RelSourcePath turns an absolute directory into what SourcePath stores: a

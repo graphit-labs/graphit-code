@@ -326,10 +326,73 @@ consult it; it is not a blanket authorization layer unless stated below.
 | `modules.daemon` | on | Automatic daemon startup from ordinary CLI commands and setup. Manual daemon commands remain available. |
 | `modules.sync` | on | Daemon filesystem synchronization module. `false` removes the recursive project watcher and incremental AST/Knowledge reactions. An explicit `graphit sync` remains available. |
 | `modules.embedding` | on | Background and heavy-checkpoint embedding work. Exact graph and lexical operations remain available. |
-| `modules.hooks` | on | Graphit's Git hook installation during synchronization. |
+| `modules.hooks` | on | Install or remove Git hooks from the project lockfile during initialization and synchronization (configured hooks on Git 2.54+, `.git/hooks` on older Git). |
 | `modules.agent` | on | Natural-language Cypher generation, AI wiki answers, and Live Search; graph, BM25, vector, and hybrid retrieval remain available. |
 | `modules.dream` | off | Autonomous idle Dream cycles. |
 | `modules.daemon_ui` | off | Long-running UI hosted by the daemon, primarily for server/container deployments. |
+
+### Git hook commands in the project lockfile
+
+The `hooks` member is a top-level member of `graphit.lock.json`, alongside `project`,
+`artifacts`, and `config`. It is not a `config` key. Each hook name maps to an ordered
+array of shell command strings. Graphit installs `pre-commit` by default and any
+additional event named in this map. Use names from Git's
+[githooks reference](https://git-scm.com/docs/githooks/2.54.0); an unknown name is
+rejected when the lockfile loads. Merge this example with the existing
+top-level members of the project lockfile:
+
+```json
+{
+  "hooks": {
+    "pre-commit": [
+      "go vet ./...",
+      "go test ./..."
+    ],
+    "pre-push": [
+      "go test ./..."
+    ]
+  }
+}
+```
+
+Put consistency checks such as linting, formatting checks, tests, or generated-file
+validation in this list. Graphit runs every command in order from the project root
+using the platform shell (`sh -c` on Unix, `cmd /C` on Windows). A nonzero result or
+an empty command blocks the Git operation when that event supports rejection,
+even if later commands succeed. Standard output and standard error appear in Git's
+output. An absent or empty list runs no checks; a missing or malformed project lockfile
+blocks the Git operation when the Graphit binary
+is available. Both installation forms check whether the Graphit executable exists before
+loading this lockfile; when it is absent, the Graphit checks cannot run. Git hook
+entries should therefore use one invocation that works unchanged on Windows, macOS
+and Linux. A check may invoke any executable; it need not invoke `sh`. For an
+executable owned by the project, use a path relative to the project root. For
+every other executable, use its name and resolve it through the system `PATH`.
+Never persist a machine-dependent absolute path. Avoid shell-specific syntax.
+If a check needs platform-specific steps, put them in a versioned project runner
+invoked identically on each OS. Install missing external tools and verify that
+they resolve through `PATH`.
+Test the exact lockfile command on available target platforms and record which
+platforms remain untested. A successful run on one OS does not prove portability.
+Hook arguments are `$1`, `$2`, etc. on Unix, or `GRAPHIT_HOOK_ARG_1` and subsequent
+environment variables on every platform. Git-provided stdin is replayed to
+each command for `pre-push`, `pre-receive`, `post-receive`, `post-rewrite`, and
+`reference-transaction`. Other events inherit stdin directly. Interactive/protocol events
+`proc-receive` and `fsmonitor-watchman` permit one command only. See
+[Git hook installation](../specs/git_module.md) for version selection and limitations.
+
+On Git 2.54+, `init` and `sync` print exact manual registration commands for
+each event that failed. Each registration uses `hook.<brand>-<event>.command`
+and `.event=<event>`; the command wraps the executable check in `sh -c` so Git's
+positional arguments reach the runner. Removing an event from the lockfile and
+running `sync` removes its Graphit registration.
+
+On older Git, use the shell block printed by `graphit init` or `graphit sync`
+inside `.git/hooks/<event>`. If that file uses a non-shell or unsupported
+shell shebang, adapt the invocation to its language manually. The older path ignores
+`core.hooksPath`, linked-worktree `.git` pointer files, and third-party hook
+managers. An inactive hook prevents these consistency checks from running,
+which substantially reduces the determinism of the commit gate.
 
 To stop filesystem watching for one project while keeping the daemon and manual synchronization:
 

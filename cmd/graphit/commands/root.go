@@ -28,7 +28,7 @@ var rootCmd = &cobra.Command{
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 
 		name := cmd.Name()
-		if name == "daemon" || name == "tray" || name == "mcp" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" {
+		if name == "daemon" || name == "tray" || name == "mcp" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" || name == "_git-hook" {
 			return nil
 		}
 
@@ -81,6 +81,7 @@ func init() {
 		newAccountCmd(),
 		newClusterCmd(),
 		newSessionHookCmd(),
+		newGitHookCmd(),
 	)
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")

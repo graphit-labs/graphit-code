@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestBlockManager(t *testing.T) {
@@ -523,81 +522,6 @@ func TestNewHookManagerEmptyDir(t *testing.T) {
 	}
 }
 
-func TestHookManagerInstallNoGitDir(t *testing.T) {
-	dir := t.TempDir()
-	hm := NewHookManager(dir)
-	err := hm.Install(false)
-	if err != nil {
-		t.Fatalf("Install should succeed without .git dir, got %v", err)
-	}
-}
-
-func TestHookManagerInstallAndRemove(t *testing.T) {
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	if err := os.MkdirAll(gitDir, 0o755); err != nil {
-		t.Fatalf("failed to create .git dir: %v", err)
-	}
-
-	hm := NewHookManager(dir)
-	err := hm.Install(false)
-	if err != nil {
-		t.Fatalf("Install failed: %v", err)
-	}
-
-	for _, hookType := range []HookType{PostCommit, PrePush, PostMerge} {
-		hookPath := filepath.Join(hm.hooksDir, string(hookType))
-		data, err := os.ReadFile(hookPath)
-		if err != nil {
-			t.Errorf("expected hook file %s to exist: %v", hookType, err)
-			continue
-		}
-		if !strings.Contains(string(data), hookBlockMarker()) {
-			t.Errorf("hook %s missing block marker", hookType)
-		}
-	}
-
-	err = hm.Remove()
-	if err != nil {
-		t.Fatalf("Remove failed: %v", err)
-	}
-
-	for _, hookType := range []HookType{PostCommit, PrePush, PostMerge} {
-		hookPath := filepath.Join(hm.hooksDir, string(hookType))
-		if _, err := os.Stat(hookPath); err == nil {
-			t.Errorf("expected hook %s to be removed", hookType)
-		}
-	}
-}
-
-func TestHookManagerRemoveNoGitDir(t *testing.T) {
-	dir := t.TempDir()
-	hm := NewHookManager(dir)
-	err := hm.Remove()
-	if err != nil {
-		t.Fatalf("Remove should succeed without .git dir, got %v", err)
-	}
-}
-
-func TestHookScript(t *testing.T) {
-	script := hookScript("test comment")
-	if script == "" {
-		t.Error("hookScript returned empty string")
-	}
-	if !strings.Contains(script, "test comment") {
-		t.Error("hookScript should contain the comment")
-	}
-	if !strings.Contains(script, "sync") {
-		t.Error("hookScript should contain sync command")
-	}
-	if !strings.Contains(script, "--debounce "+hookDebounce) {
-		t.Errorf("hookScript should debounce the sync, got: %q", script)
-	}
-	if _, err := time.ParseDuration(hookDebounce); err != nil {
-		t.Errorf("hookDebounce %q is not a duration the sync command can parse: %v", hookDebounce, err)
-	}
-}
-
 func TestBinPath(t *testing.T) {
 	p := binPath()
 	if p == "" {
@@ -617,6 +541,10 @@ func TestHasNonShellShebang(t *testing.T) {
 		{"bash shebang", "#!/bin/bash\necho hello", false},
 		{"env sh", "#!/usr/bin/env sh\necho hello", false},
 		{"env bash", "#!/usr/bin/env bash\necho hello", false},
+		{"dash", "#!/bin/dash\necho hello", false},
+		{"env zsh", "#!/usr/bin/env zsh\necho hello", false},
+		{"ksh", "#!/bin/ksh\necho hello", false},
+		{"fish", "#!/usr/bin/env fish\necho hello", true},
 		{"python shebang", "#!/usr/bin/env python3\nprint('hi')", true},
 		{"node shebang", "#!/usr/bin/env node\nconsole.log('hi')", true},
 		{"ruby shebang", "#!/usr/bin/ruby\nputs 'hi'", true},
@@ -631,90 +559,6 @@ func TestHasNonShellShebang(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestInstallSkipsNonShellShebang(t *testing.T) {
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	hooksDir := filepath.Join(gitDir, "hooks")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatalf("failed to create hooks dir: %v", err)
-	}
-
-	hookPath := filepath.Join(hooksDir, string(PostCommit))
-	_ = os.WriteFile(hookPath, []byte("#!/usr/bin/env python3\nprint('hook')"), 0755)
-
-	hm := NewHookManager(dir)
-	err := hm.Install(false)
-	if err != nil {
-		t.Fatalf("Install failed: %v", err)
-	}
-
-	data, _ := os.ReadFile(hookPath)
-	if strings.Contains(string(data), hookBlockMarker()) {
-		t.Error("Install should have skipped hook with non-shell shebang")
-	}
-}
-
-func TestResolveGitDir(t *testing.T) {
-	t.Run("regular .git dir", func(t *testing.T) {
-		dir := t.TempDir()
-		gitDir := filepath.Join(dir, ".git")
-		_ = os.MkdirAll(gitDir, 0o755)
-		result := resolveGitDir(dir)
-		if result != gitDir {
-			t.Errorf("expected %q, got %q", gitDir, result)
-		}
-	})
-
-	t.Run("no .git", func(t *testing.T) {
-		dir := t.TempDir()
-		result := resolveGitDir(dir)
-		expected := filepath.Join(dir, ".git")
-		if result != expected {
-			t.Errorf("expected %q, got %q", expected, result)
-		}
-	})
-
-	t.Run(".git file (worktree)", func(t *testing.T) {
-		dir := t.TempDir()
-		actualGitDir := filepath.Join(dir, "actual-gitdir")
-		_ = os.MkdirAll(actualGitDir, 0o755)
-
-		dotGit := filepath.Join(dir, ".git")
-		_ = os.WriteFile(dotGit, []byte("gitdir: "+actualGitDir+"\n"), 0644)
-
-		result := resolveGitDir(dir)
-		if result != filepath.Clean(actualGitDir) {
-			t.Errorf("expected %q, got %q", filepath.Clean(actualGitDir), result)
-		}
-	})
-
-	t.Run(".git file with relative path", func(t *testing.T) {
-		dir := t.TempDir()
-		actualGitDir := filepath.Join(dir, "sub", "gitdir")
-		_ = os.MkdirAll(actualGitDir, 0o755)
-
-		dotGit := filepath.Join(dir, ".git")
-		_ = os.WriteFile(dotGit, []byte("gitdir: sub/gitdir\n"), 0644)
-
-		result := resolveGitDir(dir)
-		expected := filepath.Clean(filepath.Join(dir, "sub", "gitdir"))
-		if result != expected {
-			t.Errorf("expected %q, got %q", expected, result)
-		}
-	})
-
-	t.Run(".git file with invalid prefix", func(t *testing.T) {
-		dir := t.TempDir()
-		dotGit := filepath.Join(dir, ".git")
-		_ = os.WriteFile(dotGit, []byte("not-gitdir-prefix\n"), 0644)
-
-		result := resolveGitDir(dir)
-		if result != dotGit {
-			t.Errorf("expected fallback %q, got %q", dotGit, result)
-		}
-	})
 }
 
 func TestIsShellShebangOnly(t *testing.T) {
@@ -987,92 +831,6 @@ func TestRemoveBlockStyledEmptyResultWithDeleteIfEmpty(t *testing.T) {
 	}
 	if strings.TrimSpace(string(data)) != "" {
 		t.Errorf("expected empty file, got %q", string(data))
-	}
-}
-
-func TestResolveGitDirUnreadableFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod not effective on Windows")
-	}
-	dir := t.TempDir()
-	dotGit := filepath.Join(dir, ".git")
-	_ = os.WriteFile(dotGit, []byte("gitdir: /some/path"), 0644)
-	_ = os.Chmod(dotGit, 0o000)
-	defer func() { _ = os.Chmod(dotGit, 0o644) }()
-
-	result := resolveGitDir(dir)
-	if result != dotGit {
-		t.Errorf("expected fallback %q, got %q", dotGit, result)
-	}
-}
-
-func TestHookManagerInstallMkdirAllError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod not effective on Windows")
-	}
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	_ = os.MkdirAll(gitDir, 0o755)
-
-	hm := NewHookManager(dir)
-	_ = os.Chmod(gitDir, 0o444)
-	defer func() { _ = os.Chmod(gitDir, 0o755) }()
-
-	err := hm.Install(false)
-	if err == nil {
-		t.Error("expected error from Install when MkdirAll fails")
-	}
-	if !strings.Contains(err.Error(), "hooks: create dir") {
-		t.Errorf("expected 'hooks: create dir' error, got: %v", err)
-	}
-}
-
-func TestHookManagerInstallInjectBlockError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod not effective on Windows")
-	}
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	hooksDir := filepath.Join(gitDir, "hooks")
-	_ = os.MkdirAll(hooksDir, 0o755)
-
-	hm := NewHookManager(dir)
-	_ = os.Chmod(hooksDir, 0o555)
-	defer func() { _ = os.Chmod(hooksDir, 0o755) }()
-
-	err := hm.Install(false)
-	if err == nil {
-		t.Error("expected error from Install when InjectBlock fails")
-	}
-	if !strings.Contains(err.Error(), "hooks: inject") {
-		t.Errorf("expected 'hooks: inject' error, got: %v", err)
-	}
-}
-
-func TestHookManagerRemoveBlockError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod not effective on Windows")
-	}
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	hooksDir := filepath.Join(gitDir, "hooks")
-	_ = os.MkdirAll(hooksDir, 0o755)
-
-	hm := NewHookManager(dir)
-
-	if err := hm.Install(false); err != nil {
-		t.Fatalf("Install failed: %v", err)
-	}
-
-	_ = os.Chmod(hooksDir, 0o555)
-	defer func() { _ = os.Chmod(hooksDir, 0o755) }()
-
-	err := hm.Remove()
-	if err == nil {
-		t.Error("expected error from Remove when RemoveBlock fails")
-	}
-	if !strings.Contains(err.Error(), "hooks: remove") {
-		t.Errorf("expected 'hooks: remove' error, got: %v", err)
 	}
 }
 

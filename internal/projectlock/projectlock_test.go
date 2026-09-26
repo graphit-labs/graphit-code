@@ -3,6 +3,7 @@ package projectlock
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +11,46 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/oklog/ulid/v2"
 )
+
+func TestHookCommandsRoundTripAndLegacyLockfile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), brand.LockFileName())
+	want := []string{"go test ./...", "go vet ./..."}
+	lock := &Lockfile{
+		Project: ProjectIdentity{ID: ulid.Make().String()},
+		Hooks:   HookCommands{"pre-commit": want},
+	}
+	if err := Save(path, lock); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(loaded.Hooks["pre-commit"], want) {
+		t.Fatalf("hook commands = %q, want %q", loaded.Hooks["pre-commit"], want)
+	}
+	if err := os.WriteFile(path, []byte(`{"project":{"id":"legacy"},"artifacts":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = Load(path)
+	if err != nil || loaded.Hooks != nil {
+		t.Fatalf("legacy lockfile: hooks = %v, err = %v", loaded.Hooks, err)
+	}
+}
+
+func TestHookCommandsRejectMalformedValues(t *testing.T) {
+	for _, hooks := range []string{`null`, `[]`, `{"pre-commit":null}`, `{"pre-commit":"go test"}`, `{"pre-commit":[123]}`, `{"../escape":["true"]}`, `{"not-a-git-hook":["true"]}`} {
+		t.Run(hooks, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), brand.LockFileName())
+			if err := os.WriteFile(path, []byte(`{"hooks":`+hooks+`}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatalf("expected invalid hooks %s to fail", hooks)
+			}
+		})
+	}
+}
 
 func TestResolveProjectIdentity(t *testing.T) {
 	t.Parallel()

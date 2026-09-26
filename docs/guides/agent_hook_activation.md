@@ -49,6 +49,23 @@ Hook activation and MCP availability are separate checks:
 - the MCP configuration exposes the `graphit_*` tools;
 - a subagent can receive the instructions but still have a restricted tool allowlist.
 
+The Task mandate and lifecycle reminders instruct delivery agents to install and run
+missing commands needed to verify quality, conformance and tests. The Task skill
+explains how to keep recurring project checks in `graphit.lock.json` under the
+appropriate `hooks.<event>` array. A check explicitly requested by the user, or
+an error the user identifies as caused by missing validation, is necessary for
+the project. The agent may reassess other checks, but cannot count an unavailable
+command as a passed check. The lifecycle hook supplies this instruction; the
+agent performs and records the installation and validation. For a persisted
+project check, the agent chooses one invocation that works unchanged on Windows,
+macOS and Linux. It calls an executable owned by the project with a path relative
+to the project root; every other executable is called by name through the system
+`PATH`. Machine-dependent absolute paths are forbidden. A versioned project
+runner can handle OS differences behind the same invocation. The agent installs
+missing external tools, verifies `PATH` resolution and the exact command on
+available platforms, and records any untested platform instead of claiming
+portability from one OS.
+
 After `graphit sync`, follow the section for your adapter and start a new session. Re-run the check after changing adapter, cloning to another path, changing a hook command, or changing a custom agent's tool permissions.
 
 ## Codex

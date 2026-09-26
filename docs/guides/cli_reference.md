@@ -119,6 +119,14 @@ base advances. Base fragments remain in S3; new writes remain local. A detached 
 select its source lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than
 cloned. Sync never publishes a Hub commit.
 
+`init` and `sync` install Git `pre-commit` and the additional events named under
+`hooks` in the project lockfile when `modules.hooks` is enabled. Git 2.54+ uses
+repository-local configured hooks; older Git uses `.git/hooks/<event>`. If an
+installation fails, the command warns with exact manual steps for that event.
+A hook with a non-shell or
+unsupported shell shebang requires adapting the shown shell block to that
+hook's language.
+
 ### `update`
 Checks authorized per-project Hub entries for updates to installed artifacts, refreshes managed
 files, and advances native-store version selections as appropriate. It does not download or synchronize
@@ -128,7 +136,9 @@ graphit update --agent <agent_name>
 ```
 
 ### `remove`
-Deletes project-local configuration, rules files, git hooks, and ignorer configurations. Does not affect source code or the global database.
+Deletes project-local configuration, rules files, Graphit's Git hook
+registrations and marked blocks, and ignorer configurations. Third-party hook
+content remains intact. Does not affect source code or the global database.
 ```bash
 graphit remove --agent <agent_name>
 ```
