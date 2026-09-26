@@ -30,6 +30,29 @@ func TestConfiguredHooksInvokeGate(t *testing.T) {
 	}
 }
 
+func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
+	workflows := []string{".github/workflows/ci.yml"}
+	commit := preCommitSteps(workflows)
+	push := prePushSteps()
+	contains := func(steps []step, argument string) bool {
+		for _, s := range steps {
+			if strings.Contains(strings.Join(s.args, " "), argument) {
+				return true
+			}
+		}
+		return false
+	}
+	if !contains(commit, "actionlint@v1.7.7") || contains(push, "actionlint@v1.7.7") {
+		t.Fatal("short workflow validation must block the commit")
+	}
+	if !contains(push, "govulncheck@v1.7.0") || contains(commit, "govulncheck@v1.7.0") {
+		t.Fatal("long vulnerability analysis belongs to the pre-push gate")
+	}
+	if !contains(commit, workflows[0]) {
+		t.Fatal("pre-commit actionlint did not receive the workflow path")
+	}
+}
+
 func TestFormattingFailureBlocksGate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.go")
 	if err := os.WriteFile(path, []byte("package main\nfunc f( ){ }\n"), 0600); err != nil {

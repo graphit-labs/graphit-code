@@ -381,8 +381,11 @@ machine-specific path. `go`, `git`, `gofmt`, `golangci-lint`, and `npm` must
 resolve through `PATH`; install the Go and Node dependencies and run
 `npm ci` in `internal/ui` before committing. The pre-commit gate checks
 formatting of tracked Go files, the lightweight Go unit tier, Go lint
-(including gosec), UI lint, UI tests, and the UI typecheck/build. The
-pre-push gate runs pinned govulncheck and actionlint through `go run`.
+(including gosec), workflow files with actionlint,
+UI lint, UI tests, and the UI typecheck/build. This is the primary gate
+against introducing inconsistent code into local commit history. The
+pre-push gate runs the longer pinned govulncheck scan through `go run` as
+the last check before sending commits to a remote.
 If a tool, dependency, or check fails, the Git operation fails with its
 output. The full native Go suite remains in CI because it requires hard
 resource isolation; the local gate does not claim that the full suite ran.
@@ -409,6 +412,10 @@ shell shebang, adapt the invocation to its language manually. The older path ign
 `core.hooksPath`, linked-worktree `.git` pointer files, and third-party hook
 managers. An inactive hook prevents these consistency checks from running,
 which substantially reduces the determinism of the commit gate.
+If installation fails on older Git, the warning recommends upgrading to Git
+2.54 or newer and rerunning `graphit sync`; it also prints the exact manual
+integration for each affected event. A Git 2.54+ registration failure prints
+manual registration commands without suggesting an upgrade that cannot fix it.
 
 To stop filesystem watching for one project while keeping the daemon and manual synchronization:
 

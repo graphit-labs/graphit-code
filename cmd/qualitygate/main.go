@@ -49,27 +49,41 @@ func run(args []string, stdout, stderr io.Writer) error {
 		if err := checkFormatting(files, stdout, stderr); err != nil {
 			return err
 		}
-		checks := []step{
-			{name: "Go unit tests", command: "go", args: append([]string{"test", "-p", "1", "-parallel", "2", "-timeout", "2m"}, unitPackages...)},
-			{name: "Go lint and SAST (gosec)", command: "golangci-lint", args: []string{"run", "./..."}},
-			{name: "UI lint", command: "npm", args: []string{"run", "lint"}, dir: "internal/ui"},
-			{name: "UI tests", command: "npm", args: []string{"test"}, dir: "internal/ui"},
-			{name: "UI typecheck and build", command: "npm", args: []string{"run", "build"}, dir: "internal/ui"},
+		workflows, err := workflowFiles()
+		if err != nil {
+			return err
 		}
-		return runSteps(checks, stdout, stderr)
+		return runSteps(preCommitSteps(workflows), stdout, stderr)
 	}
+	return runSteps(prePushSteps(), stdout, stderr)
+}
+
+func preCommitSteps(workflows []string) []step {
+	return []step{
+		{name: "Go unit tests", command: "go", args: append([]string{"test", "-p", "1", "-parallel", "2", "-timeout", "2m"}, unitPackages...)},
+		{name: "Go lint and SAST (gosec)", command: "golangci-lint", args: []string{"run", "./..."}},
+		{name: "GitHub Actions lint", command: "go", args: append([]string{"run", "github.com/rhysd/actionlint/cmd/actionlint@v1.7.7", "-no-color"}, workflows...)},
+		{name: "UI lint", command: "npm", args: []string{"run", "lint"}, dir: "internal/ui"},
+		{name: "UI tests", command: "npm", args: []string{"test"}, dir: "internal/ui"},
+		{name: "UI typecheck and build", command: "npm", args: []string{"run", "build"}, dir: "internal/ui"},
+	}
+}
+
+func prePushSteps() []step {
+	return []step{
+		{name: "Go vulnerability analysis", command: "go", args: []string{"run", "golang.org/x/vuln/cmd/govulncheck@v1.7.0", "-tags", "lancedb", "./..."}},
+	}
+}
+
+func workflowFiles() ([]string, error) {
 	workflows, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
-		return fmt.Errorf("find workflow files: %w", err)
+		return nil, fmt.Errorf("find workflow files: %w", err)
 	}
 	if len(workflows) == 0 {
-		return fmt.Errorf("no workflow files found")
+		return nil, fmt.Errorf("no workflow files found")
 	}
-	checks := []step{
-		{name: "Go vulnerability analysis", command: "go", args: []string{"run", "golang.org/x/vuln/cmd/govulncheck@v1.7.0", "-tags", "lancedb", "./..."}},
-		{name: "GitHub Actions lint", command: "go", args: append([]string{"run", "github.com/rhysd/actionlint/cmd/actionlint@v1.7.7", "-no-color"}, workflows...)},
-	}
-	return runSteps(checks, stdout, stderr)
+	return workflows, nil
 }
 
 func trackedGoFiles() ([]string, error) {

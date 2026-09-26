@@ -88,7 +88,7 @@ func (h *HookManager) Install(_ bool, extraEvents ...string) error {
 				instructions = append(instructions, event+":\nGit 2.54+: \n"+h.ManualInstructionsFor(event, true)+"\nOlder Git:\n"+h.ManualInstructionsFor(event, false))
 			}
 		}
-		return fmt.Errorf("Git hooks not installed: %w\nCheck git --version. Manual integration:\n%s", err, strings.Join(instructions, "\n"))
+		return fmt.Errorf("Git hooks not installed: %w\nCheck git --version and upgrade to Git 2.54 or newer when possible; then rerun %s sync. Manual integration:\n%s", err, brand.BinName(), strings.Join(instructions, "\n"))
 	}
 	var problems []error
 	for _, event := range SupportedHookEvents {
@@ -101,7 +101,7 @@ func (h *HookManager) Install(_ bool, extraEvents ...string) error {
 				// A previous configured registration is inert on older Git, but
 				// would make the legacy block skip its own invocation.
 				if err := h.removeConfigured(event); err != nil {
-					problems = append(problems, err)
+					problems = append(problems, h.installError(event, err, false))
 				}
 				if err := h.installLegacy(event); err != nil {
 					problems = append(problems, h.installError(event, err, false))
@@ -203,7 +203,10 @@ func removeOwnedHookBlock(content, marker string) (string, bool) {
 }
 
 func (h *HookManager) installError(event string, cause error, modern bool) error {
-	return fmt.Errorf("%s hook not installed: %w\nManual integration:\n%s", event, cause, h.ManualInstructionsFor(event, modern))
+	if modern {
+		return fmt.Errorf("%s hook not installed: %w\nManual integration:\n%s", event, cause, h.ManualInstructionsFor(event, true))
+	}
+	return fmt.Errorf("%s hook not installed: %w\nUpgrade to Git 2.54 or newer to use configured hook registration, then rerun %s sync. Manual integration:\n%s", event, cause, brand.BinName(), h.ManualInstructionsFor(event, false))
 }
 
 // ManualInstructions preserves the pre-commit default for older callers.

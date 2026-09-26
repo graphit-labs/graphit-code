@@ -217,7 +217,7 @@ func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 	if !strings.Contains(invariant, "new/resumed action") || !strings.Contains(invariant, "reload after compaction if lost") {
 		t.Fatalf("invariant does not restore Graphit-first routing on resume: %s", invariant)
 	}
-	for _, phrase := range []string{"Install missing commands needed for delivery validation", "user-requested check", "user-reported missing-validation error", "one Windows/macOS/Linux invocation", "project-relative path", "system PATH name", "never machine paths", "verify lockfile hook arrays, Git activation and recurring checks", "manual runs alone are no gate"} {
+	for _, phrase := range []string{"Install missing commands needed for delivery validation", "user-requested check", "user-reported missing-validation error", "one Windows/macOS/Linux invocation", "project-relative path", "system PATH name", "never machine paths", "fast necessary checks in pre-commit", "long checks in pre-push", "verify hook activation", "Manual runs are no gate"} {
 		if !strings.Contains(invariant, phrase) {
 			t.Fatalf("invariant lacks validation policy %q", phrase)
 		}
@@ -238,7 +238,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 	t.Parallel()
 
 	reminder := UnitCompletionReminder()
-	for _, phrase := range []string{"User-requested or reported gaps stay necessary", "prove active lockfile hooks and recurring checks", "manual runs are no gate"} {
+	for _, phrase := range []string{"User-requested or reported gaps stay necessary", "fast checks in pre-commit", "long in pre-push", "prove hooks block failures"} {
 		if !strings.Contains(reminder, phrase) {
 			t.Fatalf("unit reminder lacks validation policy %q", phrase)
 		}
@@ -276,7 +276,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 
 func TestGenericWorkerReceivesValidationCommandPolicy(t *testing.T) {
 	worker := RoleProtocol(Role{}, Context{})
-	if !strings.Contains(worker, "install missing quality, conformance and test commands") || !strings.Contains(worker, "user-reported missing-validation errors") || !strings.Contains(worker, "one Windows/macOS/Linux invocation: project executables by project-relative path, others by system PATH name") || !strings.Contains(worker, "prove activation and failure behavior before commit/delivery") {
+	if !strings.Contains(worker, "install missing quality, conformance and test commands") || !strings.Contains(worker, "user-reported missing-validation errors") || !strings.Contains(worker, "one Windows/macOS/Linux invocation: project executables by project-relative path, others by system PATH name") || !strings.Contains(worker, "fast necessary checks in pre-commit and long checks in pre-push") || !strings.Contains(worker, "prove activation and failure behavior before commit/delivery") {
 		t.Fatalf("generic worker lacks validation policy: %s", worker)
 	}
 	scout := RoleProtocol(RoleScout, Context{})

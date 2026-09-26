@@ -33,12 +33,12 @@ func TestTaskInstructionBudgets(t *testing.T) {
 }
 
 func TestTaskInstructionsRequireValidationCommands(t *testing.T) {
-	for _, phrase := range []string{"Install missing commands", "user-requested validation", "project check necessary", "one Windows/macOS/Linux invocation", "project-relative path", "system PATH", "never machine paths", "verify lockfile hooks and Git activation", "Manual runs alone are no gate"} {
+	for _, phrase := range []string{"Install missing commands", "user-requested validation", "project check necessary", "one Windows/macOS/Linux invocation", "project-relative path", "system PATH", "never machine paths", "fast necessary checks in pre-commit", "long checks in pre-push", "verify lockfile hooks and Git activation", "Manual runs alone are no gate"} {
 		if !strings.Contains(MandateTrigger(), phrase) {
 			t.Fatalf("mandate lacks %q", phrase)
 		}
 	}
-	for _, phrase := range []string{"quality, conformance and tests", "hooks.<event>", "error the user attributes to missing validation", "automatically", "absence of a tool is never a pass", "works unchanged on Windows, macOS and Linux", "cmd /C", "sh -c", "versioned project runner", "untested platforms", "relative to the project root", "system `PATH`", "machine-dependent absolute paths", "verify their `PATH` resolution", "need not invoke `sh`", "actual Git hook activation", "one-time manual run does not establish a guard rail", "prove a failing case blocks it"} {
+	for _, phrase := range []string{"quality, conformance and tests", "hooks.<event>", "error the user attributes to missing validation", "automatically", "absence of a tool is never a pass", "works unchanged on Windows, macOS and Linux", "cmd /C", "sh -c", "versioned project runner", "untested platforms", "relative to the project root", "system `PATH`", "machine-dependent absolute paths", "verify their `PATH` resolution", "need not invoke `sh`", "ask which defect each check prevents", "fast necessary checks in pre-commit", "reserve long checks for pre-push", "actual Git activation", "prove failures block", "An ad hoc pass is no gate"} {
 		if !strings.Contains(RuleContent(), phrase) {
 			t.Fatalf("skill lacks %q", phrase)
 		}

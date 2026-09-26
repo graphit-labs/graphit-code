@@ -260,8 +260,11 @@ reading it in advance, so an open terminal does not delay `pre-commit`.
 Protocol events `proc-receive` and `fsmonitor-watchman` accept only one
 command; `proc-receive` keeps its interactive stdin stream. Missing brand executable
 causes Graphit checks to be skipped. `init` and `sync` report installation failures
-with manual integration instructions for each failed event. Events removed from the
-lockfile are cleaned on sync. `remove` and `modules.hooks=false` remove all Graphit
+with manual integration instructions for each failed event. For an older Git
+installation failure, the warning also recommends Git 2.54 or newer followed by
+`graphit sync`. A configured-hook failure on Git 2.54+ retains the manual
+instructions without suggesting an upgrade. Events removed from the lockfile
+are cleaned on sync. `remove` and `modules.hooks=false` remove all Graphit
 registrations and marked blocks without changing third-party hook content.
 
 The older path deliberately ignores `core.hooksPath`, linked-worktree `.git` pointer

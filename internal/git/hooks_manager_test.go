@@ -232,22 +232,35 @@ func TestHookManagerMissingGitWarns(t *testing.T) {
 	hm := NewHookManager(t.TempDir())
 	hm.gitBinary = fakeGitVersion(t, "2.53.0")
 	err := hm.Install(false)
-	if err == nil || !strings.Contains(err.Error(), ".git/hooks/pre-commit") || !strings.Contains(err.Error(), "Manual integration:") {
+	if err == nil || !strings.Contains(err.Error(), ".git/hooks/pre-commit") || !strings.Contains(err.Error(), "Manual integration:") || !strings.Contains(err.Error(), "Upgrade to Git 2.54 or newer") || !strings.Contains(err.Error(), "graphit sync") {
 		t.Fatalf("missing useful warning: %v", err)
 	}
 }
 
-func TestLegacyHookUnreadableTargetWarns(t *testing.T) {
-	dir := hookTestRepo(t)
-	hm := NewHookManager(dir)
-	hm.gitBinary = fakeGitVersion(t, "2.53.0")
-	path := filepath.Join(hm.hooksDir, preCommitEvent)
-	if err := os.Mkdir(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
+func TestGitVersionDetectionFailureSuggestsSupportedGit(t *testing.T) {
+	hm := NewHookManager(t.TempDir())
+	hm.gitBinary = "graphit-missing-git-executable"
 	err := hm.Install(false)
-	if err == nil || !strings.Contains(err.Error(), "pre-commit hook not installed") || !strings.Contains(err.Error(), "Manual integration:") {
-		t.Fatalf("missing write/read failure warning: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "upgrade to Git 2.54 or newer") || !strings.Contains(err.Error(), "Manual integration:") {
+		t.Fatalf("missing version recovery guidance: %v", err)
+	}
+}
+
+func TestLegacyHookUnreadableTargetWarns(t *testing.T) {
+	for _, event := range []string{preCommitEvent, "pre-push"} {
+		t.Run(event, func(t *testing.T) {
+			dir := hookTestRepo(t)
+			hm := NewHookManager(dir)
+			hm.gitBinary = fakeGitVersion(t, "2.53.0")
+			path := filepath.Join(hm.hooksDir, event)
+			if err := os.Mkdir(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			err := hm.Install(false, event)
+			if err == nil || !strings.Contains(err.Error(), event+" hook not installed") || !strings.Contains(err.Error(), "Manual integration:") || !strings.Contains(err.Error(), "Upgrade to Git 2.54 or newer") {
+				t.Fatalf("missing write/read failure warning: %v", err)
+			}
+		})
 	}
 }
 
@@ -263,7 +276,7 @@ func TestModernRegistrationFailureWarnsWithManualCommands(t *testing.T) {
 	hm := NewHookManager(dir)
 	hm.gitBinary = fakeGit
 	err := hm.Install(false)
-	if err == nil || !strings.Contains(err.Error(), "config-denied") || !strings.Contains(err.Error(), "hook.graphit-pre-commit.command") || !strings.Contains(err.Error(), "hook.graphit-pre-commit.event") {
+	if err == nil || !strings.Contains(err.Error(), "config-denied") || !strings.Contains(err.Error(), "hook.graphit-pre-commit.command") || !strings.Contains(err.Error(), "hook.graphit-pre-commit.event") || strings.Contains(err.Error(), "Upgrade to Git 2.54 or newer") {
 		t.Fatalf("missing modern manual warning: %v", err)
 	}
 }

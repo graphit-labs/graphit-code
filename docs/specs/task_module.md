@@ -247,16 +247,20 @@ explicit refinement; the initial task is not a generic container for immediate w
 Before implementation or delegating implementation it saves every executable unit's specification,
 plan, acceptance criteria, validations and relationships, then verifies readiness and coverage.
 
-For delivery checks, the agent inspects the project's `graphit.lock.json` hook arrays,
-the actual Git hook installation, and applicable CI before claiming validation or
-committing. It installs missing tools and persists necessary checks as executable
-commands in `hooks.<event>` or the appropriate CI job, then runs the saved command
-and verifies a failing case blocks it. A one-time manual test does not establish a
-recurring gate. A requested validation or a user-reported missing-validation error
-makes that project check necessary. When hook activation fails, the agent reports
-manual integration steps and leaves deterministic coverage unresolved. The Task
-mandate, native agent hook reminder, and Task skill all carry this rule; the native
-reminder cannot itself inspect Git state, so the agent must record the evidence.
+For delivery checks, the agent asks what defect each check prevents and when that
+defect must be stopped. Fast necessary checks belong in `pre-commit`, the main
+barrier against adding bad code to local history. Long checks can run in
+`pre-push` as the last barrier before the remote; checks that require unavailable
+hard isolation remain in CI with that limitation stated. The agent records the
+cost and reason for placement, rather than moving quick checks later for
+convenience. It inspects `graphit.lock.json`, actual Git hook activation, and
+applicable CI, installs missing tools, runs the saved invocations, and proves a
+failing case blocks each gate. A one-time manual test does not establish a
+recurring gate. A requested validation or a user-reported missing-validation
+error makes that project check necessary. When hook activation fails, the agent
+reports manual integration steps and leaves coverage unresolved. The Task
+mandate, native agent hook reminder, and Task skill carry this decision rule;
+the reminder cannot inspect Git state itself, so the agent records the evidence.
 
 Each completed code/configuration/behavior unit checks and updates its affected user and technical
 documentation; each documentation unit checks authoritative implementation and behavior. Record
