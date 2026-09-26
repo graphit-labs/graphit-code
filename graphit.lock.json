@@ -11,5 +11,13 @@
     "codex",
     "opencode"
   ],
+  "hooks": {
+    "pre-commit": [
+      "go run ./cmd/qualitygate pre-commit"
+    ],
+    "pre-push": [
+      "go run ./cmd/qualitygate pre-push"
+    ]
+  },
   "artifacts": {}
 }

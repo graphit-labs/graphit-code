@@ -157,8 +157,11 @@ func (h *HookManager) installLegacy(event string) error {
 			return fmt.Errorf("make %s executable: %w", path, err)
 		}
 		info, err := os.Stat(path)
-		if err != nil || info.Mode()&0o111 == 0 {
-			return fmt.Errorf("%s is not executable: %v", path, err)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		if info.Mode()&0o111 == 0 {
+			return fmt.Errorf("%s is not executable", path)
 		}
 	}
 	return nil
@@ -238,7 +241,7 @@ func (h *HookManager) removeConfigured(event string) error {
 			if err := h.gitConfig("--unset-all", key); err != nil {
 				return err
 			}
-		} else if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
+		} else if exitErr := (*exec.ExitError)(nil); !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
 			// Exit 1 means that the key is absent. Other failures need attention.
 			if _, statErr := os.Stat(filepath.Join(h.projectDir, ".git")); statErr == nil {
 				return fmt.Errorf("read git config %s: %w", key, err)
@@ -281,10 +284,6 @@ func hookCommandFor(event string) string {
 	// Git appends hook parameters to the configured command. A compound shell
 	// statement would become invalid syntax; this wrapper receives them as $@.
 	return fmt.Sprintf("sh -c 'if command -v %s >/dev/null 2>&1; then exec %s _git-hook %s \"$@\"; fi' graphit-hook", bin, bin, event)
-}
-
-func legacyHookScript() string {
-	return legacyHookScriptFor(preCommitEvent)
 }
 
 func legacyHookScriptFor(event string) string {

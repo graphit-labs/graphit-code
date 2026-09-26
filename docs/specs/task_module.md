@@ -247,6 +247,17 @@ explicit refinement; the initial task is not a generic container for immediate w
 Before implementation or delegating implementation it saves every executable unit's specification,
 plan, acceptance criteria, validations and relationships, then verifies readiness and coverage.
 
+For delivery checks, the agent inspects the project's `graphit.lock.json` hook arrays,
+the actual Git hook installation, and applicable CI before claiming validation or
+committing. It installs missing tools and persists necessary checks as executable
+commands in `hooks.<event>` or the appropriate CI job, then runs the saved command
+and verifies a failing case blocks it. A one-time manual test does not establish a
+recurring gate. A requested validation or a user-reported missing-validation error
+makes that project check necessary. When hook activation fails, the agent reports
+manual integration steps and leaves deterministic coverage unresolved. The Task
+mandate, native agent hook reminder, and Task skill all carry this rule; the native
+reminder cannot itself inspect Git state, so the agent must record the evidence.
+
 Each completed code/configuration/behavior unit checks and updates its affected user and technical
 documentation; each documentation unit checks authoritative implementation and behavior. Record
 concrete sources, sections and comparison evidence, including a justified no-impact conclusion when

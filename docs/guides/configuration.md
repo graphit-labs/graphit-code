@@ -374,6 +374,22 @@ invoked identically on each OS. Install missing external tools and verify that
 they resolve through `PATH`.
 Test the exact lockfile command on available target platforms and record which
 platforms remain untested. A successful run on one OS does not prove portability.
+In this repository, `graphit.lock.json` already registers
+`go run ./cmd/qualitygate pre-commit` and `go run ./cmd/qualitygate pre-push`.
+Both invoke the versioned Go runner from the project root without a
+machine-specific path. `go`, `git`, `gofmt`, `golangci-lint`, and `npm` must
+resolve through `PATH`; install the Go and Node dependencies and run
+`npm ci` in `internal/ui` before committing. The pre-commit gate checks
+formatting of tracked Go files, the lightweight Go unit tier, Go lint
+(including gosec), UI lint, UI tests, and the UI typecheck/build. The
+pre-push gate runs pinned govulncheck and actionlint through `go run`.
+If a tool, dependency, or check fails, the Git operation fails with its
+output. The full native Go suite remains in CI because it requires hard
+resource isolation; the local gate does not claim that the full suite ran.
+Run `graphit sync` after changing the lockfile to install its Git events;
+verify that both events are active before relying on them. If Git hook
+installation is unavailable, follow the manual commands printed by `sync`
+and report the missing gate until activation succeeds.
 Hook arguments are `$1`, `$2`, etc. on Unix, or `GRAPHIT_HOOK_ARG_1` and subsequent
 environment variables on every platform. Git-provided stdin is replayed to
 each command for `pre-push`, `pre-receive`, `post-receive`, `post-rewrite`, and

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -156,8 +157,8 @@ func TestLegacyHookPrecedesThirdPartyEarlyExit(t *testing.T) {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PATH="+filepath.Dir(hm.gitBinary)+":"+binDir+":"+os.Getenv("PATH"))
 	output, err := cmd.CombinedOutput()
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok || exitErr.ExitCode() != 7 || !strings.Contains(string(output), "graphit-ran") {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || !strings.Contains(string(output), "graphit-ran") {
 		t.Fatalf("Graphit was skipped or failure ignored: %v, %s", err, output)
 	}
 	if err := hm.Remove(); err != nil {

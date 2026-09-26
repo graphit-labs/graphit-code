@@ -26,6 +26,10 @@ func TestGitCommandsIgnoreAnInheritedHookEnvironment(t *testing.T) {
 	run := func(dir string, args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		// A pre-commit gate runs this setup inside Git's own hook environment.
+		// Keep the fixture repository independent until the test injects that
+		// environment deliberately below.
+		cmd.Env = withoutInheritedGitScope(os.Environ())
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
