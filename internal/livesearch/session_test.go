@@ -190,6 +190,33 @@ func TestSubscribeReplaysAfterLastEventID(t *testing.T) {
 	}
 }
 
+func TestSubscribeSkipsLiveEventsThroughLastEventID(t *testing.T) {
+	m := newTestManager(t, echoClient(), nil)
+	s, err := m.Create(Options{Agent: "claude"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	waitFor(t, "ready", func() bool { return s.State() == StateReady })
+
+	// The client may reconnect with an ID ahead of the log's current end while
+	// events from an in-flight turn are still being written.
+	after := s.LastSeq() + 2
+	ch, stop := s.Subscribe(after)
+	defer stop()
+	for i := 0; i < 3; i++ {
+		s.emit(Event{Kind: KindText, Text: "chunk"})
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.Seq != after+1 {
+			t.Fatalf("live event has seq %d, want %d after the acknowledged cursor", ev.Seq, after+1)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first event after the acknowledged cursor was not delivered")
+	}
+}
+
 func TestSubscribeMidRunHasNoGapAndNoDuplicate(t *testing.T) {
 	const emitted = 400
 	started := make(chan struct{})

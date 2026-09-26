@@ -517,7 +517,9 @@ func (s *Session) Subscribe(after int64) (<-chan Event, func()) {
 				if !ok {
 					return
 				}
-				if ev.Seq <= upto {
+				// The tail overlaps the replay, and the requested cursor may be
+				// ahead of the log snapshot taken when subscribing.
+				if ev.Seq <= upto || ev.Seq <= after {
 					continue
 				}
 				select {
