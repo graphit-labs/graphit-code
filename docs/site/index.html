@@ -229,6 +229,37 @@
           </div>
         </div>
       </section>
+      <section id="quality-gates" class="quality-gates section wrap" aria-labelledby="quality-gates-title">
+        <div class="section-heading wide">
+          <p class="intro-label">Checks at the Git boundary</p>
+          <h2 id="quality-gates-title">Stop problems before they travel.</h2>
+          <p>
+            Graphit installs Git hooks during <code>init</code> and <code>sync</code>.
+            Your project lists ordered commands in <code>graphit.lock.json</code>;
+            every command must succeed before Git continues. Their output stays
+            visible in Git.
+          </p>
+        </div>
+        <ol class="quality-gate-stages">
+          <li>
+            <span class="hook-event">pre-commit</span>
+            <h3>Keep bad changes out of local history.</h3>
+            <p>Run fast checks such as formatting, linting, focused tests and source consistency before the commit is created.</p>
+          </li>
+          <li>
+            <span class="hook-event">pre-push</span>
+            <h3>Finish the expensive checks before the remote.</h3>
+            <p>Run longer project checks before sending commits to a remote. Keep CI as an independent verification layer.</p>
+          </li>
+        </ol>
+        <p class="quality-gate-note">
+          Git 2.54+ uses configured hooks. On older Git, Graphit writes to
+          <code>.git/hooks</code>; if installation fails, <code>init</code> or
+          <code>sync</code> prints manual steps. An inactive hook cannot enforce
+          these checks.
+        </p>
+        <a class="text-link" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/configuration.md#git-hook-commands-in-the-project-lockfile">Configure the Git quality gate <span aria-hidden="true">↗</span></a>
+      </section>
       <section class="section wrap" id="ast-languages" aria-labelledby="ast-languages-title">
         <div class="section-heading wide">
           <h2 id="ast-languages-title">Code intelligence across your stack.</h2>

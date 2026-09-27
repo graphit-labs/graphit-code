@@ -19,6 +19,7 @@ See the [code investigation workflow](guides/code_investigation.md) and
 | Expose an authenticated UI or HTTP MCP endpoint | [Container deployment](guides/container.md) | [OIDC Integration](guides/oidc-integration.md) |
 | Centralize OIDC/anonymous ACLs, restricted S3 sessions, embeddings and rerank | [Graphit Broker](guides/auth-broker.md) | [Authentication](guides/authentication.md) |
 | Use Graphit day to day | [User Manual](guides/user_manual.md) | [Troubleshooting](guides/troubleshooting.md) |
+| Enforce project checks before commit or push | [Git hook commands](guides/configuration.md#git-hook-commands-in-the-project-lockfile) | [Git hook installation contract](specs/git_module.md) |
 | Understand every setting and feature switch | [Configuration Reference](guides/configuration.md) | [Configuration Specification](specs/config_module.md) |
 | Choose an agent CLI, embedding model, or rerank provider | [AI Models, Providers, and Agent CLIs](guides/ai_models.md) | [AI Engine](specs/ai_engine.md) |
 | Start, monitor, and troubleshoot the background service | [Daemon Operations and Monitoring](guides/daemon_operations.md) | [Daemon Module](specs/daemon_module.md) |

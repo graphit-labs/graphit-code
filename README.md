@@ -72,6 +72,36 @@ instead of reconstructing it in every session.
 - **One query, several retrieval modes.** BM25 full-text search, semantic vectors, hybrid reciprocal
   rank fusion, exact graph traversal, and source slicing serve different evidence needs.
 
+## Git hooks turn project checks into a quality gate
+
+`graphit init` and `graphit sync` install Git hooks for the events configured in the
+project's `graphit.lock.json`. Each event contains an ordered array of commands.
+Graphit runs them from the project root, shows their output in Git, and blocks
+the Git operation if any command fails. Put fast checks that prevent bad code
+entering local history in `pre-commit`; use `pre-push` for longer checks before
+commits reach a remote.
+
+This repository uses the same portable runner for both events (excerpt from
+its lockfile):
+
+```json
+{
+  "hooks": {
+    "pre-commit": ["go run ./cmd/qualitygate pre-commit"],
+    "pre-push": ["go run ./cmd/qualitygate pre-push"]
+  }
+}
+```
+
+The executable must be available through `PATH`, or be a project executable
+addressed relative to the project root. Git 2.54+ uses repository-local
+configured hooks; older Git uses `.git/hooks/<event>`. If installation fails,
+`init` or `sync` prints manual integration steps. Verify that the hook is active:
+an uninstalled hook cannot enforce the gate. The older mechanism does not
+manage `core.hooksPath`, linked worktrees, or third-party hook managers.
+See [Git hook configuration](docs/guides/configuration.md#git-hook-commands-in-the-project-lockfile)
+for command rules, version limits, and recovery.
+
 ## The Graphit Observatory
 
 The web UI is an operational view over the same project context exposed to agents. On a local
