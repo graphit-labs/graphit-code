@@ -355,6 +355,11 @@ top-level members of the project lockfile:
 }
 ```
 
+`pre-commit` and `pre-push` are examples, not the full set of supported events.
+The same map can configure hooks such as `commit-msg` and `post-checkout`.
+Some Git events run after an operation and cannot reject it; use an event that
+supports rejection for a blocking quality gate.
+
 Put consistency checks such as linting, formatting checks, tests, or generated-file
 validation in this list. Graphit runs every command in order from the project root
 using the platform shell (`sh -c` on Unix, `cmd /C` on Windows). A nonzero result or
@@ -364,7 +369,13 @@ output. An absent or empty list runs no checks; a missing or malformed project l
 blocks the Git operation when the Graphit binary
 is available. Both installation forms check whether the Graphit executable exists before
 loading this lockfile; when it is absent, the Graphit checks cannot run. Git hook
-entries should therefore use one invocation that works unchanged on Windows, macOS
+failures also return their output and nonzero status to the coding agent that
+ran `git commit` or `git push`. In an agent-led delivery, that agent fixes the
+reported cause and retries the Git operation; it runs the push when authorized
+to update the remote. Graphit installs and runs the configured checks, but does
+not create commits, push, or repair the project automatically.
+
+Git hook entries should use one invocation that works unchanged on Windows, macOS
 and Linux. A check may invoke any executable; it need not invoke `sh`. For an
 executable owned by the project, use a path relative to the project root. For
 every other executable, use its name and resolve it through the system `PATH`.

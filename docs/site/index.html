@@ -232,27 +232,31 @@
       <section id="quality-gates" class="quality-gates section wrap" aria-labelledby="quality-gates-title">
         <div class="section-heading wide">
           <p class="intro-label">Checks at the Git boundary</p>
-          <h2 id="quality-gates-title">Stop problems before they travel.</h2>
+          <h2 id="quality-gates-title">Checks tell the agent what to fix.</h2>
           <p>
             Graphit installs Git hooks during <code>init</code> and <code>sync</code>.
-            Your project lists ordered commands in <code>graphit.lock.json</code>;
-            every command must succeed before Git continues. Their output stays
-            visible in Git.
+            Your project lists ordered commands for supported Git events in
+            <code>graphit.lock.json</code>. When the agent commits or pushes,
+            failed checks return their output to that agent so it can fix the
+            cause and try again. Events that support rejection stop Git on failure.
           </p>
         </div>
         <ol class="quality-gate-stages">
           <li>
             <span class="hook-event">pre-commit</span>
-            <h3>Keep bad changes out of local history.</h3>
-            <p>Run fast checks such as formatting, linting, focused tests and source consistency before the commit is created.</p>
+            <h3>Fix problems before the commit exists.</h3>
+            <p>The agent runs the commit. Fast formatting, linting, focused tests and source checks can stop it; the agent reads their output, fixes the cause and retries.</p>
           </li>
           <li>
             <span class="hook-event">pre-push</span>
-            <h3>Finish the expensive checks before the remote.</h3>
-            <p>Run longer project checks before sending commits to a remote. Keep CI as an independent verification layer.</p>
+            <h3>Finish deeper checks before the remote.</h3>
+            <p>When authorized to update the remote, the agent runs the push. Longer checks can stop it, giving the agent a chance to fix and retry. CI remains an independent layer.</p>
           </li>
         </ol>
         <p class="quality-gate-note">
+          These are two examples. The same lockfile supports other Git hooks,
+          including <code>commit-msg</code> and <code>post-checkout</code>;
+          events that run after an operation cannot reject it.
           Git 2.54+ uses configured hooks. On older Git, Graphit writes to
           <code>.git/hooks</code>; if installation fails, <code>init</code> or
           <code>sync</code> prints manual steps. An inactive hook cannot enforce

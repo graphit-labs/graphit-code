@@ -80,6 +80,16 @@ Graphit runs them from the project root, shows their output in Git, and blocks
 the Git operation if any command fails. Put fast checks that prevent bad code
 entering local history in `pre-commit`; use `pre-push` for longer checks before
 commits reach a remote.
+These are two examples: Graphit installs `pre-commit` by default and supports
+other Git hook events named in the lockfile, such as `commit-msg` and
+`post-checkout`. A failed command can block Git only when that event supports
+rejection.
+
+In an agent-led delivery, the agent runs the commit and, when authorized to
+update the remote, the push. A failed hook returns its output to that same
+agent, which fixes the cause and retries the Git operation. Graphit provides
+the checks and their feedback; it does not create commits, push, or repair code
+on its own.
 
 This repository uses the same portable runner for both events (excerpt from
 its lockfile):
