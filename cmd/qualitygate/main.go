@@ -61,6 +61,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 func preCommitSteps(workflows []string) []step {
 	return []step{
 		{name: "Go unit tests", command: "go", args: append([]string{"test", "-p", "1", "-parallel", "2", "-timeout", "2m"}, unitPackages...)},
+		{name: "Persisted relation tests (LanceDB)", command: "go", args: []string{"test", "-tags", "lancedb", "-count=1", "./internal/relations", "./internal/wiki", "./internal/knowledge", "./internal/task", "./internal/memory"}},
 		{name: "Go lint and SAST (gosec)", command: "golangci-lint", args: []string{"run", "./..."}},
 		{name: "GitHub Actions lint", command: "go", args: append([]string{"run", "github.com/rhysd/actionlint/cmd/actionlint@v1.7.7", "-no-color"}, workflows...)},
 		{name: "UI lint", command: "npm", args: []string{"run", "lint"}, dir: "internal/ui"},

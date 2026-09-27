@@ -500,8 +500,44 @@ func (t *MemoryTable) Maintain(ctx context.Context) error {
 	if _, err := t.table.Compact(ctx); err != nil {
 		return err
 	}
-	_, err := t.table.PruneVersions(ctx, config.MemoryVersionRetention())
-	return err
+	retention := config.MemoryVersionRetention()
+	if _, err := t.table.PruneVersions(ctx, retention); err != nil {
+		return err
+	}
+	rows, err := t.Live(ctx)
+	if err != nil {
+		return fmt.Errorf("reading memory heads for relation maintenance: %w", err)
+	}
+	heads := make(map[string]string, len(rows))
+	for _, r := range rows {
+		source := relations.Entity{Type: "memory", ID: r.ID, Scope: r.Scope, ScopeID: r.ScopeID}
+		heads[source.Key()] = relations.Fingerprint([]string{r.Title, r.Body, r.ContentHash})
+	}
+	if _, err := relations.PruneSuperseded(ctx, t.store, heads); err != nil {
+		return fmt.Errorf("pruning superseded memory relations: %w", err)
+	}
+	names, err := t.store.TableNames(ctx)
+	if err != nil {
+		return fmt.Errorf("listing memory relation tables: %w", err)
+	}
+	for _, name := range names {
+		if name != relations.TableName {
+			continue
+		}
+		relationTable, err := t.store.OpenTable(ctx, name)
+		if err != nil {
+			return fmt.Errorf("opening memory relations: %w", err)
+		}
+		defer relationTable.Close()
+		if _, err := relationTable.Compact(ctx); err != nil {
+			return fmt.Errorf("compacting memory relations: %w", err)
+		}
+		if _, err := relationTable.PruneVersions(ctx, retention); err != nil {
+			return fmt.Errorf("pruning memory relation versions: %w", err)
+		}
+		break
+	}
+	return nil
 }
 
 // EnsureIndexes builds the scalar indexes. It is separate from opening because a fresh store has no

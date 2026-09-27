@@ -72,6 +72,7 @@ func EnsureReferences(ctx context.Context, dir string) error {
 		return err
 	}
 	defer db.Close()
+	db.maintainIfDue(ctx)
 	_, complete, err := db.ReferenceEdges(ctx)
 	if err != nil {
 		return err

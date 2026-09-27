@@ -51,6 +51,11 @@ func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
 	if !contains(commit, workflows[0]) {
 		t.Fatal("pre-commit actionlint did not receive the workflow path")
 	}
+	for _, pkg := range []string{"./internal/relations", "./internal/wiki", "./internal/knowledge", "./internal/task", "./internal/memory"} {
+		if !contains(commit, pkg) {
+			t.Errorf("pre-commit is missing LanceDB relation regression package %s", pkg)
+		}
+	}
 }
 
 func TestFormattingFailureBlocksGate(t *testing.T) {

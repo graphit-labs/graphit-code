@@ -218,6 +218,9 @@ presentation support does not make Memory a wiki or create a second persistence 
 The daemon owns one maintenance and embedding loop per active project scope and one machine-wide
 pair for the user scope. Embedding checks run immediately and then every two minutes. Maintenance
 checks run immediately and then every 15 minutes; the table's due-time gate decides whether to fold
-indexes, compact fragments, build the vector index, and prune versions. Empty tables are skipped and
-failures reach the supervisor. A remote table is already the shared source; a local-only table
+indexes, compact fragments, build the vector index, and prune versions. Maintenance also removes
+superseded `record_relations` generations only after matching a confirmed live Memory head, then
+compacts that table and prunes its versions with `memory.version_retention`. It leaves a missing
+relation table absent. Empty tables are skipped and failures reach the supervisor for a later retry.
+A remote table is already the shared source; a local-only table
 remains entirely local.

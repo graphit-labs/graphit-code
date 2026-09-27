@@ -497,8 +497,10 @@ validation. Scheduler release uses its own bounded cleanup context, preventing a
 holding a caller indefinitely.
 
 The daemon owns one `task_maintenance` loop per enabled project. It folds newly written rows into
-indexes, compacts fragments, and prunes obsolete LanceDB versions every 15 minutes. Maintenance
-runs under the same cross-process scheduler lease as mutations and has a five-minute deadline.
+indexes, compacts fragments, and prunes obsolete LanceDB versions every 15 minutes. It also removes
+superseded `record_relations` generations after confirming each Task or session head, then compacts
+and prunes that table's versions. A missing relation table remains absent. Maintenance runs under
+the same cross-process scheduler lease as mutations and has a five-minute deadline.
 `task.version_retention` controls the pruning window and defaults to 15 minutes. Each legitimate
 mutation still advances the LanceDB table version because a version is the immutable transaction
 snapshot; pruning removes snapshots older than the retention window after compaction has made the

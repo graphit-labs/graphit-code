@@ -5,11 +5,14 @@ package memory
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 )
 
 func tableAt(t *testing.T) *MemoryTable {
@@ -20,6 +23,125 @@ func tableAt(t *testing.T) *MemoryTable {
 	}
 	t.Cleanup(func() { _ = tbl.Close() })
 	return tbl
+}
+
+func TestMemoryMaintenanceUsesConfirmedHeadsAndPrunesRelationVersions(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("GRAPHIT_MEMORY_VERSION_RETENTION", "1s")
+	dir := t.TempDir()
+	table, err := OpenMemoryTable(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer table.Close()
+	record := fullRecord()
+	source := relations.Entity{Type: "memory", ID: record.ID, Scope: record.Scope, ScopeID: record.ScopeID}
+	refs := []relations.Ref{{Target: relations.Entity{Type: "task", ID: "linked-task"}, Relation: "supports"}}
+	if err := relations.Replace(ctx, table.store, source, int64(record.Revision-1), "record", refs, "old-head"); err != nil {
+		t.Fatal(err)
+	}
+	if err := table.Put(relations.WithInputs(ctx, &refs), record); err != nil {
+		t.Fatal(err)
+	}
+	current, found, err := table.Get(ctx, record.ID)
+	if err != nil || !found {
+		t.Fatalf("current head: found=%v err=%v", found, err)
+	}
+	future := current
+	future.Title = "Uncommitted next head"
+	future.Revision++
+	future.ContentHash = "future-content-hash"
+	futureHash := relations.Fingerprint([]string{future.Title, future.Body, future.ContentHash})
+	if err := relations.Replace(ctx, table.store, source, int64(future.Revision), "record", refs, futureHash); err != nil {
+		t.Fatal(err)
+	}
+	versionFiles := func() int {
+		t.Helper()
+		entries, err := os.ReadDir(filepath.Join(dir, relations.TableName+".lance", "_versions"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	relationRows := func() []lancestore.Row {
+		t.Helper()
+		relationTable, err := table.store.OpenTable(ctx, relations.TableName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer relationTable.Close()
+		rows, err := relationTable.Rows(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	beforeVersions := versionFiles()
+	time.Sleep(1100 * time.Millisecond)
+	if err := table.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if afterVersions := versionFiles(); afterVersions >= beforeVersions {
+		t.Fatalf("relation versions before=%d after=%d, want obsolete versions pruned", beforeVersions, afterVersions)
+	}
+	if rows := relationRows(); len(rows) != 4 {
+		t.Fatalf("relation rows after uncommitted next head = %d, want current and future generations", len(rows))
+	}
+	edges, complete, err := table.ReferenceEdges(ctx)
+	if err != nil || !complete || len(edges) != 1 || edges[0].Revision != int64(current.Revision) {
+		t.Fatalf("current references after maintenance: edges=%+v complete=%v err=%v", edges, complete, err)
+	}
+	row, err := memoryRow(future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := table.table.Upsert(ctx, "key", []lancestore.Row{row}); err != nil {
+		t.Fatal(err)
+	}
+	if err := table.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows := relationRows(); len(rows) != 2 {
+		t.Fatalf("relation rows after confirming next head = %d, want one marker and edge", len(rows))
+	}
+	edges, complete, err = table.ReferenceEdges(ctx)
+	if err != nil || !complete || len(edges) != 1 || edges[0].Revision != int64(future.Revision) {
+		t.Fatalf("future references after head commit: edges=%+v complete=%v err=%v", edges, complete, err)
+	}
+	cleared := future
+	cleared.Title = "Cleared references"
+	cleared.Revision++
+	empty := []relations.Ref{}
+	if err := table.Put(relations.WithInputs(ctx, &empty), cleared); err != nil {
+		t.Fatal(err)
+	}
+	if err := table.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows := relationRows(); len(rows) != 1 {
+		t.Fatalf("relation rows after clearing references = %d, want empty marker", len(rows))
+	}
+	edges, complete, err = table.ReferenceEdges(ctx)
+	if err != nil || !complete || len(edges) != 0 {
+		t.Fatalf("empty current generation not preserved: edges=%+v complete=%v err=%v", edges, complete, err)
+	}
+}
+
+func TestMemoryMaintenanceDoesNotCreateAbsentRelationTable(t *testing.T) {
+	ctx := context.Background()
+	table := tableAt(t)
+	if err := table.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	names, err := table.store.TableNames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if name == relations.TableName {
+			t.Fatal("maintenance created relation table for an empty legacy store")
+		}
+	}
 }
 
 func TestOpenMemoryTableResetsAnIncompatibleDevelopmentSchema(t *testing.T) {

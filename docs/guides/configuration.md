@@ -380,9 +380,10 @@ Both invoke the versioned Go runner from the project root without a
 machine-specific path. `go`, `git`, `gofmt`, `golangci-lint`, and `npm` must
 resolve through `PATH`; install the Go and Node dependencies and run
 `npm ci` in `internal/ui` before committing. The pre-commit gate checks
-formatting of tracked Go files, the lightweight Go unit tier, Go lint
-(including gosec), workflow files with actionlint,
-UI lint, UI tests, and the UI typecheck/build. This is the primary gate
+formatting of tracked Go files, the lightweight Go unit tier, LanceDB relation
+tests for Relations, Wiki, Knowledge, Task, and Memory, Go lint (including
+gosec), workflow files with actionlint, UI lint, UI tests, and the UI
+typecheck/build. This is the primary gate
 against introducing inconsistent code into local commit history. The
 pre-push gate runs the longer pinned govulncheck scan through `go run` as
 the last check before sending commits to a remote.

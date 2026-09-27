@@ -11,6 +11,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 )
 
 const (
@@ -334,6 +335,52 @@ func (t *tables) maintain(ctx context.Context, retention time.Duration) (mainten
 	}
 	result.oldVersions += pruned.OldVersions
 	result.bytesRemoved += pruned.BytesRemoved
+	tasks, err := t.allTasks(ctx)
+	if err != nil {
+		return result, fmt.Errorf("reading task heads for relation maintenance: %w", err)
+	}
+	sessions, err := t.allSessions(ctx)
+	if err != nil {
+		return result, fmt.Errorf("reading session heads for relation maintenance: %w", err)
+	}
+	heads := make(map[string]string, len(tasks)+len(sessions))
+	for _, task := range tasks {
+		source := relations.Entity{Type: "task", ID: task.ID, Scope: "project", ScopeID: task.ProjectID}
+		heads[source.Key()] = fmt.Sprint(task.Revision)
+	}
+	for _, session := range sessions {
+		source := relations.Entity{Type: "session", ID: session.ID, Scope: "project", ScopeID: session.ProjectID}
+		heads[source.Key()] = fmt.Sprint(session.Revision)
+	}
+	if _, err := relations.PruneSuperseded(ctx, t.store, heads); err != nil {
+		return result, fmt.Errorf("pruning superseded task relations: %w", err)
+	}
+	names, err := t.store.TableNames(ctx)
+	if err != nil {
+		return result, fmt.Errorf("listing task relation tables: %w", err)
+	}
+	for _, name := range names {
+		if name != relations.TableName {
+			continue
+		}
+		relationTable, err := t.store.OpenTable(ctx, name)
+		if err != nil {
+			return result, fmt.Errorf("opening task relations: %w", err)
+		}
+		defer relationTable.Close()
+		compacted, err := relationTable.Compact(ctx)
+		if err != nil {
+			return result, fmt.Errorf("compacting task relations: %w", err)
+		}
+		result.fragmentsRemoved += compacted.FragmentsRemoved
+		pruned, err := relationTable.PruneVersions(ctx, retention)
+		if err != nil {
+			return result, fmt.Errorf("pruning task relation versions: %w", err)
+		}
+		result.oldVersions += pruned.OldVersions
+		result.bytesRemoved += pruned.BytesRemoved
+		break
+	}
 	return result, nil
 }
 

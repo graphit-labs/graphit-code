@@ -171,7 +171,7 @@ Every local knowledge-wiki directory has the same shape:
 
 ```
 <wiki dir>/
-└── index.lance/                 chunks, vectors, xrefs, sync history, and metadata
+└── index.lance/                 chunks with vectors, xrefs, typed references, sync history, and metadata
 ```
 
 Generated pages, manifests, community caches, and embedding shards do not exist. Catalogue, page,

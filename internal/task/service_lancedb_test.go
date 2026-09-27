@@ -6,12 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/relations"
 )
 
 func testCreate(title, key string) CreateInput {
@@ -1512,7 +1516,8 @@ func TestProjectTaskDoesNotWriteCurrentProjections(t *testing.T) {
 func TestTaskMaintenancePrunesObsoleteVersions(t *testing.T) {
 	ctx := context.Background()
 	svc := OpenAt("project-maintenance", t.TempDir())
-	created, err := svc.Create(ctx, testCreate("Maintained task tables", "maintained-tasks"))
+	refs := []relations.Ref{{Target: relations.Entity{Type: "memory", ID: "linked-memory"}, Relation: "supports"}}
+	created, err := svc.Create(relations.WithInputs(ctx, &refs), testCreate("Maintained task tables", "maintained-tasks"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1526,6 +1531,34 @@ func TestTaskMaintenancePrunesObsoleteVersions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	countRelationRows := func() int {
+		t.Helper()
+		tables, err := openTables(ctx, svc.uri, svc.s3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tables.close()
+		relationTable, err := tables.store.OpenTable(ctx, relations.TableName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer relationTable.Close()
+		rows, err := relationTable.Rows(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(rows)
+	}
+	beforeRows := countRelationRows()
+	versionFiles := func() int {
+		t.Helper()
+		entries, err := os.ReadDir(filepath.Join(svc.uri, relations.TableName+".lance", "_versions"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	beforeVersions := versionFiles()
 
 	svc.versionRetention = time.Second
 	time.Sleep(1100 * time.Millisecond)
@@ -1538,6 +1571,51 @@ func TestTaskMaintenancePrunesObsoleteVersions(t *testing.T) {
 	}
 	if result.oldVersions == 0 {
 		t.Fatal("maintenance did not prune any obsolete versions")
+	}
+	if afterRows := countRelationRows(); beforeRows <= afterRows || afterRows != 2 {
+		t.Fatalf("relation rows before=%d after=%d, want one current marker and edge", beforeRows, afterRows)
+	}
+	if afterVersions := versionFiles(); afterVersions >= beforeVersions {
+		t.Fatalf("relation versions before=%d after=%d, want obsolete versions pruned", beforeVersions, afterVersions)
+	}
+	edges, complete, err := svc.ReferenceEdges(ctx)
+	if err != nil || !complete || len(edges) != 1 || edges[0].Target.ID != "linked-memory" {
+		t.Fatalf("current reference lost after maintenance: edges=%+v complete=%v err=%v", edges, complete, err)
+	}
+	empty := []relations.Ref{}
+	if _, err := svc.Progress(relations.WithInputs(ctx, &empty), created.ID, claimed.ClaimToken, "agent", "Cleared references", "continue", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows := countRelationRows(); rows != 1 {
+		t.Fatalf("relation rows after clearing references = %d, want empty generation marker", rows)
+	}
+	edges, complete, err = svc.ReferenceEdges(ctx)
+	if err != nil || !complete || len(edges) != 0 {
+		t.Fatalf("empty current generation not preserved: edges=%+v complete=%v err=%v", edges, complete, err)
+	}
+}
+
+func TestTaskMaintenanceDoesNotCreateAbsentRelationTable(t *testing.T) {
+	ctx := context.Background()
+	tables, err := openTables(ctx, t.TempDir(), config.S3Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tables.close()
+	if _, err := tables.maintain(ctx, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	names, err := tables.store.TableNames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if name == relations.TableName {
+			t.Fatal("maintenance created relation table for a legacy empty store")
+		}
 	}
 }
 

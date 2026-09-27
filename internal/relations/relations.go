@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
@@ -35,6 +37,18 @@ type Edge struct {
 	Field    string `json:"field,omitempty" yaml:"field,omitempty"`
 	Revision int64  `json:"source_revision" yaml:"source_revision"`
 	Origin   string `json:"origin" yaml:"origin"`
+}
+
+func rowRevision(v any) float64 {
+	switch n := v.(type) {
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	case float64:
+		return n
+	}
+	return 0
 }
 
 func (e Entity) Key() string { data, _ := json.Marshal(e); return string(data) }
@@ -83,6 +97,100 @@ func Replace(ctx context.Context, store *lancestore.Store, source Entity, revisi
 	}
 	_, err = table.Merge(ctx, lancestore.MergeOptions{KeyColumn: "key", MatchCondition: "false", InsertIfMissing: true}, rows)
 	return err
+}
+
+// PruneSuperseded removes generations older than each authoritative head's
+// matching marker. A newer marker may belong to a write whose head has not
+// committed yet, so it and the current generation must both remain. Sources
+// without a matching record head are left alone for explicit repair.
+func PruneSuperseded(ctx context.Context, store *lancestore.Store, heads map[string]string) (int, error) {
+	names, err := store.TableNames(ctx)
+	if err != nil {
+		return 0, err
+	}
+	found := false
+	for _, name := range names {
+		if name == TableName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0, nil
+	}
+	table, err := store.OpenTable(ctx, TableName)
+	if err != nil {
+		return 0, err
+	}
+	defer table.Close()
+	rows, err := table.Rows(ctx)
+	if err != nil {
+		return 0, err
+	}
+	type generation struct{ source, origin string }
+	latest := make(map[generation]float64)
+	for _, r := range rows {
+		if marker, _ := r["marker"].(bool); !marker {
+			continue
+		}
+		source, _ := r["source_key"].(string)
+		origin, _ := r["origin"].(string)
+		if origin != "record" {
+			continue
+		}
+		headHash, ok := heads[source]
+		if !ok || r["source_hash"] != headHash {
+			continue
+		}
+		revision := rowRevision(r["source_revision"])
+		key := generation{source, origin}
+		if previous, ok := latest[key]; !ok || revision > previous {
+			latest[key] = revision
+		}
+	}
+	stale := make(map[generation]bool)
+	count := 0
+	for _, r := range rows {
+		source, _ := r["source_key"].(string)
+		origin, _ := r["origin"].(string)
+		revision := rowRevision(r["source_revision"])
+		key := generation{source, origin}
+		if head, ok := latest[key]; ok && revision < head {
+			stale[key] = true
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, nil
+	}
+	keys := make([]generation, 0, len(stale))
+	for key := range stale {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].source == keys[j].source {
+			return keys[i].origin < keys[j].origin
+		}
+		return keys[i].source < keys[j].source
+	})
+	const groupsPerDelete = 32
+	for start := 0; start < len(keys); start += groupsPerDelete {
+		end := min(start+groupsPerDelete, len(keys))
+		terms := make([]string, 0, end-start)
+		for _, key := range keys[start:end] {
+			quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+			// LanceDB projects int64 columns as float64. Move one representable
+			// float toward -Inf before converting back, so rounding can never
+			// make the predicate delete the latest exact int64 revision.
+			cutoff := int64(math.Ceil(math.Nextafter(latest[key], math.Inf(-1))))
+			terms = append(terms, fmt.Sprintf("(source_key = %s AND origin = %s AND source_revision < %d)",
+				quote(key.source), quote(key.origin), cutoff))
+		}
+		if err := table.DeleteWhere(ctx, strings.Join(terms, " OR ")); err != nil {
+			return 0, err
+		}
+	}
+	return count, nil
 }
 
 // Read returns current persisted edges. It never parses or materializes records.

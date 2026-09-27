@@ -122,7 +122,7 @@ prevents empty heading fragments from entering retrieval.
 ### The store (`index.lance/`)
 
 `index.lance/` is a **LanceDB** dataset directory, written and read by
-`internal/wiki/store.go`. **Four** tables:
+`internal/wiki/store.go`. Five tables:
 
 | Table | Holds |
 |---|---|
@@ -130,6 +130,7 @@ prevents empty heading fragments from entering retrieval.
 | `xrefs` | cross-references, as `source_slug` → `target_slug` |
 | `sync_log` | the sync timeline; readers return at most the configured recent window |
 | `meta` | maintenance timestamps and store metadata |
+| `record_relations` | typed page references, with a revision marker for each source |
 
 **There is no `chunk_emb`, and its absence is the design.** The embedding is a column of the
 chunk, so deleting the chunk deletes its vector and the class of bug where a stale vector answers
@@ -145,7 +146,7 @@ brought it out of the graph engine is that liblbug does not maintain a full-text
 so every write had to drop and recreate all seven — see
 [Storage Layout](../architecture/storage_layout.md).
 
-Four things about the shape are worth knowing:
+These properties of the store matter:
 
 **Cross-references are rows, not edges.** A wiki link may point at a page that does not exist — a
 reference written before its target, or a page since deleted. Anything requiring both
@@ -156,8 +157,16 @@ engines unchanged, which is the best evidence the reasoning was about the data a
 **`Sync` is row-incremental.** It compares the desired corpus with the current table by slug,
 deletes only rows that disappeared, and upserts only rows whose compiled value changed. An
 unchanged row keeps its embedding. Cross-reference sources are updated by the same delta rule.
-New rows are folded into existing indexes, and compaction/version pruning run on a maintenance
-schedule rather than on every sync.
+With a complete reference projection, typed references receive a new generation only when a page's
+compiled body, content hash, or reference set changes. An incomplete projection is repaired.
+The current generation includes an empty marker for pages without links;
+an older writer cannot restore a removed link. Maintenance removes superseded generations,
+compacts `record_relations` along with the other tables, and prunes old Lance versions according to
+`wiki.version_retention`. It also runs when a no-change index reaches its maintenance interval.
+An existing store with no relation-maintenance marker runs this cleanup on its first index with the
+new code, even if the older maintenance timestamp is recent; a failed cleanup is retried.
+New rows are folded into existing indexes, while maintenance runs on a schedule rather than on
+every sync.
 
 **Indexing and embedding share the store lifecycle.** Full, incremental, and reset index runs
 hold a cross-process lock beside the wiki directory for the whole update. An embedding cycle

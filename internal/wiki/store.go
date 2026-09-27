@@ -26,7 +26,8 @@ import (
 // traversal is Go walking one-hop lookups, exactly as the SQLite version's was. What it needs from
 // storage is a filterable table of pairs, and that is a column store's easiest case.
 //
-// FOUR TABLES, replacing five SQLite ones. `chunk_emb` disappears into a column of `chunks`, for
+// The four wiki tables replace five SQLite ones. A fifth table, record_relations,
+// persists typed references. `chunk_emb` disappears into a column of `chunks`, for
 // the same reason the AST index dropped its separate vector table: an embedding that lives beside
 // its chunk cannot outlive it, so the failure where a stale vector answers for a page that no
 // longer exists stops being expressible rather than being defended against.
@@ -113,18 +114,35 @@ func lanceWikiVersionRetention() time.Duration { return config.WikiVersionRetent
 // Maintain reclaims the disk a rebuild leaves behind: dead rows still occupying their fragments,
 // and superseded versions kept for a time travel nobody performs.
 //
-// Best-effort by design — every failure here costs disk, not correctness — so it logs rather
-// than returning. A wiki rebuild replaces the whole chunk set, which is exactly the write that
-// leaves a full superseded copy behind.
-func (w *WikiDB) Maintain(ctx context.Context) {
+// Best-effort by design — every failure here costs disk, not correctness — so it logs
+// failures and reports whether the cleanup completed. A wiki rebuild replaces the whole chunk
+// set, which is exactly the write that leaves a full superseded copy behind.
+func (w *WikiDB) Maintain(ctx context.Context) bool {
 	if w.Remote() {
-		return
+		return false
 	}
 	if err := w.ensureTables(ctx); err != nil {
 		w.log().Warn("wiki index maintenance skipped: tables unavailable", "error", err)
-		return
+		return false
 	}
-	for _, t := range []struct {
+	chunks, err := w.Chunks(ctx)
+	if err != nil {
+		w.log().Warn("wiki index maintenance skipped: pages unavailable", "error", err)
+		return false
+	}
+	heads := make(map[string]string, len(chunks))
+	for _, chunk := range chunks {
+		source := relations.Entity{Type: "knowledge", ID: chunk.Slug}
+		heads[source.Key()] = relations.Fingerprint([]string{"explicit-v1", chunk.Body, chunk.ContentHash})
+	}
+	success := true
+	if removed, err := relations.PruneSuperseded(ctx, w.store, heads); err != nil {
+		w.log().Warn("pruning superseded wiki relations", "error", err)
+		success = false
+	} else if removed > 0 {
+		w.log().Info("superseded wiki relations pruned", "rows", removed)
+	}
+	tables := []struct {
 		name  string
 		table *lancestore.Table
 	}{
@@ -132,13 +150,31 @@ func (w *WikiDB) Maintain(ctx context.Context) {
 		{lanceXRefsTable, w.xrefs},
 		{lanceSyncLogTable, w.syncLog},
 		{lanceMetaTable, w.meta},
-	} {
+	}
+	if names, err := w.store.TableNames(ctx); err != nil {
+		w.log().Warn("listing wiki relation tables for maintenance", "error", err)
+		success = false
+	} else if slices.Contains(names, relations.TableName) {
+		relationTable, err := w.store.OpenTable(ctx, relations.TableName)
+		if err != nil {
+			w.log().Warn("opening wiki relations for maintenance", "error", err)
+			success = false
+		} else {
+			defer relationTable.Close()
+			tables = append(tables, struct {
+				name  string
+				table *lancestore.Table
+			}{relations.TableName, relationTable})
+		}
+	}
+	for _, t := range tables {
 		if t.table == nil {
 			continue
 		}
 		t0 := time.Now()
 		if res, err := t.table.Compact(ctx); err != nil {
 			w.log().Warn("compacting the wiki index", "table", t.name, "error", err)
+			success = false
 		} else if res.FragmentsRemoved > 0 {
 			w.log().Info("wiki index compacted", "table", t.name,
 				"fragments_removed", res.FragmentsRemoved, "fragments_added", res.FragmentsAdded,
@@ -146,11 +182,13 @@ func (w *WikiDB) Maintain(ctx context.Context) {
 		}
 		if res, err := t.table.PruneVersions(ctx, lanceWikiVersionRetention()); err != nil {
 			w.log().Warn("pruning superseded wiki index versions", "table", t.name, "error", err)
+			success = false
 		} else if res.OldVersions > 0 {
 			w.log().Info("superseded wiki index versions pruned", "table", t.name,
 				"versions", res.OldVersions, "bytes_reclaimed", res.BytesRemoved)
 		}
 	}
+	return success
 }
 
 // Remote reports whether this is a published index, which is read-only.
@@ -356,18 +394,25 @@ func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string]
 	if err := w.ensureTables(ctx); err != nil {
 		return err
 	}
+	w.maintainIfDue(ctx)
 
 	existing, err := w.Chunks(ctx)
 	if err != nil {
 		return fmt.Errorf("reading current wiki rows: %w", err)
 	}
-	previousReferences, _, err := w.ReferenceEdges(ctx)
+	previousReferences, referencesComplete, err := w.ReferenceEdges(ctx)
 	if err != nil {
 		return err
 	}
 	existingBySlug := make(map[string]WikiChunk, len(existing))
 	for _, c := range existing {
 		existingBySlug[c.Slug] = c
+	}
+	previousBySlug := make(map[string][]relations.Edge)
+	for _, edge := range previousReferences {
+		if edge.Source.Type == "knowledge" && edge.Origin == "record" {
+			previousBySlug[edge.Source.ID] = append(previousBySlug[edge.Source.ID], edge)
+		}
 	}
 	desiredBySlug := make(map[string]WikiChunk, len(chunks))
 	for _, c := range chunks {
@@ -393,6 +438,11 @@ func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string]
 		refs, err := chunkReferences(c, xrefs, previousReferences...)
 		if err != nil {
 			return err
+		}
+		if old, ok := existingBySlug[c.Slug]; ok && referencesComplete &&
+			old.Body == c.Body && old.ContentHash == c.ContentHash &&
+			sameReferenceSet(previousBySlug[c.Slug], refs) {
+			continue
 		}
 		if err := relations.Replace(ctx, w.store, source, revision, "record", refs, relations.Fingerprint([]string{"explicit-v1", c.Body, c.ContentHash})); err != nil {
 			return err
@@ -495,6 +545,29 @@ func wikiChunksEqual(a, b WikiChunk) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+func sameReferenceSet(edges []relations.Edge, refs []relations.Ref) bool {
+	previous := make(map[string]bool, len(edges))
+	for _, edge := range edges {
+		previous[relations.Fingerprint(relations.Ref{Target: edge.Target, Relation: edge.Relation, Field: edge.Field})] = true
+	}
+	desired := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		if ref.Target.Type == "" || ref.Target.ID == "" {
+			continue
+		}
+		desired[relations.Fingerprint(ref)] = true
+	}
+	if len(previous) != len(desired) {
+		return false
+	}
+	for key := range desired {
+		if !previous[key] {
+			return false
+		}
+	}
+	return true
+}
+
 func sortedUnique(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -512,23 +585,39 @@ func sortedUnique(values []string) []string {
 }
 
 const wikiMaintenanceInterval = 15 * time.Minute
+const relationMaintenanceKey = "record_relations_maintenance_v1"
 
 func (w *WikiDB) maintainIfDue(ctx context.Context) {
 	const key = "last_maintenance"
-	if w.meta == nil {
+	if ctx.Err() != nil || w.Remote() {
 		return
+	}
+	if err := w.ensureTables(ctx); err != nil {
+		w.log().Warn("wiki index maintenance skipped: tables unavailable", "error", err)
+		return
+	}
+	relationsMaintained := false
+	if hits, err := w.meta.Search(ctx, lancestore.Query{
+		Filter: fmt.Sprintf("key = %s", lanceQuote(relationMaintenanceKey)), Limit: 1,
+	}); err == nil && len(hits) > 0 {
+		relationsMaintained = true
 	}
 	hits, err := w.meta.Search(ctx, lancestore.Query{
 		Filter: fmt.Sprintf("key = %s", lanceQuote(key)), Limit: 1,
 	})
 	if err == nil && len(hits) > 0 {
-		if last, parseErr := time.Parse(time.RFC3339, str(hits[0].Row["value"])); parseErr == nil && time.Since(last) < wikiMaintenanceInterval {
+		if last, parseErr := time.Parse(time.RFC3339, str(hits[0].Row["value"])); relationsMaintained && parseErr == nil && time.Since(last) < wikiMaintenanceInterval {
 			return
 		}
 	}
-	w.Maintain(ctx)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := w.meta.Upsert(ctx, "key", []lancestore.Row{{"key": key, "value": now}}); err != nil {
+	if !w.Maintain(ctx) || ctx.Err() != nil {
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := w.meta.Upsert(ctx, "key", []lancestore.Row{
+		{"key": key, "value": now},
+		{"key": relationMaintenanceKey, "value": now},
+	}); err != nil {
 		w.log().Warn("recording wiki maintenance", "error", err)
 	}
 }
