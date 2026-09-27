@@ -95,8 +95,10 @@ its lockfile):
 
 The executable must be available through `PATH`, or be a project executable
 addressed relative to the project root. Git 2.54+ uses repository-local
-configured hooks; older Git uses `.git/hooks/<event>`. If installation fails,
-`init` or `sync` prints manual integration steps. Verify that the hook is active:
+configured hooks; older Git uses `.git/hooks/<event>`. After upgrading Git,
+`graphit sync` removes Graphit's old marked block once the new registration
+succeeds, preserving other hook content. If installation or cleanup fails,
+`init` or `sync` prints recovery steps. Verify that the hook is active:
 an uninstalled hook cannot enforce the gate. The older mechanism does not
 manage `core.hooksPath`, linked worktrees, or third-party hook managers.
 See [Git hook configuration](docs/guides/configuration.md#git-hook-commands-in-the-project-lockfile)

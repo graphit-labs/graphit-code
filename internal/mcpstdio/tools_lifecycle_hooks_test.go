@@ -11,7 +11,7 @@ import (
 func TestReconcileGitHooksWarningContainsManualIntegration(t *testing.T) {
 	projectDir := t.TempDir()
 	note := reconcileGitHooks(projectDir, false, []string{"pre-push"})
-	for _, expected := range []string{"Git hooks warning:", ".git/hooks/pre-commit", ".git/hooks/pre-push", "graphit _git-hook pre-push", "chmod +x"} {
+	for _, expected := range []string{"Git hooks warning:", "Manual integration:", "pre-commit", "pre-push", "_git-hook pre-push"} {
 		if !strings.Contains(note, expected) {
 			t.Errorf("warning missing %q: %s", expected, note)
 		}

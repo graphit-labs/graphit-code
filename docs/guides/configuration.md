@@ -405,7 +405,10 @@ On Git 2.54+, `init` and `sync` print exact manual registration commands for
 each event that failed. Each registration uses `hook.<brand>-<event>.command`
 and `.event=<event>`; the command wraps the executable check in `sh -c` so Git's
 positional arguments reach the runner. Removing an event from the lockfile and
-running `sync` removes its Graphit registration.
+running `sync` removes its Graphit registration. After a Git upgrade, a
+successful modern registration also removes Graphit's old marked block from
+`.git/hooks/<event>`; a hook file with other content is kept. If cleanup fails,
+`init` or `sync` warns and identifies the block to remove manually.
 
 On older Git, use the shell block printed by `graphit init` or `graphit sync`
 inside `.git/hooks/<event>`. If that file uses a non-shell or unsupported

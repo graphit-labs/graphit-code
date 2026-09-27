@@ -96,6 +96,8 @@ func (h *HookManager) Install(_ bool, extraEvents ...string) error {
 			if modern {
 				if err := h.installConfigured(event); err != nil {
 					problems = append(problems, h.installError(event, err, true))
+				} else if err := h.removeLegacy(event); err != nil {
+					problems = append(problems, fmt.Errorf("%s configured hook installed but legacy hook cleanup failed: %w; remove only the Graphit-marked block from %s manually", event, err, filepath.Join(h.hooksDir, event)))
 				}
 			} else {
 				// A previous configured registration is inert on older Git, but

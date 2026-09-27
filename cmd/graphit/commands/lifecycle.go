@@ -1044,7 +1044,7 @@ func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *out
 			}
 		}
 		if err := hm.Install(false, events...); err != nil {
-			task.Done("Git hooks require manual integration")
+			task.Done("Git hooks need attention")
 			p.StepWarn("%v", err)
 		} else {
 			task.Done("Git hooks installed")

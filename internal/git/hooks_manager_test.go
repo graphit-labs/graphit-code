@@ -68,6 +68,61 @@ func TestHookManagerModernRegistrationAndRemoval(t *testing.T) {
 	}
 }
 
+func TestHookManagerUpgradeRemovesLegacyBlocks(t *testing.T) {
+	dir := hookTestRepo(t)
+	hm := NewHookManager(dir)
+	hm.gitBinary = fakeGitVersion(t, "2.53.0")
+	if err := hm.Install(false, "pre-push"); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{preCommitEvent, "pre-push"} {
+		path := filepath.Join(hm.hooksDir, event)
+		data, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(data), hookBlockMarker()) {
+			t.Fatalf("missing legacy %s block: %v", event, err)
+		}
+	}
+	hm.gitBinary = fakeGitVersion(t, "2.54.0")
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := hm.Install(false, "pre-push"); err != nil {
+			t.Fatalf("modern install attempt %d: %v", attempt, err)
+		}
+		for _, event := range []string{preCommitEvent, "pre-push"} {
+			if got, err := hm.gitConfigGet(configuredHookFor(event) + ".event"); err != nil || got != event {
+				t.Fatalf("configured %s event = %q, %v", event, got, err)
+			}
+			if _, err := os.Stat(filepath.Join(hm.hooksDir, event)); !os.IsNotExist(err) {
+				t.Fatalf("legacy %s file remains after upgrade: %v", event, err)
+			}
+		}
+	}
+}
+
+func TestHookManagerUpgradePreservesThirdPartyHook(t *testing.T) {
+	dir := hookTestRepo(t)
+	hm := NewHookManager(dir)
+	path := filepath.Join(hm.hooksDir, preCommitEvent)
+	original := "#!/bin/sh\necho third-party\n"
+	if err := os.WriteFile(path, []byte(original), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hm.gitBinary = fakeGitVersion(t, "2.53.0")
+	if err := hm.Install(false); err != nil {
+		t.Fatal(err)
+	}
+	hm.gitBinary = fakeGitVersion(t, "2.54.0")
+	if err := hm.Install(false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != original {
+		t.Fatalf("third-party content changed on upgrade: %q, %v", data, err)
+	}
+	if got, err := hm.gitConfigGet(configuredHook() + ".event"); err != nil || got != preCommitEvent {
+		t.Fatalf("configured pre-commit event = %q, %v", got, err)
+	}
+}
+
 func TestHookManagerLegacyPreservesShellAndWarnsForNonShell(t *testing.T) {
 	dir := hookTestRepo(t)
 	hm := NewHookManager(dir)
@@ -278,6 +333,52 @@ func TestModernRegistrationFailureWarnsWithManualCommands(t *testing.T) {
 	err := hm.Install(false)
 	if err == nil || !strings.Contains(err.Error(), "config-denied") || !strings.Contains(err.Error(), "hook.graphit-pre-commit.command") || !strings.Contains(err.Error(), "hook.graphit-pre-commit.event") || strings.Contains(err.Error(), "Upgrade to Git 2.54 or newer") {
 		t.Fatalf("missing modern manual warning: %v", err)
+	}
+}
+
+func TestModernRegistrationFailureKeepsLegacyBlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell test")
+	}
+	dir := hookTestRepo(t)
+	hm := NewHookManager(dir)
+	hm.gitBinary = fakeGitVersion(t, "2.53.0")
+	if err := hm.Install(false); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(hm.hooksDir, preCommitEvent)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeGit := filepath.Join(t.TempDir(), "git")
+	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'git version 2.54.0'; else exit 1; fi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hm.gitBinary = fakeGit
+	if err := hm.Install(false); err == nil || !strings.Contains(err.Error(), "pre-commit hook not installed") {
+		t.Fatalf("missing registration failure: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("legacy block changed after failed registration: %q, %v", after, err)
+	}
+}
+
+func TestModernCleanupFailureKeepsRegistration(t *testing.T) {
+	dir := hookTestRepo(t)
+	hm := NewHookManager(dir)
+	hm.gitBinary = fakeGitVersion(t, "2.54.0")
+	path := filepath.Join(hm.hooksDir, preCommitEvent)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := hm.Install(false)
+	if err == nil || !strings.Contains(err.Error(), "configured hook installed but legacy hook cleanup failed") || !strings.Contains(err.Error(), "remove only the Graphit-marked block") {
+		t.Fatalf("missing cleanup warning: %v", err)
+	}
+	if got, err := hm.gitConfigGet(configuredHook() + ".event"); err != nil || got != preCommitEvent {
+		t.Fatalf("configured pre-commit event lost after cleanup failure: %q, %v", got, err)
 	}
 }
 

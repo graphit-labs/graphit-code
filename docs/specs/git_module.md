@@ -239,8 +239,12 @@ Git's arguments. This follows Git's
 On older Git, `Install` injects a marked shell block into each selected literal
 project path `.git/hooks/<event>`. The block checks the Git version, confirms that the
 configured Graphit hook is absent, and checks the executable before invoking the
-same runner. Thus an old file left in place after a Git upgrade does not run Graphit
-twice. The marked block is placed immediately after the shebang so an existing
+same runner. After a Git upgrade, a successful configured registration removes the
+Graphit block from that event's old file. It deletes a file containing only the
+Graphit block and shebang, but preserves any third-party content. If registration
+fails, the old block remains; its version guard prevents duplicate execution on
+Git 2.54+. A cleanup failure is reported while the new registration remains.
+The marked block is placed immediately after the shebang so an existing
 third-party `exit` cannot bypass the Graphit checks. Existing shell content is
 preserved. A non-shell or unsupported shell shebang causes an actionable
 installation warning and leaves the file intact.
@@ -271,7 +275,7 @@ The older path deliberately ignores `core.hooksPath`, linked-worktree `.git` poi
 files and third-party hook managers. The configured Git 2.54+ path does not depend
 on `.git/hooks`. If the active hook is not installed or manually integrated,
 configured checks do not run and the project's consistency gate loses substantial
-determinism. No migration of earlier development hooks is performed.
+determinism. Unmarked hooks from earlier development versions are not migrated.
 
 ---
 
