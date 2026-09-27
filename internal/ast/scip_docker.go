@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -127,10 +128,85 @@ func isSCIPTypeScriptConfigPath(rel string) bool {
 	return (strings.HasPrefix(base, "tsconfig") || strings.HasPrefix(base, "jsconfig")) && strings.HasSuffix(base, ".json")
 }
 
+func isSCIPSelectionEventPath(rel string) bool {
+	base := filepath.Base(rel)
+	if isSCIPTypeScriptConfigPath(rel) || base == "compile_commands.json" || base == "CMakeLists.txt" {
+		return true
+	}
+	family := scipFamilies[strings.ToLower(filepath.Ext(rel))]
+	return family == "typescript" || family == "clang"
+}
+
+func scipSelectionRequiresFullDiscovery(root, rel string) bool {
+	return isSCIPTypeScriptConfigPath(rel) && scipFamilyConfigured(root)
+}
+
+// The SCIP adapter owns its generated artifacts. Generic pipeline code only
+// requests cleanup when a family loses its permitted input selection.
+func clearSCIPSelectionArtifacts(root, graphCacheDir, family string) error {
+	var paths []string
+	switch family {
+	case "typescript":
+		paths = []string{
+			filepath.Join(scipCacheDir(root, graphCacheDir, family), "graphit-tsconfig.json"),
+			filepath.Join(scipOutputDir(root, graphCacheDir, family), "index.scip"),
+		}
+	case "clang":
+		paths = []string{
+			filepath.Join(scipCacheDir(root, graphCacheDir, family), "graphit-allowed-files.json"),
+			filepath.Join(scipCacheDir(root, graphCacheDir, family), "graphit-compile-commands.json"),
+			filepath.Join(scipOutputDir(root, graphCacheDir, family), "index.scip"),
+		}
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear stale %s SCIP artifact: %w", family, err)
+		}
+	}
+	return nil
+}
+
+// TypeScript configuration is an indexer input, not an AST source. Keep its
+// discovery in the SCIP adapter so generic source discovery stays language-free.
+func collectSCIPTypeScriptConfigs(root string) ([]string, error) {
+	var configs []string
+	ic := ignorer.DirScope(NewAstIgnoreChecker(root))
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		if rel != "." {
+			if info.IsDir() {
+				if ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
+					return filepath.SkipDir
+				}
+				ic = ic.At(rel)
+				return nil
+			}
+			if ic.IsIgnored(rel, false) {
+				return nil
+			}
+		}
+		if !info.IsDir() && isSCIPTypeScriptConfigPath(path) {
+			configs = append(configs, path)
+		}
+		return nil
+	})
+	return configs, err
+}
+
 // The selector records the roots TypeScript may index plus the user's config.
 // It is small, deterministic, and lives beside the AST cache, never in source.
 func scipTypeScriptSelectionSignature(root string, files []string, excludeExts map[string]bool) (string, int, error) {
 	h := sha256.New()
+	configs, err := collectSCIPTypeScriptConfigs(root)
+	if err != nil {
+		return "", 0, err
+	}
 	profile, profileErr := scipProfileFor(root, "typescript")
 	extAllowed := make(map[string]bool)
 	configBytes, err := os.ReadFile(filepath.Join(root, "tsconfig.json"))
@@ -144,19 +220,19 @@ func scipTypeScriptSelectionSignature(root string, files []string, excludeExts m
 		_, _ = h.Write([]byte("inferred\x00"))
 	}
 	var selected []string
-	for _, file := range files {
-		if isSCIPTypeScriptConfigPath(file) {
-			rel, relErr := filepath.Rel(root, file)
-			if relErr == nil && filepath.ToSlash(rel) != "tsconfig.json" {
-				configBytes, readErr := os.ReadFile(file)
-				if readErr != nil {
-					return "", 0, readErr
-				}
-				_, _ = h.Write([]byte("config:" + filepath.ToSlash(rel) + "\x00"))
-				_, _ = h.Write(configBytes)
-				_, _ = h.Write([]byte{0})
+	for _, file := range configs {
+		rel, relErr := filepath.Rel(root, file)
+		if relErr == nil && filepath.ToSlash(rel) != "tsconfig.json" {
+			configBytes, readErr := os.ReadFile(file)
+			if readErr != nil {
+				return "", 0, readErr
 			}
+			_, _ = h.Write([]byte("config:" + filepath.ToSlash(rel) + "\x00"))
+			_, _ = h.Write(configBytes)
+			_, _ = h.Write([]byte{0})
 		}
+	}
+	for _, file := range files {
 		ext := strings.ToLower(filepath.Ext(file))
 		admitted, ok := extAllowed[ext]
 		if !ok {

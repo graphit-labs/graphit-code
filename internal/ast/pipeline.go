@@ -245,10 +245,10 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	selectionEvent := false
 	for _, rel := range append(append([]string(nil), opts.ChangedPaths...), opts.DeletedPaths...) {
 		base := filepath.Base(rel)
-		if base == ".gitignore" || base == AstIgnoreFile || isSCIPTypeScriptConfigPath(rel) || base == "compile_commands.json" || base == "CMakeLists.txt" || scipFamilies[strings.ToLower(filepath.Ext(rel))] == "typescript" || scipFamilies[strings.ToLower(filepath.Ext(rel))] == "clang" {
+		if base == ".gitignore" || base == AstIgnoreFile || isSCIPSelectionEventPath(rel) {
 			selectionEvent = true
 		}
-		if base == ".gitignore" || base == AstIgnoreFile || isSCIPTypeScriptConfigPath(rel) && scipFamilyConfigured(abs) {
+		if base == ".gitignore" || base == AstIgnoreFile || scipSelectionRequiresFullDiscovery(abs, rel) {
 			// Rule changes can invalidate cached paths that were not named by
 			// the watcher. A full discovery is required only for these events.
 			scoped = false
@@ -514,7 +514,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		for _, file := range scipSelectedFiles {
 			family := scipFamilies[strings.ToLower(filepath.Ext(file))]
 			if ((scipTSChanged && family == "typescript") || (scipClangChanged && family == "clang")) && !seen[file] {
-				// A new tsconfig can stop emitting a still-allowed document.
+				// An indexer config can stop emitting a still-allowed document.
 				// Reparse it through syntax if the new SCIP index omits it.
 				changedFiles = append(changedFiles, file)
 				seen[file] = true
@@ -595,17 +595,13 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		scipEntries, scipFailures = prepareSCIPEntries(ctx, abs, opts.CacheDir, changedFiles, opts.ExcludeExts)
 	}
 	if scipTSChanged && scipTSCount == 0 {
-		for _, stale := range []string{filepath.Join(scipCacheDir(abs, opts.CacheDir, "typescript"), "graphit-tsconfig.json"), filepath.Join(scipOutputDir(abs, opts.CacheDir, "typescript"), "index.scip")} {
-			if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
-				scipFailures = append(scipFailures, fmt.Errorf("clear stale TypeScript SCIP artifact: %w", err))
-			}
+		if err := clearSCIPSelectionArtifacts(abs, opts.CacheDir, "typescript"); err != nil {
+			scipFailures = append(scipFailures, err)
 		}
 	}
 	if scipClangChanged && scipClangCount == 0 {
-		for _, stale := range []string{filepath.Join(scipCacheDir(abs, opts.CacheDir, "clang"), "graphit-allowed-files.json"), filepath.Join(scipCacheDir(abs, opts.CacheDir, "clang"), "graphit-compile-commands.json"), filepath.Join(scipOutputDir(abs, opts.CacheDir, "clang"), "index.scip")} {
-			if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
-				scipFailures = append(scipFailures, fmt.Errorf("clear stale Clang SCIP artifact: %w", err))
-			}
+		if err := clearSCIPSelectionArtifacts(abs, opts.CacheDir, "clang"); err != nil {
+			scipFailures = append(scipFailures, err)
 		}
 	}
 	for _, failure := range scipFailures {

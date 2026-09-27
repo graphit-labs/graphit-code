@@ -103,6 +103,14 @@ its lockfile):
 }
 ```
 
+Here, `pre-commit` runs formatting, lint and SAST, focused Go and UI tests,
+workflow validation, and the UI build. On Linux, `pre-push` runs the full
+native Go suite inside a bounded user cgroup, then a vulnerability scan. It
+fails if local isolation is unavailable. On macOS and Windows, the same runner
+checks race-enabled platform semantics and vulnerabilities; CI still runs the
+full native Linux suite after the push. The local coverage on those platforms
+is narrower.
+
 The executable must be available through `PATH`, or be a project executable
 addressed relative to the project root. Git 2.54+ uses repository-local
 configured hooks; older Git uses `.git/hooks/<event>`. After upgrading Git,

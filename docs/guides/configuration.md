@@ -396,11 +396,21 @@ tests for Relations, Wiki, Knowledge, Task, and Memory, Go lint (including
 gosec), workflow files with actionlint, UI lint, UI tests, and the UI
 typecheck/build. This is the primary gate
 against introducing inconsistent code into local commit history. The
-pre-push gate runs the longer pinned govulncheck scan through `go run` as
-the last check before sending commits to a remote.
+pre-push gate runs the full native Go suite on Linux through `make test-full`,
+then the pinned govulncheck scan. The Makefile establishes a transient user
+cgroup with CPU, memory, process-count, and time limits before preparing native
+dependencies. The runner forces the local isolation path even if a CI-only
+isolation marker is present in the caller's environment. This can take many
+minutes; install `make`, `systemd-run`, `timeout`, `ionice`, and `nice` through
+`PATH` and keep a user systemd manager available. If isolation cannot be
+established, the push fails with the Makefile's recovery message.
+On macOS and Windows, the same lockfile command runs the race-enabled platform
+semantics tests for watcher, ignore, store, locks, and daemon control before
+govulncheck. The full native Linux suite is still checked by CI for pushes from
+those platforms; their local pre-push coverage is narrower and must not be
+reported as a full-suite pass.
 If a tool, dependency, or check fails, the Git operation fails with its
-output. The full native Go suite remains in CI because it requires hard
-resource isolation; the local gate does not claim that the full suite ran.
+output. CI reruns the full native suite independently after a push.
 Run `graphit sync` after changing the lockfile to install its Git events;
 verify that both events are active before relying on them. If Git hook
 installation is unavailable, follow the manual commands printed by `sync`

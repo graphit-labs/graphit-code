@@ -11,30 +11,74 @@ import (
 
 func TestWaitForFileLockWaitsForReadiness(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "daemon.pid")
-	ready := make(chan struct{})
+	locked := make(chan error, 1)
+	writePID := make(chan struct{})
+	written := make(chan error, 1)
 	release := make(chan struct{})
 	go func() {
-		time.Sleep(20 * time.Millisecond)
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
-			close(ready)
+			locked <- err
 			return
 		}
 		defer file.Close()
 		if err := flockExclusiveBlocking(file); err != nil {
-			close(ready)
+			locked <- err
 			return
 		}
-		close(ready)
+		locked <- nil
+		<-writePID
+		_, err = file.WriteString("12345\n")
+		written <- err
 		<-release
 		flockProbeRelease(file)
 	}()
-
-	if err := waitForFileLock(path, time.Second, time.Millisecond); err != nil {
+	defer close(release)
+	result := make(chan error, 1)
+	go func() { result <- waitForFileLock(path, time.Second, time.Millisecond) }()
+	if err := <-locked; err != nil {
 		t.Fatal(err)
 	}
-	<-ready
-	close(release)
+	select {
+	case err := <-result:
+		t.Fatalf("lock without PID reported ready: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(writePID)
+	if err := <-written; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitForFileLockRejectsStalePID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.pid")
+	if err := os.WriteFile(path, []byte("12345\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := flockExclusiveBlocking(file); err != nil {
+		t.Fatal(err)
+	}
+	defer flockProbeRelease(file)
+	if err := waitForFileLock(path, 0, 0, 12345); err == nil {
+		t.Fatal("stale PID reported ready")
+	}
+	if err := file.Truncate(0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("67890\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForFileLock(path, 0, 0, 12345); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWaitForFileLockHasBoundedFailure(t *testing.T) {

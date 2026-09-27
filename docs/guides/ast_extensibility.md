@@ -126,7 +126,9 @@ documents because a change in one file may alter semantic references in
 another.
 Graphit stores a compact signature of the permitted TypeScript/JavaScript
 roots, the project `tsconfig.json`, and discovered `tsconfig*.json`/
-`jsconfig*.json` files in the global AST cache. Changes only to
+`jsconfig*.json` files in the global AST cache. The SCIP adapter reads these
+project-owned configuration inputs; generic AST source discovery does not
+interpret them or depend on files generated inside the container. Changes only to
 `.gitignore`, `.astignore`, or those configuration files, and source removals, refresh that
 family even without a source edit; an empty selection removes its old raw
 `index.scip` and inferred config. Watcher paths are checked against the same

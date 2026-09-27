@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -33,7 +34,7 @@ func TestConfiguredHooksInvokeGate(t *testing.T) {
 func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
 	workflows := []string{".github/workflows/ci.yml"}
 	commit := preCommitSteps(workflows)
-	push := prePushSteps()
+	push := prePushSteps("linux")
 	contains := func(steps []step, argument string) bool {
 		for _, s := range steps {
 			if strings.Contains(strings.Join(s.args, " "), argument) {
@@ -48,6 +49,15 @@ func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
 	if !contains(push, "govulncheck@v1.7.0") || contains(commit, "govulncheck@v1.7.0") {
 		t.Fatal("long vulnerability analysis belongs to the pre-push gate")
 	}
+	if len(push) != 2 || push[0].command != "make" || !contains(push[:1], "test-full") || push[0].env[0] != "GRAPHIT_HEAVY_TEST_ISOLATED=0" {
+		t.Fatalf("Linux pre-push must run the isolated CI suite first: %+v", push)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		steps := prePushSteps(goos)
+		if len(steps) != 2 || steps[0].command != "go" || !contains(steps[:1], "./internal/daemonctl") || !contains(steps[:1], "-race") {
+			t.Errorf("%s pre-push lacks platform semantics checks: %+v", goos, steps)
+		}
+	}
 	if !contains(commit, workflows[0]) {
 		t.Fatal("pre-commit actionlint did not receive the workflow path")
 	}
@@ -55,6 +65,24 @@ func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
 		if !contains(commit, pkg) {
 			t.Errorf("pre-commit is missing LanceDB relation regression package %s", pkg)
 		}
+	}
+}
+
+func TestPrePushFullSuiteFailureBlocksLaterChecks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix fake executable fixture")
+	}
+	root := t.TempDir()
+	fakeMake := filepath.Join(root, "make")
+	if err := os.WriteFile(fakeMake, []byte("#!/bin/sh\nprintf 'isolation=%s\\n' \"$GRAPHIT_HEAVY_TEST_ISOLATED\"\nexit 42\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GRAPHIT_HEAVY_TEST_ISOLATED", "1")
+	var out, errOut bytes.Buffer
+	err := runSteps(prePushSteps("linux"), &out, &errOut)
+	if err == nil || !strings.Contains(out.String(), "isolation=0") || strings.Contains(out.String(), "Go vulnerability analysis") {
+		t.Fatalf("failed full suite did not block push checks: err=%v stdout=%q stderr=%q", err, out.String(), errOut.String())
 	}
 }
 

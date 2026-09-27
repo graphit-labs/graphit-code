@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 type step struct {
@@ -16,6 +17,7 @@ type step struct {
 	command string
 	args    []string
 	dir     string
+	env     []string
 }
 
 var unitPackages = []string{
@@ -55,7 +57,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 		return runSteps(preCommitSteps(workflows), stdout, stderr)
 	}
-	return runSteps(prePushSteps(), stdout, stderr)
+	return runSteps(prePushSteps(runtime.GOOS), stdout, stderr)
 }
 
 func preCommitSteps(workflows []string) []step {
@@ -70,10 +72,26 @@ func preCommitSteps(workflows []string) []step {
 	}
 }
 
-func prePushSteps() []step {
-	return []step{
-		{name: "Go vulnerability analysis", command: "go", args: []string{"run", "golang.org/x/vuln/cmd/govulncheck@v1.7.0", "-tags", "lancedb", "./..."}},
+func prePushSteps(goos string) []step {
+	var checks []step
+	if goos == "linux" {
+		checks = append(checks, step{
+			name:    "Full native Go suite (isolated, same target as CI)",
+			command: "make", args: []string{"test-full"},
+			// The local Makefile must establish its cgroup even if a CI marker
+			// leaked into the caller's environment.
+			env: []string{"GRAPHIT_HEAVY_TEST_ISOLATED=0"},
+		})
+	} else {
+		checks = append(checks, step{
+			name:    "Platform semantics (native full suite requires Linux isolation)",
+			command: "go", args: []string{"test", "-race", "-count=1", "-timeout", "10m", "./internal/fswatch/...", "./internal/ignorer/...", "./internal/store/...", "./internal/lockfile", "./internal/storelifecycle", "./internal/daemonctl"},
+		})
 	}
+	return append(checks, step{
+		name: "Go vulnerability analysis", command: "go",
+		args: []string{"run", "golang.org/x/vuln/cmd/govulncheck@v1.7.0", "-tags", "lancedb", "./..."},
+	})
 }
 
 func workflowFiles() ([]string, error) {
@@ -128,6 +146,9 @@ func runSteps(steps []step, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "qualitygate:", s.name)
 		cmd := exec.Command(s.command, s.args...)
 		cmd.Dir = s.dir
+		if len(s.env) > 0 {
+			cmd.Env = append(os.Environ(), s.env...)
+		}
 		cmd.Stdout, cmd.Stderr = stdout, stderr
 		if err := cmd.Run(); err != nil {
 			var pathErr *exec.Error

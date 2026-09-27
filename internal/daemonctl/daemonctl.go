@@ -96,6 +96,7 @@ func EnsureRunning() (bool, error) {
 	if locked && status.Active {
 		return false, nil
 	}
+	previousPID := readDaemonPID(PIDFilePath())
 	if locked {
 		if err := stopUnmanagedDaemon(); err != nil {
 			return false, fmt.Errorf("handing existing daemon to service: %w", err)
@@ -104,7 +105,7 @@ func EnsureRunning() (bool, error) {
 	if err := daemonservice.Start(); err != nil {
 		return false, fmt.Errorf("starting daemon service: %w", err)
 	}
-	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll); err != nil {
+	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll, previousPID); err != nil {
 		return true, fmt.Errorf("waiting for managed daemon readiness: %w", err)
 	}
 	return true, nil
@@ -125,6 +126,7 @@ func ensureDirectDaemon() (bool, error) {
 	if locked {
 		return false, nil
 	}
+	previousPID := readDaemonPID(PIDFilePath())
 	exe, err := daemonservice.ResolveExecutable()
 	if err != nil {
 		return false, err
@@ -137,7 +139,7 @@ func ensureDirectDaemon() (bool, error) {
 		return false, fmt.Errorf("starting daemon without a service manager: %w", err)
 	}
 	_ = cmd.Process.Release()
-	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll); err != nil {
+	if err := waitForFileLock(PIDFilePath(), daemonReadyTimeout, daemonReadyPoll, previousPID); err != nil {
 		return true, fmt.Errorf("waiting for direct daemon readiness: %w", err)
 	}
 	return true, nil
@@ -243,16 +245,42 @@ func fileLockState(path string) (bool, error) {
 	return false, nil
 }
 
-func waitForFileLock(path string, timeout, poll time.Duration) error {
-	locked, err := fileLockState(path)
+func readDaemonPID(path string) int {
+	data, err := os.ReadFile(path)
 	if err != nil {
+		return 0
+	}
+	line, _, complete := strings.Cut(string(data), "\n")
+	if !complete {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(line))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
+// The lock is acquired before its owner writes the PID. A new owner can also
+// acquire a file that still contains the previous daemon's PID.
+func waitForFileLock(path string, timeout, poll time.Duration, previousPID ...int) error {
+	oldPID := 0
+	if len(previousPID) > 0 {
+		oldPID = previousPID[0]
+	}
+	ready := func() (bool, error) {
+		locked, err := fileLockState(path)
+		if err != nil || !locked {
+			return false, err
+		}
+		pid := readDaemonPID(path)
+		return pid > 0 && pid != oldPID, nil
+	}
+	if done, err := ready(); err != nil || done {
 		return err
 	}
-	if locked {
-		return nil
-	}
 	if timeout <= 0 {
-		return fmt.Errorf("PID file lock was not acquired")
+		return fmt.Errorf("daemon PID was not ready")
 	}
 	if poll <= 0 {
 		poll = daemonReadyPoll
@@ -264,15 +292,15 @@ func waitForFileLock(path string, timeout, poll time.Duration) error {
 	for {
 		select {
 		case <-ticker.C:
-			locked, err := fileLockState(path)
+			done, err := ready()
 			if err != nil {
 				return err
 			}
-			if locked {
+			if done {
 				return nil
 			}
 		case <-timer.C:
-			return fmt.Errorf("PID file lock was not acquired within %s", timeout)
+			return fmt.Errorf("daemon PID was not ready within %s", timeout)
 		}
 	}
 }

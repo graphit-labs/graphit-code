@@ -194,9 +194,19 @@ func TestSCIPTypeScriptConfigDropsDocumentToSyntax(t *testing.T) {
 	if err != nil || calls != 3 || third.EngineStats["scip:javascript"] != 1 || third.EngineStats["tree-sitter:javascript"] != 1 {
 		t.Fatalf("extended tsconfig edit did not refresh family: calls=%d result=%+v err=%v", calls, third, err)
 	}
+	thirdSelection, _ := os.ReadFile(filepath.Join(cache, "scip-typescript-selection"))
+	thirdConfigs, _ := collectSCIPTypeScriptConfigs(project)
+	thirdFiles, _ := collectFiles(project)
+	wantThirdSelection, _, err := scipTypeScriptSelectionSignature(project, thirdFiles, nil)
+	if err != nil || string(thirdSelection) != wantThirdSelection {
+		t.Fatalf("extended config selection marker was not saved: cached=%q want=%q configs=%q third=%+v err=%v", thirdSelection, wantThirdSelection, thirdConfigs, third, err)
+	}
 	noOp, err := RunPipeline(ctx, db, project, PipelineOptions{CacheDir: cache})
 	if err != nil || calls != 3 || noOp.ParsedFiles != 0 {
-		t.Fatalf("unchanged selector did not stay cached: calls=%d result=%+v err=%v", calls, noOp, err)
+		noOpSelection, _ := os.ReadFile(filepath.Join(cache, "scip-typescript-selection"))
+		noOpConfigs, _ := collectSCIPTypeScriptConfigs(project)
+		noOpFiles, _ := collectFiles(project)
+		t.Fatalf("unchanged selector did not stay cached: calls=%d third=%+v before=%q after=%q configs=%q/%q files=%q/%q result=%+v err=%v", calls, third, thirdSelection, noOpSelection, thirdConfigs, noOpConfigs, thirdFiles, noOpFiles, noOp, err)
 	}
 }
 
