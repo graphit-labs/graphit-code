@@ -250,7 +250,7 @@
           <li>
             <span class="hook-event">pre-push</span>
             <h3>Finish deeper checks before the remote.</h3>
-            <p>When authorized to update the remote, the agent runs the push. Longer checks can stop it, giving the agent a chance to fix and retry. CI remains an independent layer.</p>
+            <p>The agent pushes only when the engineer explicitly requests that push. Longer checks can stop it; passing the hook never authorizes a push. CI remains an independent layer.</p>
           </li>
         </ol>
         <p class="quality-gate-note">

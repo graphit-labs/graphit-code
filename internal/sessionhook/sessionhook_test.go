@@ -222,6 +222,11 @@ func TestCoreInvariantFallsBackWhenGraphitToolsAreUnavailable(t *testing.T) {
 			t.Fatalf("invariant lacks validation policy %q", phrase)
 		}
 	}
+	for _, phrase := range []string{"Never initiate or retry `git push` without an explicit engineer request for that push", "commit, delivery and `pre-push` hooks do not authorize it"} {
+		if !strings.Contains(invariant, phrase) {
+			t.Fatalf("invariant lacks push authorization boundary %q", phrase)
+		}
+	}
 	for _, want := range []string{"Delegation", "applicable instruction that explicitly assigns bounded work to a delegated role", "authorizes and requires only that role/work", "recall→scout", "impact→tracker", "transcription→scribe", "otherwise no subagents", "host cannot run it", "coordinator performs only that role", "Acceptance, checkpoints, Task/session claims, revisions, completion and lifecycle stay with the coordinator"} {
 		if !strings.Contains(invariant, want) {
 			t.Fatalf("invariant does not preserve the bounded delegation rule %q after compaction: %s", want, invariant)
@@ -238,7 +243,7 @@ func TestUnitCompletionReminderUsesTheSmallestReportableBoundary(t *testing.T) {
 	t.Parallel()
 
 	reminder := UnitCompletionReminder()
-	for _, phrase := range []string{"User-requested or reported gaps stay necessary", "fast checks in pre-commit", "long in pre-push", "prove hooks block failures"} {
+	for _, phrase := range []string{"User-requested or reported gaps stay necessary", "fast checks in pre-commit", "long in pre-push", "prove hooks block failures", "Never initiate or retry `git push` without an explicit engineer request for that push"} {
 		if !strings.Contains(reminder, phrase) {
 			t.Fatalf("unit reminder lacks validation policy %q", phrase)
 		}
@@ -455,7 +460,7 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 	if !strings.Contains(string(cursorStart), "Cursor-specific hook compensation") || strings.Contains(string(cursorStart), "Antigravity-specific") {
 		t.Fatalf("Cursor bootstrap compensation is missing or leaked: %s", cursorStart)
 	}
-	if strings.Contains(string(cursorUnit), "specific hook compensation") || !strings.Contains(string(cursorUnit), "Reapply Graphit routing before the next action") || len(cursorUnit) > 550 {
+	if strings.Contains(string(cursorUnit), "specific hook compensation") || !strings.Contains(string(cursorUnit), "Reapply Graphit routing before the next action") || len(cursorUnit) > 650 {
 		t.Fatalf("Cursor checkpoint should reassert routing without repeating startup compensation (%d bytes): %s", len(cursorUnit), cursorUnit)
 	}
 	cursorChild, err := RenderWithContext(FormatCursorSubagentTask, []byte(`{"tool_input":{"prompt":"work"}}`), Context{MandatoryLoaded: true})
@@ -482,7 +487,7 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 		// The recurring payload carries the complete delegation boundary after
 		// compaction, including coordinator-only lifecycle and host fallback.
 		// The invariant now carries the persistent-hook gate across compaction.
-		if strings.Contains(invocation, `:1`) && len(payload) > 2400 {
+		if strings.Contains(invocation, `:1`) && len(payload) > 2600 {
 			t.Fatalf("repeated Antigravity compensation is too large: %d bytes", len(payload))
 		}
 	}
@@ -586,8 +591,8 @@ func TestRepeatedCheckpointsKeepACompactPayload(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(payload) > 550 {
-			t.Fatalf("%s recurring checkpoint costs %d bytes, budget 550", format, len(payload))
+		if len(payload) > 650 {
+			t.Fatalf("%s recurring checkpoint costs %d bytes, budget 650", format, len(payload))
 		}
 		if strings.Contains(string(payload), "long memory") || strings.Contains(string(payload), "module routing") {
 			t.Fatalf("%s repeats bootstrap state at every tool boundary", format)

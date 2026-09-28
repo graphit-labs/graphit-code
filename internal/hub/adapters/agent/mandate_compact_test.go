@@ -18,6 +18,11 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 			t.Fatalf("preamble missing persistence boundary %q:\n%s", want, content)
 		}
 	}
+	for _, want := range []string{"Never initiate or retry `git push` automatically", "explicit engineer request for that push", "a commit, delivery, or `pre-push` hook does not"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("preamble missing push authorization boundary %q:\n%s", want, content)
+		}
+	}
 	// An applicable named delegation is the narrow exception to the default: it
 	// authorizes and requires only that role, without transferring coordination.
 	for _, want := range []string{"Subagent default: create none unless", "applicable mandate, AGENTS.md, loaded skill or higher-priority instruction", "explicitly assigns bounded work to a delegated role", "authorizes and requires only that role and work", "This mandate assigns recall→", "impact review→", "decided transcription→", "already in that role works directly, not recursively", "host cannot run the role", "perform only that role yourself", "report evidence and may finish", "no waiting loop", "may later send that delegate another instruction", "follow-up/resume when supported", "Reuse is optional", "no keep-alive, reuse or explicit dismissal is required", "ending a turn does not complete Graphit work", "Task/session claims, revisions, completion and lifecycle stay with the coordinator"} {
@@ -30,9 +35,9 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 			t.Fatalf("preamble requires a live waiting turn: %q", forbidden)
 		}
 	}
-	// The resident budget includes the explicit delegation authorization boundary;
+	// The resident budget includes delegation and push authorization boundaries;
 	// keep that safety rule without letting the preamble grow unbounded.
-	if len(content) > 3200 {
+	if len(content) > 3400 {
 		t.Fatalf("resident preamble is too large: %d bytes", len(content))
 	}
 }

@@ -253,8 +253,11 @@ barrier against adding bad code to local history. Long checks can run in
 `pre-push` as the last barrier before the remote; checks that require unavailable
 hard isolation remain in CI with that limitation stated. The agent records the
 cost and reason for placement, rather than moving quick checks later for
-convenience. It inspects `graphit.lock.json`, actual Git hook activation, and
-applicable CI, installs missing tools, runs the saved invocations, and proves a
+convenience. The `pre-push` hook only validates a push requested explicitly by
+the engineer; neither the hook nor a commit or completed delivery authorizes
+the agent to initiate or retry `git push` automatically. It inspects
+`graphit.lock.json`, actual Git hook activation, and applicable CI, installs
+missing tools, runs the saved invocations, and proves a
 failing case blocks each gate. A one-time manual test does not establish a
 recurring gate. A requested validation or a user-reported missing-validation
 error makes that project check necessary. When hook activation fails, the agent

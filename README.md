@@ -85,11 +85,13 @@ other Git hook events named in the lockfile, such as `commit-msg` and
 `post-checkout`. A failed command can block Git only when that event supports
 rejection.
 
-In an agent-led delivery, the agent runs the commit and, when authorized to
-update the remote, the push. A failed hook returns its output to that same
-agent, which fixes the cause and retries the Git operation. Graphit provides
-the checks and their feedback; it does not create commits, push, or repair code
-on its own.
+In an agent-led delivery, the agent may push only when the engineer explicitly
+requests that specific push. It must not initiate or retry a push automatically
+after a commit, delivery, or successful `pre-push` check. A failed hook returns
+its output to the agent that ran the Git operation, which fixes the cause.
+The agent retries a push only when that request still authorizes the retry.
+Graphit provides the checks and their feedback; it does not create commits,
+push, or repair code on its own.
 
 This repository uses the same portable runner for both events (excerpt from
 its lockfile):

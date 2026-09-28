@@ -371,9 +371,11 @@ is available. Both installation forms check whether the Graphit executable exist
 loading this lockfile; when it is absent, the Graphit checks cannot run. Git hook
 failures also return their output and nonzero status to the coding agent that
 ran `git commit` or `git push`. In an agent-led delivery, that agent fixes the
-reported cause and retries the Git operation; it runs the push when authorized
-to update the remote. Graphit installs and runs the configured checks, but does
-not create commits, push, or repair the project automatically.
+reported cause. It retries a push only when the engineer's explicit request
+for that specific push still authorizes the retry. A commit, delivery, or installed
+or successful `pre-push` hook never authorizes the agent to initiate a push.
+Graphit installs and runs the configured checks, but does not create commits,
+push, or repair the project automatically.
 
 Git hook entries should use one invocation that works unchanged on Windows, macOS
 and Linux. A check may invoke any executable; it need not invoke `sh`. For an
