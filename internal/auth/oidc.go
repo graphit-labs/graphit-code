@@ -201,14 +201,31 @@ type tokenResponse struct {
 // server log. Its underlying error may include a remote error_description and
 // must not be logged or returned to a browser.
 type CodeExchangeFailure struct {
-	Stage      string
-	HTTPStatus int
-	OAuthCode  string
-	err        error
+	Stage            string
+	HTTPStatus       int
+	OAuthCode        string
+	TokenKind        string
+	ValidationReason string
+	err              error
 }
 
 func (e *CodeExchangeFailure) Error() string { return e.err.Error() }
 func (e *CodeExchangeFailure) Unwrap() error { return e.err }
+
+// tokenValidationFailure carries fixed classifications only. The wrapped error
+// may contain remote details and must never be written to a web login log.
+type tokenValidationFailure struct {
+	tokenKind string
+	reason    string
+	err       error
+}
+
+func (e *tokenValidationFailure) Error() string { return e.err.Error() }
+func (e *tokenValidationFailure) Unwrap() error { return e.err }
+
+func validationFailure(tokenKind, reason string, err error) error {
+	return &tokenValidationFailure{tokenKind: tokenKind, reason: reason, err: err}
+}
 
 func safeOAuthCode(code string) string {
 	switch code {
@@ -311,7 +328,12 @@ func (c *OIDCClient) ExchangeCode(ctx context.Context, provider Provider, discov
 	}
 	profile, err := c.profileFromToken(ctx, provider, discovery, token, nonce)
 	if err != nil {
-		return Profile{}, &CodeExchangeFailure{Stage: "token_validation", err: err}
+		failure := &CodeExchangeFailure{Stage: "token_validation", err: err}
+		var validation *tokenValidationFailure
+		if errors.As(err, &validation) {
+			failure.TokenKind, failure.ValidationReason = validation.tokenKind, validation.reason
+		}
+		return Profile{}, failure
 	}
 	return profile, nil
 }
@@ -369,10 +391,10 @@ func (c *OIDCClient) Refresh(ctx context.Context, provider Provider, profile Pro
 
 func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, discovery OIDCDiscovery, token tokenResponse, nonce string) (Profile, error) {
 	if token.AccessToken == "" || token.IDToken == "" {
-		return Profile{}, errors.New("OIDC token response must include access_token and id_token")
+		return Profile{}, validationFailure("response", "missing_token", errors.New("OIDC token response must include access_token and id_token"))
 	}
 	if provider.Type == ProviderBroker && (!strings.EqualFold(token.TokenType, "Bearer") || token.ExpiresIn <= 0) {
-		return Profile{}, errors.New("broker token response must contain a Bearer token with positive expires_in")
+		return Profile{}, validationFailure("response", "invalid_token_type_or_lifetime", errors.New("broker token response must contain a Bearer token with positive expires_in"))
 	}
 	idTokenKind := "ID token"
 	if provider.Type == ProviderBroker {
@@ -385,17 +407,17 @@ func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, di
 	issuer, _ := claims["iss"].(string)
 	subject, _ := claims["sub"].(string)
 	if subject == "" {
-		return Profile{}, errors.New("verified ID token has no subject")
+		return Profile{}, validationFailure("id_token", "subject", errors.New("verified ID token has no subject"))
 	}
 	if provider.Type == ProviderBroker {
 		if !audienceOnly(claims["aud"], provider.OIDC.ClientID) {
-			return Profile{}, errors.New("broker ID token has an unexpected audience")
+			return Profile{}, validationFailure("id_token", "audience", errors.New("broker ID token has an unexpected audience"))
 		}
 		if _, ok := claims["iat"].(float64); !ok {
-			return Profile{}, errors.New("broker ID token has no numeric issued-at time")
+			return Profile{}, validationFailure("id_token", "issued_at", errors.New("broker ID token has no numeric issued-at time"))
 		}
 		if _, ok := claims["exp"].(float64); !ok {
-			return Profile{}, errors.New("broker ID token has no numeric expiration")
+			return Profile{}, validationFailure("id_token", "expiration_claim", errors.New("broker ID token has no numeric expiration"))
 		}
 		if err := c.verifyBrokerAccessToken(ctx, provider, discovery, token, subject); err != nil {
 			return Profile{}, err
@@ -404,33 +426,33 @@ func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, di
 	profile := Profile{Provider: provider.Name, ProviderRevision: provider.Revision, Issuer: issuer, Subject: subject,
 		OIDC: &OIDCSession{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, IDToken: token.IDToken, TokenType: token.TokenType, ExpiresAt: c.now().Add(time.Duration(token.ExpiresIn) * time.Second)}}
 	if err := mapProfileClaims(&profile, provider.OIDC, claims); err != nil {
-		return Profile{}, err
+		return Profile{}, validationFailure("id_token", "claim_mapping", err)
 	}
 	return profile, nil
 }
 
 func (c *OIDCClient) verifyBrokerAccessToken(ctx context.Context, provider Provider, discovery OIDCDiscovery, token tokenResponse, subject string) error {
 	if token.AccessToken == "" || provider.OIDC == nil || provider.OIDC.MCPAudience == "" {
-		return errors.New("broker access token or audience is missing")
+		return validationFailure("access_token", "missing_token_or_audience", errors.New("broker access token or audience is missing"))
 	}
 	claims, err := c.verifySignedToken(ctx, discovery, []string{provider.OIDC.MCPAudience}, token.AccessToken, "", "Broker access token", true)
 	if err != nil {
 		return fmt.Errorf("verify broker access token: %w", err)
 	}
 	if claims["token_use"] != "access" || claims["client_id"] != provider.OIDC.ClientID || claims["sub"] != subject {
-		return errors.New("broker access token use, client, or subject does not match login")
+		return validationFailure("access_token", "identity", errors.New("broker access token use, client, or subject does not match login"))
 	}
 	if _, ok := claims["iat"].(float64); !ok {
-		return errors.New("broker access token has no numeric issued-at time")
+		return validationFailure("access_token", "issued_at", errors.New("broker access token has no numeric issued-at time"))
 	}
 	if _, ok := claims["exp"].(float64); !ok {
-		return errors.New("broker access token has no numeric expiration")
+		return validationFailure("access_token", "expiration_claim", errors.New("broker access token has no numeric expiration"))
 	}
 	if jti, ok := claims["jti"].(string); !ok || jti == "" {
-		return errors.New("broker access token has no token identifier")
+		return validationFailure("access_token", "token_identifier", errors.New("broker access token has no token identifier"))
 	}
 	if resource := provider.OIDC.MCPResource; resource != "" && !audienceContainsAny(claims["aud"], []string{resource}) {
-		return errors.New("broker access token does not target the configured MCP resource")
+		return validationFailure("access_token", "resource_audience", errors.New("broker access token does not target the configured MCP resource"))
 	}
 	return nil
 }
@@ -489,33 +511,40 @@ type jwkSet struct {
 type jwk struct{ Kty, Kid, Alg, Use, N, E, Crv, X, Y string }
 
 func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscovery, acceptedAudiences []string, raw, nonce, kind string, requireAudience bool) (map[string]any, error) {
+	tokenKind := "id_token"
+	if kind == "Broker access token" {
+		tokenKind = "access_token"
+	}
+	fail := func(reason string, err error) (map[string]any, error) {
+		return nil, validationFailure(tokenKind, reason, err)
+	}
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid %s format", kind)
+		return fail("format", fmt.Errorf("invalid %s format", kind))
 	}
 	decode := func(s string) ([]byte, error) { return base64.RawURLEncoding.DecodeString(s) }
 	headerBytes, err := decode(parts[0])
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s header", kind)
+		return fail("header", fmt.Errorf("invalid %s header", kind))
 	}
 	claimBytes, err := decode(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s claims", kind)
+		return fail("claims_encoding", fmt.Errorf("invalid %s claims", kind))
 	}
 	signature, err := decode(parts[2])
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s signature", kind)
+		return fail("signature_encoding", fmt.Errorf("invalid %s signature", kind))
 	}
 	var header struct{ Alg, Kid string }
 	if json.Unmarshal(headerBytes, &header) != nil || header.Alg == "" || header.Alg == "none" {
-		return nil, fmt.Errorf("invalid %s algorithm", kind)
+		return fail("algorithm", fmt.Errorf("invalid %s algorithm", kind))
 	}
 	if (kind == "Broker ID token" || kind == "Broker access token") && header.Alg != "EdDSA" {
-		return nil, fmt.Errorf("%s must use the Broker EdDSA signing algorithm", kind)
+		return fail("algorithm", fmt.Errorf("%s must use the Broker EdDSA signing algorithm", kind))
 	}
 	var set jwkSet
 	if err := c.getJSON(ctx, discovery.JWKSURI, &set); err != nil {
-		return nil, fmt.Errorf("OIDC JWKS: %w", err)
+		return fail("jwks", fmt.Errorf("OIDC JWKS: %w", err))
 	}
 	verified := false
 	for _, rawKey := range set.Keys {
@@ -529,30 +558,30 @@ func (c *OIDCClient) verifySignedToken(ctx context.Context, discovery OIDCDiscov
 		}
 	}
 	if !verified {
-		return nil, fmt.Errorf("%s signature verification failed", kind)
+		return fail("signature", fmt.Errorf("%s signature verification failed", kind))
 	}
 	var claims map[string]any
 	if err := json.Unmarshal(claimBytes, &claims); err != nil {
-		return nil, fmt.Errorf("invalid %s claims", kind)
+		return fail("claims_encoding", fmt.Errorf("invalid %s claims", kind))
 	}
 	if iss, _ := claims["iss"].(string); iss != discovery.Issuer {
-		return nil, fmt.Errorf("%s issuer does not match provider", kind)
+		return fail("issuer", fmt.Errorf("%s issuer does not match provider", kind))
 	}
 	_, hasAudience := claims["aud"]
 	if (requireAudience || hasAudience && len(acceptedAudiences) > 0) && !audienceContainsAny(claims["aud"], acceptedAudiences) {
-		return nil, fmt.Errorf("%s audience does not include the required audience", kind)
+		return fail("audience", fmt.Errorf("%s audience does not include the required audience", kind))
 	}
 	exp, ok := numberClaim(claims["exp"])
 	if !ok || c.now().Unix() >= exp {
-		return nil, fmt.Errorf("%s is expired", kind)
+		return fail("expired", fmt.Errorf("%s is expired", kind))
 	}
 	if nbf, ok := numberClaim(claims["nbf"]); ok && c.now().Unix() < nbf {
-		return nil, fmt.Errorf("%s is not active yet", kind)
+		return fail("not_yet_valid", fmt.Errorf("%s is not active yet", kind))
 	}
 	if nonce != "" {
 		got, _ := claims["nonce"].(string)
 		if got != nonce {
-			return nil, fmt.Errorf("%s nonce does not match login request", kind)
+			return fail("nonce", fmt.Errorf("%s nonce does not match login request", kind))
 		}
 	}
 	return claims, nil

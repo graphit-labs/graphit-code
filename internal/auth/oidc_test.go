@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,67 @@ func TestOIDCVerifiesBrokerEdDSAIDToken(t *testing.T) {
 		tokenResponse{AccessToken: access, IDToken: token, TokenType: "Bearer", ExpiresIn: 600}, "nonce")
 	if err != nil || profile.Subject != "gb_sub_1" || profile.Username != "alice" {
 		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+}
+
+func TestExchangeCodeClassifiesTokenValidationWithoutTokenValues(t *testing.T) {
+	for _, test := range []struct {
+		name, tokenKind, reason string
+		mutate                  func(map[string]any, map[string]any)
+		missingID               bool
+		wrongSignature          bool
+	}{
+		{name: "missing token", tokenKind: "response", reason: "missing_token", missingID: true},
+		{name: "ID token signature", tokenKind: "id_token", reason: "signature", wrongSignature: true},
+		{name: "ID token issuer", tokenKind: "id_token", reason: "issuer", mutate: func(id, _ map[string]any) { id["iss"] = "https://other.invalid" }},
+		{name: "ID token nonce", tokenKind: "id_token", reason: "nonce", mutate: func(id, _ map[string]any) { id["nonce"] = "different" }},
+		{name: "ID token expired", tokenKind: "id_token", reason: "expired", mutate: func(id, _ map[string]any) { id["exp"] = time.Now().Add(-time.Minute).Unix() }},
+		{name: "access token audience", tokenKind: "access_token", reason: "audience", mutate: func(_, access map[string]any) { access["aud"] = "other-audience" }},
+		{name: "resource audience", tokenKind: "access_token", reason: "resource_audience", mutate: func(_, access map[string]any) { access["aud"] = "graphit-broker" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/token":
+					id := map[string]any{"iss": server.URL, "sub": "gb_sub_1", "aud": "web-client", "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "nonce": "nonce", "preferred_username": "alice"}
+					access := map[string]any{"iss": server.URL, "sub": "gb_sub_1", "aud": []string{"graphit-broker", server.URL + "/v1"}, "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "jti": "access-1", "client_id": "web-client", "token_use": "access"}
+					if test.mutate != nil {
+						test.mutate(id, access)
+					}
+					idToken := signEdDSAJWT(t, privateKey, id)
+					if test.wrongSignature {
+						_, otherKey, keyErr := ed25519.GenerateKey(rand.Reader)
+						if keyErr != nil {
+							t.Error(keyErr)
+							return
+						}
+						idToken = signEdDSAJWT(t, otherKey, id)
+					}
+					if test.missingID {
+						idToken = ""
+					}
+					writeJSON(t, w, map[string]any{"access_token": signEdDSAJWT(t, privateKey, access), "id_token": idToken, "token_type": "Bearer", "expires_in": 600})
+				case "/jwks":
+					writeJSON(t, w, map[string]any{"keys": []any{map[string]any{"kty": "OKP", "kid": "broker", "alg": "EdDSA", "use": "sig", "crv": "Ed25519", "x": base64.RawURLEncoding.EncodeToString(publicKey)}}})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client := &OIDCClient{HTTP: server.Client(), Now: func() time.Time { return now }}
+			provider := Provider{Name: "broker", Type: ProviderBroker, OIDC: &OIDCConfig{Issuer: server.URL, ClientID: "web-client", UsernameClaim: "preferred_username", MCPAudience: "graphit-broker", MCPResource: server.URL + "/v1"}}
+			_, err = client.ExchangeCode(context.Background(), provider, OIDCDiscovery{Issuer: server.URL, TokenEndpoint: server.URL + "/token", JWKSURI: server.URL + "/jwks"}, "private-code", "private-verifier", "https://ui.invalid/api/auth/callback", "nonce")
+			var failure *CodeExchangeFailure
+			if !errors.As(err, &failure) || failure.Stage != "token_validation" || failure.TokenKind != test.tokenKind || failure.ValidationReason != test.reason || failure.HTTPStatus != 0 || failure.OAuthCode != "" {
+				t.Fatalf("diagnostics: failure=%#v err=%v", failure, err)
+			}
+		})
 	}
 }
 

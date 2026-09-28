@@ -987,7 +987,9 @@ cannot load lockfile: ...
 Start a **new** login and, if shown, note only the short reference in the Code UI. Find the
 matching `Broker web login code exchange failed` entry in the Code container logs. It
 records `stage`, `http_status` (zero when unavailable or not applicable), and a
-limited `oauth_error` value. The browser message intentionally omits the remote error
+limited `oauth_error` value. For `token_validation`, newer Code builds also record
+`token_kind` (`response`, `id_token`, or `access_token`) and a fixed
+`validation_reason`, without token contents. The browser message intentionally omits the remote error
 description. Never copy callback URLs, authorization codes, state, cookies, or tokens into
 logs, tickets, or shared diagnostics.
 
@@ -1007,6 +1009,11 @@ logs, tickets, or shared diagnostics.
 - `token_validation`: check Code and Broker image versions, issuer/discovery/JWKS
   reachability, signing keys, audiences, and required claims. This stage means the
   token endpoint returned a response, but Code rejected the resulting token set.
+  With a classified reason, check JWKS availability and response format for `jwks`, signing-key
+  consistency for `signature`, exact discovery issuer for `issuer`, client or
+  resource settings for `audience`/`resource_audience`, container clocks for
+  `not_yet_valid`, token lifetime and the `exp` claim for `expired`, and a fresh
+  uninterrupted login for `nonce`.
 - `unknown`: collect the reference and Code version for a maintainer; the failure did
   not match a classified exchange stage.
 

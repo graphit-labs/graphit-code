@@ -364,12 +364,13 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reference := base64.RawURLEncoding.EncodeToString(referenceBytes[:])
-		stage, status, oauthCode := "unknown", 0, ""
+		stage, status, oauthCode, tokenKind, validationReason := "unknown", 0, "", "", ""
 		var failure *auth.CodeExchangeFailure
 		if errors.As(err, &failure) {
 			stage, status, oauthCode = failure.Stage, failure.HTTPStatus, failure.OAuthCode
+			tokenKind, validationReason = failure.TokenKind, failure.ValidationReason
 		}
-		a.logger.Error("Broker web login code exchange failed", "reference", reference, "stage", stage, "http_status", status, "oauth_error", oauthCode)
+		a.logger.Error("Broker web login code exchange failed", "reference", reference, "stage", stage, "http_status", status, "oauth_error", oauthCode, "token_kind", tokenKind, "validation_reason", validationReason)
 		http.Error(w, "Broker token exchange failed (reference "+reference+")", http.StatusBadGateway)
 		return
 	}

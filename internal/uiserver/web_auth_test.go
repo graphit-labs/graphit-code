@@ -26,15 +26,15 @@ import (
 
 func TestWebAuthCallbackLogsOnlySafeExchangeDiagnostics(t *testing.T) {
 	for _, test := range []struct {
-		name, body, stage, oauthCode string
-		status, diagnosticStatus     int
-		disconnect                   bool
+		name, body, stage, oauthCode, tokenKind, validationReason string
+		status, diagnosticStatus                                  int
+		disconnect                                                bool
 	}{
-		{"rejected", `{"error":"invalid_grant","error_description":"private-description"}`, "token_rejected", "invalid_grant", http.StatusBadRequest, http.StatusBadRequest, false},
-		{"untrusted error code", `{"error":"private-oauth-code","error_description":"private-description"}`, "token_rejected", "other", http.StatusBadRequest, http.StatusBadRequest, false},
-		{"invalid tokens", `{"access_token":"private-access","id_token":"private-id","token_type":"Bearer","expires_in":60}`, "token_validation", "", http.StatusOK, 0, false},
-		{"non JSON response", `<html>private-description</html>`, "token_response", "", http.StatusBadGateway, http.StatusBadGateway, false},
-		{"transport failure", "", "token_transport", "", 0, 0, true},
+		{"rejected", `{"error":"invalid_grant","error_description":"private-description"}`, "token_rejected", "invalid_grant", "", "", http.StatusBadRequest, http.StatusBadRequest, false},
+		{"untrusted error code", `{"error":"private-oauth-code","error_description":"private-description"}`, "token_rejected", "other", "", "", http.StatusBadRequest, http.StatusBadRequest, false},
+		{"invalid tokens", `{"access_token":"private-access","id_token":"private-id","token_type":"Bearer","expires_in":60}`, "token_validation", "", "id_token", "format", http.StatusOK, 0, false},
+		{"non JSON response", `<html>private-description</html>`, "token_response", "", "", "", http.StatusBadGateway, http.StatusBadGateway, false},
+		{"transport failure", "", "token_transport", "", "", "", 0, 0, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var broker *httptest.Server
@@ -90,7 +90,7 @@ func TestWebAuthCallbackLogsOnlySafeExchangeDiagnostics(t *testing.T) {
 			if len(reference) != 16 || !strings.Contains(logs.String(), "reference="+reference) {
 				t.Fatalf("diagnostic reference is not correlated: body=%q log=%q", response.Body.String(), logs.String())
 			}
-			if !strings.Contains(logs.String(), "stage="+test.stage) || !strings.Contains(logs.String(), "http_status="+strconv.Itoa(test.diagnosticStatus)) || !strings.Contains(logs.String(), "oauth_error="+test.oauthCode) {
+			if !strings.Contains(logs.String(), "stage="+test.stage) || !strings.Contains(logs.String(), "http_status="+strconv.Itoa(test.diagnosticStatus)) || !strings.Contains(logs.String(), "oauth_error="+test.oauthCode) || !strings.Contains(logs.String(), "token_kind="+test.tokenKind) || !strings.Contains(logs.String(), "validation_reason="+test.validationReason) {
 				t.Fatalf("missing safe diagnostic metadata: %s", logs.String())
 			}
 			for _, secret := range []string{"private-code", "private-state", "private-verifier", "private-description", "private-access", "private-id", "private-oauth-code"} {
