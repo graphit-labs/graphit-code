@@ -197,6 +197,30 @@ type tokenResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
+// CodeExchangeFailure contains only diagnostic metadata safe to record in a
+// server log. Its underlying error may include a remote error_description and
+// must not be logged or returned to a browser.
+type CodeExchangeFailure struct {
+	Stage      string
+	HTTPStatus int
+	OAuthCode  string
+	err        error
+}
+
+func (e *CodeExchangeFailure) Error() string { return e.err.Error() }
+func (e *CodeExchangeFailure) Unwrap() error { return e.err }
+
+func safeOAuthCode(code string) string {
+	switch code {
+	case "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client", "unsupported_grant_type", "invalid_scope", "invalid_target", "server_error", "temporarily_unavailable":
+		return code
+	case "":
+		return ""
+	default:
+		return "other"
+	}
+}
+
 type VerifiedIdentity struct {
 	Issuer       string
 	Subject      string
@@ -285,7 +309,11 @@ func (c *OIDCClient) ExchangeCode(ctx context.Context, provider Provider, discov
 	if err != nil {
 		return Profile{}, err
 	}
-	return c.profileFromToken(ctx, provider, discovery, token, nonce)
+	profile, err := c.profileFromToken(ctx, provider, discovery, token, nonce)
+	if err != nil {
+		return Profile{}, &CodeExchangeFailure{Stage: "token_validation", err: err}
+	}
+	return profile, nil
 }
 
 func (c *OIDCClient) Refresh(ctx context.Context, provider Provider, profile Profile) (Profile, error) {
@@ -438,19 +466,19 @@ func (c *OIDCClient) token(ctx context.Context, endpoint string, form url.Values
 	var token tokenResponse
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return token, err
+		return token, &CodeExchangeFailure{Stage: "token_request", err: err}
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := c.client().Do(req)
 	if err != nil {
-		return token, fmt.Errorf("OIDC token request: %w", err)
+		return token, &CodeExchangeFailure{Stage: "token_transport", err: fmt.Errorf("OIDC token request: %w", err)}
 	}
 	defer resp.Body.Close()
 	if err := decodeLimited(resp.Body, &token); err != nil {
-		return token, fmt.Errorf("OIDC token response: %w", err)
+		return token, &CodeExchangeFailure{Stage: "token_response", HTTPStatus: resp.StatusCode, err: fmt.Errorf("OIDC token response: %w", err)}
 	}
 	if resp.StatusCode/100 != 2 || token.Error != "" {
-		return token, fmt.Errorf("OIDC token request failed: %s", firstNonEmpty(token.ErrorDescription, token.Error, resp.Status))
+		return token, &CodeExchangeFailure{Stage: "token_rejected", HTTPStatus: resp.StatusCode, OAuthCode: safeOAuthCode(token.Error), err: fmt.Errorf("OIDC token request failed: %s", firstNonEmpty(token.ErrorDescription, token.Error, resp.Status))}
 	}
 	return token, nil
 }

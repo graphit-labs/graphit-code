@@ -1,16 +1,20 @@
 package uiserver
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +23,84 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/auth"
 )
+
+func TestWebAuthCallbackLogsOnlySafeExchangeDiagnostics(t *testing.T) {
+	for _, test := range []struct {
+		name, body, stage, oauthCode string
+		status, diagnosticStatus     int
+		disconnect                   bool
+	}{
+		{"rejected", `{"error":"invalid_grant","error_description":"private-description"}`, "token_rejected", "invalid_grant", http.StatusBadRequest, http.StatusBadRequest, false},
+		{"untrusted error code", `{"error":"private-oauth-code","error_description":"private-description"}`, "token_rejected", "other", http.StatusBadRequest, http.StatusBadRequest, false},
+		{"invalid tokens", `{"access_token":"private-access","id_token":"private-id","token_type":"Bearer","expires_in":60}`, "token_validation", "", http.StatusOK, 0, false},
+		{"non JSON response", `<html>private-description</html>`, "token_response", "", http.StatusBadGateway, http.StatusBadGateway, false},
+		{"transport failure", "", "token_transport", "", 0, 0, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var broker *httptest.Server
+			broker = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/.well-known/graphit-broker":
+					_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "issuer": broker.URL, "authentication": map[string]any{"type": "openid_connect", "issuer": broker.URL, "client_id": "graphit-cli", "scopes": []string{"openid"}, "redirect_uri_path": "/oauth/callback", "audiences": []string{"graphit-broker"}, "access_token_audience": "graphit-broker"}})
+				case "/.well-known/openid-configuration":
+					_ = json.NewEncoder(w).Encode(map[string]any{"issuer": broker.URL, "authorization_endpoint": broker.URL + "/oauth/authorize", "token_endpoint": broker.URL + "/oauth/token", "jwks_uri": broker.URL + "/oauth/keys", "userinfo_endpoint": broker.URL + "/oauth/userinfo", "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"}, "id_token_signing_alg_values_supported": []string{"EdDSA"}})
+				case "/oauth/token":
+					if test.disconnect {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						_ = conn.Close()
+						return
+					}
+					w.WriteHeader(test.status)
+					_, _ = io.WriteString(w, test.body)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer broker.Close()
+			dir := t.TempDir()
+			t.Setenv("GRAPHIT_GLOBAL_DIR", dir)
+			state := auth.State{Version: auth.StateVersion, Providers: map[string]auth.Provider{"company": {Name: "company", Type: auth.ProviderBroker, Revision: 1, Broker: &auth.BrokerConfig{Endpoint: broker.URL}}}, Profiles: map[string]auth.Profile{}}
+			data, _ := json.Marshal(state)
+			if err := os.WriteFile(filepath.Join(dir, "auth.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			a, err := newWebAuth(true, false, "http://127.0.0.1:8080", webTestEncryptionKey())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var logs bytes.Buffer
+			a.logger = slog.New(slog.NewTextHandler(&logs, nil))
+			transaction, err := a.seal(webLogin{Provider: "company", Revision: 1, ClientID: "web-client", Redirect: "http://127.0.0.1:8080" + webCallbackPath, State: "private-state", Verifier: "private-verifier", Issued: time.Now().Unix()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+webCallbackPath+"?code=private-code&state=private-state", nil)
+			req.AddCookie(a.cookie(webLoginCookie, transaction, 600, http.SameSiteLaxMode))
+			response := httptest.NewRecorder()
+			a.callback(response, req)
+			if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "Broker token exchange failed (reference ") {
+				t.Fatalf("callback status=%d body=%q", response.Code, response.Body.String())
+			}
+			reference := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(response.Body.String()), "Broker token exchange failed (reference "), ")")
+			if len(reference) != 16 || !strings.Contains(logs.String(), "reference="+reference) {
+				t.Fatalf("diagnostic reference is not correlated: body=%q log=%q", response.Body.String(), logs.String())
+			}
+			if !strings.Contains(logs.String(), "stage="+test.stage) || !strings.Contains(logs.String(), "http_status="+strconv.Itoa(test.diagnosticStatus)) || !strings.Contains(logs.String(), "oauth_error="+test.oauthCode) {
+				t.Fatalf("missing safe diagnostic metadata: %s", logs.String())
+			}
+			for _, secret := range []string{"private-code", "private-state", "private-verifier", "private-description", "private-access", "private-id", "private-oauth-code"} {
+				if strings.Contains(logs.String(), secret) || strings.Contains(response.Body.String(), secret) {
+					t.Fatalf("sensitive value %q leaked", secret)
+				}
+			}
+		})
+	}
+}
 
 func signedWebTestJWT(t *testing.T, key ed25519.PrivateKey, claims map[string]any) string {
 	t.Helper()

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -52,6 +53,7 @@ type webAuth struct {
 	publicURL string
 	key       []byte
 	client    *auth.OIDCClient
+	logger    *slog.Logger
 	mu        sync.Mutex
 	clients   map[string]string
 	used      map[string]time.Time
@@ -59,7 +61,7 @@ type webAuth struct {
 }
 
 func newWebAuth(enabled, secure bool, publicURL, encryptionKey string) (*webAuth, error) {
-	a := &webAuth{enabled: enabled, secure: secure, publicURL: publicURL, client: auth.NewOIDCClient(), clients: map[string]string{}, used: map[string]time.Time{}, refreshed: map[[32]byte]webSession{}}
+	a := &webAuth{enabled: enabled, secure: secure, publicURL: publicURL, client: auth.NewOIDCClient(), logger: slog.Default(), clients: map[string]string{}, used: map[string]time.Time{}, refreshed: map[[32]byte]webSession{}}
 	if !enabled {
 		return a, nil
 	}
@@ -355,7 +357,20 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 	resolved.OIDC = &copyOIDC
 	profile, err := a.client.ExchangeCode(r.Context(), resolved, discovery, r.URL.Query().Get("code"), transaction.Verifier, transaction.Redirect, transaction.Nonce)
 	if err != nil {
-		http.Error(w, "Broker token exchange failed", http.StatusBadGateway)
+		var referenceBytes [12]byte
+		if _, randomErr := rand.Read(referenceBytes[:]); randomErr != nil {
+			a.logger.Error("Broker web login code exchange failed", "stage", "unknown", "http_status", 0, "oauth_error", "")
+			http.Error(w, "Broker token exchange failed", http.StatusBadGateway)
+			return
+		}
+		reference := base64.RawURLEncoding.EncodeToString(referenceBytes[:])
+		stage, status, oauthCode := "unknown", 0, ""
+		var failure *auth.CodeExchangeFailure
+		if errors.As(err, &failure) {
+			stage, status, oauthCode = failure.Stage, failure.HTTPStatus, failure.OAuthCode
+		}
+		a.logger.Error("Broker web login code exchange failed", "reference", reference, "stage", stage, "http_status", status, "oauth_error", oauthCode)
+		http.Error(w, "Broker token exchange failed (reference "+reference+")", http.StatusBadGateway)
 		return
 	}
 	sessionID := make([]byte, 24)

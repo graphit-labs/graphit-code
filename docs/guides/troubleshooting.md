@@ -52,6 +52,7 @@ This guide covers common issues you may encounter when using Graphit Code and ho
 - [Task Issues](#task-issues)
 - [Knowledge Issues](#knowledge-issues)
 - [Hub Issues](#hub-issues)
+- [UI Network Issues](#ui-network-issues)
 - [MCP Connection Issues](#mcp-connection-issues)
 - [Agent Hook and Bootstrap Issues](#agent-hook-and-bootstrap-issues)
 - [Dream Module Issues](#dream-module-issues)
@@ -980,6 +981,40 @@ cannot load lockfile: ...
 ---
 
 ## UI Network Issues
+
+### Broker web login returns a token exchange error
+
+Start a **new** login and, if shown, note only the short reference in the Code UI. Find the
+matching `Broker web login code exchange failed` entry in the Code container logs. It
+records `stage`, `http_status` (zero when unavailable or not applicable), and a
+limited `oauth_error` value. The browser message intentionally omits the remote error
+description. Never copy callback URLs, authorization codes, state, cookies, or tokens into
+logs, tickets, or shared diagnostics.
+
+- `token_transport`: check DNS, TLS, and network access **from the Code container** to
+  the Broker token endpoint advertised by OIDC discovery. Browser access alone does not
+  establish container access.
+- `token_request`: check the advertised token endpoint URL. This stage means Code
+  could not construct its outgoing token request.
+- `token_response`: check whether a reverse proxy returned a non-JSON response, and
+  verify the advertised token endpoint and proxy routing.
+- `token_rejected`: inspect the HTTP status and safe OAuth code. For `invalid_grant`,
+  start a new login after checking the exact registered callback origin, client,
+  PKCE verifier continuity, requested resource, code lifetime, and one-time use. If
+  Broker replicas handle different steps, ensure they share the SQL database and the
+  same `authentication.token_pepper`; this key also protects Broker authorization
+  codes. Do not replay the callback URL.
+- `token_validation`: check Code and Broker image versions, issuer/discovery/JWKS
+  reachability, signing keys, audiences, and required claims. This stage means the
+  token endpoint returned a response, but Code rejected the resulting token set.
+- `unknown`: collect the reference and Code version for a maintainer; the failure did
+  not match a classified exchange stage.
+
+For external deployments, `ui.auth.public_url` must be the exact HTTPS origin used
+for the UI, and Broker dynamic client registration must be enabled. After correcting
+configuration or versions, start a fresh login and confirm that the callback reaches
+the workspace. See [Authentication providers](authentication.md#web-ui-login) and
+[Container deployment](container.md).
 
 ### Remote browser cannot connect
 
