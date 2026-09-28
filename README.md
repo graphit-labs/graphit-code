@@ -250,6 +250,10 @@ no release download.
 
 On the first container start, the entrypoint runs setup in non-interactive mode in the mounted
 global directory before starting the daemon. Later starts reuse `config.json` from the volume.
+Executable scripts in `/docker-entrypoint.d/pre-setup.d` and `post-setup.d` run on every
+start; `setup.d` runs only after setup actually runs. These scripts live outside the global data
+volume. See [container startup customization](docs/guides/container.md#customize-container-startup)
+for mounting scripts, execution order, permissions, and a provider example.
 The image uses fixed internal ports `8080` for the UI and `8081` for MCP. To publish a different
 port, change only the host side of the mapping, for example `-p 127.0.0.1:9090:8080`; no Graphit
 port setting is required. The entrypoint keeps those internal listener ports fixed, including when

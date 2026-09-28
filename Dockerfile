@@ -4,7 +4,8 @@ ARG BASE_IMAGE=debian:bookworm-slim
 FROM ${BASE_IMAGE}
 
 ENV HOME=/home/graphit \
-    GRAPHIT_GLOBAL_DIR=/home/graphit/.graphit
+    GRAPHIT_GLOBAL_DIR=/home/graphit/.graphit \
+    GRAPHIT_ENTRYPOINT_HOOKS_DIR=/docker-entrypoint.d
 
 ENV GRAPHIT_MODULES_AGENT=false \
     GRAPHIT_MODULES_DREAM=false \
@@ -40,6 +41,7 @@ RUN <<'EOF' sh -eu
 groupadd --gid 10001 graphit
 useradd --uid 10001 --gid graphit --create-home --shell /bin/bash graphit
 mkdir -p "${GRAPHIT_GLOBAL_DIR}"
+mkdir -p "${GRAPHIT_ENTRYPOINT_HOOKS_DIR}"
 chown graphit:graphit "${GRAPHIT_GLOBAL_DIR}"
 EOF
 
@@ -53,58 +55,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
 
 VOLUME ["/home/graphit/.graphit"]
 
-COPY <<'SCRIPT' /usr/local/bin/graphit-entrypoint
-#!/bin/sh
-set -eu
-
-# Container listener ports are part of the image contract. Publish a different
-# host port with Docker's HOST:CONTAINER mapping instead of moving the listeners.
-GRAPHIT_UI_PORT=8080
-GRAPHIT_MCP_PORT=8081
-export GRAPHIT_UI_PORT GRAPHIT_MCP_PORT
-
-case "${GRAPHIT_GLOBAL_DIR}" in
-  /*) ;;
-  *)
-    echo "GRAPHIT_GLOBAL_DIR must be an absolute path." >&2
-    exit 1
-    ;;
-esac
-if [ "${GRAPHIT_GLOBAL_DIR}" = "/" ]; then
-  echo "GRAPHIT_GLOBAL_DIR must not be the filesystem root." >&2
-  exit 1
-fi
-
-if ! mkdir -p "${GRAPHIT_GLOBAL_DIR}"; then
-  echo "Cannot create GRAPHIT_GLOBAL_DIR as user graphit (UID/GID 10001): ${GRAPHIT_GLOBAL_DIR}" >&2
-  exit 1
-fi
-if [ ! -r "${GRAPHIT_GLOBAL_DIR}" ] || [ ! -w "${GRAPHIT_GLOBAL_DIR}" ] || [ ! -x "${GRAPHIT_GLOBAL_DIR}" ]; then
-  echo "GRAPHIT_GLOBAL_DIR must be readable, writable, and traversable by user graphit (UID/GID 10001): ${GRAPHIT_GLOBAL_DIR}" >&2
-  exit 1
-fi
-
-if [ ! -f "${GRAPHIT_GLOBAL_DIR}/config.json" ]; then
-  env GRAPHIT_MODULES_DAEMON=false graphit setup \
-    --non-interactive \
-    "--anonymize-events=${GRAPHIT_HUB_EVENTS_ANONYMIZE}" \
-    "--agent=${GRAPHIT_AGENT}" \
-    "--cli=${GRAPHIT_CLI}" \
-    < /dev/null
-fi
-
-if [ "$#" -eq 0 ]; then
-  exec graphit daemon
-fi
-
-case "$1" in
-  -*) exec graphit daemon "$@" ;;
-esac
-
-exec "$@"
-SCRIPT
-
-RUN chmod 0755 /usr/local/bin/graphit-entrypoint
+COPY --chmod=0755 scripts/graphit-entrypoint.sh /usr/local/bin/graphit-entrypoint
 
 WORKDIR /home/graphit/.graphit
 USER graphit

@@ -29,6 +29,70 @@ non-secret default provider `local` with ONNX `cpu`/`0`; it does not write an ac
 identity, MCP key, S3 location, or credential. To override execution, update `local` in the
 persistent volume, or create and log in to a separate provider/profile.
 
+## Customize container startup
+
+The entrypoint looks for three optional directories under `/docker-entrypoint.d`. This path
+is outside `GRAPHIT_GLOBAL_DIR` (`/home/graphit/.graphit` by default), which is a Docker volume.
+Scripts can therefore be baked into a derived image or mounted separately without being hidden
+by the persistent data volume. Set `GRAPHIT_ENTRYPOINT_HOOKS_DIR` to another absolute directory
+if needed; `/` and relative paths are rejected. The entrypoint does not create this override path.
+
+| Directory | When it runs | Typical use |
+|---|---|---|
+| `pre-setup.d` | On every start, before checking whether `config.json` exists | Prepare files or prerequisites needed by setup. |
+| `setup.d` | Immediately after a successful `graphit setup`, only on a start that actually runs setup | Add providers or other persistent first-start configuration. |
+| `post-setup.d` | On every start, after the conditional setup and `setup.d`, before the daemon or an explicit command | Apply repeatable startup adjustments or checks. |
+
+Within each directory, regular executable files run in filename order. Give each script a
+shebang (for example, `#!/bin/sh`) and executable permission; non-executable files are skipped.
+Missing or empty directories do nothing. Scripts run as `graphit` (UID/GID `10001`) with the
+container environment and current working directory. Each script is a separate process, so
+environment changes inside it do not change later hooks, setup, or the daemon; supply runtime
+overrides through Docker environment variables instead. A nonzero exit stops startup and reports
+the script path; later scripts and the daemon do not run. Scripts must be readable and executable
+by that user. The two listener port variables are already fixed to `8080` and `8081` before the
+first hook runs. Hooks also run when the entrypoint receives an explicit command instead of the
+default daemon command.
+
+For example, create `hooks/setup.d/10-provider.sh` on the host to add a Broker provider after
+Graphit has initialized its default configuration:
+
+```sh
+#!/bin/sh
+set -eu
+graphit --non-interactive provider add company --type broker \
+  --broker-endpoint https://broker.example.com
+```
+
+Make the script executable (`chmod 755 hooks/setup.d/10-provider.sh`), then mount its directory
+alongside the global volume:
+
+```bash
+docker run -d --name graphit \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -v graphit-global:/home/graphit/.graphit \
+  -v "$PWD/hooks/setup.d:/docker-entrypoint.d/setup.d:ro" \
+  ghcr.io/graphit-labs/graphit-code:0.1.1
+```
+
+The host directory and its parent must allow UID `10001` to traverse and read the script. To
+ship scripts in a derived image, copy them into `/docker-entrypoint.d` instead of the
+global volume:
+
+```dockerfile
+FROM ghcr.io/graphit-labs/graphit-code:0.1.1
+COPY --chmod=0755 hooks/setup.d/10-provider.sh /docker-entrypoint.d/setup.d/10-provider.sh
+```
+
+A `setup.d` script does not run on later starts while `config.json` exists. To change a provider on
+an existing volume, use `graphit provider` explicitly or put a repeatable, idempotent change in
+`post-setup.d`; editing a `setup.d` script alone will not replay it. `pre-setup.d` can create
+`config.json`, in which case the entrypoint skips both setup and `setup.d` on that start.
+If a `setup.d` script fails, setup may already have written `config.json`; fix the script and
+apply its action explicitly to the existing volume, because a restart will skip `setup.d`.
+Avoid embedding credentials in mounted scripts; use your deployment's secret mechanism for any
+login step. Provider configuration and profile state remain in the global volume.
+
 The image uses fixed internal ports `8080` for the UI and `8081` for MCP, so callers do not choose
 Graphit listener ports for the container. To expose either service on a different host port, change
 only the host side of the Docker mapping; for example, `-p 127.0.0.1:9090:8080` publishes the UI at
