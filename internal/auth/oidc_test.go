@@ -41,14 +41,41 @@ func TestOIDCVerifiesBrokerEdDSAIDToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claims := map[string]any{"iss": server.URL, "sub": "gb_sub_1", "aud": "graphit-cli", "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "nonce": "nonce", "preferred_username": "alice"}
+	resource := server.URL + "/v1"
+	claims := map[string]any{"iss": server.URL, "sub": "gb_sub_1", "aud": []string{"graphit-broker", resource, "graphit-cli"}, "azp": "graphit-cli", "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "nonce": "nonce", "preferred_username": "alice"}
 	token := signEdDSAJWT(t, privateKey, claims)
-	access := signEdDSAJWT(t, privateKey, map[string]any{"iss": server.URL, "sub": "gb_sub_1", "aud": "graphit-broker", "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "jti": "access-1", "client_id": "graphit-cli", "token_use": "access", "preferred_username": "alice"})
+	access := signEdDSAJWT(t, privateKey, map[string]any{"iss": server.URL, "sub": "gb_sub_1", "aud": []string{"graphit-broker", resource}, "iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "jti": "access-1", "client_id": "graphit-cli", "token_use": "access", "preferred_username": "alice"})
 	profile, err := client.profileFromToken(context.Background(), Provider{Name: "broker", Type: ProviderBroker, Revision: 1,
-		OIDC: &OIDCConfig{Issuer: server.URL, ClientID: "graphit-cli", UsernameClaim: "preferred_username", MCPAudience: "graphit-broker"}}, discovery,
+		OIDC: &OIDCConfig{Issuer: server.URL, ClientID: "graphit-cli", UsernameClaim: "preferred_username", MCPAudience: "graphit-broker", MCPResource: resource}}, discovery,
 		tokenResponse{AccessToken: access, IDToken: token, TokenType: "Bearer", ExpiresIn: 600}, "nonce")
 	if err != nil || profile.Subject != "gb_sub_1" || profile.Username != "alice" {
 		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+}
+
+func TestBrokerIDTokenAudienceValidation(t *testing.T) {
+	const clientID = "web-client"
+	const brokerAudience = "graphit-broker"
+	const resource = "https://broker.invalid/v1"
+	for _, tc := range []struct {
+		name   string
+		claims map[string]any
+		valid  bool
+	}{
+		{"single client audience", map[string]any{"aud": clientID}, true},
+		{"broker multi audience", map[string]any{"aud": []any{brokerAudience, resource, clientID}, "azp": clientID}, true},
+		{"missing client audience", map[string]any{"aud": []any{brokerAudience, resource}, "azp": clientID}, false},
+		{"untrusted audience", map[string]any{"aud": []any{brokerAudience, "other-client", clientID}, "azp": clientID}, false},
+		{"missing authorized party", map[string]any{"aud": []any{brokerAudience, clientID}}, false},
+		{"wrong authorized party", map[string]any{"aud": []any{brokerAudience, clientID}, "azp": "other-client"}, false},
+		{"wrong single authorized party", map[string]any{"aud": clientID, "azp": "other-client"}, false},
+		{"duplicate audience", map[string]any{"aud": []any{clientID, clientID}, "azp": clientID}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := brokerIDTokenAudienceValid(tc.claims, clientID, brokerAudience, resource); got != tc.valid {
+				t.Fatalf("audience valid=%v, want %v", got, tc.valid)
+			}
+		})
 	}
 }
 

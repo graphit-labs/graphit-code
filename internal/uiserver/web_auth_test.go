@@ -166,7 +166,7 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 			if base64.RawURLEncoding.EncodeToString(digest[:]) != wantChallenge {
 				t.Error("PKCE verifier did not match challenge")
 			}
-			idToken := signedWebTestJWT(t, private, map[string]any{"iss": broker.URL, "sub": "person-1", "aud": "web-client", "iat": now, "exp": now + 3600, "nonce": nonce, "preferred_username": "Alice"})
+			idToken := signedWebTestJWT(t, private, map[string]any{"iss": broker.URL, "sub": "person-1", "aud": []string{"graphit-broker", broker.URL + "/v1", "web-client"}, "azp": "web-client", "iat": now, "exp": now + 3600, "nonce": nonce, "preferred_username": "Alice"})
 			access := signedWebTestJWT(t, private, map[string]any{"iss": broker.URL, "sub": "person-1", "aud": []string{"graphit-broker", broker.URL + "/v1"}, "iat": now, "exp": now + 3600, "jti": "access-1", "client_id": "web-client", "token_use": "access", "preferred_username": "Alice"})
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": access, "refresh_token": "refresh-1", "id_token": idToken, "token_type": "Bearer", "expires_in": 60})
 		case "/oauth/revoke":

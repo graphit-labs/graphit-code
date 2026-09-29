@@ -410,7 +410,7 @@ func (c *OIDCClient) profileFromToken(ctx context.Context, provider Provider, di
 		return Profile{}, validationFailure("id_token", "subject", errors.New("verified ID token has no subject"))
 	}
 	if provider.Type == ProviderBroker {
-		if !audienceOnly(claims["aud"], provider.OIDC.ClientID) {
+		if !brokerIDTokenAudienceValid(claims, provider.OIDC.ClientID, provider.OIDC.MCPAudience, provider.OIDC.MCPResource) {
 			return Profile{}, validationFailure("id_token", "audience", errors.New("broker ID token has an unexpected audience"))
 		}
 		if _, ok := claims["iat"].(float64); !ok {
@@ -457,14 +457,44 @@ func (c *OIDCClient) verifyBrokerAccessToken(ctx context.Context, provider Provi
 	return nil
 }
 
-func audienceOnly(value any, want string) bool {
-	switch audience := value.(type) {
-	case string:
-		return audience == want
-	case []any:
-		return len(audience) == 1 && audience[0] == want
+func brokerIDTokenAudienceValid(claims map[string]any, clientID, brokerAudience, resource string) bool {
+	if clientID == "" {
+		return false
 	}
-	return false
+	allowed := map[string]bool{clientID: true}
+	if brokerAudience != "" {
+		allowed[brokerAudience] = true
+	}
+	if resource != "" {
+		allowed[resource] = true
+	}
+	switch audience := claims["aud"].(type) {
+	case string:
+		if audience != clientID {
+			return false
+		}
+	case []any:
+		if len(audience) == 0 {
+			return false
+		}
+		seen := make(map[string]bool, len(audience))
+		for _, value := range audience {
+			item, ok := value.(string)
+			if !ok || !allowed[item] || seen[item] {
+				return false
+			}
+			seen[item] = true
+		}
+		if !seen[clientID] || len(audience) > 1 && claims["azp"] != clientID {
+			return false
+		}
+	default:
+		return false
+	}
+	if authorizedParty, present := claims["azp"]; present && authorizedParty != clientID {
+		return false
+	}
+	return true
 }
 
 func mapProfileClaims(profile *Profile, config *OIDCConfig, claims map[string]any) error {
