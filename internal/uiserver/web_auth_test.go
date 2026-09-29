@@ -83,20 +83,115 @@ func TestWebAuthCallbackLogsOnlySafeExchangeDiagnostics(t *testing.T) {
 			req.AddCookie(a.cookie(webLoginCookie, transaction, 600, http.SameSiteLaxMode))
 			response := httptest.NewRecorder()
 			a.callback(response, req)
-			if response.Code != http.StatusBadGateway || !strings.Contains(response.Body.String(), "Broker token exchange failed (reference ") {
-				t.Fatalf("callback status=%d body=%q", response.Code, response.Body.String())
+			location, err := url.Parse(response.Header().Get("Location"))
+			if err != nil || response.Code != http.StatusSeeOther || location.Path != "/workspace" || location.RawQuery != "" || response.Header().Get("Referrer-Policy") != "no-referrer" {
+				t.Fatalf("callback status=%d location=%q", response.Code, response.Header().Get("Location"))
 			}
-			reference := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(response.Body.String()), "Broker token exchange failed (reference "), ")")
+			fragment, err := url.ParseQuery(location.Fragment)
+			if err != nil || fragment.Get("login_error") != "token_exchange" {
+				t.Fatalf("callback fragment=%q", location.Fragment)
+			}
+			reference := fragment.Get("reference")
 			if len(reference) != 16 || !strings.Contains(logs.String(), "reference="+reference) {
-				t.Fatalf("diagnostic reference is not correlated: body=%q log=%q", response.Body.String(), logs.String())
+				t.Fatalf("diagnostic reference is not correlated: location=%q log=%q", response.Header().Get("Location"), logs.String())
 			}
 			if !strings.Contains(logs.String(), "stage="+test.stage) || !strings.Contains(logs.String(), "http_status="+strconv.Itoa(test.diagnosticStatus)) || !strings.Contains(logs.String(), "oauth_error="+test.oauthCode) || !strings.Contains(logs.String(), "token_kind="+test.tokenKind) || !strings.Contains(logs.String(), "validation_reason="+test.validationReason) {
 				t.Fatalf("missing safe diagnostic metadata: %s", logs.String())
 			}
 			for _, secret := range []string{"private-code", "private-state", "private-verifier", "private-description", "private-access", "private-id", "private-oauth-code"} {
-				if strings.Contains(logs.String(), secret) || strings.Contains(response.Body.String(), secret) {
+				if strings.Contains(logs.String(), secret) || strings.Contains(response.Header().Get("Location"), secret) || strings.Contains(response.Body.String(), secret) {
 					t.Fatalf("sensitive value %q leaked", secret)
 				}
+			}
+		})
+	}
+}
+
+func TestWebAuthCallbackMissingOrExpiredTransactionReturnsHome(t *testing.T) {
+	a, err := newWebAuth(true, false, "http://127.0.0.1:8080", webTestEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired, err := a.seal(webLogin{Issued: time.Now().Add(-11 * time.Minute).Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, cookie string
+	}{
+		{"missing", ""},
+		{"expired", expired},
+		{"invalid", "invalid-cookie"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+webCallbackPath+"?code=private-code&state=private-state", nil)
+			if test.cookie != "" {
+				req.AddCookie(a.cookie(webLoginCookie, test.cookie, 600, http.SameSiteLaxMode))
+			}
+			response := httptest.NewRecorder()
+			a.callback(response, req)
+			if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/workspace#login_error=login_expired" {
+				t.Fatalf("callback status=%d location=%q", response.Code, response.Header().Get("Location"))
+			}
+			if strings.Contains(response.Body.String(), "private-code") || strings.Contains(response.Header().Get("Location"), "private-state") {
+				t.Fatal("callback leaked transaction values")
+			}
+			if test.cookie != "" && (len(response.Result().Cookies()) != 1 || response.Result().Cookies()[0].MaxAge != -1) {
+				t.Fatal("login cookie was not cleared")
+			}
+		})
+	}
+	response := httptest.NewRecorder()
+	a.callback(response, httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080"+webCallbackPath, nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unexpected method status=%d", response.Code)
+	}
+}
+
+func TestWebAuthCallbackProviderOrDiscoveryFailureReturnsHome(t *testing.T) {
+	for _, test := range []struct {
+		name, errorCode  string
+		providerRevision uint64
+		brokerStatus     int
+	}{
+		{"provider changed", "login_invalid", 2, http.StatusOK},
+		{"Broker unavailable", "broker_unavailable", 1, http.StatusServiceUnavailable},
+		{"OIDC discovery unavailable", "broker_unavailable", 1, http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var broker *httptest.Server
+			broker = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/.well-known/graphit-broker" && test.brokerStatus == http.StatusOK {
+					_ = json.NewEncoder(w).Encode(map[string]any{"version": "1", "issuer": broker.URL, "authentication": map[string]any{"type": "openid_connect", "issuer": broker.URL, "client_id": "graphit-cli", "scopes": []string{"openid"}, "redirect_uri_path": "/oauth/callback", "audiences": []string{"graphit-broker"}, "access_token_audience": "graphit-broker"}})
+					return
+				}
+				http.Error(w, "private broker detail", http.StatusServiceUnavailable)
+			}))
+			defer broker.Close()
+			dir := t.TempDir()
+			t.Setenv("GRAPHIT_GLOBAL_DIR", dir)
+			state := auth.State{Version: auth.StateVersion, Providers: map[string]auth.Provider{"company": {Name: "company", Type: auth.ProviderBroker, Revision: test.providerRevision, Broker: &auth.BrokerConfig{Endpoint: broker.URL}}}, Profiles: map[string]auth.Profile{}}
+			data, _ := json.Marshal(state)
+			if err := os.WriteFile(filepath.Join(dir, "auth.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			a, err := newWebAuth(true, false, "http://127.0.0.1:8080", webTestEncryptionKey())
+			if err != nil {
+				t.Fatal(err)
+			}
+			transaction, err := a.seal(webLogin{Provider: "company", Revision: 1, Redirect: "http://127.0.0.1:8080" + webCallbackPath, State: "private-state", Issued: time.Now().Unix()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+webCallbackPath+"?code=private-code&state=private-state", nil)
+			req.AddCookie(a.cookie(webLoginCookie, transaction, 600, http.SameSiteLaxMode))
+			response := httptest.NewRecorder()
+			a.callback(response, req)
+			if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/workspace#login_error="+test.errorCode {
+				t.Fatalf("callback status=%d location=%q", response.Code, response.Header().Get("Location"))
+			}
+			if strings.Contains(response.Body.String(), "private") || strings.Contains(response.Header().Get("Location"), "private") {
+				t.Fatal("callback leaked transaction or Broker response")
 			}
 		})
 	}
@@ -223,8 +318,8 @@ func TestWebBrokerLoginRoundTripUsesCookieWithoutGlobalProfile(t *testing.T) {
 	callback.AddCookie(login.Result().Cookies()[0])
 	finished := httptest.NewRecorder()
 	a.callback(finished, callback)
-	if finished.Code != http.StatusSeeOther {
-		t.Fatalf("callback status=%d body=%s", finished.Code, finished.Body.String())
+	if finished.Code != http.StatusSeeOther || finished.Header().Get("Location") != "/workspace" {
+		t.Fatalf("callback status=%d location=%q", finished.Code, finished.Header().Get("Location"))
 	}
 	var sessionCookie *http.Cookie
 	for _, cookie := range finished.Result().Cookies() {
@@ -581,8 +676,8 @@ func TestWebAuthCallbackRejectsMismatchedState(t *testing.T) {
 	req.AddCookie(a.cookie(webLoginCookie, value, 600, http.SameSiteLaxMode))
 	w := httptest.NewRecorder()
 	a.callback(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("callback status=%d", w.Code)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/workspace#login_error=login_invalid" {
+		t.Fatalf("callback status=%d location=%q", w.Code, w.Header().Get("Location"))
 	}
 	if len(w.Result().Cookies()) != 1 || w.Result().Cookies()[0].MaxAge != -1 {
 		t.Fatal("login cookie was not cleared")

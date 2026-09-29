@@ -302,24 +302,26 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	cookie, err := r.Cookie(webLoginCookie)
 	if err != nil {
-		http.Error(w, "login transaction missing", http.StatusBadRequest)
+		redirectWebLoginError(w, r, "login_expired", "")
 		return
 	}
 	http.SetCookie(w, a.cookie(webLoginCookie, "", -1, http.SameSiteLaxMode))
 	var transaction webLogin
 	if err := a.open(cookie.Value, &transaction); err != nil || time.Since(time.Unix(transaction.Issued, 0)) > 10*time.Minute || transaction.Issued > time.Now().Unix() {
-		http.Error(w, "login transaction expired", http.StatusBadRequest)
+		redirectWebLoginError(w, r, "login_expired", "")
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(transaction.State), []byte(r.URL.Query().Get("state"))) != 1 || r.URL.Query().Get("code") == "" || r.URL.Query().Get("error") != "" {
-		http.Error(w, "invalid Broker login response", http.StatusBadRequest)
+		redirectWebLoginError(w, r, "login_invalid", "")
 		return
 	}
 	origin, err := a.origin(r)
 	if err != nil || transaction.Redirect != origin+webCallbackPath {
-		http.Error(w, "login origin changed", http.StatusBadRequest)
+		redirectWebLoginError(w, r, "login_invalid", "")
 		return
 	}
 	a.mu.Lock()
@@ -330,7 +332,7 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, replay := a.used[transaction.State]; replay {
 		a.mu.Unlock()
-		http.Error(w, "login already used", http.StatusBadRequest)
+		redirectWebLoginError(w, r, "login_invalid", "")
 		return
 	}
 	a.used[transaction.State] = time.Now().Add(10 * time.Minute)
@@ -338,17 +340,17 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 	providers, err := a.providers()
 	provider, ok := providers[transaction.Provider]
 	if err != nil || !ok || provider.Revision != transaction.Revision {
-		http.Error(w, "Broker provider changed", http.StatusBadRequest)
+		redirectWebLoginError(w, r, "login_invalid", "")
 		return
 	}
 	resolved, err := auth.BrokerOIDCProvider(r.Context(), provider, a.client.HTTP)
 	if err != nil {
-		http.Error(w, "Broker discovery failed", http.StatusBadGateway)
+		redirectWebLoginError(w, r, "broker_unavailable", "")
 		return
 	}
 	discovery, err := a.client.Discovery(r.Context(), resolved.OIDC.Issuer)
 	if err != nil {
-		http.Error(w, "Broker OIDC discovery failed", http.StatusBadGateway)
+		redirectWebLoginError(w, r, "broker_unavailable", "")
 		return
 	}
 	copyOIDC := *resolved.OIDC
@@ -360,7 +362,7 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 		var referenceBytes [12]byte
 		if _, randomErr := rand.Read(referenceBytes[:]); randomErr != nil {
 			a.logger.Error("Broker web login code exchange failed", "stage", "unknown", "http_status", 0, "oauth_error", "")
-			http.Error(w, "Broker token exchange failed", http.StatusBadGateway)
+			redirectWebLoginError(w, r, "token_exchange", "")
 			return
 		}
 		reference := base64.RawURLEncoding.EncodeToString(referenceBytes[:])
@@ -371,19 +373,27 @@ func (a *webAuth) callback(w http.ResponseWriter, r *http.Request) {
 			tokenKind, validationReason = failure.TokenKind, failure.ValidationReason
 		}
 		a.logger.Error("Broker web login code exchange failed", "reference", reference, "stage", stage, "http_status", status, "oauth_error", oauthCode, "token_kind", tokenKind, "validation_reason", validationReason)
-		http.Error(w, "Broker token exchange failed (reference "+reference+")", http.StatusBadGateway)
+		redirectWebLoginError(w, r, "token_exchange", reference)
 		return
 	}
 	sessionID := make([]byte, 24)
 	if _, err := rand.Read(sessionID); err != nil {
-		http.Error(w, "could not create session", http.StatusInternalServerError)
+		redirectWebLoginError(w, r, "session_unavailable", "")
 		return
 	}
 	if err := a.setSession(w, webSession{ID: base64.RawURLEncoding.EncodeToString(sessionID), Expires: time.Now().Add(7 * 24 * time.Hour).Unix(), Provider: provider.Name, Revision: provider.Revision, ClientID: transaction.ClientID, Profile: profile}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		redirectWebLoginError(w, r, "session_unavailable", "")
 		return
 	}
 	http.Redirect(w, r, "/workspace", http.StatusSeeOther)
+}
+
+func redirectWebLoginError(w http.ResponseWriter, r *http.Request, code, reference string) {
+	fragment := url.Values{"login_error": {code}}
+	if reference != "" {
+		fragment.Set("reference", reference)
+	}
+	http.Redirect(w, r, "/workspace#"+fragment.Encode(), http.StatusSeeOther)
 }
 
 func (a *webAuth) session(w http.ResponseWriter, r *http.Request) {

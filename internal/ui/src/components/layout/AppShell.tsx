@@ -5,6 +5,7 @@ import { ToastContainer } from "@/components/shared/Toast";
 import { WorkspaceRefreshProvider } from "./WorkspaceRefresh";
 import { WorkspaceSelectors } from "./WorkspaceSelectors";
 import { AuthIdentity } from "./AuthIdentity";
+import { AuthCallbackNotice } from "./AuthCallbackNotice";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return <WorkspaceRefreshProvider><ShellLayout>{children}</ShellLayout></WorkspaceRefreshProvider>;
@@ -64,6 +65,7 @@ function ShellLayout({ children }: { children: React.ReactNode }) {
               : "workspace-content workspace-page"
           }
         >
+          {pathname === "/workspace" && <AuthCallbackNotice />}
           {children}
         </main>
       </div>

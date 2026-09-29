@@ -383,6 +383,10 @@ select {
   max-width: 1600px;
   margin: auto;
 }
+.auth-callback-banner { padding: 24px 32px 0; }
+.auth-callback-banner .work-notice { margin-bottom: 0; }
+@media (max-width: 1050px) { .auth-callback-banner { padding: 24px 24px 0; } }
+@media (max-width: 767px) { .auth-callback-banner { padding: 20px 16px 0; } }
 .workspace-explorer {
   height: calc(100dvh - 64px);
   min-height: 0;
