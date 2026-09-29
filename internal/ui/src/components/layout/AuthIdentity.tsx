@@ -71,7 +71,11 @@ export function AuthIdentity() {
     </div>
     {session.enabled && (session.authenticated ?
       <button className="auth-identity-action" type="button" onClick={() => void logout()} disabled={busy} aria-label="Sair da conta"><LogOut size={16} aria-hidden="true" /><span>Sair</span></button>
-      : providers.length > 0 && <DropdownMenu.Root>
+      : providers.length === 1 ?
+        <button className="auth-identity-action" type="button" onClick={() => void startLogin(providers[0].name)} disabled={busy} aria-label={`Entrar com ${providers[0].name}`}>
+          <LogIn size={16} aria-hidden="true" /><span>Entrar</span>
+        </button>
+      : providers.length > 1 && <DropdownMenu.Root>
         <DropdownMenu.Trigger className="auth-identity-action" disabled={busy} aria-label="Entrar com Broker">
           <LogIn size={16} aria-hidden="true" /><span>Entrar</span><ChevronDown size={13} aria-hidden="true" />
         </DropdownMenu.Trigger>
