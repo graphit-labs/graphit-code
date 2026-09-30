@@ -39,7 +39,7 @@ func Root() string { return brand.GlobalDir() }
 // The lockfile is read directly rather than through internal/hub because the
 // packages that need this — ast, knowledge, memory — are imported BY hub.
 func ProjectID(projectDir string) string {
-	if projectDir == "" {
+	if projectDir == "" || brand.IsGlobalDir(projectDir) {
 		return ""
 	}
 	data, err := os.ReadFile(filepath.Join(projectDir, brand.LockFileName()))
@@ -104,6 +104,9 @@ func ProjectStoreID(projectDir string) string {
 func EnsureProjectID(projectDir string) (string, error) {
 	if projectDir == "" {
 		return "", fmt.Errorf("project directory is required")
+	}
+	if brand.IsGlobalDir(projectDir) {
+		return "", fmt.Errorf("global directory is not a project")
 	}
 	lf, err := projectlock.EnsureIdentity(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil {

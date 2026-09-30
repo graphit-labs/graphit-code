@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 func TestGlobalLockManager_LoadAndSave(t *testing.T) {
@@ -397,6 +399,62 @@ func TestGlobalLockManager_ListActiveProjects(t *testing.T) {
 	}
 	if len(active) != 1 {
 		t.Errorf("expected 1 active, got %d", len(active))
+	}
+}
+
+func TestGlobalLockManagerExcludesInstallationDirectory(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	mgr := &GlobalLockManager{lockPath: filepath.Join(t.TempDir(), "global.lock.json")}
+	if err := mgr.RegisterProject("global", globalDir); err == nil {
+		t.Fatal("registered installation directory as project")
+	}
+	if err := mgr.SetCluster("global", globalDir, "team", "example"); err == nil {
+		t.Fatal("created cluster entry for installation directory")
+	}
+	lf := &Lockfile{Project: ProjectIdentity{ID: "global", Name: "invalid"}}
+	if err := SaveLockfile(filepath.Join(globalDir, brand.LockFileName()), lf); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := mgr.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock.Projects["global"] = &ProjectEntry{Instances: []InstanceEntry{{Dir: globalDir, Cluster: ClusterMap{"team": {"example"}}}}}
+	if err := mgr.save(lock); err != nil {
+		t.Fatal(err)
+	}
+	labels, err := mgr.GetAllClusterLabels("global", globalDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(labels) != 0 {
+		t.Fatalf("installation directory supplied cluster labels: %+v", labels)
+	}
+	cleaned, err := mgr.ValidateProjectDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleaned != 1 {
+		t.Fatalf("cleaned = %d, want 1", cleaned)
+	}
+	lock, err = mgr.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lock.Projects) != 0 {
+		t.Fatalf("installation directory retained in project registry: %+v", lock.Projects)
+	}
+	lock.Projects["global"] = &ProjectEntry{Instances: []InstanceEntry{{Dir: globalDir}}}
+	if err := mgr.save(lock); err != nil {
+		t.Fatal(err)
+	}
+	active, err := mgr.ListActiveProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("installation directory listed as project: %+v", active)
 	}
 }
 

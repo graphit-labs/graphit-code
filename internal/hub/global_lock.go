@@ -316,6 +316,10 @@ func (m *GlobalLockManager) ValidateProjectDirs() (int, error) {
 	for id, entry := range lock.Projects {
 		valid := entry.Instances[:0]
 		for _, inst := range entry.Instances {
+			if brand.IsGlobalDir(inst.Dir) {
+				cleaned++
+				continue
+			}
 			lockFilePath := filepath.Join(inst.Dir, brand.LockFileName())
 			if _, err := os.Stat(lockFilePath); os.IsNotExist(err) {
 				cleaned++
@@ -359,6 +363,9 @@ func (m *GlobalLockManager) ValidateProjectDirs() (int, error) {
 }
 
 func (m *GlobalLockManager) RegisterProject(projectID, projectDir string, opts ...func(*InstanceEntry)) error {
+	if brand.IsGlobalDir(projectDir) {
+		return fmt.Errorf("global directory is not a project")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -422,6 +429,9 @@ func WithProjectCluster(cluster map[string][]string) func(*InstanceEntry) {
 }
 
 func (m *GlobalLockManager) SetCluster(projectID, projectDir, key, value string) error {
+	if brand.IsGlobalDir(projectDir) {
+		return fmt.Errorf("global directory is not a project")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -534,6 +544,10 @@ func (m *GlobalLockManager) ListActiveProjects() ([]ActiveProject, error) {
 	for id, entry := range lock.Projects {
 		valid := entry.Instances[:0]
 		for _, inst := range entry.Instances {
+			if brand.IsGlobalDir(inst.Dir) {
+				dirty = true
+				continue
+			}
 			lockFilePath := filepath.Join(inst.Dir, brand.LockFileName())
 			if _, err := os.Stat(lockFilePath); os.IsNotExist(err) {
 				dirty = true
@@ -558,6 +572,9 @@ func (m *GlobalLockManager) ListActiveProjects() ([]ActiveProject, error) {
 }
 
 func (m *GlobalLockManager) findInstance(lock *GlobalHubLock, projectID, projectDir string) *InstanceEntry {
+	if brand.IsGlobalDir(projectDir) {
+		return nil
+	}
 	entry := lock.Projects[projectID]
 	if entry == nil {
 		return nil

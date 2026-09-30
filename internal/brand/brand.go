@@ -90,6 +90,26 @@ func GlobalDir() string {
 	return filepath.Join(home, "."+Brand)
 }
 
+// IsGlobalDir reports whether path addresses installation state rather than a project.
+// SameFile also catches a symlink used to address an existing global directory.
+func IsGlobalDir(path string) bool {
+	global := GlobalDir()
+	if path == "" || global == "" {
+		return false
+	}
+	pathAbs, pathErr := filepath.Abs(path)
+	globalAbs, globalErr := filepath.Abs(global)
+	if pathErr != nil || globalErr != nil {
+		return false
+	}
+	if pathAbs == globalAbs {
+		return true
+	}
+	pathInfo, pathErr := os.Stat(pathAbs)
+	globalInfo, globalErr := os.Stat(globalAbs)
+	return pathErr == nil && globalErr == nil && os.SameFile(pathInfo, globalInfo)
+}
+
 // RuntimeDir returns a version-scoped directory for framework-managed runtime
 // files: ~/.graphit/runtime/<version>/. These files are managed by the binary
 // and may be overwritten on each version upgrade. User customizations should

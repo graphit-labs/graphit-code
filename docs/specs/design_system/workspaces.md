@@ -127,6 +127,14 @@ and a global-selector next action, preserving the target instead of falling back
 Knowledge contexts shows a prompt to use the global Project menu when no project is selected and
 does not request a local collection in that state. An empty selected project's collection directory
 is a separate empty state; the local `/api/wiki/modules` endpoint returns `[]` for it.
+Task, Session, and project Memory explorers follow the same no-selection rule: show `WorkEmpty`
+with the Project menu as the next action and do not request project catalogues or details until a
+Workspace or Hub project is selected. This differs from an empty catalogue in a selected project.
+They wait for the Project menu to validate any saved selection before requesting data, and discard
+responses from a previous selection when the active project changes.
+Personal Memory has user scope and remains available without a selected project. The installation's
+global directory is never a project and must not appear in the Project menu or serve as an implicit
+fallback for project APIs.
 
 ## Combined refresh by route
 

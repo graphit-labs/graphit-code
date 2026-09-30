@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 )
 
@@ -42,6 +43,9 @@ func resolveProjectScope(r *http.Request, defaultProjectDir string) (ProjectScop
 	}
 	if projectDir == "" {
 		return ProjectScope{}, fmt.Errorf("project_dir or project_id is required")
+	}
+	if brand.IsGlobalDir(projectDir) {
+		return ProjectScope{}, fmt.Errorf("global directory is not a project; select a project")
 	}
 	return ProjectScope{ProjectDir: projectDir}, nil
 }

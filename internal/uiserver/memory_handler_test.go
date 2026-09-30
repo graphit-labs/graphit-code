@@ -144,6 +144,44 @@ func TestMemoryHandlerOpensRemoteProjectByID(t *testing.T) {
 	}
 }
 
+func TestMemoryHandlerOpensPersonalScopeWithoutProject(t *testing.T) {
+	service := &fakeMemoryExplorer{}
+	handler := NewMemoryHandler("")
+	handler.open = func(_ context.Context, projectDir, scope string) (memoryExplorerService, error) {
+		if projectDir != "" || scope != "user" {
+			t.Fatalf("personal memory opened with project dir %q and scope %q", projectDir, scope)
+		}
+		return service, nil
+	}
+	mux := http.NewServeMux()
+	handler.RegisterAPIRoutes(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/memories?scope=user", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	scopes := httptest.NewRecorder()
+	mux.ServeHTTP(scopes, httptest.NewRequest(http.MethodGet, "/api/memories/scopes", nil))
+	if scopes.Code != http.StatusOK {
+		t.Fatalf("scopes status = %d, body = %s", scopes.Code, scopes.Body.String())
+	}
+	var available []MemoryScopeView
+	if err := json.NewDecoder(scopes.Body).Decode(&available); err != nil {
+		t.Fatal(err)
+	}
+	if len(available) != 1 || available[0].ID != "user" {
+		t.Fatalf("scopes = %#v", available)
+	}
+	create := httptest.NewRecorder()
+	mux.ServeHTTP(create, httptest.NewRequest(http.MethodPost, "/api/memories?scope=user", bytes.NewBufferString(`{"title":"Personal note","body":"A reusable preference"}`)))
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+	if service.addedOpts.ProjectID != "" {
+		t.Fatalf("personal memory acquired project id %q", service.addedOpts.ProjectID)
+	}
+}
+
 func TestMemoryHandlerCatalogUsesMemorySearchAndDomainFilters(t *testing.T) {
 	fake := &fakeMemoryExplorer{
 		entries: []memory.MemoryEntry{

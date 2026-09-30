@@ -29,6 +29,12 @@ non-secret default provider `local` with ONNX `cpu`/`0`; it does not write an ac
 identity, MCP key, S3 location, or credential. To override execution, update `local` in the
 persistent volume, or create and log in to a separate provider/profile.
 
+The global directory holds installation state; it is never a project. A fresh container can
+therefore start with no selected project. The UI asks the reader to choose a Workspace or Hub
+project before loading project Tasks, Sessions, or Memory. Personal Memory remains available
+without a project. A project lockfile left in the global volume by an older version is ignored
+as a project identity; do not use that lockfile to register a Hub project.
+
 ## Customize container startup
 
 The entrypoint looks for three optional directories under `/docker-entrypoint.d`. This path

@@ -393,10 +393,11 @@ function TaskDetail({
 export default function TaskExplorerPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
-  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName, projectsLoaded } = useAppStore();
   const { key: projectKey, projectDir, projectId } = projectRequestScope({
     activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
   });
+  const hasProject = projectsLoaded && Boolean(projectDir || projectId);
   const [catalog, setCatalog] = useState<TaskCatalogItem[]>([]);
   const [nextCursor, setNextCursor] = useState("");
   const [detailResult, setDetailResult] = useState<{
@@ -430,6 +431,11 @@ export default function TaskExplorerPage() {
         setLoading(true);
         setCatalog([]);
         setNextCursor("");
+      }
+      if (!hasProject) {
+        setLoading(false);
+        setLoadingMore(false);
+        return;
       }
       try {
         const page = await taskApi.list({
@@ -470,7 +476,7 @@ export default function TaskExplorerPage() {
         }
       }
     },
-    [projectDir, projectId, projectName, query, status],
+    [hasProject, projectDir, projectId, projectName, query, status],
   );
 
   useEffect(() => {
@@ -483,6 +489,10 @@ export default function TaskExplorerPage() {
   useEffect(() => {
     if (previousProjectRef.current === projectKey) return;
     previousProjectRef.current = projectKey;
+    catalogRequestRef.current += 1;
+    detailRequestRef.current += 1;
+    setCatalog([]);
+    setNextCursor("");
     selectedIDRef.current = "";
     setSelectedID("");
     setDetailResult(null);
@@ -492,6 +502,7 @@ export default function TaskExplorerPage() {
   const loadDetail = useCallback(
     (id: string) => {
       const request = ++detailRequestRef.current;
+      if (!hasProject) return Promise.resolve();
       const requestDetail = projectId
         ? taskApi.export(projectDir, id, projectId)
         : taskApi.export(projectDir, id);
@@ -510,7 +521,7 @@ export default function TaskExplorerPage() {
             showToast("Failed to load task details", "error");
         });
     },
-    [projectDir, projectId, projectKey],
+    [hasProject, projectDir, projectId, projectKey],
   );
 
   useEffect(() => {
@@ -556,6 +567,17 @@ export default function TaskExplorerPage() {
   };
 
   usePageRefresh(() => refreshAll([loadCatalog(), selectedID ? loadDetail(selectedID) : Promise.resolve()]));
+  if (!projectsLoaded) {
+    return <WorkPage><WorkHeader title="Tasks" description="Track the work, its ownership and the evidence required for completion." /><LoadingSpinner label="Loading projects…" /></WorkPage>;
+  }
+  if (!hasProject) {
+    return (
+      <WorkPage>
+        <WorkHeader title="Tasks" description="Track the work, its ownership and the evidence required for completion." />
+        <WorkEmpty title="Select a project">Use the Project menu in the header to choose a Workspace or Hub project.</WorkEmpty>
+      </WorkPage>
+    );
+  }
   return (
     <WorkPage>
       <WorkHeader

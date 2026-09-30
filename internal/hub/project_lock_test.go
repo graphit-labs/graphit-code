@@ -46,6 +46,37 @@ func TestProjectClusterMutationUpdatesLockAndLocalProjection(t *testing.T) {
 	}
 }
 
+func TestClusterDiscoveryIgnoresGlobalDirectoryEntry(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	projectDir := t.TempDir()
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RegisterProject("real", projectDir); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := mgr.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock.Projects["invalid"] = &ProjectEntry{Instances: []InstanceEntry{{Dir: globalDir}}}
+	if err := mgr.save(lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, inst := resolveCurrentProject(globalDir, lock); inst != nil {
+		t.Fatal("global directory resolved as current project")
+	}
+	projects, err := GetClusterProjects(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects["real"] == nil {
+		t.Fatalf("cluster includes installation state: %#v", projects)
+	}
+}
+
 func TestIsClusterSibling(t *testing.T) {
 	t.Parallel()
 

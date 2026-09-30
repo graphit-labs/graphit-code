@@ -403,11 +403,13 @@ export default function MemoryExplorerPage() {
     memoryId?: string;
   }>();
   const scope: MemoryScope = scopeId === "user" ? "user" : "project";
-  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName } = useAppStore();
-  const { key: projectKey, projectDir, projectId: selectedProjectId } = projectRequestScope({
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName, projectsLoaded } = useAppStore();
+  const { key: projectKey, projectDir: selectedProjectDir, projectId: selectedProjectId } = projectRequestScope({
     activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
   });
-  const projectId = scope === "project" ? selectedProjectId : undefined;
+  const projectDir = projectsLoaded ? selectedProjectDir : undefined;
+  const projectId = scope === "project" && projectsLoaded ? selectedProjectId : undefined;
+  const hasProject = projectsLoaded && Boolean(projectDir || projectId);
   const [catalog, setCatalog] = useState<MemoryCatalog>({
     results: [],
     total: 0,
@@ -431,6 +433,11 @@ export default function MemoryExplorerPage() {
   const loadCatalog = useCallback(async () => {
     const request = ++catalogRequest.current;
     setLoading(true);
+    if (scope === "project" && !hasProject) {
+      setCatalog({ results: [], total: 0, types: [], tags: [] });
+      setLoading(false);
+      return;
+    }
     try {
       const result = await memoryApi.list({
         projectDir,
@@ -465,6 +472,7 @@ export default function MemoryExplorerPage() {
   }, [
     projectDir,
     projectId,
+    hasProject,
     important,
     mandatory,
     memoryId,
@@ -485,6 +493,7 @@ export default function MemoryExplorerPage() {
   const loadTrace = useCallback(
     (id: string) => {
       const request = ++detailRequest.current;
+      if (scope === "project" && !hasProject) return Promise.resolve();
       const requestTrace = projectId
         ? memoryApi.detail(projectDir, scope, id, projectId)
         : memoryApi.detail(projectDir, scope, id);
@@ -499,7 +508,7 @@ export default function MemoryExplorerPage() {
           }
         });
     },
-    [projectDir, projectId, scope],
+    [hasProject, projectDir, projectId, scope],
   );
   useEffect(() => {
     if (!memoryId) {
@@ -511,6 +520,9 @@ export default function MemoryExplorerPage() {
   useEffect(() => {
     if (previousProject.current === projectKey) return;
     previousProject.current = projectKey;
+    catalogRequest.current += 1;
+    detailRequest.current += 1;
+    setCatalog({ results: [], total: 0, types: [], tags: [] });
     setTrace(null);
     navigate(`/memory/explorer/${scope}`, { replace: true });
   }, [projectKey, navigate, scope]);
@@ -589,6 +601,23 @@ export default function MemoryExplorerPage() {
   };
 
   usePageRefresh(() => refreshAll([loadCatalog(), memoryId ? loadTrace(memoryId) : Promise.resolve()]));
+  if (scope === "project" && !projectsLoaded) {
+    return <WorkPage><WorkHeader title="Project memory" description="Keep decisions, conventions and lessons available beyond a single conversation." /><LoadingSpinner label="Loading projects…" /></WorkPage>;
+  }
+  if (scope === "project" && !hasProject) {
+    return (
+      <WorkPage>
+        <WorkHeader title="Project memory" description="Keep decisions, conventions and lessons available beyond a single conversation." />
+        <WorkTabs
+          value={scope}
+          onChange={(id) => changeScope(id as MemoryScope)}
+          items={[["project", "Project"], ["user", "User"]]}
+          label="Memory scope"
+        />
+        <WorkEmpty title="Select a project">Use the Project menu in the header to choose a Workspace or Hub project.</WorkEmpty>
+      </WorkPage>
+    );
+  }
   return (
     <WorkPage>
       <WorkHeader

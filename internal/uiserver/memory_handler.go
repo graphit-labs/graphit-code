@@ -113,6 +113,12 @@ func memoryScope(r *http.Request) string {
 	return scope
 }
 
+func (h *MemoryHandler) hasProjectAddress(r *http.Request) bool {
+	return h.defaultProjectDir != "" ||
+		strings.TrimSpace(r.URL.Query().Get("project_dir")) != "" ||
+		strings.TrimSpace(r.URL.Query().Get("project_id")) != ""
+}
+
 func (h *MemoryHandler) openService(ctx context.Context, projectDir, scope string) (memoryExplorerService, error) {
 	memStore, err := memory.NewMemoryStore()
 	if err != nil {
@@ -156,6 +162,16 @@ func (h *MemoryHandler) openRemoteService(ctx context.Context, projectID, scope 
 }
 
 func (h *MemoryHandler) service(w http.ResponseWriter, r *http.Request) (memoryExplorerService, bool) {
+	// Personal memory has no project identity. In particular, an empty daemon UI
+	// must not manufacture a project just to serve the user scope.
+	if memoryScope(r) == string(memory.MemoryScopeUser) && !h.hasProjectAddress(r) {
+		service, err := h.open(r.Context(), "", string(memory.MemoryScopeUser))
+		if err != nil {
+			writeMemoryError(w, http.StatusBadRequest, err.Error())
+			return nil, false
+		}
+		return service, true
+	}
 	project, err := resolveProjectScope(r, h.defaultProjectDir)
 	if err != nil {
 		writeMemoryError(w, http.StatusBadRequest, err.Error())
@@ -175,6 +191,15 @@ func (h *MemoryHandler) service(w http.ResponseWriter, r *http.Request) (memoryE
 }
 
 func (h *MemoryHandler) handleScopes(w http.ResponseWriter, r *http.Request) {
+	if !h.hasProjectAddress(r) {
+		userID, err := memory.UserScopeIDForContext(r.Context())
+		if err != nil {
+			writeMemoryError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, []MemoryScopeView{{ID: "user", Label: "User memory", ScopeID: userID, Kind: "user"}})
+		return
+	}
 	project, err := resolveProjectScope(r, h.defaultProjectDir)
 	if err != nil {
 		writeMemoryError(w, http.StatusBadRequest, err.Error())
@@ -321,7 +346,7 @@ func (h *MemoryHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := ""
-	if memoryScope(r) == string(memory.MemoryScopeUser) {
+	if memoryScope(r) == string(memory.MemoryScopeUser) && h.hasProjectAddress(r) {
 		project, scopeErr := resolveProjectScope(r, h.defaultProjectDir)
 		if scopeErr != nil {
 			writeMemoryError(w, http.StatusBadRequest, scopeErr.Error())

@@ -3,6 +3,8 @@ package hub
 import (
 	"fmt"
 	"path/filepath"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 type SiblingProject struct {
@@ -50,6 +52,9 @@ func GetClusterProjects(projectDir string, filterLabel ...string) (map[string]*S
 
 	for id, entry := range lock.Projects {
 		for _, inst := range entry.Instances {
+			if brand.IsGlobalDir(inst.Dir) {
+				continue
+			}
 			if sameDir(inst.Dir, projectDir) {
 				continue
 			}
@@ -78,6 +83,9 @@ func GetClusterProjects(projectDir string, filterLabel ...string) (map[string]*S
 }
 
 func resolveCurrentProject(projectDir string, lock *GlobalHubLock) (string, *InstanceEntry) {
+	if brand.IsGlobalDir(projectDir) {
+		return "", nil
+	}
 	absDir, err := filepath.Abs(projectDir)
 	if err != nil {
 		absDir = projectDir
@@ -85,6 +93,9 @@ func resolveCurrentProject(projectDir string, lock *GlobalHubLock) (string, *Ins
 	for id, entry := range lock.Projects {
 		for i := range entry.Instances {
 			inst := &entry.Instances[i]
+			if brand.IsGlobalDir(inst.Dir) {
+				continue
+			}
 			instAbs, err := filepath.Abs(inst.Dir)
 			if err != nil {
 				instAbs = inst.Dir

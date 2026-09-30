@@ -1,6 +1,6 @@
 import "@/test/contextControls"
 import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors"
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -73,12 +73,34 @@ function renderExplorer(path = '/memory/explorer/project/01MEMORY') {
 describe('Memory Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
+    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: true })
     vi.mocked(memoryApi.list).mockResolvedValue(catalog)
     vi.mocked(memoryApi.detail).mockResolvedValue(trace)
     vi.mocked(memoryApi.create).mockResolvedValue(trace)
     vi.mocked(memoryApi.update).mockResolvedValue(trace)
     vi.mocked(memoryApi.remove).mockResolvedValue({ id: '01MEMORY', removed: true })
+  })
+
+  it('keeps project memory idle without a project while personal memory remains available', async () => {
+    useAppStore.setState({ activeProjectKey: '', activeProjectOrigin: '', activeProjectId: '', activeProjectDir: '' })
+    const projectView = renderExplorer('/memory/explorer/project')
+    expect(screen.getByText('Use the Project menu in the header to choose a Workspace or Hub project.')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 220)) })
+    expect(memoryApi.list).not.toHaveBeenCalled()
+    projectView.unmount()
+    renderExplorer('/memory/explorer/user')
+    await waitFor(() => expect(memoryApi.list).toHaveBeenCalledWith(expect.objectContaining({ scope: 'user', projectDir: undefined })))
+  })
+
+  it('clears project memory when a selected project is removed', async () => {
+    renderExplorer('/memory/explorer/project')
+    await waitFor(() => expect(memoryApi.list).toHaveBeenCalledWith(expect.objectContaining({ projectDir: '/project', scope: 'project' })))
+    const calls = vi.mocked(memoryApi.list).mock.calls.length
+    act(() => useAppStore.setState({ activeProjectKey: '', activeProjectOrigin: '', activeProjectId: '', activeProjectDir: '' }))
+    expect(screen.getByText('Use the Project menu in the header to choose a Workspace or Hub project.')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 220)) })
+    expect(memoryApi.list).toHaveBeenCalledTimes(calls)
+    expect(screen.queryByText('Single authoritative store')).toBeNull()
   })
 
   it('uses Hub identity for project memory and keeps personal memory outside that project scope', async () => {

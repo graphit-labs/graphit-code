@@ -1,7 +1,7 @@
 import { WorkspaceRefreshProvider } from "@/components/layout/WorkspaceRefresh"
 import "@/test/contextControls"
 import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors"
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -87,7 +87,7 @@ describe('Session Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAppStore.setState({ loadProjects: vi.fn(async () => {}), projectsError: "" })
-    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
+    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: true })
     vi.mocked(sessionApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondSummary], next_cursor: '' }
       : { results: [firstSummary], next_cursor: 'page-2' })
@@ -95,6 +95,25 @@ describe('Session Explorer', () => {
       ...firstDetail,
       session: { ...firstDetail.session, id },
     }))
+  })
+
+  it('waits for a real project before loading sessions', async () => {
+    useAppStore.setState({ activeProjectKey: '', activeProjectOrigin: '', activeProjectId: '', activeProjectDir: '' })
+    render(
+      <MemoryRouter initialEntries={['/task/sessions']}><WorkspaceRefreshProvider>
+        <Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes>
+      </WorkspaceRefreshProvider></MemoryRouter>,
+    )
+    expect(screen.getByText('Use the Project menu in the header to choose a Workspace or Hub project.')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)) })
+    expect(sessionApi.list).not.toHaveBeenCalled()
+    act(() => useAppStore.setState({ activeProjectKey: 'hub:remote', activeProjectOrigin: 'hub', activeProjectId: 'remote', activeProjectDir: '' }))
+    await waitFor(() => expect(sessionApi.list).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'remote' })))
+    const calls = vi.mocked(sessionApi.list).mock.calls.length
+    act(() => useAppStore.setState({ activeProjectKey: '', activeProjectOrigin: '', activeProjectId: '', activeProjectDir: '' }))
+    expect(screen.getByText('Use the Project menu in the header to choose a Workspace or Hub project.')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)) })
+    expect(sessionApi.list).toHaveBeenCalledTimes(calls)
   })
 
   it('loads a bounded catalogue, renders exact detail with checkpoints/revisions, and appends the next page', async () => {

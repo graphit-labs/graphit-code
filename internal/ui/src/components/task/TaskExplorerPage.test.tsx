@@ -76,7 +76,7 @@ function Location() {
 describe('Task Explorer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: false })
+    useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project', projectName: 'Demo', projects: [], projectsLoaded: true })
     vi.mocked(taskApi.list).mockImplementation(async options => options.cursor
       ? { results: [secondCatalogItem], next_cursor: '' }
       : { results: [firstCatalogItem], next_cursor: 'page-2' })
@@ -91,6 +91,42 @@ describe('Task Explorer', () => {
         comments: completeExport.comments.filter(item => item.task_id === id),
       }
     })
+  })
+
+  it('waits for a real project before loading tasks', async () => {
+    useAppStore.setState({ activeProjectKey: '', activeProjectOrigin: '', activeProjectId: '', activeProjectDir: '' })
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Use the Project menu in the header to choose a Workspace or Hub project.')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)) })
+    expect(taskApi.list).not.toHaveBeenCalled()
+    act(() => useAppStore.setState({ activeProjectKey: 'workspace:demo:/project', activeProjectOrigin: 'workspace', activeProjectId: 'demo', activeProjectDir: '/project' }))
+    await waitFor(() => expect(taskApi.list).toHaveBeenCalledWith(expect.objectContaining({ projectDir: '/project' })))
+  })
+
+  it('does not request a persisted project before validation or render a late result after deselection', async () => {
+    let finishList: ((value: { results: TaskCatalogItem[]; next_cursor: string }) => void) | undefined
+    vi.mocked(taskApi.list).mockImplementation(() => new Promise(resolve => { finishList = resolve }))
+    useAppStore.setState({ projectsLoaded: false, activeProjectKey: 'workspace:stale', activeProjectDir: '/stale' })
+    render(
+      <MemoryRouter initialEntries={['/task/explorer']}>
+        <Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Loading projects…')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)) })
+    expect(taskApi.list).not.toHaveBeenCalled()
+    act(() => useAppStore.setState({ projectsLoaded: true, activeProjectKey: 'workspace:demo:/project', activeProjectDir: '/project' }))
+    await waitFor(() => expect(taskApi.list).toHaveBeenCalledTimes(1))
+    act(() => useAppStore.setState({ activeProjectKey: '', activeProjectOrigin: '', activeProjectId: '', activeProjectDir: '' }))
+    await act(async () => { finishList?.({ results: [firstCatalogItem], next_cursor: '' }) })
+    expect(screen.getByText('Use the Project menu in the header to choose a Workspace or Hub project.')).toBeTruthy()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)) })
+    expect(taskApi.list).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('First task')).toBeNull()
   })
 
   it('switches Workspace to Hub and back without reusing either request scope', async () => {
@@ -348,7 +384,9 @@ describe('Task Explorer', () => {
       </MemoryRouter>,
     )
 
-    await screen.findByText('First task')
+    expect(screen.getAllByText('Loading projects…').length).toBeGreaterThan(0)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)) })
+    expect(taskApi.list).not.toHaveBeenCalled()
     expect((screen.getByRole('combobox', { name: 'Project' }) as HTMLSelectElement).disabled).toBe(true)
   })
 })

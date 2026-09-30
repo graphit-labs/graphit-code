@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
@@ -39,7 +40,10 @@ func NewUnifiedServer(
 	projectName string,
 ) (*UnifiedServer, error) {
 
-	projectCfg := config.LoadProjectConfig(repoPath)
+	var projectCfg config.ConfigMap
+	if !brand.IsGlobalDir(repoPath) {
+		projectCfg = config.LoadProjectConfig(repoPath)
+	}
 	host := config.ResolveUIHost(nil, projectCfg)
 	startPort := config.ResolveUIPort(nil, projectCfg)
 	allowedOrigins := config.ResolveUIAllowedOrigins(nil, projectCfg)
@@ -70,9 +74,13 @@ func NewUnifiedServer(
 
 	wikiHandler := NewWikiHandler(hubSvc)
 	wikiHandler.RegisterAPIRoutes(mux)
-	NewMemoryHandler(repoPath).RegisterAPIRoutes(mux)
-	NewTaskHandler(repoPath).RegisterAPIRoutes(mux)
-	NewSessionHandler(repoPath).RegisterAPIRoutes(mux)
+	defaultProjectDir := repoPath
+	if brand.IsGlobalDir(defaultProjectDir) {
+		defaultProjectDir = ""
+	}
+	NewMemoryHandler(defaultProjectDir).RegisterAPIRoutes(mux)
+	NewTaskHandler(defaultProjectDir).RegisterAPIRoutes(mux)
+	NewSessionHandler(defaultProjectDir).RegisterAPIRoutes(mux)
 
 	agentFeatures := config.AgentFeaturesEnabled(nil, projectCfg)
 	var liveHandler *LiveHandler

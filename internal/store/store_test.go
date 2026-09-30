@@ -27,6 +27,38 @@ func writeLockfile(t *testing.T, projectDir, id string) {
 	}
 }
 
+func TestGlobalDirectoryCannotBecomeAProject(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
+	if got := ProjectID(globalDir); got != "" {
+		t.Fatalf("empty global directory has project ID %q", got)
+	}
+	if _, err := EnsureProjectID(globalDir); err == nil {
+		t.Fatal("initialized the global directory as a project")
+	}
+	if _, err := os.Stat(filepath.Join(globalDir, brand.LockFileName())); !os.IsNotExist(err) {
+		t.Fatalf("global project lockfile was created: %v", err)
+	}
+
+	writeLockfile(t, globalDir, storeTestProjectID)
+	alias := filepath.Join(t.TempDir(), "global-alias")
+	if err := os.Symlink(globalDir, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, dir := range []string{globalDir, alias} {
+		if got := ProjectID(dir); got != "" {
+			t.Errorf("ProjectID(%q) = %q for global state", dir, got)
+		}
+		if _, err := EnsureProjectID(dir); err == nil {
+			t.Errorf("EnsureProjectID(%q) accepted global state", dir)
+		}
+	}
+	projectDir := t.TempDir()
+	if id, err := EnsureProjectID(projectDir); err != nil || id == "" {
+		t.Fatalf("real project initialization failed: id=%q, err=%v", id, err)
+	}
+}
+
 func TestSanitizeSegment(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{

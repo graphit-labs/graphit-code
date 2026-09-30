@@ -47,13 +47,17 @@ func (m *daemonUIModule) Start(ctx context.Context) error {
 	astDB := daemonUIASTBackend(repoPath)
 	defer func() { _ = astDB.Close() }()
 
-	agent := config.ResolveAgent("", nil, config.LoadProjectConfig(repoPath))
+	var projectCfg config.ConfigMap
+	if !brand.IsGlobalDir(repoPath) {
+		projectCfg = config.LoadProjectConfig(repoPath)
+	}
+	agent := config.ResolveAgent("", nil, projectCfg)
 
 	srv, err := uiserver.NewUnifiedServer(hubSvc, agent, astDB, repoPath, daemonUIProjectName(repoPath))
 	if err != nil {
 		return fmt.Errorf("ui server init: %w", err)
 	}
-	host := config.ResolveUIHost(nil, config.LoadProjectConfig(repoPath))
+	host := config.ResolveUIHost(nil, projectCfg)
 	switch host {
 	case "0.0.0.0":
 		host = "127.0.0.1"
@@ -96,6 +100,9 @@ func daemonUIASTBackend(repoPath string) ast.GraphDB {
 }
 
 func daemonUIProjectName(repoPath string) string {
+	if brand.IsGlobalDir(repoPath) {
+		return ""
+	}
 	name := filepath.Base(repoPath)
 	data, err := os.ReadFile(filepath.Join(repoPath, brand.LockFileName()))
 	if err != nil {

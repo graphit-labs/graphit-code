@@ -289,10 +289,11 @@ function SessionDetailView({
 export default function SessionExplorerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, projectName, projectsLoaded } = useAppStore();
   const { key: projectKey, projectDir, projectId } = projectRequestScope({
     activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
   });
+  const hasProject = projectsLoaded && Boolean(projectDir || projectId);
   const [catalog, setCatalog] = useState<SessionSearchResult[]>([]);
   const [nextCursor, setNextCursor] = useState("");
   const [detailResult, setDetailResult] = useState<{
@@ -326,6 +327,11 @@ export default function SessionExplorerPage() {
         setLoading(true);
         setCatalog([]);
         setNextCursor("");
+      }
+      if (!hasProject) {
+        setLoading(false);
+        setLoadingMore(false);
+        return;
       }
       try {
         const page = await sessionApi.list({
@@ -370,7 +376,7 @@ export default function SessionExplorerPage() {
         }
       }
     },
-    [projectDir, projectId, projectName, query, status, activeOnly],
+    [hasProject, projectDir, projectId, projectName, query, status, activeOnly],
   );
 
   useEffect(() => {
@@ -383,6 +389,10 @@ export default function SessionExplorerPage() {
   useEffect(() => {
     if (previousProjectRef.current === projectKey) return;
     previousProjectRef.current = projectKey;
+    catalogRequestRef.current += 1;
+    detailRequestRef.current += 1;
+    setCatalog([]);
+    setNextCursor("");
     selectedIDRef.current = "";
     setSelectedID("");
     setDetailResult(null);
@@ -392,6 +402,7 @@ export default function SessionExplorerPage() {
   const loadDetail = useCallback(
     (id: string) => {
       const request = ++detailRequestRef.current;
+      if (!hasProject) return Promise.resolve();
       const requestDetail = projectId
         ? sessionApi.get(projectDir, id, projectId)
         : sessionApi.get(projectDir, id);
@@ -410,7 +421,7 @@ export default function SessionExplorerPage() {
             showToast("Failed to load session details", "error");
         });
     },
-    [projectDir, projectId, projectKey],
+    [hasProject, projectDir, projectId, projectKey],
   );
 
   useEffect(() => {
@@ -443,6 +454,17 @@ export default function SessionExplorerPage() {
     navigate(`/task/explorer/${encodeURIComponent(id)}`);
 
   usePageRefresh(() => refreshAll([loadCatalog(), selectedID ? loadDetail(selectedID) : Promise.resolve()]));
+  if (!projectsLoaded) {
+    return <WorkPage><WorkHeader title="Sessions" description="Resume the request with its decisions, ownership and next action intact." /><LoadingSpinner label="Loading projects…" /></WorkPage>;
+  }
+  if (!hasProject) {
+    return (
+      <WorkPage>
+        <WorkHeader title="Sessions" description="Resume the request with its decisions, ownership and next action intact." />
+        <WorkEmpty title="Select a project">Use the Project menu in the header to choose a Workspace or Hub project.</WorkEmpty>
+      </WorkPage>
+    );
+  }
   return (
     <WorkPage>
       <WorkHeader
