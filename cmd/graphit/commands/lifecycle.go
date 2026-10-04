@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,9 +15,9 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/clirun"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
@@ -832,24 +832,25 @@ func stampSync(wd string) {
 
 func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 	projectCfg := loadProjectConfigFromDir(wd)
+	embedding := !config.IsModuleDisabled("embedding", nil, projectCfg)
+	memoryOn := !config.IsModuleDisabled("memory", nil, projectCfg)
 
-	if !config.IsModuleDisabled("embedding", nil, projectCfg) {
-		var task *output.Task
-		if p != nil {
-			task = p.StartTask("Generating embeddings and finalizing vector index...")
+	// Every step with a CLI equivalent runs as that CLI in its own process.
+	var steps [][]string
+	if embedding {
+		steps = append(steps, []string{"ast", "embed"}, []string{"wiki", "embed"})
+		if memoryOn {
+			steps = append(steps, []string{"memory", "embed"}, []string{"memory", "embed", "--user"})
 		}
-		ladybugCfg := ast.DefaultLadybugConfig()
-		n, deferred, err := ast.RunEmbeddingCycleOnce(ctx, ladybugCfg.StoreDir, wd, ai.NewEmbeddingClientFromConfig, nil)
-		if err != nil {
-			syncLogError("embedding", "cycle: %v", err)
-			if task != nil {
-				task.Fail("Vector index: %v", err)
-			}
-		} else if task != nil {
-			if deferred {
-				task.Done("Vector index deferred while AST store is updating")
-			} else {
-				task.Done("Vector index finalized (%d embeddings generated)", n)
+	}
+	if memoryOn {
+		steps = append(steps, []string{"memory", "maintain"}, []string{"memory", "maintain", "--user"})
+	}
+	for _, args := range steps {
+		if err := runSyncChild(ctx, wd, args...); err != nil {
+			syncLogError(strings.Join(args, "-"), "%v", err)
+			if p != nil {
+				p.StepWarn("%s %s: %v", brand.BinName(), strings.Join(args, " "), err)
 			}
 		}
 	}
@@ -879,118 +880,69 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 	if err := hub.EnsureGlobalLanguageArtifacts(lockPath); err != nil {
 		syncLogError("hub-lang-global", "ensure global language: %v", err)
 	}
+}
 
-	if !config.IsModuleDisabled("memory", nil, projectCfg) {
-		var task *output.Task
-		if p != nil {
-			task = p.StartTask("Running memory maintenance...")
-		}
-		runMemoryMaintenance(ctx, wd)
-		if task != nil {
-			task.Done("Memory maintenance complete")
-		}
+// syncChildRunner starts sync's CLI children. Tests replace it.
+var syncChildRunner clirun.Runner = clirun.Default
+
+// runSyncChild runs one step of sync as its own CLI process in the project. The child
+// shares this command's streams, so an interactive sync shows its progress and a
+// daemon-started sync's children write to the same project log.
+func runSyncChild(ctx context.Context, wd string, args ...string) error {
+	return syncChildRunner.Run(ctx, clirun.Spec{Dir: wd, Args: args, Inherit: true})
+}
+
+func syncASTPipelineOptions(projectCfg config.ConfigMap, p *output.Printer, logger *slog.Logger) ast.PipelineOptions {
+	return ast.PipelineOptions{
+		Workers:          ast.SafeWorkers(0),
+		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
+		CacheDir:         ast.DefaultLadybugConfig().StoreDir,
+		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
+		Logger:           logger,
+		OnProgress:       indexProgressReporter(p),
 	}
 }
 
 func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *output.Printer) error {
 	projectCfg := loadProjectConfigFromDir(wd)
 	var adapterSyncErr error
-	if err := hub.HydrateProjectLance(ctx, wd, projectCfg); err != nil {
+	if err := runSyncChild(ctx, wd, "hub", "hydrate"); err != nil {
 		return fmt.Errorf("hydrate published Lance base: %w", err)
 	}
 
+	// Each index runs as its own CLI process in the project; its output is this
+	// command's output.
 	if !config.IsModuleDisabled("ast", nil, projectCfg) {
-		task := p.StartTask("Reindexing AST graph...")
-		absPath, _ := filepath.Abs(wd)
-		db, err := newASTBackend()
-		if err != nil {
-			task.Fail("AST backend: %v", err)
-			return fmt.Errorf("open AST index: %w", err)
-		} else {
-			ladybugCfg := ast.DefaultLadybugConfig()
-			pipeOpts := ast.PipelineOptions{
-				Workers:          ast.SafeWorkers(0),
-				IndexSource:      config.ResolveIndexSource(nil, projectCfg),
-				CacheDir:         ladybugCfg.StoreDir,
-				GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
-			}
-			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
-			if err != nil {
-				task.Fail("AST index: %v", err)
-				_ = db.Close()
-				return fmt.Errorf("reconcile AST index: %w", err)
-			} else if result.ErrorCount > 0 && result.ParsedFiles == 0 {
-				task.Fail("AST: %d files discovered, %d parse errors (grammars may be missing)", result.TotalFiles, result.ErrorCount)
-			} else if result.ErrorCount > 0 {
-				task.Done("AST: %d files indexed, %d errors (%.1fs)", result.ParsedFiles, result.ErrorCount, result.TotalTime.Seconds())
-			} else if result.ParsedFiles == 0 {
-				task.Done("AST: %d files up to date", result.TotalFiles)
-			} else {
-				task.Done("AST: %d files indexed (%.1fs)", result.ParsedFiles, result.TotalTime.Seconds())
-			}
-			_ = db.Close()
+		if err := runSyncChild(ctx, wd, "ast", "index"); err != nil {
+			return fmt.Errorf("AST index failed; see .graphit/runtime/daemon/daemon.log: %w", err)
 		}
 	}
 
 	if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
-		task := p.StartTask("Reindexing knowledge wiki...")
-		scope := knowledge.ScopeFor(wd, nil, projectCfg)
-		wikiDir := knowledge.WikiDir()
-		cfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
-		if _, err := knowledge.RunIndexPipeline(ctx, wd, wikiDir, cfg); err != nil {
-			task.Fail("Knowledge index: %v", err)
+		if err := runSyncChild(ctx, wd, "knowledge", "index"); err != nil {
 			return fmt.Errorf("reconcile Knowledge index: %w", err)
 		}
-		task.Done("Knowledge wiki reconciled")
 	}
 
-	task := p.StartTask("Refreshing authoritative memory indexes...")
-	memStore, err := memory.NewMemoryStore()
-	if err != nil {
-		task.Fail("Memory store: %v", err)
-	} else {
-		type syncResult struct{ err error }
-		projResult := make(chan syncResult, 1)
-		userResult := make(chan syncResult, 1)
-
-		var wg sync.WaitGroup
-		wg.Add(2)
+	// The project and user tables are independent; refresh them side by side.
+	memoryErrs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i, args := range [][]string{{"memory", "index"}, {"memory", "index", "--user"}} {
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
-				projResult <- syncResult{err: projSvc.IndexMemories(ctx)}
-				_ = projSvc.Close()
-			} else {
-				projResult <- syncResult{}
-			}
+			memoryErrs[i] = runSyncChild(ctx, wd, args...)
 		}()
-		go func() {
-			defer wg.Done()
-			if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
-				userResult <- syncResult{err: userSvc.IndexMemories(ctx)}
-				_ = userSvc.Close()
-			} else {
-				userResult <- syncResult{}
-			}
-		}()
-		wg.Wait()
-
-		syncOK := true
-		if r := <-projResult; r.err != nil {
-			p.StepWarn("Project memory indexes: %v", r.err)
-			syncOK = false
-		}
-		if r := <-userResult; r.err != nil {
-			p.StepWarn("User memory indexes: %v", r.err)
-			syncOK = false
-		}
-		_ = memStore
-		if syncOK {
-			task.Done("Authoritative memory indexes refreshed")
-		}
+	}
+	wg.Wait()
+	if memoryErrs[0] != nil {
+		p.StepWarn("Project memory indexes: %v", memoryErrs[0])
+	}
+	if memoryErrs[1] != nil {
+		p.StepWarn("User memory indexes: %v", memoryErrs[1])
 	}
 
-	task = p.StartTask("Checking hub storage...")
+	task := p.StartTask("Checking hub storage...")
 	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
 	if err != nil {
 		task.Fail("Hub not configured: %v", err)
@@ -1058,35 +1010,23 @@ func runSyncPhase1(ctx context.Context, wd string, agentsToSync []string, p *out
 	return nil
 }
 
+// spawnBackgroundSync hands the heavy phase to `sync --heavy` in its own process. An
+// interactive sync detaches it so the terminal is free; a sync the daemon started waits
+// for it, so the whole tree stays under the daemon's supervision and cancellation.
 func spawnBackgroundSync(wd, agent string) {
-	exe := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
-	if exe == "" {
-		var err error
-		exe, err = os.Executable()
-		if err != nil {
-			syncLogError("spawn", "executable path: %v", err)
-			return
-		}
-		exe, _ = filepath.EvalSymlinks(exe)
-	}
-
 	args := []string{"sync", "--heavy"}
 	if agent != "" {
 		args = append(args, "--agent", agent)
 	}
-
-	cmd := exec.Command(exe, args...)
-	cmd.Dir = wd
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	if err := cmd.Start(); err != nil {
-		syncLogError("spawn", "start: %v", err)
+	if clirun.IsSubprocess() {
+		if err := runSyncChild(context.Background(), wd, args...); err != nil {
+			syncLogError("heavy", "%v", err)
+		}
 		return
 	}
-
-	go func() { _ = cmd.Wait() }()
+	if err := clirun.Start(clirun.Spec{Dir: wd, Args: args}); err != nil {
+		syncLogError("spawn", "start: %v", err)
+	}
 }
 
 func syncLogError(module, format string, args ...any) {
@@ -1102,18 +1042,6 @@ func syncLogError(module, format string, args ...any) {
 	defer func() { _ = f.Close() }()
 	msg := fmt.Sprintf(format, args...)
 	_, _ = fmt.Fprintf(f, "%s [sync:%s] %s\n", time.Now().UTC().Format(time.RFC3339), module, msg)
-}
-
-func runMemoryMaintenance(ctx context.Context, projectDir string) {
-	_ = projectDir
-	for _, userScope := range []bool{false, true} {
-		svc, _, err := newMemorySvc(userScope)
-		if err != nil {
-			continue
-		}
-		_ = svc.IndexMemories(ctx)
-		_ = svc.Close()
-	}
 }
 
 func newUninstallCmd() *cobra.Command {

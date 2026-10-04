@@ -8,6 +8,12 @@ Graphit Code is a local-first agent harness written primarily in Go. It combines
 flowchart LR
     User["Developer / coding agent"] --> Launcher["graphit launcher"]
     Launcher --> Core["graphit-core"]
+    Launcher --> ThinMCP["graphit-mcp (mcp --stdio)"]
+    Launcher --> ThinHook["graphit-hook (_session-hook)"]
+    Launcher --> ThinModel["graphit-model (model serve)"]
+    Launcher --> ThinGitHook["graphit-githook (_git-hook)"]
+    Launcher --> ThinTray["graphit-tray (tray)"]
+    Launcher --> ThinStore["graphit-store (daemon store maintenance)"]
 
     subgraph Core["Go core"]
       CLI["CLI commands"]
@@ -63,6 +69,10 @@ flowchart LR
 ### Launcher
 
 The distributed `graphit` executable is a lightweight wrapper. It extracts the versioned core runtime and native libraries into the global Graphit directory, configures the host linker path, starts `graphit-core`, and forwards arguments and standard streams.
+
+The runtime also carries dedicated lightweight binaries, and the launcher starts one of them instead of the core for invocations that need none of the core's stores, parsers and native libraries: `graphit-mcp` for `mcp --stdio` (proxy to the daemon), `graphit-hook` for Agent lifecycle hooks (`_session-hook`, rendered in the hook process; the daemon applies only the Task lifecycle effect and reads mandatory memory), `graphit-githook` for Git hooks (`_git-hook`), `graphit-tray` for the resident `tray`, `graphit-model` for `model serve <embedding|rerank>` (ONNX Runtime only), and `graphit-store` for the Task and Memory maintenance the daemon schedules (`task maintain`, `memory maintain|embed|index`; LanceDB only). A missing binary falls back to the core, which implements the same commands. The pre-commit quality gate fails when one of these binaries links a store, parser or graph package it must not.
+
+The daemon itself only watches, schedules and supervises: every project job runs as a `graphit` CLI child process in the project directory, and local models run in `graphit-model` server processes. See [Daemon Operations](../guides/daemon_operations.md#process-model).
 
 The local embedding model and language grammar libraries are not baked into the launcher. The model downloads lazily on first embedding use; language support is resolved through installed language artifacts and query definitions.
 

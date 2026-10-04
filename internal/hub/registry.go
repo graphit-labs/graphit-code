@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/hubartifact"
 	"io"
 	"log/slog"
 	"os"
@@ -29,18 +30,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-var TypeFolderMap = map[ArtifactType]string{
-	TypeAgent:     "agents",
-	TypeRule:      "rules",
-	TypeWorkflow:  "workflows",
-	TypeSkill:     "skills",
-	TypeKnowledge: "knowledge",
-	TypeAST:       "ast",
-	TypeMCP:       "mcp-servers",
-	TypeCommand:   "commands",
-	TypePower:     "powers",
-	TypeLanguage:  "languages",
-}
+// TypeFolderMap is the per-type resource folder; hubartifact owns it.
+var TypeFolderMap = hubartifact.TypeFolderMap
 
 var ValidTypes = []ArtifactType{
 	TypeAgent, TypeRule, TypeWorkflow, TypeSkill,

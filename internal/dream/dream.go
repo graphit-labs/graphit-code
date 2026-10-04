@@ -70,6 +70,9 @@ type Runner struct {
 	projectCfg func() config.ConfigMap
 	newClient  func() (ai.Client, error)
 	newLedger  func(context.Context, string) (runLedgerWriter, error)
+	// execute runs one Dream session. Nil runs it in this process; the daemon sets it
+	// to run the session as its own CLI process.
+	execute func(ctx context.Context, sessionID string) error
 
 	mu       sync.Mutex
 	running  bool
@@ -85,15 +88,8 @@ type runLedgerWriter interface {
 }
 
 func NewRunner(projectDir, agent string, projectCfgLoader func() config.ConfigMap) *Runner {
-	r := &Runner{
-		projectDir: projectDir,
-		agent:      agent,
-		projectCfg: projectCfgLoader,
-		newClient:  ai.NewClientFromConfig,
-		newLedger: func(ctx context.Context, projectDir string) (runLedgerWriter, error) {
-			return openRunLedger(ctx, projectDir)
-		},
-	}
+	r := newSessionRunner(projectDir, agent)
+	r.projectCfg = projectCfgLoader
 
 	r.loadState()
 
@@ -105,6 +101,44 @@ func NewRunner(projectDir, agent string, projectCfgLoader func() config.ConfigMa
 	r.mu.Unlock()
 
 	return r
+}
+
+func newSessionRunner(projectDir, agent string) *Runner {
+	return &Runner{
+		projectDir: projectDir,
+		agent:      agent,
+		newClient:  ai.NewClientFromConfig,
+		newLedger: func(ctx context.Context, projectDir string) (runLedgerWriter, error) {
+			return openRunLedger(ctx, projectDir)
+		},
+	}
+}
+
+// SetExecutor replaces how a due session is run. The idle detection, session rotation
+// and state bookkeeping stay with the Runner; only the session itself moves.
+func (r *Runner) SetExecutor(execute func(ctx context.Context, sessionID string) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.execute = execute
+}
+
+// SetLogger directs the Runner's progress lines.
+func (r *Runner) SetLogger(logFn func(string, ...any)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.logFn = logFn
+}
+
+// NewSessionID returns a fresh Dream session id.
+func NewSessionID() string { return generateDreamID() }
+
+// ExecuteSession runs one Dream session for projectDir now, without consulting or
+// changing the idle state the scheduling Runner keeps. It is the body of a session the
+// daemon decided to start; the run ledger records its outcome.
+func ExecuteSession(ctx context.Context, projectDir, agent, sessionID string, logFn func(string, ...any)) error {
+	r := newSessionRunner(projectDir, agent)
+	r.logFn = logFn
+	return r.executeDream(ctx, sessionID)
 }
 
 func (r *Runner) log(format string, args ...any) {
@@ -214,7 +248,13 @@ func (r *Runner) tick(ctx context.Context) {
 		r.cancelFn = cancel
 		r.mu.Unlock()
 
-		if err := r.executeDream(dreamCtx, sessionID); err != nil {
+		r.mu.Lock()
+		execute := r.execute
+		r.mu.Unlock()
+		if execute == nil {
+			execute = r.executeDream
+		}
+		if err := execute(dreamCtx, sessionID); err != nil {
 			r.log("dream: session failed: %v", err)
 		} else {
 			r.log("dream: session completed successfully")

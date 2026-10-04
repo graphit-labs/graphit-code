@@ -1,13 +1,13 @@
 package knowledge
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/mandates"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/relations"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
-	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
 )
 
 func KnowledgeRuleContent(contexts []string, docsDir string) string {
@@ -61,11 +61,4 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	}, "\n") + "\n"
 }
 
-func MandateTrigger() string {
-	return agent.ModuleMandateTrigger(
-		"Knowledge & Documentation", knowledgeSkillName,
-		"retrieving/writing documentation or starting/completing a code or documentation work unit",
-		relations.AgentMandate+" "+"Known page → `"+brand.MCPToolName("wiki_source")+"`; unknown → `"+brand.MCPToolName("knowledge_search")+"` then source. Titles are discovery only; reuse evidence. For every code unit inspect/update affected user and technical docs; for every doc unit verify implementation with AST. Resolve drift and record inspected targets/evidence or justified no-impact in Task before completion. Organize docs by domain and reader goals; the skill routes design and worked examples before authoring. Task owns executable plans/results; query history only for a gap. Known local path first, otherwise cluster before Hub; public technologies need no Hub lookup. For a structured question over the index — which pages are stale, what links to a slug via `xrefs` — use `"+brand.MCPToolName("knowledge_query")+"`.",
-		nil, nil,
-	)
-}
+func MandateTrigger() string { return mandates.Knowledge() }

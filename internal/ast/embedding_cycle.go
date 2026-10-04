@@ -18,6 +18,12 @@ func RunEmbeddingCycleOnce(ctx context.Context, cacheDir, repoRoot string, newCl
 	return runEmbeddingCycleOnce(ctx, cacheDir, repoRoot, newClient, logger, false)
 }
 
+// RunEmbeddingCycleIfIdle is RunEmbeddingCycleOnce for scheduled work: when an AST
+// publication holds the store it reports the cycle as deferred instead of waiting.
+func RunEmbeddingCycleIfIdle(ctx context.Context, cacheDir, repoRoot string, newClient func() (ai.EmbeddingClient, error), logger *slog.Logger) (int, bool, error) {
+	return runEmbeddingCycleOnce(ctx, cacheDir, repoRoot, newClient, logger, true)
+}
+
 func runEmbeddingCycleOnce(ctx context.Context, cacheDir, repoRoot string, newClient func() (ai.EmbeddingClient, error), logger *slog.Logger, deferIfLocked bool) (int, bool, error) {
 	if cacheDir == "" {
 		return 0, false, nil

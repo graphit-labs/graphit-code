@@ -29,22 +29,31 @@ type QueryEmbedder interface {
 }
 
 // NewEmbeddingClientFromConfig resolves the embedding backend a normal caller (CLI, MCP tool)
-// should use: the daemon's socket first, if one is listening, then the embedding capability of
-// the active account provider.
+// should use: the embedding model server's socket first, if one is listening, then the embedding
+// capability of the active account provider. A process that requires the model server (the
+// daemon) never falls back to loading a local model itself.
 func NewEmbeddingClientFromConfig() (EmbeddingClient, error) {
 
 	if proxy := newProxyEmbeddingClient(); proxy != nil {
 		return proxy, nil
 	}
+	if modelServerRequired.Load() && serviceRunsLocally(ModelTaskEmbedding) {
+		if dialModelServer(ModelTaskEmbedding, modelServerWait) {
+			if proxy := newProxyEmbeddingClient(); proxy != nil {
+				return proxy, nil
+			}
+		}
+		return nil, errModelServerUnavailable(ModelTaskEmbedding)
+	}
 
 	return newDirectEmbeddingClientFromConfig()
 }
 
-// newDirectEmbeddingClientFromConfig resolves the active provider WITHOUT attempting the daemon
+// newDirectEmbeddingClientFromConfig resolves the active provider WITHOUT attempting the model-server
 // socket first.
 //
-// This is what the daemon's own EmbedServer must call (via NewLazyEmbeddingClient) to decide
-// what it serves: going through NewEmbeddingClientFromConfig there would have the daemon try
+// This is what the embedding model server must call (via NewLazyEmbeddingClient) to decide
+// what it serves: going through NewEmbeddingClientFromConfig there would have the server try
 // to dial its own socket, which is either a deadlock (nothing is listening yet on first boot)
 // or a pointless detour back to itself.
 func newDirectEmbeddingClientFromConfig() (EmbeddingClient, error) {

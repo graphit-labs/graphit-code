@@ -28,8 +28,8 @@ func TestAddGlobalModuleRegisters(t *testing.T) {
 }
 
 func TestGlobalModulesImplementWatchModule(t *testing.T) {
-	var _ WatchModule = NewEmbedServer(nil)
-	if NewEmbedServer(nil).Name() != "embed-server" {
-		t.Error("the embedding server must name itself for the log")
+	var _ WatchModule = NewModelServerModule("embedding")
+	if NewModelServerModule("rerank").Name() != "model-server-rerank" {
+		t.Error("a model server must name itself and its task for the log")
 	}
 }

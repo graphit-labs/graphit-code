@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 var (
@@ -80,3 +82,18 @@ func (discardHandler) Enabled(context.Context, slog.Level) bool  { return false 
 func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
 func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
 func (d discardHandler) WithGroup(string) slog.Handler           { return d }
+
+// ProjectLogger writes exclusively to the project's daemon log. Its caller owns
+// the file lifetime; opening failure must never fall back to stderr/global logs.
+func ProjectLogger(projectDir, module string) (*slog.Logger, func(), error) {
+	dir := brand.ProjectRuntimePath(projectDir, "daemon")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "daemon.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, nil, err
+	}
+	logger := slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})).With("module", module)
+	return logger, func() { _ = f.Close() }, nil
+}

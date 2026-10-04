@@ -108,9 +108,22 @@ source documents remain canonical stubs, enriched with kind and documentation
 when the index provides `external_symbols`. A symbol documented without a
 definition occurrence also remains a canonical stub with its relationships.
 If Docker, the indexer, or one document fails, affected files use the existing
-syntax-parser chain. The
-`ast.grammar` override remains the fallback grammar for that extension. The
-same recursive `.gitignore` and `.astignore` selection, including negations,
+syntax-parser chain. An explicit `ast.grammar` override remains the fallback
+grammar for that extension and replaces the default syntax parser. For example,
+with `.sql=antlr-postgresql`, syntax parsing uses ANTLR directly instead of
+Tree-sitter. A SCIP failure never activates an exclusive grammar implicitly.
+
+Tree-sitter native parse checks operation cancellation and has a 30-second
+budget per document, including each embedded document. Set
+`GRAPHIT_AST_PARSE_TIMEOUT` to a positive Go duration such as `2m` to allow
+larger native parses; unset, invalid or nonpositive values use 30 seconds.
+This budget covers native tree construction, not the entire index, query
+extraction or ANTLR. A native timeout is a file parse error and can fall back to
+ANTLR only when a non-exclusive ANTLR profile already participates in the
+configured syntax chain. Exclusive dialects require explicit selection and then
+replace Tree-sitter entirely. Operation cancellation stops parsing and does not start
+another parser. Interrupted parsers are reset before reuse for another document.
+The same recursive `.gitignore` and `.astignore` selection, including negations,
 filters SCIP documents before they enter the graph. Existing language
 `ast.grammars_whitelist` and `ast.grammars_blacklist` filters also apply to
 SCIP selection. For TypeScript/JavaScript projects without `tsconfig.json`,
@@ -190,8 +203,18 @@ An extension omitted from a valid family profile also uses the syntax parser.
 SCIP depends on each language's native build metadata and dependencies. For
 example, C/C++ requires a compilation database or CMake project. Absolute host
 paths in a compilation database are translated to the container's `/workspace`
-path, including Windows drive paths. PHP requires `composer.json` and
-`composer.lock`. If those prerequisites are absent, Graphit
+path, including Windows drive paths. PHP requires `composer.json`,
+`composer.lock`, installed dependencies and an up-to-date Composer autoloader,
+as specified by [scip-php](https://github.com/davidrjenni/scip-php#requirements).
+The pinned indexer uses the project's autoloader and Composer 2 `installed.php`
+metadata. Its dependencies include `composer-runtime-api` `^2.2` and
+`phpstan/phpdoc-parser` `^2.3`; incompatible project autoloaded dependencies
+can cause indexing to fail. Graphit preserves this upstream implementation;
+it does not replace the project's autoloader with a static alternative or
+install/update its dependencies. See the
+[pinned requirements](https://github.com/davidrjenni/scip-php/blob/71a5b117ec4c5dd2af302e363410e604e5df309e/composer.json)
+and [Composer integration](https://github.com/davidrjenni/scip-php/blob/71a5b117ec4c5dd2af302e363410e604e5df309e/src/Composer/Composer.php).
+If prerequisites are absent or the indexer fails, Graphit
 falls back to the available syntax parser for that family.
 
 ## The complete YAML shape

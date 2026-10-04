@@ -11,8 +11,8 @@ import (
 // memoises the result, including the failure, so a broken install or a missing API key is not
 // retried on every call.
 //
-// This is what the daemon's EmbedServer wraps. It resolves through
-// newDirectEmbeddingClientFromConfig — never NewEmbeddingClientFromConfig — because the daemon
+// This is what the embedding model server wraps. It resolves through
+// newDirectEmbeddingClientFromConfig — never NewEmbeddingClientFromConfig — because the server
 // IS the thing the proxy client dials; going through the proxy path here would try to dial its
 // own socket.
 type LazyEmbeddingClient struct {

@@ -1,24 +1,23 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
-	"github.com/graphit-labs/graphit-code/internal/store"
-	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 const (
@@ -31,6 +30,7 @@ type SyncModule struct {
 	cacheDir   string
 	onActivity func()
 	lastCommit string
+	triggers   ProjectTriggers
 }
 
 func NewSyncModule(projectDir, cacheDir string) *SyncModule {
@@ -38,6 +38,28 @@ func NewSyncModule(projectDir, cacheDir string) *SyncModule {
 }
 
 func (m *SyncModule) Name() string { return "sync" }
+
+// WithTriggers wakes the project's embedders whenever an index this module ran changed.
+func (m *SyncModule) WithTriggers(t ProjectTriggers) *SyncModule {
+	m.triggers = t
+	return m
+}
+
+// hubStorageMayExist reports whether a project could have a published Hub base to
+// hydrate. It mirrors the early returns of hub.HydrateProjectLanceWithResult that need
+// no network — no project identity, or a local provider without Hub storage — so the
+// daemon does not start a `hub hydrate` process that has nothing to do. A Broker
+// provider learns its storage only over the network, so it always hydrates.
+var hubStorageMayExist = func(projectDir string) bool {
+	lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+	if err != nil || lf == nil || lf.Project.ID == "" {
+		return false
+	}
+	if snapshot, err := auth.ResolveActive(context.Background()); err == nil && snapshot.Provider.Type == auth.ProviderBroker {
+		return true
+	}
+	return config.HubS3Config().Configured()
+}
 
 // SetActivityCallback implements ActivityReporter. cb is invoked whenever a
 // batch of filesystem events arrives, even if nothing in it is reindexable —
@@ -172,8 +194,22 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 	return t
 }
 
+// hydrationReport mirrors the JSON `graphit hub hydrate --json` prints.
+type hydrationReport struct {
+	ASTBaseChanged       bool `json:"ast_base_changed"`
+	KnowledgeBaseChanged bool `json:"knowledge_base_changed"`
+}
+
+// handleBatch turns one batch of filesystem events into CLI children scoped to the
+// project. The watcher start (Rescan) runs a full `graphit sync`; a batch refreshes the
+// published base with `hub hydrate --json`, then indexes exactly what changed with
+// `ast index --changes-from -` and `knowledge index`. The children take the machine-wide
+// heavy-work slot themselves; the daemon only decides what to run.
 func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	astIgnore, wikiIgnore fswatch.Ignorer) {
+	if ctx.Err() != nil {
+		return
+	}
 	projectCfg := loadProjectConfigFromDir(m.projectDir)
 
 	scope := knowledge.ScopeFor(m.projectDir, nil, projectCfg)
@@ -181,10 +217,10 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	targets := classifyBatch(batch, m.projectDir, docsPath,
 		config.ResolveKnowledgeExtensions(nil, projectCfg), astIgnore, wikiIgnore, scope.ExtraFiles)
 
-	astWork := !config.IsModuleDisabled("ast", nil, projectCfg) &&
-		(batch.Rescan || len(targets.astChanged) > 0 || len(targets.astRemoved) > 0)
-	knowledgeWork := (targets.knowledge || batch.Rescan) &&
-		!config.IsModuleDisabled("knowledge", nil, projectCfg)
+	astEnabled := !config.IsModuleDisabled("ast", nil, projectCfg)
+	knowledgeEnabled := !config.IsModuleDisabled("knowledge", nil, projectCfg)
+	astWork := astEnabled && (batch.Rescan || len(targets.astChanged) > 0 || len(targets.astRemoved) > 0)
+	knowledgeWork := knowledgeEnabled && (targets.knowledge || batch.Rescan)
 	gitHead := ""
 	if git, err := gitstate.DefaultErr(); err == nil {
 		gitHead, _ = git.RunOutput(m.projectDir, "rev-parse", "HEAD")
@@ -193,42 +229,68 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 		return
 	}
 
-	askedAt := time.Now()
-	release, err := sysutil.AcquireHeavy(ctx)
-	if err != nil {
+	if batch.Rescan {
+		// A parked supervisor has no watcher, so anything — deletions included — may
+		// have changed while it was parked: reconcile the whole project.
+		slog.Info("daemon: running full project sync", "project", m.projectDir)
+		m.lastCommit = gitHead
+		if err := runProjectChild(ctx, m.projectDir, nil, "sync"); err != nil {
+			if ctx.Err() == nil {
+				slog.Error("daemon: project sync failed", "project", m.projectDir, "error", err)
+			}
+			return
+		}
+		m.triggers.ASTIndexed.Notify()
+		m.triggers.KnowledgeIndexed.Notify()
 		return
 	}
-	defer release()
 
-	if waited := time.Since(askedAt); waited > time.Second {
-		slog.Info("daemon: waited for the indexing slot",
-			"project", m.projectDir, "waited", waited.Round(time.Millisecond))
-	}
-	hydrated, err := hub.HydrateProjectLanceWithResult(ctx, m.projectDir, projectCfg)
-	if err != nil {
-		slog.Error("daemon: published Lance hydration failed", "project", m.projectDir, "error", err)
-		return
+	var hydrated hydrationReport
+	if hubStorageMayExist(m.projectDir) {
+		out, err := outputProjectChild(ctx, m.projectDir, "hub", "hydrate", "--json")
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Error("daemon: published Lance hydration failed", "project", m.projectDir, "error", err)
+			}
+			return
+		}
+		if err := json.Unmarshal(out, &hydrated); err != nil {
+			slog.Error("daemon: unreadable hydration report", "project", m.projectDir, "error", err)
+			return
+		}
 	}
 	m.lastCommit = gitHead
-	if hydrated.ASTBaseChanged && !config.IsModuleDisabled("ast", nil, projectCfg) {
-		astWork = true
-		batch.Rescan = true
+	fullAST := false
+	if hydrated.ASTBaseChanged && astEnabled {
+		astWork, fullAST = true, true
 	}
-	if hydrated.KnowledgeBaseChanged && !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+	if hydrated.KnowledgeBaseChanged && knowledgeEnabled {
 		knowledgeWork = true
 	}
 
+	var err error
 	if astWork {
-		if batch.Rescan {
-			slog.Info("daemon: running full AST scan", "project", m.projectDir)
-			m.reindexAST(ctx, projectCfg, nil, nil)
+		if fullAST {
+			slog.Info("daemon: published AST base changed; reconciling the whole project", "project", m.projectDir)
+			err = runProjectChild(ctx, m.projectDir, nil, "ast", "index")
 		} else {
-			m.reindexAST(ctx, projectCfg, targets.astChanged, targets.astRemoved)
+			changes, _ := json.Marshal(map[string][]string{"changed": targets.astChanged, "removed": targets.astRemoved})
+			err = runProjectChild(ctx, m.projectDir, bytes.NewReader(changes), "ast", "index", "--changes-from", "-")
+		}
+		switch {
+		case err == nil:
+			m.triggers.ASTIndexed.Notify()
+		case ctx.Err() == nil:
+			slog.Error("daemon: AST index failed", "project", m.projectDir, "error", err)
 		}
 	}
-
-	if knowledgeWork {
-		m.reindexKnowledge(ctx, projectCfg)
+	if knowledgeWork && ctx.Err() == nil {
+		switch err := runProjectChild(ctx, m.projectDir, nil, "knowledge", "index"); {
+		case err == nil:
+			m.triggers.KnowledgeIndexed.Notify()
+		case ctx.Err() == nil:
+			slog.Error("daemon: Knowledge index failed", "project", m.projectDir, "error", err)
+		}
 	}
 }
 
@@ -255,56 +317,4 @@ func isUnder(path, dir string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap, changed, removed []string) {
-	cfg := ast.LadybugConfigFor(m.projectDir)
-	db := ast.NewLadybugDB(cfg)
-	defer func() { _ = db.Close() }()
-
-	rebuildLog, closeLog := projectRebuildLogger(m.projectDir)
-	defer closeLog()
-
-	revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
-	pipeOpts := ast.PipelineOptions{
-		Workers:          ast.SafeWorkers(0),
-		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
-		CacheDir:         cfg.StoreDir,
-		ReverseEdges:     &revEdges,
-		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
-		Logger:           rebuildLog,
-	}
-	var perr error
-	if len(changed) > 0 || len(removed) > 0 {
-		_, perr = ast.RunPipelineForPaths(ctx, db, m.projectDir, changed, removed, pipeOpts)
-	} else {
-		_, perr = ast.RunPipeline(ctx, db, m.projectDir, pipeOpts)
-	}
-	if perr != nil {
-		slog.Error("daemon: AST pipeline failed", "store", cfg.StoreDir, "error", perr)
-	}
-}
-
-func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.ConfigMap) {
-	scope := knowledge.ScopeFor(m.projectDir, nil, projectCfg)
-	wikiDir := store.KnowledgeProjectDir(m.projectDir)
-	kCfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
-	if _, err := knowledge.RunIndexPipeline(ctx, m.projectDir, wikiDir, kCfg); err != nil {
-		slog.Error("daemon: Knowledge pipeline failed", "store", wikiDir, "error", err)
-	}
-}
-
-func projectRebuildLogger(projectDir string) (*slog.Logger, func()) {
-	dir := brand.ProjectRuntimePath(projectDir, "daemon")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return slog.New(slog.NewTextHandler(io.Discard, nil)), func() {}
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "daemon.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return slog.New(slog.NewTextHandler(io.Discard, nil)), func() {}
-	}
-	logger := slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})).
-		With("module", "ast")
-	return logger, func() { _ = f.Close() }
 }

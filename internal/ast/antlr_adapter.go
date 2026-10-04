@@ -2,6 +2,7 @@ package ast
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -150,7 +151,7 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 
 	if len(cfgs) == 0 {
 		langName := strings.TrimPrefix(ext, ".")
-		qfs := resolveQueriesForLang(a.projectDir, langName, ext)
+		qfs := resolveQueriesForLang(a.projectDir, langName, ext, opts.Logger)
 		for _, qf := range qfs {
 			if qf.Parser == "antlr4" && !qf.Exclusive {
 				cfgs = append(cfgs, antlrConfigOf(qf))
@@ -216,7 +217,7 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 	var queries []tsQueryDef
 
 	if a.projectDir != "" {
-		resolved := resolveQueriesForLang(a.projectDir, cfg.Language, ext)
+		resolved := resolveQueriesForLang(a.projectDir, cfg.Language, ext, opts.Logger)
 		for _, qf := range resolved {
 			if qf.Parser == "antlr4" {
 				langConfig = &qf
@@ -754,7 +755,7 @@ func detectExportsAntlr(result *ParsedFile, lang string, langConfig *ExternalQue
 // declare. AntlrParser.Parse has always fallen back to those, but nothing could
 // reach it: discovery and the watcher filter by extension first, and they were
 // asking the global table only.
-func HasAntlrForExtensionIn(projectDir, ext string) bool {
+func HasAntlrForExtensionIn(projectDir, ext string, loggers ...*slog.Logger) bool {
 	ext = strings.ToLower(ext)
 	if len(enabledAntlrConfigsFor(projectDir, ext)) > 0 {
 		return true
@@ -762,7 +763,7 @@ func HasAntlrForExtensionIn(projectDir, ext string) bool {
 	if projectDir == "" {
 		return false
 	}
-	for _, qf := range effectiveProjectQueryFiles(projectDir) {
+	for _, qf := range effectiveProjectQueryFiles(projectDir, loggers...) {
 		if qf.Parser != "antlr4" || qf.Exclusive || !queryFileClaims(qf, ext) {
 			continue
 		}
@@ -814,12 +815,12 @@ func HasParserForExtension(ext string) bool {
 // HasParserForExtensionIn is HasParserForExtension including the languages a
 // project declares for itself, and the grammar its configuration binds to the
 // extension — which is the only way an exclusive grammar is ever reached.
-func HasParserForExtensionIn(projectDir, ext string) bool {
+func HasParserForExtensionIn(projectDir, ext string, loggers ...*slog.Logger) bool {
 	if scipFamilyFor(projectDir, ext) != "" {
 		return true
 	}
 	if grammar := overriddenGrammarFor(projectDir, ext); grammar != "" {
-		return grammarKnownIn(projectDir, grammar)
+		return grammarKnownIn(projectDir, grammar, loggers...)
 	}
-	return HasTreeSitterForExtensionIn(projectDir, ext) || HasAntlrForExtensionIn(projectDir, ext)
+	return HasTreeSitterForExtensionIn(projectDir, ext, loggers...) || HasAntlrForExtensionIn(projectDir, ext, loggers...)
 }

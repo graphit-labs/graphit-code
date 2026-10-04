@@ -13,6 +13,12 @@ func init() {
 	if !testing.Testing() {
 		return
 	}
+	// A test binary started by a test as a CLI child (see clirun) already runs inside
+	// the isolated environment its parent test set up; re-isolating would point it at
+	// a different home and global directory than the test it serves.
+	if os.Getenv("GRAPHIT_SUBPROCESS") == "1" && os.Getenv("GRAPHIT_TEST_CLI") == "1" {
+		return
+	}
 
 	root := strings.TrimSpace(os.Getenv("GRAPHIT_TEST_HOME_ROOT"))
 	if root == "" {

@@ -2,18 +2,15 @@ package commands
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
@@ -36,29 +33,17 @@ func newSessionHookCmd() *cobra.Command {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
 			projectDir = resolveSessionHookProjectDir(projectDir, input)
-			if err := runTaskSessionHook(cmd.Context(), projectDir, format, input); err != nil {
+			if syncBeforeOutput && projectDir == "" {
+				return fmt.Errorf("no Graphit project lockfile was found from the hook input")
+			}
+			payload, err := renderSessionHook(cmd.Context(), projectDir, format, input)
+			if err != nil {
 				return err
 			}
 			if syncBeforeOutput {
 				if err := dispatchFinalHookSync(projectDir); err != nil {
 					return err
 				}
-			}
-			bootstrapDelivered := false
-			if strings.EqualFold(format, sessionhook.FormatSessionPrompt) {
-				bootstrapDelivered = markSessionBootstrapDelivered(projectDir, input)
-			}
-			includeMandatory := hookInputNeedsMandatory(format, input) && !bootstrapDelivered
-			var context sessionhook.Context
-			if includeMandatory || strings.EqualFold(format, sessionhook.FormatToolContext) {
-				context = sessioncontext.Build(projectDir, includeMandatory)
-			} else {
-				context = sessioncontext.ModuleContext(projectDir)
-			}
-			context.BootstrapDelivered = bootstrapDelivered
-			payload, err := sessionhook.RenderWithContext(format, input, context)
-			if err != nil {
-				return err
 			}
 			if len(payload) == 0 {
 				return nil
@@ -72,6 +57,45 @@ func newSessionHookCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&syncBeforeOutput, "sync", false, "dispatch a full project sync asynchronously before rendering completion output")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
+}
+
+// renderSessionHook applies a hook event for projectDir and renders the payload the
+// host expects, with the store-backed half applied in this process.
+func renderSessionHook(ctx context.Context, projectDir, format string, input []byte) ([]byte, error) {
+	return sessioncontext.Render(ctx, projectDir, format, input, applySessionHookStore)
+}
+
+// applySessionHookStore is the store-backed half of a hook event. The core command runs
+// it in-process; the daemon runs it for the lightweight hook binary.
+func applySessionHookStore(ctx context.Context, req sessionhook.StoreRequest) (sessionhook.StoreResult, error) {
+	var result sessionhook.StoreResult
+	if req.Task {
+		if err := runTaskSessionHook(ctx, req.ProjectDir, req.Format, req.Input); err != nil {
+			return result, err
+		}
+	}
+	if req.Mandatory {
+		result.Mandatory, result.MandatoryLoaded = loadMandatoryContext(req.ProjectDir)
+	}
+	return result, nil
+}
+
+func loadMandatoryContext(projectDir string) (string, bool) {
+	return loadMandatoryContextWith(projectDir, memory.ListMandatoryMemoriesForProject)
+}
+
+func loadMandatoryContextWith(projectDir string, list func(string, string) ([]memory.MandatoryEntry, error)) (string, bool) {
+	var sections []string
+	for _, scope := range []string{"project", "user"} {
+		entries, err := list(projectDir, scope)
+		if err != nil {
+			return "", false
+		}
+		for _, entry := range entries {
+			sections = append(sections, fmt.Sprintf("### %s memory: %s\n%s", scope, entry.Title, entry.Content))
+		}
+	}
+	return strings.Join(sections, "\n\n"), true
 }
 
 func runTaskSessionHook(ctx context.Context, projectDir, format string, input []byte) error {
@@ -130,100 +154,9 @@ func finalHookSyncCommand(projectDir, executable string) *exec.Cmd {
 }
 
 func resolveSessionHookProjectDir(explicit string, input []byte) string {
-	type hookInput struct {
-		CWD            string   `json:"cwd"`
-		WorkspaceRoots []string `json:"workspace_roots"`
-		WorkspacePaths []string `json:"workspacePaths"`
-	}
-
-	candidates := make([]string, 0, 5)
-	if explicit != "" {
-		return findSessionHookProjectRoot(explicit)
-	}
-
-	var event hookInput
-	if json.Unmarshal(input, &event) == nil {
-		candidates = append(candidates, event.CWD)
-		candidates = append(candidates, event.WorkspaceRoots...)
-		candidates = append(candidates, event.WorkspacePaths...)
-	}
-	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, wd)
-	}
-
-	for _, candidate := range candidates {
-		if root := findSessionHookProjectRoot(candidate); root != "" {
-			return root
-		}
-	}
-	return ""
-}
-
-func findSessionHookProjectRoot(start string) string {
-	return sessioncontext.FindProjectRoot(start)
-}
-
-func hookInputNeedsMandatory(format string, input []byte) bool {
-	switch strings.ToLower(format) {
-	case sessionhook.FormatFirstInvocation:
-		var event struct {
-			InvocationNum *int `json:"invocationNum"`
-		}
-		return json.Unmarshal(input, &event) == nil && event.InvocationNum != nil && *event.InvocationNum == 0
-	case sessionhook.FormatSessionStart, sessionhook.FormatAdditionalContext,
-		sessionhook.FormatPlainContext, sessionhook.FormatSubagentStart,
-		sessionhook.FormatCursorSubagentTask, sessionhook.FormatSessionPrompt:
-		return true
-	default:
-		return false
-	}
-}
-
-// markSessionBootstrapDelivered reports whether this host session already
-// received the full protocol, marking it when it had not. Every failure answers
-// false on purpose: repeating the bootstrap only costs tokens, while wrongly
-// skipping it would leave the agent with no routing at all.
-func markSessionBootstrapDelivered(projectDir string, input []byte) bool {
-	if projectDir == "" {
-		return false
-	}
-	var event struct {
-		SessionID string `json:"session_id"`
-	}
-	if json.Unmarshal(input, &event) != nil {
-		return false
-	}
-	// The identifier reaches us from the host, so it never becomes a path
-	// element itself; the digest keeps a hostile or exotic value contained.
-	id := strings.TrimSpace(event.SessionID)
-	if id == "" {
-		return false
-	}
-	marker := brand.ProjectRuntimePath(projectDir, "cache", "session-bootstrap", fmt.Sprintf("%x", sha256.Sum256([]byte(id))))
-	if _, err := os.Stat(marker); err == nil {
-		return true
-	}
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		return false
-	}
-	if err := os.WriteFile(marker, nil, 0o644); err != nil {
-		return false
-	}
-	return false
+	return sessionhook.ResolveProjectDir(explicit, input)
 }
 
 func readSessionHookInput(input io.Reader, format string) ([]byte, error) {
-	if file, ok := input.(*os.File); ok {
-		info, err := file.Stat()
-		if err != nil {
-			return nil, fmt.Errorf("inspecting session hook input: %w", err)
-		}
-		if info.Mode()&os.ModeCharDevice != 0 {
-			if strings.EqualFold(format, sessionhook.FormatFirstInvocation) {
-				return []byte(`{"invocationNum":0}`), nil
-			}
-			return nil, nil
-		}
-	}
-	return io.ReadAll(input)
+	return sessionhook.ReadInput(input, format)
 }

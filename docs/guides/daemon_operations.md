@@ -166,7 +166,8 @@ The daemon runs exactly once per machine/global directory. Projects do not start
 | Launcher stamp | Every 30 s | Graceful self-replacement after a Core/launcher update |
 | Global and supervised-project grammar signatures | Every 30 s | Replacement so newly installed/removed native parsers are loaded safely |
 | Project filesystem events | OS notifications; 1 s quiet / 5 s max debounce | Incremental AST paths and/or full knowledge rebuild |
-| AST, knowledge-wiki, and memory embedding backlog | Immediately in their loops, then every 2 min | Generate missing semantic vectors and rebuild affected indexes |
+| AST and knowledge-wiki embedding backlog | Immediately, again right after an index run changed that store, and every 30 min as a safety net | Generate missing semantic vectors and rebuild affected indexes |
+| Memory embedding backlog | Immediately, then every 2 min | Generate missing semantic vectors for new or changed memories |
 | Project and user memory tables | Immediately, then every 15 min | Ensure indexes, compact, and prune retained versions when due |
 | Dream idle state | Continuous per enabled project | Start bounded autonomous sessions after `dream.idle_timeout` |
 | MCP discovery files | Every 5 s while serving | Restore the chosen port and bearer-key files if deleted or changed |
@@ -196,16 +197,106 @@ project park/resume after changing `modules.sync`, `modules.embedding`, `modules
 `modules.memory`. Settings used inside a sync batch—such as AST grammar bindings, knowledge scope,
 source storage, and AST/Knowledge gates—are reloaded from `graphit.lock.json` for every batch.
 
+## Process model
+
+The daemon watches, schedules and supervises; it does not index, embed, maintain stores or run
+models itself. Every job runs as a `graphit` CLI child process started through the launcher, with
+the project root as its working directory, so each job is visible on its own in `ps`, Task Manager
+or Activity Monitor with its own CPU and memory, and a failing job cannot take the daemon down.
+
+```text
+graphit daemon
+├── graphit model serve embedding        local embedding model (graphit-model binary)
+├── graphit model serve rerank           local rerank model (graphit-model binary)
+├── graphit memory maintain --user       every 15 minutes
+├── graphit memory embed --user          every 2 minutes
+└── per supervised project, cwd = project root
+    ├── graphit sync                     when the watcher (re)starts
+    │   ├── graphit hub hydrate
+    │   ├── graphit ast index
+    │   ├── graphit knowledge index
+    │   ├── graphit memory index [--user]
+    │   └── graphit sync --heavy
+    │       ├── graphit ast embed / wiki embed / memory embed [--user]
+    │       └── graphit memory maintain [--user]
+    ├── graphit hub hydrate --json       on each filesystem batch, when Hub storage can exist
+    ├── graphit ast index --changes-from -   changed/removed paths as JSON on stdin
+    ├── graphit knowledge index          when documentation changed
+    ├── graphit ast embed --if-idle      after an AST index changed the store; every 30 minutes otherwise
+    ├── graphit wiki embed               after a Knowledge index; every 30 minutes otherwise
+    ├── graphit memory embed             every 2 minutes
+    ├── graphit memory maintain          every 15 minutes
+    ├── graphit task maintain            every 15 minutes
+    └── graphit dream run --session <id> when the project is idle long enough
+```
+
+- **Scope.** A project child always starts in the project root and resolves the project from its
+  working directory; user-scope Memory children start in the global directory.
+- **Logs.** A project child's output is appended to `.graphit/runtime/daemon/daemon.log`; global
+  children write `~/.graphit/daemon/<module>.log`.
+- **Priority.** Daemon children are marked as background work: they lower their scheduling priority
+  and stay inside the CPU budget, and so does everything they start.
+- **Cancellation.** Parking a project, stopping the daemon or a module restart ends the child and
+  everything it started: on Linux and macOS the tree is one process group signalled with SIGTERM,
+  then SIGKILL after 10 seconds; on Windows it is ended with `taskkill /T /F`. Children never open
+  a console window on Windows.
+- **Failures.** A failed scheduled run is logged and retried on the next tick; it does not stop the
+  module.
+- **No idle work.** AST and Knowledge embedding run when an index the sync module ran (or a full
+  `sync`) succeeded, so an idle project starts no embedding process; their 30-minute timer is only a
+  safety net. A batch skips `hub hydrate` when the project cannot have a published Hub base: no
+  project ID in the lockfile, or no Hub storage configured for a non-Broker provider. A Broker
+  provider learns its storage over the network, so it always hydrates.
+- **Interactive `graphit sync`** runs the same children with the terminal's output, and hands
+  `sync --heavy` to a detached process so the terminal is free. Under the daemon, `sync` waits for
+  its heavy phase so the whole tree stays supervised.
+
+Each command above is an ordinary CLI command; see [CLI Reference](cli_reference.md#maintenance-commands-run-by-the-daemon)
+to run any of them by hand.
+
+### Lightweight runtime binaries
+
+The launcher embeds dedicated binaries next to the core and runs them for invocations that do not
+need the core's stores, parsers and native libraries:
+
+| Invocation | Binary | Links | Typical memory |
+|---|---|---|---|
+| `graphit mcp --stdio` | `graphit-mcp` | Pure Go, proxies to the daemon | 12–35 MB |
+| `graphit _session-hook ...` (Agent hooks) | `graphit-hook` | Pure Go | ~7 MB per event (core: ~150–165 MB) |
+| `graphit _git-hook <event> ...` (Git hooks) | `graphit-githook` | Pure Go | ~3–8 MB per event (core: ~80 MB) |
+| `graphit tray` (the resident tray) | `graphit-tray` | Tray UI only | ~11 MB |
+| `graphit model serve <embedding\|rerank>` | `graphit-model` | ONNX Runtime only | ~11 MB idle, plus the loaded model |
+| `graphit task maintain`, `graphit memory maintain\|embed\|index [--user]` started by the daemon | `graphit-store` | LanceDB and the embedding client | about 50 MB less than the core for the same run |
+
+`graphit-hook` renders the hook payload itself from the project lockfile, the module mandates and
+the installed Hub rules. Only the part that needs a store — the Task lifecycle effect (reconcile,
+heartbeat or release) and reading mandatory memory — goes to the running daemon over the
+authenticated local endpoint `POST /internal/session-store` (the same runtime key as `/mcp`); an
+event that needs neither, for example with Task and Memory disabled, never leaves the hook
+process. An Agent hook fired on every tool call therefore no longer starts a full core process
+(~160 MB). Its output is identical to the core command's. When no daemon is running, it hands the
+same event to the core, which handles it entirely; the hook never starts the daemon itself. The
+Agent configuration keeps calling `graphit _session-hook`.
+
+`graphit-store` serves only the store maintenance forms above, and only when a managed parent (the
+daemon, or a CLI command that runs its children) started them; the same command typed in a
+terminal still runs in the core, which also makes sure the daemon and tray are up. With a Broker
+provider whose storage credentials are scoped per project, `graphit-store` hands the invocation to
+the core, because only the core links the Hub registry that authorizes those projects.
+
+`graphit-tray` runs only the bare `graphit tray`; `graphit tray login ...` stays in the core.
+
 ## Per-project modules
 
-| Module | Default | Work |
+| Module | Default | Child command |
 |---|---|---|
-| Sync | On (`modules.sync`) | One recursive watcher; incremental AST updates and knowledge rebuilds |
-| AST embedding | On (`modules.embedding`) | Embeds changed AST search documents every two minutes |
-| Knowledge embedding | On (`modules.embedding`) | Embeds knowledge-wiki chunks every two minutes |
-| Memory embedding | On (`modules.embedding`, `modules.memory`) | Embeds missing vectors in the project/user authoritative memory tables every two minutes |
-| Project memory maintenance | On (`modules.memory`) | Maintains the project's authoritative memory table every 15 minutes |
-| Dream | Off (`modules.dream`) | Runs idle autonomous work and memory consolidation |
+| Sync | On (`modules.sync`) | One recursive watcher in the daemon; `hub hydrate --json`, `ast index --changes-from -` and `knowledge index` per batch, `sync` when the watcher starts |
+| AST embedding | On (`modules.embedding`) | `ast embed --if-idle` after an AST index changed the store, otherwise every 30 minutes; skipped while an AST index is publishing |
+| Knowledge embedding | On (`modules.embedding`) | `wiki embed` after a Knowledge index, otherwise every 30 minutes |
+| Memory embedding | On (`modules.embedding`, `modules.memory`) | `memory embed` every two minutes (user table: `memory embed --user`, global) |
+| Project memory maintenance | On (`modules.memory`) | `memory maintain` every 15 minutes |
+| Task maintenance | On (`modules.task`) | `task maintain` every 15 minutes |
+| Dream | Off (`modules.dream`) | Idle detection in the daemon; each due session runs as `dream run --session <id>` |
 
 `modules.ast` and `modules.knowledge` are evaluated within Sync and can independently suppress the
 corresponding work. Disabling `modules.sync` removes the watcher entirely. Explicit CLI/MCP index
@@ -255,17 +346,30 @@ the complete file contract.
 
 ## Global modules and services
 
-### Shared embedding socket
+### Local model servers
 
-Unless disabled by process flag or `modules.embedding`, the daemon supervises one lazy embedding
-server at `~/.graphit/daemon/embed.sock`. It serves the active provider's embedding capability;
-for local embeddings, one ONNX session can be reused across projects and short-lived processes.
-Clients try the socket and fall back to direct construction automatically.
+The daemon supervises two model-server processes, `graphit model serve embedding` (unless disabled
+by `--no-embedding`) and `graphit model serve rerank`, run by the `graphit-model` binary. Each
+listens on its own socket, `~/.graphit/daemon/embed.sock` and `~/.graphit/daemon/rerank.sock`,
+loads its model on the first request and serves the active provider's capability, so one model is
+loaded per machine and its memory belongs to that process alone. A server that exits is restarted
+with the daemon's normal backoff; a server whose daemon dies notices the closed pipe and exits.
+If that path would exceed the system's Unix socket path limit (103 bytes, so it fits Linux,
+macOS and Windows), both sockets move to a short per-user directory, `graphit-<hash>/` under
+`$XDG_RUNTIME_DIR` when set, otherwise the temporary directory; the hash is derived from the global
+directory and user, so the servers and every client compute the same path. That directory is created
+with mode `0700`, and on Linux and macOS one owned by another user, or a symlink, is refused.
 
-### User memory maintenance
+Every other process — the daemon's own MCP search, project children, interactive commands — uses the
+socket when it answers. The daemon never loads a local model itself: while a local model's server
+is unavailable, a daemon request that needs it fails with `local <task> model server is not
+running`. Without a daemon, CLI commands build the configured client in their own process as before.
 
-When `modules.memory=true` and a user identity exists, one machine-wide module maintains the user
-memory table every 15 minutes. It is independent of project parking.
+### User memory
+
+When `modules.memory=true` and a user identity exists, the daemon runs `graphit memory maintain
+--user` every 15 minutes and `graphit memory embed --user` every two minutes. These are independent
+of project parking.
 
 ### MCP HTTP endpoint and health
 
@@ -317,8 +421,12 @@ The UI listener uses `ui.host` and its own port behavior. It is distinct from th
 
 ## Resource control and failure recovery
 
-The daemon lowers its process priority and uses `GRAPHIT_MAX_WORKERS`/the CPU budget. CPU-heavy AST,
-Knowledge, and embedding cycles acquire one process-wide slot by default. Set
+The daemon lowers its process priority and uses `GRAPHIT_MAX_WORKERS`/the CPU budget. Because the
+work runs in separate processes, the CPU-heavy commands — `ast index`, `knowledge index`,
+`ast embed`, `wiki embed` and `memory embed` — take one **machine-wide** slot before they start,
+whether the daemon, an interactive command or a Git hook started them. A slot is an advisory file
+lock under `~/.graphit/locks/`, released by the operating system when its holder exits. Only the
+process doing the heavy work holds a slot; a parent waiting on such a child never does. Set
 `GRAPHIT_HEAVY_SLOTS` above `1` only when the machine can trade higher peak CPU and memory for more
 parallel throughput. Database, embedding, and ANTLR-specific environment limits remain available
 as documented in [Configuration Reference](configuration.md#runtime-only-environment-controls).
@@ -359,11 +467,15 @@ replacement. New or removed parser binaries do.
 | `~/.graphit/daemon/daemon.pid` | PID, UTC start time, and singleton lock | `0600` |
 | `~/.graphit/daemon/.spawn.lock` | Serializes concurrent autostart attempts | `0600`; acquisition waits at most 10 seconds |
 | `~/.graphit/daemon/daemon.log` | Default global daemon log | Opened `0600`; spawned stderr appender may create `0644` |
-| `~/.graphit/daemon/embed.sock` | Local embedding proxy | Unix socket; removed on close |
+| `~/.graphit/daemon/embed.sock` | Local embedding model server | Unix socket; removed on close; moves to a short per-user directory when the global path is too long |
+| `~/.graphit/daemon/rerank.sock` | Local rerank model server | Unix socket; removed on close |
+| `~/.graphit/daemon/model-embedding.log`, `model-rerank.log` | Model-server output | Appended |
+| `~/.graphit/daemon/memory-*-user.log` | User-scope Memory child output | Appended |
+| `~/.graphit/locks/heavy-slot-<n>.lock` | Machine-wide heavy-work slots | Advisory locks; released when the holder exits |
 | `~/.graphit/daemon/mcp.port` | Selected MCP TCP port | Discovery metadata |
 | `~/.graphit/daemon/mcp.key` | Generated runtime MCP bearer secret, rotated with the daemon | `0600` |
 | `~/.graphit/daemon/launcher.stamp` | Installed launcher/Core identity | Replacement input |
-| `.graphit/runtime/daemon/daemon.log` | Per-project supervisor/module log | Generated, `0644` |
+| `.graphit/runtime/daemon/daemon.log` | Per-project supervisor/module log and the output of every project child | Generated, `0644` |
 | `.graphit/runtime/daemon/rebuild.log` | AST/wiki embedding and rebuild details | Generated |
 
 Paths under `~/.graphit` follow `GRAPHIT_GLOBAL_DIR` when that override is set.
@@ -395,3 +507,9 @@ graphit daemon service status
 
 For provider behavior, see [AI Models, Providers, and Agent CLIs](ai_models.md). For developer-level
 supervisor contracts, see [Daemon Module Specification](../specs/daemon_module.md).
+
+CLI AST indexing (`init`, `sync`, `ast index`) also records SCIP failures,
+parse errors and graph diagnostics in the project daemon log. Detailed
+messages stay out of terminal output and the global CLI log.
+This includes query profile validation/reloads, embedded parser diagnostics
+and accumulated cache, search or graph write errors.

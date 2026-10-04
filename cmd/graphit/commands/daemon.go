@@ -34,6 +34,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/graphit-labs/graphit-code/internal/tray"
@@ -213,25 +214,12 @@ func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed b
 	if logPath != "" {
 		cfg.LogPath = logPath
 	}
-	var localONNXTasks []ai.ModelTask
-	if !cfg.DisableEmbedding {
-		localONNXTasks = append(localONNXTasks, ai.ModelTaskEmbedding)
-	}
-	if config.SearchRerank() {
-		localONNXTasks = append(localONNXTasks, ai.ModelTaskRerank)
-	}
-	if err := ai.ValidateConfiguredLocalONNXDevices(localONNXTasks...); err != nil {
-		return closeMCP, err
-	}
-
-	var sharedEmbedClient ai.EmbeddingClient
-	if !cfg.DisableEmbedding {
-		sharedEmbedClient = ai.NewLazyEmbeddingClient()
-	}
-	go func() { _ = ai.PrefetchConfiguredLocalModels(context.Background()) }()
+	// Local models never load in this process: each one runs in its own `model serve`
+	// child below, and anything here that needs a model goes through that child's socket.
+	ai.SetModelServerRequired(true)
 
 	builder := func(projectDir string) ([]daemon.WatchModule, []func() error, error) {
-		return buildDaemonProjectModules(projectDir, cfg, sharedEmbedClient)
+		return buildDaemonProjectModules(projectDir, cfg)
 	}
 
 	signal.Reset(syscall.SIGTERM, syscall.SIGINT)
@@ -357,17 +345,15 @@ func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed b
 
 	d := daemon.New(cfg, builder)
 
-	if sharedEmbedClient != nil {
-		d.AddGlobalModule(daemon.NewEmbedServer(sharedEmbedClient))
+	if !cfg.DisableEmbedding {
+		d.AddGlobalModule(daemon.NewModelServerModule(string(ai.ModelTaskEmbedding)))
 	}
+	d.AddGlobalModule(daemon.NewModelServerModule(string(ai.ModelTaskRerank)))
 	if !config.IsModuleDisabled("memory", nil, nil) {
 		if userID, userErr := memory.UserScopeID(); userErr == nil && userID != "" {
-			userMemoryURI := memory.TableURIFor("user", userID)
-			if userMemoryURI != "" {
-				d.AddGlobalModule(daemon.NewMemoryMaintenanceModule(userMemoryURI, 15*time.Minute))
-				if sharedEmbedClient != nil {
-					d.AddGlobalModule(daemon.NewMemoryEmbeddingModule(userMemoryURI, sharedEmbedClient, 2*time.Minute))
-				}
+			d.AddGlobalModule(daemon.NewMemoryMaintenanceModule("", 15*time.Minute))
+			if !cfg.DisableEmbedding {
+				d.AddGlobalModule(daemon.NewMemoryEmbeddingModule("", 2*time.Minute))
 			}
 		} else if userErr != nil {
 			p.Warn("user memory maintenance is disabled: %v", userErr)
@@ -420,6 +406,8 @@ func newDaemonMCPMux(mcpHandler http.Handler, opts daemonMCPMuxOptions) http.Han
 		resolver:   opts.Resolver,
 		verifier:   opts.Verifier,
 	}))
+
+	mux.Handle("POST "+sessionhook.DaemonPath, &sessionHookHandler{runtimeKey: opts.RuntimeKey})
 
 	// RFC 9728 locates metadata under the well-known prefix, optionally suffixed with the
 	// resource's own path. Clients disagree on which one they request, so both answer.
@@ -507,7 +495,7 @@ func daemonMCPKeyFileMatches(path, apiKey string) bool {
 	return err == nil && info.Mode().Perm() == 0o600
 }
 
-func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbedClient ai.EmbeddingClient) ([]daemon.WatchModule, []func() error, error) {
+func buildDaemonProjectModules(projectDir string, cfg daemon.Config) ([]daemon.WatchModule, []func() error, error) {
 	lp := filepath.Join(projectDir, brand.LockFileName())
 	lf, _ := hub.LoadLockfile(lp)
 	var projectCfg config.ConfigMap
@@ -516,19 +504,23 @@ func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbed
 	}
 
 	disableSync := config.IsModuleDisabled("sync", nil, projectCfg)
-	disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
+	disableEmbedding := cfg.DisableEmbedding || config.IsModuleDisabled("embedding", nil, projectCfg)
 	disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
 	disableMemory := config.IsModuleDisabled("memory", nil, projectCfg)
 	disableTask := config.IsModuleDisabled("task", nil, projectCfg)
-	cacheDir := store.ASTProjectDir(projectDir)
 
+	// Every module below only schedules: the work itself runs as a CLI child process in
+	// projectDir (see internal/daemon/subprocess.go).
+	// Embedding follows indexing: a finished index wakes its embedder, and the long
+	// timer only catches what a missed or failed run left behind.
+	triggers := daemon.NewProjectTriggers()
 	var modules []daemon.WatchModule
 	if !disableSync {
-		modules = append(modules, daemon.NewSyncModule(projectDir, cacheDir))
+		modules = append(modules, daemon.NewSyncModule(projectDir, store.ASTProjectDir(projectDir)).WithTriggers(triggers))
 	}
 	if !disableEmbedding {
-		modules = append(modules, daemon.NewEmbeddingModule(projectDir, 2*time.Minute, cacheDir))
-		modules = append(modules, daemon.NewWikiEmbeddingModule(projectDir, daemon.WikiEmbedTargets(projectDir, nil), 2*time.Minute))
+		modules = append(modules, daemon.NewEmbeddingModule(projectDir, 30*time.Minute, triggers.ASTIndexed))
+		modules = append(modules, daemon.NewWikiEmbeddingModule(projectDir, 30*time.Minute, triggers.KnowledgeIndexed))
 	}
 	if !disableDream {
 		var lockfileAgents []string
@@ -539,12 +531,9 @@ func buildDaemonProjectModules(projectDir string, cfg daemon.Config, sharedEmbed
 		modules = append(modules, daemon.NewDreamModule(projectDir, agent))
 	}
 	if !disableMemory && lf != nil && lf.Project.ID != "" {
-		projectMemoryURI := memory.TableURIFor("project", lf.Project.ID)
-		if projectMemoryURI != "" {
-			modules = append(modules, daemon.NewMemoryMaintenanceModule(projectMemoryURI, 15*time.Minute))
-			if !disableEmbedding && sharedEmbedClient != nil {
-				modules = append(modules, daemon.NewMemoryEmbeddingModule(projectMemoryURI, sharedEmbedClient, 2*time.Minute))
-			}
+		modules = append(modules, daemon.NewMemoryMaintenanceModule(projectDir, 15*time.Minute))
+		if !disableEmbedding {
+			modules = append(modules, daemon.NewMemoryEmbeddingModule(projectDir, 2*time.Minute))
 		}
 	}
 	if !disableTask && lf != nil && lf.Project.ID != "" {

@@ -207,6 +207,8 @@ jobs:
         run: go test -race -count=1 -timeout 5m ./internal/store/...
       - name: Cross-process lock semantics
         run: go test -race -count=1 -timeout 5m ./internal/lockfile ./internal/storelifecycle ./internal/daemonctl
+      - name: Subprocess tree and machine-wide heavy gate
+        run: go test -race -count=1 -timeout 5m ./internal/clirun ./internal/sysutil
 
   security:
     name: Security Scan

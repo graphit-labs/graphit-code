@@ -93,20 +93,12 @@ func main() {
 
 	sysutil.SanitizeInheritedFDs()
 
-	var coreArgs []string
-	if isMCPStdio() {
-		var mcpBinName string
-		if runtime.GOOS == "windows" {
-			mcpBinName = fmt.Sprintf("%s-mcp.exe", brand.BinName())
-		} else {
-			mcpBinName = fmt.Sprintf("%s-mcp", brand.BinName())
+	coreArgs := os.Args[1:]
+	if name, args, ok := thinBinary(os.Args[1:]); ok {
+		thinPath := filepath.Join(runtimeDir, runtimeBinName(name))
+		if _, statErr := os.Stat(thinPath); statErr == nil {
+			coreBinPath, coreArgs = thinPath, args
 		}
-		mcpBinPath := filepath.Join(runtimeDir, mcpBinName)
-		if _, statErr := os.Stat(mcpBinPath); statErr == nil {
-			coreBinPath = mcpBinPath
-		}
-	} else {
-		coreArgs = os.Args[1:]
 	}
 
 	argv := append([]string{coreBinPath}, coreArgs...)
@@ -205,12 +197,60 @@ func writeLauncherStamp(appDir string) {
 	_ = os.WriteFile(filepath.Join(stampDir, "launcher.stamp"), []byte(stamp+"\n"), 0o644)
 }
 
-func isMCPStdio() bool {
-	args := os.Args[1:]
-	if len(args) < 2 {
+// thinBinary picks the dedicated runtime binary for an invocation that does not need
+// the core, and the arguments that binary expects. Each of these links only what its job
+// needs, so a frequent or long-lived process does not carry the core's parsers, stores
+// and native libraries. When the binary is missing from the runtime the core handles the
+// same invocation itself.
+func thinBinary(args []string) (name string, rest []string, ok bool) {
+	switch {
+	case len(args) >= 2 && args[0] == "mcp" && args[1] == "--stdio":
+		return "mcp", nil, true
+	case len(args) >= 1 && args[0] == "model":
+		return "model", args[1:], true
+	case len(args) >= 1 && args[0] == "_session-hook":
+		return "hook", args[1:], true
+	case len(args) >= 1 && args[0] == "_git-hook":
+		return "githook", args[1:], true
+	case len(args) == 1 && args[0] == "tray":
+		// Only the resident tray; `tray login ...` manages login items in the core.
+		return "tray", nil, true
+	case managedChild() && isStoreWork(args):
+		// Store maintenance the daemon schedules. An interactive run stays in the core,
+		// which also makes sure the daemon and tray are up.
+		return "store", args, true
+	}
+	return "", nil, false
+}
+
+// managedChild reports whether a managed parent — the daemon or another CLI command —
+// started this invocation (see clirun.SubprocessEnv).
+var managedChild = func() bool { return os.Getenv(brand.EnvVar("SUBPROCESS")) == "1" }
+
+// isStoreWork reports the Task and Memory maintenance forms graphit-store serves.
+func isStoreWork(args []string) bool {
+	if len(args) == 2 && args[0] == "task" && args[1] == "maintain" {
+		return true
+	}
+	if len(args) < 2 || args[0] != "memory" || (args[1] != "maintain" && args[1] != "embed" && args[1] != "index") {
 		return false
 	}
-	return args[0] == "mcp" && args[1] == "--stdio"
+	seen := map[string]bool{}
+	for _, flag := range args[2:] {
+		if seen[flag] || (flag != "--user" && (flag != "--reset" || args[1] != "index")) {
+			return false
+		}
+		seen[flag] = true
+	}
+	return true
+}
+
+// runtimeBinName is the file name of runtime binary name on this platform.
+func runtimeBinName(name string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("%s-%s.exe", brand.BinName(), name)
+	}
+	return fmt.Sprintf("%s-%s", brand.BinName(), name)
 }
 
 const runtimeStampName = ".build-id"

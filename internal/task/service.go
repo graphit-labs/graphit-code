@@ -14,7 +14,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/config"
-	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -222,11 +221,7 @@ func (s *Service) authorizeRemote(ctx context.Context, projectID string) error {
 		return err
 	}
 	if auth.UsesScopedS3(snapshot.Provider) {
-		registryStore, err := hub.NewS3Store(ctx, nil, s.projectConfig)
-		if err != nil {
-			return err
-		}
-		return registryStore.AuthorizeProject(ctx, projectID)
+		return hubaccess.AuthorizeScopedProject(ctx, s.projectConfig, projectID)
 	}
 	objects, err := s3store.New(ctx, s.s3)
 	if err != nil {

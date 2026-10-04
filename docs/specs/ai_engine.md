@@ -273,12 +273,32 @@ The framework accepts discovery version `1`:
 The broker chooses actual upstream provider/model. This makes routing, central API keys, cache,
 rate policy and optimizations an operator concern while preserving a stable client contract.
 
-## Daemon protocol
+## Model-server protocol
 
-The embedding daemon listens on the mode-restricted local socket
-`~/.graphit/daemon/embed.sock`. Requests are newline-delimited JSON with `texts` or `query`; replies
-contain vectors. This is not HTTP and is not exposed by MCP. The proxy reports active dimensions
-without eagerly loading a model. Failure to connect falls back to direct active-provider resolution.
+Local models run in dedicated server processes the daemon supervises, `graphit model serve
+embedding` and `graphit model serve rerank` (the `graphit-model` binary, which links ONNX Runtime
+and nothing of the stores or parsers). Each loads its model on the first request.
+
+- **Embedding** — `~/.graphit/daemon/embed.sock`. Requests are newline-delimited JSON with `texts`
+  or `query`; replies contain `vectors` or `error`.
+- **Rerank** — `~/.graphit/daemon/rerank.sock`. Requests are `{"query": …, "candidates": [...]}`;
+  replies contain `scores` in candidate order and the served `model`, or `error`. The client honors
+  its context deadline and cancellation on the connection.
+
+`ai.ModelSocketPath` is the single source of both paths for servers and clients. When
+`<global>/daemon/<task>.sock` is longer than 103 bytes — the Unix socket path limit common to Linux,
+macOS and Windows — it returns `<runtime>/graphit-<12 hex of sha256(global dir, uid)>/<task>.sock`,
+where `<runtime>` is `$XDG_RUNTIME_DIR` (non-Windows, when absolute) or the temporary directory. The
+server creates that directory `0700` and, outside Windows, refuses one that is a symlink or owned by
+another user, and tightens group/other bits on its own. A socket path still over the limit is reported
+as such instead of as a listen error.
+
+Neither is HTTP nor exposed by MCP. The embedding proxy reports active dimensions without eagerly
+loading a model. Search reranking (`search.rerank`) and embedding clients use a server whenever its
+socket answers. Otherwise a CLI process resolves the active provider directly, as before. The daemon
+is marked as requiring the servers (`ai.SetModelServerRequired`): it waits briefly for a local
+model's server and then fails with `local <task> model server is not running` rather than loading the
+model into its own process. Non-local providers are unaffected.
 
 ## Failure behavior
 

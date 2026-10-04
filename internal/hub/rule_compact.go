@@ -1,10 +1,10 @@
 package hub
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/mandates"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
 )
 
 func HubRuleContent() string {
@@ -38,11 +38,4 @@ func HubRuleContent() string {
 	}, "\n") + "\n"
 }
 
-func MandateTrigger() string {
-	return agent.ModuleMandateTrigger(
-		"Hub Discovery", hubSkillName,
-		"resolving an ecosystem project/system, Hub artifact, or Graphit configuration",
-		"Named system → `"+brand.MCPToolName("cluster_projects")+"` first. A match is Graphit-managed: use its `dir` as `project_dir` for enabled module reads, including AST/Knowledge/Memory/Task; no native discovery just because it is another checkout. Read the needed target skill. No scoped match → `"+brand.MCPToolName("hub_projects")+"`. Artifacts → `"+brand.MCPToolName("hub_search")+"`/`"+brand.MCPToolName("hub_show")+"`: report, announce/install an obvious requested fit; ask only for material ambiguity. Refine misses; distinguish failure from empty results. Published artifacts imply no checkout; `id@version` never replaces a local path. Public technologies need no Hub lookup; honor explicit Hub requests. Runnable installation does not authorize execution. Configuration → `"+brand.MCPToolName("config_get")+"`.",
-		nil, nil,
-	)
-}
+func MandateTrigger() string { return mandates.Hub() }

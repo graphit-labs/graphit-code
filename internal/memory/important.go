@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/auth"
-	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 )
@@ -103,11 +102,7 @@ func listMemoriesByRelevanceInContext(ctx context.Context, projectDir, scope str
 				return nil, err
 			}
 			if auth.UsesScopedS3(snapshot.Provider) {
-				registry, err := hub.NewS3Store(ctx, nil, nil)
-				if err != nil {
-					return nil, err
-				}
-				if err := registry.AuthorizeProject(ctx, scopeID); err != nil {
+				if err := hubaccess.AuthorizeScopedProject(ctx, nil, scopeID); err != nil {
 					return nil, err
 				}
 			} else if err := hubaccess.AuthorizeProject(ctx, objects, scopeID); err != nil {

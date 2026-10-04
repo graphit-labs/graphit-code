@@ -106,6 +106,14 @@ graphit sync [flags]
 - `--no-background`: Prevents spawning background tasks asynchronously. Both phases (sync and heavy indexing/processing) execute synchronously inside the terminal process.
 - `--heavy`: Runs only Phase 2 tasks (generating embeddings and memory consolidation).
 
+Each step that has its own command runs as that command in a separate process, in the project
+directory and sharing this command's output: Phase 1 runs `hub hydrate`, `ast index`,
+`knowledge index`, and `memory index` with `memory index --user`; Phase 2 runs `ast embed`,
+`wiki embed`, `memory embed [--user]` and `memory maintain [--user]`. Skills, Agent adapters, Git
+hooks and Hub reconciliation stay in the `sync` process. An interactive `sync` hands Phase 2 to a
+detached `sync --heavy`; a `sync` started by the daemon waits for it. A failing `ast index` or
+`knowledge index` fails the sync; a failing Memory index only warns.
+
 The AST reindex in `init` and the normal `sync` phase takes the AST store lifecycle lock while
 publishing the graph. Background AST embedding releases that lock during model inference and
 reacquires it only for store reads, writes, and vector-index finalization, so slow inference does
@@ -118,6 +126,22 @@ the base with a filesystem-local shallow clone and reindexes local differences w
 base advances. Base fragments remain in S3; new writes remain local. A detached checkout can
 select its source lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than
 cloned. Sync never publishes a Hub commit.
+
+The AST phase in `init`, `sync` and `ast index` reports parsing, cache, graph and
+search progress. When a SCIP indexer fails, its diagnostic is logged as
+`SCIP unavailable; using syntax parser`; affected files continue through
+the selected syntax parser. By default this is Tree-sitter; an explicit
+`ast.grammar` mapping to ANTLR replaces Tree-sitter for that extension, giving
+SCIP → ANTLR when SCIP fails. Exclusive grammars are not activated by a failure.
+Detailed SCIP and AST diagnostics are written exclusively to the project
+`.graphit/runtime/daemon/daemon.log`; the CLI keeps progress and error counts,
+without container stack traces or individual parse errors. A failure to open
+that log aborts the CLI AST phase explicitly. A fallback warning does not mean
+SCIP indexing succeeded.
+Query validation and reload warnings, embedded parser failures and accumulated
+cache, search or graph write errors use the same project log.
+Parsing progress counts processed files, including parse errors/timeouts;
+those errors remain separate from successfully indexed files in the final summary.
 
 `init` and `sync` install Git `pre-commit` and the additional events named under
 `hooks` in the project lockfile when `modules.hooks` is enabled. Git 2.54+ uses
@@ -340,6 +364,9 @@ a project-scoped installation.
   named channels such as `branch/main` and `branch/feature/api`.
 - `uninstall <id> [--type <type>]`: Drop a global installation.
 - `update [id] [--type <type>]`: Update every installed artifact or one selected artifact.
+- `hydrate [--json]`: Refresh the current project's published AST and Knowledge Lance base from the
+  Hub when the branch's compatible base changed; `--json` reports which bases changed. The daemon
+  runs it before indexing each filesystem batch.
 - `submit <id> <local-path>`: Publish local source. Flags are `--version` (default `1.0.0`),
   `--type` (default `rule`), `--name`, `--description`, and comma-separated `--tags`. Publishing AST
   or knowledge requires an initialized checkout; the command reads `project.id` from
@@ -416,6 +443,14 @@ graphit ast <subcommand> [flags]
   - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable). Paths are directory prefixes; most specific match wins.
   - `--workers <int>`: Worker thread count.
   - `--no-source`: Skip storing raw source code inside nodes.
+  - `--changes-from <file|->`: Index only a change set: JSON `{"changed": [...], "removed": [...]}`
+    of project-relative paths, read from the file or from stdin with `-`. Removed files leave the
+    graph. Paths outside the project are rejected. Cannot be combined with paths, `--reset` or
+    `--reindex`. The daemon's file watcher uses it.
+
+  Without a path, the whole project is reconciled — files deleted since the last index leave the
+  graph. With explicit paths, only files under them are (re)indexed. Every form takes the
+  machine-wide heavy-work slot first.
 - `watch [path]`: Watch directory for file changes and re-index incrementally.
   - `--cluster <name>`: Logical cluster tag (fallback).
   - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable).
@@ -463,6 +498,7 @@ graphit ast <subcommand> [flags]
   - `--line-numbers`: Print line prefixes.
   - `--context <name>`: Context name.
 - `embed`: Generate vector embeddings for semantic search.
+  - `--if-idle`: Skip the run instead of waiting while an AST index is publishing the store (used by the daemon).
 - `rule`: Manage the AST module rule.
   - `--unset`: Remove customization.
   - `--default`: Show default rule.
@@ -518,6 +554,10 @@ graphit memory <subcommand> [flags]
   - `--user`: Target user scope.
   - `--louvain`: Run clustering.
   - `--context <name>`: Re-index context.
+- `maintain`: Compact the authoritative memory table and prune old versions.
+  - `--user`: Target user scope.
+- `embed`: Generate vectors for memories that lack them.
+  - `--user`: Target user scope.
 - `watch`: Watch memory changes.
   - `--user`: Target user scope.
   - `--louvain`: Run clustering.
@@ -620,7 +660,7 @@ graphit daemon <subcommand> [flags]
 ```
 **Subcommands:**
 - Foreground daemon start: `graphit daemon`
-  - `--no-embedding`: Disable embedding server.
+  - `--no-embedding`: Do not start the embedding model server nor schedule embedding.
   - `--no-dream`: Disable dream runner.
   - `--log <path>`: Log file.
 - `stop`: Terminate running daemon.
@@ -653,12 +693,42 @@ graphit dream <subcommand> [flags]
 ```
 **Subcommands:**
 - `status`: Show Dream state, latest operational run, and timing configuration.
+- `run`: Run one Dream session now for the current project; the daemon runs due sessions this way.
+  - `--session <id>`: Session id to run or resume (default: a new one).
+  - `--agent <agent>`: Agent CLI that runs the session (default: the project agent).
 
 Current runs write `.graphit/runtime/dream/dream.state`; their semantic result is the Memory table.
 The provider-aware operational ledger is the shared Dream-module store: locally
 `<brand.GlobalDir()>/dream/dreams/<project_id>`, or remotely
 `v2/projects/<project_id>/dream`. The brand alone resolves the global root and its default. Runs do
 not create a Markdown report, sentinel, or last-seen marker.
+
+### Maintenance commands run by the daemon
+
+The daemon performs every job as one of these commands in a child process (see
+[Daemon Operations](daemon_operations.md#process-model)); each can also be run by hand from the
+project directory. Project-scoped commands fail outside a Graphit project and exit non-zero on any
+failure.
+
+| Command | Work |
+|---|---|
+| `graphit hub hydrate [--json]` | Refresh the project's published AST/Knowledge Lance base from the Hub; `--json` prints `{"ast_base_changed":…,"knowledge_base_changed":…}` |
+| `graphit ast index --changes-from -` | Incremental AST index of a change set read from stdin |
+| `graphit ast embed --if-idle` | AST embedding cycle, skipped while an AST index is publishing |
+| `graphit wiki embed` | Knowledge-wiki embedding cycle |
+| `graphit memory embed [--user]` | Fill missing memory vectors in the project or user table |
+| `graphit memory maintain [--user]` | Fold writes into indexes, compact and prune the project or user memory table |
+| `graphit task maintain` | Compact the project's task and session tables and refresh their indexes |
+| `graphit dream run --session <id>` | Run one Dream session |
+| `graphit model serve <embedding\|rerank>` | Serve one local model on its socket (hidden; the launcher runs the `graphit-model` binary) |
+
+Indexing and embedding commands share a machine-wide heavy-work slot
+(`GRAPHIT_HEAVY_SLOTS`, default 1), so a command started by hand waits for daemon work instead of
+running beside it.
+
+When the daemon starts `task maintain` or `memory maintain|embed|index`, the launcher runs them in
+the lighter `graphit-store` binary; run by hand they use the core. Both produce the same output and
+exit code (see [Daemon Operations](daemon_operations.md#lightweight-runtime-binaries)).
 
 ### `task`
 Manages deterministic project work in the shared LanceDB task store.
@@ -670,6 +740,7 @@ graphit task <subcommand> [flags]
 - `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask, and `--session` associates a durable request. Manual standalone tasks may omit a session.
 - `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, parent, or `--session`.
 - `get`, `search`: Retrieve authoritative history or search task/comment text; `search --session` ranks only that session’s tasks.
+- `maintain`: Compact the task and session tables and refresh their indexes.
 - `schema`: Print the Task store's 11 LanceDB tables, their columns and row counts. Read it before writing a `query` filter.
   - `--table <name>`: Describe only this table.
 - `query`: Filter rows of one table by Lance predicate and return only the columns asked for — the route for a question about records you can already name, such as the status of a set of ids.

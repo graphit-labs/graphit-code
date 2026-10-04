@@ -615,25 +615,36 @@ daemon embed: status <code>
 empty embedding response from daemon
 ```
 
-**Cause:** The MCP tool is trying to use the daemon's embedding server as a proxy, but the daemon is not running or the embedding server is not healthy.
+A daemon search may instead report `local embedding model server is not running` (or `rerank`).
+
+**Cause:** The request goes through the local model server, `graphit model serve embedding` or
+`graphit model serve rerank`, a separate process the daemon supervises, and that process is not
+running or not healthy. The daemon never loads a local model itself.
 
 **Solutions:**
-1. Check daemon status:
+1. Check daemon status and that the model servers are running:
    ```bash
    graphit daemon status
+   ps -ef | grep "model serve"
    ```
-2. Check that the Unix socket exists:
+2. Check that the Unix sockets exist:
    ```bash
-   ls -l ~/.graphit/daemon/embed.sock
+   ls -l ~/.graphit/daemon/embed.sock ~/.graphit/daemon/rerank.sock
    ```
-3. Restart the daemon:
+   With a very long global directory (`GRAPHIT_GLOBAL_DIR`) the sockets live instead in a
+   `graphit-<hash>/` directory under `$XDG_RUNTIME_DIR` or the temporary directory; the
+   `model server starting` line in the server log names the path in use.
+3. Read the server's own log for a failing model or device configuration:
    ```bash
-   graphit daemon stop
-   graphit sync
+   tail -n 50 ~/.graphit/daemon/model-embedding.log
+   ```
+4. Restart the daemon:
+   ```bash
+   graphit daemon restart
    ```
 
-The embedding proxy is newline-delimited JSON over a Unix socket. It has no HTTP port file or
-health URL. `mcp.port` belongs to the separate authenticated MCP HTTP listener.
+The model-server protocols are newline-delimited JSON over Unix sockets. They have no HTTP port
+file or health URL. `mcp.port` belongs to the separate authenticated MCP HTTP listener.
 
 ### MCP client gets HTTP 401
 

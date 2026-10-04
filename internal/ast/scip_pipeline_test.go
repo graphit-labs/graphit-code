@@ -3,10 +3,12 @@
 package ast
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,90 @@ import (
 	scip "github.com/scip-code/scip/bindings/go/scip"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestSCIPFailureFallsBackToTreeSitter(t *testing.T) {
+	for _, fixture := range []struct {
+		language, family, extension, source string
+	}{
+		{"php", "php", ".php", "<?php function FallbackRecovered(): int { return 1; }\n"},
+		{"typescript", "typescript", ".ts", "export function FallbackRecovered(): number { return 1; }\n"},
+	} {
+		t.Run(fixture.language, func(t *testing.T) {
+			t.Setenv("GRAPHIT_AST_SCIP_ENABLED", "true")
+			t.Setenv("GRAPHIT_GLOBAL_DIR", t.TempDir())
+			project := stageGrammar(t, fixture.language, "tree-sitter-"+fixture.language, fixture.extension, fixture.language+".yaml")
+			if err := os.WriteFile(filepath.Join(project, "fixture"+fixture.extension), []byte(fixture.source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			old := runSCIPImage
+			t.Cleanup(func() { runSCIPImage = old })
+			calls := 0
+			runSCIPImage = func(_ context.Context, _, _, family string, _ ...map[string]bool) ([]byte, error) {
+				if family != fixture.family {
+					t.Fatalf("unexpected indexer family %s", family)
+				}
+				calls++
+				return nil, errors.New("synthetic SCIP container failure")
+			}
+			graphDir, cache := t.TempDir(), t.TempDir()
+			db := NewLadybugDB(LadybugConfig{StoreDir: graphDir, IcebugDir: filepath.Join(graphDir, "graph.icebug")})
+			t.Cleanup(func() { _ = db.Close() })
+			var logs bytes.Buffer
+			var progress [][3]int
+			opts := PipelineOptions{Workers: 1, CacheDir: cache, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+				OnProgress: func(phase string, current, total, errors int) {
+					if phase == "parsing" {
+						progress = append(progress, [3]int{current, total, errors})
+					}
+				}}
+			result, err := RunPipeline(context.Background(), db, project, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls != 1 || result.ParsedFiles != 1 || result.ErrorCount != 0 || result.EngineStats["tree-sitter:"+fixture.language] != 1 {
+				t.Fatalf("SCIP failure did not index with Tree-sitter: calls=%d result=%+v", calls, result)
+			}
+			rows, err := db.Query(context.Background(), "MATCH (f:Function) RETURN f.name AS name", nil)
+			if err != nil || len(rows.Records) != 1 || rows.Records[0]["name"] != "FallbackRecovered" {
+				t.Fatalf("fallback function not published: rows=%+v err=%v", rows, err)
+			}
+			if !strings.Contains(logs.String(), "synthetic SCIP container failure") || !strings.Contains(logs.String(), "using syntax parser") {
+				t.Fatalf("failure diagnostic missing: %s", logs.String())
+			}
+			if len(progress) < 2 || progress[0] != [3]int{0, 1, 0} || progress[len(progress)-1] != [3]int{1, 1, 0} {
+				t.Fatalf("fallback progress missing: %v", progress)
+			}
+			if _, err := RunPipeline(context.Background(), db, project, opts); err != nil || calls != 2 {
+				t.Fatalf("failed SCIP was incorrectly cached as success: calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestASTParsingProgressIncludesErrors(t *testing.T) {
+	t.Setenv("GRAPHIT_AST_SCIP_ENABLED", "false")
+	t.Setenv("GRAPHIT_AST_PARSE_TIMEOUT", "1ns")
+	t.Setenv("GRAPHIT_GLOBAL_DIR", t.TempDir())
+	project := stageGrammar(t, "go", "tree-sitter-go", ".go", "go.yaml")
+	if err := os.WriteFile(filepath.Join(project, "large.go"), []byte("package demo\n"+strings.Repeat("func Work() {}\n", 10000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	graphDir := t.TempDir()
+	db := NewLadybugDB(LadybugConfig{StoreDir: graphDir, IcebugDir: filepath.Join(graphDir, "graph.icebug")})
+	defer func() { _ = db.Close() }()
+	var progress [][3]int
+	result, err := RunPipeline(context.Background(), db, project, PipelineOptions{Workers: 1, CacheDir: t.TempDir(), OnProgress: func(phase string, current, total, errors int) {
+		if phase == "parsing" {
+			progress = append(progress, [3]int{current, total, errors})
+		}
+	}})
+	if err != nil || result.ErrorCount != 1 || result.TimeoutCount != 1 || result.ParsedFiles != 0 {
+		t.Fatalf("timeout result=%+v err=%v", result, err)
+	}
+	if len(progress) < 2 || progress[0] != [3]int{0, 1, 0} || progress[len(progress)-1] != [3]int{1, 1, 1} {
+		t.Fatalf("parse error was lost from progress: %v", progress)
+	}
+}
 
 func TestSCIPTypeScriptSelectionIncremental(t *testing.T) {
 	t.Setenv("GRAPHIT_AST_SCIP_ENABLED", "true")

@@ -80,7 +80,10 @@ Important global paths include:
 | `auth.json` | Named providers, isolated account profiles, sessions, credentials, and active selection; atomic, mode `0600` |
 | `.auth-tmp/` | Fixed private staging directory for atomic `auth.json` replacement; mode `0700`, empty after a completed write |
 | `daemon/mcp.key` | Local runtime MCP bearer key generated per daemon start; mode `0600` |
-| `daemon/embed.sock` | Local embedding service socket on supported platforms |
+| `daemon/embed.sock` | Local embedding model-server socket (`graphit model serve embedding`) |
+| `daemon/rerank.sock` | Local rerank model-server socket (`graphit model serve rerank`). When a socket path would exceed 103 bytes, both sockets live in a private `graphit-<hash>/` directory under `$XDG_RUNTIME_DIR` or the temporary directory instead |
+| `daemon/model-<task>.log`, `daemon/memory-*-user.log` | Output of the daemon's global child processes |
+| `locks/heavy-slot-<n>.lock` | Machine-wide heavy-work slots taken by indexing and embedding commands; advisory, released when the holder exits |
 | `logs/graphit.log` | Process-wide structured log, truncated after 5 MiB |
 | `sync.log` | Errors that prevented a detached lifecycle-triggered full sync from starting |
 | `runtime/<version>/` | Extracted, version-scoped framework runtime |

@@ -6,54 +6,45 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/ai"
-	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/store"
-	"github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-type EmbeddingModule struct {
-	rootPath string
-	interval time.Duration
-	cacheDir string
-}
-
 const (
+	defaultEmbeddingInterval = 2 * time.Minute
+	// defaultIndexEmbeddingInterval is the safety net for AST and wiki embedding, which
+	// normally run right after the index they depend on changes.
+	defaultIndexEmbeddingInterval    = 30 * time.Minute
 	defaultMemoryMaintenanceInterval = 15 * time.Minute
 	defaultTaskMaintenanceInterval   = 15 * time.Minute
 )
 
-// MemoryMaintenanceModule is the single maintenance owner of one authoritative memory table.
-// Writes stay independent and cheap; this daemon loop folds fragments into indexes, compacts them,
-// and prunes physical table versions according to the memory retention policy.
-type MemoryMaintenanceModule struct {
-	uri      string
+// periodicCLIModule runs one CLI invocation now, then on every tick and whenever its
+// trigger fires, each run its own child process. A failed run is logged and retried on
+// the next tick: the next run starts from whatever the failed one left, so there is
+// nothing to restart.
+type periodicCLIModule struct {
+	name     string
+	dir      string
+	logPath  string
+	args     []string
 	interval time.Duration
-	maintain func(context.Context, string) error
+	trigger  *Trigger
 }
 
-func NewMemoryMaintenanceModule(uri string, interval time.Duration) *MemoryMaintenanceModule {
-	if interval <= 0 {
-		interval = defaultMemoryMaintenanceInterval
-	}
-	return &MemoryMaintenanceModule{uri: uri, interval: interval, maintain: maintainMemoryTable}
-}
+func (m *periodicCLIModule) Name() string { return m.name }
 
-func (m *MemoryMaintenanceModule) Name() string { return "memory_maintenance" }
-
-func (m *MemoryMaintenanceModule) Start(ctx context.Context) error {
-	if m.uri == "" {
-		return nil
+func (m *periodicCLIModule) Start(ctx context.Context) error {
+	run := func() {
+		if err := runChild(ctx, m.dir, m.logPath, nil, m.args...); err != nil && ctx.Err() == nil {
+			slog.Warn("daemon: scheduled run failed", "module", m.name, "dir", m.dir, "error", err)
+		}
 	}
-	if err := m.maintain(ctx, m.uri); err != nil {
-		return err
-	}
+	run()
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 	for {
@@ -61,88 +52,71 @@ func (m *MemoryMaintenanceModule) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := m.maintain(ctx, m.uri); err != nil {
-				return err
-			}
+			run()
+		case <-m.trigger.c():
+			run()
+			ticker.Reset(m.interval)
 		}
 	}
 }
 
-func maintainMemoryTable(ctx context.Context, uri string) error {
-	table, err := memory.OpenMemoryTable(ctx, uri)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = table.Close() }()
-	count, err := table.Count(ctx)
-	if err != nil || count == 0 {
-		return err
-	}
-	if err := table.EnsureIndexes(ctx); err != nil {
-		return err
-	}
-	return table.Maintain(ctx)
-}
-
-type TaskMaintenanceModule struct {
-	projectDir string
-	interval   time.Duration
-	maintain   func(context.Context, string) error
-}
-
-func NewTaskMaintenanceModule(projectDir string, interval time.Duration) *TaskMaintenanceModule {
+func orDefault(interval, fallback time.Duration) time.Duration {
 	if interval <= 0 {
-		interval = defaultTaskMaintenanceInterval
+		return fallback
 	}
-	return &TaskMaintenanceModule{projectDir: projectDir, interval: interval, maintain: maintainTaskTables}
+	return interval
 }
 
-func (m *TaskMaintenanceModule) Name() string { return "task_maintenance" }
-
-func (m *TaskMaintenanceModule) Start(ctx context.Context) error {
-	if m.projectDir == "" {
-		return nil
+// memoryScope resolves where a Memory child runs and logs: the project for a project
+// table, the global directory for the user table (projectDir == "").
+func memoryScope(projectDir, name string) (dir, logPath string, args []string) {
+	if projectDir == "" {
+		return brand.GlobalDir(), globalLogPath(name + "-user"), []string{"--user"}
 	}
-	if err := m.maintain(ctx, m.projectDir); err != nil {
-		return err
-	}
-	ticker := time.NewTicker(m.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			if err := m.maintain(ctx, m.projectDir); err != nil {
-				return err
-			}
-		}
-	}
+	return projectDir, projectLogPath(projectDir), nil
 }
 
-func maintainTaskTables(ctx context.Context, projectDir string) error {
-	service, err := task.Open(projectDir)
-	if err != nil {
-		return err
-	}
-	return service.Maintain(ctx)
+// NewEmbeddingModule runs `graphit ast embed --if-idle` for a project when trigger fires
+// — after the AST index changed — and otherwise only every interval (default 30
+// minutes) as a safety net.
+func NewEmbeddingModule(projectDir string, interval time.Duration, trigger *Trigger) WatchModule {
+	return &periodicCLIModule{name: "embedding", dir: projectDir, logPath: projectLogPath(projectDir),
+		args: []string{"ast", "embed", "--if-idle"}, interval: orDefault(interval, defaultIndexEmbeddingInterval), trigger: trigger}
 }
 
-func NewEmbeddingModule(rootPath string, interval time.Duration, cacheDir string) *EmbeddingModule {
-	if interval <= 0 {
-		interval = 2 * time.Minute
-	}
-	return &EmbeddingModule{rootPath: rootPath, interval: interval, cacheDir: cacheDir}
+// NewWikiEmbeddingModule runs `graphit wiki embed` for a project when trigger fires —
+// after the Knowledge index changed — and otherwise only every interval (default 30
+// minutes).
+func NewWikiEmbeddingModule(projectDir string, interval time.Duration, trigger *Trigger) WatchModule {
+	return &periodicCLIModule{name: "wiki_embedding", dir: projectDir, logPath: projectLogPath(projectDir),
+		args: []string{"wiki", "embed"}, interval: orDefault(interval, defaultIndexEmbeddingInterval), trigger: trigger}
 }
 
-func (m *EmbeddingModule) Name() string { return "embedding" }
-
-func (m *EmbeddingModule) Start(ctx context.Context) error {
-	logger, closeLog := projectRebuildLogger(m.rootPath)
-	defer closeLog()
-	return ast.RunEmbeddingLoop(ctx, m.interval, m.cacheDir, m.rootPath, logger)
+// NewMemoryEmbeddingModule schedules `graphit memory embed` for a project's table, or
+// for the user table when projectDir is empty.
+func NewMemoryEmbeddingModule(projectDir string, interval time.Duration) WatchModule {
+	dir, logPath, scope := memoryScope(projectDir, "memory-embedding")
+	return &periodicCLIModule{name: "memory_embedding", dir: dir, logPath: logPath,
+		args: append([]string{"memory", "embed"}, scope...), interval: orDefault(interval, defaultEmbeddingInterval)}
 }
 
+// NewMemoryMaintenanceModule schedules `graphit memory maintain` — the single
+// maintenance owner of one authoritative memory table — for a project, or for the user
+// table when projectDir is empty.
+func NewMemoryMaintenanceModule(projectDir string, interval time.Duration) WatchModule {
+	dir, logPath, scope := memoryScope(projectDir, "memory-maintenance")
+	return &periodicCLIModule{name: "memory_maintenance", dir: dir, logPath: logPath,
+		args: append([]string{"memory", "maintain"}, scope...), interval: orDefault(interval, defaultMemoryMaintenanceInterval)}
+}
+
+// NewTaskMaintenanceModule schedules `graphit task maintain` for a project.
+func NewTaskMaintenanceModule(projectDir string, interval time.Duration) WatchModule {
+	return &periodicCLIModule{name: "task_maintenance", dir: projectDir, logPath: projectLogPath(projectDir),
+		args: []string{"task", "maintain"}, interval: orDefault(interval, defaultTaskMaintenanceInterval)}
+}
+
+// DreamModule keeps the Dream scheduling — idle detection, session rotation, deep
+// sleep — in the daemon, and runs each due session as `graphit dream run`.
 type DreamModule struct {
 	projectDir string
 	agent      string
@@ -158,74 +132,19 @@ func (m *DreamModule) Start(ctx context.Context) error {
 	runner := dream.NewRunner(m.projectDir, m.agent, func() config.ConfigMap {
 		return loadProjectConfigFromDir(m.projectDir)
 	})
+	runner.SetExecutor(m.runSession)
 	return runner.Run(ctx)
 }
 
-// WikiEmbeddingModule generates vector embeddings for wiki chunks in the background.
-//
-// Registered in cmd/graphit/commands/daemon.go under the same gate as the AST
-// embedding module. It existed here, fully written, and was never instantiated —
-// which is why no wiki chunk in any project had ever been embedded, and why hybrid
-// search silently answered from the lexical index alone.
-type WikiEmbeddingModule struct {
-	projectDir string
-	targets    []wiki.EmbedTarget
-	interval   time.Duration
-}
-
-// MemoryEmbeddingModule fills the vector column of one authoritative memory table.
-type MemoryEmbeddingModule struct {
-	uri      string
-	interval time.Duration
-	embedder *memory.Embedder
-}
-
-func NewMemoryEmbeddingModule(uri string, client ai.EmbeddingClient, interval time.Duration) *MemoryEmbeddingModule {
-	if interval <= 0 {
-		interval = 2 * time.Minute
+func (m *DreamModule) runSession(ctx context.Context, sessionID string) error {
+	args := []string{"dream", "run", "--session", sessionID}
+	if m.agent != "" {
+		args = append(args, "--agent", m.agent)
 	}
-	return &MemoryEmbeddingModule{uri: uri, interval: interval, embedder: memory.NewEmbedder(client, memory.DefaultEmbedConfig())}
+	return runProjectChild(ctx, m.projectDir, nil, args...)
 }
 
-func (m *MemoryEmbeddingModule) Name() string { return "memory_embedding" }
-
-func (m *MemoryEmbeddingModule) Start(ctx context.Context) error {
-	if m.uri == "" || m.embedder == nil {
-		return nil
-	}
-	run := func() {
-		if _, err := m.embedder.RunCycle(ctx, m.uri); err != nil && ctx.Err() == nil {
-			slog.Warn("memory embedding cycle error", "uri", m.uri, "error", err)
-		}
-	}
-	run()
-	ticker := time.NewTicker(m.interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			run()
-		}
-	}
-}
-
-func NewWikiEmbeddingModule(projectDir string, targets []wiki.EmbedTarget, interval time.Duration) *WikiEmbeddingModule {
-	if interval <= 0 {
-		interval = 2 * time.Minute
-	}
-	return &WikiEmbeddingModule{projectDir: projectDir, targets: targets, interval: interval}
-}
-
-func (m *WikiEmbeddingModule) Name() string { return "wiki_embedding" }
-
-func (m *WikiEmbeddingModule) Start(ctx context.Context) error {
-	logger, closeLog := projectRebuildLogger(m.projectDir)
-	defer closeLog()
-	return wiki.RunWikiEmbeddingLoop(ctx, m.interval, m.targets, logger)
-}
-
+// WikiEmbedTargets lists the wiki stores `graphit wiki embed` fills for a project.
 func WikiEmbedTargets(projectDir string, _ *slog.Logger) []wiki.EmbedTarget {
 	return []wiki.EmbedTarget{
 		{Dir: store.KnowledgeProjectDir(projectDir)},

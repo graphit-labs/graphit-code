@@ -15,6 +15,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancererank"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -788,7 +789,7 @@ func (w *WikiDB) SearchWithOptions(ctx context.Context, query string, topK int, 
 	if text == "" {
 		return nil, nil
 	}
-	rerank, err := ai.ConfiguredLanceRerank(ctx)
+	rerank, err := lancererank.Configured(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -838,7 +839,7 @@ func (w *WikiDB) HybridSearch(ctx context.Context, query string, vec []float32, 
 	if len(vec) == 0 {
 		return w.Search(ctx, query, topK)
 	}
-	rerank, err := ai.ConfiguredLanceRerank(ctx)
+	rerank, err := lancererank.Configured(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -89,18 +89,31 @@ tick — re-resolving would read `~/.graphit/config.json` every 30 seconds. A `D
 built directly, as the tests do, gets a zero window and therefore never parks.
 
 ### 2. Project Supervisors
+
+Every module schedules work; none performs it in the daemon process. Each run is a `graphit` CLI
+child started through `internal/clirun` with the project root as working directory, its output
+appended to the project's `.graphit/runtime/daemon/daemon.log`, marked as background work (lower
+priority, CPU budget) and cancelled as a process tree with the module's context. Tests replace the
+package-level `cliRunner` to record invocations instead of starting processes.
+
 Each active project has an isolated supervisor thread monitoring watch modules:
-- **`SyncModule`**: Holds one recursive filesystem watch over the project tree (`internal/fswatch`) and reindexes what each batch names. Debounces 1 second of quiet, capped at 5 seconds for a continuously busy tree.
-  - **AST graph** (LadybugDB) — incremental pipeline over the exact changed paths (`ast.RunPipelineForPaths`), which skips discovery entirely
+- **`SyncModule`**: Holds one recursive filesystem watch over the project tree (`internal/fswatch`) and reindexes what each batch names. Debounces 1 second of quiet, capped at 5 seconds for a continuously busy tree. Classification stays in the daemon; the work runs as children:
+  - **Watcher start (`Rescan`)** — `graphit sync`, because a parked supervisor had no watcher and anything, deletions included, may have changed.
+  - **Each batch** — `graphit hub hydrate --json` first, unless the project cannot have a published Hub base (no lockfile project ID, or a non-Broker provider without Hub storage; `hubStorageMayExist`); a changed published AST base turns the batch into `graphit ast index` (whole-project reconcile), otherwise `graphit ast index --changes-from -` receives `{"changed":[…],"removed":[…]}` project-relative paths on stdin (never as arguments, which would meet the Windows command-line limit). A documentation change or a changed published Knowledge base adds `graphit knowledge index`.
+  - **AST graph** (LadybugDB) — the `--changes-from` run is the incremental pipeline over the exact changed paths (`ast.RunPipelineForPaths`), which skips discovery entirely
   - **Knowledge wiki** — recompiles from the configurable docs directory (`knowledge.docs_dir`, default `docs`) plus the root README (`knowledge.include_readme`), assembled by `knowledge.ScopeFor`. A project with a README and no docs tree yet still gets a wiki; only when neither exists does the reindex return without running the pipeline.
   - **One watch, two ignore files.** The watch covers the *union* of what the AST and the wiki care about; each consumer then applies its own file (`.astignore`, `.wikiignore`) to what arrives. Building the watch from the AST checker alone used to let `.astignore` silently decide whether the wiki heard anything — putting `docs/` in `.astignore` meant editing a document rebuilt nothing.
   - **Routing** (`classifyBatch`): AST ownership follows the extension and nothing else, exactly as a full scan decides it — which now means the docs tree is excluded, because `ast.index_docs` is off and the exclusion is part of the AST ignore checker both paths use. Knowledge ownership needs the path to be under the docs directory — or to be one of the documents the scope names explicitly, which is how the root README reaches the wiki — *and* to carry an extension the wiki indexes. Location alone cannot decide it, since `knowledge.docs_dir` can be set to `.`. The two are independent, not alternatives: `.md`, `.yaml`, `.json` and `.xml` set both, and with `ast.index_docs=true` a document under `docs/` sets both again.
   - **Activity reporting**: every batch touches the supervisor's idle clock (`ActivityReporter`), even a batch with nothing reindexable in it — any change under the tree counts as the project being worked on.
   - Reads per-project config from the project lockfile (inline → env → project → global → compiled defaults)
-- **`EmbeddingModule`**: Triggers every 2 minutes. It scans files for modified AST nodes, generates high-dimensional embeddings, and writes them into the vector column of the local LadybugDB store.
-- **`MemoryMaintenanceModule`**: owns the active project's authoritative memory table. It checks once at startup and every 15 minutes thereafter; the store's due-time metadata prevents unnecessary work. Empty tables are skipped, and maintenance errors terminate the module so the supervisor can report and restart it.
-- **`DreamModule`**: After the configured project-idle threshold, initiates one constrained agentic
-  Memory consolidation pass. It reads contextual MCP evidence, mutates only Memory through the
+- **`EmbeddingModule`**: Runs `graphit ast embed --if-idle` now, whenever the `SyncModule` signals that an AST index (or a full `sync`) succeeded, and every 30 minutes as a safety net. The child embeds modified AST search documents through the embedding model server and skips the cycle while an AST publication holds the store.
+- **`WikiEmbeddingModule`**: Runs `graphit wiki embed` now, whenever the `SyncModule` signals a successful Knowledge index (or full `sync`), and every 30 minutes as a safety net.
+- **Triggers.** `daemon.ProjectTriggers` connects the `SyncModule` to the two embedders of the same project. A trigger holds at most one pending signal, so a burst of index runs while an embedder is busy causes one more run, not one per batch; each triggered run restarts that module's safety-net timer.
+- **`MemoryEmbeddingModule`**: Runs `graphit memory embed` every 2 minutes for the project table (and, as a global module, `--user` for the user table).
+- **`MemoryMaintenanceModule`**: Runs `graphit memory maintain` — the single maintenance owner of the project's authoritative memory table — now and every 15 minutes; the store's due-time metadata prevents unnecessary work and empty tables are skipped. A failed run is logged and retried on the next tick.
+- **`TaskMaintenanceModule`**: Runs `graphit task maintain` every 15 minutes.
+- **`DreamModule`**: Idle detection, session rotation and deep sleep stay in the daemon's `dream.Runner`; after the configured project-idle threshold it runs one constrained agentic
+  Memory consolidation pass as `graphit dream run --session <id> --agent <agent>`, bounded by `dream.max_duration` through the child's context. The pass reads contextual MCP evidence, mutates only Memory through the
   allowed tools, and creates no skill, rule, command, source, or narrative report artifact.
 
 #### Cross-Pipeline Resource Gate
@@ -115,13 +128,22 @@ all — it writes `graph.icebug/`'s Parquet tables directly from the shard cache
 this gate still bounds on the export side is the Go worker pool the export's own
 concurrent Parquet writers draw from, which is sized off the same `CPUBudget()`.)
 
-`sysutil.AcquireHeavy(ctx)` is the missing half of that budget: a process-wide
-semaphore that every CPU-saturating job takes before it starts.
+`sysutil.AcquireHeavy(ctx)` is the missing half of that budget: a **machine-wide**
+semaphore that every CPU-saturating job takes before it starts. Since the jobs run as
+separate CLI processes, a per-process semaphore would let each of them claim the whole
+budget; each slot is therefore also an advisory file lock,
+`~/.graphit/locks/heavy-slot-<n>.lock`, taken in addition to an in-process channel and
+released by the kernel when its holder exits. An unusable lock directory degrades to the
+in-process gate rather than stopping the work.
 
-| Call site | What it gates |
+| Call site (CLI command) | What it gates |
 |---|---|
-| `SyncModule.handleBatch` | The AST and knowledge reindexes for one batch — one slot for the whole batch, not one per indexer |
-| `ast.RunEmbeddingLoop` | Each embedding cycle plus the DB rebuild that a productive one triggers |
+| `ast index` (`runASTIndex`) | One full, explicit-path or `--changes-from` AST run |
+| `knowledge index` | One Knowledge rebuild |
+| `ast embed`, `wiki embed`, `memory embed` | One embedding cycle |
+
+Only the process doing the work takes a slot. A parent waiting on such a child — the
+daemon, `sync`, `sync --heavy` — never holds one, or the child would wait on its own parent.
 
 Capacity is **1** by construction, not by conservatism: `CPUBudget` already hands a
 single pipeline as much of the machine as it may have, so a second concurrent slot is
@@ -137,7 +159,7 @@ A cancelled wait returns `ctx.Err()` with a nil release and the caller skips the
 a supervisor being parked must not keep queueing for a slot to do work nobody is
 waiting on.
 
-**Scope limit.** The heavy-work gate is per-process and only controls resource use. Store
+**Scope limit.** The heavy-work gate only controls resource use. Store
 correctness across daemon, CLI, MCP, watcher, and hook processes uses separate lifecycle locks.
 AST and Knowledge pipelines hold the lock through full or incremental publication. An AST
 embedding cycle snapshots pending text and closes its store handles before model inference; it
@@ -149,7 +171,7 @@ each batch. Each lock lives beside its store, so a
 destructive reset cannot unlink the coordination primitive. The broader `graphit sync` collision
 is additionally bounded by `.graphit/runtime/sync.lock` and the git-hook debounce.
 
-Lock acquisition follows one direction: the per-process heavy-work gate (when used),
+Lock acquisition follows one direction: the machine-wide heavy-work gate (when used),
 then the AST or Knowledge lifecycle lock, then AST vector publication, then the
 embeddings-status lock. A caller releases these in reverse order; it must not wait
 for a lifecycle lock while holding a vector or status lock. Autostart uses a separate
@@ -159,13 +181,16 @@ autostart wait; process termination releases the operating-system locks.
 
 ### 3. Global Modules
 Modules that run once per daemon (not per-project):
-- **`EmbedServer`**: Lazy Unix-socket proxy for the configured local or remote embedding provider.
-- **User `MemoryMaintenanceModule`**: exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
+- **`ModelServerModule`** (`embedding`, `rerank`): keeps one `graphit model serve <task>` process running — the `graphit-model` binary, which links ONNX Runtime and none of LanceDB, LadybugDB or the parsers. Each serves its socket (`~/.graphit/daemon/embed.sock`, `~/.graphit/daemon/rerank.sock`, or a private short `graphit-<hash>/` directory when that path exceeds the socket path limit; see `ai.ModelSocketPath` in [AI Engine](ai_engine.md)), loads the model on first request and is restarted with the normal backoff when it exits; started with `ExitWithParent`, it also stops when the daemon dies. The daemon calls `ai.SetModelServerRequired(true)`, so a daemon request for a local model fails while its server is down instead of loading the model into the daemon. The embedding server is omitted with `--no-embedding`.
+- **User `MemoryMaintenanceModule`** and **`MemoryEmbeddingModule`**: `graphit memory maintain --user` and `graphit memory embed --user` from the global directory — exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
 - **UI module**: the OS-managed daemon hosts the Observatory automatically; an explicitly foreground
   daemon opts in with `--ui` or `modules.daemon_ui=true`. Its daemon surface is read-only and reports status
   and connection details only. Lifecycle administration remains in the `graphit daemon` CLI.
 
-The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp` and an
+The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp`, the
+Agent-hook store endpoint `POST /internal/session-store` (runtime key only; used by the `graphit-hook`
+binary, which renders the payload itself and sends only the Task lifecycle effect and the mandatory
+memory read; the request must name a real project root; see [Daemon Operations](../guides/daemon_operations.md#lightweight-runtime-binaries)) and an
 unauthenticated liveness probe at `GET /health`. The health route returns HTTP 200 with
 `{"status":"ok"}` when the listener is serving; it does not perform a deep store/provider check.
 `mcp.host` defaults to loopback and `mcp.port` defaults to an OS-assigned port; discovery

@@ -1,4 +1,4 @@
-package commands
+package githookrun
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ func TestRunConfiguredGitHookRunsAllCommandsAndForwardsOutput(t *testing.T) {
 	}
 	writeHookLockfile(t, dir, `{"pre-commit":["echo first","`+failure+`","echo third"]}`)
 	var stdout, stderr bytes.Buffer
-	err := runConfiguredGitHook(context.Background(), dir, "pre-commit", strings.NewReader(""), &stdout, &stderr)
+	err := Run(context.Background(), dir, "pre-commit", strings.NewReader(""), &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "command 2 failed") {
 		t.Fatalf("expected second command failure, got %v", err)
 	}
@@ -60,7 +60,7 @@ func TestRunConfiguredGitHookResolvesExternalAndProjectRelativeExecutable(t *tes
 	}
 	writeHookLockfile(t, dir, string(hooks))
 	var stdout, stderr bytes.Buffer
-	if err := runConfiguredGitHook(context.Background(), dir, "pre-commit", strings.NewReader(""), &stdout, &stderr); err != nil {
+	if err := Run(context.Background(), dir, "pre-commit", strings.NewReader(""), &stdout, &stderr); err != nil {
 		t.Fatalf("run project-relative and PATH commands: %v; stderr=%s", err, &stderr)
 	}
 	for _, want := range []string{"project-check-ran", "git version"} {
@@ -74,7 +74,7 @@ func TestRunConfiguredGitHookRejectsInvalidCommandsAndLockfile(t *testing.T) {
 	dir := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	run := func() error {
-		return runConfiguredGitHook(context.Background(), dir, "pre-commit", strings.NewReader(""), &stdout, &stderr)
+		return Run(context.Background(), dir, "pre-commit", strings.NewReader(""), &stdout, &stderr)
 	}
 	if err := run(); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing lockfile error = %v", err)
@@ -107,7 +107,7 @@ func TestRunConfiguredGitHookPassesArgumentsAndRepeatsStdin(t *testing.T) {
 	dir := t.TempDir()
 	writeHookLockfile(t, dir, `{"pre-push":["printf 'first:%s:%s:%s\\n' \"$1\" \"$2\" \"$(cat)\"","printf 'second:%s:%s\\n' \"$GRAPHIT_HOOK_ARG_1\" \"$(cat)\""]}`)
 	var stdout, stderr bytes.Buffer
-	err := runConfiguredGitHook(context.Background(), dir, "pre-push", strings.NewReader("refs/heads/main abc refs/heads/main def\n"), &stdout, &stderr, "origin", "ssh://example/repo")
+	err := Run(context.Background(), dir, "pre-push", strings.NewReader("refs/heads/main abc refs/heads/main def\n"), &stdout, &stderr, "origin", "ssh://example/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRunConfiguredGitHookRejectsMultipleProtocolCommands(t *testing.T) {
 	dir := t.TempDir()
 	writeHookLockfile(t, dir, `{"proc-receive":["echo first","echo second"]}`)
 	var stdout, stderr bytes.Buffer
-	err := runConfiguredGitHook(context.Background(), dir, "proc-receive", strings.NewReader(""), &stdout, &stderr)
+	err := Run(context.Background(), dir, "proc-receive", strings.NewReader(""), &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "requires exactly one command") {
 		t.Fatalf("protocol error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRunConfiguredGitHookDoesNotPreReadStdinWithoutGitPayload(t *testing.T) 
 	defer writer.Close()
 	done := make(chan error, 1)
 	go func() {
-		done <- runConfiguredGitHook(context.Background(), dir, "pre-commit", reader, &stdout, &stderr)
+		done <- Run(context.Background(), dir, "pre-commit", reader, &stdout, &stderr)
 	}()
 	select {
 	case err := <-done:

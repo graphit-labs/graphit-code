@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
 type stubScorer struct {
@@ -147,34 +146,6 @@ func TestBuildRerankTextSkipsARedundantSplit(t *testing.T) {
 	text := BuildRerankText("Config", "Config", "Configuration for the parser.", "Struct", "config.go")
 	if strings.Count(text, "Config —") > 1 {
 		t.Errorf("the identifier was repeated when the split was identical: %s", text)
-	}
-}
-
-func TestLanceRerankerUsesReadableFieldsAndPreservesRows(t *testing.T) {
-	scorer := &stubScorer{}
-	ranker := lanceReranker{adapter: &RerankAdapter{Scorer: scorer}}
-	hits := []lancestore.Hit{
-		{Row: lancestore.Row{"name": "parseToken", "docstring": "unrelated"}, Score: 3},
-		{Row: lancestore.Row{"name": "loadAccount", "docstring": "token account"}, Score: 1},
-	}
-	got, err := ranker.Rerank(context.Background(), "token account", hits)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got[0].Row["name"] != "loadAccount" || got[0].Score != 2 {
-		t.Fatalf("reranked hits = %#v", got)
-	}
-	if len(got) != len(hits) || scorer.calls != 1 {
-		t.Fatalf("len=%d calls=%d", len(got), scorer.calls)
-	}
-}
-
-func TestLanceRerankTextSupportsWikiRows(t *testing.T) {
-	text := lanceRerankText(lancestore.Row{"title": "Authentication", "summary": "OIDC and ACL", "body": "Broker details", "slug": "auth"})
-	for _, want := range []string{"Authentication", "OIDC and ACL", "Broker details", "auth"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("rerank text %q does not contain %q", text, want)
-		}
 	}
 }
 

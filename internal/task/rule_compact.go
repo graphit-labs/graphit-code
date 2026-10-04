@@ -1,12 +1,12 @@
 package task
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/mandates"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/relations"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
 )
 
 func RuleContent() string {
@@ -73,22 +73,6 @@ func RuleContent() string {
 // session — creating one, claiming it, closing it — and handing that to a
 // performer is what made workers open a second session for work they had
 // already been given.
-func WorkerMandateTrigger() string {
-	return agent.ModuleMandateTrigger(
-		"Task", skillName,
-		"reading the work you were assigned, recording its progress, or recalling prior decisions and evidence",
-		relations.AgentMandate+" "+"Read the session and Task ids the coordinator gave you; search only while a relevant gap remains. Claim at most your own Task, and never create, claim or close a coordination session. Record progress and findings against the Task you were given, with evidence and the exact next action. Recall prior Tasks whenever a new doubt exceeds what you were handed.",
-		nil,
-		[]string{"task_get", "task_search", "task_progress", "task_comment_add"},
-	)
-}
+func WorkerMandateTrigger() string { return mandates.TaskWorker() }
 
-func MandateTrigger() string {
-	return agent.ModuleMandateTrigger(
-		"Task", skillName,
-		"starting/resuming project work, planning, delegating/completing it, or answering questions and investigating system/history gaps at any stage",
-		relations.AgentMandate+" "+"Read the open sessions and DECIDE by scope, not recency: the same evolving demand continues in its session across interruptions, changed scope revises that session and its affected Tasks, and only a different demand gets a new one. With no match, create a detailed demand/strategy session and claim coordination. Read session.md before its lifecycle actions. Bind every agent-created Task to session_id; workers share it without taking coordination. Investigate before saving specification -> plan -> dependency-ordered Tasks with checks; batch planned packets with known IDs and inspect each result. Install missing commands needed for delivery quality, conformance and tests; persist one Windows/macOS/Linux invocation: project binaries by project-relative path, others via system PATH; never machine paths. A user-requested validation or user-reported missing-validation error makes its project check necessary. Before commit/delivery, put fast necessary checks in pre-commit and long checks in pre-push; verify lockfile hooks and Git activation. `pre-push` is only a gate: never initiate or retry `git push` without an explicit engineer request for that push. Manual runs alone are no gate; inactive hooks stay unresolved. Keep leaves usable without this conversation. Checkpoint progress, problems, decisions, strategy and next action at meaningful outcomes. Recall sessions/Tasks whenever new doubts arise. Handoff preserves state and releases claims; a turn ending is not completion. Close the session explicitly only after linked Tasks are terminal and scope/evidence is reconciled; cancelled work is not delivered.",
-		nil,
-		[]string{"task_session_get", "task_session_list", "task_session_create", "task_session_claim", "task_get", "task_query", "task_create"},
-	)
-}
+func MandateTrigger() string { return mandates.Task() }

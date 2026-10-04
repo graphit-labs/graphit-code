@@ -1,35 +1,39 @@
-package ai
+// Package lancererank adapts the configured reranker to the search layer's Reranker
+// interface. It lives outside internal/ai so the model packages — and the model-server
+// binary built from them — link no LanceDB.
+package lancererank
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
-// ConfiguredLanceRerank resolves the optional second-stage ranker used by AST and knowledge
+// Configured resolves the optional second-stage ranker used by AST and knowledge
 // searches. The network/model work is reached only when search.rerank is explicitly enabled.
-func ConfiguredLanceRerank(ctx context.Context) (lancestore.RerankConfig, error) {
+func Configured(ctx context.Context) (lancestore.RerankConfig, error) {
 	if !config.SearchRerank() {
 		return lancestore.RerankConfig{}, nil
 	}
-	adapter, err := NewRerankerFromConfig(ctx)
+	adapter, err := ai.ConfiguredReranker(ctx)
 	if err != nil {
 		return lancestore.RerankConfig{}, fmt.Errorf("configure search reranker: %w", err)
 	}
 	return lancestore.RerankConfig{Reranker: lanceReranker{adapter: adapter}}, nil
 }
 
-type lanceReranker struct{ adapter *RerankAdapter }
+type lanceReranker struct{ adapter *ai.RerankAdapter }
 
 func (r lanceReranker) Name() string { return r.adapter.Name() }
 
 func (r lanceReranker) Rerank(ctx context.Context, query string, hits []lancestore.Hit) ([]lancestore.Hit, error) {
-	candidates := make([]RerankHit, len(hits))
+	candidates := make([]ai.RerankHit, len(hits))
 	for i := range hits {
-		candidates[i] = RerankHit{Text: lanceRerankText(hits[i].Row), Index: i}
+		candidates[i] = ai.RerankHit{Text: lanceRerankText(hits[i].Row), Index: i}
 	}
 	ranked, err := r.adapter.Rank(ctx, query, candidates)
 	if err != nil {
@@ -52,7 +56,7 @@ func lanceRerankText(row lancestore.Row) string {
 		return strings.TrimSpace(text)
 	}
 	if name := value("name"); name != "" {
-		return BuildRerankText(name, splitCodeLikeIdentifier(name), value("docstring"), value("etype"), value("path"))
+		return ai.BuildRerankText(name, splitCodeLikeIdentifier(name), value("docstring"), value("etype"), value("path"))
 	}
 	parts := []string{value("title"), value("summary"), value("breadcrumb"), value("doc_type"), value("body"), value("source"), value("slug"), value("path")}
 	out := parts[:0]

@@ -153,6 +153,7 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	}
 	t0 := time.Now()
 	abs, _ := filepath.Abs(rootPath)
+	logger := slogutil.Resolve(opts.Logger)
 	if opts.SearchBaseCommit == "" && !opts.ForceRebuild {
 		opts.SearchBaseCommit = shallowSearchBase(abs, opts.CacheDir)
 	}
@@ -164,6 +165,9 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 		defer lifecycleLock.Release()
 		ctx = lockedCtx
 	}
+	// Resolve profiles before discovery so malformed query diagnostics use the
+	// same sink as parsing, including callers whose logger is explicitly nil.
+	allEffectiveQueryFiles(abs, logger)
 	scipSignature := scipConfigurationSignature(abs)
 	refreshSCIPSelection(abs)
 	if opts.CacheDir != "" {
@@ -230,6 +234,7 @@ func repoRelativePaths(root string, paths []string) []string {
 }
 
 func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
+	logger := slogutil.Resolve(opts.Logger)
 	var shallowChanged, shallowDeleted []string
 	var shallowFullOverlay bool
 	if opts.SearchBaseCommit != "" && !opts.ForceRebuild {
@@ -264,7 +269,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 
 	discover := func() ([]string, error) {
-		found, err := collectFiles(abs)
+		found, err := collectFiles(abs, logger)
 		if err != nil {
 			return nil, fmt.Errorf("discover files: %w", err)
 		}
@@ -327,8 +332,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		scipClangChanged = string(old) != scipClangSelection
 	}
 	discoverTime := time.Since(tDiscover)
-
-	logger := slogutil.Resolve(opts.Logger)
 
 	var jsonCache *ShardCache
 	if opts.CacheDir != "" {
@@ -639,6 +642,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}()
 
 	parseOpts := ParseOptions{
+		Logger:      logger,
 		IndexSource: opts.IndexSource,
 		Cancelled:   cancelled.Load,
 	}
@@ -692,6 +696,9 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		err  error
 	}
 	results := make(chan result, 64)
+	if opts.OnProgress != nil {
+		opts.OnProgress("parsing", 0, len(changedFiles), 0)
+	}
 
 	go func() {
 		defer close(results)
@@ -761,15 +768,24 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		writeDuration    time.Duration
 	)
 	engineStats := make(map[string]int)
+	completedFilesCount := 0
 
 	for r := range results {
+		completedFilesCount++
 		if r.err != nil {
 			parseErrors++
+			if errors.Is(r.err, context.DeadlineExceeded) {
+				timeoutCount++
+			}
+			logger.Warn("AST parse failed", "error", r.err)
 			errEntry := r.path + ": " + r.err.Error()
 			if r.path == "" {
 				errEntry = r.err.Error()
 			}
 			errorFiles = append(errorFiles, errEntry)
+			if opts.OnProgress != nil {
+				opts.OnProgress("parsing", completedFilesCount, len(changedFiles), parseErrors+writeErrors)
+			}
 			continue
 		}
 
@@ -817,6 +833,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				if storeErr := jsonCache.Store(relPath, hash, entry); storeErr != nil {
 					writeErrors++
 					writeErrorFiles = append(writeErrorFiles, fmt.Sprintf("%s: cache store: %v", relPath, storeErr))
+					logger.Error("AST cache store failed", "path", relPath, "error", storeErr)
 				} else {
 					graphPreparation.adopt(relPath, entry)
 					if stagedSearch != nil && stagedSearchErr == nil {
@@ -842,7 +859,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 
 		if opts.OnProgress != nil {
-			opts.OnProgress("parsing", parsedFilesCount, len(changedFiles), parseErrors+writeErrors)
+			opts.OnProgress("parsing", completedFilesCount, len(changedFiles), parseErrors+writeErrors)
 		}
 	}
 
@@ -867,6 +884,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		stagedSearch.Abort()
 		writeErrors++
 		writeErrorFiles = append(writeErrorFiles, stagedSearchErr.Error())
+		logger.Error("AST staged search failed", "error", stagedSearchErr)
 	}
 
 	if !dryRun && stagedSearchErr == nil && jsonCache != nil && (jsonCache.Count() > 0 || len(shallowChanged)+len(shallowDeleted) > 0) {
@@ -1015,6 +1033,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		if err != nil {
 			writeErrors++
 			writeErrorFiles = append(writeErrorFiles, fmt.Sprintf("rebuild: %v", err))
+			logger.Error("AST graph rebuild failed", "error", err)
 		}
 		writeDuration = time.Since(tw0)
 	}

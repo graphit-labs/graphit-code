@@ -16,6 +16,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancererank"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -758,7 +759,7 @@ func (s *SearchIndex) Search(ctx context.Context, query string, topK int) ([]Sea
 	if err != nil {
 		return nil, err
 	}
-	rerank, err := ai.ConfiguredLanceRerank(ctx)
+	rerank, err := lancererank.Configured(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -814,7 +815,7 @@ func (s *SearchIndex) HybridSearch(ctx context.Context, query string, vec []floa
 	if err != nil {
 		return nil, err
 	}
-	rerank, err := ai.ConfiguredLanceRerank(ctx)
+	rerank, err := lancererank.Configured(ctx)
 	if err != nil {
 		return nil, err
 	}

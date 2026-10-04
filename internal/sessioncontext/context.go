@@ -1,64 +1,38 @@
 // Package sessioncontext assembles the project-specific context injected at
 // agent session boundaries. Keeping this outside the CLI and MCP packages makes
 // the native hooks and remote mandate tool consume one authoritative builder.
+//
+// It reads only the project lockfile and installed files, never a store, so the
+// lightweight hook binary renders hook events with it; the store-backed half of an
+// event (Task lifecycle, mandatory memory) is supplied by the caller (see Render).
 package sessioncontext
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
-	"github.com/graphit-labs/graphit-code/internal/hub"
 	ideadapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
-	"github.com/graphit-labs/graphit-code/internal/knowledge"
-	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/hubartifact"
+	"github.com/graphit-labs/graphit-code/internal/mandates"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
-	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 )
 
 // FindProjectRoot walks upward from start until it finds the Graphit lockfile.
-// Git metadata is deliberately irrelevant: Graphit projects do not require Git.
-func FindProjectRoot(start string) string {
-	if start == "" {
-		return ""
-	}
-	dir, err := filepath.Abs(start)
-	if err != nil {
-		return ""
-	}
-	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
-		dir = filepath.Dir(dir)
-	}
-	dir = filepath.Clean(dir)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, brand.LockFileName())); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
+func FindProjectRoot(start string) string { return sessionhook.FindProjectRoot(start) }
 
 // Build reads the current project state and returns the context used by native
-// lifecycle hooks. includeMandatory is false only at repeated boundaries where
-// the initial bootstrap has already happened.
-func Build(projectDir string, includeMandatory bool) sessionhook.Context {
+// lifecycle hooks: module switches and instructions. Mandatory memory is store
+// state; Render adds it.
+func Build(projectDir string) sessionhook.Context {
 	if projectDir == "" {
 		return sessionhook.Context{}
 	}
 	projectCfg := loadProjectConfig(projectDir)
 	context := moduleContext(projectCfg)
 	context.Instructions = loadInstructionContext(projectDir, projectCfg)
-	if includeMandatory && !context.MemoryDisabled {
-		context.Mandatory, context.MandatoryLoaded = loadMandatoryContext(projectDir)
-	}
 	return context
 }
 
@@ -96,7 +70,7 @@ func Mandates() string {
 }
 
 func loadProjectConfig(projectDir string) config.ConfigMap {
-	lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+	lf, err := projectlock.Load(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil || lf == nil {
 		return nil
 	}
@@ -108,7 +82,7 @@ func loadInstructionContext(projectDir string, projectCfg config.ConfigMap) stri
 	if mandate := loadMandateContext(projectDir, projectCfg); mandate != "" {
 		sections = append(sections, mandate)
 	}
-	rules, err := hub.InstalledRuleContext(projectDir)
+	rules, err := hubartifact.InstalledRuleContext(projectDir)
 	if rules != "" {
 		sections = append(sections, rules)
 	}
@@ -135,23 +109,23 @@ func loadMandateContextForRole(projectDir string, projectCfg config.ConfigMap, r
 		{name: "task", tag: "task_rule", content: func() string {
 			// A performer gets the worker rule: the coordinator's is written around
 			// owning a session, and handing that to a delegate produces duplicates.
-			trigger := graphtask.MandateTrigger()
+			trigger := mandates.Task()
 			if role.Name != "" {
-				trigger = graphtask.WorkerMandateTrigger()
+				trigger = mandates.TaskWorker()
 			}
 			return brand.ResolveModuleRuleIn(projectDir, "task", trigger)
 		}},
 		{name: "memory", tag: "mem_rule", content: func() string {
-			return brand.ResolveModuleRuleIn(projectDir, "memory", memory.MandateTrigger())
+			return brand.ResolveModuleRuleIn(projectDir, "memory", mandates.Memory())
 		}},
 		{name: "ast", tag: "ast_rule", content: func() string {
-			return brand.ResolveModuleRuleIn(projectDir, "ast", ast.MandateTrigger())
+			return brand.ResolveModuleRuleIn(projectDir, "ast", mandates.AST())
 		}},
 		{name: "hub", tag: "hub_rule", content: func() string {
-			return brand.ResolveModuleRuleIn(projectDir, "hub", hub.MandateTrigger())
+			return brand.ResolveModuleRuleIn(projectDir, "hub", mandates.Hub())
 		}},
 		{name: "knowledge", tag: "doc_rule", content: func() string {
-			return brand.ResolveModuleRuleIn(projectDir, "knowledge", knowledge.MandateTrigger())
+			return brand.ResolveModuleRuleIn(projectDir, "knowledge", mandates.Knowledge())
 		}},
 	} {
 		if config.IsModuleDisabled(module.name, nil, projectCfg) || !role.Uses(module.name) {
@@ -161,22 +135,4 @@ func loadMandateContextForRole(projectDir string, projectCfg config.ConfigMap, r
 	}
 
 	return ideadapter.MandateContext(triggers)
-}
-
-func loadMandatoryContext(projectDir string) (string, bool) {
-	return loadMandatoryContextWith(projectDir, memory.ListMandatoryMemoriesForProject)
-}
-
-func loadMandatoryContextWith(projectDir string, list func(string, string) ([]memory.MandatoryEntry, error)) (string, bool) {
-	var sections []string
-	for _, scope := range []string{"project", "user"} {
-		entries, err := list(projectDir, scope)
-		if err != nil {
-			return "", false
-		}
-		for _, entry := range entries {
-			sections = append(sections, fmt.Sprintf("### %s memory: %s\n%s", scope, entry.Title, entry.Content))
-		}
-	}
-	return strings.Join(sections, "\n\n"), true
 }

@@ -34,6 +34,9 @@ func TestConfiguredHooksInvokeGate(t *testing.T) {
 func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
 	workflows := []string{".github/workflows/ci.yml"}
 	commit := preCommitSteps(workflows)
+	if len(commit) == 0 || !strings.Contains(strings.Join(commit[0].args, " "), "TestSCIPFailureFallsBackToTreeSitter") {
+		t.Fatal("SCIP fallback regression must block commits")
+	}
 	push := prePushSteps("linux")
 	contains := func(steps []step, argument string) bool {
 		for _, s := range steps {
@@ -86,6 +89,22 @@ func TestPrePushFullSuiteFailureBlocksLaterChecks(t *testing.T) {
 	}
 }
 
+func TestFallbackRegressionFailureBlocksCommit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix fake executable fixture")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go"), []byte("#!/bin/sh\nexit 42\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var out, errOut bytes.Buffer
+	err := runSteps(preCommitSteps(nil), &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "AST fallback and cancellation regressions") || strings.Contains(out.String(), "Go unit tests") {
+		t.Fatalf("failed fallback regression did not block commit checks: err=%v stdout=%q", err, out.String())
+	}
+}
+
 func TestFormattingFailureBlocksGate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.go")
 	if err := os.WriteFile(path, []byte("package main\nfunc f( ){ }\n"), 0600); err != nil {
@@ -120,5 +139,36 @@ func TestFailedStepPreventsFollowingStep(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "unknown command") {
 		t.Fatalf("stderr was not forwarded: %q", errOut.String())
+	}
+}
+
+func TestThinBinaryLinkingAStoreBlocksCommit(t *testing.T) {
+	limits := map[string][]string{"./cmd/hook": {modulePath + "internal/hub"}}
+	deps := map[string][]string{"./cmd/hook": {"fmt", modulePath + "internal/hubaccess", modulePath + "internal/hub/s3"}}
+	list := func(pkg string) ([]string, error) { return deps[pkg], nil }
+	var out bytes.Buffer
+	err := checkThinBinaries(limits, list, &out)
+	if err == nil || !strings.Contains(err.Error(), "internal/hub/s3") || strings.Contains(err.Error(), "hubaccess") {
+		t.Fatalf("a store package in a thin binary must block the commit, and only it: %v", err)
+	}
+	deps["./cmd/hook"] = []string{"fmt", modulePath + "internal/hubaccess"}
+	if err := checkThinBinaries(limits, list, &out); err != nil {
+		t.Fatalf("a light dependency was rejected: %v", err)
+	}
+}
+
+func TestEveryThinBinaryIsGuarded(t *testing.T) {
+	for _, pkg := range []string{"./cmd/hook", "./cmd/githook", "./cmd/tray", "./cmd/model", "./cmd/store"} {
+		if len(thinBinaryLimits[pkg]) == 0 {
+			t.Errorf("%s has no dependency limits", pkg)
+		}
+	}
+}
+
+func TestLightSubpackageOfAHeavyPathIsAllowed(t *testing.T) {
+	limits := map[string][]string{"./cmd/hook": {modulePath + "internal/hub"}}
+	list := func(string) ([]string, error) { return []string{modulePath + "internal/hub/adapters/agent"}, nil }
+	if err := checkThinBinaries(limits, list, &bytes.Buffer{}); err != nil {
+		t.Fatalf("the agent adapter links no store: %v", err)
 	}
 }

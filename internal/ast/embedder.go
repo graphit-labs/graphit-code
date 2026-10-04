@@ -6,11 +6,9 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
-	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 type EmbeddingConfig struct {
@@ -509,66 +507,4 @@ func (e *Embedder) buildEmbeddingText(row entityRow) string {
 	}
 
 	return strings.Join(parts, "\n")
-}
-
-func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, repoRoot string, logger *slog.Logger) error {
-	log := slogutil.Resolve(logger)
-
-	client, err := ai.NewEmbeddingClientFromConfig()
-	if err != nil {
-		log.Error("failed to create embedding client", "error", err)
-		return fmt.Errorf("embedding client: %w", err)
-	}
-
-	// One cycle, holding the process-wide heavy-work slot for its whole duration.
-	// The cycle drives an ONNX session sized to the entire CPU budget, which is
-	// precisely the work the gate exists to serialize. The graph itself is not
-	// touched: a vector lives in the search index, and the icebug bundle never
-	// carried one.
-	// The daemon runs one of these loops per active project inside a single process.
-	cycle := func(label string) {
-		askedAt := time.Now()
-		release, err := sysutil.AcquireHeavy(ctx)
-		if err != nil {
-			return
-		}
-		defer release()
-		if waited := time.Since(askedAt); waited > time.Second {
-			log.Info(label+" waited for the indexing slot",
-				"waited", waited.Round(time.Millisecond))
-		}
-
-		n, deferred, err := runEmbeddingCycleIfReady(ctx, cacheDir, repoRoot, client, logger)
-		if deferred {
-			log.Info(label+" deferred", "reason", "AST store reset in progress")
-			return
-		}
-		if err != nil {
-			log.Warn(label+" error", "error", err)
-			return
-		}
-		if n > 0 {
-			log.Info(label+" complete", "entities_embedded", n)
-		}
-	}
-
-	cycle("initial cycle")
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			cycle("embedding cycle")
-		}
-	}
-}
-
-func runEmbeddingCycleIfReady(ctx context.Context, cacheDir, repoRoot string, client ai.EmbeddingClient, logger *slog.Logger) (int, bool, error) {
-	return runEmbeddingCycleOnce(ctx, cacheDir, repoRoot, func() (ai.EmbeddingClient, error) {
-		return client, nil
-	}, logger, true)
 }

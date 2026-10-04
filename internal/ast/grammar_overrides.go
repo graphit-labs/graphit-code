@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -51,7 +52,7 @@ func overriddenGrammarFor(projectDir, ext string) string {
 	return grammarOverridesFor(projectDir)[strings.ToLower(ext)]
 }
 
-func grammarKnownIn(projectDir, grammar string) bool {
+func grammarKnownIn(projectDir, grammar string, loggers ...*slog.Logger) bool {
 	if grammar == "" {
 		return false
 	}
@@ -69,7 +70,7 @@ func grammarKnownIn(projectDir, grammar string) bool {
 	if projectDir == "" {
 		return false
 	}
-	for _, qf := range effectiveProjectQueryFiles(projectDir) {
+	for _, qf := range effectiveProjectQueryFiles(projectDir, loggers...) {
 		if effectiveGrammarName(qf) == grammar {
 			return grammarEnabledIn(projectDir, qf.Language, grammar)
 		}

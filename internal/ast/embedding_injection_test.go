@@ -142,7 +142,7 @@ func TestEmbeddingCycleReopensStoreAfterIncrementalAndReset(t *testing.T) {
 	client := &recordingEmbClient{}
 
 	seedEmbeddingLoopStore(t, storeDir, "before.go", "BeforeReset")
-	n, deferred, err := runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+	n, deferred, err := RunEmbeddingCycleIfIdle(context.Background(), storeDir, projectDir, func() (ai.EmbeddingClient, error) { return client, nil }, nil)
 	if err != nil {
 		t.Fatalf("initial embedding cycle: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestEmbeddingCycleReopensStoreAfterIncrementalAndReset(t *testing.T) {
 	assertEmbeddingLoopStoreCounts(t, storeDir, 1, 1)
 
 	seedEmbeddingLoopStore(t, storeDir, "before.go", "AfterIncremental")
-	n, deferred, err = runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+	n, deferred, err = RunEmbeddingCycleIfIdle(context.Background(), storeDir, projectDir, func() (ai.EmbeddingClient, error) { return client, nil }, nil)
 	if err != nil {
 		t.Fatalf("post-incremental embedding cycle: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestEmbeddingCycleReopensStoreAfterIncrementalAndReset(t *testing.T) {
 		resetLock.Release()
 		t.Fatalf("embedding lock during reset = %v, want ErrLocked", err)
 	}
-	n, deferred, err = runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+	n, deferred, err = RunEmbeddingCycleIfIdle(context.Background(), storeDir, projectDir, func() (ai.EmbeddingClient, error) { return client, nil }, nil)
 	if err != nil || !deferred || n != 0 {
 		resetLock.Release()
 		t.Fatalf("embedding cycle during reset = (%d, deferred %v, %v), want (0, true, nil)", n, deferred, err)
@@ -181,7 +181,7 @@ func TestEmbeddingCycleReopensStoreAfterIncrementalAndReset(t *testing.T) {
 	seedEmbeddingLoopStore(t, storeDir, "after.go", "AfterReset")
 	resetLock.Release()
 
-	n, deferred, err = runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+	n, deferred, err = RunEmbeddingCycleIfIdle(context.Background(), storeDir, projectDir, func() (ai.EmbeddingClient, error) { return client, nil }, nil)
 	if err != nil {
 		t.Fatalf("post-reset embedding cycle: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestEmbeddingInferenceDoesNotHoldASTLifecycle(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		n, deferred, err := runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+		n, deferred, err := RunEmbeddingCycleIfIdle(context.Background(), storeDir, projectDir, func() (ai.EmbeddingClient, error) { return client, nil }, nil)
 		done <- result{n, deferred, err}
 	}()
 	waitForEmbeddingInference(t, client.entered)
@@ -266,7 +266,7 @@ func TestEmbeddingInferenceDiscardsVectorsAfterReset(t *testing.T) {
 	client := &pausedEmbeddingClient{entered: make(chan struct{}), resume: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := runEmbeddingCycleIfReady(context.Background(), storeDir, projectDir, client, nil)
+		_, _, err := RunEmbeddingCycleIfIdle(context.Background(), storeDir, projectDir, func() (ai.EmbeddingClient, error) { return client, nil }, nil)
 		done <- err
 	}()
 	waitForEmbeddingInference(t, client.entered)

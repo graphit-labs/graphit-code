@@ -507,6 +507,11 @@ build-linux: ui setup-lbug fetch-ort-linux lancedb-native
 	@mkdir -p cmd/launcher/runtime $(BIN_DIR) $(GO_TMP_DIR)
 	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-hook ./cmd/hook
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-githook ./cmd/githook
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-model ./cmd/model
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-tray ./cmd/tray
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-store ./cmd/store
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "liblbug.so" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.so liblbug.so.0
 	cp -L $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so.$(ORT_VERSION) cmd/launcher/runtime/
@@ -525,6 +530,11 @@ build-darwin: ui setup-lbug fetch-ort-darwin lancedb-native
 	@mkdir -p cmd/launcher/runtime $(BIN_DIR) $(GO_TMP_DIR)
 	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-hook ./cmd/hook
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-githook ./cmd/githook
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-model ./cmd/model
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-tray ./cmd/tray
+	GOTMPDIR=$(GO_TMP_DIR) GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-store ./cmd/store
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "liblbug.dylib" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.dylib liblbug.0.dylib
 	cp -L $(ORT_CACHE)/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.$(ORT_VERSION).dylib cmd/launcher/runtime/
@@ -539,6 +549,11 @@ build-windows-native: ui setup-lbug fetch-ort-windows lancedb-native
 	@mkdir -p cmd/launcher/runtime $(BIN_DIR) $(GO_TMP_DIR)
 	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-hook.exe ./cmd/hook
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-githook.exe ./cmd/githook
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-lstdc++" go build -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-model.exe ./cmd/model
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=1 go build -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-tray.exe ./cmd/tray
+	GOTMPDIR=$(GO_TMP_DIR) CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS) $(STRIP_LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-store.exe ./cmd/store
 	cp -L $(LANCEDB_LIB) cmd/launcher/runtime/
 	cp $(LANCEDB_LIB_DIR)/lancedb_go_build.sha cmd/launcher/runtime/
 	GOPATH_UNIX=$$(cygpath -u "$$(go env GOPATH)") && find $$GOPATH_UNIX/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;

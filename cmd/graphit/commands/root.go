@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/clirun"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/graphit-labs/graphit-code/internal/tray"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/spf13/cobra"
@@ -26,16 +29,8 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	Version:       version.Version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-
-		name := cmd.Name()
-		if name == "daemon" || name == "tray" || name == "mcp" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" || name == "_git-hook" {
+		if !startsBackgroundServices(cmd) {
 			return nil
-		}
-
-		for p := cmd.Parent(); p != nil; p = p.Parent() {
-			if p.Name() == "daemon" || p.Name() == "tray" || p.Name() == "provider" || p.Name() == "account" || p.Name() == "_internal" {
-				return nil
-			}
 		}
 
 		if config.IsModuleDisabled("daemon", nil, nil) {
@@ -48,6 +43,25 @@ var rootCmd = &cobra.Command{
 		_ = tray.EnsureRunning()
 		return nil
 	},
+}
+
+// startsBackgroundServices reports whether running cmd should make sure the daemon and
+// tray are up. A managed child belongs to a tree the daemon or a parent command already
+// supervises; starting services from inside it would only race that owner.
+func startsBackgroundServices(cmd *cobra.Command) bool {
+	if clirun.IsSubprocess() {
+		return false
+	}
+	name := cmd.Name()
+	if name == "daemon" || name == "tray" || name == "mcp" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" || name == "_git-hook" || name == "model" {
+		return false
+	}
+	for p := cmd.Parent(); p != nil; p = p.Parent() {
+		if p.Name() == "daemon" || p.Name() == "tray" || p.Name() == "provider" || p.Name() == "account" || p.Name() == "_internal" || p.Name() == "model" {
+			return false
+		}
+	}
+	return true
 }
 
 func init() {
@@ -82,6 +96,7 @@ func init() {
 		newClusterCmd(),
 		newSessionHookCmd(),
 		newGitHookCmd(),
+		newModelCmd(),
 	)
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
@@ -90,6 +105,13 @@ func init() {
 }
 
 func Execute() {
+	if clirun.IsBackground() {
+		// Daemon work: stay inside the CPU budget and yield to interactive use,
+		// whichever managed process started this one. Done here rather than in a
+		// pre-run hook because a command group's own hook replaces the root's.
+		runtime.GOMAXPROCS(sysutil.CPUBudget())
+		_ = sysutil.LowerPriority()
+	}
 	slogutil.InitFileLogger(brand.GlobalDir())
 	defer slogutil.CloseFileLogger()
 

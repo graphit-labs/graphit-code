@@ -176,12 +176,12 @@ func initTsExtMap() {
 
 var projectTsExtCache sync.Map
 
-func projectTsExtMap(projectDir string) map[string]*tsLangConfig {
+func projectTsExtMap(projectDir string, loggers ...*slog.Logger) map[string]*tsLangConfig {
 	if v, ok := projectTsExtCache.Load(projectDir); ok {
 		return v.(map[string]*tsLangConfig)
 	}
 	m := make(map[string]*tsLangConfig)
-	for _, qf := range effectiveProjectQueryFiles(projectDir) {
+	for _, qf := range effectiveProjectQueryFiles(projectDir, loggers...) {
 		cfg := tsConfigOf(qf)
 		if cfg == nil || cfg.Exclusive {
 			continue
@@ -196,12 +196,12 @@ func projectTsExtMap(projectDir string) map[string]*tsLangConfig {
 
 var projectTsLangCache sync.Map
 
-func projectTsLangMap(projectDir string) map[string]*tsLangConfig {
+func projectTsLangMap(projectDir string, loggers ...*slog.Logger) map[string]*tsLangConfig {
 	if v, ok := projectTsLangCache.Load(projectDir); ok {
 		return v.(map[string]*tsLangConfig)
 	}
 	m := make(map[string]*tsLangConfig)
-	for _, qf := range effectiveProjectQueryFiles(projectDir) {
+	for _, qf := range effectiveProjectQueryFiles(projectDir, loggers...) {
 		cfg := tsConfigOf(qf)
 		if cfg == nil {
 			continue
@@ -212,13 +212,13 @@ func projectTsLangMap(projectDir string) map[string]*tsLangConfig {
 	return m
 }
 
-func tsLangConfigByName(projectDir, name string) (*tsLangConfig, bool) {
+func tsLangConfigByName(projectDir, name string, loggers ...*slog.Logger) (*tsLangConfig, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		return nil, false
 	}
 	if projectDir != "" {
-		if cfg, ok := projectTsLangMap(projectDir)[name]; ok {
+		if cfg, ok := projectTsLangMap(projectDir, loggers...)[name]; ok {
 			return withGrammarEnabled(projectDir, cfg)
 		}
 	}
@@ -249,10 +249,10 @@ func primaryExtOf(cfg *tsLangConfig) string {
 	return strings.ToLower(cfg.Extensions[0])
 }
 
-func tsLangConfigFor(projectDir, ext string) (*tsLangConfig, bool) {
+func tsLangConfigFor(projectDir, ext string, loggers ...*slog.Logger) (*tsLangConfig, bool) {
 	ext = strings.ToLower(ext)
 	if projectDir != "" {
-		if cfg, ok := projectTsExtMap(projectDir)[ext]; ok {
+		if cfg, ok := projectTsExtMap(projectDir, loggers...)[ext]; ok {
 			return withGrammarEnabled(projectDir, cfg)
 		}
 	}
@@ -275,7 +275,7 @@ type TreeSitterParser struct {
 
 func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
-	cfg, ok := tsLangConfigFor(t.projectDir, ext)
+	cfg, ok := tsLangConfigFor(t.projectDir, ext, opts.Logger)
 	if !ok {
 		return nil, fmt.Errorf("no grammar for %s", ext)
 	}
@@ -319,10 +319,10 @@ func (t *TreeSitterParser) parseSource(path, ext string, cfg *tsLangConfig, src 
 		return nil, fmt.Errorf("tree-sitter set language failed: %w", err)
 	}
 
-	tree := p.Parse(src, nil)
+	tree, parseErr := parseNativeTree(p, src, opts)
 	parserPool.Put(p)
-	if tree == nil {
-		return nil, fmt.Errorf("tree-sitter parse returned nil tree")
+	if parseErr != nil {
+		return nil, parseErr
 	}
 	defer tree.Close()
 
@@ -349,8 +349,8 @@ func (t *TreeSitterParser) parseSource(path, ext string, cfg *tsLangConfig, src 
 	var langConfig *ExternalQueryFile
 	var compiledEntries []compiledQueryEntry
 	if t.projectDir != "" {
-		compiledEntries = compiledQueriesFor(t.projectDir, cfg.Language, ext, lang)
-		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext)
+		compiledEntries = compiledQueriesFor(t.projectDir, cfg.Language, ext, lang, opts.Logger)
+		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext, opts.Logger)
 	}
 
 	var rpcQueries []ExternalQueryDef
@@ -375,6 +375,7 @@ func (t *TreeSitterParser) parseSource(path, ext string, cfg *tsLangConfig, src 
 
 		for {
 			if opts.Cancelled != nil && opts.Cancelled() {
+				queryCursorPool.Put(qc)
 				return nil, context.Canceled
 			}
 			match := matches.Next()
@@ -527,7 +528,7 @@ func (t *TreeSitterParser) parseSource(path, ext string, cfg *tsLangConfig, src 
 	attachDocstringsTS(docSites, src, result, docM)
 
 	extractCommentsTS(root, src, result,
-		commentQueryFor(cfg.Grammar, lang, langConfig), docM, filepath.Base(path))
+		commentQueryFor(cfg.Grammar, lang, langConfig, opts.Logger), docM, filepath.Base(path))
 
 	relationTypes := buildRelationTypeMap(rpcQueries)
 	attachDecorators(result, relationTypes)
@@ -544,6 +545,9 @@ func (t *TreeSitterParser) parseSource(path, ext string, cfg *tsLangConfig, src 
 			lineOffset, embedDepth, isDepend, opts)
 	}
 
+	if opts.Cancelled != nil && opts.Cancelled() {
+		return nil, context.Canceled
+	}
 	return result, nil
 }
 
@@ -853,7 +857,7 @@ func (m complexityMatcher) score(root *sitter.Node, src []byte) int {
 
 var commentQueryCache sync.Map
 
-func commentQueryFor(grammarName string, lang *sitter.Language, langConfig *ExternalQueryFile) *sitter.Query {
+func commentQueryFor(grammarName string, lang *sitter.Language, langConfig *ExternalQueryFile, loggers ...*slog.Logger) *sitter.Query {
 	if lang == nil {
 		return nil
 	}
@@ -893,7 +897,7 @@ func commentQueryFor(grammarName string, lang *sitter.Language, langConfig *Exte
 		b.WriteString("] @c")
 		compiled, err := sitter.NewQuery(lang, b.String())
 		if err != nil {
-			slog.Warn("comment query failed to compile", "grammar", grammarName, "error", err)
+			queryLogger(loggers).Warn("comment query failed to compile", "grammar", grammarName, "error", err)
 		} else {
 			q = compiled
 		}
@@ -1106,8 +1110,8 @@ func detectExportsTS(root *sitter.Node, src []byte, result *ParsedFile, lang str
 	}
 }
 
-func HasTreeSitterForExtensionIn(projectDir, ext string) bool {
-	_, ok := tsLangConfigFor(projectDir, ext)
+func HasTreeSitterForExtensionIn(projectDir, ext string, loggers ...*slog.Logger) bool {
+	_, ok := tsLangConfigFor(projectDir, ext, loggers...)
 	return ok
 }
 
@@ -1115,8 +1119,8 @@ func TreeSitterLangForExtension(ext string) string {
 	return TreeSitterLangForExtensionIn("", ext)
 }
 
-func TreeSitterLangForExtensionIn(projectDir, ext string) string {
-	if cfg, ok := tsLangConfigFor(projectDir, ext); ok {
+func TreeSitterLangForExtensionIn(projectDir, ext string, loggers ...*slog.Logger) string {
+	if cfg, ok := tsLangConfigFor(projectDir, ext, loggers...); ok {
 		return cfg.Language
 	}
 	return ""

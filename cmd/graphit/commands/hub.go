@@ -52,6 +52,7 @@ func newHubCmd() *cobra.Command {
 		newHubSubmitCmd(),
 		newHubProjectsCmd(),
 		newHubTypePathCmd(),
+		newHubHydrateCmd(),
 		newModuleRuleCmd("hub"),
 	)
 

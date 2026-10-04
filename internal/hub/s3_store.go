@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/hubartifact"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -25,6 +26,16 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
+
+func init() {
+	hubaccess.RegisterScopedProjectAuthorizer(func(ctx context.Context, projectConfig map[string]any, projectID string) error {
+		registry, err := NewS3Store(ctx, nil, projectConfig)
+		if err != nil {
+			return err
+		}
+		return registry.AuthorizeProject(ctx, projectID)
+	})
+}
 
 var mountableTypes = map[ArtifactType]bool{
 	TypeAST:       true,
@@ -662,7 +673,7 @@ func (s *S3Store) ArtifactCacheDir(artType ArtifactType, id, version, projectID 
 // ArtifactCacheDirIn computes the same path without a store, for callers that need the
 // location and nothing else.
 func ArtifactCacheDirIn(globalRoot string, artType ArtifactType, id, version, projectID string) string {
-	return filepath.Join(globalRoot, "artifacts", "modules", store.SanitizeSegment(projectID), string(artType), store.SanitizeSegment(id), store.VersionPathSegment(version))
+	return hubartifact.CacheDirIn(globalRoot, artType, id, version, projectID)
 }
 
 // EnsureArtifactLocal downloads file-based artifacts; query-engine artifacts remain mounted.

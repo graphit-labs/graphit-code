@@ -1,6 +1,8 @@
 package ast
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -39,26 +41,54 @@ func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *
 }
 
 func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
+	if opts.Cancelled != nil && opts.Cancelled() {
+		return nil, context.Canceled
+	}
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
 
+	var scipResult *ParsedFile
 	if scipFamilyFor(c.treeSitter.projectDir, ext) != "" {
 		if entry := c.scipEntries[path]; entry != nil {
 			parsedEntry := *entry
 			parsedEntry.IsDepend = isDepend
-			return &ParsedFile{Path: path, RepoPath: entry.RelPath, Language: entry.Language,
-				Parser: "scip", IsDepend: isDepend, SCIPEntry: &parsedEntry}, nil
+			scipResult = &ParsedFile{Path: path, RepoPath: entry.RelPath, Language: entry.Language,
+				Parser: "scip", IsDepend: isDepend, SCIPEntry: &parsedEntry}
 		}
 		// Missing/failed SCIP output is handled by the established parser chain.
 	}
-	if grammar, ok := c.grammarOverrides[ext]; ok {
-		return c.parseWithGrammar(path, grammar, isDepend, opts)
+	grammar, overridden := c.grammarOverrides[ext]
+	return parseBackendSelection(scipResult, grammar, overridden,
+		func(grammar string) (*ParsedFile, error) {
+			return c.parseWithGrammar(path, grammar, isDepend, opts)
+		},
+		func() (*ParsedFile, error) {
+			return parseSyntaxFallback(ext,
+				HasTreeSitterForExtensionIn(c.treeSitter.projectDir, ext, opts.Logger),
+				HasAntlrForExtensionIn(c.treeSitter.projectDir, ext, opts.Logger),
+				func() (*ParsedFile, error) { return c.treeSitter.Parse(path, isDepend, opts) },
+				func() (*ParsedFile, error) { return c.antlr.Parse(path, isDepend, opts) })
+		})
+}
+
+// parseBackendSelection keeps syntax selection independent of the SCIP language.
+// An explicit grammar replaces the default syntax chain, including Tree-sitter.
+func parseBackendSelection(scipResult *ParsedFile, grammar string, overridden bool,
+	parseGrammar func(string) (*ParsedFile, error), parseDefault func() (*ParsedFile, error)) (*ParsedFile, error) {
+	if scipResult != nil {
+		return scipResult, nil
 	}
+	if overridden {
+		return parseGrammar(grammar)
+	}
+	return parseDefault()
+}
 
-	hasTS := HasTreeSitterForExtensionIn(c.treeSitter.projectDir, ext)
-	hasAntlr := HasAntlrForExtensionIn(c.treeSitter.projectDir, ext)
-
+// parseSyntaxFallback is the framework policy shared by every language when
+// SCIP has no usable document. Grammar availability controls the chain.
+func parseSyntaxFallback(ext string, hasTS, hasAntlr bool,
+	parseTreeSitter, parseAntlr func() (*ParsedFile, error)) (*ParsedFile, error) {
 	if hasAntlr && !hasTS {
-		pf, err := c.antlr.Parse(path, isDepend, opts)
+		pf, err := parseAntlr()
 		if pf != nil {
 			pf.Parser = "antlr4"
 		}
@@ -66,12 +96,15 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 	}
 
 	if hasTS && hasAntlr {
-		pf, err := c.treeSitter.Parse(path, isDepend, opts)
-		if err == nil && pf.EntityCount() > 0 {
+		pf, err := parseTreeSitter()
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		if err == nil && pf != nil && pf.EntityCount() > 0 {
 			pf.Parser = "tree-sitter"
 			return pf, nil
 		}
-		pf, err = c.antlr.Parse(path, isDepend, opts)
+		pf, err = parseAntlr()
 		if pf != nil {
 			pf.Parser = "antlr4"
 		}
@@ -79,7 +112,7 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 	}
 
 	if hasTS {
-		pf, err := c.treeSitter.Parse(path, isDepend, opts)
+		pf, err := parseTreeSitter()
 		if pf != nil {
 			pf.Parser = "tree-sitter"
 		}

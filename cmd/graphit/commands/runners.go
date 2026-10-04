@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -31,8 +32,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
+	"github.com/graphit-labs/graphit-code/internal/storework"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
@@ -228,7 +232,50 @@ func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 	}
 }
 
-func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cluster string, clusterPaths []string, noSource bool, grammar string) error {
+// astChangeSet is the input of `ast index --changes-from`: project-relative paths the
+// caller knows changed or disappeared, as the daemon's file watcher reports them.
+type astChangeSet struct {
+	Changed []string `json:"changed"`
+	Removed []string `json:"removed"`
+}
+
+// readASTChangeSet decodes a change set from a file, or from stdin when source is "-".
+// The paths travel as JSON on stdin rather than as arguments so a large batch never
+// meets the Windows command-line length limit.
+func sameDir(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return ra == rb
+}
+
+func readASTChangeSet(source string, stdin io.Reader) (*astChangeSet, error) {
+	r := stdin
+	if source != "-" {
+		f, err := os.Open(source)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = f.Close() }()
+		r = f
+	}
+	var set astChangeSet
+	if err := json.NewDecoder(r).Decode(&set); err != nil {
+		return nil, fmt.Errorf("decode change set: %w", err)
+	}
+	for _, paths := range [][]string{set.Changed, set.Removed} {
+		for _, p := range paths {
+			if filepath.IsAbs(p) || strings.HasPrefix(filepath.ToSlash(filepath.Clean(p)), "../") {
+				return nil, fmt.Errorf("change set path %q is outside the project", p)
+			}
+		}
+	}
+	return &set, nil
+}
+
+func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cluster string, clusterPaths []string, noSource bool, grammar string, changes *astChangeSet) error {
 	p := output.NewPrinter("")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -339,7 +386,7 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 
 	ladybugCfg := ast.DefaultLadybugConfig()
 
-	indexSource := config.ResolveIndexSource(nil, nil)
+	indexSource := config.ResolveIndexSource(nil, projectCfg)
 	if noSource {
 		indexSource = false
 	}
@@ -350,43 +397,64 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		}
 	}
 
-	revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
-	pipeOpts := ast.PipelineOptions{
-		Workers:          workers,
-		IndexSource:      indexSource,
-		CacheDir:         ladybugCfg.StoreDir,
-		Cluster:          cluster,
-		ClusterPathMap:   clusterPathMap,
-		ForceRebuild:     reset || reindex,
-		ReverseEdges:     &revEdges,
-		GrammarOverrides: grammarOverrides,
-		OnProgress:       indexProgressReporter(p),
-	}
-
 	wd, _ := os.Getwd()
 	projectRoot := wd
+	logger, closeLog, err := slogutil.ProjectLogger(projectRoot, "ast")
+	if err != nil {
+		return fmt.Errorf("open project AST log: %w", err)
+	}
+	defer closeLog()
+	// The same options `sync` always indexed with; `sync` now runs this command.
+	revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
+	pipeOpts := syncASTPipelineOptions(projectCfg, p, logger)
+	if workers > 0 {
+		pipeOpts.Workers = workers
+	}
+	pipeOpts.IndexSource = indexSource
+	pipeOpts.CacheDir = ladybugCfg.StoreDir
+	pipeOpts.Cluster = cluster
+	pipeOpts.ClusterPathMap = clusterPathMap
+	pipeOpts.ForceRebuild = reset || reindex
+	pipeOpts.ReverseEdges = &revEdges
+	pipeOpts.GrammarOverrides = grammarOverrides
 
-	var allFiles []string
-	for _, absPath := range absPaths {
-		files, e := collectFilesForPath(absPath, projectRoot)
-		if e != nil {
-			return fmt.Errorf("collecting files for %s: %w", absPath, e)
+	release, err := sysutil.AcquireHeavy(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	var finalResult *ast.PipelineResult
+	switch {
+	case changes != nil:
+		// The watcher's batch: exactly these files changed or went away.
+		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, changes.Changed, changes.Removed, pipeOpts)
+	case len(absPaths) == 1 && sameDir(absPaths[0], projectRoot):
+		// The whole project: reconcile, so files deleted since the last index leave
+		// the graph too.
+		finalResult, err = ast.RunPipeline(ctx, db, projectRoot, pipeOpts)
+	default:
+		var allFiles []string
+		for _, absPath := range absPaths {
+			files, e := collectFilesForPath(absPath, projectRoot)
+			if e != nil {
+				return fmt.Errorf("collecting files for %s: %w", absPath, e)
+			}
+			allFiles = append(allFiles, files...)
 		}
-		allFiles = append(allFiles, files...)
+		pipeOpts.ChangedPaths = make([]string, len(allFiles))
+		for i, f := range allFiles {
+			rel, _ := filepath.Rel(projectRoot, f)
+			pipeOpts.ChangedPaths[i] = rel
+		}
+		pipeOpts.DeletedPaths = []string{}
+		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
 	}
-
-	pipeOpts.ChangedPaths = make([]string, len(allFiles))
-	for i, f := range allFiles {
-		rel, _ := filepath.Rel(projectRoot, f)
-		pipeOpts.ChangedPaths[i] = rel
-	}
-	pipeOpts.DeletedPaths = []string{}
-
-	finalResult, err := ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
 
 	p.EndProgress()
 	if err != nil {
-		return err
+		logger.Error("AST pipeline failed", "error", err)
+		return fmt.Errorf("AST index failed; see .graphit/runtime/daemon/daemon.log")
 	}
 
 	totalErrors := finalResult.ErrorCount + finalResult.WriteErrorCount
@@ -439,15 +507,9 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	}
 	if finalResult.ErrorCount > 0 {
 		p.StepWarn("Parse errors: %d file(s)", finalResult.ErrorCount)
-		for i := 0; i < len(finalResult.ErrorFiles); i++ {
-			p.ListItem("%s", finalResult.ErrorFiles[i])
-		}
 	}
 	if finalResult.WriteErrorCount > 0 {
 		p.StepWarn("Write errors: %d chunk(s)", finalResult.WriteErrorCount)
-		for i := 0; i < len(finalResult.WriteErrorFiles); i++ {
-			p.ListItem("%s", finalResult.WriteErrorFiles[i])
-		}
 	}
 	if finalResult.EmptyCount > 0 {
 		p.Step("Empty (0 entities): %d file(s)", finalResult.EmptyCount)
@@ -1235,6 +1297,11 @@ func runKnowledgeQuery(query string, contextName string) error {
 func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, reset, useLouvain bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
+	release, err := sysutil.AcquireHeavy(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	target := root
 	if scope.Subdir != "" && scope.Subdir != "." {
@@ -1253,6 +1320,7 @@ func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, rese
 		BatchSize:  100,
 		UseLouvain: useLouvain,
 		Scope:      scope,
+		ProjectCfg: loadProjectConfig(),
 	}
 
 	result, err := knowledge.RunIndexPipeline(ctx, root, wikiDir, cfg)
@@ -1635,25 +1703,11 @@ func runMemoryList(userScope bool) error {
 }
 
 func runMemoryIndex(userScope, reset bool) error {
-	p := output.NewPrinter("")
-	ctx := context.Background()
-
-	svc, _, err := newMemorySvc(userScope, true)
+	wd, err := workingDir()
 	if err != nil {
 		return err
 	}
-	defer func() { _ = svc.Close() }()
-
-	if reset {
-		p.Step("The authoritative table has no derived index to clear; refreshing its indexes in place.")
-	}
-	task := p.StartTask("Refreshing memory indexes at %s...", svc.TableURI())
-	if err := svc.IndexMemories(ctx); err != nil {
-		task.Fail("Memory indexing failed: %v", err)
-		return err
-	}
-	task.Done("Authoritative memory indexes are current")
-	return nil
+	return storework.IndexMemory(context.Background(), wd, userScope, reset)
 }
 
 func runMemoryQuery(query string, userScope bool, contextName string) error {
@@ -2690,6 +2744,12 @@ func runWikiEmbed() error {
 	if len(targets) == 0 {
 		return fmt.Errorf("no knowledge wiki to embed")
 	}
+
+	release, err := sysutil.AcquireHeavy(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	p.Running("Generating embeddings for the knowledge wiki…")
 

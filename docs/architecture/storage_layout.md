@@ -103,8 +103,12 @@ Things worth knowing before you set it:
 │   ├── daemon.log                      daemon output
 │   ├── mcp.port                        actual streamable HTTP MCP port
 │   ├── mcp.key                         active generated or configured bearer key (mode `0600`)
-│   ├── embed.sock                      local embedding socket where supported
+│   ├── embed.sock                      local embedding model-server socket
+│   ├── rerank.sock                     local rerank model-server socket
+│   ├── model-<task>.log                model-server output
+│   ├── memory-*-user.log               user-scope Memory child output
 │   └── launcher.stamp                  launcher/runtime replacement marker
+├── locks/heavy-slot-<n>.lock           machine-wide heavy-work slots (advisory)
 ├── logs/graphit.log                    process-wide structured log
 ├── sync.log                            detached lifecycle-sync launch errors
 ├── rules/                              user-global mandate and managed-skill overrides

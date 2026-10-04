@@ -12,7 +12,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/config"
-	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
@@ -205,11 +204,7 @@ func authorizeMemoryURI(ctx context.Context, uri string, configs ...config.S3Con
 			return err
 		}
 		if auth.UsesScopedS3(snapshot.Provider) {
-			registryStore, err := hub.NewS3Store(ctx, nil, nil)
-			if err != nil {
-				return err
-			}
-			return registryStore.AuthorizeProject(ctx, projectID)
+			return hubaccess.AuthorizeScopedProject(ctx, nil, projectID)
 		}
 		objects, err := s3store.New(ctx, cfg)
 		if err != nil {

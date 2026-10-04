@@ -14,6 +14,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	"gopkg.in/yaml.v3"
@@ -485,7 +486,7 @@ func ProjectQueriesDir(projectDir string) string {
 	return projectQueriesDir(projectDir)
 }
 
-func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
+func loadQueriesFromDir(dir string, loggers ...*slog.Logger) ([]ExternalQueryFile, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -508,11 +509,11 @@ func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			slog.Warn("skip external query file: read error", "path", path, "error", err)
+			queryLogger(loggers).Warn("skip external query file: read error", "path", path, "error", err)
 			continue
 		}
 
-		qf, ok := parseQueryFile(data, path)
+		qf, ok := parseQueryFile(data, path, loggers...)
 		if ok {
 			result = append(result, qf)
 		}
@@ -521,58 +522,58 @@ func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 	return result, nil
 }
 
-func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
+func parseQueryFile(data []byte, sourcePath string, loggers ...*slog.Logger) (ExternalQueryFile, bool) {
 	var qf ExternalQueryFile
 	if err := yaml.Unmarshal(data, &qf); err != nil {
-		slog.Warn("skip external query file: YAML parse error", "path", sourcePath, "error", err)
+		queryLogger(loggers).Warn("skip external query file: YAML parse error", "path", sourcePath, "error", err)
 		return qf, false
 	}
 
 	if qf.Language == "" {
-		slog.Warn("skip external query file: missing 'language' field", "path", sourcePath)
+		queryLogger(loggers).Warn("skip external query file: missing 'language' field", "path", sourcePath)
 		return qf, false
 	}
 
 	var valid []ExternalQueryDef
 	for i, q := range qf.Queries {
 		if q.DataKey == "" {
-			slog.Warn("skip query: missing 'data_key'", "path", sourcePath, "index", i)
+			queryLogger(loggers).Warn("skip query: missing 'data_key'", "path", sourcePath, "index", i)
 			continue
 		}
 		if q.Pattern == "" {
-			slog.Warn("skip query: missing 'pattern'", "path", sourcePath, "index", i, "data_key", q.DataKey)
+			queryLogger(loggers).Warn("skip query: missing 'pattern'", "path", sourcePath, "index", i, "data_key", q.DataKey)
 			continue
 		}
 		if q.NameCapture == "" {
 			q.NameCapture = "name"
 		}
 		if q.ValueCapture != "" && q.ValueLabel == "" {
-			slog.Warn("ignore value_capture: missing 'value_label'",
+			queryLogger(loggers).Warn("ignore value_capture: missing 'value_label'",
 				"path", sourcePath, "index", i, "data_key", q.DataKey)
 			q.ValueCapture = ""
 		}
 		if q.ParentCapture != "" && q.ParentLabel == "" {
-			slog.Warn("ignore parent_capture: missing 'parent_label'",
+			queryLogger(loggers).Warn("ignore parent_capture: missing 'parent_label'",
 				"path", sourcePath, "index", i, "data_key", q.DataKey)
 			q.ParentCapture = ""
 		}
 		if q.NameReject != "" {
 			if _, err := regexp.Compile(q.NameReject); err != nil {
-				slog.Warn("ignore name_reject: pattern does not compile",
+				queryLogger(loggers).Warn("ignore name_reject: pattern does not compile",
 					"path", sourcePath, "index", i, "data_key", q.DataKey,
 					"name_reject", q.NameReject, "error", err)
 				q.NameReject = ""
 			}
 		}
 		if q.ValueCapture != "" && q.Type == "relation" {
-			slog.Warn("ignore value_capture: not supported on relation queries",
+			queryLogger(loggers).Warn("ignore value_capture: not supported on relation queries",
 				"path", sourcePath, "index", i, "data_key", q.DataKey)
 			q.ValueCapture = ""
 		}
 		valid = append(valid, q)
 	}
 	qf.Queries = valid
-	normalizers := validTextNormalizers(qf.TextNormalizers, sourcePath)
+	normalizers := validTextNormalizers(qf.TextNormalizers, sourcePath, loggers...)
 	if len(normalizers) == 0 {
 		qf.TextNormalizers = nil
 	} else {
@@ -582,7 +583,7 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 		}
 		qf.TextNormalizers = clean
 	}
-	qf.Embedded = validEmbeddedBlocks(qf.Embedded, normalizers, sourcePath)
+	qf.Embedded = validEmbeddedBlocks(qf.Embedded, normalizers, sourcePath, loggers...)
 
 	if len(qf.Queries) == 0 && !hasLangConfig(&qf) {
 		return qf, false
@@ -591,7 +592,7 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 	return qf, true
 }
 
-func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map[string]*TextNormalizer {
+func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string, loggers ...*slog.Logger) map[string]*TextNormalizer {
 	if len(decl) == 0 {
 		return nil
 	}
@@ -599,18 +600,18 @@ func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map
 	for name, n := range decl {
 		name = strings.TrimSpace(name)
 		if name == "" {
-			slog.Warn("skip text_normalizer: blank name", "path", sourcePath)
+			queryLogger(loggers).Warn("skip text_normalizer: blank name", "path", sourcePath)
 			continue
 		}
 		clean := TextNormalizer{NumericCharRefs: n.NumericCharRefs}
 		for from, to := range n.Replace {
 			if from == "" {
-				slog.Warn("ignore text_normalizer pair: blank key",
+				queryLogger(loggers).Warn("ignore text_normalizer pair: blank key",
 					"path", sourcePath, "normalizer", name)
 				continue
 			}
 			if strings.ContainsAny(to, "\n\r") {
-				slog.Warn("ignore text_normalizer pair: replacement contains a line break, which would shift every line after it",
+				queryLogger(loggers).Warn("ignore text_normalizer pair: replacement contains a line break, which would shift every line after it",
 					"path", sourcePath, "normalizer", name, "from", from)
 				continue
 			}
@@ -620,7 +621,7 @@ func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map
 			clean.Replace[from] = to
 		}
 		if len(clean.Replace) == 0 && !clean.NumericCharRefs {
-			slog.Warn("skip text_normalizer: nothing to do",
+			queryLogger(loggers).Warn("skip text_normalizer: nothing to do",
 				"path", sourcePath, "normalizer", name)
 			continue
 		}
@@ -633,7 +634,7 @@ func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map
 	return out
 }
 
-func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNormalizer, sourcePath string) []EmbeddedBlock {
+func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNormalizer, sourcePath string, loggers ...*slog.Logger) []EmbeddedBlock {
 	if len(blocks) == 0 {
 		return nil
 	}
@@ -645,34 +646,34 @@ func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNor
 		blk.Default = strings.TrimSpace(blk.Default)
 
 		if blk.Pattern == "" {
-			slog.Warn("skip embedded block: missing 'pattern'", "path", sourcePath, "index", i)
+			queryLogger(loggers).Warn("skip embedded block: missing 'pattern'", "path", sourcePath, "index", i)
 			continue
 		}
 		if blk.TextCapture == "" {
-			slog.Warn("skip embedded block: missing 'text_capture', so no body can be found",
+			queryLogger(loggers).Warn("skip embedded block: missing 'text_capture', so no body can be found",
 				"path", sourcePath, "index", i)
 			continue
 		}
 		if blk.LangCapture == "" && blk.Languages != nil {
-			slog.Warn("ignore embedded languages: missing 'lang_capture'",
+			queryLogger(loggers).Warn("ignore embedded languages: missing 'lang_capture'",
 				"path", sourcePath, "index", i)
 			blk.Languages = nil
 		}
 		if blk.Default == "" && blk.Languages == nil {
-			slog.Warn("skip embedded block: no 'default' and no 'languages', so no language can ever resolve",
+			queryLogger(loggers).Warn("skip embedded block: no 'default' and no 'languages', so no language can ever resolve",
 				"path", sourcePath, "index", i, "pattern", blk.Pattern)
 			continue
 		}
 		if strings.ContainsAny(blk.WrapPrefix, "\n\r") ||
 			strings.ContainsAny(blk.WrapSuffix, "\n\r") {
-			slog.Warn("ignore embedded wrap: prefix or suffix contains a line break, "+
+			queryLogger(loggers).Warn("ignore embedded wrap: prefix or suffix contains a line break, "+
 				"which would shift every line the sub-parse reports",
 				"path", sourcePath, "index", i, "pattern", blk.Pattern)
 			blk.WrapPrefix, blk.WrapSuffix = "", ""
 		}
 		blk.Normalize = strings.TrimSpace(blk.Normalize)
 		if blk.Normalize != "" && normalizers[blk.Normalize] == nil {
-			slog.Warn("ignore embedded normalize: no such text_normalizer in this language",
+			queryLogger(loggers).Warn("ignore embedded normalize: no such text_normalizer in this language",
 				"path", sourcePath, "index", i, "normalize", blk.Normalize)
 			blk.Normalize = ""
 		}
@@ -681,7 +682,7 @@ func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNor
 			for k, v := range blk.Languages {
 				k, v = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)
 				if k == "" || v == "" {
-					slog.Warn("ignore embedded language mapping: blank key or value",
+					queryLogger(loggers).Warn("ignore embedded language mapping: blank key or value",
 						"path", sourcePath, "index", i)
 					continue
 				}
@@ -698,28 +699,28 @@ func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNor
 // by default .graphit/ast/queries — and returns all valid external query files.
 // This is the project-level loader. For the full resolution chain, use
 // resolveQueriesForLang.
-func LoadExternalQueries(projectDir string) ([]ExternalQueryFile, error) {
-	return loadQueriesFromDir(projectQueriesDir(projectDir))
+func LoadExternalQueries(projectDir string, loggers ...*slog.Logger) ([]ExternalQueryFile, error) {
+	return loadQueriesFromDir(projectQueriesDir(projectDir), loggers...)
 }
 
 // LoadUserQueries loads query files from the user-editable global directory:
 // ~/.graphit/ast/queries/
-func LoadUserQueries() ([]ExternalQueryFile, error) {
+func LoadUserQueries(loggers ...*slog.Logger) ([]ExternalQueryFile, error) {
 	dir := userQueriesDir()
 	if dir == "" {
 		return nil, nil
 	}
-	return loadQueriesFromDir(dir)
+	return loadQueriesFromDir(dir, loggers...)
 }
 
 // LoadRuntimeQueries loads query files from the version-scoped runtime directory:
 // ~/.graphit/runtime/<version>/ast/queries/
-func LoadRuntimeQueries() ([]ExternalQueryFile, error) {
+func LoadRuntimeQueries(loggers ...*slog.Logger) ([]ExternalQueryFile, error) {
 	dir := runtimeQueriesDir()
 	if dir == "" {
 		return nil, nil
 	}
-	return loadQueriesFromDir(dir)
+	return loadQueriesFromDir(dir, loggers...)
 }
 
 var mergedQueryCache sync.Map
@@ -802,7 +803,7 @@ type queryDirState struct {
 	lastCheck time.Time
 }
 
-func (s *queryDirState) get(dirOf func() string, load func() ([]ExternalQueryFile, error)) ([]ExternalQueryFile, bool) {
+func (s *queryDirState) get(dirOf func() string, load func() ([]ExternalQueryFile, error), loggers ...*slog.Logger) ([]ExternalQueryFile, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -820,11 +821,11 @@ func (s *queryDirState) get(dirOf func() string, load func() ([]ExternalQueryFil
 
 	files, err := load()
 	if err != nil {
-		slog.Warn("query load error", "dir", dir, "error", err)
+		queryLogger(loggers).Warn("query load error", "dir", dir, "error", err)
 		files = nil
 	}
 	if s.loaded {
-		slog.Info("query files changed on disk, reloading", "dir", dir, "files", len(files))
+		queryLogger(loggers).Info("query files changed on disk, reloading", "dir", dir, "files", len(files))
 	}
 	s.files, s.signature, s.loaded = files, sig, true
 	return s.files, true
@@ -867,16 +868,16 @@ func queryDirSignature(dir string) string {
 var runtimeQueryState queryDirState
 var userQueryState queryDirState
 
-func loadRuntimeCached() []ExternalQueryFile {
-	files, changed := runtimeQueryState.get(runtimeQueriesDir, LoadRuntimeQueries)
+func loadRuntimeCached(loggers ...*slog.Logger) []ExternalQueryFile {
+	files, changed := runtimeQueryState.get(runtimeQueriesDir, func() ([]ExternalQueryFile, error) { return LoadRuntimeQueries(loggers...) }, loggers...)
 	if changed {
 		invalidateDerivedQueryCaches()
 	}
 	return files
 }
 
-func loadUserCached() []ExternalQueryFile {
-	files, changed := userQueryState.get(userQueriesDir, LoadUserQueries)
+func loadUserCached(loggers ...*slog.Logger) []ExternalQueryFile {
+	files, changed := userQueryState.get(userQueriesDir, func() ([]ExternalQueryFile, error) { return LoadUserQueries(loggers...) }, loggers...)
 	if changed {
 		invalidateDerivedQueryCaches()
 	}
@@ -885,13 +886,12 @@ func loadUserCached() []ExternalQueryFile {
 
 var projectQueryStates sync.Map
 
-func loadProjectCached(projectDir string) []ExternalQueryFile {
+func loadProjectCached(projectDir string, loggers ...*slog.Logger) []ExternalQueryFile {
 	v, _ := projectQueryStates.LoadOrStore(projectDir, &queryDirState{})
 	st := v.(*queryDirState)
 	files, changed := st.get(
 		func() string { return projectQueriesDir(projectDir) },
-		func() ([]ExternalQueryFile, error) { return LoadExternalQueries(projectDir) },
-	)
+		func() ([]ExternalQueryFile, error) { return LoadExternalQueries(projectDir, loggers...) }, loggers...)
 	if changed {
 		invalidateDerivedQueryCaches()
 	}
@@ -1103,13 +1103,13 @@ var belowProjectCache sync.Map
 
 var projectEffectiveCache sync.Map
 
-func userLevelQueryFiles() []ExternalQueryFile {
-	return mergeOnto(loadRuntimeCached(), loadUserCached())
+func userLevelQueryFiles(loggers ...*slog.Logger) []ExternalQueryFile {
+	return mergeOnto(loadRuntimeCached(loggers...), loadUserCached(loggers...))
 }
 
-func belowProjectQueryFiles() []ExternalQueryFile {
-	runtimeQ := loadRuntimeCached()
-	userLevel := userLevelQueryFiles()
+func belowProjectQueryFiles(loggers ...*slog.Logger) []ExternalQueryFile {
+	runtimeQ := loadRuntimeCached(loggers...)
+	userLevel := userLevelQueryFiles(loggers...)
 	if v, ok := belowProjectCache.Load(belowProjectCacheKey); ok {
 		return v.([]ExternalQueryFile)
 	}
@@ -1118,16 +1118,16 @@ func belowProjectQueryFiles() []ExternalQueryFile {
 	return inherited
 }
 
-func allEffectiveQueryFiles(projectDir string) []ExternalQueryFile {
-	return overlayByLang(belowProjectQueryFiles(), loadProjectCached(projectDir))
+func allEffectiveQueryFiles(projectDir string, loggers ...*slog.Logger) []ExternalQueryFile {
+	return overlayByLang(belowProjectQueryFiles(loggers...), loadProjectCached(projectDir, loggers...))
 }
 
-func effectiveProjectQueryFiles(projectDir string) []ExternalQueryFile {
+func effectiveProjectQueryFiles(projectDir string, loggers ...*slog.Logger) []ExternalQueryFile {
 	if projectDir == "" {
 		return nil
 	}
-	projectQ := loadProjectCached(projectDir)
-	inherited := belowProjectQueryFiles()
+	projectQ := loadProjectCached(projectDir, loggers...)
+	inherited := belowProjectQueryFiles(loggers...)
 	if v, ok := projectEffectiveCache.Load(projectDir); ok {
 		return v.([]ExternalQueryFile)
 	}
@@ -1188,18 +1188,18 @@ func InvalidateQueryCaches() {
 	invalidateDerivedQueryCaches()
 }
 
-func resolveQueriesForLang(projectDir, lang, ext string) []ExternalQueryFile {
+func resolveQueriesForLang(projectDir, lang, ext string, loggers ...*slog.Logger) []ExternalQueryFile {
 	filter := grammarFilterFor(projectDir)
 
-	if projectMatch := filter.keepFiles(filterByLangExt(effectiveProjectQueryFiles(projectDir), lang, ext)); len(projectMatch) > 0 {
+	if projectMatch := filter.keepFiles(filterByLangExt(effectiveProjectQueryFiles(projectDir, loggers...), lang, ext)); len(projectMatch) > 0 {
 		return projectMatch
 	}
 
-	if userMatch := filter.keepFiles(filterByLangExt(userLevelQueryFiles(), lang, ext)); len(userMatch) > 0 {
+	if userMatch := filter.keepFiles(filterByLangExt(userLevelQueryFiles(loggers...), lang, ext)); len(userMatch) > 0 {
 		return userMatch
 	}
 
-	return filter.keepFiles(filterByLangExt(loadRuntimeCached(), lang, ext))
+	return filter.keepFiles(filterByLangExt(loadRuntimeCached(loggers...), lang, ext))
 }
 
 func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQueryFile {
@@ -1225,13 +1225,13 @@ func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQuer
 	return result
 }
 
-func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []tsQueryDef {
+func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language, loggers ...*slog.Logger) []tsQueryDef {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := mergedQueryCache.Load(cacheKey); ok {
 		return cached.([]tsQueryDef)
 	}
 
-	resolved := resolveQueriesForLang(projectDir, lang, ext)
+	resolved := resolveQueriesForLang(projectDir, lang, ext, loggers...)
 	if len(resolved) == 0 {
 		return nil
 	}
@@ -1244,7 +1244,7 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 			if tsLang != nil {
 				q, qErr := sitter.NewQuery(tsLang, qd.Pattern)
 				if qErr != nil {
-					slog.Warn("skip resolved query: invalid pattern",
+					queryLogger(loggers).Warn("skip resolved query: invalid pattern",
 						"language", lang, "data_key", qd.DataKey, "error", qErr)
 					continue
 				}
@@ -1271,12 +1271,12 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 	return result
 }
 
-func compiledQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []compiledQueryEntry {
+func compiledQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language, loggers ...*slog.Logger) []compiledQueryEntry {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := compiledQueryCache.Load(cacheKey); ok {
 		return cached.([]compiledQueryEntry)
 	}
-	mergedQueriesFor(projectDir, lang, ext, tsLang)
+	mergedQueriesFor(projectDir, lang, ext, tsLang, loggers...)
 	if cached, ok := compiledQueryCache.Load(cacheKey); ok {
 		return cached.([]compiledQueryEntry)
 	}
@@ -1296,8 +1296,8 @@ func hasLangConfig(qf *ExternalQueryFile) bool {
 		qf.Complexity != nil
 }
 
-func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
-	resolved := resolveQueriesForLang(projectDir, lang, ext)
+func resolvedLangConfigFor(projectDir, lang, ext string, loggers ...*slog.Logger) *ExternalQueryFile {
+	resolved := resolveQueriesForLang(projectDir, lang, ext, loggers...)
 	for i := range resolved {
 		if hasLangConfig(&resolved[i]) {
 			return &resolved[i]
@@ -1353,4 +1353,12 @@ func firstDeclaredEmbedLabels(levels ...[]ExternalQueryFile) func(string) []stri
 		}
 		return nil
 	}
+}
+
+// Explicit nil preserves the pipeline's NOP contract; legacy calls use default.
+func queryLogger(loggers []*slog.Logger) *slog.Logger {
+	if len(loggers) > 0 {
+		return slogutil.Resolve(loggers[0])
+	}
+	return slog.Default()
 }

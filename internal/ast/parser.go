@@ -1,5 +1,10 @@
 package ast
 
+import (
+	"log/slog"
+	"time"
+)
+
 type ParsedFile struct {
 	Path     string
 	RepoPath string
@@ -207,18 +212,21 @@ type LanguageParser interface {
 }
 
 type ParseOptions struct {
+	// Logger receives parser and query diagnostics; nil discards per-file warnings.
+	Logger *slog.Logger
 	// IndexSource mirrors PipelineOptions.IndexSource. When false the parsers
 	// skip materialising ParsedFile.Source, a full copy of every file that only
 	// ConvertToCache consumes — and only when source indexing is on.
 	IndexSource bool
 
-	// Cancelled, when set, is polled from inside the parse and reports that the
-	// caller has given up. A context cannot be honoured any other way here: the
-	// expensive work happens inside cgo, which Go cannot preempt, so the parse
-	// has to be asked to stop rather than told. tree-sitter provides exactly
-	// this hook on both the parser and the query cursor.
-	//
-	// Called from a C callback on the parsing goroutine, frequently. Keep it to
-	// an atomic load; do not allocate, log or take a lock in it.
+	// Cancelled reports that the caller has given up. Native parsing uses a
+	// monitor to set Tree-sitter's cancellation flag; extraction also polls
+	// between operations. It does not interrupt an individual native query.
+	// Called from the parsing goroutine and its monitor. Keep it thread-safe
+	// and cheap, typically an atomic load; do not allocate, log or take a lock.
 	Cancelled func() bool
+
+	// NativeTimeout bounds a Tree-sitter native parse. Zero uses
+	// GRAPHIT_AST_PARSE_TIMEOUT, or 30 seconds when unset/invalid.
+	NativeTimeout time.Duration
 }

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,7 +12,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/lancequery"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/spf13/cobra"
 )
 
@@ -51,6 +54,7 @@ func newASTIndexCmd() *cobra.Command {
 	var clusterPaths []string
 	var noSource bool
 	var grammar string
+	var changesFrom string
 
 	cmd := &cobra.Command{
 		Use:   "index [path...]",
@@ -82,7 +86,15 @@ Flags:
               and the search index from the result. Keeps the cache directory, so
               embeddings of unchanged files are reused.
   --reset     Delete the whole store first — graph, search index AND caches — then
-              index from scratch. Every embedding is recomputed.`,
+              index from scratch. Every embedding is recomputed.
+  --changes-from <file|->
+              Index only the files a change set names, as JSON
+              {"changed": [...], "removed": [...]} of project-relative paths read from
+              the file or stdin. Removed files leave the graph. The daemon's file
+              watcher hands its batches to this.
+
+Without a path the whole project is reconciled, including files deleted since the
+last index.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetPaths := []string{"."}
@@ -90,7 +102,17 @@ Flags:
 				targetPaths = args
 			}
 
-			return runASTIndex(targetPaths, workers, reset, reindex, cluster, clusterPaths, noSource, grammar)
+			var changes *astChangeSet
+			if changesFrom != "" {
+				if len(args) > 0 || reset || reindex {
+					return fmt.Errorf("--changes-from cannot be combined with paths, --reset or --reindex")
+				}
+				var err error
+				if changes, err = readASTChangeSet(changesFrom, cmd.InOrStdin()); err != nil {
+					return err
+				}
+			}
+			return runASTIndex(targetPaths, workers, reset, reindex, cluster, clusterPaths, noSource, grammar, changes)
 		},
 	}
 	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: all CPUs)")
@@ -99,6 +121,7 @@ Flags:
 	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name for filtered queries (fallback)")
 	cmd.Flags().StringArrayVar(&clusterPaths, "cluster-path", nil, "Path-to-cluster mapping (repeatable), format: path=cluster (e.g., backend/=python)")
 	cmd.Flags().BoolVar(&noSource, "no-source", false, "Skip storing source code in graph nodes (lighter index, no FTS/source retrieval)")
+	cmd.Flags().StringVar(&changesFrom, "changes-from", "", "Index the change set read from this JSON file, or - for stdin")
 	cmd.Flags().StringVar(&grammar, "grammar", "", "Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)")
 	return cmd
 }
@@ -410,7 +433,8 @@ Examples:
 }
 
 func newASTEmbedCmd() *cobra.Command {
-	return &cobra.Command{
+	var ifIdle bool
+	cmd := &cobra.Command{
 		Use:   "embed",
 		Short: "Generate vector embeddings for semantic search",
 		Long: `Compute vector embeddings for all code entities in the AST graph.
@@ -419,64 +443,100 @@ Embeddings enable semantic search (` + brand.BinName() + ` ast query --semantic)
 Only entities that are new or have changed since the last run are processed,
 making subsequent runs fast when nothing has changed.
 
+--if-idle skips the run instead of waiting when an AST index is publishing the
+store; the daemon schedules embedding this way.
+
 Requires an embedding provider to be configured (see ` + brand.BinName() + ` setup).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p := output.NewPrinter("")
-			ctx := cmd.Context()
-
-			task := p.StartTask("Checking pending embeddings...")
-
-			repoRoot, _ := os.Getwd()
-			ladybugCfg := ast.DefaultLadybugConfig()
-			cacheDir := ladybugCfg.StoreDir
-			// An absent keyword index still needs its one-time rebuild. Keep this
-			// narrow: the embedding model must never run under the lifecycle lock.
-			task.Update("Checking search index...")
-			if err := rebuildEmbeddingSearchIndex(ctx, cacheDir, repoRoot); err != nil {
-				task.Fail("Search index rebuild: %v", err)
-				return nil
-			}
-			n, deferred, err := ast.RunEmbeddingCycleOnce(ctx, cacheDir, repoRoot, ai.NewEmbeddingClientFromConfig, nil)
-			if err != nil {
-				task.Fail("Embedding cycle: %v", err)
-				return nil
-			}
-			if deferred {
-				task.Done("Embedding deferred while AST store is updating")
-			} else {
-				task.Done("%d entities embedded", n)
-			}
-			return nil
+			return runASTEmbed(commandContext(cmd), ifIdle)
 		},
 	}
+	cmd.Flags().BoolVar(&ifIdle, "if-idle", false, "Skip instead of waiting while an AST index holds the store")
+	return cmd
 }
 
-func rebuildEmbeddingSearchIndex(ctx context.Context, cacheDir, repoRoot string) error {
-	lockedCtx, guard, err := storelifecycle.Acquire(ctx, cacheDir)
+func runASTEmbed(ctx context.Context, ifIdle bool) error {
+	p := output.NewPrinter("")
+	task := p.StartTask("Checking pending embeddings...")
+
+	repoRoot, _ := os.Getwd()
+	cacheDir := ast.DefaultLadybugConfig().StoreDir
+	logger, closeLog, err := slogutil.ProjectLogger(repoRoot, "embedding")
 	if err != nil {
+		task.Fail("Project log: %v", err)
 		return err
+	}
+	defer closeLog()
+
+	release, err := sysutil.AcquireHeavy(ctx)
+	if err != nil {
+		task.Fail("Waiting for the heavy-work slot: %v", err)
+		return err
+	}
+	defer release()
+
+	// An absent keyword index still needs its one-time rebuild. Keep this
+	// narrow: the embedding model must never run under the lifecycle lock.
+	task.Update("Checking search index...")
+	deferred, err := rebuildEmbeddingSearchIndex(ctx, cacheDir, repoRoot, ifIdle)
+	if err != nil {
+		task.Fail("Search index rebuild: %v", err)
+		return err
+	}
+	if deferred {
+		task.Done("Embedding deferred while AST store is updating")
+		return nil
+	}
+	cycle := ast.RunEmbeddingCycleOnce
+	if ifIdle {
+		cycle = ast.RunEmbeddingCycleIfIdle
+	}
+	n, deferred, err := cycle(ctx, cacheDir, repoRoot, ai.NewEmbeddingClientFromConfig, logger)
+	if err != nil {
+		task.Fail("Embedding cycle: %v", err)
+		return err
+	}
+	if deferred {
+		task.Done("Embedding deferred while AST store is updating")
+	} else {
+		task.Done("%d entities embedded", n)
+	}
+	return nil
+}
+
+func rebuildEmbeddingSearchIndex(ctx context.Context, cacheDir, repoRoot string, ifIdle bool) (bool, error) {
+	acquire := storelifecycle.Acquire
+	if ifIdle {
+		acquire = storelifecycle.TryAcquire
+	}
+	lockedCtx, guard, err := acquire(ctx, cacheDir)
+	if ifIdle && errors.Is(err, storelifecycle.ErrLocked) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
 	}
 	defer guard.Release()
 	if ast.SearchIndexBuilt(lockedCtx, cacheDir) {
-		return nil
+		return false, nil
 	}
 	parse, err := ast.NewShardCache(cacheDir)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = parse.Close() }()
 	parse.SetRoot(repoRoot)
 	emb, err := ast.NewShardEmbCache(cacheDir, parse)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = emb.Close() }()
 	index, err := ast.OpenSearchIndex(lockedCtx, cacheDir)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = index.Close() }()
-	return index.RebuildFromCache(lockedCtx, parse, ast.BuildEmbLookup(parse, emb))
+	return false, index.RebuildFromCache(lockedCtx, parse, ast.BuildEmbLookup(parse, emb))
 }
 
 func newASTFTSSchemaCmd() *cobra.Command {

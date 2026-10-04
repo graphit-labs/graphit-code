@@ -8,5 +8,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv(gateHelperEnv) != "" {
+		os.Exit(runGateHelper())
+	}
 	os.Exit(testenv.Run(m))
 }

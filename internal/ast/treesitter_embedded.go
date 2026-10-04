@@ -3,6 +3,7 @@ package ast
 import (
 	"bytes"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"log/slog"
 	"sort"
 	"strconv"
@@ -17,11 +18,11 @@ const maxEmbedDepth = 1
 
 var embedWarnOnce sync.Map
 
-func embedWarn(key string, msg string, args ...any) {
+func embedWarn(logger *slog.Logger, key string, msg string, args ...any) {
 	if _, loaded := embedWarnOnce.LoadOrStore(key, struct{}{}); loaded {
 		return
 	}
-	slog.Warn(msg, args...)
+	slogutil.Resolve(logger).Warn(msg, args...)
 }
 
 // parseEmbedded runs every block's pattern over the tree, in declaration order, and
@@ -76,13 +77,13 @@ func (t *TreeSitterParser) parseEmbeddedBlock(path string, root *sitter.Node, sr
 
 	q, err := compileEmbeddedPattern(lang, blk.Pattern)
 	if err != nil {
-		embedWarn("pattern|"+blk.Pattern, "embedded pattern does not compile",
+		embedWarn(opts.Logger, "pattern|"+blk.Pattern, "embedded pattern does not compile",
 			"pattern", blk.Pattern, "path", path, "error", err)
 		return
 	}
 	textIdx := captureIndex(q, blk.TextCapture)
 	if textIdx < 0 {
-		embedWarn("textcap|"+blk.Pattern, "embedded text_capture is not in the pattern",
+		embedWarn(opts.Logger, "textcap|"+blk.Pattern, "embedded text_capture is not in the pattern",
 			"text_capture", blk.TextCapture, "pattern", blk.Pattern, "path", path)
 		return
 	}
@@ -129,7 +130,7 @@ func (t *TreeSitterParser) parseEmbeddedBody(path string, textNode *sitter.Node,
 	if innerLang == "" {
 		return
 	}
-	lc, ok := embeddedLangConfig(t.projectDir, innerLang)
+	lc, ok := embeddedLangConfig(t.projectDir, innerLang, opts.Logger)
 	if !ok {
 		// The language is named but we do not ship it — `scss`, `stylus`. Skipping
 		// matches how an extension with no grammar is skipped, and a project full of
@@ -173,7 +174,7 @@ func (t *TreeSitterParser) parseEmbeddedBody(path string, textNode *sitter.Node,
 		}
 	}
 	if err != nil || inner == nil {
-		embedWarn("parse|"+innerLang, "embedded block parse failed",
+		embedWarn(opts.Logger, "parse|"+innerLang, "embedded block parse failed",
 			"language", innerLang, "pattern", blk.Pattern, "error", err)
 		return
 	}
@@ -290,15 +291,15 @@ type embeddedLang struct {
 	ext   string
 }
 
-func embeddedLangConfig(projectDir, name string) (embeddedLang, bool) {
+func embeddedLangConfig(projectDir, name string, loggers ...*slog.Logger) (embeddedLang, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		return embeddedLang{}, false
 	}
-	if cfg, ok := tsLangConfigByName(projectDir, name); ok {
+	if cfg, ok := tsLangConfigByName(projectDir, name, loggers...); ok {
 		return embeddedLang{ts: cfg, ext: primaryExtOf(cfg)}, true
 	}
-	if cfg, ok := antlrLangConfigByName(projectDir, name); ok {
+	if cfg, ok := antlrLangConfigByName(projectDir, name, loggers...); ok {
 		ext := ""
 		if len(cfg.Extensions) > 0 {
 			ext = strings.ToLower(cfg.Extensions[0])
@@ -308,13 +309,13 @@ func embeddedLangConfig(projectDir, name string) (embeddedLang, bool) {
 	return embeddedLang{}, false
 }
 
-func antlrLangConfigByName(projectDir, name string) (*antlrLangConfig, bool) {
+func antlrLangConfigByName(projectDir, name string, loggers ...*slog.Logger) (*antlrLangConfig, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		return nil, false
 	}
 	if projectDir != "" {
-		for _, qf := range effectiveProjectQueryFiles(projectDir) {
+		for _, qf := range effectiveProjectQueryFiles(projectDir, loggers...) {
 			if qf.Parser == "antlr4" && strings.EqualFold(qf.Language, name) {
 				if !grammarEnabledIn(projectDir, qf.Language, effectiveGrammarName(qf)) {
 					return nil, false

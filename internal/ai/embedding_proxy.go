@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"path/filepath"
-
-	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 const (
@@ -21,7 +18,7 @@ type proxyEmbeddingClient struct {
 }
 
 func newProxyEmbeddingClient() *proxyEmbeddingClient {
-	sockFile := filepath.Join(brand.GlobalDir(), "daemon", "embed.sock")
+	sockFile := ModelSocketPath(ModelTaskEmbedding)
 
 	conn, err := net.Dial("unix", sockFile)
 	if err != nil {

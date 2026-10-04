@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func (w *GraphWriter) rel(path string) string {
 	return rel
 }
 
-func collectFiles(rootPath string) ([]string, error) {
+func collectFiles(rootPath string, loggers ...*slog.Logger) ([]string, error) {
 	var files []string
 
 	ic := ignorer.DirScope(NewAstIgnoreChecker(rootPath))
@@ -68,7 +69,7 @@ func collectFiles(rootPath string) ([]string, error) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if HasParserForExtensionIn(rootPath, ext) {
+		if HasParserForExtensionIn(rootPath, ext, loggers...) {
 			files = append(files, path)
 		}
 		return nil

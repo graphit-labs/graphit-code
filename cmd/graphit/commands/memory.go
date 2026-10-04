@@ -46,6 +46,8 @@ Examples:
 
 	cmd.AddCommand(
 		newMemoryIndexCmd(),
+		newMemoryMaintainCmd(),
+		newMemoryEmbedCmd(),
 		newMemoryQueryCmd(),
 		newMemoryAskCmd(),
 		newMemorySchemaCmd(),

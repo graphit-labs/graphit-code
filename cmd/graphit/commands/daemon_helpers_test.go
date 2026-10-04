@@ -199,7 +199,7 @@ func TestBuildDaemonProjectModulesHonorsSyncSwitch(t *testing.T) {
 			cfg := daemon.DefaultConfig()
 			cfg.DisableEmbedding = true
 			cfg.DisableDream = true
-			modules, _, err := buildDaemonProjectModules(projectDir, cfg, nil)
+			modules, _, err := buildDaemonProjectModules(projectDir, cfg)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -239,7 +239,7 @@ func TestBuildDaemonProjectModulesHonorsTaskSwitch(t *testing.T) {
 			cfg := daemon.DefaultConfig()
 			cfg.DisableEmbedding = true
 			cfg.DisableDream = true
-			modules, _, err := buildDaemonProjectModules(projectDir, cfg, nil)
+			modules, _, err := buildDaemonProjectModules(projectDir, cfg)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -32,7 +32,7 @@ Examples:
   ` + brand.BinName() + ` dream status`,
 	}
 
-	cmd.AddCommand(newDreamStatusCmd())
+	cmd.AddCommand(newDreamStatusCmd(), newDreamRunCmd())
 
 	return cmd
 }

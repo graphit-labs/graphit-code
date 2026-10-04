@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"fmt"
+	"github.com/graphit-labs/graphit-code/internal/hubartifact"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1157,44 +1158,11 @@ func (s *HubService) ResolveProjectKnowledgeMount(ctx context.Context, projectID
 }
 
 func findCanonicalFile(artType, dir string) string {
-	canonical := map[string]string{
-		"rule": "RULE.md", "command": "COMMAND.md",
-		"agent": "AGENT.md", "skill": "SKILL.md",
-	}
-	if name, ok := canonical[artType]; ok {
-		path := filepath.Join(dir, name)
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			return filepath.Join(dir, e.Name())
-		}
-	}
-	return ""
+	return hubartifact.FindCanonicalFile(artType, dir)
 }
 
 func resolveArtifactPath(meta *LockfileArtifactMeta, artType ArtifactType, artID string, pp *paths.ProjectPaths) string {
-	if meta.LinkSource != "" {
-		return meta.LinkSource
-	}
-
-	globalDir := brand.GlobalDir()
-	if globalDir != "" {
-		remoteID := meta.RemoteID
-		if remoteID == "" {
-			remoteID = artID
-		}
-		return ArtifactCacheDirIn(globalDir, artType, remoteID, meta.Version, meta.ProjectID)
-	}
-
-	folder := TypeFolderMap[artType]
-	return filepath.Join(pp.ResourcesDir, folder, artID, meta.Version)
+	return hubartifact.ResolveDir(meta, artType, artID, pp)
 }
 
 func (s *HubService) cleanupGlobalLanguageFiles(meta *LockfileArtifactMeta, id string, pp *paths.ProjectPaths) {
