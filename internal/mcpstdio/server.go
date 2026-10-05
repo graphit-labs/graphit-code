@@ -72,7 +72,7 @@ func withProjectVersion[In, Out any](handler mcp.ToolHandlerFor[In, Out]) mcp.To
 		if abs, err := filepath.Abs(dir); err == nil {
 			dir = abs
 		}
-		release, err := projectversion.Acquire(dir, version)
+		release, err := projectversion.AcquireContext(ctx, dir, version)
 		if err != nil {
 			return nil, zero, err
 		}

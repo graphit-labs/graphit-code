@@ -210,7 +210,7 @@ seconds) stops the old supervisor and starts one for the new version; its watche
 `graphit sync`, which creates the new version's stores from the default version and indexes only what
 differs. No `post-checkout` hook is needed for this.
 
-Every project child the daemon starts is pinned to the version checked out when it starts
+Every project job the daemon starts is pinned to the version checked out when it starts
 (`GRAPHIT_PROJECT_VERSION`), so a run never switches stores halfway through a branch change, and a
 version pinned in the daemon's own environment never leaks into a project.
 
@@ -220,57 +220,53 @@ the session bootstrap names it.
 
 ## Process model
 
-The daemon watches, schedules and supervises; it does not index, embed, maintain stores or run
-models itself. Every job runs as a `graphit` CLI child process started through the launcher, with
-the project root as its working directory, so each job is visible on its own in `ps`, Task Manager
-or Activity Monitor with its own CPU and memory, and a failing job cannot take the daemon down.
+The daemon executes jobs that require `graphit-core` in its own process: published-base
+hydration, AST and Knowledge indexing, AST/wiki embedding, full watcher resynchronization and
+Dream's session bookkeeping. It calls their services with an explicit project directory,
+configuration, version and cancellation context; it does not change the process directory or
+set environment variables to imitate a CLI invocation.
+
+Dedicated binaries retain their process boundary: `graphit-mcp`, `graphit-model`,
+`graphit-store`, the tray and hook binaries, plus external SCIP containers and agent CLIs.
+The UI also runs inside the daemon when activated, as described below.
 
 ```text
-graphit daemon
-├── graphit model serve embedding        local embedding model (graphit-model binary)
-├── graphit model serve rerank           local rerank model (graphit-model binary)
-├── graphit memory maintain --user       every 15 minutes
-├── graphit memory embed --user          every 2 minutes
-└── per supervised project, cwd = project root
-    ├── graphit sync                     when the watcher (re)starts
-    │   ├── graphit hub hydrate
-    │   ├── graphit ast index
-    │   ├── graphit knowledge index
-    │   ├── graphit memory index [--user]
-    │   └── graphit sync --heavy
-    │       ├── graphit ast embed / wiki embed / memory embed [--user]
-    │       └── graphit memory maintain [--user]
-    ├── graphit hub hydrate --json       on each filesystem batch, when Hub storage can exist
-    ├── graphit ast index --changes-from -   changed/removed paths as JSON on stdin
-    ├── graphit knowledge index          when documentation changed
-    ├── graphit ast embed --if-idle      after an AST index changed the store; every 30 minutes otherwise
-    ├── graphit wiki embed               after a Knowledge index; every 30 minutes otherwise
-    ├── graphit memory embed             every 2 minutes
-    ├── graphit memory maintain          every 15 minutes
-    ├── graphit task maintain            every 15 minutes
-    └── graphit dream run --session <id> when the project is idle long enough
+graphit daemon / graphit-core
+├── internal project jobs: sync, hydrate, AST/Knowledge index, AST/wiki embed, Dream
+├── graphit-model: local embedding and rerank models
+├── graphit-store: local/direct Memory and Task maintenance and embedding
+└── external Dream agent CLI and SCIP container when their work is required
 ```
 
-- **Scope.** A project child always starts in the project root and resolves the project from its
-  working directory; user-scope Memory children start in the global directory.
-- **Logs.** A project child's output is appended to `.graphit/runtime/daemon/daemon.log`; global
-  children write `~/.graphit/daemon/<module>.log`.
-- **Priority.** Daemon children are marked as background work: they lower their scheduling priority
-  and stay inside the CPU budget, and so does everything they start.
-- **Cancellation.** Parking a project, stopping the daemon or a module restart ends the child and
-  everything it started: on Linux and macOS the tree is one process group signalled with SIGTERM,
-  then SIGKILL after 10 seconds; on Windows it is ended with `taskkill /T /F`. Children never open
-  a console window on Windows.
-- **Failures.** A failed scheduled run is logged and retried on the next tick; it does not stop the
-  module.
-- **No idle work.** AST and Knowledge embedding run when an index the sync module ran (or a full
-  `sync`) succeeded, so an idle project starts no embedding process; their 30-minute timer is only a
-  safety net. A batch skips `hub hydrate` when the project cannot have a published Hub base: no
-  project ID in the lockfile, or no Hub storage configured for a non-Broker provider. A Broker
-  provider learns its storage over the network, so it always hydrates.
-- **Interactive `graphit sync`** runs the same children with the terminal's output, and hands
-  `sync --heavy` to a detached process so the terminal is free. Under the daemon, `sync` waits for
-  its heavy phase so the whole tree stays supervised.
+- **Scope.** Each core phase uses a cancellation-aware project-version lease and explicit
+  paths. Full sync carries its captured version into each phase without an outer lease.
+  Dream scopes ledger creation briefly, releases the lease before agent inference, and passes
+  `GRAPHIT_PROJECT_VERSION` to the agent. Its scoped proxy adds that captured version to omitted
+  `project_version` arguments for the launch project, including after branch changes and reconnects;
+  explicit tool versions and other project/user scopes are preserved. Same-project MCP tools can run during Dream.
+  Dedicated project jobs receive that version in their own environment; user jobs retain user scope.
+- **Logs.** Job output goes to `.graphit/runtime/daemon/daemon.log`; global modules use
+  `~/.graphit/daemon/<module>.log`.
+- **Resources.** Core jobs share the daemon's CPU and memory. Owned graph, search and wiki
+  handles close when each phase finishes; grammar caches remain shared process resources.
+  Native allocators may retain pages after close, so this does not promise an immediate RSS drop.
+  Local models remain in `graphit-model`.
+- **Cancellation.** Core jobs observe the module context, including waits for version and heavy-work
+  leases. Dream cancels and joins its active session before returning. Dedicated child trees retain
+  SIGTERM then SIGKILL after ten seconds on Linux/macOS and `taskkill /T /F` on Windows, with no
+  console window for background children.
+- **Failures.** Scheduled job errors and Go panics are logged and retried on a later tick. Native
+  library crashes in an internal job can terminate the daemon; a Go recovery boundary cannot
+  contain them. Dedicated binaries keep their process isolation.
+- **Scheduling.** AST and Knowledge embedding run at module start, after a successful dependent
+  index, and otherwise every thirty minutes. Triggers coalesce while a job is busy and reset the
+  fallback timer. Empty filesystem batches do no indexing. Hydration is skipped without a
+  possible published base; Broker storage still hydrates because it is discovered remotely.
+- **Full watcher rescan.** The internal sync preserves hydration, indexing, authoritative Memory
+  index refresh, skills/roles, adapter and Git-hook refresh, and heavy artifact reconciliation.
+  It does not relaunch `sync` or `sync --heavy` in another core process.
+- **Interactive `graphit sync`.** Its existing terminal/background CLI behavior remains available.
+  The daemon's internal scheduling does not change that command's flags.
 
 Each command above is an ordinary CLI command; see [CLI Reference](cli_reference.md#maintenance-commands-run-by-the-daemon)
 to run any of them by hand.
@@ -302,14 +298,16 @@ Agent configuration keeps calling `graphit _session-hook`.
 `graphit-store` serves only the store maintenance forms above, and only when a managed parent (the
 daemon, or a CLI command that runs its children) started them; the same command typed in a
 terminal still runs in the core, which also makes sure the daemon and tray are up. With a Broker
-provider whose storage credentials are scoped per project, `graphit-store` hands the invocation to
-the core, because only the core links the Hub registry that authorizes those projects.
+provider whose storage credentials are scoped per project, the daemon executes the existing
+authorized store service internally, because its core already links the Hub registry. This avoids
+launching `graphit-store` only for it to relaunch core. The standalone store binary retains its
+core fallback for other managed callers; authorization still happens before mutation.
 
 `graphit-tray` runs only the bare `graphit tray`; `graphit tray login ...` stays in the core.
 
 ## Per-project modules
 
-| Module | Default | Child command |
+| Module | Default | Scheduled job |
 |---|---|---|
 | Sync | On (`modules.sync`) | One recursive watcher in the daemon; `hub hydrate --json`, `ast index --changes-from -` and `knowledge index` per batch, `sync` when the watcher starts |
 | AST embedding | On (`modules.embedding`) | `ast embed --if-idle` after an AST index changed the store, otherwise every 30 minutes; skipped while an AST index is publishing |
@@ -470,12 +468,11 @@ user daemon. Unit lifecycle tests run through the portable pre-commit gate and t
 ## Resource control and failure recovery
 
 The daemon lowers its process priority and uses `GRAPHIT_MAX_WORKERS`/the CPU budget.
-Its UI shares that same process and Go CPU budget. Because the
-work runs in separate processes, the CPU-heavy commands — `ast index`, `knowledge index`,
+Its UI and internal core jobs share that process and Go CPU budget. The CPU-heavy services and commands — `ast index`, `knowledge index`,
 `ast embed`, `wiki embed` and `memory embed` — take one **machine-wide** slot before they start,
 whether the daemon, an interactive command or a Git hook started them. A slot is an advisory file
-lock under `~/.graphit/locks/`, released by the operating system when its holder exits. Only the
-process doing the heavy work holds a slot; a parent waiting on such a child never does. Set
+lock under `~/.graphit/locks/`, released by the operating system when its holder exits. Only the phase doing heavy work holds a slot; sync orchestration never holds one while
+calling a service or awaiting a dedicated child that acquires its own slot. Set
 `GRAPHIT_HEAVY_SLOTS` above `1` only when the machine can trade higher peak CPU and memory for more
 parallel throughput. Database, embedding, and ANTLR-specific environment limits remain available
 as documented in [Configuration Reference](configuration.md#runtime-only-environment-controls).
@@ -491,8 +488,11 @@ causes exponential restart waits of 2, 4, 8, 16, then at most 30 seconds. Ten co
 mark only that module failed; the daemon and other projects continue. A run stable for at least 60
 seconds resets the failure counter.
 
-On shutdown, project supervisors stop concurrently. Each waits up to seven seconds for its modules;
-the daemon waits up to ten seconds for all supervisors, flushes pending Hub events, then exits.
+On shutdown, project supervisors cancel concurrently and join their modules before closing
+resources and logs. Parking or replacing a supervisor also waits for this cleanup before a
+successor starts. The daemon waits for those joins and pending Hub events before exiting. An
+unresponsive native call can delay graceful shutdown; forced OS/service-manager termination
+remains the recovery path rather than abandoning a job that still owns process resources.
 
 ## Binary and grammar replacement
 
@@ -524,7 +524,7 @@ replacement. New or removed parser binaries do.
 | `~/.graphit/daemon/mcp.port` | Selected MCP TCP port | Discovery metadata |
 | `~/.graphit/daemon/mcp.key` | Generated runtime MCP bearer secret, rotated with the daemon | `0600` |
 | `~/.graphit/daemon/launcher.stamp` | Installed launcher/Core identity | Replacement input |
-| `.graphit/runtime/daemon/daemon.log` | Per-project supervisor/module log and the output of every project child | Generated, `0644` |
+| `.graphit/runtime/daemon/daemon.log` | Per-project supervisor/module log and the output of project jobs and dedicated children | Generated, `0644` |
 | `.graphit/runtime/daemon/rebuild.log` | AST/wiki embedding and rebuild details | Generated |
 
 Paths under `~/.graphit` follow `GRAPHIT_GLOBAL_DIR` when that override is set.
@@ -556,6 +556,27 @@ graphit daemon service status
 
 For provider behavior, see [AI Models, Providers, and Agent CLIs](ai_models.md). For developer-level
 supervisor contracts, see [Daemon Module Specification](../specs/daemon_module.md).
+
+## Validate internal jobs
+
+Build a host launcher and Docker image from the same checkout, then run from the repository root:
+
+```text
+go run ./cmd/qualitygate core-smoke graphit graphit-core-jobs:local
+```
+
+Replace `graphit` with the path to that freshly built host launcher and the image tag with the
+matching local image. The Go invocation works on Windows, macOS and Linux hosts with Go and
+Docker available. It creates private project/global registries, starts an isolated daemon, checks
+startup rescan and filesystem-triggered AST source/Knowledge updates through MCP, and verifies
+joined shutdown. It repeats the scenario in a disposable Linux container. The container fixture
+uses root solely to access private bind-mount permissions independently of host UID; the separate
+`ui-smoke` runner exercises normal image-user startup. Neither runner restarts the resident daemon.
+Cross-compilation alone does not establish native Windows/macOS runtime behavior.
+
+Fast core-job, cancellation, Dream/proxy-version and Memory-scope regressions are selected by
+`go run ./cmd/qualitygate pre-commit`. The full native suite and vulnerability analysis remain in
+`go run ./cmd/qualitygate pre-push`; these commands are the saved Git gates.
 
 CLI AST indexing (`init`, `sync`, `ast index`) also records SCIP failures,
 parse errors and graph diagnostics in the project daemon log. Detailed

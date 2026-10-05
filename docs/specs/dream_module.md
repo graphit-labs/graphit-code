@@ -66,7 +66,13 @@ That explicit terminal workflow is separate from Dream and is not called by the 
 
 The daemon checks project modification times while ignoring `.git` and `.graphit`. A run starts when
 Dream is enabled, the project has been idle for `dream.idle_timeout`, no run is active, and the
-current idle session is not exhausted. `dream.max_duration` bounds the invocation.
+current idle session is not exhausted. `dream.max_duration` bounds the invocation. The daemon executes session bookkeeping in process and
+starts only the configured external agent CLI. It captures the project version for the ledger
+and the agent environment. The scoped MCP proxy supplies the captured version when a launch-project
+tool omits `project_version`, preserving explicit versions and other scopes. Dream releases the ledger's
+version lease before MCP callbacks, and cancels
+and joins an active session during shutdown. A Go panic in the session is contained and clears
+its running state; this is not native-process fault isolation.
 
 The state file is `.graphit/runtime/dream/dream.state`. Its important fields are:
 

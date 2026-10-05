@@ -17,6 +17,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -70,9 +71,10 @@ type Runner struct {
 	projectCfg func() config.ConfigMap
 	newClient  func() (ai.Client, error)
 	newLedger  func(context.Context, string) (runLedgerWriter, error)
-	// execute runs one Dream session. Nil runs it in this process; the daemon sets it
-	// to run the session as its own CLI process.
+	version    string
+	// execute replaces the session body while preserving the scheduling lifecycle.
 	execute func(ctx context.Context, sessionID string) error
+	active  sync.WaitGroup
 
 	mu       sync.Mutex
 	running  bool
@@ -104,9 +106,11 @@ func NewRunner(projectDir, agent string, projectCfgLoader func() config.ConfigMa
 }
 
 func newSessionRunner(projectDir, agent string) *Runner {
+	version, _ := projectversion.Resolve(projectDir, "")
 	return &Runner{
 		projectDir: projectDir,
 		agent:      agent,
+		version:    version.Version,
 		newClient:  ai.NewClientFromConfig,
 		newLedger: func(ctx context.Context, projectDir string) (runLedgerWriter, error) {
 			return openRunLedger(ctx, projectDir)
@@ -141,6 +145,28 @@ func ExecuteSession(ctx context.Context, projectDir, agent, sessionID string, lo
 	return r.executeDream(ctx, sessionID)
 }
 
+// ExecuteSessionVersion pins ledger creation and the agent's environment without
+// holding a project lease while the agent calls back into the project's MCP tools.
+func ExecuteSessionVersion(ctx context.Context, projectDir, version, agent, sessionID string, logFn func(string, ...any)) error {
+	r := newSessionRunner(projectDir, agent)
+	r.logFn = logFn
+	r.scopeLedgerVersion(version)
+	return r.executeDream(ctx, sessionID)
+}
+
+func (r *Runner) scopeLedgerVersion(version string) {
+	r.version = version
+	open := r.newLedger
+	r.newLedger = func(ctx context.Context, dir string) (runLedgerWriter, error) {
+		release, err := projectversion.AcquireContext(ctx, dir, version)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		return open(ctx, dir)
+	}
+}
+
 func (r *Runner) log(format string, args ...any) {
 	if r.logFn != nil {
 		r.logFn(format, args...)
@@ -154,6 +180,8 @@ func (r *Runner) IsRunning() bool {
 }
 
 func (r *Runner) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer func() { cancel(); r.active.Wait() }()
 
 	r.tick(ctx)
 
@@ -221,7 +249,14 @@ func (r *Runner) tick(ctx context.Context) {
 	r.saveStateLocked()
 	r.mu.Unlock()
 
+	r.active.Add(1)
 	go func() {
+		defer r.active.Done()
+		defer func() {
+			if p := recover(); p != nil {
+				r.log("dream: session panicked: %v", p)
+			}
+		}()
 		defer func() {
 			r.mu.Lock()
 			r.running = false
@@ -409,8 +444,9 @@ func (r *Runner) executeLocal(ctx context.Context, streamer ai.StreamClient, pro
 		AllowTools:     true,
 		Capabilities:   ai.DreamMemoryCapabilities(),
 		Env: map[string]string{
-			agentpolicy.EnvRunID: runID,
-			"GRAPHIT_UNIT_ID":    "dream:" + runID,
+			projectversion.EnvVersion(): r.version,
+			agentpolicy.EnvRunID:        runID,
+			"GRAPHIT_UNIT_ID":           "dream:" + runID,
 		},
 	}, func(ev ai.Event) {
 		if ev.Kind == ai.EventToolUse {

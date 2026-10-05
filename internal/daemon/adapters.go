@@ -23,8 +23,8 @@ const (
 	defaultTaskMaintenanceInterval   = 15 * time.Minute
 )
 
-// periodicCLIModule runs one CLI invocation now, then on every tick and whenever its
-// trigger fires, each run its own child process. A failed run is logged and retried on
+// periodicCLIModule dispatches one job now, then on every tick and whenever its
+// trigger fires, internally for core jobs or to a dedicated binary. A failed run is logged and retried on
 // the next tick: the next run starts from whatever the failed one left, so there is
 // nothing to restart.
 type periodicCLIModule struct {
@@ -116,7 +116,7 @@ func NewTaskMaintenanceModule(projectDir string, interval time.Duration) WatchMo
 }
 
 // DreamModule keeps the Dream scheduling — idle detection, session rotation, deep
-// sleep — in the daemon, and runs each due session as `graphit dream run`.
+// sleep — in the daemon, and executes each due session internally.
 type DreamModule struct {
 	projectDir string
 	agent      string

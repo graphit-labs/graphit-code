@@ -8,6 +8,7 @@ package storework
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
@@ -20,6 +21,20 @@ import (
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 )
 
+type outputWriterKey struct{}
+
+// WithOutputWriter routes one internal job's progress to its own log sink.
+func WithOutputWriter(ctx context.Context, writer io.Writer) context.Context {
+	return context.WithValue(ctx, outputWriterKey{}, writer)
+}
+
+func printerFor(ctx context.Context) *output.Printer {
+	if writer, ok := ctx.Value(outputWriterKey{}).(io.Writer); ok {
+		return output.NewPrinterTo("", writer)
+	}
+	return output.NewPrinter("")
+}
+
 func projectID(projectDir string) (string, error) {
 	lf, err := projectlock.Load(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil || lf == nil || lf.Project.ID == "" {
@@ -31,12 +46,16 @@ func projectID(projectDir string) (string, error) {
 // MemoryTableURI resolves the authoritative memory table of the project, or of the
 // user scope.
 func MemoryTableURI(projectDir string, userScope bool) (string, error) {
+	return memoryTableURI(context.Background(), projectDir, userScope)
+}
+
+func memoryTableURI(ctx context.Context, projectDir string, userScope bool) (string, error) {
 	if userScope {
 		userID, err := memory.UserScopeID()
 		if err != nil {
 			return "", err
 		}
-		if uri := memory.TableURIFor("user", userID); uri != "" {
+		if uri := memory.MemoryTableURIWithContext(ctx, "memory/user/"+userID, memory.TableDirFor("user", userID)); uri != "" {
 			return uri, nil
 		}
 		return "", fmt.Errorf("user memory table is not available")
@@ -45,7 +64,7 @@ func MemoryTableURI(projectDir string, userScope bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if uri := memory.TableURIFor("project", id); uri != "" {
+	if uri := memory.MemoryTableURIWithContext(ctx, "memory/project/"+id, memory.TableDirFor("project", id)); uri != "" {
 		return uri, nil
 	}
 	return "", fmt.Errorf("project memory table is not available")
@@ -60,11 +79,12 @@ func scopeLabel(userScope bool) string {
 
 // MaintainMemory compacts the memory table and prunes old versions.
 func MaintainMemory(ctx context.Context, projectDir string, userScope bool) error {
-	uri, err := MemoryTableURI(projectDir, userScope)
+	ctx = memory.WithProjectDirectory(ctx, projectDir)
+	uri, err := memoryTableURI(ctx, projectDir, userScope)
 	if err != nil {
 		return err
 	}
-	p := output.NewPrinter("")
+	p := printerFor(ctx)
 	task := p.StartTask("Maintaining %s memory table...", scopeLabel(userScope))
 	if err := memory.MaintainTable(ctx, uri); err != nil {
 		task.Fail("Memory maintenance: %v", err)
@@ -76,7 +96,8 @@ func MaintainMemory(ctx context.Context, projectDir string, userScope bool) erro
 
 // EmbedMemory fills the vectors of memories that are new or changed.
 func EmbedMemory(ctx context.Context, projectDir string, userScope bool) error {
-	uri, err := MemoryTableURI(projectDir, userScope)
+	ctx = memory.WithProjectDirectory(ctx, projectDir)
+	uri, err := memoryTableURI(ctx, projectDir, userScope)
 	if err != nil {
 		return err
 	}
@@ -90,7 +111,7 @@ func EmbedMemory(ctx context.Context, projectDir string, userScope bool) error {
 	}
 	defer release()
 
-	p := output.NewPrinter("")
+	p := printerFor(ctx)
 	task := p.StartTask("Embedding %s memories...", scopeLabel(userScope))
 	n, err := memory.NewEmbedder(client, memory.DefaultEmbedConfig()).RunCycle(ctx, uri)
 	if err != nil {
@@ -104,7 +125,8 @@ func EmbedMemory(ctx context.Context, projectDir string, userScope bool) error {
 // IndexMemory refreshes the indexes of the authoritative memory table. reset is kept
 // for compatibility and refreshes the same indexes in place.
 func IndexMemory(ctx context.Context, projectDir string, userScope, reset bool) error {
-	p := output.NewPrinter("")
+	ctx = memory.WithProjectDirectory(ctx, projectDir)
+	p := printerFor(ctx)
 	scope, scopeID := memory.MemoryScopeProject, ""
 	if userScope {
 		userID, err := memory.UserScopeID()
@@ -123,7 +145,7 @@ func IndexMemory(ctx context.Context, projectDir string, userScope, reset bool) 
 		scopeID = id
 	}
 	ms, _ := memory.NewMemoryStore()
-	svc := memory.NewMemoryService(scope, scopeID, ms).WithContext(context.Background())
+	svc := memory.NewMemoryService(scope, scopeID, ms).WithContext(ctx)
 	_ = svc.EnsureInitialised()
 	defer func() { _ = svc.Close() }()
 
@@ -146,7 +168,7 @@ func MaintainTasks(ctx context.Context, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	p := output.NewPrinter("")
+	p := printerFor(ctx)
 	task := p.StartTask("Maintaining task tables...")
 	if err := service.Maintain(ctx); err != nil {
 		task.Fail("Task maintenance: %v", err)

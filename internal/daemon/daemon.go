@@ -317,7 +317,8 @@ func supervisionKey(p ProjectInfo) string {
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	return p.ID + "@" + dir + "#" + projectversion.Current(dir).Version
+	version, _ := projectversion.Resolve(dir, "")
+	return p.ID + "@" + dir + "#" + version.Version
 }
 
 // projectRecentlyActive includes directory mtimes so deleting the last changed
@@ -383,19 +384,8 @@ func (d *Daemon) shutdown() {
 		}(sup)
 	}
 
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		d.log("all project supervisors stopped gracefully")
-	case <-time.After(10 * time.Second):
-		d.log("shutdown timed out after 10s")
-		d.event("warn", "Shutdown timed out after 10s")
-	}
+	wg.Wait()
+	d.log("all project supervisors stopped gracefully")
 
 	d.event("success", "Daemon stopped")
 

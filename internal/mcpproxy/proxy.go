@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 )
 
 const watchPollInterval = 500 * time.Millisecond
@@ -38,6 +40,8 @@ type Config struct {
 	CapabilityProfile string
 	CapabilityToken   string
 	lastEnsureLog     time.Time
+	pinnedProject     string
+	pinnedVersion     string
 }
 
 func (c *Config) applyDefaults() {
@@ -55,6 +59,12 @@ func (c *Config) applyDefaults() {
 	}
 	if strings.TrimSpace(c.CapabilityToken) == "" {
 		c.CapabilityToken = agentpolicy.CapabilityTokenFromEnv()
+	}
+	if c.CapabilityProfile == agentpolicy.ProfileDreamMemory {
+		if version, err := projectversion.Validate(os.Getenv(projectversion.EnvVersion())); err == nil && version != "" {
+			c.pinnedProject, _ = os.Getwd()
+			c.pinnedVersion = version
+		}
 	}
 }
 
@@ -188,7 +198,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		relayCtx, cancelRelay := context.WithCancel(ctx)
 		go watchDaemonFiles(relayCtx, cfg, port, key, cancelRelay)
 
-		err = relay(relayCtx, stdioConn, httpConn)
+		err = relay(relayCtx, stdioConn, httpConn, cfg)
 		cancelRelay()
 		httpConn.Close()
 
@@ -305,7 +315,7 @@ func isPortAlive(port int) bool {
 	return true
 }
 
-func relay(ctx context.Context, stdioConn, httpConn mcp.Connection) error {
+func relay(ctx context.Context, stdioConn, httpConn mcp.Connection, configs ...Config) error {
 	errc := make(chan error, 2)
 
 	go func() {
@@ -314,6 +324,9 @@ func relay(ctx context.Context, stdioConn, httpConn mcp.Connection) error {
 			if err != nil {
 				errc <- fmt.Errorf("stdio read: %w", err)
 				return
+			}
+			if len(configs) > 0 {
+				msg = configs[0].pinToolVersion(msg)
 			}
 			if err := httpConn.Write(ctx, msg); err != nil {
 				errc <- fmt.Errorf("http write: %w", err)
@@ -336,6 +349,54 @@ func relay(ctx context.Context, stdioConn, httpConn mcp.Connection) error {
 	}()
 
 	return <-errc
+}
+
+// A Dream's process environment is not part of an HTTP MCP tool call. Carry its
+// captured version into omitted tool arguments for the launch project only.
+func (c Config) pinToolVersion(msg jsonrpc.Message) jsonrpc.Message {
+	req, ok := msg.(*jsonrpc.Request)
+	if !ok || req.Method != "tools/call" || c.pinnedProject == "" || c.pinnedVersion == "" {
+		return msg
+	}
+	var params map[string]json.RawMessage
+	if json.Unmarshal(req.Params, &params) != nil {
+		return msg
+	}
+	var args map[string]json.RawMessage
+	if json.Unmarshal(params["arguments"], &args) != nil || args == nil {
+		return msg
+	}
+	var dir, version string
+	if json.Unmarshal(args["project_dir"], &dir) != nil || dir == "" {
+		return msg
+	}
+	if raw := args["project_version"]; len(raw) > 0 {
+		if json.Unmarshal(raw, &version) != nil || version != "" {
+			return msg
+		}
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(c.pinnedProject, dir)
+	}
+	root, err := filepath.EvalSymlinks(c.pinnedProject)
+	if err != nil {
+		root = filepath.Clean(c.pinnedProject)
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		resolved = filepath.Clean(dir)
+	}
+	if root != resolved {
+		return msg
+	}
+	// The daemon has its own stable CWD. A relative launch-project path must
+	// cross the HTTP boundary as an absolute path together with its version.
+	args["project_dir"], _ = json.Marshal(resolved)
+	args["project_version"], _ = json.Marshal(c.pinnedVersion)
+	params["arguments"], _ = json.Marshal(args)
+	copy := *req
+	copy.Params, _ = json.Marshal(params)
+	return &copy
 }
 
 func isStdioClosed(err error) bool {

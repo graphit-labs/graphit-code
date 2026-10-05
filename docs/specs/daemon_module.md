@@ -90,22 +90,38 @@ built directly, as the tests do, gets a zero window and therefore never parks.
 
 ### 2. Project Supervisors
 
-Every module schedules work; none performs it in the daemon process. Each run is a `graphit` CLI
-child started through `internal/clirun` with the project root as working directory, its output
-appended to the project's `.graphit/runtime/daemon/daemon.log`, marked as background work (lower
-priority, CPU budget) and cancelled as a process tree with the module's context. Tests replace the
-package-level `cliRunner` to record invocations instead of starting processes.
+Core jobs execute inside the daemon through `internal/daemon`'s curated service dispatcher:
+hydration, AST/Knowledge indexing, AST/wiki embeddings, full rescan sync and Dream sessions.
+`clirun.Spec` carries an explicit project root, streams and captured version; it does not invoke
+Cobra or mutate CWD, flags or environment. Tests can replace `coreRunner` independently of
+`cliRunner`, and production-dispatch tests prohibit core subprocesses.
+
+Dedicated binaries still use `internal/clirun`, project/global log sinks, background priority,
+CPU budgets and process-tree cancellation. Local/direct Memory and Task work runs in
+`graphit-store`. For scoped Broker storage the daemon invokes the authorized store service
+internally, avoiding the store binary's nested core fallback without bypassing Hub authorization.
+Memory operation contexts explicitly carry the checkout into implicit table opens, preserving
+its native Lance branch even when the daemon's CWD is elsewhere.
+
+Each data phase takes `projectversion.AcquireContext`; canceled waiters publish no override.
+Sync scopes its phases separately. Dream briefly scopes ledger creation and passes the version
+to the external agent; its scoped MCP proxy supplies the captured version for omitted
+`project_version` arguments on the launch project. Explicit tool versions and other scopes remain
+unchanged. No lease is held during agent/MCP inference. Its scheduler cancels and
+joins the active goroutine; Go panics are contained and session state is cleaned up. Owned native
+handles close after each phase, while shared grammar caches remain loaded. Internal work shares
+the daemon's CPU/RSS and cannot isolate a native crash.
 
 A supervisor belongs to one checkout and one [project version](project_identity.md#project-version):
 its key is `<project id>@<absolute dir>#<version>` (`supervisionKey`). Two worktrees of one repository
 are two supervisors, and switching a checkout's branch replaces its supervisor with one for the new
-version, which starts with a full `graphit sync`. Every child receives
+version, which starts with a full internal sync. Every dedicated child receives
 `GRAPHIT_PROJECT_VERSION=<version checked out when it starts>` (`versionEnv`). One run therefore never
 switches stores halfway through a branch change, and a version pinned in the daemon's own
 environment never reaches a project's child.
 
 Each active project has an isolated supervisor thread monitoring watch modules:
-- **`SyncModule`**: Holds one recursive filesystem watch over the project tree (`internal/fswatch`) and reindexes what each batch names. Debounces 1 second of quiet, capped at 5 seconds for a continuously busy tree. Classification stays in the daemon; the work runs as children:
+- **`SyncModule`**: Holds one recursive filesystem watch over the project tree (`internal/fswatch`) and reindexes what each batch names. Debounces 1 second of quiet, capped at 5 seconds for a continuously busy tree. Classification and core work stay in the daemon; the following equivalent CLI names identify the service phases:
   - **Watcher start (`Rescan`)** — `graphit sync`, because a parked supervisor had no watcher and anything, deletions included, may have changed.
   - **Each batch** — `graphit hub hydrate --json` first, unless the project cannot have a published Hub base (no lockfile project ID, or a non-Broker provider without Hub storage; `hubStorageMayExist`); a changed published AST base turns the batch into `graphit ast index` (whole-project reconcile), otherwise `graphit ast index --changes-from -` receives `{"changed":[…],"removed":[…]}` project-relative paths on stdin (never as arguments, which would meet the Windows command-line limit). A documentation change or a changed published Knowledge base adds `graphit knowledge index`.
   - **AST graph** (LadybugDB) — the `--changes-from` run is the incremental pipeline over the exact changed paths (`ast.RunPipelineForPaths`), which skips discovery entirely
@@ -114,14 +130,14 @@ Each active project has an isolated supervisor thread monitoring watch modules:
   - **Routing** (`classifyBatch`): AST ownership follows the extension and nothing else, exactly as a full scan decides it — which now means the docs tree is excluded, because `ast.index_docs` is off and the exclusion is part of the AST ignore checker both paths use. Knowledge ownership needs the path to be under the docs directory — or to be one of the documents the scope names explicitly, which is how the root README reaches the wiki — *and* to carry an extension the wiki indexes. Location alone cannot decide it, since `knowledge.docs_dir` can be set to `.`. The two are independent, not alternatives: `.md`, `.yaml`, `.json` and `.xml` set both, and with `ast.index_docs=true` a document under `docs/` sets both again.
   - **Activity reporting**: every batch touches the supervisor's idle clock (`ActivityReporter`), even a batch with nothing reindexable in it — any change under the tree counts as the project being worked on.
   - Reads per-project config from the project lockfile (inline → env → project → global → compiled defaults)
-- **`EmbeddingModule`**: Runs `graphit ast embed --if-idle` now, whenever the `SyncModule` signals that an AST index (or a full `sync`) succeeded, and every 30 minutes as a safety net. The child embeds modified AST search documents through the embedding model server and skips the cycle while an AST publication holds the store.
+- **`EmbeddingModule`**: Runs `graphit ast embed --if-idle` now, whenever the `SyncModule` signals that an AST index (or a full `sync`) succeeded, and every 30 minutes as a safety net. The internal service embeds modified AST search documents through the embedding model server and skips the cycle while an AST publication holds the store.
 - **`WikiEmbeddingModule`**: Runs `graphit wiki embed` now, whenever the `SyncModule` signals a successful Knowledge index (or full `sync`), and every 30 minutes as a safety net.
 - **Triggers.** `daemon.ProjectTriggers` connects the `SyncModule` to the two embedders of the same project. A trigger holds at most one pending signal, so a burst of index runs while an embedder is busy causes one more run, not one per batch; each triggered run restarts that module's safety-net timer.
 - **`MemoryEmbeddingModule`**: Runs `graphit memory embed` every 2 minutes for the project table (and, as a global module, `--user` for the user table).
 - **`MemoryMaintenanceModule`**: Runs `graphit memory maintain` — the single maintenance owner of the project's authoritative memory table — now and every 15 minutes; the store's due-time metadata prevents unnecessary work and empty tables are skipped. A failed run is logged and retried on the next tick.
 - **`TaskMaintenanceModule`**: Runs `graphit task maintain` every 15 minutes.
 - **`DreamModule`**: Idle detection, session rotation and deep sleep stay in the daemon's `dream.Runner`; after the configured project-idle threshold it runs one constrained agentic
-  Memory consolidation pass as `graphit dream run --session <id> --agent <agent>`, bounded by `dream.max_duration` through the child's context. The pass reads contextual MCP evidence, mutates only Memory through the
+  Memory consolidation pass as `graphit dream run --session <id> --agent <agent>`, bounded by `dream.max_duration` through the session context. The pass reads contextual MCP evidence, mutates only Memory through the
   allowed tools, and creates no skill, rule, command, source, or narrative report artifact.
 
 #### Cross-Pipeline Resource Gate
@@ -137,9 +153,8 @@ this gate still bounds on the export side is the Go worker pool the export's own
 concurrent Parquet writers draw from, which is sized off the same `CPUBudget()`.)
 
 `sysutil.AcquireHeavy(ctx)` is the missing half of that budget: a **machine-wide**
-semaphore that every CPU-saturating job takes before it starts. Since the jobs run as
-separate CLI processes, a per-process semaphore would let each of them claim the whole
-budget; each slot is therefore also an advisory file lock,
+semaphore that every CPU-saturating phase takes before it starts. Internal services share
+its process gate, while CLI and dedicated binaries also coordinate through an advisory file lock,
 `~/.graphit/locks/heavy-slot-<n>.lock`, taken in addition to an in-process channel and
 released by the kernel when its holder exits. An unusable lock directory degrades to the
 in-process gate rather than stopping the work.
@@ -150,8 +165,8 @@ in-process gate rather than stopping the work.
 | `knowledge index` | One Knowledge rebuild |
 | `ast embed`, `wiki embed`, `memory embed` | One embedding cycle |
 
-Only the process doing the work takes a slot. A parent waiting on such a child — the
-daemon, `sync`, `sync --heavy` — never holds one, or the child would wait on its own parent.
+Only the phase doing the work takes a slot. Sync orchestration never holds a slot while
+calling a gated service or waiting for a dedicated child; both gates are non-reentrant.
 
 Capacity is **1** by construction, not by conservatism: `CPUBudget` already hands a
 single pipeline as much of the machine as it may have, so a second concurrent slot is
@@ -159,8 +174,8 @@ by definition oversubscription. `GRAPHIT_HEAVY_SLOTS` raises it (clamped to the 
 budget) for an operator who would rather trade peak memory for throughput.
 
 Serializing does not make the set of jobs finish later — these are batch jobs, so it
-makes each one finish sooner, without thrashing, and caps peak RSS at what a single
-pipeline needs. A batch with nothing to reindex returns before touching the gate, so
+makes each one finish sooner, without thrashing, and limits simultaneous heavy phases. Retained process caches and native allocator pages
+mean this is not an absolute bound on daemon RSS. A batch with nothing to reindex returns before touching the gate, so
 an idle supervisor never queues behind a busy one.
 
 A cancelled wait returns `ctx.Err()` with a nil release and the caller skips the work:

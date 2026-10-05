@@ -31,6 +31,8 @@ type ProjectSupervisor struct {
 	mu             sync.RWMutex
 	logMu          sync.Mutex // protects projectLogFile writes (separate to avoid deadlock)
 	stopped        bool
+	started        bool
+	done           chan struct{}
 	projectLogFile *os.File
 	globalLogFn    func(string, ...any)
 
@@ -45,6 +47,7 @@ func newProjectSupervisor(projectID, projectDir string, modules []WatchModule) *
 	ps := &ProjectSupervisor{
 		projectDir: projectDir,
 		projectID:  projectID,
+		done:       make(chan struct{}),
 		modules:    entries,
 	}
 	ps.Touch()
@@ -66,8 +69,15 @@ func (ps *ProjectSupervisor) AddCloser(c io.Closer) {
 }
 
 func (ps *ProjectSupervisor) Start(ctx context.Context, logFn func(string, ...any)) {
+	ps.mu.Lock()
 	ctx, ps.cancel = context.WithCancel(ctx)
+	ps.started = true
+	if ps.stopped {
+		ps.cancel()
+	}
 	ps.globalLogFn = logFn
+	ps.mu.Unlock()
+	defer close(ps.done)
 
 	projectLogDir := brand.ProjectRuntimePath(ps.projectDir, "daemon")
 	if err := os.MkdirAll(projectLogDir, 0o755); err == nil {
@@ -93,23 +103,14 @@ func (ps *ProjectSupervisor) Start(ctx context.Context, logFn func(string, ...an
 
 	ps.projectLog("supervisor shutting down")
 
+	// Internal jobs own resources in this process. Replacement/parking cannot
+	// release them or start a successor while an old job is still cleaning up.
+	wg.Wait()
+	ps.projectLog("all modules stopped gracefully")
 	for _, c := range ps.closers {
 		if err := c.Close(); err != nil {
 			ps.projectLog("closer error: %v", err)
 		}
-	}
-
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		ps.projectLog("all modules stopped gracefully")
-	case <-time.After(7 * time.Second):
-		ps.projectLog("module shutdown timed out after 7s")
 	}
 
 	if ps.projectLogFile != nil {
@@ -119,11 +120,15 @@ func (ps *ProjectSupervisor) Start(ctx context.Context, logFn func(string, ...an
 
 func (ps *ProjectSupervisor) Stop() {
 	ps.mu.Lock()
-	defer ps.mu.Unlock()
 	if ps.cancel != nil {
 		ps.cancel()
 	}
 	ps.stopped = true
+	started := ps.started
+	ps.mu.Unlock()
+	if started {
+		<-ps.done
+	}
 }
 
 func (ps *ProjectSupervisor) projectLog(format string, args ...any) {

@@ -12,6 +12,7 @@
 package projectversion
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/graphit-labs/graphit-code/internal/gitenv"
@@ -151,6 +153,12 @@ var (
 // Acquire scopes the running call to projectDir's version until release is called.
 // With an explicit version every Current(projectDir) inside the scope answers it.
 func Acquire(projectDir, explicit string) (release func(), err error) {
+	return AcquireContext(context.Background(), projectDir, explicit)
+}
+
+// AcquireContext is Acquire with cancelable waiting, for server and daemon jobs.
+// A canceled waiter never publishes an override or leaves a lock-owning goroutine.
+func AcquireContext(ctx context.Context, projectDir, explicit string) (release func(), err error) {
 	explicit, err = Validate(explicit)
 	if err != nil {
 		return nil, err
@@ -166,11 +174,25 @@ func Acquire(projectDir, explicit string) (release func(), err error) {
 		scopes[key] = mu
 	}
 	scopeMu.Unlock()
-	if explicit == "" {
-		mu.RLock()
-		return mu.RUnlock, nil
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if explicit == "" {
+			if mu.TryRLock() {
+				return mu.RUnlock, nil
+			}
+		} else if mu.TryLock() {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	mu.Lock()
 	overrides.Store(key, explicit)
 	return func() {
 		overrides.Delete(key)

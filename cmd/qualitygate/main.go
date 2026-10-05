@@ -40,8 +40,11 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 3 && args[0] == "ui-smoke" {
 		return runUISmoke(args[1], args[2], stdout)
 	}
+	if len(args) == 3 && args[0] == "core-smoke" {
+		return runCoreSmoke(args[1], args[2], stdout)
+	}
 	if len(args) != 1 || (args[0] != "pre-commit" && args[0] != "pre-push") {
-		return fmt.Errorf("usage: go run ./cmd/qualitygate <pre-commit|pre-push> or ui-smoke <host-launcher> <container-image>")
+		return fmt.Errorf("usage: go run ./cmd/qualitygate <pre-commit|pre-push> or <ui-smoke|core-smoke> <host-launcher> <container-image>")
 	}
 	if _, err := os.Stat("graphit.lock.json"); err != nil {
 		return fmt.Errorf("run from the project root: %w", err)
@@ -68,7 +71,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 func preCommitSteps(workflows []string) []step {
 	return []step{
-		{name: "AST fallback and cancellation regressions", command: "go", args: []string{"test", "-tags", "lancedb", "-count=1", "-p", "1", "-parallel", "1", "-timeout", "2m", "-run", "^(TestSCIPFailureFallsBackToTreeSitter|TestASTParsingProgressIncludesErrors|TestTreeSitterNative.*|TestSyntaxParserFallbackMechanism|TestBackendSelectionMechanism|TestExclusiveGrammar.*|TestGrammarOverride.*|TestShippedSQLDialectsAreExclusive|TestPostgresOverrideKeepsThePlpgsqlSplice|TestASTProject.*Diagnostics|TestSyncASTPipelineOptions|TestSyncASTProjectDiagnostics|TestProjectLogger.*|TestSyncOutput.*|TestSyncChildren.*|TestDaemonUI.*|TestRequestedUI.*|TestDaemonWaitsForGlobalModuleShutdown|TestGlobalAST.*|TestUIDatabases.*|TestUILogTail.*|TestLadybugCloseReleasesCanonicalManifest|TestStartWithReady.*|TestStoreMaintenance.*|TestQuietByDefaultAndDetailedWhenAsked|TestPreparationProgressAndErrorsAreAlwaysShown)$", "./internal/ast", "./cmd/graphit/commands", "./internal/slogutil", "./cmd/store", "./internal/uiserver", "./internal/daemon"}, env: []string{"GOMAXPROCS=2", "GRAPHIT_MAX_WORKERS=2", "GRAPHIT_DB_THREADS=2", "GRAPHIT_DB_BUFFER_MB=256", "GRAPHIT_EMBED_THREADS=1"}},
+		{name: "AST fallback and cancellation regressions", command: "go", args: []string{"test", "-tags", "lancedb", "-count=1", "-p", "1", "-parallel", "1", "-timeout", "2m", "-run", "^(TestSCIPFailureFallsBackToTreeSitter|TestASTParsingProgressIncludesErrors|TestTreeSitterNative.*|TestSyntaxParserFallbackMechanism|TestBackendSelectionMechanism|TestExclusiveGrammar.*|TestGrammarOverride.*|TestShippedSQLDialectsAreExclusive|TestPostgresOverrideKeepsThePlpgsqlSplice|TestASTProject.*Diagnostics|TestSyncASTPipelineOptions|TestSyncASTProjectDiagnostics|TestProjectLogger.*|TestSyncOutput.*|TestSyncChildren.*|TestDaemonCore.*|TestDreamInProcess.*|TestDreamProxy.*Version.*|TestAcquireContext.*|TestMemoryExplicit.*|TestProjectVersionTool.*|TestDaemonUI.*|TestRequestedUI.*|TestDaemonWaitsForGlobalModuleShutdown|TestGlobalAST.*|TestUIDatabases.*|TestUILogTail.*|TestLadybugCloseReleasesCanonicalManifest|TestStartWithReady.*|TestStoreMaintenance.*|TestQuietByDefaultAndDetailedWhenAsked|TestPreparationProgressAndErrorsAreAlwaysShown)$", "./internal/ast", "./cmd/graphit/commands", "./internal/slogutil", "./cmd/store", "./internal/uiserver", "./internal/daemon", "./internal/dream", "./internal/mcpproxy", "./internal/projectversion", "./internal/mcpstdio", "./internal/memory"}, env: []string{"GOMAXPROCS=2", "GRAPHIT_MAX_WORKERS=2", "GRAPHIT_DB_THREADS=2", "GRAPHIT_DB_BUFFER_MB=256", "GRAPHIT_EMBED_THREADS=1"}},
 		{name: "Go unit tests", command: "go", args: append([]string{"test", "-p", "1", "-parallel", "2", "-timeout", "2m"}, unitPackages...)},
 		{name: "Persisted relation tests (LanceDB)", command: "go", args: []string{"test", "-tags", "lancedb", "-count=1", "./internal/relations", "./internal/wiki", "./internal/knowledge", "./internal/task", "./internal/memory"}},
 		{name: "Go lint and SAST (gosec)", command: "golangci-lint", args: []string{"run", "./..."}},

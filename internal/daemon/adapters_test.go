@@ -58,8 +58,10 @@ func (r *recordingRunner) recorded() ([]clirun.Spec, []string) {
 func useRunner(t *testing.T, r clirun.Runner) {
 	t.Helper()
 	old := cliRunner
+	oldCore := coreRunner
 	cliRunner = r
-	t.Cleanup(func() { cliRunner = old })
+	coreRunner = r
+	t.Cleanup(func() { cliRunner = old; coreRunner = oldCore })
 }
 
 func runOneTick(t *testing.T, m WatchModule) clirun.Spec {

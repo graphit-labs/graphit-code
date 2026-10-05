@@ -147,7 +147,16 @@ type MemoryTable struct {
 // not a published artifact somebody else owns. That distinction is why `lancestore.Config.Writable`
 // exists rather than the permission being derived from the scheme.
 func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
-	return OpenMemoryTableIn(ctx, uri, "")
+	dir, _ := ctx.Value(projectDirectoryKey{}).(string)
+	return OpenMemoryTableIn(ctx, uri, dir)
+}
+
+type projectDirectoryKey struct{}
+
+// WithProjectDirectory binds implicit table opens in one operation to a checkout.
+// Authorization and cancellation remain on the original request context.
+func WithProjectDirectory(ctx context.Context, projectDir string) context.Context {
+	return context.WithValue(ctx, projectDirectoryKey{}, projectDir)
 }
 
 // OpenMemoryTableIn is OpenMemoryTable for the checkout in projectDir: a project's

@@ -14,12 +14,13 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/projectversion"
 )
 
-// Every piece of work the daemon does for a project runs as a graphit CLI child process
-// with the project as its working directory. The daemon itself only watches, schedules
-// and supervises; the child's own process carries the CPU and memory of the work.
+// Core jobs run as scoped services in this daemon. Dedicated runtime binaries keep
+// their process boundary; both paths share scheduling, cancellation and log sinks.
 
 // cliRunner starts the children. Tests replace it to record invocations.
 var cliRunner clirun.Runner = clirun.Default
+
+var coreRunner clirun.Runner = inProcessRunner{}
 
 // projectLogPath is the per-project log every child of that project writes to.
 func projectLogPath(projectDir string) string {
@@ -47,14 +48,15 @@ func runChild(ctx context.Context, dir, logPath string, stdin io.Reader, args ..
 		_, _ = fmt.Fprintf(f, "%s [daemon] running: %s %v\n", time.Now().UTC().Format(time.RFC3339), brand.BinName(), args)
 		spec.Stdout, spec.Stderr = f, f
 	}
-	return cliRunner.Run(ctx, spec)
+	return jobRunner(ctx, args).Run(ctx, spec)
 }
 
 // versionEnv pins a project child to the version checked out in its directory when it
 // starts, so one run never switches stores halfway through a branch change, and a
 // version pinned in the daemon's own environment never reaches a project's child.
 func versionEnv(dir string) []string {
-	return []string{projectversion.EnvVersion() + "=" + projectversion.Current(dir).Version}
+	info, _ := projectversion.Resolve(dir, "")
+	return []string{projectversion.EnvVersion() + "=" + info.Version}
 }
 
 // runProjectChild runs a CLI invocation scoped to projectDir.
@@ -71,6 +73,6 @@ func outputProjectChild(ctx context.Context, projectDir string, args ...string) 
 		defer func() { _ = f.Close() }()
 		spec.Stderr = f
 	}
-	err := cliRunner.Run(ctx, spec)
+	err := jobRunner(ctx, args).Run(ctx, spec)
 	return out.Bytes(), err
 }
