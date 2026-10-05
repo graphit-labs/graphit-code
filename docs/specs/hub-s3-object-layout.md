@@ -197,6 +197,13 @@ Memory and Task are authoritative LanceDB stores. They use filesystem paths when
 provider-scoped `s3://` prefixes when S3 is configured. LanceDB performs reads and writes directly
 with the active renewable credential provider.
 
+Project versions of Memory, Task and Dream add no prefix. Each version other than the default is a
+native Lance branch inside the table dataset: its objects are under
+`<module prefix>/<table>.lance/tree/<branch>/` and its reference is
+`<module prefix>/<table>.lance/_refs/branches/<branch>.json`. The module's credential therefore
+covers every version. Creating a version needs only read, write and list. Deleting one also needs
+delete. See [Project Identity](project_identity.md#project-version).
+
 Events are append-only objects below
 `v2/projects/<ULID>/events/<artifact-type>/<event-ulid>_<action>.json`. The project key and any
 explicit `project_id` field must agree. Event payloads include the trusted subject's `user_id` and

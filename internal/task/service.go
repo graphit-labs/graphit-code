@@ -16,6 +16,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/oklog/ulid/v2"
@@ -92,6 +93,16 @@ func OpenProject(ctx context.Context, projectID string) (*Service, error) {
 	}, nil
 }
 
+// branch is the native Lance branch of the project version checked out in the
+// service's project directory. A service opened by project ID alone has no checkout and
+// uses the main lineage, which is the project's default version.
+func (s *Service) branch() string {
+	if s.projectDir == "" {
+		return ""
+	}
+	return projectversion.Current(s.projectDir).LanceBranch()
+}
+
 func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
 	if err := s.ensureIdentity(ctx); err != nil {
 		return err
@@ -105,7 +116,7 @@ func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error 
 	if err := s.authorizeRemote(ctx, projectID); err != nil {
 		return err
 	}
-	t, err := openTables(ctx, uri, s.s3)
+	t, err := openTables(ctx, uri, s.s3, s.branch())
 	if err != nil {
 		return taskStorageError(ctx, err)
 	}
@@ -138,7 +149,7 @@ func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile b
 	if strings.TrimSpace(actor) == "" {
 		actor = "system"
 	}
-	t, err := openTables(ctx, uri, s.s3)
+	t, err := openTables(ctx, uri, s.s3, s.branch())
 	if err != nil {
 		return taskStorageError(ctx, err)
 	}

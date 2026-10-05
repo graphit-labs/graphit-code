@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
 
@@ -35,6 +36,13 @@ func (h *sessionHookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeSessionHookResponse(w, http.StatusBadRequest, sessionhook.StoreResponse{Error: "project_dir is not a Graphit project root"})
 		return
 	}
+	// Answer from the stores of the version the hook resolved for its checkout.
+	release, err := projectversion.Acquire(req.ProjectDir, req.Version)
+	if err != nil {
+		writeSessionHookResponse(w, http.StatusBadRequest, sessionhook.StoreResponse{Error: err.Error()})
+		return
+	}
+	defer release()
 	var resp sessionhook.StoreResponse
 	result, err := applySessionHookStore(r.Context(), req)
 	if err != nil {

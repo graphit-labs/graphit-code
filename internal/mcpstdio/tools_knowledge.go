@@ -21,71 +21,80 @@ import (
 )
 
 type knowledgeIndexInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory to index (required)"`
-	Path        string `json:"path,omitempty" jsonschema:"Index this directory wholesale instead of the configured scope. Omit to index knowledge.docs_dir (default docs/) plus the root README."`
-	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
-	Reset       bool   `json:"reset,omitempty" jsonschema:"Clear graph and re-index from scratch"`
-	UseLouvain  bool   `json:"louvain,omitempty" jsonschema:"Use Louvain community detection"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory to index (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Path           string `json:"path,omitempty" jsonschema:"Index this directory wholesale instead of the configured scope. Omit to index knowledge.docs_dir (default docs/) plus the root README."`
+	Workers        int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
+	Reset          bool   `json:"reset,omitempty" jsonschema:"Clear graph and re-index from scratch"`
+	UseLouvain     bool   `json:"louvain,omitempty" jsonschema:"Use Louvain community detection"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeSearchInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to search a globally installed artifact, naming it in context as id@version."`
-	Query       string `json:"query" jsonschema:"Keywords to search for in the knowledge wiki using BM25"`
-	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
-	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
-	Preview     *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to search a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Query          string `json:"query" jsonschema:"Keywords to search for in the knowledge wiki using BM25"`
+	TopK           int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor         string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
+	Preview        *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeSchemaInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context"`
-	Table       string `json:"table,omitempty" jsonschema:"Describe only this table; omit for every table"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context"`
+	Table          string `json:"table,omitempty" jsonschema:"Describe only this table; omit for every table"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeQueryInput struct {
-	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
-	Context     string   `json:"context,omitempty" jsonschema:"Named imported context to query"`
-	Table       string   `json:"table" jsonschema:"Table to query: chunks for pages, xrefs for the links between them, sync_log for index history, meta for index metadata; knowledge_schema lists them (required)"`
-	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"stale_since != ''\", \"doc_type = 'guide'\" or, on xrefs, \"target_slug = 'storage-layout'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
-	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [slug, title, stale_since]. Omit for every compact column; the page body, its summary and the search terms are excluded unless named, and the embedding vector is never returned as numbers."`
-	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
-	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
-	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
-	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string   `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string   `json:"context,omitempty" jsonschema:"Named imported context to query"`
+	Table          string   `json:"table" jsonschema:"Table to query: chunks for pages, xrefs for the links between them, sync_log for index history, meta for index metadata; knowledge_schema lists them (required)"`
+	Filter         string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"stale_since != ''\", \"doc_type = 'guide'\" or, on xrefs, \"target_slug = 'storage-layout'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
+	Columns        []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [slug, title, stale_since]. Omit for every compact column; the page body, its summary and the search terms are excluded unless named, and the embedding vector is never returned as numbers."`
+	TopK           int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize       int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor         string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized    *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeLintInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"Mark pages older than N days as stale"`
-	Context     string `json:"context,omitempty" jsonschema:"Lint an imported context by name"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	StaleDays      int    `json:"stale_days,omitempty" jsonschema:"Mark pages older than N days as stale"`
+	Context        string `json:"context,omitempty" jsonschema:"Lint an imported context by name"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeRemoveInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context,omitempty" jsonschema:"Name of the imported context to remove. If empty, clears local project knowledge wiki."`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Name of the imported context to remove. If empty, clears local project knowledge wiki."`
 }
 
 type knowledgeSyncInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 }
 
 type knowledgeListInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context     string `json:"context,omitempty" jsonschema:"Named installed knowledge context to list"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named installed knowledge context to list"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeExportInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
-	Format     string `json:"format" jsonschema:"Export format: package, okf, or obsidian (required)"`
-	Output     string `json:"output" jsonschema:"Output file or directory path (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
+	Format         string `json:"format" jsonschema:"Export format: package, okf, or obsidian (required)"`
+	Output         string `json:"output" jsonschema:"Output file or directory path (required)"`
 }
 
 func registerKnowledgeTools(server *mcp.Server) {
@@ -110,6 +119,12 @@ func registerKnowledgeTools(server *mcp.Server) {
 			scope = knowledge.WikiScope{}
 		}
 
+		if !store.IsEphemeralProject(projectDir) {
+			// A version without a wiki yet starts from the default version's.
+			if _, err := store.EnsureKnowledgeProjectDir(projectDir); err != nil {
+				return errResult(err)
+			}
+		}
 		wikiDir := resolveWikiDir("knowledge", projectDir, "")
 		cfg := knowledge.IndexConfig{
 			Workers:    input.Workers,

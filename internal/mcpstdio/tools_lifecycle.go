@@ -27,24 +27,27 @@ import (
 )
 
 type initInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"The directory of the project to initialize (required)"`
-	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.)"`
-	ID          string `json:"id,omitempty" jsonschema:"Project ID (ULID) override"`
-	Name        string `json:"name,omitempty" jsonschema:"Project name override"`
-	Description string `json:"description,omitempty" jsonschema:"Project description"`
+	ProjectDir     string `json:"project_dir" jsonschema:"The directory of the project to initialize (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.)"`
+	ID             string `json:"id,omitempty" jsonschema:"Project ID (ULID) override"`
+	Name           string `json:"name,omitempty" jsonschema:"Project name override"`
+	Description    string `json:"description,omitempty" jsonschema:"Project description"`
 }
 
 type syncInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
 }
 
 type mandatesInput struct{}
 
 type moduleSkillInput struct {
-	Module     string `json:"module" jsonschema:"Core module: task, memory, ast, hub, or knowledge (required)"`
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Optional project directory whose skill override and configuration should be resolved. Omit on an artifact-only remote server."`
-	Reference  string `json:"reference,omitempty" jsonschema:"Optional exact reference path returned by this tool, such as references/planning.md. Reads only that framework reference; omit for the resolved skill and available reference names."`
+	Module         string `json:"module" jsonschema:"Core module: task, memory, ast, hub, or knowledge (required)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Optional project directory whose skill override and configuration should be resolved. Omit on an artifact-only remote server."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Reference      string `json:"reference,omitempty" jsonschema:"Optional exact reference path returned by this tool, such as references/planning.md. Reads only that framework reference; omit for the resolved skill and available reference names."`
 }
 
 type moduleSkillResult struct {
@@ -57,38 +60,44 @@ type moduleSkillResult struct {
 }
 
 type updateInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory to update (required)"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target Agent"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory to update (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target Agent"`
 }
 
 type removeInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory to remove from (required)"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target Agent"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory to remove from (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target Agent"`
 }
 
 type configSetInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
-	Key        string `json:"key" jsonschema:"Runtime configuration key (e.g. agent, cli, ui.port)"`
-	Value      string `json:"value" jsonschema:"Configuration value"`
-	Global     bool   `json:"global,omitempty" jsonschema:"Save to global configuration instead of project"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Key            string `json:"key" jsonschema:"Runtime configuration key (e.g. agent, cli, ui.port)"`
+	Value          string `json:"value" jsonschema:"Configuration value"`
+	Global         bool   `json:"global,omitempty" jsonschema:"Save to global configuration instead of project"`
 }
 
 type configGetInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
-	Key        string `json:"key" jsonschema:"Configuration key to retrieve"`
-	Global     bool   `json:"global,omitempty" jsonschema:"Load from global configuration instead of project"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Key            string `json:"key" jsonschema:"Configuration key to retrieve"`
+	Global         bool   `json:"global,omitempty" jsonschema:"Load from global configuration instead of project"`
 }
 
 type configUnsetInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
-	Key        string `json:"key" jsonschema:"Configuration key to unset"`
-	Global     bool   `json:"global,omitempty" jsonschema:"Remove from global configuration instead of project"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Key            string `json:"key" jsonschema:"Configuration key to unset"`
+	Global         bool   `json:"global,omitempty" jsonschema:"Remove from global configuration instead of project"`
 }
 
 type configListInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory."`
-	Global      bool   `json:"global,omitempty" jsonschema:"List global configuration"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Global         bool   `json:"global,omitempty" jsonschema:"List global configuration"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type versionInput struct{}

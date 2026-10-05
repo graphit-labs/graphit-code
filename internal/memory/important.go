@@ -115,7 +115,7 @@ func listMemoriesByRelevanceInContext(ctx context.Context, projectDir, scope str
 			}
 		}
 	}
-	tbl, err := OpenMemoryTable(ctx, uri)
+	tbl, err := OpenMemoryTableIn(ctx, uri, projectDir)
 	if err != nil {
 		return nil, err
 	}

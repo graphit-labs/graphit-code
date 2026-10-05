@@ -21,6 +21,7 @@ import (
 type taskCreateInput struct {
 	References         *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
 	ProjectDir         string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion     string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	Title              string           `json:"title" jsonschema:"Concise action-oriented plain-text title naming one outcome (required)"`
 	Description        string           `json:"description" jsonschema:"Self-contained executable specification: goal, scope, requirement IDs/behavior, known sources, constraints, contracts, approach, dependencies, risks/unknowns and validation. Preserve execution-relevant detail without repeating history. Split multi-outcome work into related tasks before implementation (required)"`
 	AcceptanceCriteria []string         `json:"acceptance_criteria" jsonschema:"One singular imperative Markdown statement per item: what the system must do or must not allow, with condition and observable expected result; at least one required"`
@@ -36,46 +37,52 @@ type taskCreateInput struct {
 }
 
 type taskGetInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Task ID (required)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Task ID (required)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskExportInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id,omitempty" jsonschema:"Exact task ID; omit to export every task in the project"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id,omitempty" jsonschema:"Exact task ID; omit to export every task in the project"`
 }
 
 type taskListInput struct {
-	SessionID   string `json:"session_id,omitempty" jsonschema:"Only tasks associated with this logical Task session"`
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Status      string `json:"status,omitempty" jsonschema:"open, blocked, flagged, in_progress, completed, or cancelled"`
-	Owner       string `json:"owner,omitempty" jsonschema:"Filter by exact agent owner"`
-	ParentID    string `json:"parent_id,omitempty" jsonschema:"Return only direct subtasks of this task ID"`
-	Ready       bool   `json:"ready,omitempty" jsonschema:"Return only open tasks with all dependencies completed"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	SessionID      string `json:"session_id,omitempty" jsonschema:"Only tasks associated with this logical Task session"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Status         string `json:"status,omitempty" jsonschema:"open, blocked, flagged, in_progress, completed, or cancelled"`
+	Owner          string `json:"owner,omitempty" jsonschema:"Filter by exact agent owner"`
+	ParentID       string `json:"parent_id,omitempty" jsonschema:"Return only direct subtasks of this task ID"`
+	Ready          bool   `json:"ready,omitempty" jsonschema:"Return only open tasks with all dependencies completed"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSearchInput struct {
-	SessionID   string `json:"session_id,omitempty" jsonschema:"Rank only tasks associated with this logical Task session"`
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query       string `json:"query" jsonschema:"Keywords for LanceDB full-text search"`
-	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 20)"`
-	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	SessionID      string `json:"session_id,omitempty" jsonschema:"Rank only tasks associated with this logical Task session"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Query          string `json:"query" jsonschema:"Keywords for LanceDB full-text search"`
+	TopK           int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 20)"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor         string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskClaimInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Ready task ID (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease       string `json:"lease,omitempty" jsonschema:"Lease duration such as 2h; default 1h"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Ready task ID (required)"`
+	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Lease          string `json:"lease,omitempty" jsonschema:"Lease duration such as 2h; default 1h"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskForceTakeoverInput struct {
 	ProjectDir       string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion   string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID               string `json:"id" jsonschema:"In-progress task ID (required)"`
 	ConfirmID        string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
 	ExpectedRevision int64  `json:"expected_revision" jsonschema:"Current task revision used as a compare-and-swap fence (required)"`
@@ -86,101 +93,111 @@ type taskForceTakeoverInput struct {
 }
 
 type taskProgressInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary     string           `json:"summary" jsonschema:"Markdown checkpoint of completed facts, changed constraints, and concrete evidence (required)"`
-	NextStep    string           `json:"next_step,omitempty" jsonschema:"Markdown exact next action with target and completion condition for this or a takeover agent"`
-	Lease       string           `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Summary        string           `json:"summary" jsonschema:"Markdown checkpoint of completed facts, changed constraints, and concrete evidence (required)"`
+	NextStep       string           `json:"next_step,omitempty" jsonschema:"Markdown exact next action with target and completion condition for this or a takeover agent"`
+	Lease          string           `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskHeartbeatInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease       string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Lease          string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskReleaseInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary     string           `json:"summary,omitempty" jsonschema:"Markdown summary of completed work, current state, and blocking evidence"`
-	NextStep    string           `json:"next_step,omitempty" jsonschema:"Markdown exact continuation action with target and completion condition for the next agent"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Summary        string           `json:"summary,omitempty" jsonschema:"Markdown summary of completed work, current state, and blocking evidence"`
+	NextStep       string           `json:"next_step,omitempty" jsonschema:"Markdown exact continuation action with target and completion condition for the next agent"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCompleteInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Summary     string           `json:"summary,omitempty" jsonschema:"Markdown final result mapped to acceptance evidence, with any residual limitations"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Summary        string           `json:"summary,omitempty" jsonschema:"Markdown final result mapped to acceptance evidence, with any residual limitations"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCancelInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Task ID to cancel (required)"`
-	ClaimToken  string           `json:"claim_token,omitempty" jsonschema:"Required fencing token when the task is in progress"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason      string           `json:"reason" jsonschema:"Markdown explanation of why the task is no longer needed and what replaces it, if anything (required)"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Task ID to cancel (required)"`
+	ClaimToken     string           `json:"claim_token,omitempty" jsonschema:"Required fencing token when the task is in progress"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Reason         string           `json:"reason" jsonschema:"Markdown explanation of why the task is no longer needed and what replaces it, if anything (required)"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskRemoveInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Task ID to remove (required)"`
-	ConfirmID   string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason      string `json:"reason" jsonschema:"Markdown explanation proving hard deletion is correct and no unique work history is needed (required)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Task ID to remove (required)"`
+	ConfirmID      string `json:"confirm_id" jsonschema:"Exact task ID confirmation (required)"`
+	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Reason         string `json:"reason" jsonschema:"Markdown explanation proving hard deletion is correct and no unique work history is needed (required)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskFlagInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Reason      string           `json:"reason" jsonschema:"Markdown unresolved condition, completion impact, and objective clearing condition (required)"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Reason         string           `json:"reason" jsonschema:"Markdown unresolved condition, completion impact, and objective clearing condition (required)"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskUnflagInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskCheckInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed task ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	CheckID     string           `json:"check_id" jsonschema:"Acceptance or test check ID (required)"`
-	Passed      bool             `json:"passed" jsonschema:"Whether this check passed"`
-	Evidence    string           `json:"evidence" jsonschema:"Markdown evidence naming the command, observation, or artifact, relevant conditions, and actual result (required)"`
-	Lease       string           `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	CheckID        string           `json:"check_id" jsonschema:"Acceptance or test check ID (required)"`
+	Passed         bool             `json:"passed" jsonschema:"Whether this check passed"`
+	Evidence       string           `json:"evidence" jsonschema:"Markdown evidence naming the command, observation, or artifact, relevant conditions, and actual result (required)"`
+	Lease          string           `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskReviseInput struct {
 	References            *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
 	ProjectDir            string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion        string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID                    string           `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken            string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID               string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
@@ -201,6 +218,7 @@ type taskReviseInput struct {
 type taskCheckSupersedeInput struct {
 	References       *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
 	ProjectDir       string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion   string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID               string           `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken       string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID          string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
@@ -216,6 +234,7 @@ type taskCheckSupersedeInput struct {
 type taskCommentInput struct {
 	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
 	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID             string           `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken     string           `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
@@ -227,19 +246,21 @@ type taskCommentInput struct {
 }
 
 type taskDependencyInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Task that will depend on another task"`
-	DependsOn   string `json:"depends_on" jsonschema:"Blocking task ID"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Task that will depend on another task"`
+	DependsOn      string `json:"depends_on" jsonschema:"Blocking task ID"`
+	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskBatchInput struct {
-	ProjectDir  string                     `json:"project_dir" jsonschema:"Project directory (required)"`
-	Operations  []graphtask.BatchOperation `json:"operations" jsonschema:"Ordered task mutations; 1 to 100 items"`
-	AgentID     string                     `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease       string                     `json:"lease,omitempty" jsonschema:"Default lease for claim-renewing items; default 1h"`
-	AiOptimized *bool                      `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string                     `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string                     `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Operations     []graphtask.BatchOperation `json:"operations" jsonschema:"Ordered task mutations; 1 to 100 items"`
+	AgentID        string                     `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Lease          string                     `json:"lease,omitempty" jsonschema:"Default lease for claim-renewing items; default 1h"`
+	AiOptimized    *bool                      `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 func taskActor(req *mcp.CallToolRequest, explicit string) string {
@@ -291,20 +312,22 @@ func taskResult(value any, optimized *bool) (*mcp.CallToolResult, any, error) {
 }
 
 type taskSchemaInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Table       string `json:"table,omitempty" jsonschema:"Describe only this table; omit for every table"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Table          string `json:"table,omitempty" jsonschema:"Describe only this table; omit for every table"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskQueryInput struct {
-	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
-	Table       string   `json:"table" jsonschema:"Table to query, such as tasks, task_checks, task_comments or task_sessions; task_schema lists them (required)"`
-	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"id IN ('tsk-a','tsk-b')\" or \"status = 'completed' AND session_id = 'ses-x'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
-	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [id, status]. Omit for every compact column; long columns such as description and search_text, and the claim token, are excluded unless named, and the claim token is never returned at all."`
-	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
-	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
-	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
-	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string   `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string   `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Table          string   `json:"table" jsonschema:"Table to query, such as tasks, task_checks, task_comments or task_sessions; task_schema lists them (required)"`
+	Filter         string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"id IN ('tsk-a','tsk-b')\" or \"status = 'completed' AND session_id = 'ses-x'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
+	Columns        []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [id, status]. Omit for every compact column; long columns such as description and search_text, and the claim token, are excluded unless named, and the claim token is never returned at all."`
+	TopK           int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize       int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor         string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized    *bool    `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 func registerTaskInspectionTools(server *mcp.Server) {

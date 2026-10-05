@@ -21,7 +21,10 @@ const DaemonPath = "/internal/session-store"
 type StoreRequest struct {
 	Format     string `json:"format"`
 	ProjectDir string `json:"project_dir"`
-	Input      []byte `json:"input"`
+	// Version is the project version the hook resolved for ProjectDir; the daemon
+	// answers from that version's stores.
+	Version string `json:"version,omitempty"`
+	Input   []byte `json:"input"`
 	// Task applies the event's Task lifecycle effect (reconcile, heartbeat or release).
 	Task bool `json:"task"`
 	// Mandatory reads the project's and user's mandatory memory.

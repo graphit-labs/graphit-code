@@ -14,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
@@ -55,6 +56,7 @@ func openRunLedger(ctx context.Context, projectDir string) (*runLedger, error) {
 	defer guard.Release()
 	st, err := lancestore.Open(openCtx, lancestore.Config{
 		URI: uri, S3: s3, Writable: true, StrongReadConsistency: true,
+		Branch: projectversion.Current(projectDir).LanceBranch(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening Dream run ledger: %w", err)
@@ -145,6 +147,7 @@ func LatestRun(ctx context.Context, projectDir string) (*RunRecord, error) {
 	}
 	st, err := lancestore.Open(ctx, lancestore.Config{
 		URI: uri, S3: s3, Writable: false, StrongReadConsistency: true,
+		Branch: projectversion.Current(projectDir).LanceBranch(),
 	})
 	if err != nil {
 		return nil, err

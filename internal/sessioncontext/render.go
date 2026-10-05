@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
 
@@ -33,8 +34,12 @@ func Render(ctx context.Context, projectDir, format string, input []byte, store 
 	bootstrapDelivered := markerExists(marker)
 	includeMandatory := NeedsMandatory(format, input) && !bootstrapDelivered
 
+	version := ""
+	if projectDir != "" {
+		version = projectversion.Current(projectDir).Version
+	}
 	req := sessionhook.StoreRequest{
-		Format: format, ProjectDir: projectDir, Input: input,
+		Format: format, ProjectDir: projectDir, Version: version, Input: input,
 		Task:      projectDir != "" && !modules.TaskDisabled,
 		Mandatory: projectDir != "" && includeMandatory && !modules.MemoryDisabled,
 	}
@@ -57,6 +62,7 @@ func Render(ctx context.Context, projectDir, format string, input []byte, store 
 		context.Mandatory, context.MandatoryLoaded = stored.Mandatory, stored.MandatoryLoaded
 	}
 	context.BootstrapDelivered = bootstrapDelivered
+	context.ProjectVersion = version
 	return sessionhook.RenderWithContext(format, input, context)
 }
 

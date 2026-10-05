@@ -197,6 +197,26 @@ project park/resume after changing `modules.sync`, `modules.embedding`, `modules
 `modules.memory`. Settings used inside a sync batch—such as AST grammar bindings, knowledge scope,
 source storage, and AST/Knowledge gates—are reloaded from `graphit.lock.json` for every batch.
 
+### One supervisor per checkout and project version
+
+A worktree arrives with the committed lockfile, and its first `graphit init` or `graphit sync` —
+including the `sync` an agent's stop hook starts — registers it as its own instance of the project
+in the global lock. Each instance is supervised separately: the supervisor is keyed by project,
+checkout directory and the
+[project version](../architecture/storage_layout.md#one-store-per-project-version) checked out
+there. Switching branches in a checkout changes that key, so the next discovery pass (every 30
+seconds) stops the old supervisor and starts one for the new version; its watcher start runs a full
+`graphit sync`, which creates the new version's stores from the default version and indexes only what
+differs. No `post-checkout` hook is needed for this.
+
+Every project child the daemon starts is pinned to the version checked out when it starts
+(`GRAPHIT_PROJECT_VERSION`), so a run never switches stores halfway through a branch change, and a
+version pinned in the daemon's own environment never leaks into a project.
+
+Agent session hooks resolve the version of the checkout they fire in and send it with the
+store-backed request; the daemon answers Task lifecycle and mandatory memory from that version, and
+the session bootstrap names it.
+
 ## Process model
 
 The daemon watches, schedules and supervises; it does not index, embed, maintain stores or run

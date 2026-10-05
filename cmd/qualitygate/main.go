@@ -22,9 +22,9 @@ type step struct {
 
 var unitPackages = []string{
 	"./cmd/qualitygate/...", "./internal/git/...", "./internal/hub/adapters/agent/...",
-	"./internal/brand/...", "./internal/config/...", "./internal/ignorer/...",
+	"./internal/brand/...", "./internal/config/...", "./internal/gitenv/...", "./internal/ignorer/...",
 	"./internal/lockfile/...", "./internal/netutil/...", "./internal/output/...",
-	"./internal/pagination/...", "./internal/sessionhook/...", "./internal/slogutil/...",
+	"./internal/pagination/...", "./internal/projectversion/...", "./internal/sessionhook/...", "./internal/slogutil/...",
 	"./internal/sysutil/...", "./internal/task/...", "./internal/textslice/...", "./internal/toon/...",
 	"./internal/version/...",
 }
@@ -89,7 +89,7 @@ func prePushSteps(goos string) []step {
 	} else {
 		checks = append(checks, step{
 			name:    "Platform semantics (native full suite requires Linux isolation)",
-			command: "go", args: []string{"test", "-race", "-count=1", "-timeout", "10m", "./internal/fswatch/...", "./internal/ignorer/...", "./internal/store/...", "./internal/lockfile", "./internal/storelifecycle", "./internal/daemonctl"},
+			command: "go", args: []string{"test", "-race", "-count=1", "-timeout", "10m", "./internal/fswatch/...", "./internal/ignorer/...", "./internal/store/...", "./internal/projectversion/...", "./internal/lockfile", "./internal/storelifecycle", "./internal/daemonctl"},
 		})
 	}
 	return append(checks, step{

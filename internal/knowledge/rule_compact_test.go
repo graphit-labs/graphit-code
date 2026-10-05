@@ -10,7 +10,8 @@ func TestKnowledgeInstructionContextBudgets(t *testing.T) {
 	// Allow the explicit-reference contract without removing prior invariants.
 	// Retrieval and per-unit invariants stay resident; conditional authoring detail
 	// is generated separately and loaded only at its documented decision boundary.
-	if size := len(KnowledgeRuleContent(nil, "docs")); size == 0 || size > 8200 {
+	// 8300 also allows the project-version contract (stores follow the checked-out branch).
+	if size := len(KnowledgeRuleContent(nil, "docs")); size == 0 || size > 8300 {
 		t.Errorf("Knowledge skill outside its context budget: %d bytes", size)
 	} else {
 		t.Logf("Knowledge entrypoint: %d bytes", size)

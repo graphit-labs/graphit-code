@@ -32,6 +32,14 @@ s3://<provider-s3-bucket>/<provider-s3-prefix>/v2/projects/<project-ulid>/<task.
 schema lives in the global Graphit data directory for local development. There is no repository
 replica, download, background upload, or Markdown synchronization path.
 
+Tasks and sessions are kept per [project version](project_identity.md#project-version). Every
+Task table of a version lives on the same native Lance branch inside its dataset at the location
+above. The default version is the main lineage, so a store written before versions is the default
+version. Another version inherits the main lineage when it first writes and diverges afterwards.
+Nothing merges back. The additive schema migration below recreates a table, and recreating it
+would delete every branch, so the migration is refused from a version and refused from the default
+version while the table has branches (`lancestore.ErrBranchScoped`).
+
 The enclosing project ULID is the Task authorization unit. A trusted subject must retain project
 access for every remote search, read, claim, mutation, and export; knowing a Task or project ID is
 not sufficient. See [Hub Access Control](hub_access_control.md).

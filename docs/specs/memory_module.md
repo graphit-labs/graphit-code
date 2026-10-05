@@ -27,6 +27,14 @@ S3 mode:
   anonymous user:     ~/.graphit/memory/memory-user-anonymous/
 ```
 
+Project memory is kept per [project version](project_identity.md#project-version). Each
+version other than the default is a native Lance branch inside the project table above, at the same
+local or S3 location. The default version is the table's main lineage. A version reads the main
+lineage until its first write forks it, and from then on the two diverge. User memory and imported
+contexts are not project code and have no version: they always use the main lineage.
+`OpenMemoryTableIn` chooses the branch from the table URI and the project directory. A schema reset
+needed by a versioned table runs on the main lineage, and the version forks again afterwards.
+
 Nothing is copied into a project's `.graphit` directory or into `~/.graphit/wiki/`. See
 [Storage Layout](../architecture/storage_layout.md).
 

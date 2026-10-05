@@ -48,6 +48,11 @@ func (s *Store) EnsureTable(_ context.Context, _ string, _ Schema) (*Table, erro
 func (s *Store) CloneTable(_ context.Context, _, _ string, _ CloneOptions) (*Table, error) {
 	return nil, ErrNotBuilt
 }
+func (s *Store) Branch() string { return "" }
+func (s *Store) Branches(_ context.Context, _ string) (map[string]BranchInfo, error) {
+	return nil, ErrNoBranches
+}
+func (s *Store) DeleteBranch(_ context.Context, _, _ string, _ bool) error { return ErrNoBranches }
 
 func (t *Table) Close() error                                  { return nil }
 func (t *Table) Name() string                                  { return "" }

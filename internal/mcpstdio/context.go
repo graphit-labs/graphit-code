@@ -186,8 +186,10 @@ func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
 		return nil, errEphemeralHasNoGraph()
 	}
 	if contextName == "" {
-		if _, err := store.EnsureProjectID(projectDir); err != nil {
-			return nil, fmt.Errorf("ensuring project identity: %w", err)
+		// Creating the store of a new version starts it from the default version, so
+		// it must happen before the graph's paths are resolved.
+		if _, err := store.EnsureASTProjectDir(projectDir); err != nil {
+			return nil, fmt.Errorf("ensuring the project's code graph store: %w", err)
 		}
 	}
 	return ast.NewLadybugDB(astConfigForProject(projectDir, contextName)), nil

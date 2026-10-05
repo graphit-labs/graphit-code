@@ -29,7 +29,7 @@ func TestDaemon_ReconcileProjects_BuilderError_ReturnsErr(t *testing.T) {
 		return []ProjectInfo{{ID: "p1", Dir: "/some/dir"}}, nil
 	})
 
-	if _, ok := d.supervisors["p1"]; ok {
+	if _, ok := supervisorFor(d, "p1"); ok {
 		t.Error("supervisor should not be created when builder fails")
 	}
 }
@@ -53,7 +53,7 @@ func TestDaemon_ReconcileProjects_ZeroModules_Skips(t *testing.T) {
 		return []ProjectInfo{{ID: "p1", Dir: "/some/dir"}}, nil
 	})
 
-	if _, ok := d.supervisors["p1"]; ok {
+	if _, ok := supervisorFor(d, "p1"); ok {
 		t.Error("supervisor should not be created with zero modules")
 	}
 }
@@ -81,7 +81,7 @@ func TestDaemon_ReconcileProjects_RemovesStaleProject(t *testing.T) {
 		return nil, nil
 	})
 
-	if _, ok := d.supervisors["old"]; ok {
+	if _, ok := supervisorFor(d, "old"); ok {
 		t.Error("stale supervisor should be removed")
 	}
 }
@@ -260,7 +260,7 @@ func TestDaemon_ReconcileProjects_ParksInactiveProject(t *testing.T) {
 	if len(d.supervisors) != 0 {
 		t.Errorf("expected no supervisor for an inactive project, got %d", len(d.supervisors))
 	}
-	if _, ok := d.parked["p1"]; !ok {
+	if ok := parkedFor(d, "p1"); !ok {
 		t.Error("expected inactive project to be parked")
 	}
 	if builderCalled {
@@ -311,10 +311,10 @@ func TestDaemon_ReconcileProjects_PromotesActiveProject(t *testing.T) {
 
 	d.reconcileProjects(ctx, discover)
 
-	if _, ok := d.supervisors["p1"]; !ok {
+	if _, ok := supervisorFor(d, "p1"); !ok {
 		t.Fatal("expected supervisor for a recently active project")
 	}
-	if _, ok := d.parked["p1"]; ok {
+	if ok := parkedFor(d, "p1"); ok {
 		t.Error("an active project should not be parked")
 	}
 
@@ -360,7 +360,7 @@ func TestDaemon_ReconcileProjects_DemotesIdleSupervisor(t *testing.T) {
 	d := &Daemon{
 		cfg:         Config{ProjectActivityWindow: 30 * time.Minute},
 		logFile:     lf,
-		supervisors: map[string]*ProjectSupervisor{"p1": ps},
+		supervisors: map[string]*ProjectSupervisor{supervisionKey(ProjectInfo{ID: "p1", Dir: projectDir}): ps},
 		parked:      make(map[string]ProjectInfo),
 		builder: func(dir string) ([]WatchModule, []func() error, error) {
 			builderCalled = true
@@ -375,10 +375,10 @@ func TestDaemon_ReconcileProjects_DemotesIdleSupervisor(t *testing.T) {
 
 	d.reconcileProjects(ctx, discover)
 
-	if _, ok := d.supervisors["p1"]; ok {
+	if _, ok := supervisorFor(d, "p1"); ok {
 		t.Error("expected idle supervisor to be stopped and removed")
 	}
-	if _, ok := d.parked["p1"]; !ok {
+	if ok := parkedFor(d, "p1"); !ok {
 		t.Error("expected idle project to be parked instead of dropped")
 	}
 	if builderCalled {
@@ -432,7 +432,7 @@ func TestDaemon_ReconcileProjects_ActivityWindowDisabled_AlwaysSupervises(t *tes
 
 	d.reconcileProjects(ctx, discover)
 
-	if _, ok := d.supervisors["p1"]; !ok {
+	if _, ok := supervisorFor(d, "p1"); !ok {
 		t.Fatal("expected a stale project to still be supervised when the activity window is disabled")
 	}
 
@@ -504,7 +504,7 @@ func TestDaemon_ReconcileProjects_WiresActivityCallback(t *testing.T) {
 
 	d.reconcileProjects(ctx, discover)
 
-	sup, ok := d.supervisors["p1"]
+	sup, ok := supervisorFor(d, "p1")
 	if !ok {
 		t.Fatal("expected supervisor to be created")
 	}

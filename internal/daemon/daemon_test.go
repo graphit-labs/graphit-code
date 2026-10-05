@@ -361,7 +361,7 @@ func TestDaemon_ReconcileProjects_NewProject(t *testing.T) {
 	if len(d.supervisors) != 1 {
 		t.Errorf("expected 1 supervisor, got %d", len(d.supervisors))
 	}
-	if _, ok := d.supervisors["p1"]; !ok {
+	if _, ok := supervisorFor(d, "p1"); !ok {
 		t.Error("expected supervisor for project 'p1'")
 	}
 
@@ -472,7 +472,7 @@ func TestDaemon_ReconcileProjects_SkipExisting(t *testing.T) {
 		},
 	}
 
-	d.supervisors["p1"] = newProjectSupervisor("p1", "/tmp/p", nil)
+	d.supervisors[supervisionKey(ProjectInfo{ID: "p1", Dir: "/tmp/p"})] = newProjectSupervisor("p1", "/tmp/p", nil)
 
 	ctx := context.Background()
 	discover := func() ([]ProjectInfo, error) {
@@ -526,7 +526,7 @@ func TestDaemon_ReconcileProjects_WithClosers(t *testing.T) {
 		t.Errorf("expected 1 supervisor, got %d", len(d.supervisors))
 	}
 
-	sup := d.supervisors["p1"]
+	sup, _ := supervisorFor(d, "p1")
 	if len(sup.closers) != 1 {
 		t.Errorf("expected 1 closer, got %d", len(sup.closers))
 	}

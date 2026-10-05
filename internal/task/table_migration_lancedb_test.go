@@ -4,6 +4,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -141,7 +142,7 @@ func TestAStoreWrittenBeforeSessionsMigratesAndKeepsItsTasks(t *testing.T) {
 	legacy, seeded := legacyTaskRows()
 	writeTasksTable(t, dir, legacy, seeded)
 
-	tables, err := openTables(ctx, dir, config.S3Config{})
+	tables, err := openTables(ctx, dir, config.S3Config{}, "")
 	if err != nil {
 		t.Fatalf("opening a store written before session_id existed: %v", err)
 	}
@@ -183,7 +184,7 @@ func TestAMigratedTableIsSearchableAgain(t *testing.T) {
 	legacy, seeded := legacyTaskRows()
 	writeTasksTable(t, dir, legacy, seeded)
 
-	tables, err := openTables(ctx, dir, config.S3Config{})
+	tables, err := openTables(ctx, dir, config.S3Config{}, "")
 	if err != nil {
 		t.Fatalf("opening a store written before session_id existed: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestARetypedColumnIsRefusedInsteadOfMigrated(t *testing.T) {
 	seeded := []lancestore.Row{seedRow(broken, lancestore.Row{"id": "tsk-3333", "title": "Do not lose me"})}
 	writeTasksTable(t, dir, broken, seeded)
 
-	if _, err := openTables(ctx, dir, config.S3Config{}); err == nil {
+	if _, err := openTables(ctx, dir, config.S3Config{}, ""); err == nil {
 		t.Fatal("opening a retyped store succeeded, want it refused")
 	} else if !strings.Contains(err.Error(), "incompatible schema") {
 		t.Fatalf("error = %v, want it to report an incompatible schema", err)
@@ -263,7 +264,7 @@ func TestAStoreAlreadyOnTheCurrentSchemaIsNotRewritten(t *testing.T) {
 
 func openAndReadTasks(t *testing.T, ctx context.Context, dir string) []lancestore.Row {
 	t.Helper()
-	tables, err := openTables(ctx, dir, config.S3Config{})
+	tables, err := openTables(ctx, dir, config.S3Config{}, "")
 	if err != nil {
 		t.Fatalf("opening the store: %v", err)
 	}
@@ -309,5 +310,62 @@ func TestAMigratedTaskStillDecodesThroughTheModule(t *testing.T) {
 	if completed.Task.Priority != 3 || completed.Task.Revision != 9 || !completed.Task.Flagged {
 		t.Errorf("second task = priority %d, revision %d, flagged %v; want 3, 9, true",
 			completed.Task.Priority, completed.Task.Revision, completed.Task.Flagged)
+	}
+}
+
+// Recreating a table to migrate its schema deletes its project version branches with the
+// dataset, so a store that has any refuses the migration instead, from the default
+// version and from a branch alike, and keeps every row.
+func TestSchemaMigrationRefusesToDropProjectVersionBranches(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	legacy, seeded := legacyTaskRows()
+	writeTasksTable(t, dir, legacy, seeded)
+
+	branched, err := lancestore.Open(ctx, lancestore.Config{URI: dir, Writable: true, StrongReadConsistency: true, Branch: "feature/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forked, err := branched.OpenTable(ctx, tasksTableName)
+	if err != nil {
+		t.Fatalf("forking the version branch: %v", err)
+	}
+	_ = forked.Close()
+	_ = branched.Close()
+
+	for _, branch := range []string{"", "feature/x"} {
+		tables, err := openTables(ctx, dir, config.S3Config{}, branch)
+		if err == nil {
+			tables.close()
+			t.Fatalf("branch %q: migrating a table with version branches succeeded", branch)
+		}
+		if !errors.Is(err, lancestore.ErrBranchScoped) {
+			t.Fatalf("branch %q: error = %v, want ErrBranchScoped", branch, err)
+		}
+	}
+
+	st, err := lancestore.Open(ctx, lancestore.Config{URI: dir, StrongReadConsistency: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	branches, err := st.Branches(ctx, tasksTableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := branches["feature/x"]; !ok {
+		t.Fatalf("the version branch did not survive the refused migration: %#v", branches)
+	}
+	tbl, err := st.OpenTable(ctx, tasksTableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tbl.Close() }()
+	rows, err := tbl.Rows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != len(seeded) || !tbl.Schema().Equal(legacy) {
+		t.Fatalf("the refused migration changed the default version: %d row(s), schema %#v", len(rows), tbl.Schema())
 	}
 }

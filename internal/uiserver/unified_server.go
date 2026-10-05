@@ -30,6 +30,8 @@ type UnifiedServer struct {
 	live           *LiveHandler
 	agentFeatures  bool
 	auth           *webAuth
+	// defaultProjectDir is the project a request without project_dir is answered for.
+	defaultProjectDir string
 }
 
 func NewUnifiedServer(
@@ -99,6 +101,8 @@ func NewUnifiedServer(
 		projectName: projectName, mux: mux, live: liveHandler,
 		agentFeatures: agentFeatures,
 		auth:          webAuthentication,
+
+		defaultProjectDir: defaultProjectDir,
 	}
 	mux.HandleFunc("/api/auth/session", webAuthentication.session)
 	if webAuthentication.enabled {
@@ -148,7 +152,7 @@ func (s *UnifiedServer) StartWithReady(ctx context.Context, ready func() error) 
 
 	srv := &http.Server{
 		Addr:    net.JoinHostPort(s.host, strconv.Itoa(s.port)),
-		Handler: hub.CorsWrapWithAllowedOrigins(s.auth.wrap(s.mux), s.allowedOrigins),
+		Handler: hub.CorsWrapWithAllowedOrigins(s.auth.wrap(withProjectVersion(s.mux, s.defaultProjectDir)), s.allowedOrigins),
 	}
 
 	errCh := make(chan error, 1)

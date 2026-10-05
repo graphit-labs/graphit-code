@@ -38,60 +38,67 @@ type hubShowInput struct {
 }
 
 type hubInstallInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to install globally, with no project: the artifact lands in the shared version-keyed store and is addressed afterwards by its qualified id@version."`
-	ID          string `json:"id" jsonschema:"Artifact ID to install. Supports @version suffix for version pinning (required)"`
-	Type        string `json:"type,omitempty" jsonschema:"Artifact type"`
-	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.). Ignored for a global install."`
-	Alias       string `json:"alias,omitempty" jsonschema:"Alias to assign to installed artifact"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to install globally, with no project: the artifact lands in the shared version-keyed store and is addressed afterwards by its qualified id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Artifact ID to install. Supports @version suffix for version pinning (required)"`
+	Type           string `json:"type,omitempty" jsonschema:"Artifact type"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.). Ignored for a global install."`
+	Alias          string `json:"alias,omitempty" jsonschema:"Alias to assign to installed artifact"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type hubUninstallInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to drop a global install."`
-	ID         string `json:"id" jsonschema:"Artifact ID to uninstall (required)"`
-	Type       string `json:"type,omitempty" jsonschema:"Artifact type"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to drop a global install."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Artifact ID to uninstall (required)"`
+	Type           string `json:"type,omitempty" jsonschema:"Artifact type"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
 }
 
 type hubContentInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact."`
-	ID         string `json:"id" jsonschema:"Artifact ID, optionally qualified with @version (required)"`
-	Type       string `json:"type,omitempty" jsonschema:"Artifact type: rule, skill, command or agent. Only needed when the same id exists under more than one type."`
-	Path       string `json:"path,omitempty" jsonschema:"Return only this file, as an artifact-relative path. Omit to return every file."`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Artifact ID, optionally qualified with @version (required)"`
+	Type           string `json:"type,omitempty" jsonschema:"Artifact type: rule, skill, command or agent. Only needed when the same id exists under more than one type."`
+	Path           string `json:"path,omitempty" jsonschema:"Return only this file, as an artifact-relative path. Omit to return every file."`
 }
 
 type hubUpdateInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id,omitempty" jsonschema:"Artifact ID to update. If omitted, updates all artifacts"`
-	Type       string `json:"type,omitempty" jsonschema:"Artifact type"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id,omitempty" jsonschema:"Artifact ID to update. If omitted, updates all artifacts"`
+	Type           string `json:"type,omitempty" jsonschema:"Artifact type"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
 }
 
 type hubSubmitInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Artifact ID to publish (required)"`
-	LocalPath   string `json:"local_path" jsonschema:"Local directory path to artifact source (required)"`
-	Version     string `json:"version,omitempty" jsonschema:"Artifact version (defaults to 1.0.0)"`
-	Name        string `json:"name,omitempty" jsonschema:"Display name override"`
-	Description string `json:"description,omitempty" jsonschema:"Detailed description"`
-	Type        string `json:"type,omitempty" jsonschema:"Artifact type (defaults to rule)"`
-	Tags        string `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Artifact ID to publish (required)"`
+	LocalPath      string `json:"local_path" jsonschema:"Local directory path to artifact source (required)"`
+	Version        string `json:"version,omitempty" jsonschema:"Artifact version (defaults to 1.0.0)"`
+	Name           string `json:"name,omitempty" jsonschema:"Display name override"`
+	Description    string `json:"description,omitempty" jsonschema:"Detailed description"`
+	Type           string `json:"type,omitempty" jsonschema:"Artifact type (defaults to rule)"`
+	Tags           string `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
 }
 
 type hubLinkInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Name        string `json:"name" jsonschema:"Name of the linked artifact (required)"`
-	SourcePath  string `json:"source_path" jsonschema:"Path to local source project to link (required)"`
-	Type        string `json:"type" jsonschema:"Artifact type: ast, knowledge, rule, skill, command, agent, mcp (required)"`
-	Agent       string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Name           string `json:"name" jsonschema:"Name of the linked artifact (required)"`
+	SourcePath     string `json:"source_path" jsonschema:"Path to local source project to link (required)"`
+	Type           string `json:"type" jsonschema:"Artifact type: ast, knowledge, rule, skill, command, agent, mcp (required)"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type hubUnlinkInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Name       string `json:"name" jsonschema:"Name of linked artifact to remove (required)"`
-	Type       string `json:"type" jsonschema:"Artifact type (required)"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Name           string `json:"name" jsonschema:"Name of linked artifact to remove (required)"`
+	Type           string `json:"type" jsonschema:"Artifact type (required)"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter"`
 }
 
 type hubProjectsInput struct {
@@ -101,10 +108,11 @@ type hubProjectsInput struct {
 }
 
 type hubTypePathInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Type       string `json:"type" jsonschema:"Artifact type: skill, rule, command, agent, mcp (required)"`
-	Name       string `json:"name" jsonschema:"Artifact name (required)"`
-	Agent      string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Type           string `json:"type" jsonschema:"Artifact type: skill, rule, command, agent, mcp (required)"`
+	Name           string `json:"name" jsonschema:"Artifact name (required)"`
+	Agent          string `json:"agent,omitempty" jsonschema:"Target agent adapter (claude, cursor, gemini, qwen, kimi, etc.)"`
 }
 
 func registerHubTools(server *mcp.Server) {

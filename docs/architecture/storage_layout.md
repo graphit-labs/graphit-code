@@ -1,7 +1,7 @@
 ---
 title: Storage Layout
 type: architecture
-updated: 2026-09-23
+updated: 2026-10-04
 tags: [architecture, storage, ast, knowledge, memory, hub]
 related:
   - "docs/guides/github-actions-artifacts.md"
@@ -120,27 +120,28 @@ Things worth knowing before you set it:
 ├── sessions/<project-hash>/            saved AI chat metadata and JSONL messages
 ├── sessions/<session-id>/              ephemeral Live Search workspaces and events
 ├── ast/
-│   ├── project/<project-id>/            a project's own code graph — icebug filesystem, :memory: catalog
-│   │   ├── graph.icebug/                    the graph — Parquet CSR bundle (nodes_*.parquet, indices_*.parquet, indptr_*.parquet)
-│   │   │   ├── schema.cypher                    storage = '<abs>/graph.icebug', format='icebug-disk'
-│   │   │   └── icebug.json                      canonical manifest v3 (cardinality + language statistics)
-│   │   ├── search.lance/                    the search index — text, terms, vectors
-│   │   ├── manifest.json                    parse-shard manifest
-│   │   └── shards/                          independently compressed per-file caches
-│   │       ├── <relPath>.nodes.json.zst     parsed entities
-│   │       ├── <relPath>.edges.json.zst     parsed relationships
-│   │       └── <relPath>.emb.zst            exact float32 embedding cache in a Zstandard frame
+│   ├── project/<project-id>/            a project's own code graphs, one per project version
+│   │   └── versions/<version>/              one version's graph — icebug filesystem, :memory: catalog
+│   │       ├── graph.icebug/                    the graph — Parquet CSR bundle (nodes_*.parquet, indices_*.parquet, indptr_*.parquet)
+│   │       │   ├── schema.cypher                    storage = '<abs>/graph.icebug', format='icebug-disk'
+│   │       │   └── icebug.json                      canonical manifest v3 (cardinality + language statistics)
+│   │       ├── search.lance/                    the search index — text, terms, vectors
+│   │       ├── manifest.json                    parse-shard manifest
+│   │       └── shards/                          independently compressed per-file caches
+│   │           ├── <relPath>.nodes.json.zst     parsed entities
+│   │           ├── <relPath>.edges.json.zst     parsed relationships
+│   │           └── <relPath>.emb.zst            exact float32 embedding cache in a Zstandard frame
 │   ├── context/<name>/                  a locally imported code graph — same icebug filesystem layout
 │   │   └── graph.icebug/ + search.lance/ …
 │   ├── hub/<project-ulid>/<artifact-id>/<version>/ compatibility/cache area; native Hub AST mounts use S3
 │   └── queries/                         USER grammar query overrides (not a store)
 ├── wiki/
 │   ├── knowledge/
-│   │   ├── project/<project-id>/        a project's local `index.lance/`
+│   │   ├── project/<project-id>/versions/<version>/ one project version's local `index.lance/`
 │   │   ├── context/<name>/              a linked/local documentation wiki
 │   │   └── hub/<project-ulid>/<artifact-id>/<version>/ compatibility/cache area; native Hub Knowledge mounts use S3
-├── memory/memory-<scope>-<id>/          filesystem fallback when Memory has no S3
-├── task/<task-prefix>/<project-id>/     filesystem fallback when Task has no S3
+├── memory/memory-<scope>-<id>/          filesystem fallback when Memory has no S3 (versions are Lance branches inside)
+├── task/<task-prefix>/<project-id>/     filesystem fallback when Task has no S3 (versions are Lance branches inside)
 ├── models/<model-id>/                   manifest-selected local ONNX bundle; provider hardware selection lives in auth.json
 │   ├── manifest.json                        artifacts, URLs/hashes, tokenizer and inference contract
 │   ├── model.onnx                           conventional built-in path; custom paths are allowed
@@ -185,13 +186,20 @@ Lance directory under a versioned object prefix and is opened there rather than 
 
 ### Git-aware local Lance overlays
 
-A local project's writable LanceDB URI remains a filesystem path. With configured S3, every
-`graphit sync` checks for a compatible snapshot on the current Git branch. It retains a matching
-local base or shallow-clones the exact commit or nearest published ancestor into that path and
-reindexes local differences. The local manifest
+A local project's writable LanceDB URI remains a filesystem path — the store of the checkout's
+[project version](#one-store-per-project-version). With configured S3, every `graphit sync` looks
+for a compatible snapshot on that version's published branch, `branch/<version>`, and hydrates
+only that version's directory: worktrees on other branches keep their own stores. It retains a
+matching local base or shallow-clones the exact commit or nearest published ancestor into that path
+and reindexes local differences. A version with no publication of its own starts from the default
+version's published branch: its nearest published ancestor lives on that lineage. The
+`.graphit-base.json` marker records both the published branch used and the local version that owns
+the base, and the AST pipeline reconciles the checkout delta only when that version matches the
+checkout. The local manifest
 references inherited fragments in the branch's S3 dataset, while new parsing and embedding writes
 create fragments only in the local filesystem. This is native Lance shallow-clone behavior rather
-than an application-level union of two databases.
+than an application-level union of two databases. Publishing `branch/<name>` reads the stores of
+project version `<name>`; publishing from a checkout pinned to another version is refused.
 
 Without Git, sync uses the same local stores and simply skips branch hydration. Configuring S3 after
 those stores have been populated also leaves them untouched: initialized local tables take
@@ -288,11 +296,12 @@ repository owns the explicit maintainer source-build path and Graphit's binding 
 
 | Store | Key |
 |---|---|
-| a project's graph and wiki | the project's **lockfile ULID** |
-| a project not yet fully `init`ed | the ULID created by its first stateful operation |
+| a project's graph and wiki | the project's **lockfile ULID** and the checkout's **project version** |
+| a project not yet fully `init`ed | the ULID created by its first stateful operation, and the version |
 | a locally imported context | its **sanitised name** |
 | a Hub context, AST or documentation | publishing project **ULID**, artifact **ID**, and **version** |
-| a memory scope | `project` → the project id; `user` → a hash of `unit.id` from the global config; a context → its own name |
+| a memory scope | `project` → the project id, with the project version as a Lance branch; `user` → a hash of `unit.id` from the global config; a context → its own name |
+| Task and Dream tables | the project id, with the project version as a Lance branch |
 | the embedding model | nothing — there is one copy per machine, shared by every project and every version |
 
 Identity creation is a smaller operation than full initialization. The first command that needs to
@@ -300,6 +309,59 @@ persist project state atomically creates a minimal `graphit.lock.json`; later `g
 reconciles adapters and baselines without changing the ULID. Pure reads do not create identity.
 Only the ULID-addressed store is valid; `path-*` directories are neither read nor migrated. Missing
 state is rebuilt under the ULID. See [Project Identity](../specs/project_identity.md).
+
+### One store per project version
+
+Every branch and worktree of a repository shares the committed lockfile, and so the ULID, but
+not the code. A project's graph and wiki are therefore kept per **project version**: the checked-out
+Git branch, or `main` for a directory that is not under Git. `internal/projectversion` resolves it
+from Git's own files (worktrees and submodules included; a reftable repository goes through
+the `git` CLI with any enclosing hook's `GIT_DIR`/`GIT_INDEX_FILE` scope removed, see
+`internal/gitenv`); a detached HEAD uses
+`GRAPHIT_GIT_BASE_BRANCH` when set and otherwise the project's default version. The **default
+version** is the branch `origin/HEAD` names, else an existing `main`, else `master`, else the
+checked-out branch of a fresh repository that has no branch yet, else `main`.
+A version is a path segment, never part of the identity: a branch with a `/` becomes one opaque
+segment through `store.VersionPathSegment`, the same rule Hub versions use.
+
+The segment comes after the identity: `ast/project/<id>/versions/<version>/` and
+`wiki/knowledge/project/<id>/versions/<version>/`. `store.ASTProjectRoot` /
+`KnowledgeProjectRoot` (and the `*ByID` forms) name the directory holding every version.
+
+- **A new version starts from the default version.** The stateful entry points
+  (`store.EnsureASTProjectDir`, `EnsureKnowledgeProjectDir`, used by indexing) create a missing
+  version as a copy of the default version's store, so indexing it reparses only the files that
+  differ. Data files are hard-links — every writer of these stores replaces a file by rename and
+  never edits one in place — and the small `.json`/`.cypher` files that record their own absolute
+  location are copied and repointed. If the default version is busy being written for more than two
+  minutes, the new version indexes from nothing instead of waiting. Reads never create a version.
+- **A store written before versions belongs to the default version.** The first resolution moves the
+  old layout at the root into `versions/<default>/` (a rename under the store lifecycle lock) and
+  repoints its location metadata. While another process still holds the old store, reads keep using
+  it and the move is retried later.
+- **Nothing merges back.** Versions diverge after the fork; deleting a branch does not delete its
+  store.
+
+#### Memory, Task and Dream: native Lance branches
+
+Project Memory, the Task tables (tasks, sessions and their companions) and the Dream run ledger keep
+their URIs, local or S3, and keep each project version as a **native Lance branch inside the same
+table dataset**. `projectversion.Info.LanceBranch()` names it. The default version is the dataset's
+main lineage, so data written before versions already is the default version and nothing is copied
+or moved. Any other version is a branch named after the Git branch, or `h-<hex>` when Lance cannot
+use that name.
+
+| Behaviour | Rule |
+|---|---|
+| first write in a version | forks the branch from the main lineage as it is then (`<table>#fork=<branch>`); the version inherits everything written before |
+| read in a version that never wrote | reads the main lineage it would fork from; a read-only open never creates a branch |
+| afterwards | the version and the default version diverge in both directions; nothing merges back |
+| objects | `<table>.lance/tree/<branch>/…` and `<table>.lance/_refs/branches/<branch>.json`, inside the module prefix, so Broker module credentials already cover them |
+| main-lineage compaction and pruning | keep the fragments a branch still references |
+| user memory and imported contexts | stay on the main lineage: they are not project code, so they have no version |
+| `DropTable` from a version | refused (`lancestore.ErrBranchScoped`) |
+| a Task schema migration that would recreate a table | refused from a version, and refused from the default version while the table has branches, because recreating the dataset deletes them |
+| a Memory schema reset | runs on the main lineage, then the version forks again |
 
 ### Having an identity is not the same as being entitled to a store
 

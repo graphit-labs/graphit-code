@@ -45,6 +45,26 @@ Ephemeral Live Search workspaces may still receive a ULID so normal resolvers wo
 `project.ephemeral` flag prevents them from owning durable project graph, wiki, memory, or Task
 state.
 
+## Project version
+
+Branches and worktrees of one repository share the committed lockfile, and therefore the ULID,
+but not the code. The **project version** selects which copy of the project's state a call uses:
+the checked-out Git branch, or `main` for a directory without Git. A detached HEAD uses
+`GRAPHIT_GIT_BASE_BRANCH` when set and otherwise the default version. The **default version** is the
+branch `origin/HEAD` names, else an existing `main`, else `master`, else the checked-out branch of
+a fresh repository that has no branch yet, else `main`. `internal/projectversion` resolves both
+from Git's own files, so worktrees and submodules need no `git` process.
+
+A version is never part of the identity. It does not change the ULID, the name, S3 prefixes, access
+grants or relationships. It is an additional selector beneath them: a `versions/<version>/` path
+segment for the local AST graph and wiki, and a native Lance branch inside the same dataset for
+project Memory, Task and Dream. A new version inherits the default version's state, then diverges.
+Nothing merges back. Data written before versions existed belongs to the default version.
+
+Callers override the checkout's version with the MCP argument `project_version`, the CLI flag
+`--project-version` or the `GRAPHIT_PROJECT_VERSION` environment variable. The variable applies only
+to the project of the process's starting directory. See [Storage Layout](../architecture/storage_layout.md#one-store-per-project-version).
+
 ## Lockfile contract
 
 The minimal identity record is:

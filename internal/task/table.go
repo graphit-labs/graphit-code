@@ -43,9 +43,11 @@ type maintenanceResult struct {
 	bytesRemoved     int64
 }
 
-func openTables(ctx context.Context, uri string, s3 config.S3Config) (*tables, error) {
+// openTables opens every Task table on one native Lance branch — the project version's,
+// "" for the main lineage — so tasks, sessions and their history version together.
+func openTables(ctx context.Context, uri string, s3 config.S3Config, branch string) (*tables, error) {
 	st, err := lancestore.Open(ctx, lancestore.Config{
-		URI: uri, S3: s3, Writable: true, StrongReadConsistency: true,
+		URI: uri, S3: s3, Writable: true, StrongReadConsistency: true, Branch: branch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening task store at %s: %w", uri, err)
@@ -159,6 +161,14 @@ func classifySchemaDelta(stored, expected lancestore.Schema) schemaDelta {
 // recreation fails the rows exist only in this process, so the error says so instead of leaving
 // the operator to guess what the store still holds.
 func migrateTableAdditively(ctx context.Context, st *lancestore.Store, name string, tbl *lancestore.Table, expected lancestore.Schema) (*lancestore.Table, error) {
+	// Recreating the table would drop every project version's branch of it with the
+	// dataset; refuse rather than lose them.
+	if st.Branch() != "" {
+		return nil, fmt.Errorf("task table %s needs a schema migration, which a project version's branch cannot run; open the default version first: %w", name, lancestore.ErrBranchScoped)
+	}
+	if branches, err := st.Branches(ctx, name); err == nil && len(branches) > 0 {
+		return nil, fmt.Errorf("task table %s needs a schema migration but has %d project version branch(es) that recreating it would delete: %w", name, len(branches), lancestore.ErrBranchScoped)
+	}
 	rows, err := tbl.Rows(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading task table %s before migrating its schema: %w", name, err)

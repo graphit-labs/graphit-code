@@ -80,11 +80,14 @@ GO_TEST_UNIT_TIMEOUT ?= 2m
 GO_TEST_UNIT_PKGS := \
 	./internal/brand/... \
 	./internal/config/... \
+	./internal/gitenv/... \
 	./internal/ignorer/... \
 	./internal/lockfile/... \
 	./internal/netutil/... \
 	./internal/output/... \
 	./internal/pagination/... \
+	./internal/projectversion/... \
+	./internal/store/... \
 	./internal/sessionhook/... \
 	./internal/slogutil/... \
 	./internal/sysutil/... \

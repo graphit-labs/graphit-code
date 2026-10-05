@@ -214,8 +214,13 @@ after all tables and non-Lance files are durable.
 Non-Lance files are uploaded only when their content changes. A changed file is still stored as a
 whole S3 object, and Lance may rewrite fragments that contain changed rows; the diff guarantee is
 at the logical row/file level, not a byte-level patch of S3 objects.
-Every sync checks the remote branch and shallow-clones the exact commit or nearest compatible
-ancestor. If the compatible base changes, sync replaces the generated local index with a fresh
+Every sync checks the remote branch of the current
+[project version](project_identity.md#project-version) and shallow-clones the exact commit or nearest
+compatible ancestor into that version's local stores only. A version with no publication of its own
+falls back to the default version's `branch/<default>` lineage, where its nearest published ancestor
+lives. The `.graphit-base.json` marker records the local version that owns the base, so a base is
+never reconciled against another branch's checkout. Publishing `branch/<name>` reads the stores of
+version `<name>`. A publication from a checkout pinned to another version is refused. If the compatible base changes, sync replaces the generated local index with a fresh
 clone and reconciles the checkout delta on top of it. If the base is unchanged, the local layer is
 retained. AST applies only files changed since the base commit to its cloned Lance tables, while
 Knowledge syncs changed wiki chunks in place. Compatibility is semantic (artifact format plus

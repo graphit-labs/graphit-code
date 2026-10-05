@@ -16,6 +16,7 @@ import (
 	"time"
 
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
@@ -1079,19 +1080,28 @@ func shallowSearchBase(projectDir, cacheDir string) string {
 		return ""
 	}
 	var marker struct {
-		Branch string `json:"branch"`
-		Base   struct {
+		Branch  string `json:"branch"`
+		Version string `json:"version"`
+		Base    struct {
 			Commit string `json:"commit"`
 		} `json:"base"`
 	}
 	if json.Unmarshal(data, &marker) != nil || marker.Base.Commit == "" {
 		return ""
 	}
-	snapshot, err := gitstate.InspectSnapshot(projectDir)
-	if errors.Is(err, gitstate.ErrNotRepository) {
+	info := projectversion.Current(projectDir)
+	if !info.Git {
 		return marker.Base.Commit
 	}
-	if err != nil || snapshot.BranchVersion() != marker.Branch {
+	// The marker belongs to the project version whose store holds it. That version
+	// may have started from the default version's published branch, so the version,
+	// not the published branch, is what must match the checkout.
+	version := info.Version
+	if marker.Version != "" {
+		if marker.Version != version {
+			return ""
+		}
+	} else if marker.Branch != "branch/"+version {
 		return ""
 	}
 	return marker.Base.Commit

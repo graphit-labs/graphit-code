@@ -36,6 +36,16 @@ The tools are organized by module. Every tool name follows the pattern `graphit_
 
 ---
 
+## Project versions
+
+Every tool that takes `project_dir` also takes an optional `project_version`. A project's stores —
+code graph, documentation wiki, memory, tasks and sessions — are kept per version: the Git branch
+checked out in `project_dir`, or `main` when it is not a Git repository. Omit `project_version` to
+use that checkout's version; pass a branch name to read or write another version of the same project,
+for example the version of a sibling worktree. A version that has no store yet starts from the
+project's default version. `project_version` without `project_dir` is rejected. See
+[Storage Layout](../architecture/storage_layout.md#one-store-per-project-version).
+
 ## Typed references between records
 
 When a write relies on a Task, Session, Memory or Knowledge record, send explicit `references` with each target's type and ID. Text mentions do not create database relationships. Omission preserves the current explicit list; `[]` clears it. Query outgoing links or backlinks with `graphit_references_query`; repair missing local projections with `graphit_references_reconcile`. See [Persisted record relationships](../specs/record_relations.md) for the payload, scope, pagination and recovery contract.
@@ -106,6 +116,7 @@ access to the agent's or server's filesystem.
 |-----------|------|----------|-------------|
 | `module` | string | ✅ | `task`, `memory`, `ast`, `hub`, or `knowledge` |
 | `project_dir` | string | | Resolve a real project's skill override and configuration; omit on an artifact-only remote server |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `reference` | string | | Exact framework reference path returned by this tool, such as `references/planning.md`; omit for the main skill |
 
 The JSON result contains `module`, the managed skill `name`, its resolved `enabled` state, and the
@@ -132,6 +143,7 @@ identity only when none exists and otherwise preserving the existing ULID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | The directory of the project to initialize |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, etc.) |
 | `id` | string | | Initial ULID only when identity does not exist; a conflicting existing ULID is rejected |
 | `name` | string | | Initial or renamed human-readable discovery name; remote uniqueness is conditional |
@@ -151,6 +163,7 @@ integration steps.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory to sync |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `agent` | string | | Target Agent |
 
 This tool performs a full sync cycle:
@@ -174,6 +187,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory to update |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `agent` | string | | Target Agent |
 
 ---
@@ -185,6 +199,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory to remove from |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `agent` | string | | Target Agent |
 
 ---
@@ -196,6 +211,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory (ignored if `global` is `true`) |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `key` | string | ✅ | Runtime configuration key (e.g., `agent`, `cli`, `knowledge.docs_dir`) |
 | `value` | string | ✅ | Configuration value |
 | `global` | boolean | | Save to global configuration instead of project |
@@ -209,6 +225,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory (ignored if `global` is `true`) |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `key` | string | ✅ | Configuration key to retrieve |
 | `global` | boolean | | Load from global configuration instead of project |
 
@@ -221,6 +238,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory (ignored if `global` is `true`) |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `key` | string | ✅ | Configuration key to unset |
 | `global` | boolean | | Remove from global configuration instead of project |
 
@@ -233,6 +251,7 @@ This tool performs a full sync cycle:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `global` | boolean | | List global configuration |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -257,6 +276,7 @@ Tools for building, querying, and managing the AST code graph database.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory to index |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `path` | string | | Target path to index (defaults to `project_dir`) |
 | `workers` | integer | | Number of parallel worker threads |
 | `reset` | boolean | | Reset the complete store before indexing; coordinated with background indexing and embedding |
@@ -280,6 +300,7 @@ and `ORDER BY`. The other half is the LanceDB full-text index, reached with
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `query` | string | ✅ | Cypher query to execute against the AST graph database |
 | `context` | string | | Named imported context to query instead of the default project |
 | `ai_optimized` | boolean | | Optimize the Cypher query execution for AI context |
@@ -297,6 +318,7 @@ For the columns of the full-text tables instead, use `graphit_ast_fts_schema`.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported context |
 
 ---
@@ -311,6 +333,7 @@ different store from the Cypher graph that `graphit_ast_schema` describes.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit to describe a globally installed artifact named in `context` |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported context |
 | `table` | string | | Describe only this table |
 | `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
@@ -328,6 +351,7 @@ project code and what is a dependency. `graphit_ast_search` ranks by relevance;
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit to query a globally installed artifact named in `context` |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `table` | string | ✅ | `entities` or `files` |
 | `filter` | string | | Lance SQL predicate, e.g. `etype = 'Function' AND is_dep = false`. Omit to match every row |
 | `columns` | string[] | | Columns to return; omit for every compact column |
@@ -351,6 +375,7 @@ project code and what is a dependency. `graphit_ast_search` ranks by relevance;
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `path` | string | ✅ | Absolute path to the source project to import |
 | `context` | string | ✅ | Name of the context to assign to the imported project |
 | `reset` | boolean | | Reset the context database before importing |
@@ -366,6 +391,7 @@ project code and what is a dependency. `graphit_ast_search` ranks by relevance;
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Name of the imported context to remove. If empty, clears the main project graph. |
 
 ---
@@ -377,6 +403,7 @@ project code and what is a dependency. `graphit_ast_search` ranks by relevance;
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
@@ -388,6 +415,7 @@ project code and what is a dependency. `graphit_ast_search` ranks by relevance;
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `path` | string | ✅ | Relative path to the file |
 | `context` | string | | Named imported context where the file resides |
 | `entity` | string | | Entity name (function, class, etc.) to extract source using its line range from the graph |
@@ -416,6 +444,7 @@ answer.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `format` | string | ✅ | Export format: `obsidian` or `package` |
 | `output` | string | ✅ | Output file or directory path; package output receives the `.ast` extension |
 
@@ -428,6 +457,7 @@ answer.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported context |
 
 ---
@@ -439,6 +469,7 @@ answer.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `query` | string | ✅ | Search query (keywords, natural language, or code identifiers) |
 | `top_k` | integer | | Maximum number of results (default: 15) |
 | `mode` | string | | Search mode: `hybrid` (default), `fts` (BM25 only), `semantic` (vector only) |
@@ -458,6 +489,7 @@ Tools for indexing, querying, and managing the project documentation knowledge i
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory to index |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `path` | string | | Target path to index (defaults to `docs/`) |
 | `workers` | integer | | Number of parallel worker threads |
 | `reset` | boolean | | Clear graph and re-index from scratch |
@@ -473,6 +505,7 @@ Tools for indexing, querying, and managing the project documentation knowledge i
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `query` | string | ✅ | Keywords to search for in the knowledge wiki using BM25 |
 | `top_k` | integer | | Maximum number of results (0 = no limit) |
 | `context` | string | | Named imported context to search |
@@ -487,6 +520,7 @@ Tools for indexing, querying, and managing the project documentation knowledge i
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported Knowledge context |
 | `format` | string | ✅ | Export format: `package`, `okf`, or `obsidian` |
 | `output` | string | ✅ | Output file or directory path; package output receives the `.knowledge` extension |
@@ -503,6 +537,7 @@ The index is LanceDB, not a graph database. Pages live in `chunks`, the links be
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported context |
 | `table` | string | | Describe only this table |
 | `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
@@ -520,6 +555,7 @@ and — over `xrefs` — which pages link to a given slug. `graphit_knowledge_se
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit to query a globally installed artifact named in `context` |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `table` | string | ✅ | `chunks`, `xrefs`, `sync_log` or `meta` |
 | `filter` | string | | Lance SQL predicate, e.g. `stale_since != ''`. Omit to match every row |
 | `columns` | string[] | | Columns to return; omit for every compact column |
@@ -541,6 +577,7 @@ returned when named; the embedding vector is never returned as numbers.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `deep` | boolean | | Enable AI-assisted contradiction detection |
 | `fix` | boolean | | Auto-repair fixable issues (backlinks) |
 | `stale_days` | integer | | Mark pages older than N days as stale |
@@ -556,6 +593,7 @@ returned when named; the embedding vector is never returned as numbers.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Name of the imported context to remove. If empty, clears local project knowledge wiki. |
 
 ---
@@ -567,6 +605,7 @@ returned when named; the embedding vector is never returned as numbers.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 
 ---
 
@@ -577,6 +616,7 @@ returned when named; the embedding vector is never returned as numbers.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
@@ -592,6 +632,7 @@ Tools for managing the project and user persistent memory store.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `title` | string | ✅ | Memory title |
 | `content` | string | ✅ | Detailed memory content |
 | `type` | string | | Memory type: `convention`, `correction`, `decision`, `tension`, `fact`, or `skill` |
@@ -610,6 +651,7 @@ Tools for managing the project and user persistent memory store.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Memory ID to update |
 | `content` | string | | New content |
 | `title` | string | | New title |
@@ -629,6 +671,7 @@ least one is required so an autonomous decision cannot overwrite a newer change.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Memory ID to delete |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `expected_revision` | integer | | Delete only while the live revision still matches |
@@ -647,6 +690,7 @@ important, then normal; each group is ordered newest first.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -662,6 +706,7 @@ the chosen result with `graphit_memory_source`.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `query` | string | ✅ | Text query to search |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `exclude_mandatory` | boolean | | Exclude records already loaded during mandatory bootstrap |
@@ -682,6 +727,7 @@ as other source tools.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit only for user scope |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `path` | string | ✅ | Current memory id or archived revision key returned by search |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `head`, `tail`, `start_line`, `end_line` | integer | | Bound the returned Markdown lines |
@@ -698,6 +744,7 @@ This is the first phase of session recall and does not take a search query.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `ai_optimized` | boolean | | Return compact TOON output by default; set `false` for verbose JSON |
 
@@ -710,6 +757,7 @@ This is the first phase of session recall and does not take a search query.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -722,6 +770,7 @@ This is the first phase of session recall and does not take a search query.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Memory ID to promote |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `expected_revision` | integer | | Promote only while the live revision still matches |
@@ -736,6 +785,7 @@ This is the first phase of session recall and does not take a search query.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Memory ID to demote |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `expected_revision` | integer | | Demote only while the live revision still matches |
@@ -751,6 +801,7 @@ independent states.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Memory ID |
 | `scope` | string | | Scope: `project` (default) or `user` |
 
@@ -763,6 +814,7 @@ independent states.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Memory ID |
 | `scope` | string | | Scope: `project` (default) or `user` |
 
@@ -796,6 +848,7 @@ independent states.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | string | | Scope: `project` (default) or `user` |
 
 ---
@@ -810,6 +863,7 @@ their revision history, the full-text indexes and the vectors live in the same t
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit for the global scope, which serves user memory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
 
@@ -829,6 +883,7 @@ one record's text.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit for the global scope |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `filter` | string | | Lance SQL predicate, e.g. `mandatory = true`. Omit to match every row |
 | `columns` | string[] | | Columns to return; omit for every compact column |
@@ -849,6 +904,7 @@ one record's text.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | ✅ | Named context to remove |
 
 ---
@@ -860,6 +916,7 @@ one record's text.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | ✅ | Named context to sync |
 
 ---
@@ -921,6 +978,7 @@ version-keyed store when `project_dir` is omitted.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit to install globally on a projectless server |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Artifact ID to install. Use an exact `id@version` for reproducible remote work |
 | `type` | string | | Artifact type |
 | `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, etc.) |
@@ -937,6 +995,7 @@ version-keyed store when `project_dir` is omitted.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory; omit to remove a global installation |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Artifact ID to uninstall, optionally qualified with `@version` |
 | `type` | string | | Artifact type |
 | `agent` | string | | Target Agent |
@@ -950,6 +1009,7 @@ version-keyed store when `project_dir` is omitted.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | | Artifact ID to update. If omitted, updates all artifacts |
 | `type` | string | | Artifact type |
 | `agent` | string | | Target Agent |
@@ -963,6 +1023,7 @@ version-keyed store when `project_dir` is omitted.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `id` | string | ✅ | Artifact ID to publish |
 | `local_path` | string | ✅ | Local directory path to artifact source |
 | `version` | string | | Artifact version (defaults to `1.0.0`) |
@@ -987,6 +1048,7 @@ same commit. `graphit sync` alone never publishes.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `name` | string | ✅ | Name of the linked artifact |
 | `source_path` | string | ✅ | Path to local source project to link |
 | `type` | string | ✅ | Artifact type: `ast`, `knowledge`, `rule`, `skill`, `command`, `agent`, `mcp` |
@@ -1001,6 +1063,7 @@ same commit. `graphit sync` alone never publishes.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `name` | string | ✅ | Name of linked artifact to remove |
 | `type` | string | ✅ | Artifact type |
 | `agent` | string | | Target Agent |
@@ -1031,6 +1094,7 @@ artifacts remain mounted and are read with `graphit_ast_source` or `graphit_wiki
 |-----------|------|----------|-------------|
 | `id` | string | ✅ | Project-qualified artifact ID, preferably with `@version`; exact qualification is required for reproducible remote work |
 | `project_dir` | string | | Project whose lockfile selects the version; omit for a global installation |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `type` | string | | Disambiguates an ID used by more than one physical artifact type |
 | `path` | string | | Return one artifact-relative file instead of the complete file map |
 
@@ -1044,6 +1108,7 @@ artifact should be created. Hook-delivered rules intentionally have no physical 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `type` | string | ✅ | `skill`, `rule`, `command`, `agent`, or `mcp` |
 | `name` | string | ✅ | Artifact name |
 | `agent` | string | | Target adapter; defaults through project/global resolution |
@@ -1073,6 +1138,7 @@ page with `graphit_wiki_source`.
 | `cursor` | string | | Opaque `next_cursor` returned by the preceding identical search |
 | `preview` | boolean | | Include short excerpts only when titles cannot disambiguate candidates |
 | `project_dir` | string | | Required for project-backed sources; omit only for qualified Hub references |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
 
 > **Tip:** Always set `ai_optimized: true` for AI agent usage. This returns results in a compact, token-efficient format (TOON) rather than raw JSON.
@@ -1088,6 +1154,7 @@ page with `graphit_wiki_source`.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported Knowledge context |
 | `doc_type` | string | | Filter by document type (e.g., `specification`, `architecture`, `decision`) |
 | `limit` | integer | | Max results (default: 100) |
@@ -1104,6 +1171,7 @@ page with `graphit_wiki_source`.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `query` | string | ✅ | Entity slug or name to find cross-references for |
 | `context` | string | | Named imported Knowledge context |
 | `depth` | integer | | Depth of graph traversal (default: 1, max: 3) |
@@ -1120,6 +1188,7 @@ page with `graphit_wiki_source`.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `context` | string | | Named imported Knowledge context |
 | `limit` | integer | | Max log entries (default: 10) |
 | `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
@@ -1133,6 +1202,7 @@ page with `graphit_wiki_source`.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 
 ---
 
@@ -1149,6 +1219,7 @@ parameter, it also reads pages belonging to any other project in the ecosystem.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory — may be another project in the ecosystem |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `path` | string | ✅ | The slug returned by search/browse/xrefs, that slug with `.md`, or a path relative to the wiki directory |
 | `context` | string | | Named imported Knowledge context |
 | `head` | integer | | Show only the first N lines |
@@ -1186,6 +1257,7 @@ they do not create report files.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 **Returns:** JSON with fields:
@@ -1233,6 +1305,7 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `key` | string | ✅ | Cluster label key |
 | `value` | string | ✅ | Cluster label value |
 
@@ -1245,6 +1318,7 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `key` | string | | Cluster label key to retrieve. If empty, retrieves all labels. |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -1257,6 +1331,7 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `key` | string | ✅ | Cluster label key to remove |
 
 ---
@@ -1268,6 +1343,7 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `label` | string | | Optional cluster label key to filter by |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
@@ -1363,6 +1439,7 @@ Most tools accept the following common parameters:
 | Parameter | Description |
 |-----------|-------------|
 | `project_dir` | Real project directory for project-bound tools. Artifact-only remote clients omit it and use qualified Hub contexts; never invent a server path. |
+| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
 | `scope` | Used by Memory tools. Either `project` (default) or `user`. Controls which memory store is targeted. |
 | `context` | Used by the tools that declare it to select an imported or Hub context instead of the local project. Use `id@version` for remote Hub content. |
 | `agent` | Target agent adapter: `claude`, `codex`, `cursor`, `gemini`, `kiro`, `opencode`, `antigravity`, `qwen`, or `kimi`. Affects native materialization. |

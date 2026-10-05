@@ -215,9 +215,20 @@ func globalOr(projectDir string, parts ...string) string {
 	return brand.ProjectRuntimePath(projectDir, parts...)
 }
 
-// ASTProjectDir is the store directory for a project's own code graph. The graph,
-// its search index, the shard manifest and the shard tree all live inside it.
+// ASTProjectDir is the store directory for the code graph of the version of the
+// project checked out in projectDir. The graph, its search index, the shard manifest
+// and the shard tree all live inside it. It does not create a missing version: the
+// stateful entry point EnsureASTProjectDir does, starting it from the default version.
 func ASTProjectDir(projectDir string) string {
+	root := ASTProjectRoot(projectDir)
+	if root == "" {
+		return ""
+	}
+	return projectVersionDir(projectDir, root)
+}
+
+// ASTProjectRoot holds every version's code graph of one project.
+func ASTProjectRoot(projectDir string) string {
 	id := ProjectStoreID(projectDir)
 	if id == "" {
 		return ""
@@ -230,7 +241,7 @@ func EnsureASTProjectDir(projectDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return globalOr(projectDir, "ast", projectNamespace, id), nil
+	return ensureProjectVersionDir(projectDir, globalOr(projectDir, "ast", projectNamespace, id))
 }
 
 // ASTProjectIcebugDir is the icebug bundle for a project's own graph (filesystem on-the-fly).
@@ -261,8 +272,9 @@ func ASTProjectIcebugManifest(projectDir string) string {
 	return filepath.Join(dir, "icebug.json")
 }
 
-// ASTProjectDirByID is ASTProjectDir for a project whose id is already known — from
-// the global lock, say — so its lockfile does not have to be read again.
+// ASTProjectDirByID is ASTProjectRoot for a project whose id is already known — from
+// the global lock, say — so its lockfile does not have to be read again. It holds
+// every version of that project's graph; VersionStoreDir selects one.
 //
 // It goes through storeIDSegment for the same reason ProjectStoreID does: the two must
 // resolve to the same directory for the same id, or a project's own graph and the same
@@ -306,8 +318,19 @@ func ASTHubIcebugSchema(contextID, version string) string {
 	return filepath.Join(ASTHubDir(contextID, version), "schema.cypher")
 }
 
-// KnowledgeProjectDir is the compiled documentation wiki of one project.
+// KnowledgeProjectDir is the compiled documentation wiki of the version of the
+// project checked out in projectDir. Like ASTProjectDir it does not create a missing
+// version; EnsureKnowledgeProjectDir does.
 func KnowledgeProjectDir(projectDir string) string {
+	root := KnowledgeProjectRoot(projectDir)
+	if root == "" {
+		return ""
+	}
+	return projectVersionDir(projectDir, root)
+}
+
+// KnowledgeProjectRoot holds every version's documentation wiki of one project.
+func KnowledgeProjectRoot(projectDir string) string {
 	id := ProjectStoreID(projectDir)
 	if id == "" {
 		return ""
@@ -320,13 +343,13 @@ func EnsureKnowledgeProjectDir(projectDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return globalOr(projectDir, "wiki", "knowledge", projectNamespace, id), nil
+	return ensureProjectVersionDir(projectDir, globalOr(projectDir, "wiki", "knowledge", projectNamespace, id))
 }
 
-// KnowledgeProjectDirByID is KnowledgeProjectDir for a project whose id is already
+// KnowledgeProjectDirByID is KnowledgeProjectRoot for a project whose id is already
 // known — from the global lock, say — so its lockfile does not have to be read again.
 // It is also the only form that works for a project whose directory this process
-// cannot stat.
+// cannot stat. It holds every version; VersionStoreDir selects one.
 func KnowledgeProjectDirByID(projectID string) string {
 	return globalOr("", "wiki", "knowledge", projectNamespace, storeIDSegment(projectID))
 }

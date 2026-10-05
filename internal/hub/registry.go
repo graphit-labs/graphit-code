@@ -24,6 +24,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/projectlock"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
@@ -707,6 +708,10 @@ func (m *RegistryManager) PublishEntryFromProject(ctx context.Context, entryID, 
 			branchLance = false
 		} else if err != nil {
 			return fmt.Errorf("resolve publishing Git snapshot: %w", err)
+		} else if pinned := projectversion.Current(gitDir).Version; pinned != snapshot.Branch {
+			// The local stores being published are those of the pinned project
+			// version, so they must be the checked-out branch's.
+			return fmt.Errorf("publishing branch %q reads the stores of project version %q; publish from that version's checkout without --project-version", snapshot.Branch, pinned)
 		}
 	}
 	if branchLanceRequested && !branchLance {

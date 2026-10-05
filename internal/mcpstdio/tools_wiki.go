@@ -20,59 +20,65 @@ import (
 )
 
 type wikiSearchInput struct {
-	Query       string   `json:"query" jsonschema:"Natural language question to search across multiple wikis"`
-	Wikis       []string `json:"wikis,omitempty" jsonschema:"Knowledge wiki sources to search (project or project IDs from ecosystem)"`
-	HubRefs     []string `json:"hub_refs,omitempty" jsonschema:"Hub knowledge artifact references to include (format: artifact-id@version)"`
-	SessionID   string   `json:"session_id,omitempty" jsonschema:"Session ID to continue an existing conversation"`
-	TopK        int      `json:"top_k,omitempty" jsonschema:"Maximum results across all merged wiki sources (0 = no limit)"`
-	PageSize    int      `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap across merged sources"`
-	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
-	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit only when searching explicit hub_refs."`
-	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
-	Preview     *bool    `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
-	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	Query          string   `json:"query" jsonschema:"Natural language question to search across multiple wikis"`
+	Wikis          []string `json:"wikis,omitempty" jsonschema:"Knowledge wiki sources to search (project or project IDs from ecosystem)"`
+	HubRefs        []string `json:"hub_refs,omitempty" jsonschema:"Hub knowledge artifact references to include (format: artifact-id@version)"`
+	SessionID      string   `json:"session_id,omitempty" jsonschema:"Session ID to continue an existing conversation"`
+	TopK           int      `json:"top_k,omitempty" jsonschema:"Maximum results across all merged wiki sources (0 = no limit)"`
+	PageSize       int      `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap across merged sources"`
+	Cursor         string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
+	ProjectDir     string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit only when searching explicit hub_refs."`
+	ProjectVersion string   `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Mode           string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
+	Preview        *bool    `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
+	AiOptimized    *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiBrowseInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
-	DocType     string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
+	DocType        string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiLogInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiXRefsInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
-	Query       string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
-	Depth       int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Query          string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported knowledge context"`
+	Depth          int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiEmbedInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 }
 
 type wikiSourceInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
-	Path        string `json:"path" jsonschema:"Page to read: the slug returned by search/browse/xrefs, that slug with .md, or a path relative to the wiki directory (required)"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported knowledge context where the page resides"`
-	Head        int    `json:"head,omitempty" jsonschema:"Show only the first N lines"`
-	Tail        int    `json:"tail,omitempty" jsonschema:"Show only the last N lines"`
-	StartLine   int    `json:"start_line,omitempty" jsonschema:"Start line number (1-indexed)"`
-	EndLine     int    `json:"end_line,omitempty" jsonschema:"End line number (1-indexed, inclusive)"`
-	Pattern     string `json:"pattern,omitempty" jsonschema:"Search for a pattern (literal text or regex if regex=true)"`
-	IsRegex     bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
-	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
-	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
-	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed knowledge artifact (context as id@version)."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Path           string `json:"path" jsonschema:"Page to read: the slug returned by search/browse/xrefs, that slug with .md, or a path relative to the wiki directory (required)"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported knowledge context where the page resides"`
+	Head           int    `json:"head,omitempty" jsonschema:"Show only the first N lines"`
+	Tail           int    `json:"tail,omitempty" jsonschema:"Show only the last N lines"`
+	StartLine      int    `json:"start_line,omitempty" jsonschema:"Start line number (1-indexed)"`
+	EndLine        int    `json:"end_line,omitempty" jsonschema:"End line number (1-indexed, inclusive)"`
+	Pattern        string `json:"pattern,omitempty" jsonschema:"Search for a pattern (literal text or regex if regex=true)"`
+	IsRegex        bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
+	Before         int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
+	After          int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
+	LineNumbers    bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
 }
 
 func setWikiResultSource(results []wiki.WikiSearchResult, source string) {

@@ -337,6 +337,22 @@ var ErrNoTimeTravel = errors.New("lancestore: this table does not support versio
 
 var ErrNoShallowClone = errors.New("lancestore: this build does not support shallow clones")
 
+// ErrBranchScoped reports an operation that would reach beyond a branch-scoped store's
+// own branch, such as dropping a table every branch shares.
+var ErrBranchScoped = errors.New("lancestore: operation is not allowed on a branch-scoped store")
+
+// ErrNoBranches reports a build or store that cannot use native Lance branches.
+var ErrNoBranches = errors.New("lancestore: this build does not support native branches")
+
+// BranchInfo describes one native Lance branch of a table: where in which lineage it
+// was created. An empty ParentBranch is the main lineage.
+type BranchInfo struct {
+	ParentBranch  string `json:"parent_branch,omitempty"`
+	ParentVersion uint64 `json:"parent_version"`
+	CreatedAt     uint64 `json:"create_at"`
+	ManifestSize  uint64 `json:"manifest_size"`
+}
+
 // ErrCommitConflict is returned when a write lost a commit race and the retries ran out.
 //
 // Concurrent writers to the same table are expected on a shared remote store: Lance commits by

@@ -96,6 +96,14 @@ appended to the project's `.graphit/runtime/daemon/daemon.log`, marked as backgr
 priority, CPU budget) and cancelled as a process tree with the module's context. Tests replace the
 package-level `cliRunner` to record invocations instead of starting processes.
 
+A supervisor belongs to one checkout and one [project version](project_identity.md#project-version):
+its key is `<project id>@<absolute dir>#<version>` (`supervisionKey`). Two worktrees of one repository
+are two supervisors, and switching a checkout's branch replaces its supervisor with one for the new
+version, which starts with a full `graphit sync`. Every child receives
+`GRAPHIT_PROJECT_VERSION=<version checked out when it starts>` (`versionEnv`). One run therefore never
+switches stores halfway through a branch change, and a version pinned in the daemon's own
+environment never reaches a project's child.
+
 Each active project has an isolated supervisor thread monitoring watch modules:
 - **`SyncModule`**: Holds one recursive filesystem watch over the project tree (`internal/fswatch`) and reindexes what each batch names. Debounces 1 second of quiet, capped at 5 seconds for a continuously busy tree. Classification stays in the daemon; the work runs as children:
   - **Watcher start (`Rescan`)** — `graphit sync`, because a parked supervisor had no watcher and anything, deletions included, may have changed.

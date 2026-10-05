@@ -492,6 +492,8 @@ These variables are operational overrides rather than dot-notation config keys:
 | `GRAPHIT_ANTLR_RESET_FILES` | Number of parsed files between ANTLR cache-pressure checks. Default `250`; positive integers only. |
 | `GRAPHIT_ANTLR_SLL=1` | Forces the SLL-first parser path, including for grammars normally kept in LL mode. Use only for parser diagnosis or measured tuning. |
 | `GRAPHIT_ANTLR_LL_ONLY=1` | Forces LL parsing and takes precedence when both prediction overrides are `1`. Use only for parser diagnosis or measured tuning. |
+| `GRAPHIT_PROJECT_VERSION` | Pins the [project version](../specs/project_identity.md#project-version) used for the project of the process's starting directory, like `--project-version`. Other projects keep their checkout's version. The daemon sets it for each child it starts. |
+| `GRAPHIT_GIT_BASE_BRANCH` | Version used for a detached HEAD, typically the CI branch. Without it, a detached checkout uses the project's default version. |
 | `GRAPHIT_AGENT_SESSION_ID` | Supplies stable task attribution when a host-specific session ID is unavailable. Graphit otherwise recognizes `CODEX_THREAD_ID`, `CODEX_SESSION_ID`, `CLAUDE_SESSION_ID`, `CURSOR_SESSION_ID`, `GEMINI_SESSION_ID`, `OPENCODE_SESSION_ID`, and `KIRO_SESSION_ID`, in that order. |
 
 The launcher sets `GRAPHIT_LAUNCHER_PATH` for internal process replacement;

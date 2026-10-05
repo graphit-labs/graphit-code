@@ -22,106 +22,118 @@ import (
 )
 
 type astIndexInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory to index (required)"`
-	Path        string `json:"path,omitempty" jsonschema:"Target path to index (defaults to project_dir)"`
-	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
-	Reset       bool   `json:"reset,omitempty" jsonschema:"Delete the whole store before indexing — graph, search index and caches — discarding every embedding. Prefer reindex, which re-parses everything but keeps them"`
-	Reindex     bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
-	Cluster     string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
-	NoSource    bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
-	Grammar     string `json:"grammar,omitempty" jsonschema:"Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory to index (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Path           string `json:"path,omitempty" jsonschema:"Target path to index (defaults to project_dir)"`
+	Workers        int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
+	Reset          bool   `json:"reset,omitempty" jsonschema:"Delete the whole store before indexing — graph, search index and caches — discarding every embedding. Prefer reindex, which re-parses everything but keeps them"`
+	Reindex        bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
+	Cluster        string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
+	NoSource       bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
+	Grammar        string `json:"grammar,omitempty" jsonschema:"Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astQueryInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
-	Query       string `json:"query" jsonschema:"Cypher query to execute against the AST graph database"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
-	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); independent of any LIMIT in the Cypher query"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Query          string `json:"query" jsonschema:"Cypher query to execute against the AST graph database"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); independent of any LIMIT in the Cypher query"`
+	Cursor         string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astFTSSchemaInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to describe a globally installed artifact, naming it in context as id@version."`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context"`
-	Table       string `json:"table,omitempty" jsonschema:"Describe only this table; omit for both"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to describe a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context"`
+	Table          string `json:"table,omitempty" jsonschema:"Describe only this table; omit for both"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astFTSQueryInput struct {
-	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
-	Context     string   `json:"context,omitempty" jsonschema:"Named imported context to query"`
-	Table       string   `json:"table" jsonschema:"Table to query: entities for indexed symbols, files for indexed files; ast_fts_schema lists their columns (required)"`
-	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"path = 'internal/task/service.go'\", \"etype = 'Function' AND is_dep = false\" or \"name LIKE 'Open%'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
-	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [name, etype, path, line]. Omit for every compact column. The body and source columns are never returned and cannot be filtered on: they hold synthesised BM25 documents, not code — use ast_search in fts mode to match against them and ast_source to read real code. The embedding vector is never returned as numbers either."`
-	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
-	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
-	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
-	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string   `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string   `json:"context,omitempty" jsonschema:"Named imported context to query"`
+	Table          string   `json:"table" jsonschema:"Table to query: entities for indexed symbols, files for indexed files; ast_fts_schema lists their columns (required)"`
+	Filter         string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over this table's columns, for example \"path = 'internal/task/service.go'\", \"etype = 'Function' AND is_dep = false\" or \"name LIKE 'Open%'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row."`
+	Columns        []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [name, etype, path, line]. Omit for every compact column. The body and source columns are never returned and cannot be filtered on: they hold synthesised BM25 documents, not code — use ast_search in fts mode to match against them and ast_source to read real code. The embedding vector is never returned as numbers either."`
+	TopK           int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize       int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor         string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized    *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSchemaInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context"`
 }
 
 type astInstallInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Path        string `json:"path" jsonschema:"Absolute path to the source project to import (required)"`
-	Context     string `json:"context" jsonschema:"Name of the context to assign to the imported project (required)"`
-	Reset       bool   `json:"reset,omitempty" jsonschema:"Reset the context database before importing"`
-	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Path           string `json:"path" jsonschema:"Absolute path to the source project to import (required)"`
+	Context        string `json:"context" jsonschema:"Name of the context to assign to the imported project (required)"`
+	Reset          bool   `json:"reset,omitempty" jsonschema:"Reset the context database before importing"`
+	Workers        int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astRemoveInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context,omitempty" jsonschema:"Name of the imported context to remove. If empty, clears the main project graph."`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Name of the imported context to remove. If empty, clears the main project graph."`
 }
 
 type astListInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to list the artifacts installed globally."`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to list the artifacts installed globally."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSourceInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
-	Path        string `json:"path" jsonschema:"Relative path to the file (required)"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context where the file resides"`
-	Entity      string `json:"entity,omitempty" jsonschema:"Entity name (function, class, etc.) to extract source using its line range from the graph"`
-	EntityType  string `json:"entity_type,omitempty" jsonschema:"Entity type for disambiguation: Function, Class, Method, Struct, etc."`
-	Head        int    `json:"head,omitempty" jsonschema:"Show only the first N lines"`
-	Tail        int    `json:"tail,omitempty" jsonschema:"Show only the last N lines"`
-	StartLine   int    `json:"start_line,omitempty" jsonschema:"Start line number (1-indexed)"`
-	EndLine     int    `json:"end_line,omitempty" jsonschema:"End line number (1-indexed, inclusive)"`
-	Pattern     string `json:"pattern,omitempty" jsonschema:"Search for a pattern (literal text or regex if regex=true)"`
-	IsRegex     bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
-	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
-	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
-	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Path           string `json:"path" jsonschema:"Relative path to the file (required)"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context where the file resides"`
+	Entity         string `json:"entity,omitempty" jsonschema:"Entity name (function, class, etc.) to extract source using its line range from the graph"`
+	EntityType     string `json:"entity_type,omitempty" jsonschema:"Entity type for disambiguation: Function, Class, Method, Struct, etc."`
+	Head           int    `json:"head,omitempty" jsonschema:"Show only the first N lines"`
+	Tail           int    `json:"tail,omitempty" jsonschema:"Show only the last N lines"`
+	StartLine      int    `json:"start_line,omitempty" jsonschema:"Start line number (1-indexed)"`
+	EndLine        int    `json:"end_line,omitempty" jsonschema:"End line number (1-indexed, inclusive)"`
+	Pattern        string `json:"pattern,omitempty" jsonschema:"Search for a pattern (literal text or regex if regex=true)"`
+	IsRegex        bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
+	Before         int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
+	After          int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
+	LineNumbers    bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
 }
 
 type astExportInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Format     string `json:"format" jsonschema:"Export format: obsidian or package (required)"`
-	Output     string `json:"output" jsonschema:"Output file or directory path (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Format         string `json:"format" jsonschema:"Export format: obsidian or package (required)"`
+	Output         string `json:"output" jsonschema:"Output file or directory path (required)"`
 }
 
 type astEmbedInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context"`
 }
 
 type astSearchInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
-	Query       string `json:"query" jsonschema:"Search query (keywords, natural language, or code identifiers)"`
-	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
-	Mode        string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
-	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (max: 100); top_k remains the total-result cap"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Query          string `json:"query" jsonschema:"Search query (keywords, natural language, or code identifiers)"`
+	TopK           int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
+	Mode           string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
+	Context        string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Results per page (max: 100); top_k remains the total-result cap"`
+	Cursor         string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 func registerASTTools(server *mcp.Server) {

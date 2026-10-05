@@ -33,6 +33,12 @@ These flags can be appended to any command:
 | `--verbose` | `-v` | Enables detailed debug logs on stdout. | `false` |
 | `--config` | `-c` | Override a configuration value inline (e.g. `-c agent=cursor`). | `nil` |
 | `--non-interactive` | | Forbids prompts, confirmations, browsers, editors, pagers, and interactive chat; missing input is an error. | `false` |
+| `--project-version` | | Project version whose stores to use — a Git branch name. Applies to the project the command runs in and to the CLI processes it starts (through `GRAPHIT_PROJECT_VERSION`); a sibling project keeps its own version. | the branch checked out, or `main` outside Git |
+
+Every project store — code graph, documentation wiki, memory, tasks — is kept per **project
+version**: the checked-out Git branch, or `main` for a directory that is not under Git. Two worktrees
+of one repository therefore never share a store. See
+[Storage Layout](../architecture/storage_layout.md#one-store-per-project-version).
 
 ---
 
@@ -123,7 +129,9 @@ Before indexing, sync inspects Git when the current project is a repository. If 
 available, every sync checks the current `branch/...` lineage for the exact compatible commit or
 nearest published ancestor. It retains the local overlay when that base is unchanged, or replaces
 the base with a filesystem-local shallow clone and reindexes local differences when the published
-base advances. Base fragments remain in S3; new writes remain local. A detached checkout can
+base advances. Base fragments remain in S3; new writes remain local. Hydration writes only the
+stores of the current project version, so worktrees on other branches keep their own. A branch with
+no publication of its own starts from the default branch's lineage. A detached checkout can
 select its source lineage with `GRAPHIT_GIT_BASE_BRANCH`. LadybugDB/Icebug is rebuilt rather than
 cloned. Sync never publishes a Hub commit.
 

@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/gitenv"
 )
 
 type cliBackend struct{}
@@ -98,35 +100,9 @@ func (c *cliBackend) buildCmd(repoDir string, env map[string]string, args ...str
 	return cmd
 }
 
-var gitInvocationScopeEnv = map[string]struct{}{
-	"GIT_DIR":                          {},
-	"GIT_COMMON_DIR":                   {},
-	"GIT_WORK_TREE":                    {},
-	"GIT_INDEX_FILE":                   {},
-	"GIT_INDEX_VERSION":                {},
-	"GIT_PREFIX":                       {},
-	"GIT_OBJECT_DIRECTORY":             {},
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES": {},
-	"GIT_NAMESPACE":                    {},
-	"GIT_GRAFT_FILE":                   {},
-	"GIT_QUARANTINE_PATH":              {},
-	"GIT_REFLOG_ACTION":                {},
-	"GIT_AUTHOR_DATE":                  {},
-	"GIT_COMMITTER_DATE":               {},
-}
-
+// withoutInheritedGitScope drops the invocation scope an enclosing hook exports; see gitenv.
 func withoutInheritedGitScope(environ []string) []string {
-	clean := make([]string, 0, len(environ))
-	for _, kv := range environ {
-		name, _, ok := strings.Cut(kv, "=")
-		if ok {
-			if _, drop := gitInvocationScopeEnv[name]; drop {
-				continue
-			}
-		}
-		clean = append(clean, kv)
-	}
-	return clean
+	return gitenv.WithoutInvocationScope(environ)
 }
 
 func wrapSSHError(err error, stderr string) error {

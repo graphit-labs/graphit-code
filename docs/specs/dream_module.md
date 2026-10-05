@@ -193,6 +193,10 @@ credentials on the fly with `scope=project`, the project ID, and `module=dream`;
 stay in memory and are refreshed by the normal S3 resolver. A credential-resolution error fails
 the operation rather than silently switching to a local table.
 
+Both locations hold one ledger per [project version](project_identity.md#project-version). Each
+version is a native Lance branch of the table, and the default version is its main lineage. A run
+records into the version of the project directory it runs for.
+
 Each invocation generates a globally unique ULID `run_id`. Local writers serialize refresh-plus-merge
 through the store's cross-process lifecycle lock; S3 writers refresh and use conditional commit
 retry across hosts. Concurrent table creation is likewise tolerated. Distinct runs therefore remain

@@ -147,15 +147,27 @@ type MemoryTable struct {
 // not a published artifact somebody else owns. That distinction is why `lancestore.Config.Writable`
 // exists rather than the permission being derived from the scheme.
 func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
+	return OpenMemoryTableIn(ctx, uri, "")
+}
+
+// OpenMemoryTableIn is OpenMemoryTable for the checkout in projectDir: a project's
+// memory is opened on the native Lance branch of that checkout's project version (see
+// projectBranchForURI). An empty projectDir means the project the process sits in.
+func OpenMemoryTableIn(ctx context.Context, uri, projectDir string) (*MemoryTable, error) {
 	s3cfg := memoryS3ConfigForURI(ctx, uri)
 	if err := authorizeMemoryURI(ctx, uri, s3cfg); err != nil {
 		return nil, err
 	}
-	st, err := lancestore.Open(ctx, lancestore.Config{
-		URI:      uri,
-		S3:       s3cfg,
-		Writable: true,
-	})
+	branch := projectBranchForURI(uri, projectDir)
+	open := func(branch string) (*lancestore.Store, error) {
+		return lancestore.Open(ctx, lancestore.Config{
+			URI:      uri,
+			S3:       s3cfg,
+			Writable: true,
+			Branch:   branch,
+		})
+	}
+	st, err := open(branch)
 	if err != nil {
 		return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
 	}
@@ -164,6 +176,32 @@ func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
 	if err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
+	}
+	if !tbl.Schema().Equal(expected) && branch != "" {
+		// An incompatible schema resets the whole table, every version with it, and a
+		// branch cannot drop its table: reset the main lineage, then fork afresh.
+		_ = tbl.Close()
+		_ = st.Close()
+		mainStore, err := open("")
+		if err != nil {
+			return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
+		}
+		if err := mainStore.DropTable(ctx, memoryTableName); err != nil {
+			_ = mainStore.Close()
+			return nil, fmt.Errorf("resetting incompatible memories table at %s: %w", uri, err)
+		}
+		if _, err := mainStore.CreateTable(ctx, memoryTableName, expected); err != nil {
+			_ = mainStore.Close()
+			return nil, fmt.Errorf("recreating memories table at %s: %w", uri, err)
+		}
+		_ = mainStore.Close()
+		if st, err = open(branch); err != nil {
+			return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
+		}
+		if tbl, err = st.EnsureTable(ctx, memoryTableName, expected); err != nil {
+			_ = st.Close()
+			return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
+		}
 	}
 	if !tbl.Schema().Equal(expected) {
 		_ = tbl.Close()

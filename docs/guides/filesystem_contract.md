@@ -168,13 +168,14 @@ With `modules.hooks=true`, `init` and `sync` install Graphit's `pre-commit`
 integration and each additional event named in the lockfile's top-level `hooks`
 map. Git 2.54+ uses repository-local configured hooks named
 `<brand>-<event>` (`graphit-pre-push` for `pre-push` by default). Older Git uses
-marked shell blocks at literal `.git/hooks/<event>` paths. Each block runs only while Git is older than 2.54
+marked shell blocks at `<git-common-dir>/hooks/<event>` — `.git/hooks` in a main checkout, and the
+repository's shared hooks directory when run from a linked worktree, whose `.git` is a pointer file.
+Each block runs only while Git is older than 2.54
 and the configured hook is absent. Both forms check for the Graphit executable,
 then run the commands in `graphit.lock.json` under `hooks.<event>`.
 
 The older path preserves third-party shell content but does not handle a non-shell
-or unsupported shell shebang, `core.hooksPath`, linked worktree `.git` pointer files,
-or third-party hook managers. Installation failure produces a warning with manual instructions. Without
+or unsupported shell shebang, `core.hooksPath`, or third-party hook managers. Installation failure produces a warning with manual instructions. Without
 an active integration, the consistency checks cannot gate commits and determinism
 is substantially reduced. `remove` and `modules.hooks=false` clean Graphit's own
 registrations and marked blocks for every supported event.

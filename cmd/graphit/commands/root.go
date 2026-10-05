@@ -14,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/graphit-labs/graphit-code/internal/tray"
@@ -102,6 +103,26 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt, open a browser, editor, or pager; fail when input is missing")
 	rootCmd.PersistentFlags().StringArrayP("config", "c", nil, "Override runtime config key=value (repeatable, e.g. -c agent=cursor)")
+	rootCmd.PersistentFlags().StringVar(&projectVersionFlag, "project-version", "",
+		"Project version whose stores to use: a Git branch name (default: the branch checked out here, or main outside Git)")
+	cobra.OnInitialize(pinProjectVersion)
+}
+
+var projectVersionFlag string
+
+// pinProjectVersion hands --project-version to every store resolver of this process
+// and to the CLI processes it starts. The pin applies only to the project this
+// process was started in, so a sibling project reached from it keeps its own version.
+// It runs from cobra's initializers because a command group's own pre-run hook
+// replaces the root's.
+func pinProjectVersion() {
+	version, err := projectversion.Validate(projectVersionFlag)
+	if err != nil {
+		output.Fatal("%s", err)
+	}
+	if version != "" {
+		_ = os.Setenv(projectversion.EnvVersion(), version)
+	}
 }
 
 func Execute() {

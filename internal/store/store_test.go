@@ -197,10 +197,10 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	}
 
 	want := map[string]string{
-		ASTProjectIcebugDir(projectDir):               filepath.Join(global, "ast", "project", storeTestProjectID, "graph.icebug"),
+		ASTProjectIcebugDir(projectDir):               filepath.Join(global, "ast", "project", storeTestProjectID, "versions", "main", "graph.icebug"),
 		ASTContextIcebugDir("Other Repo"):             filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
 		ASTHubIcebugDir("01PUB", "1.2.3"):             filepath.Join(global, "ast", "hub", "01pub", "1.2.3", "graph.icebug"),
-		KnowledgeProjectDir(projectDir):               filepath.Join(global, "wiki", "knowledge", "project", storeTestProjectID),
+		KnowledgeProjectDir(projectDir):               filepath.Join(global, "wiki", "knowledge", "project", storeTestProjectID, "versions", "main"),
 		KnowledgeContextDir("Some Docs"):              filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
 		MemoryTableDir("project", storeTestProjectID): filepath.Join(global, "memory", "memory-project-"+storeTestProjectID),
 		DreamTableDir(storeTestProjectID):             filepath.Join(global, "dream", "dreams", storeTestProjectID),
@@ -239,11 +239,14 @@ func TestByIDResolversAgreeWithProjectStoreID(t *testing.T) {
 	projectDir := t.TempDir()
 	writeLockfile(t, projectDir, storeTestProjectID)
 
-	if got, want := ASTProjectDirByID(ProjectStoreID(projectDir)), ASTProjectDir(projectDir); got != want {
+	if got, want := ASTProjectDirByID(ProjectStoreID(projectDir)), ASTProjectRoot(projectDir); got != want {
 		t.Errorf("ASTProjectDirByID = %q, want %q", got, want)
 	}
-	if got, want := KnowledgeProjectDirByID(ProjectStoreID(projectDir)), KnowledgeProjectDir(projectDir); got != want {
+	if got, want := KnowledgeProjectDirByID(ProjectStoreID(projectDir)), KnowledgeProjectRoot(projectDir); got != want {
 		t.Errorf("KnowledgeProjectDirByID = %q, want %q", got, want)
+	}
+	if got, want := VersionStoreDir(ASTProjectDirByID(ProjectStoreID(projectDir)), "main"), ASTProjectDir(projectDir); got != want {
+		t.Errorf("version of ASTProjectDirByID = %q, want %q", got, want)
 	}
 }
 

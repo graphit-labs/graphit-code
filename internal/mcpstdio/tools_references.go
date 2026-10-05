@@ -15,26 +15,29 @@ type referencesQueryInput struct {
 	TargetScopeID string  `json:"target_scope_id,omitempty" jsonschema:"Logical target project/user identity"`
 	TargetContext *string `json:"target_context,omitempty" jsonschema:"Exact target Knowledge context"`
 
-	ProjectDir  string  `json:"project_dir" jsonschema:"Authorized project directory"`
-	SourceType  string  `json:"source_type,omitempty" jsonschema:"Filter source type: task, session, memory or knowledge"`
-	SourceID    string  `json:"source_id,omitempty" jsonschema:"Exact source record ID"`
-	TargetType  string  `json:"target_type,omitempty" jsonschema:"Filter target type: task, session, memory or knowledge"`
-	TargetID    string  `json:"target_id,omitempty" jsonschema:"Exact target record ID; use for incoming references"`
-	Relation    string  `json:"relation,omitempty" jsonschema:"Exact relation name"`
-	Scope       string  `json:"scope,omitempty" jsonschema:"Source scope: project or user"`
-	ScopeID     string  `json:"scope_id,omitempty" jsonschema:"Exact logical source scope identity"`
-	Context     *string `json:"context,omitempty" jsonschema:"Source knowledge context name"`
-	IncludeUser bool    `json:"include_user,omitempty" jsonschema:"Include current authenticated user's memory relations; false by default"`
-	PageSize    int     `json:"page_size,omitempty" jsonschema:"Rows per page, default 20, maximum 100"`
-	TopK        int     `json:"top_k,omitempty" jsonschema:"Total result cap, default 100"`
-	Cursor      string  `json:"cursor,omitempty" jsonschema:"Opaque cursor from the same filtered query"`
-	AiOptimized *bool   `json:"ai_optimized,omitempty" jsonschema:"Compact output by default"`
+	ProjectDir string `json:"project_dir" jsonschema:"Authorized project directory"`
+
+	ProjectVersion string  `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	SourceType     string  `json:"source_type,omitempty" jsonschema:"Filter source type: task, session, memory or knowledge"`
+	SourceID       string  `json:"source_id,omitempty" jsonschema:"Exact source record ID"`
+	TargetType     string  `json:"target_type,omitempty" jsonschema:"Filter target type: task, session, memory or knowledge"`
+	TargetID       string  `json:"target_id,omitempty" jsonschema:"Exact target record ID; use for incoming references"`
+	Relation       string  `json:"relation,omitempty" jsonschema:"Exact relation name"`
+	Scope          string  `json:"scope,omitempty" jsonschema:"Source scope: project or user"`
+	ScopeID        string  `json:"scope_id,omitempty" jsonschema:"Exact logical source scope identity"`
+	Context        *string `json:"context,omitempty" jsonschema:"Source knowledge context name"`
+	IncludeUser    bool    `json:"include_user,omitempty" jsonschema:"Include current authenticated user's memory relations; false by default"`
+	PageSize       int     `json:"page_size,omitempty" jsonschema:"Rows per page, default 20, maximum 100"`
+	TopK           int     `json:"top_k,omitempty" jsonschema:"Total result cap, default 100"`
+	Cursor         string  `json:"cursor,omitempty" jsonschema:"Opaque cursor from the same filtered query"`
+	AiOptimized    *bool   `json:"ai_optimized,omitempty" jsonschema:"Compact output by default"`
 }
 
 type referencesReconcileInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Authorized project directory"`
-	IncludeUser bool   `json:"include_user,omitempty" jsonschema:"Also reconcile current caller personal memory; false by default"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Authorized project directory"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	IncludeUser    bool   `json:"include_user,omitempty" jsonschema:"Also reconcile current caller personal memory; false by default"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty"`
 }
 
 func registerReferenceTools(server *mcp.Server) {

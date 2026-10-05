@@ -69,6 +69,34 @@ unless `modules.daemon=false`; an OS scheduler can keep it alive independently. 
 [Daemon Operations and Monitoring](daemon_operations.md) for every start path, watched signal,
 module loop, runtime file, and recovery behavior.
 
+### Branches and worktrees
+
+Graphit keeps a separate copy of a project's AST graph, wiki, project Memory, Tasks, sessions and
+Dream ledger for each **project version**: the checked-out Git branch, or `main` without Git. Each
+worktree therefore sees the code and records of its own branch.
+
+| Situation | What happens |
+|---|---|
+| a new branch or worktree | starts from the default branch's state (`origin/HEAD`, else `main`, else `master`) and reindexes only what differs |
+| work on that branch | stays on that branch; the default branch does not see it, and nothing merges back |
+| a linked worktree | run `graphit sync` once there; the daemon then supervises it separately |
+| `git switch` in a checkout | the daemon notices the new branch and runs a full sync for it |
+| a detached HEAD, for example in CI | uses `GRAPHIT_GIT_BASE_BRANCH` when set, else the default branch |
+| state from before versions | belongs to the default branch |
+| user memory | shared by every branch: it is about you, not the code |
+
+To read another branch's state without checking it out, pass `project_version` to an MCP tool or
+`--project-version` to the CLI. For example, compare a feature branch's tasks with `main`:
+
+```bash
+graphit task list --project-version main
+```
+
+With a Hub configured, `graphit sync` hydrates the branch's own published snapshot
+(`branch/<branch>`), or the default branch's when the branch has none. See
+[Storage Layout](../architecture/storage_layout.md#one-store-per-project-version) and
+[Project Identity](../specs/project_identity.md#project-version).
+
 ## AST workflow
 
 To add a language, override extraction, select a dialect, or understand every grammar

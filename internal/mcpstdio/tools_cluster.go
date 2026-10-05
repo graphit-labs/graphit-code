@@ -12,26 +12,30 @@ import (
 )
 
 type clusterSetInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Key        string `json:"key" jsonschema:"Cluster label key (required)"`
-	Value      string `json:"value" jsonschema:"Cluster label value (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Key            string `json:"key" jsonschema:"Cluster label key (required)"`
+	Value          string `json:"value" jsonschema:"Cluster label value (required)"`
 }
 
 type clusterGetInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Key         string `json:"key,omitempty" jsonschema:"Cluster label key to retrieve. If empty, retrieves all labels."`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Key            string `json:"key,omitempty" jsonschema:"Cluster label key to retrieve. If empty, retrieves all labels."`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type clusterUnsetInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Key        string `json:"key" jsonschema:"Cluster label key to remove (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Key            string `json:"key" jsonschema:"Cluster label key to remove (required)"`
 }
 
 type clusterProjectsInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Label       string `json:"label,omitempty" jsonschema:"Optional cluster label key to filter by"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Label          string `json:"label,omitempty" jsonschema:"Optional cluster label key to filter by"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 func registerClusterTools(server *mcp.Server) {

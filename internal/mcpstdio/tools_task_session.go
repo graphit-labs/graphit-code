@@ -16,6 +16,7 @@ import (
 type taskSessionCreateInput struct {
 	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
 	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	Title          string           `json:"title" jsonschema:"Concise outcome of the complete user request (required)"`
 	Description    string           `json:"description" jsonschema:"Detailed current request, scope, requirements, constraints, sources and success criteria sufficient for another agent without the conversation (required)"`
 	Strategy       string           `json:"strategy" jsonschema:"Current approach, investigation and task decomposition strategy, uncertainties and validation plan (required)"`
@@ -25,41 +26,46 @@ type taskSessionCreateInput struct {
 }
 
 type taskSessionGetInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Logical Task session ID (required)"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Logical Task session ID (required)"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionListInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Status      string `json:"status,omitempty" jsonschema:"open, in_progress, completed, or cancelled"`
-	Owner       string `json:"owner,omitempty" jsonschema:"Exact coordinator identity filter"`
-	Active      bool   `json:"active,omitempty" jsonschema:"Only nonterminal sessions (open or in_progress)"`
-	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default 20, maximum 100)"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from this exact listing"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Status         string `json:"status,omitempty" jsonschema:"open, in_progress, completed, or cancelled"`
+	Owner          string `json:"owner,omitempty" jsonschema:"Exact coordinator identity filter"`
+	Active         bool   `json:"active,omitempty" jsonschema:"Only nonterminal sessions (open or in_progress)"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Results per page (default 20, maximum 100)"`
+	Cursor         string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from this exact listing"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionSearchInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query       string `json:"query" jsonschema:"Keywords in the request, strategy, checkpoints or prior revisions (required)"`
-	TopK        int    `json:"top_k,omitempty" jsonschema:"Total ranked result cap (default 20)"`
-	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default 20, maximum 100)"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from this exact search"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Query          string `json:"query" jsonschema:"Keywords in the request, strategy, checkpoints or prior revisions (required)"`
+	TopK           int    `json:"top_k,omitempty" jsonschema:"Total ranked result cap (default 20)"`
+	PageSize       int    `json:"page_size,omitempty" jsonschema:"Results per page (default 20, maximum 100)"`
+	Cursor         string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from this exact search"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionClaimInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Logical Task session ID (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host identity when omitted"`
-	Lease       string `json:"lease,omitempty" jsonschema:"Positive coordinator lease such as 2h; default 1h"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Logical Task session ID (required)"`
+	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host identity when omitted"`
+	Lease          string `json:"lease,omitempty" jsonschema:"Positive coordinator lease such as 2h; default 1h"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionReviseInput struct {
 	References       *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
 	ProjectDir       string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion   string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID               string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
 	ClaimToken       string           `json:"claim_token" jsonschema:"Private session coordinator token returned by session_claim (required)"`
 	AgentID          string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
@@ -73,62 +79,68 @@ type taskSessionReviseInput struct {
 }
 
 type taskSessionCheckpointInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Summary     string           `json:"summary" jsonschema:"Descriptive completed progress with evidence and affected task IDs (required)"`
-	Problems    string           `json:"problems,omitempty" jsonschema:"Problems, blockers, uncertainty and attempted solutions"`
-	Decisions   string           `json:"decisions,omitempty" jsonschema:"Decisions with rationale, alternatives and impact"`
-	Strategy    string           `json:"strategy,omitempty" jsonschema:"Current execution approach; material specification changes also require session_revise"`
-	NextStep    string           `json:"next_step" jsonschema:"Exact continuation action, target, prerequisites and done condition (required)"`
-	Lease       string           `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Summary        string           `json:"summary" jsonschema:"Descriptive completed progress with evidence and affected task IDs (required)"`
+	Problems       string           `json:"problems,omitempty" jsonschema:"Problems, blockers, uncertainty and attempted solutions"`
+	Decisions      string           `json:"decisions,omitempty" jsonschema:"Decisions with rationale, alternatives and impact"`
+	Strategy       string           `json:"strategy,omitempty" jsonschema:"Current execution approach; material specification changes also require session_revise"`
+	NextStep       string           `json:"next_step" jsonschema:"Exact continuation action, target, prerequisites and done condition (required)"`
+	Lease          string           `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionHeartbeatInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Lease       string `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken     string `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID        string `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Lease          string `json:"lease,omitempty" jsonschema:"Renewed lease; never shortens a longer active lease"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionReleaseInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Summary     string           `json:"summary" jsonschema:"Self-contained handoff of results, remaining work, blockers and relevant tasks (required)"`
-	NextStep    string           `json:"next_step" jsonschema:"Exact continuation action with target and done condition for the next coordinator (required)"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Summary        string           `json:"summary" jsonschema:"Self-contained handoff of results, remaining work, blockers and relevant tasks (required)"`
+	NextStep       string           `json:"next_step" jsonschema:"Exact continuation action with target and done condition for the next coordinator (required)"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionCompleteInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
-	Summary     string           `json:"summary" jsonschema:"Final result mapped to requested outcomes and evidence; explain cancelled scope and residual limitations (required)"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Claimed logical Task session ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Private session coordinator token (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable coordinator identity"`
+	Summary        string           `json:"summary" jsonschema:"Final result mapped to requested outcomes and evidence; explain cancelled scope and residual limitations (required)"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionCancelInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
-	ProjectDir  string           `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID          string           `json:"id" jsonschema:"Logical Task session ID (required)"`
-	ClaimToken  string           `json:"claim_token" jsonschema:"Private token from the active session claim (required)"`
-	AgentID     string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity"`
-	Reason      string           `json:"reason" jsonschema:"Why this request is cancelled, remaining consequences and replacement if any (required)"`
-	AiOptimized *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed references: full list replaces, omitted preserves, [] clears. Resolve target type and id before writing."`
+	ProjectDir     string           `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string           `json:"id" jsonschema:"Logical Task session ID (required)"`
+	ClaimToken     string           `json:"claim_token" jsonschema:"Private token from the active session claim (required)"`
+	AgentID        string           `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity"`
+	Reason         string           `json:"reason" jsonschema:"Why this request is cancelled, remaining consequences and replacement if any (required)"`
+	AiOptimized    *bool            `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 type taskSessionForceTakeoverInput struct {
 	ProjectDir       string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion   string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID               string `json:"id" jsonschema:"In-progress logical Task session ID (required)"`
 	ConfirmID        string `json:"confirm_id" jsonschema:"Exact session ID confirmation (required)"`
 	ExpectedRevision int64  `json:"expected_revision" jsonschema:"Current session revision (required)"`

@@ -703,7 +703,7 @@ func TestExportIncludesCompleteDeterministicTaskEntities(t *testing.T) {
 	if _, err := svc.Cancel(ctx, cancelled.ID, "", "planner", "Direction changed"); err != nil {
 		t.Fatal(err)
 	}
-	locked, err := openTables(ctx, svc.uri, svc.s3)
+	locked, err := openTables(ctx, svc.uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1171,7 +1171,7 @@ func TestRemoveRequiresExactConfirmationRejectsReferencesAndCleansProjections(t 
 	if _, err := svc.Get(ctx, disposable.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("removed task get error=%v", err)
 	}
-	inspect, err := openTables(ctx, uri, svc.s3)
+	inspect, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1232,7 +1232,7 @@ func TestReconcileFinishesInterruptedRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tables, err := openTables(ctx, uri, svc.s3)
+	tables, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1263,7 +1263,7 @@ func TestRemovalIntentBlocksNewReferencesAndReconcileRejectsStaleReferencedInten
 	if err != nil {
 		t.Fatal(err)
 	}
-	tables, err := openTables(ctx, uri, svc.s3)
+	tables, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1298,7 +1298,7 @@ func TestRemovalIntentBlocksNewReferencesAndReconcileRejectsStaleReferencedInten
 	if err != nil {
 		t.Fatal(err)
 	}
-	tables, err = openTables(ctx, uri, svc.s3)
+	tables, err = openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1318,7 +1318,7 @@ func TestRemovalIntentBlocksNewReferencesAndReconcileRejectsStaleReferencedInten
 	if _, err := svc.Get(ctx, dependent.ID); err != nil {
 		t.Fatalf("dependent was damaged: %v", err)
 	}
-	inspect, err := openTables(ctx, uri, svc.s3)
+	inspect, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1333,7 +1333,7 @@ func TestRemovalIntentBlocksNewReferencesAndReconcileRejectsStaleReferencedInten
 }
 
 func tablesReopenDeleteIntent(ctx context.Context, uri string, svc *Service, key string) error {
-	tables, err := openTables(ctx, uri, svc.s3)
+	tables, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		return err
 	}
@@ -1368,7 +1368,7 @@ func TestReconcileBypassesSchedulerLeaseAndRepairsProjections(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tables, err := openTables(ctx, uri, svc.s3)
+	tables, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1412,7 +1412,7 @@ func TestReconcileBypassesSchedulerLeaseAndRepairsProjections(t *testing.T) {
 		t.Fatalf("reconcile with active scheduler lease: %v", err)
 	}
 
-	inspect, err := openTables(ctx, uri, svc.s3)
+	inspect, err := openTables(ctx, uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1498,7 +1498,7 @@ func TestProjectTaskDoesNotWriteCurrentProjections(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tables, err := openTables(ctx, svc.uri, svc.s3)
+	tables, err := openTables(ctx, svc.uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1533,7 +1533,7 @@ func TestTaskMaintenancePrunesObsoleteVersions(t *testing.T) {
 	}
 	countRelationRows := func() int {
 		t.Helper()
-		tables, err := openTables(ctx, svc.uri, svc.s3)
+		tables, err := openTables(ctx, svc.uri, svc.s3, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1600,7 +1600,7 @@ func TestTaskMaintenancePrunesObsoleteVersions(t *testing.T) {
 
 func TestTaskMaintenanceDoesNotCreateAbsentRelationTable(t *testing.T) {
 	ctx := context.Background()
-	tables, err := openTables(ctx, t.TempDir(), config.S3Config{})
+	tables, err := openTables(ctx, t.TempDir(), config.S3Config{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1625,7 +1625,7 @@ func TestTaskMaintenanceDoesNotOverlapMutationLease(t *testing.T) {
 	if _, err := svc.Create(ctx, testCreate("Serialized maintenance", "serialized-maintenance")); err != nil {
 		t.Fatal(err)
 	}
-	tables, err := openTables(ctx, svc.uri, svc.s3)
+	tables, err := openTables(ctx, svc.uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1678,7 +1678,7 @@ func TestUnavailableTaskStorageOperationReturnsContextualDeadline(t *testing.T) 
 
 func currentTaskTableVersions(t *testing.T, ctx context.Context, svc *Service) map[string]uint64 {
 	t.Helper()
-	tables, err := openTables(ctx, svc.uri, svc.s3)
+	tables, err := openTables(ctx, svc.uri, svc.s3, "")
 	if err != nil {
 		t.Fatal(err)
 	}

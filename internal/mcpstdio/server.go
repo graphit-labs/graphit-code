@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -11,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/agentpolicy"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/agent"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/toon"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
@@ -45,7 +49,57 @@ func addTool[In, Out any](server *mcp.Server, tool *mcp.Tool, handler mcp.ToolHa
 	if profile != nil && profile != "" && profile != agentpolicy.ProfileDreamMemory {
 		return
 	}
-	mcp.AddTool(server, tool, handler)
+	mcp.AddTool(server, tool, withProjectVersion(handler))
+}
+
+// withProjectVersion scopes one call to the project version it names.
+//
+// Every store a tool resolves for project_dir answers for one version of that
+// project — the branch checked out there, or main without Git. A call that names
+// project_version instead holds the directory exclusively for its duration, so the
+// store resolvers it reaches answer that version while concurrent calls for the same
+// directory wait rather than read the wrong store.
+func withProjectVersion[In, Out any](handler mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input In) (*mcp.CallToolResult, Out, error) {
+		var zero Out
+		dir, version := projectScopeOf(input)
+		if dir == "" {
+			if strings.TrimSpace(version) != "" {
+				return nil, zero, fmt.Errorf("project_version selects a version of the project in project_dir, and no project_dir was given")
+			}
+			return handler(ctx, req, input)
+		}
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+		release, err := projectversion.Acquire(dir, version)
+		if err != nil {
+			return nil, zero, err
+		}
+		defer release()
+		return handler(ctx, req, input)
+	}
+}
+
+// projectScopeOf reads the project_dir and project_version arguments of a tool input.
+func projectScopeOf(input any) (dir, version string) {
+	v := reflect.ValueOf(input)
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return "", ""
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return "", ""
+	}
+	if f := v.FieldByName("ProjectDir"); f.IsValid() && f.Kind() == reflect.String {
+		dir = f.String()
+	}
+	if f := v.FieldByName("ProjectVersion"); f.IsValid() && f.Kind() == reflect.String {
+		version = f.String()
+	}
+	return dir, version
 }
 
 func requireDreamMemoryPrecondition(req *mcp.CallToolRequest, revision *int, contentHash string) error {

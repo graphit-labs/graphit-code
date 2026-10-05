@@ -36,8 +36,9 @@ func TestMandatePreambleIsCompactAndLifecycleSafe(t *testing.T) {
 		}
 	}
 	// The resident budget includes delegation and push authorization boundaries;
-	// keep that safety rule without letting the preamble grow unbounded.
-	if len(content) > 3400 {
+	// keep that safety rule without letting the preamble grow unbounded. 3500 allows
+	// the project-version contract.
+	if len(content) > 3500 {
 		t.Fatalf("resident preamble is too large: %d bytes", len(content))
 	}
 }

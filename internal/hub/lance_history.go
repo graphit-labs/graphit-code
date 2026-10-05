@@ -20,6 +20,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/storelifecycle"
@@ -44,8 +45,12 @@ type HydrationResult struct {
 }
 
 type localLanceBase struct {
-	EntryID   string      `json:"entry_id"`
-	Branch    string      `json:"branch"`
+	EntryID string `json:"entry_id"`
+	Branch  string `json:"branch"`
+	// Version is the local project version whose store holds this base. It differs
+	// from Branch when a version without a publication of its own starts from the
+	// default version's published branch.
+	Version   string      `json:"version,omitempty"`
 	SourceURI string      `json:"source_uri"`
 	Base      lanceCommit `json:"base"`
 }
@@ -336,9 +341,7 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 	if err != nil && !nonGit {
 		return result, nil
 	}
-	if !nonGit && snapshot.Branch == "" {
-		return result, nil
-	}
+	version := projectversion.Current(projectDir)
 	lock, err := LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
 	if err != nil {
 		return result, nil
@@ -365,13 +368,23 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 	if err != nil {
 		return result, fmt.Errorf("list published project artifacts for hydration: %w", err)
 	}
+	// Hydration writes into the store of this checkout's version; a version that
+	// has none yet starts from the default version's before its base is selected.
+	astDir, err := store.EnsureASTProjectDir(projectDir)
+	if err != nil {
+		return result, err
+	}
+	wikiDir, err := store.EnsureKnowledgeProjectDir(projectDir)
+	if err != nil {
+		return result, err
+	}
 	targets := []struct {
 		artType      ArtifactType
 		path         string
 		lifecycleDir string
 	}{
-		{TypeAST, filepath.Join(store.ASTProjectDir(projectDir), ast.SearchBundleDir), store.ASTProjectDir(projectDir)},
-		{TypeKnowledge, wiki.WikiIndexPath(store.KnowledgeProjectDir(projectDir)), store.KnowledgeProjectDir(projectDir)},
+		{TypeAST, filepath.Join(astDir, ast.SearchBundleDir), astDir},
+		{TypeKnowledge, wiki.WikiIndexPath(wikiDir), wikiDir},
 	}
 	for _, target := range targets {
 		requested := false
@@ -384,13 +397,19 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 		if !requested {
 			continue
 		}
-		branchVersion := snapshot.BranchVersion()
+		branchVersion := "branch/" + version.Version
 		var entryID string
 		var entryErr error
 		if nonGit {
 			entryID, branchVersion, entryErr = selectNonGitLatestEntry(entries, lock.Project.ID, target.artType)
 		} else {
 			entryID, entryErr = selectHydrationEntry(entries, lock, target.artType, branchVersion)
+			if entryErr == nil && entryID == "" && !version.IsDefault() {
+				// A version without a publication of its own starts from the default
+				// version's: its nearest published ancestor is on that lineage.
+				branchVersion = "branch/" + version.Default
+				entryID, entryErr = selectHydrationEntry(entries, lock, target.artType, branchVersion)
+			}
 		}
 		if entryErr != nil {
 			return result, entryErr
@@ -427,9 +446,16 @@ func hydrateProjectLanceTypes(ctx context.Context, projectDir string, projectCfg
 				return result, fmt.Errorf("select %s base for %s: %w", branchVersion, target.artType, selectErr)
 			}
 		}
-		selected := localLanceBase{EntryID: entryID, Branch: branchVersion,
+		selected := localLanceBase{EntryID: entryID, Branch: branchVersion, Version: version.Version,
 			SourceURI: s3.ArtifactURIFor(lockedCtx, target.artType, entryID, branchVersion, lock.Project.ID, publishedLanceStorePart(target.artType)), Base: base}
-		if !sameLocalLanceBase(target.path, selected) {
+		if sameLocalLanceBase(target.path, selected) {
+			// A store forked from the default version carries its marker; claim it
+			// for this version so the AST pipeline keeps reconciling from the base.
+			if err := claimLocalLanceBase(target.path, version.Version); err != nil {
+				lifecycleLock.Release()
+				return result, err
+			}
+		} else {
 			if err := hydrateLanceStore(lockedCtx, s3, branchVersion, target.path, base, selected); err != nil {
 				lifecycleLock.Release()
 				return result, err
@@ -549,6 +575,32 @@ func sameLocalLanceBase(path string, selected localLanceBase) bool {
 	return current.EntryID == selected.EntryID && current.Branch == selected.Branch && current.SourceURI == selected.SourceURI &&
 		current.Base.Commit == selected.Base.Commit && current.Base.Fingerprint == selected.Base.Fingerprint &&
 		reflect.DeepEqual(current.Base.Tables, selected.Base.Tables)
+}
+
+// claimLocalLanceBase records version as the owner of the base marker at path.
+func claimLocalLanceBase(path, version string) error {
+	markerPath := filepath.Join(path, localBaseFile)
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		return err
+	}
+	var marker localLanceBase
+	if err := json.Unmarshal(data, &marker); err != nil {
+		return err
+	}
+	if marker.Version == version {
+		return nil
+	}
+	marker.Version = version
+	updated, err := json.Marshal(marker)
+	if err != nil {
+		return err
+	}
+	tmp := markerPath + ".tmp"
+	if err := os.WriteFile(tmp, updated, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, markerPath)
 }
 
 func selectHydrationEntry(entries []*Entry, lock *Lockfile, artType ArtifactType, branchVersion string) (string, error) {

@@ -22,7 +22,7 @@ Task `get`, list/search/catalog and export preserve `session_id`; list/search ca
 
 ## Storage and relationships
 
-Sessions use the same authorized project LanceDB store and scheduler lease as tasks. Task-disabled projects also disable session tools and hooks. Existing project S3 authorization, bounded operation timeouts and strong read consistency apply.
+Sessions use the same authorized project LanceDB store, project-version branch and scheduler lease as tasks, so a session and its Tasks always belong to one [project version](project_identity.md#project-version). Task-disabled projects also disable session tools and hooks. Existing project S3 authorization, bounded operation timeouts and strong read consistency apply.
 
 | Table | Authority and queryable fields |
 |---|---|

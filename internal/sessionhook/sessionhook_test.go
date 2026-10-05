@@ -486,8 +486,9 @@ func TestLifecycleGapCompensationIsAdapterSpecific(t *testing.T) {
 		}
 		// The recurring payload carries the complete delegation boundary after
 		// compaction, including coordinator-only lifecycle and host fallback.
-		// The invariant now carries the persistent-hook gate across compaction.
-		if strings.Contains(invocation, `:1`) && len(payload) > 2600 {
+		// The invariant now carries the persistent-hook gate across compaction,
+		// and the project version project_dir selects.
+		if strings.Contains(invocation, `:1`) && len(payload) > 2650 {
 			t.Fatalf("repeated Antigravity compensation is too large: %d bytes", len(payload))
 		}
 	}

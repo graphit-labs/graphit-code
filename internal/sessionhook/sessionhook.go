@@ -47,6 +47,9 @@ type Context struct {
 	// the full protocol. Only the caller can know it, because the decision needs
 	// project state the renderer deliberately does not reach for.
 	BootstrapDelivered bool
+	// ProjectVersion is the version of the project whose stores this session reads and
+	// writes: the checked-out branch, or main outside Git. Empty when unknown.
+	ProjectVersion string
 }
 
 // Role is a delegated Graphit specialist. Modules select which mandate rules the
@@ -127,7 +130,7 @@ func (r Role) Uses(module string) bool {
 // compaction, for subagents, or at another model boundary. Procedures belong in
 // the just-in-time skills; this text only preserves routing and precedence.
 func CoreInvariant() string {
-	return "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents; `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. With Task enabled, resume durable session/task state; revise changed intent before acting; close delivered sessions explicitly. Never initiate or retry `git push` without an explicit engineer request for that push; commit, delivery and `pre-push` hooks do not authorize it. Install missing commands needed for delivery validation; keep one Windows/macOS/Linux invocation: project executables by project-relative path, others by system PATH name, never machine paths. A user-requested check or user-reported missing-validation error makes that project check necessary. Before commit/delivery put fast necessary checks in pre-commit, long checks in pre-push; verify hook activation. Manual runs are no gate; inactive hooks stay unresolved. New questions trigger needed Memory/Task recall; reuse evidence. `project_dir` is call-local; persist identity and relative paths, never checkout roots. Delegation: an applicable instruction that explicitly assigns bounded work to a delegated role authorizes and requires only that role/work (recall→scout, impact→tracker, transcription→scribe); otherwise no subagents. If the host cannot run it, the coordinator performs only that role. Acceptance, checkpoints, Task/session claims, revisions, completion and lifecycle stay with the coordinator. Persistence boundary: project records contain only non-sensitive, project-inherent facts, decisions and evidence. Never persist personal/sensitive data, secrets/credentials, security-risk material or transient feelings/speculation. Durable user-only preferences or corrections belong only in private user memory; otherwise do not persist them."
+	return "Graphit invariant: reapply module routing before every new/resumed action. Read matching skills before first use; reuse per target/overrides, reload on their change; reload after compaction if lost. Cluster neighbors remain Graphit-managed: use their returned `dir` as `project_dir` for target MCP reads, not native discovery. Use Graphit MCP before native equivalents; `ai_optimized: true` when supported. If a required tool is unavailable, use default native tools, never the Graphit CLI. With Task enabled, resume durable session/task state; revise changed intent before acting; close delivered sessions explicitly. Never initiate or retry `git push` without an explicit engineer request for that push; commit, delivery and `pre-push` hooks do not authorize it. Install missing commands needed for delivery validation; keep one Windows/macOS/Linux invocation: project executables by project-relative path, others by system PATH name, never machine paths. A user-requested check or user-reported missing-validation error makes that project check necessary. Before commit/delivery put fast necessary checks in pre-commit, long checks in pre-push; verify hook activation. Manual runs are no gate; inactive hooks stay unresolved. New questions trigger needed Memory/Task recall; reuse evidence. `project_dir` is call-local and selects its checked-out version unless `project_version` names another; persist identity and relative paths, never checkout roots. Delegation: an applicable instruction that explicitly assigns bounded work to a delegated role authorizes and requires only that role/work (recall→scout, impact→tracker, transcription→scribe); otherwise no subagents. If the host cannot run it, the coordinator performs only that role. Acceptance, checkpoints, Task/session claims, revisions, completion and lifecycle stay with the coordinator. Persistence boundary: project records contain only non-sensitive, project-inherent facts, decisions and evidence. Never persist personal/sensitive data, secrets/credentials, security-risk material or transient feelings/speculation. Durable user-only preferences or corrections belong only in private user memory; otherwise do not persist them."
 }
 
 func cursorLifecycleCompensation() string {
@@ -258,6 +261,9 @@ func protocolWithContext(context Context) string {
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, "Graphit session bootstrap:")
+	if version := strings.TrimSpace(context.ProjectVersion); version != "" {
+		lines = append(lines, "Project version `"+version+"`: this checkout's code graph, docs, memory and tasks belong to it. Pass `project_version` only to reach another version of the project.")
+	}
 	step := 1
 	appendStep := func(text string) {
 		lines = append(lines, fmt.Sprintf("%d. %s", step, text))

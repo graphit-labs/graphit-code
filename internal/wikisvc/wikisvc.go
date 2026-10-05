@@ -11,6 +11,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -118,7 +119,11 @@ func (s *WikiService) resolveEcosystemSource(projectID string) (wiki.WikiSource,
 		if p.ID != projectID {
 			continue
 		}
-		dir := store.KnowledgeProjectDirByID(p.ID)
+		// The wiki of the version checked out in that project's directory.
+		dir := store.KnowledgeProjectDir(p.Dir)
+		if dir == "" {
+			dir = store.VersionStoreDir(store.KnowledgeProjectDirByID(p.ID), projectversion.Current(p.Dir).Version)
+		}
 		if _, err := os.Stat(dir); err != nil {
 			return wiki.WikiSource{}, fmt.Errorf("wiki not found for project %s at %s", projectID, dir)
 		}

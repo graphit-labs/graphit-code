@@ -34,9 +34,41 @@ func NewHookManager(projectDir string) *HookManager {
 	}
 	return &HookManager{
 		projectDir: projectDir,
-		hooksDir:   filepath.Join(projectDir, ".git", "hooks"),
+		hooksDir:   filepath.Join(commonGitDir(projectDir), "hooks"),
 		gitBinary:  "git",
 	}
+}
+
+// commonGitDir is the directory holding the hooks every worktree of the repository
+// runs. In a linked worktree (or a submodule) `.git` is a file pointing at the
+// worktree's own git directory, whose `commondir` names the shared one.
+func commonGitDir(projectDir string) string {
+	dotGit := filepath.Join(projectDir, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil || info.IsDir() {
+		return dotGit
+	}
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return dotGit
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return dotGit
+	}
+	gitDir = strings.TrimSpace(gitDir)
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(projectDir, gitDir)
+	}
+	common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return filepath.Clean(gitDir)
+	}
+	dir := strings.TrimSpace(string(common))
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(gitDir, dir)
+	}
+	return filepath.Clean(dir)
 }
 
 var gitVersionPattern = regexp.MustCompile(`^git version (\d+)\.(\d+)(\.|$)`)
@@ -130,13 +162,13 @@ func (h *HookManager) installConfigured(event string) error {
 }
 
 func (h *HookManager) installLegacy(event string) error {
-	dotGit := filepath.Join(h.projectDir, ".git")
-	info, err := os.Stat(dotGit)
+	gitDir := filepath.Dir(h.hooksDir)
+	info, err := os.Stat(gitDir)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", dotGit, err)
+		return fmt.Errorf("open %s: %w", gitDir, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", dotGit)
+		return fmt.Errorf("%s is not a directory", gitDir)
 	}
 	if err := os.MkdirAll(h.hooksDir, 0o755); err != nil {
 		return fmt.Errorf("create hooks directory: %w", err)

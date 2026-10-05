@@ -33,6 +33,13 @@ type Config struct {
 
 	Writable bool
 
+	// Branch scopes every table of the store to one native Lance branch; "" is the main
+	// lineage. A writable store creates a missing branch from the main lineage's latest
+	// version the first time a table is opened; a read-only store reads the main lineage
+	// until the branch exists. Branch names follow Lance's rule (see
+	// projectversion.LanceBranchName).
+	Branch string
+
 	// StrongReadConsistency makes every read refresh the table manifest first.
 	// Coordination data must enable it: a cached snapshot is acceptable for a
 	// search index, but never for deciding whether a shared lease is free.

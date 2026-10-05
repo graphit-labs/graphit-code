@@ -66,7 +66,7 @@ supplement authoritative pages read with `graphit_wiki_source`. If Task is disab
 continue Knowledge retrieval without inventing project task state.
 
 ```
-~/.graphit/wiki/knowledge/project/<project-id>/
+~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/
 └── index.lance/                  ← complete local knowledge wiki
 ```
 
@@ -189,7 +189,7 @@ project alias. Only without a local checkout, omit `project_dir` and use a resol
 
 | Value | Description | Storage Path |
 |-------|-------------|-------------|
-| `""` (default) | Local project wiki from `docs/` | `~/.graphit/wiki/knowledge/project/<project-id>/` |
+| `""` (default) | Local project wiki from `docs/` | `~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/` |
 | `"<resolved-alias>"` with `project_dir` | Project-installed Hub knowledge artifact | versioned `s3://` LanceDB mount |
 | `"<qualified-id>@<version>"` without `project_dir` | Globally installed artifact, no local checkout | versioned `s3://` LanceDB mount |
 
@@ -209,7 +209,7 @@ The wiki module searches Knowledge sources only and supports simultaneous multi-
 
 | Value | Description | Index Location |
 |-------|-------------|-----------------|
-| `["project"]` | Search the knowledge wiki | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` |
+| `["project"]` | Search the knowledge wiki | `~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/index.lance/` |
 
 **`hub_refs[]` — for `wiki_search` (hub artifacts)**
 
@@ -237,10 +237,10 @@ based on its scope:
 
 | Tool | Scope | Resolves To |
 |------|-------|------------|
-| `knowledge_search` | no context | `~/.graphit/wiki/knowledge/project/<project-id>/` |
+| `knowledge_search` | no context | `~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/` |
 | `knowledge_search` | `context: "X"` | versioned Hub `s3://…/index.lance` |
-| `wiki_search` | `wikis: ["project"]` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` |
-| `wiki_browse` | project/context | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` or a mounted Knowledge artifact |
+| `wiki_search` | `wikis: ["project"]` | `~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/index.lance/` |
+| `wiki_browse` | project/context | `~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/index.lance/` or a mounted Knowledge artifact |
 | `wiki_log` | project/context | the selected Knowledge `index.lance/` |
 | `wiki_xrefs` | project/context | the selected Knowledge `index.lance/` |
 | `memory_search` | `scope: "project"` | local table or `s3://.../v2/projects/<id>/memory/` |

@@ -38,7 +38,10 @@ func projectStoreID(t *testing.T, projectDir string) string {
 	return id
 }
 
+// knowledgeWikiDirFor is the wiki of the version checked out in projectDir — "main"
+// for these non-Git fixtures.
 func knowledgeWikiDirFor(t *testing.T, projectDir string) string {
 	t.Helper()
-	return store.KnowledgeProjectDirByID(projectStoreID(t, projectDir))
+	projectStoreID(t, projectDir)
+	return store.KnowledgeProjectDir(projectDir)
 }

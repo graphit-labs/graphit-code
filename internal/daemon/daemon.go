@@ -14,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 )
 
 var ErrReplace = errors.New("daemon: replacement required")
@@ -203,9 +204,11 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// Supervision is per checkout, not per project: every worktree of a repository
+	// shares the lockfile ULID but holds its own branch, and so its own stores.
 	discovered := make(map[string]ProjectInfo, len(projects))
 	for _, p := range projects {
-		discovered[p.ID] = p
+		discovered[supervisionKey(p)] = p
 	}
 
 	for id, sup := range d.supervisors {
@@ -274,7 +277,7 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 			continue
 		}
 
-		sup := newProjectSupervisor(id, proj.Dir, modules)
+		sup := newProjectSupervisor(proj.ID, proj.Dir, modules)
 		for _, mod := range modules {
 			if ar, ok := mod.(ActivityReporter); ok {
 				ar.SetActivityCallback(sup.Touch)
@@ -292,6 +295,19 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 
 		d.log("[%s] supervisor launched with %d module(s)", id, len(modules))
 	}
+}
+
+// supervisionKey identifies one supervised checkout: the project, the directory it is
+// checked out in, and the project version checked out there. A branch switch changes
+// the key, so the next reconciliation replaces the supervisor: the new one resolves the
+// new version's stores and its watcher start runs a full sync, which creates that
+// version from the default version and indexes what differs.
+func supervisionKey(p ProjectInfo) string {
+	dir := p.Dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return p.ID + "@" + dir + "#" + projectversion.Current(dir).Version
 }
 
 // projectRecentlyActive includes directory mtimes so deleting the last changed

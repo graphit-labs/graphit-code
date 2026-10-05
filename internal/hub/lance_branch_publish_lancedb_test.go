@@ -4,6 +4,8 @@ package hub
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	gitstate "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
 	"github.com/graphit-labs/graphit-code/internal/testsupport"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -169,5 +172,45 @@ func TestPublishBranchLanceRecordsCommitTagsInOneBranchLineage(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Row["value"] != "two" {
 		t.Fatalf("published rows = %#v", rows)
+	}
+}
+
+// A branch publication reads the local stores of the pinned project version, so a
+// version other than the checked-out branch must not be published as that branch.
+func TestPublishingABranchRefusesAnotherVersionsStores(t *testing.T) {
+	ctx := trustedHubContext(t)
+	_, endpoint := testsupport.StartFakeS3(t, "graphit-hub")
+	cfg := config.S3Config{Bucket: "graphit-hub", Region: "us-east-1", Endpoint: endpoint,
+		AccessKeyID: "test-key", SecretAccessKey: "test-secret"}
+	objects, err := s3store.New(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := &S3Store{objects: objects, cfg: cfg, cacheBase: t.TempDir()}
+	manager := &RegistryManager{store: remote, baseCtx: ctx,
+		entries: make(map[ArtifactType]map[string]*Entry), projects: make(map[string]*Project)}
+	allowProjects(t, ctx, remote, hubaccess.Selector{All: true})
+	if _, err := manager.UpsertProject(ctx, testProjectOne, "knowledge-project", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHydrationFixture(t, project)
+	runHydrationGit(t, project, "init", "-b", "main")
+	runHydrationGit(t, project, "add", ".")
+	runHydrationGit(t, project, "-c", "user.name=Graphit Test", "-c", "user.email=test@example.invalid", "commit", "-m", "base")
+
+	release, err := projectversion.Acquire(project, "feature/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	err = manager.PublishEntryFromProject(ctx, "knowledge", t.TempDir(), project,
+		&Entry{Type: TypeKnowledge, ProjectID: testProjectOne}, "branch/main")
+	if err == nil || !strings.Contains(err.Error(), `stores of project version "feature/x"`) {
+		t.Fatalf("publishing branch/main from version feature/x = %v", err)
 	}
 }

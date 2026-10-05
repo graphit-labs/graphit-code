@@ -18,21 +18,23 @@ import (
 )
 
 type memoryInsertInput struct {
-	References  *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
-	ProjectDir  string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Title       string           `json:"title" jsonschema:"Memory title (required)"`
-	Content     string           `json:"content" jsonschema:"Detailed memory content (required)"`
-	Type        string           `json:"type,omitempty" jsonschema:"Memory type: convention or correction or decision or tension or fact or skill"`
-	Scope       string           `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	LinkProject bool             `json:"link_project,omitempty" jsonschema:"Link user memory to project identity"`
-	Important   bool             `json:"important,omitempty" jsonschema:"Mark as important"`
-	Mandatory   bool             `json:"mandatory,omitempty" jsonschema:"Mark as mandatory; mandatory memories are loaded unconditionally at session start"`
-	Tags        string           `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
+	References     *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
+	ProjectDir     string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Title          string           `json:"title" jsonschema:"Memory title (required)"`
+	Content        string           `json:"content" jsonschema:"Detailed memory content (required)"`
+	Type           string           `json:"type,omitempty" jsonschema:"Memory type: convention or correction or decision or tension or fact or skill"`
+	Scope          string           `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	LinkProject    bool             `json:"link_project,omitempty" jsonschema:"Link user memory to project identity"`
+	Important      bool             `json:"important,omitempty" jsonschema:"Mark as important"`
+	Mandatory      bool             `json:"mandatory,omitempty" jsonschema:"Mark as mandatory; mandatory memories are loaded unconditionally at session start"`
+	Tags           string           `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
 }
 
 type memoryUpdateInput struct {
 	References          *[]relations.Ref `json:"references,omitempty" jsonschema:"Explicit typed relationships. Send the complete list when referencing records; omit to preserve existing links, send [] to clear. Each target requires type and id; qualify cross-scope targets."`
 	ProjectDir          string           `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion      string           `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID                  string           `json:"id" jsonschema:"Memory ID to update (required)"`
 	Content             string           `json:"content,omitempty" jsonschema:"New content"`
 	Title               string           `json:"title,omitempty" jsonschema:"New title"`
@@ -43,6 +45,7 @@ type memoryUpdateInput struct {
 
 type memoryDeleteInput struct {
 	ProjectDir          string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion      string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID                  string `json:"id" jsonschema:"Memory ID to delete (required)"`
 	Scope               string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	ExpectedRevision    *int   `json:"expected_revision,omitempty" jsonschema:"Only delete when the live memory still has this revision"`
@@ -50,13 +53,15 @@ type memoryDeleteInput struct {
 }
 
 type memoryListInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Scope          string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memorySearchInput struct {
 	ProjectDir       string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion   string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	Query            string `json:"query" jsonschema:"Keywords to search for directly in the authoritative memory table using BM25"`
 	Scope            string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	TopK             int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
@@ -68,36 +73,40 @@ type memorySearchInput struct {
 }
 
 type memoryImportantInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Scope          string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memorySourceInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID          string `json:"id" jsonschema:"Memory ID or id/revision-id returned by memory_search"`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	Head        int    `json:"head,omitempty"`
-	Tail        int    `json:"tail,omitempty"`
-	StartLine   int    `json:"start_line,omitempty"`
-	EndLine     int    `json:"end_line,omitempty"`
-	Pattern     string `json:"pattern,omitempty"`
-	IsRegex     bool   `json:"regex,omitempty"`
-	Before      int    `json:"before,omitempty"`
-	After       int    `json:"after,omitempty"`
-	LineNumbers bool   `json:"line_numbers,omitempty"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Memory ID or id/revision-id returned by memory_search"`
+	Scope          string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	Head           int    `json:"head,omitempty"`
+	Tail           int    `json:"tail,omitempty"`
+	StartLine      int    `json:"start_line,omitempty"`
+	EndLine        int    `json:"end_line,omitempty"`
+	Pattern        string `json:"pattern,omitempty"`
+	IsRegex        bool   `json:"regex,omitempty"`
+	Before         int    `json:"before,omitempty"`
+	After          int    `json:"after,omitempty"`
+	LineNumbers    bool   `json:"line_numbers,omitempty"`
 }
 
 type memoryMandatoryInput = memoryImportantInput
 
 type memoryMandatoryChangeInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	ID         string `json:"id" jsonschema:"Memory ID (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	ID             string `json:"id" jsonschema:"Memory ID (required)"`
+	Scope          string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memoryPromoteInput struct {
 	ProjectDir          string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion      string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID                  string `json:"id" jsonschema:"Memory ID to promote (required)"`
 	Scope               string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	ExpectedRevision    *int   `json:"expected_revision,omitempty" jsonschema:"Only promote when the live memory still has this revision"`
@@ -106,6 +115,7 @@ type memoryPromoteInput struct {
 
 type memoryDemoteInput struct {
 	ProjectDir          string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion      string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
 	ID                  string `json:"id" jsonschema:"Memory ID to demote (required)"`
 	Scope               string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	ExpectedRevision    *int   `json:"expected_revision,omitempty" jsonschema:"Only demote when the live memory still has this revision"`
@@ -113,35 +123,40 @@ type memoryDemoteInput struct {
 }
 
 type memoryIndexInput struct {
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Scope          string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memorySchemaInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Scope          string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized    *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryQueryInput struct {
-	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Scope       string   `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	Filter      string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over the memory table's columns, for example \"mandatory = true\", \"type = 'lesson' AND superseded = false\" or \"updated_at > '2026-09-01'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row; memory_schema lists the columns. Note that a memory id repeats across its revisions: add superseded = false to count live records only."`
-	Columns     []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [id, title, type]. Omit for every compact column; body is excluded unless named, and the embedding vector is never returned as numbers."`
-	TopK        int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
-	PageSize    int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
-	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
-	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir     string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ProjectVersion string   `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Scope          string   `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	Filter         string   `json:"filter,omitempty" jsonschema:"Lance SQL predicate over the memory table's columns, for example \"mandatory = true\", \"type = 'lesson' AND superseded = false\" or \"updated_at > '2026-09-01'\". This is a WHERE clause only: there is no SELECT, JOIN, GROUP BY, aggregate or ORDER BY. Omit to match every row; memory_schema lists the columns. Note that a memory id repeats across its revisions: add superseded = false to count live records only."`
+	Columns        []string `json:"columns,omitempty" jsonschema:"Columns to return, for example [id, title, type]. Omit for every compact column; body is excluded unless named, and the embedding vector is never returned as numbers."`
+	TopK           int      `json:"top_k,omitempty" jsonschema:"Total row cap across pages (0 = no cap)"`
+	PageSize       int      `json:"page_size,omitempty" jsonschema:"Rows per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor         string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
+	AiOptimized    *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryRemoveInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context" jsonschema:"Named context to remove (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context" jsonschema:"Named context to remove (required)"`
 }
 
 type memorySyncInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Context    string `json:"context" jsonschema:"Named context to sync (required)"`
+	ProjectDir     string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectVersion string `json:"project_version,omitempty" jsonschema:"Project version: the Git branch whose stores to use. Omit to use the branch checked out in project_dir, or main when it is not a Git repository"`
+	Context        string `json:"context" jsonschema:"Named context to sync (required)"`
 }
 
 func registerMemoryTools(server *mcp.Server) {

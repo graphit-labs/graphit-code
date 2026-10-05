@@ -32,8 +32,8 @@ On synchronization (`graphit sync`), the indexer pipeline scans the project's do
 The set of file extensions to index is configurable via `knowledge.extensions` (comma-separated, e.g., `md,yaml,json,proto`). By default, it indexes 16 extensions covering markdown, structured data, schema, and spec formats.
 
 It compiles these files into a wiki in the global brand directory —
-`~/.graphit/wiki/knowledge/project/<project-id>/` — which is the one place every wiki
-tool opens for that project. A versioned Hub knowledge artifact is mounted directly from its
+`~/.graphit/wiki/knowledge/project/<project-id>/versions/<version>/` — which is the one place every wiki
+tool opens for that project version (the checked-out branch, or `main` without Git). A versioned Hub knowledge artifact is mounted directly from its
 `s3://` prefix and is not downloaded or recompiled by the consumer. Nothing is written into the project; see
 [Storage Layout](../architecture/storage_layout.md):
 

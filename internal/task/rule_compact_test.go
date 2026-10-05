@@ -18,7 +18,8 @@ func TestTaskInstructionBudgets(t *testing.T) {
 		"mandate": {MandateTrigger(), 2350},
 		// Explicit typed references are a new required write contract. Retain the
 		// existing lifecycle guidance instead of trading it for this requirement.
-		"skill": {RuleContent(), 14300},
+		// +100: the project-version contract (stores follow the checked-out branch).
+		"skill": {RuleContent(), 14400},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if strings.TrimSpace(instruction.text) == "" {

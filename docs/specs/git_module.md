@@ -236,8 +236,11 @@ that the brand executable exists before invoking `<brand> _git-hook <event>` wit
 Git's arguments. This follows Git's
 [configured hook contract](https://git-scm.com/docs/git-hook/2.54.0).
 
-On older Git, `Install` injects a marked shell block into each selected literal
-project path `.git/hooks/<event>`. The block checks the Git version, confirms that the
+On older Git, `Install` injects a marked shell block into each selected
+`<git-common-dir>/hooks/<event>`: `.git/hooks` in a main checkout, or — from a linked worktree,
+whose `.git` is a `gitdir:` pointer file — the shared directory named by that git directory's
+`commondir`, which is the one every worktree runs. Configured hooks are repository-local
+configuration, so they are shared by every worktree as well. The block checks the Git version, confirms that the
 configured Graphit hook is absent, and checks the executable before invoking the
 same runner. After a Git upgrade, a successful configured registration removes the
 Graphit block from that event's old file. It deletes a file containing only the

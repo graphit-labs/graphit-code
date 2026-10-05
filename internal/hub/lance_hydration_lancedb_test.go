@@ -177,6 +177,49 @@ func TestGitCommitHydratesASTAndKnowledgeWithLocalOnlyOverlay(t *testing.T) {
 		assertHydrationRows(t, ctx, remote, path, map[string]string{"commit": snapshot.Commit, "local": "overlay"})
 	}
 
+	// A worktree on a branch with no publication of its own is another project
+	// version: it hydrates into its own store, starting from the default version's
+	// published branch, and never touches the default version's store.
+	feature := filepath.Join(t.TempDir(), "feature")
+	runHydrationGit(t, clone, "worktree", "add", "-q", "-b", "feature/x", feature)
+	if err := HydrateProjectLance(ctx, feature, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range targets {
+		featurePath := hydrationTargetPath(feature, target.artType)
+		mainPath := hydrationTargetPath(clone, target.artType)
+		if featurePath == mainPath {
+			t.Fatalf("%s: both versions hydrate %s", target.artType, featurePath)
+		}
+		var marker localLanceBase
+		data, err := os.ReadFile(filepath.Join(featurePath, localBaseFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &marker); err != nil {
+			t.Fatal(err)
+		}
+		if marker.Branch != "branch/main" || marker.Version != "feature/x" || marker.Base.Commit != snapshot.Commit {
+			t.Fatalf("%s feature base = %#v, want branch/main at %s owned by feature/x", target.artType, marker, snapshot.Commit)
+		}
+		local, err := lancestore.Open(ctx, remote.lanceConfig(featurePath, true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		table, err := local.OpenTable(ctx, "meta")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := table.Upsert(ctx, "key", []lancestore.Row{{"key": "feature", "value": "only"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := local.Close(); err != nil {
+			t.Fatal(err)
+		}
+		assertHydrationRows(t, ctx, remote, mainPath, map[string]string{"commit": snapshot.Commit, "local": "overlay"})
+		assertHydrationRows(t, ctx, remote, featurePath, map[string]string{"commit": snapshot.Commit, "local": "overlay", "feature": "only"})
+	}
+
 	// A later commit advances both remote branch heads. The next sync should
 	// replace the old base, after which checkout changes form a fresh local layer.
 	if err := os.WriteFile(filepath.Join(source, "example.go"), []byte("package example\nfunc Base() {}\nfunc Next() {}\n"), 0o644); err != nil {

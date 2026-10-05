@@ -29,6 +29,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/subagent"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
 	"github.com/graphit-labs/graphit-code/internal/tray"
@@ -757,6 +758,7 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 				agentsToSync = hub.FilterSupportedAgents(lf.Agents)
 			}
 
+			registerCheckout(wd, lf)
 			if err := runSyncPhase1(ctx, wd, agentsToSync, p); err != nil {
 				return err
 			}
@@ -779,6 +781,29 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 	cmd.Flags().Duration("debounce", 0,
 		"Skip the sync when one finished less than this ago (used by the git hooks)")
 	return cmd
+}
+
+// registerCheckout records this directory as an instance of its project. A linked
+// worktree arrives with the committed lockfile but was never initialised itself, and
+// without an instance the daemon would never supervise — and so never index — the
+// version checked out there.
+func registerCheckout(wd string, lf *hub.Lockfile) {
+	if lf == nil || lf.Project.ID == "" || store.IsEphemeralProject(wd) {
+		return
+	}
+	mgr, err := hub.NewGlobalLockManager()
+	if err != nil {
+		return
+	}
+	var opts []func(*hub.InstanceEntry)
+	if lf.Project.Name != "" {
+		opts = append(opts, hub.WithProjectName(lf.Project.Name))
+	}
+	if lf.Project.Description != "" {
+		opts = append(opts, hub.WithProjectDescription(lf.Project.Description))
+	}
+	opts = append(opts, hub.WithProjectCluster(lf.Project.Cluster))
+	_ = mgr.RegisterProject(lf.Project.ID, wd, opts...)
 }
 
 func syncStateFile(wd, name string) string {

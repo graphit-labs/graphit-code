@@ -32,6 +32,8 @@ type Store struct {
 	remote   bool
 	readOnly bool
 	options  map[string]string
+	// branch is the native Lance branch every table of this store is scoped to.
+	branch string
 
 	mu     sync.Mutex
 	tables map[string]*Table
@@ -90,6 +92,7 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 		remote:   cfg.IsRemote(),
 		readOnly: cfg.ReadOnly(),
 		options:  cfg.storageOptions(),
+		branch:   strings.TrimSpace(cfg.Branch),
 		tables:   map[string]*Table{},
 	}, nil
 }
@@ -142,6 +145,11 @@ func (s *Store) DropTable(ctx context.Context, name string) error {
 	if s.readOnly {
 		return ErrReadOnly
 	}
+	if s.branch != "" {
+		// A table's branches live inside its dataset: dropping it from one branch would
+		// drop the main lineage and every other branch with it.
+		return fmt.Errorf("lancestore: dropping %s from branch %q would drop every branch of it: %w", name, s.branch, ErrBranchScoped)
+	}
 	if err := s.conn.DropTable(ctx, name); err != nil && !isMissingTable(err) {
 		return fmt.Errorf("lancestore: dropping %s: %w", name, err)
 	}
@@ -174,6 +182,11 @@ func (s *Store) CreateTable(ctx context.Context, name string, schema Schema) (*T
 	if err != nil {
 		return nil, fmt.Errorf("lancestore: creating %s: %w", name, err)
 	}
+	if s.branch != "" {
+		// A table is created on the main lineage, empty; the branch is forked from it.
+		_ = tbl.Close()
+		return s.OpenTable(ctx, name)
+	}
 	return s.remember(name, tbl, schema), nil
 }
 
@@ -182,6 +195,9 @@ func (s *Store) CreateTable(ctx context.Context, name string, schema Schema) (*T
 func (s *Store) CloneTable(ctx context.Context, name, sourceURI string, opts CloneOptions) (*Table, error) {
 	if s.readOnly {
 		return nil, ErrReadOnly
+	}
+	if s.branch != "" {
+		return nil, fmt.Errorf("lancestore: cloning %s into branch %q: %w", name, s.branch, ErrNoBranches)
 	}
 	if err := cloneTableNative(s.uri, name, sourceURI, opts, s.options); err != nil {
 		return nil, fmt.Errorf("lancestore: cloning %s from %s: %w", name, sourceURI, err)
@@ -202,7 +218,7 @@ func (s *Store) OpenTable(ctx context.Context, name string) (*Table, error) {
 	}
 	s.mu.Unlock()
 
-	tbl, err := s.conn.OpenTable(ctx, name)
+	tbl, err := s.openNative(ctx, name)
 	if err != nil {
 		if isMissingTable(err) {
 			return nil, fmt.Errorf("lancestore: %q in %s: %w", name, s.uri, ErrNoSuchTable)
@@ -238,6 +254,96 @@ func (s *Store) EnsureTable(ctx context.Context, name string, schema Schema) (*T
 	}
 	return nil, createErr
 }
+
+// openNative opens name on this store's branch. The native library selects the branch
+// from a suffix no LanceDB table name can contain: `#fork=` checks the branch out or
+// creates it from the main lineage, `#branch=` only checks out an existing one.
+func (s *Store) openNative(ctx context.Context, name string) (contracts.ITable, error) {
+	if s.branch == "" {
+		return s.conn.OpenTable(ctx, name)
+	}
+	if s.readOnly {
+		tbl, err := s.conn.OpenTable(ctx, name+"#branch="+s.branch)
+		if err != nil && isMissingBranch(err) {
+			// The version has not written anything yet: it still reads as the main
+			// lineage it will fork from.
+			return s.conn.OpenTable(ctx, name)
+		}
+		return tbl, err
+	}
+	tbl, err := s.conn.OpenTable(ctx, name+"#fork="+s.branch)
+	if err == nil || isMissingTable(err) && !isMissingBranch(err) {
+		return tbl, err
+	}
+	// A create interrupted between its two phases leaves a branch dataset without
+	// branch metadata, which blocks every later create of that name. The native
+	// call already waited for a concurrent creator; still unlisted means a zombie.
+	branches, listErr := s.Branches(ctx, name)
+	if listErr != nil {
+		return nil, err
+	}
+	if _, exists := branches[s.branch]; exists {
+		return s.conn.OpenTable(ctx, name+"#branch="+s.branch)
+	}
+	if delErr := s.DeleteBranch(ctx, name, s.branch, true); delErr != nil {
+		return nil, fmt.Errorf("%w (removing an interrupted branch also failed: %w)", err, delErr)
+	}
+	return s.conn.OpenTable(ctx, name+"#fork="+s.branch)
+}
+
+func isMissingBranch(err error) bool {
+	return strings.Contains(strings.ToLower(err.Error()), "branch not found")
+}
+
+// tableURI is the dataset location of a table of this store.
+func (s *Store) tableURI(name string) (string, error) {
+	base := s.uri
+	if !s.remote {
+		resolved, err := localFileURI(s.uri)
+		if err != nil {
+			return "", err
+		}
+		base = resolved
+	}
+	return strings.TrimRight(base, "/") + "/" + name + ".lance", nil
+}
+
+// Branches lists the native Lance branches of table name.
+func (s *Store) Branches(ctx context.Context, name string) (map[string]BranchInfo, error) {
+	uri, err := s.tableURI(name)
+	if err != nil {
+		return nil, err
+	}
+	branches, err := listBranchesNative(uri, s.options)
+	if err != nil {
+		return nil, fmt.Errorf("lancestore: listing branches of %s: %w", name, err)
+	}
+	return branches, nil
+}
+
+// DeleteBranch removes a native Lance branch of table name. force also removes a branch
+// dataset left without metadata by an interrupted create.
+func (s *Store) DeleteBranch(ctx context.Context, name, branch string, force bool) error {
+	if s.readOnly {
+		return ErrReadOnly
+	}
+	uri, err := s.tableURI(name)
+	if err != nil {
+		return err
+	}
+	if err := deleteBranchNative(uri, branch, force, s.options); err != nil {
+		return fmt.Errorf("lancestore: deleting branch %q of %s: %w", branch, name, err)
+	}
+	s.mu.Lock()
+	if branch == s.branch {
+		delete(s.tables, name)
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+// Branch is the native Lance branch this store's tables are scoped to, "" for main.
+func (s *Store) Branch() string { return s.branch }
 
 func (s *Store) remember(name string, tbl contracts.ITable, schema Schema) *Table {
 	t := &Table{store: s, tbl: tbl, name: name, schema: schema}

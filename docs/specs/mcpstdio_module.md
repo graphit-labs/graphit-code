@@ -139,6 +139,16 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 - Restores the original working directory via `defer`.
 - Used by tools that need domain services to resolve relative paths from the project root.
 
+### `withProjectVersion` — the `project_version` argument
+- Every tool input that has `project_dir` also has an optional `project_version`. `addTool` wraps
+  every handler with `withProjectVersion`, which reads both arguments by reflection.
+- Without `project_version`, store resolvers answer the version checked out in `project_dir`: the
+  Git branch, or `main` without Git.
+- With it, `projectversion.Acquire(dir, version)` holds that directory for the call. Resolvers reached
+  during the call answer the named version, and concurrent calls for the same directory wait instead
+  of reading the wrong store. The override ends with the call.
+- `project_version` without `project_dir` is rejected.
+
 ### `openASTDB` / `openASTDBReadWrite`
 - Changes to the project directory.
 - Resolves the LadybugDB config (default or named context).
