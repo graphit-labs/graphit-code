@@ -84,6 +84,7 @@ func NewUnifiedServer(
 	NewMemoryHandler(defaultProjectDir).RegisterAPIRoutes(mux)
 	NewTaskHandler(defaultProjectDir).RegisterAPIRoutes(mux)
 	NewSessionHandler(defaultProjectDir).RegisterAPIRoutes(mux)
+	mux.HandleFunc("GET /api/project/versions", corsJSON(handleProjectVersions(defaultProjectDir)))
 
 	agentFeatures := config.AgentFeaturesEnabled(nil, projectCfg)
 	var liveHandler *LiveHandler

@@ -44,6 +44,7 @@ import {
   RecordLink,
 } from "@/components/shared/EngineeringUI";
 import { X } from "lucide-react";
+import { publishedForVersion } from "@/lib/projectVersion";
 function preprocessContent(raw: string, title: string, type?: string): string {
   const lines = raw.split("\n");
   let i = 0;
@@ -251,7 +252,7 @@ export default function WikiExplorerPage({
   const { moduleId } = useParams<{ moduleId?: string }>(),
     navigate = useNavigate(),
     location = useLocation();
-  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, activeAgent } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, activeAgent, activeProjectVersion } = useAppStore();
   const { key: projectKey, projectDir, projectId, remote } = projectRequestScope({
     activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
   });
@@ -381,7 +382,7 @@ export default function WikiExplorerPage({
       ? hubApi.getProjectContexts(projectId).then(response => {
           const entries = response.entries.filter(entry => entry.type === "knowledge" && entry.qualified_latest);
           setRemoteContexts(entries);
-          return entries.map(entry => remoteWikiModule(entry));
+          return entries.map(entry => remoteWikiModule(entry, publishedForVersion(entry, activeProjectVersion).context));
         })
       : fetchModules(projectDir);
     source
@@ -418,7 +419,7 @@ export default function WikiExplorerPage({
       pageRequest.current++;
       searchRequest.current++; searchAbort.current?.abort();
     };
-  }, [projectKey, projectDir, projectId, remote, activeAgent, moduleId, autoSelectProject, loadModule]);
+  }, [projectKey, projectDir, projectId, remote, activeAgent, moduleId, autoSelectProject, loadModule, activeProjectVersion]);
   const chooseModule = (m: WikiModule) => {
     void loadModule(m);
     navigate(
@@ -591,7 +592,7 @@ export default function WikiExplorerPage({
       ? (await hubApi.getProjectContexts(projectId)).entries
           .filter(entry => entry.type === "knowledge" && entry.qualified_latest)
           .map(entry => remoteWikiModule(entry, entry.id === selectedModule?.context.split("@")[0]
-            ? selectedModule.context : entry.qualified_latest))
+            ? selectedModule.context : publishedForVersion(entry, activeProjectVersion).context))
       : await fetchModules(projectDir);
     if (epoch !== generation.current || intent !== navigationRequest.current) return;
     setModules(list || []);
@@ -676,7 +677,7 @@ export default function WikiExplorerPage({
                 value={selectedRemoteContext?.id || ""}
                 onChange={(e) => {
                   const entry = remoteContexts.find(item => item.id === e.target.value);
-                  if (entry?.qualified_latest) chooseRemoteContext(entry, entry.qualified_latest);
+                  if (entry) chooseRemoteContext(entry, publishedForVersion(entry, activeProjectVersion).context);
                 }}
                 aria-label="Knowledge artifact"
               >
@@ -699,6 +700,8 @@ export default function WikiExplorerPage({
                   .map(version => <option key={version} value={`${selectedRemoteContextID}@${version}`}>{version}</option>)}
               </StyledSelect>
               {module?.context && <small>Reading exact context <code>{module.context}</code> from Hub</small>}
+              {module?.context && activeProjectVersion && selectedRemoteContext && !publishedForVersion(selectedRemoteContext, activeProjectVersion).matched &&
+                <small role="status">No documentation was published from branch <code>{activeProjectVersion}</code>; showing the latest instead.</small>}
             </label>
           </> : (!autoSelectProject || Boolean(moduleId)) && <label className="work-field">
             <span>Knowledge context</span>

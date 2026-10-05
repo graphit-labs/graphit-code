@@ -1,4 +1,5 @@
 import { postAgentStream, type StreamOptions } from "./agentStream";
+import { scopeToProjectVersion } from './client'
 
 
 const API = () => window.__API_BASE__ ?? ''
@@ -36,7 +37,7 @@ export async function fetchModules(projectDir?: string): Promise<WikiModule[]> {
   const params = new URLSearchParams()
   if (projectDir) params.set('project_dir', projectDir)
   const qs = params.toString()
-  const r = await fetch(`${API()}/api/wiki/modules${qs ? `?${qs}` : ''}`)
+  const r = await fetch(scopeToProjectVersion(`${API()}/api/wiki/modules${qs ? `?${qs}` : ''}`))
   if (!r.ok) throw new Error(`Knowledge request failed (HTTP ${r.status})`)
   return r.json()
 }

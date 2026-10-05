@@ -56,6 +56,7 @@ func (s *Store) DeleteBranch(_ context.Context, _, _ string, _ bool) error { ret
 
 func (t *Table) Close() error                                  { return nil }
 func (t *Table) Name() string                                  { return "" }
+func (t *Table) Inherited() bool                               { return false }
 func (t *Table) Schema() Schema                                { return Schema{} }
 func (t *Table) Count(_ context.Context) (int64, error)        { return 0, ErrNotBuilt }
 func (t *Table) Append(_ context.Context, _ []Row) error       { return ErrNotBuilt }

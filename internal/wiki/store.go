@@ -3,6 +3,7 @@ package wiki
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/graphit-labs/graphit-code/internal/relations"
 	"log/slog"
@@ -32,6 +33,10 @@ import (
 // the same reason the AST index dropped its separate vector table: an embedding that lives beside
 // its chunk cannot outlive it, so the failure where a stale vector answers for a page that no
 // longer exists stops being expressible rather than being defended against.
+
+// chunkEmbeddingDimensions sizes the chunks table's vector column; a variable so a test can
+// reproduce an embedding model whose width is momentarily unknown.
+var chunkEmbeddingDimensions = ai.ResolveConfiguredEmbeddingDimensions
 
 // WikiIndexDirName is the index directory inside a wiki.
 const WikiIndexDirName = "index.lance"
@@ -640,25 +645,39 @@ func (w *WikiDB) ensureTables(ctx context.Context) error {
 	// published wiki answered every query with "this store is read-only", which reads as a
 	// permission problem and is actually a code path problem. A mounted artifact's tables exist
 	// by definition: the publisher wrote them. They are OPENED.
+	dims := chunkEmbeddingDimensions()
 	if w.store.Remote() {
 		if err := w.openTables(ctx); err != nil {
 			return err
 		}
-		expected := lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())
-		if !w.chunks.Schema().Equal(expected) {
+		if dims > 0 && !w.chunks.Schema().Equal(lanceChunksSchema(dims)) {
 			return fmt.Errorf("published wiki has an incompatible chunks schema; republish it with the current build")
 		}
 		return nil
 	}
 	var err error
-	expected := lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())
-	if w.chunks == nil {
-		if w.chunks, err = w.store.EnsureTable(ctx, lanceChunksTable, expected); err != nil {
-			return err
+	if dims <= 0 {
+		// The embedding width is unknown — no model configured, or not reachable right now —
+		// so nothing about the stored schema can be judged: the pages are used as they are,
+		// never reset to a schema computed from a guess, and not created without a width.
+		if w.chunks == nil {
+			if w.chunks, err = w.store.OpenTable(ctx, lanceChunksTable); err != nil {
+				if errors.Is(err, lancestore.ErrNoSuchTable) {
+					return fmt.Errorf("the wiki cannot be created while the embedding model's dimensions are unavailable; configure or reach the embedding model first")
+				}
+				return err
+			}
 		}
-	}
-	if !w.chunks.Schema().Equal(expected) {
-		return w.resetTables(ctx, expected)
+	} else {
+		expected := lanceChunksSchema(dims)
+		if w.chunks == nil {
+			if w.chunks, err = w.store.EnsureTable(ctx, lanceChunksTable, expected); err != nil {
+				return err
+			}
+		}
+		if !w.chunks.Schema().Equal(expected) {
+			return w.resetTables(ctx, expected)
+		}
 	}
 	if w.xrefs == nil {
 		if w.xrefs, err = w.store.EnsureTable(ctx, lanceXRefsTable, lanceXRefsSchema()); err != nil {
@@ -1256,7 +1275,7 @@ func (w *WikiDB) setChunkVectorIfCurrent(ctx context.Context, expected chunkRow,
 	if err := w.ensureTables(ctx); err != nil {
 		return false, err
 	}
-	if want := ai.ResolveConfiguredEmbeddingDimensions(); len(vec) != want {
+	if want := chunkEmbeddingDimensions(); len(vec) != want {
 		return false, fmt.Errorf("wiki embedding for %s has %d dimensions, want %d", expected.Slug, len(vec), want)
 	}
 	hits, err := w.chunks.Search(ctx, lancestore.Query{
@@ -1301,7 +1320,7 @@ func (w *WikiDB) SetChunkVector(ctx context.Context, slug string, vec []float32)
 	if err := w.ensureTables(ctx); err != nil {
 		return err
 	}
-	if want := ai.ResolveConfiguredEmbeddingDimensions(); len(vec) != want {
+	if want := chunkEmbeddingDimensions(); len(vec) != want {
 		return fmt.Errorf("wiki embedding for %s has %d dimensions, want %d",
 			slug, len(vec), want)
 	}

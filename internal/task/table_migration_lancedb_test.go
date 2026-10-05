@@ -5,11 +5,14 @@ package task
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // schemaWithout stands in for a store written before a column existed.
@@ -367,5 +370,55 @@ func TestSchemaMigrationRefusesToDropProjectVersionBranches(t *testing.T) {
 	}
 	if len(rows) != len(seeded) || !tbl.Schema().Equal(legacy) {
 		t.Fatalf("the refused migration changed the default version: %d row(s), schema %#v", len(rows), tbl.Schema())
+	}
+}
+
+// The migration recreates the table, so its rows must outlive the process: they are
+// written to a snapshot before the drop, and a migration interrupted after the drop is
+// completed from that snapshot on the next open instead of leaving the store empty.
+func TestAnInterruptedMigrationIsCompletedFromItsSnapshot(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	legacy, seeded := legacyTaskRows()
+	writeTasksTable(t, dir, legacy, seeded)
+
+	tables, err := openTables(ctx, dir, config.S3Config{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables.close()
+	backups := lancestore.RebuildBackupDir(store.Root(), dir)
+	done, _ := filepath.Glob(filepath.Join(backups, tasksTableName+"-*.done.json"))
+	if len(done) != 1 {
+		t.Fatalf("the migration kept %d snapshot(s) of the tasks table, want 1", len(done))
+	}
+
+	// Reproduce a crash right after the drop: the table is gone, its snapshot pending.
+	if err := os.Rename(done[0], strings.TrimSuffix(done[0], ".done.json")+".pending.json"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := lancestore.Open(ctx, lancestore.Config{URI: dir, Writable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DropTable(ctx, tasksTableName); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	tables, err = openTables(ctx, dir, config.S3Config{}, "")
+	if err != nil {
+		t.Fatalf("reopening after an interrupted migration: %v", err)
+	}
+	defer tables.close()
+	got, err := tables.tasks.Rows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := rowsByID(t, got); len(ids) != len(seeded) || ids["tsk-1111"] == nil || ids["tsk-2222"] == nil {
+		t.Fatalf("the interrupted migration was not completed: %d row(s)", len(got))
+	}
+	if pending, _ := filepath.Glob(filepath.Join(backups, "*.pending.json")); len(pending) != 0 {
+		t.Fatalf("the completed migration left pending snapshots: %v", pending)
 	}
 }

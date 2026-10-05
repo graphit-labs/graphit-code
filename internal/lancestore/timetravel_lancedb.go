@@ -84,8 +84,8 @@ func (t *Table) CheckoutLatest(ctx context.Context) error {
 }
 
 func (t *Table) RestoreVersion(ctx context.Context, version uint64) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	tt, err := t.timeTravel()
 	if err != nil {
@@ -106,8 +106,8 @@ func (t *Table) RestoreVersion(ctx context.Context, version uint64) error {
 
 // PutTag creates tag or moves it to version when it already exists.
 func (t *Table) PutTag(ctx context.Context, tag string, version uint64) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	tt, err := t.timeTravel()
 	if err != nil {

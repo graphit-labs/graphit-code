@@ -1238,6 +1238,13 @@ A repair reports itself rather than hiding inside the up-to-date message:
 This is also the cheap way to ask for either rebuild by hand: delete the graph or the index, keep
 the shards, and the next `ast index` replays them.
 
+A full rebuild of the search index drops its tables before creating them again, so it first checks
+that the new schema can be created: while the embedding width cannot be resolved (no model
+configured, or the model or broker not reachable) the rebuild fails before the drop and the
+existing index keeps answering. For the same reason the per-file embedding cache
+(`shards/<relPath>.emb.zst`) is neither loaded, pruned as stale nor written while the width is
+unknown; it is judged again once the width resolves.
+
 ### Performance Characteristics
 
 | Metric | Full Index | Incremental Index |

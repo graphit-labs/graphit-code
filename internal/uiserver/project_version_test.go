@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
@@ -165,5 +166,54 @@ func TestGlobalASTPOSTScopeMatchesJSONAliases(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || called {
 			t.Error("alias conflict bypassed validation")
 		}
+	}
+}
+
+// A Hub project has no checkout here: a request naming it by ID and a version is scoped
+// to that version by ID, and the scope ends with the request.
+func TestHubProjectRequestsAreScopedToTheSelectedVersion(t *testing.T) {
+	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	var seen string
+	h := withProjectVersion(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = projectversion.RemoteVersion(id)
+	}), "")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks?project_id="+id+"&project_version="+url.QueryEscape("feature/r"), nil))
+	if rec.Code != http.StatusOK || seen != "feature/r" || rec.Header().Get(ProjectVersionHeader) != "feature/r" {
+		t.Fatalf("status %d, scoped version %q, header %q", rec.Code, seen, rec.Header().Get(ProjectVersionHeader))
+	}
+	if got := projectversion.RemoteVersion(id); got != "" {
+		t.Fatalf("the scope outlived the request: %q", got)
+	}
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/tasks?project_id="+id, nil))
+	if seen != "" {
+		t.Fatalf("a request without a version selected %q, want the default version", seen)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tasks?project_id=not-a-ulid&project_version=x", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("an invalid project_id was accepted: %d", rec.Code)
+	}
+}
+
+func TestWritesToAVersionWithoutSharedDataAreConflicts(t *testing.T) {
+	notShared := "creating task: " + lancestore.ErrVersionNotShared.Error()
+	for _, c := range []struct {
+		status  int
+		message string
+		want    int
+	}{
+		{http.StatusInternalServerError, notShared, http.StatusConflict},
+		{http.StatusInternalServerError, "disk full", http.StatusInternalServerError},
+		{http.StatusBadRequest, notShared, http.StatusBadRequest},
+	} {
+		if got := versionAwareStatus(c.status, c.message); got != c.want {
+			t.Errorf("versionAwareStatus(%d, %q) = %d, want %d", c.status, c.message, got, c.want)
+		}
+	}
+	rec := httptest.NewRecorder()
+	writeTaskError(rec, http.StatusInternalServerError, notShared)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("writeTaskError status = %d", rec.Code)
 	}
 }

@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, scopeToProjectVersion } from './client'
 
 export interface RegistryEntry {
   id: string
@@ -198,7 +198,7 @@ export const hubApi = {
   upload: (formData: FormData) => {
     const base = window.__API_BASE__ ?? ''
     const fullBase = base.endsWith('/api') ? base : `${base}/api`
-    return fetch(`${fullBase}/upload`, {
+    return fetch(scopeToProjectVersion(`${fullBase}/upload`, formData), {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'X-Graphit-Request': 'ui' },

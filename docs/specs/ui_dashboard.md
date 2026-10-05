@@ -66,7 +66,7 @@ the common header displays the origin clearly enough for a user to verify it bef
 data. A temporarily unavailable Hub catalogue retains the selected Hub target as stale; it never
 falls back to a previous local directory.
 
-`AppShell` mounts one `WorkspaceSelectors` group in the right side of its header on every route, including all explorers. It is the only place that changes global project and agent selection. Sidebar, mobile navigation and page toolbars do not repeat these controls or a separate selected-project badge. Each themed dropdown has a persistent label, selected checkmark and keyboard/type-ahead support; switching one leaves the other unchanged. The selectors write the existing app store and retain its browser persistence.
+`AppShell` mounts one `WorkspaceSelectors` group in the right side of its header on every route, including all explorers. It is the only place that changes global project, project version and agent selection. Sidebar, mobile navigation and page toolbars do not repeat these controls or a separate selected-project badge. Each themed dropdown has a persistent label, selected checkmark and keyboard/type-ahead support; switching one leaves the other unchanged. The selectors write the existing app store and retain its browser persistence.
 
 Controls remain visible while loading or empty, with descriptive disabled options. The Project menu
 groups Workspace and **Hub · remote** targets. Workspace options expose their directory; Hub options
@@ -76,8 +76,40 @@ catalogues, open details and runtime data. It stays busy until all finish, preve
 activation and reports errors. Refresh never reloads the document, resets drafts or executes an
 unreviewed AI query. Duplicate project names remain distinct by origin and directory or project ID.
 Missing selections are explicitly marked unavailable rather than displaying an unrelated first
-option. On narrow screens the same two selectors stay in the header; the breadcrumb and Source link
+option. On narrow screens the same selectors stay in the header; the breadcrumb and Source link
 yield space before the context controls do.
+
+### Project version
+
+Every store of a project is kept per [project version](project_identity.md#project-version): its Git
+branch, or `main` without Git. The **Version** menu, between Project and Agent, selects which one the
+UI reads and writes. It lists what `GET /api/project/versions` derives on the fly from the stores
+themselves — nothing records versions separately:
+
+| Project | Versions listed |
+|---|---|
+| Workspace | the default and current branch; the branch each worktree has checked out (group **Checked out**); every other version with data — native Lance branches of its Task, Memory and Dream tables and local AST/Knowledge layers (group **Other versions with data**) |
+| Hub | **Default version**, the project's main line, plus every native Lance branch of its Task and Memory tables (**Shared versions**) |
+
+Each option carries one sentence: default branch, where it is checked out, which data it has
+(code index, docs, tasks, memory, Dream runs), and whether the branch no longer exists in Git. The
+menu shows loading, a disabled "Select a project" without a project, and keeps the selection with an
+explanation when listing fails.
+
+The selection is remembered per project target. "" — the default — follows the version checked out
+in the selected directory (for a Hub project, its default version). The API client adds
+`project_version` to every request that names the active project by `project_dir` or `project_id`
+in its query, JSON body or upload form, copying a body-only address to the query so the server
+selects the version before the handler runs; streams, raw fetches and uploads included. Requests
+about another project are untouched. Changing the version remounts the routed pages, so every page
+reloads with that version's data. For a Hub project, AST and Knowledge read the artifact published
+from the branch (`branch/<version>`) when there is one and otherwise the latest, saying so.
+
+A Hub project has no checkout to tell its default version's name from a new version, so Task and
+Memory writes by `project_id` use a version's branch only when that version is confirmed real — it
+already has a Lance branch in the project's Task or Memory store. A version with no branch anywhere
+reads the main lineage and its writes are refused with `409`; writing from a checkout of the
+version creates it.
 
 Page-specific context choices (indexed AST/Knowledge source, Memory scope, publisher filters or a Live run configuration) remain in the relevant page. These describe the work being inspected or executed, not a second global project/agent selector. Project metadata in a dossier remains appropriate when it adds information beyond the selected name.
 
@@ -167,8 +199,10 @@ Create/edit uses a focused modal: content and title are primary, while classific
 The Memory API consists of `GET /api/memories`, `POST /api/memories`,
 `GET /api/memories/{id}`, `PATCH /api/memories/{id}`, and
 `DELETE /api/memories/{id}?confirm=true`. Each request accepts exactly one project address:
-`project_dir` for a workspace checkout or immutable `project_id` for a Hub project, plus `scope` as
-appropriate. The addresses are mutually exclusive. Project memory follows the selected project;
+`project_dir` for a workspace checkout or immutable `project_id` for a Hub project, plus `scope` and
+an optional `project_version` as appropriate. The addresses are mutually exclusive. Project memory
+follows the selected project and version — bound to the requested checkout, never to the server's
+own working directory;
 user memory remains the authenticated user's private scope. `GET /api/memories/scopes` reports the
 directly addressable scopes.
 

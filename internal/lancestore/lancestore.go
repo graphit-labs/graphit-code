@@ -39,6 +39,11 @@ var ErrNotBuilt = errors.New("lancestore: built without the lancedb tag — run 
 // through a mounted context would mutate shared registry state without publication fencing.
 var ErrReadOnly = errors.New("lancestore: this store is a published version and is read-only")
 
+// ErrVersionNotShared is returned by a write to a table of a NoFork store whose project
+// version has no branch in that table yet. Writing from a checkout of the version
+// creates it.
+var ErrVersionNotShared = errors.New("lancestore: this project version has no shared data in this table yet; write from a checkout of the version first")
+
 // ErrNoSuchTable is returned when a table does not exist.
 var ErrNoSuchTable = errors.New("lancestore: no such table")
 

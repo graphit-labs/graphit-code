@@ -94,13 +94,20 @@ func OpenProject(ctx context.Context, projectID string) (*Service, error) {
 }
 
 // branch is the native Lance branch of the project version checked out in the
-// service's project directory. A service opened by project ID alone has no checkout and
-// uses the main lineage, which is the project's default version.
+// service's project directory. A service opened by project ID alone has no checkout: it
+// uses the version the running call selected for that project (projectversion.
+// AcquireRemote), and the main lineage — the project's default version — otherwise.
 func (s *Service) branch() string {
 	if s.projectDir == "" {
-		return ""
+		return projectversion.RemoteLanceBranch(s.projectID)
 	}
 	return projectversion.Current(s.projectDir).LanceBranch()
+}
+
+// noFork reports whether the Task store must not create the branch of the selected
+// version: a project opened by ID alone may only when the version is confirmed real.
+func (s *Service) noFork() bool {
+	return s.projectDir == "" && !projectversion.RemoteForkable(s.projectID)
 }
 
 func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error {
@@ -116,7 +123,7 @@ func (s *Service) withTables(ctx context.Context, fn func(*tables) error) error 
 	if err := s.authorizeRemote(ctx, projectID); err != nil {
 		return err
 	}
-	t, err := openTables(ctx, uri, s.s3, s.branch())
+	t, err := openTablesScoped(ctx, uri, s.s3, s.branch(), s.noFork())
 	if err != nil {
 		return taskStorageError(ctx, err)
 	}
@@ -149,7 +156,7 @@ func (s *Service) withLockTimeout(ctx context.Context, actor string, reconcile b
 	if strings.TrimSpace(actor) == "" {
 		actor = "system"
 	}
-	t, err := openTables(ctx, uri, s.s3, s.branch())
+	t, err := openTablesScoped(ctx, uri, s.s3, s.branch(), s.noFork())
 	if err != nil {
 		return taskStorageError(ctx, err)
 	}

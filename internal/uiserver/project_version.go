@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/projectversion"
 )
 
@@ -34,7 +35,24 @@ func withProjectVersion(next http.Handler, defaultProjectDir string) http.Handle
 		query := r.URL.Query()
 		version := strings.TrimSpace(query.Get("project_version"))
 		dir := strings.TrimSpace(query.Get("project_dir"))
-		if dir == "" && query.Get("project_id") == "" {
+		if projectID := strings.TrimSpace(query.Get("project_id")); dir == "" && projectID != "" {
+			// A Hub project has no checkout here: scope its stores to the version by ID.
+			if err := hubaccess.ValidateProjectID(projectID); err != nil {
+				http.Error(w, "invalid project_id: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			confirmed := version != "" && remoteVersionConfirmed(r.Context(), projectID, version)
+			release, err := projectversion.AcquireRemote(r.Context(), projectID, version, confirmed)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			defer release()
+			w.Header().Set(ProjectVersionHeader, version)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if dir == "" {
 			dir = strings.TrimSpace(defaultProjectDir)
 		}
 		if dir == "" || brand.IsGlobalDir(dir) {

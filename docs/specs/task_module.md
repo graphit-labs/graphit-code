@@ -38,7 +38,10 @@ above. The default version is the main lineage, so a store written before versio
 version. Another version inherits the main lineage when it first writes and diverges afterwards.
 Nothing merges back. The additive schema migration below recreates a table, and recreating it
 would delete every branch, so the migration is refused from a version and refused from the default
-version while the table has branches (`lancestore.ErrBranchScoped`).
+version while the table has branches (`lancestore.ErrBranchScoped`). The rows of a migrated table
+are snapshotted under `backups/lance-rebuild/` in the global directory before it is recreated, and
+a migration interrupted after the drop is completed from that snapshot the next time the store is
+opened (see [Storage Layout](../architecture/storage_layout.md#rebuilding-a-table-for-a-new-schema)).
 
 The enclosing project ULID is the Task authorization unit. A trusted subject must retain project
 access for every remote search, read, claim, mutation, and export; knowing a Task or project ID is

@@ -1,6 +1,6 @@
 import "@/test/contextControls"
 import { WorkspaceRefreshProvider } from "./WorkspaceRefresh"
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,10 @@ import { AppShell } from './AppShell'
 import { WorkspaceSelectors } from './WorkspaceSelectors'
 import WorkspacePage from '../system/WorkspacePage'
 
+vi.mock('@/api/projectVersions', () => ({ projectVersionsApi: { list: vi.fn(async () => ({
+  remote: false, git: true, default: 'main', current: 'main',
+  versions: [{ name: 'main', default: true, current: true, checkouts: ['/platform'], in_git: true, sources: ['checkout'] }],
+})) } }))
 vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
 const originalLoadProjects = useAppStore.getState().loadProjects
 beforeEach(() => {
@@ -77,6 +81,10 @@ describe('Global working context', () => {
     await user.tab()
     expect(document.activeElement).toBe(project)
     expect(project.textContent).toContain('Platform')
+    const version = screen.getByRole('combobox', { name: 'Version' })
+    await waitFor(() => expect(version.textContent).toContain('main'))
+    await user.tab()
+    expect(document.activeElement).toBe(version)
     await user.tab()
     expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Agent' }))
   })

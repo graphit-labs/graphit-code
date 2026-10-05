@@ -175,6 +175,12 @@ lock. It reacquires the lock for each batch and writes a vector only if the chun
 matches the snapshot. A reset waits for active table access, not model inference; stale vectors
 are discarded, and the next cycle opens the newly published table without a daemon restart.
 
+**An unknown embedding width never resets the wiki.** A chunks table whose vector width differs
+from the configured model is reset and rebuilt from the sources. While the width cannot be resolved
+(no model configured, or the model or broker not reachable), the stored tables are used as they
+are and a missing wiki is not created, because a reset computed from that state would drop every
+page and then fail to create the table again.
+
 **Body is stored once.** Full-text indexes target `body` and `search_terms` separately. The latter
 contains title, slug, summary, breadcrumb, type, tags, and their grams, but never repeats the body.
 Queries run once per column and deterministic reciprocal-rank fusion combines the two rankings. Tags

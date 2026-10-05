@@ -53,6 +53,49 @@ func TestOpenWikiResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
 	}
 }
 
+// An embedding width that is momentarily unknown must never reset the wiki — every page
+// would be dropped and the tables recreated with a width nothing can be created with.
+func TestAnUnknownEmbeddingWidthNeverResetsTheWiki(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir() + "/index.lance"
+	previous := chunkEmbeddingDimensions
+	t.Cleanup(func() { chunkEmbeddingDimensions = previous })
+	chunkEmbeddingDimensions = func() int { return 8 }
+	db, err := OpenWikiDBAt(ctx, lancestore.Config{URI: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Sync(ctx, []WikiChunk{lanceChunk("kept", "Kept", "A page.", "It must survive.")}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	chunkEmbeddingDimensions = func() int { return 0 }
+	db, err = OpenWikiDBAt(ctx, lancestore.Config{URI: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.ensureTables(ctx); err != nil {
+		t.Fatalf("opening the wiki while the width is unknown: %v", err)
+	}
+	if !db.chunks.Schema().Equal(lanceChunksSchema(8)) {
+		t.Fatalf("the schema changed while the width was unknown: %+v", db.chunks.Schema())
+	}
+	if chunk, err := db.Chunk(ctx, "kept"); err != nil || chunk == nil {
+		t.Fatalf("the page was lost: %v", err)
+	}
+
+	empty, err := OpenWikiDBAt(ctx, lancestore.Config{URI: t.TempDir() + "/index.lance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = empty.Close() }()
+	if err := empty.ensureTables(ctx); err == nil {
+		t.Fatal("a wiki was created without a width to create it with")
+	}
+}
+
 func lanceChunk(slug, title, summary, body string) WikiChunk {
 	return WikiChunk{
 		Slug: slug, Title: title, Summary: summary, Body: body,

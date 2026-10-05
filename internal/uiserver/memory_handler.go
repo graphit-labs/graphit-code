@@ -130,7 +130,10 @@ func (h *MemoryHandler) openService(ctx context.Context, projectDir, scope strin
 		if projectID == "" {
 			return nil, fmt.Errorf("project is not initialized")
 		}
-		return memory.NewMemoryService(memory.MemoryScopeProject, projectID, memStore).WithContext(ctx), nil
+		// Bind the checkout: its project version selects the memory branch. Without it
+		// the version would come from the server's own working directory.
+		return memory.NewMemoryService(memory.MemoryScopeProject, projectID, memStore).
+			WithContext(memory.WithProjectDirectory(ctx, projectDir)), nil
 	case memory.MemoryScopeUser:
 		userID, err := memory.UserScopeIDForContext(ctx)
 		if err != nil {
@@ -543,6 +546,6 @@ func sortedKeys(values map[string]struct{}) []string {
 }
 
 func writeMemoryError(w http.ResponseWriter, status int, message string) {
-	w.WriteHeader(status)
+	w.WriteHeader(versionAwareStatus(status, message))
 	writeJSON(w, map[string]string{"error": message})
 }

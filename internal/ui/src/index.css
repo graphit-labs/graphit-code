@@ -317,7 +317,7 @@ select {
 /* Global context belongs to the shared header, never to page toolbars. */
 .workspace-selectors {
   display: grid;
-  grid-template-columns: minmax(130px, 260px) minmax(100px, 150px) 28px;
+  grid-template-columns: minmax(130px, 240px) minmax(110px, 180px) minmax(100px, 150px) 28px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -855,7 +855,7 @@ body.is-global-loading * {
   .workspace-breadcrumb { display: none; }
   .workspace-selectors {
     flex: 1;
-    grid-template-columns: minmax(0, 1fr) minmax(85px, 105px) 28px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(76px, 105px) 28px;
     gap: 6px;
   }
   .workspace-header { gap: 8px; padding: 0 12px; }

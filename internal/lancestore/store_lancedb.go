@@ -34,6 +34,7 @@ type Store struct {
 	options  map[string]string
 	// branch is the native Lance branch every table of this store is scoped to.
 	branch string
+	noFork bool
 
 	mu     sync.Mutex
 	tables map[string]*Table
@@ -45,7 +46,25 @@ type Table struct {
 	tbl    contracts.ITable
 	name   string
 	schema Schema
+	// inherited marks a table of a NoFork store whose branch does not exist: it reads
+	// the main lineage the branch would fork from and refuses every write.
+	inherited bool
 }
+
+// writable is the error a write to this table must fail with, if any.
+func (t *Table) writable() error {
+	if t.store.readOnly {
+		return ErrReadOnly
+	}
+	if t.inherited {
+		return fmt.Errorf("lancestore: %s has no branch %q yet: %w", t.name, t.store.branch, ErrVersionNotShared)
+	}
+	return nil
+}
+
+// Inherited reports whether this table reads the main lineage because its NoFork
+// store's branch does not exist in it.
+func (t *Table) Inherited() bool { return t.inherited }
 
 // Available reports whether this build can open a store. Always true here.
 func Available() bool { return true }
@@ -93,6 +112,7 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 		readOnly: cfg.ReadOnly(),
 		options:  cfg.storageOptions(),
 		branch:   strings.TrimSpace(cfg.Branch),
+		noFork:   cfg.NoFork,
 		tables:   map[string]*Table{},
 	}, nil
 }
@@ -167,6 +187,10 @@ func (s *Store) CreateTable(ctx context.Context, name string, schema Schema) (*T
 	if s.readOnly {
 		return nil, ErrReadOnly
 	}
+	if s.branch != "" && s.noFork {
+		// Creating it would write the main lineage on behalf of a version that is not it.
+		return nil, fmt.Errorf("lancestore: creating %s for branch %q: %w", name, s.branch, ErrVersionNotShared)
+	}
 	if err := schema.Validate(); err != nil {
 		return nil, err
 	}
@@ -218,7 +242,7 @@ func (s *Store) OpenTable(ctx context.Context, name string) (*Table, error) {
 	}
 	s.mu.Unlock()
 
-	tbl, err := s.openNative(ctx, name)
+	tbl, inherited, err := s.openNativeTable(ctx, name)
 	if err != nil {
 		if isMissingTable(err) {
 			return nil, fmt.Errorf("lancestore: %q in %s: %w", name, s.uri, ErrNoSuchTable)
@@ -230,7 +254,24 @@ func (s *Store) OpenTable(ctx context.Context, name string) (*Table, error) {
 		_ = tbl.Close()
 		return nil, err
 	}
-	return s.remember(name, tbl, schema), nil
+	t := s.remember(name, tbl, schema)
+	t.inherited = inherited
+	return t, nil
+}
+
+// openNativeTable is openNative for a NoFork store: an existing branch opens writable,
+// a missing one reads the main lineage and is marked inherited.
+func (s *Store) openNativeTable(ctx context.Context, name string) (contracts.ITable, bool, error) {
+	if s.branch == "" || !s.noFork || s.readOnly {
+		tbl, err := s.openNative(ctx, name)
+		return tbl, false, err
+	}
+	tbl, err := s.conn.OpenTable(ctx, name+"#branch="+s.branch)
+	if err == nil || !isMissingBranch(err) {
+		return tbl, false, err
+	}
+	tbl, err = s.conn.OpenTable(ctx, name)
+	return tbl, err == nil, err
 }
 
 // EnsureTable opens the table, creating it with the given schema if it is not there yet.
@@ -386,8 +427,8 @@ func (t *Table) Count(ctx context.Context) (int64, error) {
 
 // Append adds rows. It does NOT replace anything — see Upsert for that.
 func (t *Table) Append(ctx context.Context, rows []Row) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	if len(rows) == 0 {
 		return nil
@@ -409,8 +450,8 @@ func (t *Table) Append(ctx context.Context, rows []Row) error {
 
 // DeleteWhere removes every row matching a SQL predicate.
 func (t *Table) DeleteWhere(ctx context.Context, filter string) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	if strings.TrimSpace(filter) == "" {
 		return errors.New("lancestore: DeleteWhere needs a filter; use DeleteWhere(\"true\") to mean everything")
@@ -430,8 +471,8 @@ func (t *Table) DeleteWhere(ctx context.Context, filter string) error {
 // arbitrary text — a path with an apostrophe in it would otherwise end the literal and change
 // the predicate.
 func (t *Table) DeleteByKey(ctx context.Context, keyColumn string, keys []string) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	if len(keys) == 0 {
 		return nil
@@ -461,8 +502,8 @@ func (t *Table) DeleteByKey(ctx context.Context, keyColumn string, keys []string
 // table version. A caller never observes the keyless crash window of the former delete-then-append
 // implementation.
 func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	if len(rows) == 0 {
 		return nil
@@ -501,8 +542,8 @@ func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error 
 // condition still holds. It never inserts a missing row. The returned boolean
 // is false when the key exists with a newer value (or no longer exists).
 func (t *Table) CompareAndSwap(ctx context.Context, keyColumn string, row Row, condition string) (bool, error) {
-	if t.store.readOnly {
-		return false, ErrReadOnly
+	if err := t.writable(); err != nil {
+		return false, err
 	}
 	if strings.TrimSpace(condition) == "" {
 		return false, errors.New("lancestore: compare-and-swap needs a target condition")
@@ -536,8 +577,8 @@ func (t *Table) CompareAndSwap(ctx context.Context, keyColumn string, row Row, c
 
 // ReplaceSnapshot atomically makes the table contain exactly rows, matched by keyColumns.
 func (t *Table) ReplaceSnapshot(ctx context.Context, keyColumns []string, rows []Row) (uint64, error) {
-	if t.store.readOnly {
-		return 0, ErrReadOnly
+	if err := t.writable(); err != nil {
+		return 0, err
 	}
 	if len(keyColumns) == 0 {
 		return 0, errors.New("lancestore: replacing a snapshot needs at least one key column")
@@ -589,8 +630,8 @@ func (t *Table) ReplaceSnapshot(ctx context.Context, keyColumns []string, rows [
 // only inserted, changed, and deleted keys. Previous Lance versions remain
 // available to Git commit tags and shallow clones.
 func (t *Table) ApplySnapshotDelta(ctx context.Context, keyColumns []string, desired []Row) (int, error) {
-	if t.store.readOnly {
-		return 0, ErrReadOnly
+	if err := t.writable(); err != nil {
+		return 0, err
 	}
 	if len(keyColumns) == 0 {
 		return 0, errors.New("lancestore: snapshot delta needs at least one key column")
@@ -717,8 +758,8 @@ func (t *Table) Rows(ctx context.Context) ([]Row, error) {
 // Lance transaction. Unlike Upsert, the result preserves the zero-updates case:
 // callers use it as compare-and-set instead of guessing from a follow-up read.
 func (t *Table) Merge(ctx context.Context, opts MergeOptions, rows []Row) (MergeResult, error) {
-	if t.store.readOnly {
-		return MergeResult{}, ErrReadOnly
+	if err := t.writable(); err != nil {
+		return MergeResult{}, err
 	}
 	if len(rows) == 0 {
 		return MergeResult{}, nil
@@ -772,8 +813,8 @@ func (t *Table) Merge(ctx context.Context, opts MergeOptions, rows []Row) (Merge
 const deleteBatch = 256
 
 func (t *Table) FoldNewRowsIntoIndexes(ctx context.Context) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	what := fmt.Sprintf("folding new rows into %s's indexes", t.name)
 	if err := withCommitRetry(ctx, what, func() error {
@@ -789,8 +830,8 @@ func (t *Table) FoldNewRowsIntoIndexes(ctx context.Context) error {
 // deleted rows. Separate from FoldNewRowsIntoIndexes because it is about layout rather than
 // searchability: skipping it makes reads slower, skipping the other makes them WRONG.
 func (t *Table) Compact(ctx context.Context) (CompactionResult, error) {
-	if t.store.readOnly {
-		return CompactionResult{}, ErrReadOnly
+	if err := t.writable(); err != nil {
+		return CompactionResult{}, err
 	}
 	materialize := true
 	var stats *contracts.OptimizeStats
@@ -826,8 +867,8 @@ func derefInt64(p *int64) int64 {
 }
 
 func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (PruneResult, error) {
-	if t.store.readOnly {
-		return PruneResult{}, ErrReadOnly
+	if err := t.writable(); err != nil {
+		return PruneResult{}, err
 	}
 	if olderThan <= 0 {
 		return PruneResult{}, fmt.Errorf("lancestore: pruning %s: olderThan must be positive, got %s", t.name, olderThan)
@@ -861,8 +902,8 @@ func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (Pru
 // A full-text query needs IndexInvertedText on its column and returns NOTHING without one, so
 // this is not an optimisation step that can be deferred.
 func (t *Table) EnsureIndexes(ctx context.Context, indexes ...Index) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	existing := map[string]bool{}
 	if infos, err := t.tbl.GetAllIndexes(ctx); err == nil {
@@ -898,8 +939,8 @@ func (t *Table) EnsureIndexes(ctx context.Context, indexes ...Index) error {
 
 // DropIndex removes one index when it exists.
 func (t *Table) DropIndex(ctx context.Context, idx Index) error {
-	if t.store.readOnly {
-		return ErrReadOnly
+	if err := t.writable(); err != nil {
+		return err
 	}
 	name := indexName(idx)
 	infos, err := t.tbl.GetAllIndexes(ctx)

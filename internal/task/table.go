@@ -12,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/relations"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 const (
@@ -24,6 +25,13 @@ const (
 	controlTableName       = "task_control"
 	pageSize               = 512
 )
+
+// taskTableNames is every table of a task store.
+var taskTableNames = []string{
+	tasksTableName, dependenciesTableName, eventsTableName, checksTableName, commentsTableName,
+	specRevisionsTableName, controlTableName,
+	sessionsTableName, sessionEventsTableName, sessionCheckpointsTableName, sessionRevisionsTableName,
+}
 
 type tables struct {
 	store                                                         *lancestore.Store
@@ -46,9 +54,24 @@ type maintenanceResult struct {
 // openTables opens every Task table on one native Lance branch — the project version's,
 // "" for the main lineage — so tasks, sessions and their history version together.
 func openTables(ctx context.Context, uri string, s3 config.S3Config, branch string) (*tables, error) {
-	st, err := lancestore.Open(ctx, lancestore.Config{
-		URI: uri, S3: s3, Writable: true, StrongReadConsistency: true, Branch: branch,
-	})
+	return openTablesScoped(ctx, uri, s3, branch, false)
+}
+
+// openTablesScoped is openTables for a store that must not fork its branch: a project
+// opened by ID alone reads a version's branch where it exists and the main lineage
+// where it does not, and only writes where it exists (lancestore.Config.NoFork).
+func openTablesScoped(ctx context.Context, uri string, s3 config.S3Config, branch string, noFork bool) (*tables, error) {
+	base := lancestore.Config{URI: uri, S3: s3, Writable: true, StrongReadConsistency: true}
+	backupDir := lancestore.RebuildBackupDir(store.Root(), uri)
+	// A schema migration interrupted mid-way left its rows in a snapshot: finish it first.
+	for _, name := range taskTableNames {
+		if _, err := lancestore.RecoverRebuild(ctx, base, name, backupDir); err != nil {
+			return nil, fmt.Errorf("completing an interrupted migration of task table %s at %s: %w", name, uri, err)
+		}
+	}
+	cfg := base
+	cfg.Branch, cfg.NoFork = branch, noFork
+	st, err := lancestore.Open(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("opening task store at %s: %w", uri, err)
 	}
@@ -63,7 +86,7 @@ func openTables(ctx context.Context, uri string, s3 config.S3Config, branch stri
 		case schemaSame:
 			return tbl, nil
 		case schemaAdditive:
-			grown, migrateErr := migrateTableAdditively(ctx, st, name, tbl, schema)
+			grown, migrateErr := migrateTableAdditively(ctx, st, base, backupDir, name, tbl, schema)
 			if migrateErr != nil {
 				return nil, migrateErr
 			}
@@ -156,11 +179,11 @@ func classifySchemaDelta(stored, expected lancestore.Schema) schemaDelta {
 }
 
 // migrateTableAdditively grows a table into the expected schema while keeping its rows. Lance
-// exposes no column-add primitive here, so the rows are read into memory, the table is recreated
-// and the new columns are written as their type's empty value. That gap is not atomic: if the
-// recreation fails the rows exist only in this process, so the error says so instead of leaving
-// the operator to guess what the store still holds.
-func migrateTableAdditively(ctx context.Context, st *lancestore.Store, name string, tbl *lancestore.Table, expected lancestore.Schema) (*lancestore.Table, error) {
+// exposes no column-add primitive here, so the table is rebuilt: lancestore.RebuildTable reads
+// every row, writes them to a durable snapshot under backupDir and only then recreates the
+// table, writing the new columns as their type's empty value. An interruption after the drop
+// is completed from that snapshot the next time the store is opened.
+func migrateTableAdditively(ctx context.Context, st *lancestore.Store, base lancestore.Config, backupDir, name string, tbl *lancestore.Table, expected lancestore.Schema) (*lancestore.Table, error) {
 	// Recreating the table would drop every project version's branch of it with the
 	// dataset; refuse rather than lose them.
 	if st.Branch() != "" {
@@ -169,29 +192,18 @@ func migrateTableAdditively(ctx context.Context, st *lancestore.Store, name stri
 	if branches, err := st.Branches(ctx, name); err == nil && len(branches) > 0 {
 		return nil, fmt.Errorf("task table %s needs a schema migration but has %d project version branch(es) that recreating it would delete: %w", name, len(branches), lancestore.ErrBranchScoped)
 	}
-	rows, err := tbl.Rows(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("reading task table %s before migrating its schema: %w", name, err)
-	}
 	if err := tbl.Close(); err != nil {
 		return nil, fmt.Errorf("closing task table %s before migrating its schema: %w", name, err)
 	}
-	if err := st.DropTable(ctx, name); err != nil {
-		return nil, fmt.Errorf("dropping task table %s while migrating its schema: %w", name, err)
+	if err := lancestore.RebuildTable(ctx, base, lancestore.RebuildPlan{
+		Table: name, Schema: expected, BackupDir: backupDir,
+		Adapt: func(row lancestore.Row) lancestore.Row { fillMissingFields(row, expected); return row },
+	}); err != nil {
+		return nil, fmt.Errorf("migrating the schema of task table %s: %w", name, err)
 	}
-	grown, err := st.CreateTable(ctx, name, expected)
+	grown, err := st.OpenTable(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("recreating task table %s while migrating its schema lost %d row(s): %w", name, len(rows), err)
-	}
-	if len(rows) == 0 {
-		return grown, nil
-	}
-	for _, row := range rows {
-		fillMissingFields(row, expected)
-	}
-	if err := grown.Append(ctx, rows); err != nil {
-		_ = grown.Close()
-		return nil, fmt.Errorf("restoring %d row(s) into migrated task table %s: %w", len(rows), name, err)
+		return nil, fmt.Errorf("opening migrated task table %s: %w", name, err)
 	}
 	return grown, nil
 }

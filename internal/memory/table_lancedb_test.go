@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/relations"
 )
@@ -144,10 +143,11 @@ func TestMemoryMaintenanceDoesNotCreateAbsentRelationTable(t *testing.T) {
 	}
 }
 
-func TestOpenMemoryTableResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
+func TestOpenMemoryTableMigratesAnIncompatibleSchema(t *testing.T) {
+	withTableDimensions(t, 8)
 	ctx := context.Background()
 	dir := t.TempDir()
-	expected := memoryTableSchema(ai.ResolveConfiguredEmbeddingDimensions())
+	expected := memoryTableSchema(8)
 	incompatible := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
 	incompatible.Fields = incompatible.Fields[:len(incompatible.Fields)-1]
 	store, err := lancestore.Open(ctx, lancestore.Config{URI: dir})
@@ -167,7 +167,7 @@ func TestOpenMemoryTableResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
 	}
 	defer func() { _ = table.Close() }()
 	if !table.table.Schema().Equal(expected) {
-		t.Fatalf("schema was not reset: %+v", table.table.Schema())
+		t.Fatalf("schema was not migrated: %+v", table.table.Schema())
 	}
 }
 

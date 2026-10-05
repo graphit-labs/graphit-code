@@ -238,6 +238,10 @@ func (s *SearchIndex) Close() error {
 // Remote reports whether this index is a published one, which is read-only.
 func (s *SearchIndex) Remote() bool { return s.store != nil && s.store.Remote() }
 
+// searchEmbeddingDimensions sizes the entities table's vector column; a variable so a test
+// can reproduce an embedding model whose width is momentarily unknown.
+var searchEmbeddingDimensions = ai.ResolveConfiguredEmbeddingDimensions
+
 func lanceFilesSchema() lancestore.Schema {
 	return lancestore.Schema{Fields: []lancestore.Field{
 		{Name: "path", Type: lancestore.FieldString},
@@ -495,6 +499,13 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 func (s *SearchIndex) beginSearchRebuild(ctx context.Context,
 	embLookup func(relPath, uid string) []float32) (*searchRebuildWriter, error) {
 	tSetup := time.Now()
+	// The tables are dropped before they are created again, so a schema that cannot be
+	// created — an embedding width momentarily unknown — must stop the rebuild before
+	// the drop, leaving the index that exists answering searches.
+	entitiesSchema := lanceEntitiesSchema(searchEmbeddingDimensions())
+	if err := entitiesSchema.Validate(); err != nil {
+		return nil, fmt.Errorf("rebuilding the search index needs the embedding model's dimensions; the current index is kept: %w", err)
+	}
 	for _, name := range []string{lanceFilesTable, lanceEntitiesTable} {
 		if err := s.store.DropTable(ctx, name); err != nil {
 			return nil, fmt.Errorf("clearing %s: %w", name, err)
@@ -504,7 +515,7 @@ func (s *SearchIndex) beginSearchRebuild(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	entities, err := s.store.CreateTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
+	entities, err := s.store.CreateTable(ctx, lanceEntitiesTable, entitiesSchema)
 	if err != nil {
 		return nil, err
 	}
@@ -738,7 +749,7 @@ func (s *SearchIndex) ensureTables(ctx context.Context) error {
 		s.files = t
 	}
 	if s.entities == nil {
-		t, err := s.store.EnsureTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
+		t, err := s.store.EnsureTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(searchEmbeddingDimensions()))
 		if err != nil {
 			return err
 		}

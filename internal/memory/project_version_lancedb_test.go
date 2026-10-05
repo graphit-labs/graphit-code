@@ -4,7 +4,9 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"github.com/graphit-labs/graphit-code/internal/gitenv"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,5 +109,78 @@ func TestProjectMemoryIsSeparatedByVersionAndUserMemoryIsNot(t *testing.T) {
 	}
 	if b := projectBranchForURI("s3://bucket/prefix/v2/users/u1/memory", featureDir); b != "" {
 		t.Fatalf("S3 user memory branch = %q", b)
+	}
+}
+
+// Memory reached by project ID alone — no checkout of the project — takes the version
+// the running call selected, uses its branch only where it exists, and never forks one.
+func TestProjectMemoryByIDUsesTheSelectedVersion(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv(projectversion.EnvVersion(), "")
+	mainDir := t.TempDir()
+	gitIn(t, mainDir, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(mainDir, brand.LockFileName()),
+		[]byte(`{"project":{"id":"`+versionTestProject+`"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, mainDir, "add", ".")
+	gitIn(t, mainDir, "commit", "-q", "-m", "init")
+	featureDir := filepath.Join(t.TempDir(), "feature")
+	gitIn(t, mainDir, "worktree", "add", "-q", "-b", "feature/m", featureDir)
+
+	projectURI := store.MemoryTableDir("project", versionTestProject)
+	putMemory(t, projectURI, mainDir, "main-fact")
+	putMemory(t, projectURI, featureDir, "feature-fact")
+
+	branches, err := ProjectVersionBranches(ctx, versionTestProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(branches) != 1 || branches[0] != "feature/m" {
+		t.Fatalf("memory version branches = %v, want [feature/m]", branches)
+	}
+
+	elsewhere := t.TempDir() // not a checkout of the project
+	release, err := projectversion.AcquireRemote(ctx, versionTestProject, "feature/m", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := memoryIDs(t, projectURI, elsewhere); !got["feature-fact"] || !got["main-fact"] {
+		t.Fatalf("feature/m by project ID = %v", got)
+	}
+	putMemory(t, projectURI, elsewhere, "remote-fact")
+	release()
+	if got := memoryIDs(t, projectURI, featureDir); !got["remote-fact"] {
+		t.Fatalf("a remote write to feature/m missed its branch: %v", got)
+	}
+	if got := memoryIDs(t, projectURI, mainDir); got["remote-fact"] {
+		t.Fatalf("a remote write to feature/m reached main: %v", got)
+	}
+
+	release, err = projectversion.AcquireRemote(ctx, versionTestProject, "feature/none", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if got := memoryIDs(t, projectURI, elsewhere); !got["main-fact"] || got["feature-fact"] {
+		t.Fatalf("a version without a branch read %v, want the main lineage", got)
+	}
+	tbl, err := OpenMemoryTableIn(ctx, projectURI, elsewhere)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tbl.Close() }()
+	err = tbl.Put(ctx, MemoryRecord{ID: "refused", Title: "refused", Body: "refused", Type: "fact", Revision: 1})
+	if !errors.Is(err, lancestore.ErrVersionNotShared) {
+		t.Fatalf("a write to a version without a branch = %v, want ErrVersionNotShared", err)
+	}
+	if branches, _ := ProjectVersionBranches(ctx, versionTestProject); len(branches) != 1 {
+		t.Fatalf("the refused write created a branch: %v", branches)
 	}
 }

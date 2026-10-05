@@ -81,6 +81,10 @@ interface AppState {
   projectTargets: ProjectTarget[]
   projectCatalog: LogicalProject[]
   activeProjectDir: string
+  /** The selected version of the active project; "" is the checkout's version (Hub: the default). */
+  activeProjectVersion: string
+  /** The version selected for each project target, by target key. */
+  projectVersions: Record<string, string>
   projectName: string
   projectsLoaded: boolean
   projectsError: string
@@ -97,6 +101,7 @@ interface AppState {
   loadProjects: () => Promise<void>
   switchProject: (dir: string) => void
   switchProjectTarget: (key: string) => void
+  setProjectVersion: (version: string) => void
   isGlobalLoading: boolean
   activeRequests: number
   incrementLoading: () => void
@@ -110,6 +115,7 @@ export const useAppStore = create<AppState>()(
       typeFilter: 'all', projectFilter: 'all', search: '', activeAgent: '', activeProjectId: '',
       activeProjectKey: '', activeProjectOrigin: '', activeContextId: null,
       projects: [], projectTargets: [], projectCatalog: [], activeProjectDir: '',
+      activeProjectVersion: '', projectVersions: {},
       projectName: window.__PROJECT_NAME__ ?? '', projectsLoaded: false, projectsError: '',
       workspaceProjectsError: '', hubProjectsError: '', supportedAgents: [],
       isGlobalLoading: false, activeRequests: 0,
@@ -162,6 +168,7 @@ export const useAppStore = create<AppState>()(
           activeProjectKey: selected?.key ?? '', activeProjectOrigin: selected?.origin ?? '',
           activeProjectDir: selected?.origin === 'workspace' ? selected.dir ?? '' : '',
           activeProjectId: selected?.id ?? '', projectName: selected?.name ?? '', activeAgent: agent,
+          activeProjectVersion: selected ? state.projectVersions[selected.key] ?? '' : '',
           supportedAgents: local?.supported_agents ?? state.supportedAgents, projectsLoaded: true,
           workspaceProjectsError: workspaceError, hubProjectsError: hubError,
           projectsError: workspaceError && hubError ? 'Workspace and Hub project sources are unavailable.' : '',
@@ -175,6 +182,17 @@ export const useAppStore = create<AppState>()(
           activeProjectKey: target.key, activeProjectOrigin: target.origin,
           activeProjectDir: target.origin === 'workspace' ? target.dir ?? '' : '',
           activeProjectId: target.id, projectName: target.name, activeContextId: null,
+          activeProjectVersion: get().projectVersions[target.key] ?? '',
+        })
+      },
+
+      setProjectVersion: (version: string) => {
+        const key = get().activeProjectKey
+        set((state) => {
+          const projectVersions = { ...state.projectVersions }
+          if (version) projectVersions[key] = version
+          else delete projectVersions[key]
+          return { activeProjectVersion: version, projectVersions: key ? projectVersions : state.projectVersions }
         })
       },
 
@@ -188,7 +206,7 @@ export const useAppStore = create<AppState>()(
           get().switchProjectTarget(target.key)
           return
         }
-        set({ activeProjectKey: '', activeProjectOrigin: '', activeProjectDir: dir, activeProjectId: '', projectName: dir.split('/').pop() || '' })
+        set({ activeProjectKey: '', activeProjectOrigin: '', activeProjectDir: dir, activeProjectId: '', activeProjectVersion: '', projectName: dir.split('/').pop() || '' })
       },
     }),
     {
@@ -198,6 +216,7 @@ export const useAppStore = create<AppState>()(
         activeContextId: s.activeContextId, activeProjectKey: s.activeProjectKey,
         activeProjectOrigin: s.activeProjectOrigin, activeProjectDir: s.activeProjectDir,
         activeProjectId: s.activeProjectId, projectName: s.projectName,
+        activeProjectVersion: s.activeProjectVersion, projectVersions: s.projectVersions,
       }),
     },
   ),

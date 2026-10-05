@@ -72,7 +72,8 @@ Important global paths include:
 |---|---|
 | `config.json` | Global configuration |
 | `global.lock.json` | Registered projects and global artifact metadata |
-| `memory.lock.json` | Registered external memory context mappings |
+| `memory.lock.json` | Legacy memory scope registrations; no longer written, and an entry is removed when its scope is pruned |
+| `backups/lance-rebuild/` | Row snapshots taken before a Lance table is rebuilt for a schema change; a pending one is replayed on the next open |
 | `hub/cache/<hub-fingerprint>/<subject-fingerprint>/` | Bounded, lazy, non-authoritative Hub metadata and discovery cache |
 | `daemon/daemon.pid` | Single-daemon lock and process metadata |
 | `daemon/daemon.log` | Daemon log |

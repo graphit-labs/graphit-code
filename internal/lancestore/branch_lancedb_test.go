@@ -4,6 +4,7 @@ package lancestore
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 	"time"
@@ -189,5 +190,102 @@ func TestReadOnlyStoreReadsMainUntilTheBranchExists(t *testing.T) {
 	}
 	if got := ids(t, main); !equal(got, []string{"a"}) {
 		t.Fatalf("S3 main lineage = %v", got)
+	}
+}
+
+// A NoFork store never creates its branch: an existing branch is read and written, a
+// missing one reads the main lineage and refuses the write without forking.
+func TestNoForkStoreUsesExistingBranchesOnly(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	main := openBranchStore(t, Config{URI: dir, Writable: true})
+	appendIDs(t, main, "a")
+	feature := openBranchStore(t, Config{URI: dir, Writable: true, Branch: "feature/shared"})
+	appendIDs(t, feature, "f")
+
+	existing := openBranchStore(t, Config{URI: dir, Writable: true, Branch: "feature/shared", NoFork: true})
+	appendIDs(t, existing, "g")
+	if got := ids(t, existing); !equal(got, []string{"a", "f", "g"}) {
+		t.Fatalf("NoFork store on an existing branch = %v", got)
+	}
+
+	missing := openBranchStore(t, Config{URI: dir, Writable: true, Branch: "feature/absent", NoFork: true})
+	if got := ids(t, missing); !equal(got, []string{"a"}) {
+		t.Fatalf("NoFork store on a missing branch read %v, want the main lineage", got)
+	}
+	table, err := missing.OpenTable(ctx, "items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !table.Inherited() {
+		t.Error("the table of a missing branch is not marked inherited")
+	}
+	if err := table.Append(ctx, []Row{{"id": "x", "value": "x"}}); !errors.Is(err, ErrVersionNotShared) {
+		t.Fatalf("write on a missing branch = %v, want ErrVersionNotShared", err)
+	}
+	if _, err := missing.CreateTable(ctx, "other", branchItems); !errors.Is(err, ErrVersionNotShared) {
+		t.Fatalf("create on a missing branch = %v, want ErrVersionNotShared", err)
+	}
+	branches, err := main.Branches(ctx, "items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, forked := branches["feature/absent"]; forked || len(branches) != 1 {
+		t.Fatalf("a NoFork store created a branch: %#v", branches)
+	}
+	if got := ids(t, main); !equal(got, []string{"a"}) {
+		t.Fatalf("main lineage = %v", got)
+	}
+}
+
+// Maintenance of a branch must not take away fragments the main lineage still reads:
+// the branch inherits main's files, and compacting and pruning the branch rewrites and
+// removes only what is the branch's own.
+func TestBranchMaintenanceKeepsMainLineageData(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	main := openBranchStore(t, Config{URI: dir, Writable: true})
+	for _, id := range []string{"a", "b", "c"} {
+		appendIDs(t, main, id)
+	}
+	feature := openBranchStore(t, Config{URI: dir, Writable: true, Branch: "feature/m"})
+	for _, id := range []string{"f1", "f2"} {
+		appendIDs(t, feature, id)
+	}
+	table, err := feature.OpenTable(ctx, "items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := table.Compact(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := table.PruneVersions(ctx, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	reopenedMain := openBranchStore(t, Config{URI: dir, Writable: true})
+	if got := ids(t, reopenedMain); !equal(got, []string{"a", "b", "c"}) {
+		t.Fatalf("after branch compaction and pruning the main lineage reads %v", got)
+	}
+	reopenedFeature := openBranchStore(t, Config{URI: dir, Writable: true, Branch: "feature/m"})
+	if got := ids(t, reopenedFeature); !equal(got, []string{"a", "b", "c", "f1", "f2"}) {
+		t.Fatalf("after its own maintenance the branch reads %v", got)
+	}
+	// Main keeps working after the branch maintenance: it can still compact and prune.
+	mainTable, err := reopenedMain.OpenTable(ctx, "items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendIDs(t, reopenedMain, "d")
+	if _, err := mainTable.Compact(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := mainTable.PruneVersions(ctx, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	final := openBranchStore(t, Config{URI: dir, Writable: true, Branch: "feature/m"})
+	if got := ids(t, final); !equal(got, []string{"a", "b", "c", "f1", "f2"}) {
+		t.Fatalf("after main maintenance following branch maintenance the branch reads %v", got)
 	}
 }

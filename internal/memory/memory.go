@@ -123,6 +123,13 @@ func (m *MemoryService) openTable(ctx context.Context) (*MemoryTable, error) {
 		}
 		return nil, fmt.Errorf("memory store not configured — run '%s setup' first", brand.BinName())
 	}
+	// A call's own context (a request's) carries no checkout; the one this service was
+	// bound to does, and it decides which project version's branch the table opens on.
+	if _, bound := ctx.Value(projectDirectoryKey{}).(string); !bound {
+		if dir, ok := m.operationContext().Value(projectDirectoryKey{}).(string); ok {
+			ctx = WithProjectDirectory(ctx, dir)
+		}
+	}
 	return OpenMemoryTable(ctx, uri)
 }
 

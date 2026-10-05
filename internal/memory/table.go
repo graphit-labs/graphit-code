@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/graphit-labs/graphit-code/internal/relations"
 	"net/url"
@@ -15,9 +16,14 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hubaccess"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/s3store"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 const memoryTableName = "memories"
+
+// tableEmbeddingDimensions sizes the table's vector column; a variable so a test can
+// reproduce an embedding model whose width is momentarily unknown.
+var tableEmbeddingDimensions = ai.ResolveConfiguredEmbeddingDimensions
 
 var memoryReadPageSize = 1024
 
@@ -167,62 +173,70 @@ func OpenMemoryTableIn(ctx context.Context, uri, projectDir string) (*MemoryTabl
 	if err := authorizeMemoryURI(ctx, uri, s3cfg); err != nil {
 		return nil, err
 	}
-	branch := projectBranchForURI(uri, projectDir)
+	branch, noFork := projectMemoryBranch(uri, projectDir)
+	base := lancestore.Config{URI: uri, S3: s3cfg, Writable: true}
 	open := func(branch string) (*lancestore.Store, error) {
-		return lancestore.Open(ctx, lancestore.Config{
-			URI:      uri,
-			S3:       s3cfg,
-			Writable: true,
-			Branch:   branch,
-		})
+		cfg := base
+		cfg.Branch, cfg.NoFork = branch, noFork && branch != ""
+		return lancestore.Open(ctx, cfg)
+	}
+	// A schema change interrupted mid-way left its rows in a snapshot: finish it first.
+	backupDir := lancestore.RebuildBackupDir(store.Root(), uri)
+	if _, err := lancestore.RecoverRebuild(ctx, base, memoryTableName, backupDir); err != nil {
+		return nil, fmt.Errorf("completing an interrupted rebuild of the memories table at %s: %w", uri, err)
 	}
 	st, err := open(branch)
 	if err != nil {
 		return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
 	}
-	expected := memoryTableSchema(ai.ResolveConfiguredEmbeddingDimensions())
+
+	dims := tableEmbeddingDimensions()
+	if dims <= 0 {
+		// The embedding width is unknown — no model configured, or not reachable right now.
+		// Nothing about the stored schema can be judged from that: an existing table is
+		// used exactly as it is, and a missing one is not created with a guessed width.
+		tbl, err := st.OpenTable(ctx, memoryTableName)
+		if err != nil {
+			_ = st.Close()
+			if errors.Is(err, lancestore.ErrNoSuchTable) {
+				return nil, fmt.Errorf("the memories table at %s cannot be created while the embedding model's dimensions are unavailable; configure or reach the embedding model first", uri)
+			}
+			return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
+		}
+		return &MemoryTable{store: st, table: tbl}, nil
+	}
+
+	expected := memoryTableSchema(dims)
 	tbl, err := st.EnsureTable(ctx, memoryTableName, expected)
 	if err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
 	}
-	if !tbl.Schema().Equal(expected) && branch != "" {
-		// An incompatible schema resets the whole table, every version with it, and a
-		// branch cannot drop its table: reset the main lineage, then fork afresh.
-		_ = tbl.Close()
-		_ = st.Close()
-		mainStore, err := open("")
-		if err != nil {
-			return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
-		}
-		if err := mainStore.DropTable(ctx, memoryTableName); err != nil {
-			_ = mainStore.Close()
-			return nil, fmt.Errorf("resetting incompatible memories table at %s: %w", uri, err)
-		}
-		if _, err := mainStore.CreateTable(ctx, memoryTableName, expected); err != nil {
-			_ = mainStore.Close()
-			return nil, fmt.Errorf("recreating memories table at %s: %w", uri, err)
-		}
-		_ = mainStore.Close()
-		if st, err = open(branch); err != nil {
-			return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
-		}
-		if tbl, err = st.EnsureTable(ctx, memoryTableName, expected); err != nil {
-			_ = st.Close()
-			return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
-		}
+	if tbl.Schema().Equal(expected) {
+		return &MemoryTable{store: st, table: tbl}, nil
 	}
-	if !tbl.Schema().Equal(expected) {
-		_ = tbl.Close()
-		if err := st.DropTable(ctx, memoryTableName); err != nil {
-			_ = st.Close()
-			return nil, fmt.Errorf("resetting incompatible memories table at %s: %w", uri, err)
-		}
-		tbl, err = st.CreateTable(ctx, memoryTableName, expected)
-		if err != nil {
-			_ = st.Close()
-			return nil, fmt.Errorf("recreating memories table at %s: %w", uri, err)
-		}
+	if noFork && branch != "" {
+		// Rebuilding rewrites every version's memory, which only the project's own
+		// checkout may decide; a project reached by ID alone reports it instead.
+		_ = st.Close()
+		return nil, fmt.Errorf("the memories table at %s has an incompatible schema; open it from a checkout of the project to migrate it", uri)
+	}
+	// The schema changed for real — most often a new embedding model with another width.
+	// Every memory is kept, on the main lineage and on every project version branch; only
+	// the vectors of the old width are dropped, to be embedded again.
+	_ = tbl.Close()
+	_ = st.Close()
+	if err := lancestore.RebuildTable(ctx, base, lancestore.RebuildPlan{
+		Table: memoryTableName, Schema: expected, BranchKey: []string{"key"}, BackupDir: backupDir,
+	}); err != nil {
+		return nil, fmt.Errorf("migrating the memories table at %s to the current schema: %w", uri, err)
+	}
+	if st, err = open(branch); err != nil {
+		return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
+	}
+	if tbl, err = st.OpenTable(ctx, memoryTableName); err != nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("opening the migrated memories table at %s: %w", uri, err)
 	}
 	return &MemoryTable{store: st, table: tbl}, nil
 }
@@ -623,7 +637,7 @@ func (t *MemoryTable) PendingEmbeddings(ctx context.Context) ([]MemoryRecord, er
 
 // SetEmbedding attaches a vector to one current or archived memory record.
 func (t *MemoryTable) SetEmbedding(ctx context.Context, key string, vec []float32) error {
-	if want := ai.ResolveConfiguredEmbeddingDimensions(); len(vec) != want {
+	if want := tableEmbeddingDimensions(); len(vec) != want {
 		return fmt.Errorf("memory embedding for %s has %d dimensions, want %d", key, len(vec), want)
 	}
 	rec, ok, err := t.Get(ctx, key)

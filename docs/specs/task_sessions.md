@@ -36,7 +36,7 @@ The session snapshot includes its latest event and any associated checkpoint/spe
 
 Reads do not mutate the store. `session_get` overlays the latest authoritative event if its projection is missing. Lifecycle reconciliation repairs missing projections and releases expired claims. Historical checkpoints/revisions are preserved through heartbeat, release and subsequent updates. Maintenance includes the session tables and their indexes.
 
-This schema changes the Task store and export schema (version 2). A store written before `session_id` existed is migrated in place the first time it is opened: the rows are preserved and the tasks that predate sessions get an empty `session_id`. The session tables are simply created alongside them.
+This schema changes the Task store and export schema (version 2). A store written before `session_id` existed is migrated in place the first time it is opened: the rows are preserved — snapshotted before the table is recreated, so an interrupted migration completes on the next open — and the tasks that predate sessions get an empty `session_id`. The session tables are simply created alongside them.
 
 That migration is deliberately limited to additive differences — columns this build adds around the stored ones. A column that was dropped, renamed or changed type is not migrated, because choosing what to do with the data it holds is not something the store may decide on its own; that case still fails explicitly with `task table <name> has an incompatible schema; use a fresh store; automatic migration is not supported`, and opening it neither deletes nor resets anything.
 

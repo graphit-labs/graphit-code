@@ -146,7 +146,7 @@ func readWorkspaceNow(ctx context.Context, dir string, now time.Time) nowView {
 	ms, e := memory.NewMemoryStore()
 	var memories []nowItem
 	if e == nil {
-		service := memory.NewMemoryService(memory.MemoryScopeProject, out.ProjectID, ms).WithContext(ctx)
+		service := memory.NewMemoryService(memory.MemoryScopeProject, out.ProjectID, ms).WithContext(memory.WithProjectDirectory(ctx, dir))
 		memories, e = activityMetadata(ctx, service, lancequery.Request{Table: "memories", Filter: "superseded = false", Columns: []string{"id", "title", "updated_at", "updated_by"}}, "memory")
 	}
 	out.Sections["memories"] = finishNow(memories, e)

@@ -134,6 +134,6 @@ func taskOpenStatus(err error) int {
 }
 
 func writeTaskError(w http.ResponseWriter, status int, message string) {
-	w.WriteHeader(status)
+	w.WriteHeader(versionAwareStatus(status, message))
 	writeJSON(w, map[string]string{"error": message})
 }

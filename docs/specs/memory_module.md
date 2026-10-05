@@ -32,8 +32,17 @@ version other than the default is a native Lance branch inside the project table
 local or S3 location. The default version is the table's main lineage. A version reads the main
 lineage until its first write forks it, and from then on the two diverge. User memory and imported
 contexts are not project code and have no version: they always use the main lineage.
-`OpenMemoryTableIn` chooses the branch from the table URI and the project directory. A schema reset
-needed by a versioned table runs on the main lineage, and the version forks again afterwards.
+`OpenMemoryTableIn` chooses the branch from the table URI and the project directory.
+
+A schema change — most often a new embedding model with another width — rebuilds the table without
+losing a memory: every row of the main lineage and of each version branch is snapshotted under
+`backups/lance-rebuild/` in the global directory before the table is recreated, each branch is
+forked again with its own rows, and only the vectors of the old width are dropped so the embedding
+loop computes them again. An interrupted rebuild is completed from its snapshot on the next open.
+While the embedding width cannot be resolved (no model configured, or the model or broker not
+reachable), the table is used exactly as stored and a missing table is not created; the open
+fails with an error naming the cause instead. See
+[Storage Layout](../architecture/storage_layout.md#rebuilding-a-table-for-a-new-schema).
 
 Nothing is copied into a project's `.graphit` directory or into `~/.graphit/wiki/`. See
 [Storage Layout](../architecture/storage_layout.md).

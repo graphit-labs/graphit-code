@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
 const shardEmbVersion = 5
@@ -38,6 +36,11 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 	}
 
 	shardsDir := filepath.Join(cacheDir, "shards")
+	// A shard is judged stale by comparing its width with the active one. While that width
+	// is unknown nothing can be judged, so the shards are neither loaded nor deleted.
+	if searchEmbeddingDimensions() <= 0 {
+		return ec, nil
+	}
 	_ = filepath.Walk(shardsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -114,6 +117,11 @@ func (ec *ShardEmbCache) Save() error {
 	if len(ec.dirty) == 0 {
 		return nil
 	}
+	if searchEmbeddingDimensions() <= 0 {
+		// A shard written now would record no width and be deleted as stale on the next load.
+		ec.dirty = make(map[string]bool)
+		return nil
+	}
 
 	var firstErr error
 	for relPath := range ec.dirty {
@@ -172,7 +180,7 @@ func encodeEmbShard(w io.Writer, emb *shardEmb) error {
 	// The active dimension, not the local model's fixed constant: a shard written under one
 	// The active embedding provider must record ITS width, so readEmbShard's check below correctly
 	// treats a shard from a since-abandoned provider as stale rather than misreading its bytes.
-	dim := ai.ResolveConfiguredEmbeddingDimensions()
+	dim := searchEmbeddingDimensions()
 
 	hash := []byte(emb.Hash)
 	put(uint16(shardEmbVersion))
@@ -231,7 +239,7 @@ func readEmbShard(path string) (*shardEmb, error) {
 	// Rejecting it here is what makes NewShardEmbCache's load loop drop it as "an older
 	// format" and let it be recomputed, which is the correct response to a provider switch:
 	// nothing needs bespoke migration logic, this cache is defined to be fully recomputable.
-	if want := ai.ResolveConfiguredEmbeddingDimensions(); int(dim) != want {
+	if want := searchEmbeddingDimensions(); int(dim) != want {
 		return nil, fmt.Errorf("emb shard %s: dim %d, want %d (active embedding provider changed since this shard was written)", path, dim, want)
 	}
 	if err := binary.Read(r, binary.LittleEndian, &hashLen); err != nil {

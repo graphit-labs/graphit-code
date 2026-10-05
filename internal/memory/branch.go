@@ -19,7 +19,26 @@ import (
 // directory that is not that project, since there is no checkout to take a version
 // from. projectDir names the checkout; empty means the project the process sits in.
 func projectBranchForURI(uri, projectDir string) string {
+	branch, _ := projectMemoryBranch(uri, projectDir)
+	return branch
+}
+
+// projectMemoryBranch is projectBranchForURI plus whether the branch may be forked. A
+// version the running call selected for a project it reaches by ID alone
+// (projectversion.AcquireRemote) has no checkout to tell it from the default version,
+// so its branch is only used where it already exists (lancestore.Config.NoFork).
+func projectMemoryBranch(uri, projectDir string) (branch string, noFork bool) {
 	id := projectIDOfMemoryURI(uri)
+	if id == "" {
+		return "", false
+	}
+	if projectversion.RemoteVersion(id) != "" {
+		return projectversion.RemoteLanceBranch(id), !projectversion.RemoteForkable(id)
+	}
+	return checkoutMemoryBranch(id, projectDir), false
+}
+
+func checkoutMemoryBranch(id, projectDir string) string {
 	if id == "" {
 		return ""
 	}

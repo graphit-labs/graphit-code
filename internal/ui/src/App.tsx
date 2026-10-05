@@ -92,6 +92,9 @@ function KnowledgeContextsPage() {
 }
 
 export default function App() {
+  // Every store behind the pages is kept per project version: a different version is a
+  // different working context, so its pages start over rather than keep the old one's data.
+  const activeProjectVersion = useAppStore((state) => state.activeProjectVersion);
   useEffect(() => {
     useAppStore.getState().loadProjects();
   }, []);
@@ -102,7 +105,7 @@ export default function App() {
         <GlobalLoader />
         <AppShell>
           <Suspense fallback={<Fallback />}>
-            <Routes>
+            <Routes key={`version:${activeProjectVersion}`}>
               <Route
                 path="/ast/explorer/:contextId"
                 element={<ASTExplorerWrapper />}

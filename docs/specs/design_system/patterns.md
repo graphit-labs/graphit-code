@@ -15,7 +15,7 @@ Code's navigation is grouped by engineering purpose:
 | Shared ecosystem | Hub registry, project artifacts, publication, installed code/knowledge contexts |
 | Operations | Projects, daemon, Dream |
 
-Keep existing route and feature gates. `AppShell` supplies global navigation and the common header. Its right-hand `WorkspaceSelectors` group is the single owner of global Project and Agent controls on every route. Explorers supply only local domain context and work tools; do not repeat global selectors in page headers, sidebars or mobile drawers. Do not add another application sidebar inside a feature. The active project and active agent are separate concepts: changing either must not silently imply the other changed.
+Keep existing route and feature gates. `AppShell` supplies global navigation and the common header. Its right-hand `WorkspaceSelectors` group is the single owner of global Project, Version and Agent controls on every route. Explorers supply only local domain context and work tools; do not repeat global selectors in page headers, sidebars or mobile drawers. Do not add another application sidebar inside a feature. The active project, its version and the active agent are separate concepts: changing one must not silently imply another changed. A version is remembered per project.
 
 Broker groups Workspace, Identity & access, and Operations. Authorized resource access and administrative privileges are distinct; visibility follows existing permission checks. Place inventory before editing so the operator can inspect state before acting. The site uses a content journey, not application navigation: proposition → engineering approach → product roles → adoption context → installation → documentation.
 

@@ -91,7 +91,8 @@ Things worth knowing before you set it:
 ├── auth.json                           provider/profile credentials and active account (mode `0600`, atomic)
 ├── .auth-tmp/                          owner-only staging for atomic auth replacement (empty between writes)
 ├── global.lock.json                    registered projects and installed artifact metadata
-├── memory.lock.json                    external memory context mappings
+├── memory.lock.json                    legacy memory scope registrations; no longer written, an entry is removed when its scope is pruned
+├── backups/lance-rebuild/<uri-hash>/   row snapshots of Lance table rebuilds: `<table>-<ns>.pending.json` until the rebuild completes, then `.done.json` (last 5 per table)
 ├── hub/
 │   └── cache/<hub-fingerprint>/<subject-fingerprint>/
 │       ├── names/                      selectively resolved name records
@@ -361,7 +362,34 @@ use that name.
 | user memory and imported contexts | stay on the main lineage: they are not project code, so they have no version |
 | `DropTable` from a version | refused (`lancestore.ErrBranchScoped`) |
 | a Task schema migration that would recreate a table | refused from a version, and refused from the default version while the table has branches, because recreating the dataset deletes them |
-| a Memory schema reset | runs on the main lineage, then the version forks again |
+| a Memory schema rebuild | rebuilds the main lineage and every branch, keeping each one's rows (matched by `key`); only vectors of an old width are dropped, to be embedded again |
+| a schema computed while the embedding width is unknown | never applied: the table is opened as it is, and a missing one is not created |
+| a project reached by ID alone (a Hub project in the UI) | uses a version's branch only once that version is confirmed real — it has a branch in the project's Task or Memory store; otherwise reads the main lineage and refuses writes (`lancestore.Config.NoFork`, `ErrVersionNotShared`), so a default version selected by name can never create a branch |
+
+#### Rebuilding a table for a new schema
+
+Lance cannot change a column type in place, so a schema change — a new embedding width, or a column
+a newer build adds — rebuilds the table. `lancestore.RebuildTable` does it without a window in
+which the rows exist only in memory:
+
+1. it reads every row of the main lineage and of every branch; a failed read stops before anything
+   is touched, and so does a target schema that is not valid (such as a vector column of width 0);
+2. it writes those rows, already adapted to the new schema, to
+   `backups/lance-rebuild/<uri-hash>/<table>-<ns>.pending.json` in the global directory, durably;
+3. only then does it drop and recreate the table, append the main rows and fork each branch again
+   with its own rows;
+4. it renames the snapshot to `.done.json`, keeping the last five per table as a backup.
+
+A rebuild interrupted after the drop is completed from its pending snapshot the next time the
+store is opened (`lancestore.RecoverRebuild`). Rebuilds of one store are serialized by a lock
+file beside the snapshots. Memory and Task use it; the wiki and AST search tables are derived
+from sources and are rebuilt by reindexing instead, but neither is reset while the embedding width
+is unknown.
+
+Which versions exist is derived from these stores on demand — Lance branches of Task, Memory and
+Dream, local `versions/*` AST and Knowledge layers, and each worktree's checkout
+(`GET /api/project/versions`). No separate version registry exists. Without S3 the Task, Memory and
+Dream datasets are local directories in the global directory and branch the same way.
 
 ### Having an identity is not the same as being entitled to a store
 

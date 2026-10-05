@@ -29,13 +29,14 @@ import {
   RecordLink,
 } from "@/components/shared/EngineeringUI";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
+import { publishedForVersion } from "@/lib/projectVersion";
 const quote = (s: string) =>
   "'" + s.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
 
 export default function ExplorerPage() {
   const { contextId } = useParams<{ contextId: string }>();
   const context = contextId ? decodeURIComponent(contextId) : undefined;
-  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId } = useAppStore();
+  const { activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId, activeProjectVersion } = useAppStore();
   const { key: projectKey, projectDir, projectId, remote } = projectRequestScope({
     activeProjectKey, activeProjectOrigin, activeProjectDir, activeProjectId,
   });
@@ -150,10 +151,11 @@ export default function ExplorerPage() {
       if (!active) return;
       const entries = response.entries.filter(entry => entry.type === "ast" && entry.qualified_latest);
       setRemoteContexts(entries);
-      if (!context && entries[0]?.qualified_latest) navigate(`/ast/explorer/${encodeURIComponent(entries[0].qualified_latest)}`, { replace: true });
+      const preferred = entries[0] ? publishedForVersion(entries[0], activeProjectVersion).context : "";
+      if (!context && preferred) navigate(`/ast/explorer/${encodeURIComponent(preferred)}`, { replace: true });
     }).catch(e => { if (active) setError((e as Error).message); });
     return () => { active = false; };
-  }, [remote, projectId, context, navigate]);
+  }, [remote, projectId, context, navigate, activeProjectVersion]);
   const exploreNeighborhood: NeighborhoodLoader = useCallback(
     (node: GraphNode, previous?: Neighborhood, signal?: AbortSignal) => loadNeighborhood(node, schema, context, projectDir, previous, signal, projectId),
     [schema, context, projectDir, projectId],
@@ -468,7 +470,8 @@ export default function ExplorerPage() {
             value={selectedRemoteContext?.id || ""}
             onChange={(e) => {
               const entry = remoteContexts.find(item => item.id === e.target.value);
-              if (entry?.qualified_latest) navigate(`/ast/explorer/${encodeURIComponent(entry.qualified_latest)}`);
+              const preferred = entry ? publishedForVersion(entry, activeProjectVersion).context : "";
+              if (preferred) navigate(`/ast/explorer/${encodeURIComponent(preferred)}`);
             }}
           >
             {!remoteContexts.length && <option value="">No published artifacts</option>}
@@ -490,6 +493,8 @@ export default function ExplorerPage() {
               .map(version => <option key={version} value={`${selectedRemoteContextID}@${version}`}>{version}</option>)}
           </StyledSelect>
           {context && <small>Reading exact context <code>{context}</code> from Hub</small>}
+          {context && activeProjectVersion && selectedRemoteContext && !publishedForVersion(selectedRemoteContext, activeProjectVersion).matched &&
+            <small role="status">No AST was published from branch <code>{activeProjectVersion}</code>; showing the latest instead.</small>}
         </label>
       </div>}
       <WorkTabs

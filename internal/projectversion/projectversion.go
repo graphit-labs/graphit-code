@@ -163,7 +163,12 @@ func AcquireContext(ctx context.Context, projectDir, explicit string) (release f
 	if err != nil {
 		return nil, err
 	}
-	key := scopeKey(projectDir)
+	return acquireKey(ctx, scopeKey(projectDir), explicit)
+}
+
+// acquireKey holds the scope named key: shared without an explicit version, exclusive
+// with one, which it publishes as that scope's override until release.
+func acquireKey(ctx context.Context, key, explicit string) (release func(), err error) {
 	if key == "" {
 		return func() {}, nil
 	}

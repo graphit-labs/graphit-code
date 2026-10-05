@@ -241,3 +241,13 @@ func truncateRunError(value string) string {
 	}
 	return value[:max]
 }
+
+// VersionBranches lists the native Lance branches of the project's Dream run ledger:
+// one per project version other than the default that has recorded a run.
+func VersionBranches(ctx context.Context, projectDir string) ([]string, error) {
+	uri, s3, err := runLedgerStorage(ctx, projectDir)
+	if err != nil {
+		return nil, err
+	}
+	return lancestore.TableBranches(ctx, lancestore.Config{URI: uri, S3: s3}, dreamRunsTable)
+}

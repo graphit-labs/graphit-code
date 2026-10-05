@@ -40,6 +40,12 @@ type Config struct {
 	// projectversion.LanceBranchName).
 	Branch string
 
+	// NoFork keeps a writable store from creating its branch. A table whose branch
+	// does not exist yet reads the main lineage and refuses writes with
+	// ErrVersionNotShared. It is for a project opened without a checkout, which cannot
+	// tell a new version from the default one it does not know the name of.
+	NoFork bool
+
 	// StrongReadConsistency makes every read refresh the table manifest first.
 	// Coordination data must enable it: a cached snapshot is acceptable for a
 	// search index, but never for deciding whether a shared lease is free.

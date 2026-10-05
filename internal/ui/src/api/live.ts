@@ -1,3 +1,4 @@
+import { scopeToProjectVersion } from './client'
 
 
 const API = () => window.__API_BASE__ ?? ''
@@ -77,11 +78,12 @@ async function refuse(r: Response): Promise<never> {
 }
 
 export async function createLiveSession(req: CreateLiveSessionRequest): Promise<LiveSession> {
-  const r = await fetch(`${API()}/api/live/sessions`, {
+  const body = JSON.stringify(req)
+  const r = await fetch(scopeToProjectVersion(`${API()}/api/live/sessions`, body), {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-Graphit-Request': 'ui' },
-    body: JSON.stringify(req),
+    body,
   })
   if (!r.ok) return refuse(r)
   return r.json() as Promise<LiveSession>

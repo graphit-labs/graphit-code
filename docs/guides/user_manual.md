@@ -85,8 +85,12 @@ worktree therefore sees the code and records of its own branch.
 | state from before versions | belongs to the default branch |
 | user memory | shared by every branch: it is about you, not the code |
 
-To read another branch's state without checking it out, pass `project_version` to an MCP tool or
-`--project-version` to the CLI. For example, compare a feature branch's tasks with `main`:
+To read another branch's state without checking it out, pick it in the Observatory's **Version** menu
+(next to Project; every page then shows that branch's data and the choice is remembered per
+project), pass `project_version` to an MCP tool, or `--project-version` to the CLI. The menu lists the
+branches checked out in your worktrees and every other branch Graphit already has data for. For a
+Hub project it lists the default version and the branches teammates have shared tasks or memory on;
+a branch nobody has written yet can be read but not written from the Hub view. For example, compare a feature branch's tasks with `main`:
 
 ```bash
 graphit task list --project-version main

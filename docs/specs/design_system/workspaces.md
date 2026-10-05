@@ -110,7 +110,7 @@ Inspect desktop and narrow screens for the changed job, including long identifie
 
 ## Global context ownership
 
-Every Code route inherits exactly one Project/Agent group from `AppShell` → `WorkspaceSelectors`. Keep it at the right of the common header, including mobile. Page headers and navigation must not mount another global picker or selected-project badge. Themed Radix menus retain accessible labels, keyboard selection, Escape/focus return and empty/loading states. The single header refresh combines the context catalogue with all active-page loaders. Domain source/scope filters remain local; project metadata may appear in a dossier when it provides additional information.
+Every Code route inherits exactly one Project/Version/Agent group from `AppShell` → `WorkspaceSelectors`. Keep it at the right of the common header, including mobile. Page headers and navigation must not mount another global picker or selected-project badge. Themed Radix menus retain accessible labels, keyboard selection, Escape/focus return and empty/loading states. The single header refresh combines the context catalogue with all active-page loaders. Domain source/scope filters remain local; project metadata may appear in a dossier when it provides additional information.
 
 The Project menu treats Workspace and Hub as two working-context origins for the same immutable
 identity. Group options by origin, show a checkout path only for Workspace, and show “Hub” plus the
@@ -119,9 +119,12 @@ temporarily unavailable, mark a retained remote target stale and keep it selecte
 the last Workspace path. Operations > Projects merges both sources into one row per ID and puts the
 origin choice in the detail action, keeping identity comparison separate from execution scope.
 
-Task, Session and project Memory send the Hub project ID directly. Knowledge and AST add two local
-selectors — artifact and version — and visibly show the resolved exact `id@version`; “Latest” must
-never remain an ambiguous request value. Remote-compatible pages clear results on `activeProjectKey`
+Task, Session and project Memory send the Hub project ID directly, with the selected project version.
+Knowledge and AST add two local selectors — artifact and published version — and visibly show the
+resolved exact `id@version`; “Latest” must never remain an ambiguous request value. For a selected
+project version they start from the artifact published from that branch and say when they fall back
+to the latest. The Version menu is the shared `ContextSelect` composition: grouped options, one plain
+sentence per option, and the same loading/empty/error rules as the Project menu. Remote-compatible pages clear results on `activeProjectKey`
 changes. Checkout-only pages use one shared unavailable composition with the selected Hub identity
 and a global-selector next action, preserving the target instead of falling back to a local path.
 Knowledge contexts shows a prompt to use the global Project menu when no project is selected and
