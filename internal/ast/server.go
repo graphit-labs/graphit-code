@@ -35,6 +35,9 @@ type Server struct {
 	port     int
 	mux      *http.ServeMux
 
+	dbRequests              sync.RWMutex
+	dbClosed                bool
+	baseLastUsed            time.Time
 	dbCacheMu               sync.Mutex
 	dbCache                 map[string]*cachedDB
 	externalContextResolver ExternalContextResolver
@@ -66,38 +69,41 @@ func NewServerOnPort(db GraphDB, repoPath string, port int) (*Server, error) {
 
 func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 
-	mux.HandleFunc("GET /api/query", s.handleQuery)
-	mux.HandleFunc("POST /api/query", s.handleQuery)
-	mux.HandleFunc("GET /api/schema", s.handleSchema)
+	s.registerDBRoute(mux, "GET /api/query", s.handleQuery)
+	s.registerDBRoute(mux, "POST /api/query", s.handleQuery)
+	s.registerDBRoute(mux, "GET /api/schema", s.handleSchema)
 
-	mux.HandleFunc("GET /api/graph", s.handleGraph)
-	mux.HandleFunc("GET /api/graph/neighborhood", s.handleGraphNeighborhood)
-	mux.HandleFunc("GET /api/file", s.handleFile)
-	mux.HandleFunc("GET /api/contexts", s.handleContexts)
-	mux.HandleFunc("POST /api/generate-cypher", s.handleGenerateCypher)
+	s.registerDBRoute(mux, "GET /api/graph", s.handleGraph)
+	s.registerDBRoute(mux, "GET /api/graph/neighborhood", s.handleGraphNeighborhood)
+	s.registerDBRoute(mux, "GET /api/file", s.handleFile)
+	s.registerDBRoute(mux, "GET /api/contexts", s.handleContexts)
+	s.registerDBRoute(mux, "POST /api/generate-cypher", s.handleGenerateCypher)
 
-	mux.HandleFunc("GET /api/search", s.handleSearch)
-	mux.HandleFunc("GET /api/find_code", s.handleFindCode)
-	mux.HandleFunc("GET /api/dead_code", s.handleDeadCode)
-	mux.HandleFunc("GET /api/relationships", s.handleRelationships)
-	mux.HandleFunc("GET /api/complexity", s.handleComplexity)
-	mux.HandleFunc("GET /api/most_complex", s.handleMostComplex)
+	s.registerDBRoute(mux, "GET /api/search", s.handleSearch)
+	s.registerDBRoute(mux, "GET /api/find_code", s.handleFindCode)
+	s.registerDBRoute(mux, "GET /api/dead_code", s.handleDeadCode)
+	s.registerDBRoute(mux, "GET /api/relationships", s.handleRelationships)
+	s.registerDBRoute(mux, "GET /api/complexity", s.handleComplexity)
+	s.registerDBRoute(mux, "GET /api/most_complex", s.handleMostComplex)
 
-	mux.HandleFunc("GET /api/repositories", s.handleListRepositories)
-	mux.HandleFunc("GET /api/stats", s.handleRepoStats)
+	s.registerDBRoute(mux, "GET /api/repositories", s.handleListRepositories)
+	s.registerDBRoute(mux, "GET /api/stats", s.handleRepoStats)
 
-	mux.HandleFunc("GET /api/status", s.handleStatus)
-	mux.HandleFunc("GET /api/ping", s.handlePing)
+	s.registerDBRoute(mux, "GET /api/status", s.handleStatus)
+	s.registerDBRoute(mux, "GET /api/ping", s.handlePing)
 
-	mux.HandleFunc("GET /api/parsers/status", s.handleParsersStatus)
+	s.registerDBRoute(mux, "GET /api/parsers/status", s.handleParsersStatus)
 
-	mux.HandleFunc("POST /api/export/obsidian", s.handleObsidianExport)
-	mux.HandleFunc("POST /api/export/package", s.handleExportPackage)
+	s.registerDBRoute(mux, "POST /api/export/obsidian", s.handleObsidianExport)
+	s.registerDBRoute(mux, "POST /api/export/package", s.handleExportPackage)
 
-	mux.HandleFunc("DELETE /api/context/{name}", s.handleDeleteContext)
+	s.registerDBRoute(mux, "DELETE /api/context/{name}", s.handleDeleteContext)
 }
 
 type emptyGraphDB struct{}
+
+// NewEmptyGraphDB gives the global UI a base without opening a project store.
+func NewEmptyGraphDB() GraphDB { return &emptyGraphDB{} }
 
 func (e *emptyGraphDB) Query(_ context.Context, _ string, _ map[string]any) (*QueryResult, error) {
 	return &QueryResult{}, nil
@@ -192,7 +198,7 @@ func (s *Server) dbForContext(r *http.Request) GraphDB {
 	}
 
 	if ctxName == "" || ctxName == "__project__" {
-		return s.db
+		return s.baseDB()
 	}
 
 	cfg := LadybugConfigForContextIn(root, ctxName)
@@ -408,7 +414,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	err := s.db.Ping(ctx)
+	err := s.baseDB().Ping(ctx)
 	connected := err == nil
 
 	writeJSON(w, map[string]any{
@@ -426,14 +432,15 @@ func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleObsidianExport(w http.ResponseWriter, r *http.Request) {
+	root, _ := s.requestedRoot(r)
 	var body struct {
 		OutputDir string `json:"output_dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.OutputDir == "" {
-		body.OutputDir = filepath.Join(s.repoPath, brand.DotDir(), "ast", "export")
+		body.OutputDir = filepath.Join(root, brand.DotDir(), "ast", "export")
 	}
 
-	exporter := NewObsidianExporter(s.db, s.repoPath)
+	exporter := NewObsidianExporter(s.dbForContext(r), root)
 	if err := exporter.Export(r.Context(), body.OutputDir); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -959,7 +966,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(projectDir); err == nil {
 		var projectDB GraphDB
 		if !isDifferentProject {
-			projectDB = s.db
+			projectDB = s.baseDB()
 		} else {
 			projectDB = s.getOrCreateCachedDB(targetDir, projectDir, true)
 		}
@@ -1228,7 +1235,7 @@ func (s *Server) handleFindCode(w http.ResponseWriter, r *http.Request) {
 	fuzzy := r.URL.Query().Get("fuzzy") == "true"
 	repoPath := r.URL.Query().Get("repo")
 
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 
 	if entityType == "" {
 		results, err := finder.FindRelatedCode(r.Context(), name, fuzzy, repoPath)
@@ -1274,7 +1281,7 @@ func (s *Server) handleDeadCode(w http.ResponseWriter, r *http.Request) {
 		exclude = strings.Split(excludeStr, ",")
 	}
 
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 	results, err := finder.FindDeadCode(r.Context(), exclude, repoPath)
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -1292,7 +1299,7 @@ func (s *Server) handleRelationships(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	repoPath := r.URL.Query().Get("repo")
 
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 	result, err := finder.AnalyzeRelationships(r.Context(), name, path, repoPath)
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -1310,7 +1317,7 @@ func (s *Server) handleComplexity(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	repoPath := r.URL.Query().Get("repo")
 
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 	result, err := finder.GetCyclomaticComplexity(r.Context(), name, path, repoPath)
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -1328,7 +1335,7 @@ func (s *Server) handleMostComplex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 	results, err := finder.FindMostComplexFunctions(r.Context(), limit, repoPath)
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -1338,7 +1345,7 @@ func (s *Server) handleMostComplex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListRepositories(w http.ResponseWriter, r *http.Request) {
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 	repos, err := finder.ListIndexedRepositories(r.Context())
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -1350,10 +1357,10 @@ func (s *Server) handleListRepositories(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleRepoStats(w http.ResponseWriter, r *http.Request) {
 	repoPath := r.URL.Query().Get("repo")
 	if repoPath == "" {
-		repoPath = s.repoPath
+		repoPath, _ = s.requestedRoot(r)
 	}
 
-	finder := NewCodeFinder(s.db)
+	finder := NewCodeFinder(s.dbForContext(r))
 	stats, err := finder.GetRepositoryStats(r.Context(), repoPath)
 	if err != nil {
 		writeError(w, 500, err.Error())

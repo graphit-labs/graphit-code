@@ -62,8 +62,8 @@ func TestEnsureRunningFallsBackWhenUserManagerUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(args) != "daemon\n--ui\n" {
-		t.Fatalf("fallback args = %q, want daemon --ui", args)
+	if string(args) != "daemon\n" {
+		t.Fatalf("fallback args = %q, want daemon without forced UI", args)
 	}
 	starts, err := os.ReadFile(filepath.Join(root, "starts"))
 	if err != nil {

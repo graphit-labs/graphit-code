@@ -35,6 +35,13 @@ project before loading project Tasks, Sessions, or Memory. Personal Memory remai
 without a project. A project lockfile left in the global volume by an older version is ignored
 as a project identity; do not use that lockfile to register a Hub project.
 
+The default base is a pinned Debian image with glibc 2.43, matching the current Linux native
+bundle. The previous Bookworm base cannot load that bundle's LanceDB library. A checksum verifies
+bundle integrity, not libc compatibility. A `BASE_IMAGE` build override must provide the native
+bundle's required libc and runtime libraries; verify it with
+`go run ./cmd/qualitygate ui-smoke graphit graphit-ui-optimization:local` after building the host
+launcher and container image from the same source (see [daemon validation](daemon_operations.md#daemon-supervised-observatory)).
+
 ## Customize container startup
 
 The entrypoint looks for three optional directories under `/docker-entrypoint.d`. This path
@@ -248,7 +255,11 @@ docker exec graphit graphit logout --profile old-service
 
 The image exposes UI port 8080 and MCP port 8081 by default. Its health check always calls the MCP
 `/health` endpoint. When `GRAPHIT_MODULES_DAEMON_UI=true`, it also requires the UI `/health`
-endpoint; with the UI disabled, only MCP health is required. Stop/restart through the container
+endpoint; with `GRAPHIT_MODULES_DAEMON_UI=false`, only MCP health is required and the UI
+stays stopped until requested. The UI runs in the daemon process with the same container
+host, port and browser-auth configuration. Concurrent requests start one listener. The daemon
+publishes its own PID and the bound URL after readiness; container stop waits for UI cleanup.
+A failed UI server is reconstructed by the supervisor's normal backoff. Stop/restart through the container
 runtime; provider and profile state survives in the volume. A daemon restart rotates only the
 generated runtime key, not profile credentials.
 

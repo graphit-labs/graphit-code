@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASE_IMAGE=debian:bookworm-slim
+# The current native bundle requires GLIBC_2.43. Pin the compatible base;
+# validate any override against the bundle with the UI/container smoke check.
+ARG BASE_IMAGE=debian:unstable-slim@sha256:8c99fc3b4617c61eaa16d4436748f779e9a6354b004117814453a23a0dc35279
 FROM ${BASE_IMAGE}
 
 ENV HOME=/home/graphit \

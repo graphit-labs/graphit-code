@@ -45,7 +45,6 @@ func newDaemonCmd() *cobra.Command {
 	var (
 		noEmbedding bool
 		noDream     bool
-		serveUI     bool
 		logPath     string
 		managed     bool
 	)
@@ -88,7 +87,6 @@ The runtime key is regenerated on each daemon start.
 
 Lifecycle:
   ` + brand.BinName() + ` daemon                          Start in foreground (Ctrl+C to stop)
-  ` + brand.BinName() + ` daemon --ui                     Start in foreground with the UI
   ` + brand.BinName() + ` daemon stop                      Stop the running daemon
   ` + brand.BinName() + ` daemon status                    Show daemon health
   ` + brand.BinName() + ` daemon restart                   Restart through the OS manager when available
@@ -101,21 +99,21 @@ Managed service (current user):
   ` + brand.BinName() + ` daemon service status            Show service and login state
   ` + brand.BinName() + ` daemon service uninstall         Stop and remove the service
 
-The managed daemon always serves the UI itself. --managed is an internal flag
-used by the OS service, not needed for foreground use. The tray opens the
-published UI URL in your browser; it does not start a second UI server.
-On Linux without systemd --user, eligible commands start a detached daemon
-with UI directly; crash restart and login startup require the OS service.
+The daemon starts its UI only when the tray or ui command requests it. Set
+GRAPHIT_MODULES_DAEMON_UI=true to activate the UI during startup, including Docker.
+--managed is an internal flag used by the OS service. The UI runs in this daemon,
+and the tray opens its published URL after readiness. On Linux without systemd
+--user, eligible commands start a detached daemon; crash restart and login startup
+require the OS service.
 
 PID file: ~/` + brand.DotDir() + `/daemon/daemon.pid (global, one daemon per machine)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDaemonStart(noEmbedding, noDream, serveUI, logPath, managed)
+			return runDaemonStart(noEmbedding, noDream, logPath, managed)
 		},
 	}
 
 	cmd.Flags().BoolVar(&noEmbedding, "no-embedding", false, "Disable background embedding module")
 	cmd.Flags().BoolVar(&noDream, "no-dream", false, "Disable autonomous dream module")
-	cmd.Flags().BoolVar(&serveUI, "ui", false, "Serve the UI from this daemon process")
 	cmd.Flags().StringVar(&logPath, "log", "", "Log file path (default: ~/"+brand.DotDir()+"/daemon/daemon.log)")
 	cmd.Flags().BoolVar(&managed, "managed", false, "Internal OS service mode")
 	_ = cmd.Flags().MarkHidden("managed")
@@ -130,8 +128,8 @@ PID file: ~/` + brand.DotDir() + `/daemon/daemon.pid (global, one daemon per mac
 	return cmd
 }
 
-func runDaemonStart(noEmbedding, noDream, serveUI bool, logPath string, managed bool) error {
-	closeMCP, err := runDaemonCore(noEmbedding, noDream, serveUI, logPath, managed)
+func runDaemonStart(noEmbedding, noDream bool, logPath string, managed bool) error {
+	closeMCP, err := runDaemonCore(noEmbedding, noDream, logPath)
 	if !errors.Is(err, daemon.ErrReplace) {
 		return err
 	}
@@ -147,9 +145,6 @@ func runDaemonStart(noEmbedding, noDream, serveUI bool, logPath string, managed 
 		}
 		if noDream {
 			argv = append(argv, "--no-dream")
-		}
-		if serveUI {
-			argv = append(argv, "--ui")
 		}
 		if logPath != "" {
 			argv = append(argv, "--log", logPath)
@@ -168,10 +163,6 @@ func finishDaemonReplacement(managed bool, spawn func() error) error {
 	return nil
 }
 
-func daemonShouldServeUI(managed, serveUI bool) bool {
-	return managed || serveUI || config.DaemonServesUI(nil, nil)
-}
-
 func spawnDetachedDaemon(exe string, argv []string) error {
 	cmd := exec.Command(exe, argv...)
 	cmd.Stdin = nil
@@ -182,7 +173,7 @@ func spawnDetachedDaemon(exe string, argv []string) error {
 	return cmd.Start()
 }
 
-func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed bool) (closeMCP func(), err error) {
+func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), err error) {
 	var (
 		mcpOnce     sync.Once
 		mcpCloserMu sync.Mutex
@@ -230,6 +221,10 @@ func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed b
 	mcpKeyFile := daemonctl.KeyFilePath()
 	pidClaimed := make(chan struct{})
 	mcpReady := make(chan struct{})
+	uiModule := daemonctl.NewUIService(newDaemonUIModule().Start)
+	if config.DaemonUIOnStartup() {
+		uiModule.Activate()
+	}
 	go func() {
 		defer func() {
 			select {
@@ -252,6 +247,7 @@ func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed b
 			RuntimeKey:     apiKey,
 			Resolver:       auth.NewProtectedResourceResolver(),
 			AllowedOrigins: config.ResolveMCPAllowedOrigins(nil, nil),
+			EnsureUI:       uiModule.Ensure,
 		})
 
 		mcpHost := config.ResolveMCPHost(nil, nil)
@@ -319,7 +315,7 @@ func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed b
 
 		close(mcpReady)
 
-		httpServer := &http.Server{Handler: mcpMux}
+		httpServer := &http.Server{Handler: mcpMux, BaseContext: func(net.Listener) context.Context { return ctx }}
 		_ = httpServer.Serve(listener)
 	}()
 
@@ -360,9 +356,7 @@ func runDaemonCore(noEmbedding, noDream, serveUI bool, logPath string, managed b
 		}
 	}
 
-	if daemonShouldServeUI(managed, serveUI) {
-		d.AddGlobalModule(newDaemonUIModule(""))
-	}
+	d.AddGlobalModule(uiModule)
 
 	discoverFn := func() ([]daemon.ProjectInfo, error) {
 		mgr, mgrErr := hub.NewGlobalLockManager()
@@ -394,6 +388,7 @@ type daemonMCPMuxOptions struct {
 	Resolver       *auth.ProtectedResourceResolver
 	Verifier       daemonAccessTokenVerifier
 	AllowedOrigins []string
+	EnsureUI       func(context.Context) (string, error)
 }
 
 func newDaemonMCPMux(mcpHandler http.Handler, opts daemonMCPMuxOptions) http.Handler {
@@ -408,6 +403,7 @@ func newDaemonMCPMux(mcpHandler http.Handler, opts daemonMCPMuxOptions) http.Han
 	}))
 
 	mux.Handle("POST "+sessionhook.DaemonPath, &sessionHookHandler{runtimeKey: opts.RuntimeKey})
+	mux.Handle("POST "+daemonctl.UIStartPath, &daemonUIHandler{runtimeKey: opts.RuntimeKey, ensure: opts.EnsureUI})
 
 	// RFC 9728 locates metadata under the well-known prefix, optionally suffixed with the
 	// resource's own path. Clients disagree on which one they request, so both answer.

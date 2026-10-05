@@ -145,6 +145,12 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	}
 	d.logFile = lf
 	defer func() { _ = lf.Close() }()
+	ctx, cancel := context.WithCancel(ctx)
+	var globalWG sync.WaitGroup
+	defer func() {
+		cancel()
+		globalWG.Wait()
+	}()
 
 	for _, fn := range onReady {
 		fn()
@@ -154,7 +160,11 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 		os.Getpid(), d.cfg.DiscoveryInterval, d.cfg.VersionCheckInterval, d.bootStamp)
 
 	for _, mod := range d.globalModules {
-		go SuperviseGlobal(ctx, mod, d.log)
+		globalWG.Add(1)
+		go func() {
+			defer globalWG.Done()
+			SuperviseGlobal(ctx, mod, d.log)
+		}()
 	}
 
 	d.event("running", "Global daemon started")

@@ -191,9 +191,30 @@ autostart wait; process termination releases the operating-system locks.
 Modules that run once per daemon (not per-project):
 - **`ModelServerModule`** (`embedding`, `rerank`): keeps one `graphit model serve <task>` process running — the `graphit-model` binary, which links ONNX Runtime and none of LanceDB, LadybugDB or the parsers. Each serves its socket (`~/.graphit/daemon/embed.sock`, `~/.graphit/daemon/rerank.sock`, or a private short `graphit-<hash>/` directory when that path exceeds the socket path limit; see `ai.ModelSocketPath` in [AI Engine](ai_engine.md)), loads the model on first request and is restarted with the normal backoff when it exits; started with `ExitWithParent`, it also stops when the daemon dies. The daemon calls `ai.SetModelServerRequired(true)`, so a daemon request for a local model fails while its server is down instead of loading the model into the daemon. The embedding server is omitted with `--no-embedding`.
 - **User `MemoryMaintenanceModule`** and **`MemoryEmbeddingModule`**: `graphit memory maintain --user` and `graphit memory embed --user` from the global directory — exactly one owner for the machine-wide user memory scope, independent of how many projects are supervised.
-- **UI module**: the OS-managed daemon hosts the Observatory automatically; an explicitly foreground
-  daemon opts in with `--ui` or `modules.daemon_ui=true`. Its daemon surface is read-only and reports status
-  and connection details only. Lifecycle administration remains in the `graphit daemon` CLI.
+- **UI module**: a lightweight activation gate waits without constructing the server. Only
+  `GRAPHIT_MODULES_DAEMON_UI=true` activates it at daemon startup; managed mode and stored
+  module configuration do not. The tray and `graphit ui` activate the same server on demand.
+  UI handlers run in the daemon process, avoiding a second native runtime. The default is
+  global with an empty AST base; projects are selected explicitly rather than choosing the
+  first registered repository. Concurrent activation requests share one server. The supervisor
+  reconstructs the server after a failure; a cancelled requester does not stop it.
+  AST handlers hold shared backend leases; the UI's 30-second maintenance loop releases
+  backends idle for two minutes and retains at most 16 context entries. Shutdown rejects new
+  AST handlers, closes resources after existing handlers finish, and waits for global modules
+  before releasing the daemon PID. The status log tail is bounded to 64 KiB and 50 complete
+  lines; authenticated browser requests receive no logs.
+
+AST endpoints resolve explicit `project_dir`/`context` selections, including code finding,
+statistics and Obsidian export. AST query/generate POSTs normalize their JSON selection
+before acquiring the project-version lease; the handler receives the same body and
+`X-Project-Version` identifies the selected version. Conflicting URL/body selections
+are rejected rather than leasing one project while querying another.
+
+`POST /_graphit/ui/start` on the MCP listener accepts only the restricted local runtime bearer.
+It activates the UI and waits up to 30 seconds for the listener's published URL, returning
+`{"url":"http://127.0.0.1:<port>/"}`. Missing/wrong/static/Broker credentials return 401;
+unavailable or timed-out activation returns 503. It does not change the daemon PID.
+
 
 The daemon also owns a separate HTTP listener with authenticated streamable MCP at `/mcp`, the
 Agent-hook store endpoint `POST /internal/session-store` (runtime key only; used by the `graphit-hook`
@@ -281,7 +302,7 @@ off, stops a prior unmanaged daemon if one holds the PID lock, starts the OS
 service, then waits for the daemon's lock. Daemon installation itself has a
 separate process lock. The `daemon.pid` lock is the final singleton guarantee.
 On Linux, when `systemd --user` cannot be reached, the same serialized path
-starts a detached `daemon --ui` process directly and waits for its PID lock.
+starts a detached `daemon` process directly and waits for its PID lock.
 It does not register a service, restart after a crash, or enable login startup.
 `daemonctl.Stop` terminates that direct process. When the manager is reachable,
 an installation or start error remains an error and does not trigger direct spawn.
@@ -310,7 +331,7 @@ stopping the current daemon. `start`, `stop`, `restart`, `status`, and `uninstal
 `remove` aliases `uninstall`. Uninstall stops the daemon and removes both service registration and
 login startup; `uninstall --only-login` removes daemon and tray startup at login while keeping the
 running daemon and service registration. The internal `daemon --managed` flag is supplied by the OS service definition and
-forces the UI module on; manual foreground use does not require that flag. The old
+does not activate the UI; manual foreground use does not require that flag. The old
 `daemon scheduler` name aliases the new command. An intentional stop uses the
 OS manager so its failure restart does not relaunch the daemon. Installation
 removes only legacy Graphit watchdog entries: the marked Linux cron pair, the
@@ -326,9 +347,11 @@ It reads daemon state and the global authentication state on a three-second inte
 shows the active login provider and profile, or offers configured first-class Broker providers
 through the existing browser login command. Menu actions start or restart the daemon, open the
 daemon's published UI URL in the default browser, and stop the service, when available, and daemon on Quit.
-A stop failure keeps the tray visible for retry. The UI module publishes
-the actual selected address in `daemon/ui.url` with its PID so a stale file is ignored. The
-service's login option also installs tray login startup; `graphit tray login`
+A stop failure keeps the tray visible for retry. Open UI requests activation through the local
+runtime-authenticated endpoint and opens the browser only after the listener binds. The module
+publishes its actual selected address in `daemon/ui.url` with the daemon PID, so a stale file
+is ignored, and removes the URL when the server stops. The UI lifetime belongs to the daemon;
+request cancellation does not stop it. The service's login option also installs tray login startup; `graphit tray login`
 controls it separately. Linux requires a StatusNotifier watcher; without one,
 the tray exits with a clear error while the daemon remains headless.
 When Linux's user manager is unavailable, tray status instead uses the daemon PID lock,

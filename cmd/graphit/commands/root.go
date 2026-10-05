@@ -54,7 +54,7 @@ func startsBackgroundServices(cmd *cobra.Command) bool {
 		return false
 	}
 	name := cmd.Name()
-	if name == "daemon" || name == "tray" || name == "mcp" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" || name == "_git-hook" || name == "model" {
+	if name == "ui" || name == "daemon" || name == "tray" || name == "mcp" || name == "setup" || name == "uninstall" || name == "self-update" || name == "provider" || name == "login" || name == "logout" || name == "account" || name == "_internal" || name == "_session-hook" || name == "_git-hook" || name == "model" {
 		return false
 	}
 	for p := cmd.Parent(); p != nil; p = p.Parent() {

@@ -206,17 +206,23 @@ func UIURL() string {
 	return daemonctl.PublishedUIURL()
 }
 
-// OpenUI opens the URL served by the managed daemon in the default browser.
+// OpenUI activates the daemon's UI and opens it only after the listener is ready.
 func OpenUI() error {
 	return openDaemonUI(openURL)
 }
 
 func openDaemonUI(openBrowser func(string) error) error {
-	url := UIURL()
-	if url == "" {
-		return fmt.Errorf("daemon UI is not ready; start the daemon and try again")
+	return requestAndOpenUI(daemonctl.RequestUIURL, openBrowser)
+}
+
+func requestAndOpenUI(request func(context.Context) (string, error), openBrowser func(string) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	address, err := request(ctx)
+	if err != nil {
+		return err
 	}
-	return openBrowser(url)
+	return openBrowser(address)
 }
 
 func openURL(url string) error {

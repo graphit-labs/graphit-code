@@ -1,6 +1,7 @@
 package tray
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -75,8 +76,25 @@ func TestOpenDaemonUIOnlyPassesPublishedURLToBrowser(t *testing.T) {
 		t.Fatalf("open error = %v, browser calls = %d", err, called)
 	}
 	clear()
-	if err := openDaemonUI(func(string) error { called++; return nil }); err == nil || called != 1 {
+	if err := requestAndOpenUI(func(context.Context) (string, error) { return "", errors.New("not ready") }, func(string) error { called++; return nil }); err == nil || called != 1 {
 		t.Fatalf("unavailable UI error = %v, browser calls = %d", err, called)
+	}
+}
+
+func TestTrayUIRequestsBeforeOpeningBrowser(t *testing.T) {
+	var calls []string
+	err := requestAndOpenUI(func(context.Context) (string, error) {
+		calls = append(calls, "request-ready")
+		return "http://127.0.0.1:9090/", nil
+	}, func(address string) error {
+		calls = append(calls, "browser")
+		if address != "http://127.0.0.1:9090/" {
+			t.Error(address)
+		}
+		return nil
+	})
+	if err != nil || strings.Join(calls, ",") != "request-ready,browser" {
+		t.Fatalf("calls=%v err=%v", calls, err)
 	}
 }
 

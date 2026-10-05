@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strconv"
 	"strings"
 )
@@ -60,15 +61,13 @@ func ResolveMCPAllowedOrigins(inlineCfg, projectCfg ConfigMap) []string {
 	return splitAllowedOrigins(ResolveConfig("mcp.allowed_origins", inlineCfg, projectCfg))
 }
 
-// DaemonUIModule is the module name that makes the daemon serve the unified UI for as long as it
-// runs, as one of its supervised global modules.
-//
-// It is OPT-IN — listed in OptInModules — for an explicitly foreground daemon.
-// The per-user OS-managed daemon enables this module so its tray can open the
-// already-running UI. Containers can enable it with modules.daemon_ui=true.
+// DaemonUIModule names the environment opt-in for starting the UI with the daemon.
+// Without it, the tray or `ui` command activates the same supervised server later.
 const DaemonUIModule = "daemon_ui"
 
-// DaemonServesUI reports whether the daemon should run the unified UI itself.
-func DaemonServesUI(inlineCfg, projectCfg ConfigMap) bool {
-	return !IsModuleDisabled(DaemonUIModule, inlineCfg, projectCfg)
+// DaemonUIOnStartup deliberately ignores stored project/global configuration.
+// Only the explicit environment opt-in allocates UI resources during startup.
+func DaemonUIOnStartup() bool {
+	enabled, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(ConfigEnvVar("modules." + DaemonUIModule))))
+	return err == nil && enabled
 }

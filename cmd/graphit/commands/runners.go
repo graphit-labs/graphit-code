@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
+	"github.com/graphit-labs/graphit-code/internal/clirun"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
@@ -662,18 +664,19 @@ func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []
 
 func runUnifiedServe(repoPath string) error {
 	p := output.NewPrinter("")
-
-	agent := os.Getenv(brand.EnvVar("AGENT"))
-	if agent == "" {
-		agent = config.FallbackAgent
-	}
-
 	if repoPath == "" {
-		repoPath, _ = os.Getwd()
+		repoPath = brand.GlobalDir()
 	}
-
-	ctx := context.Background()
-	if config.ResolveUIAuthEnabled(nil, config.LoadProjectConfig(repoPath)) {
+	var projectCfg config.ConfigMap
+	if !brand.IsGlobalDir(repoPath) {
+		projectCfg = config.LoadProjectConfig(repoPath)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	clirun.WatchParent(cancel)
+	if config.ResolveUIAuthEnabled(nil, projectCfg) {
 		ctx = auth.WithWebAuthServer(ctx)
 	}
 	reg, err := hub.NewRegistryManager(ctx)
@@ -681,50 +684,29 @@ func runUnifiedServe(repoPath string) error {
 		p.StepWarn("Hub registry unavailable — running in offline mode")
 	}
 	hubSvc := hub.NewHubService(reg)
-
-	astDB, err := newASTBackendReadOnly()
-	if err != nil {
-		astDB, err = newASTBackend()
-		if err != nil {
-			return fmt.Errorf("ast backend: %w", err)
-		}
-	}
+	astDB := daemonUIASTBackend(repoPath)
 	defer func() { _ = astDB.Close() }()
-
-	projectName := filepath.Base(repoPath)
-	lockPath := filepath.Join(repoPath, brand.LockFileName())
-	if data, err := os.ReadFile(lockPath); err == nil {
-		var lockData map[string]any
-		if json.Unmarshal(data, &lockData) == nil {
-			if proj, ok := lockData["project"].(map[string]any); ok {
-				if name, ok := proj["name"].(string); ok && name != "" {
-					projectName = name
-				}
-			}
-		}
-	}
-
-	srv, err := uiserver.NewUnifiedServer(hubSvc, agent, astDB, repoPath, projectName)
+	srv, err := uiserver.NewUnifiedServer(hubSvc, config.ResolveAgent("", nil, projectCfg), astDB, repoPath, daemonUIProjectName(repoPath))
 	if err != nil {
 		return err
 	}
-
-	url := fmt.Sprintf("http://localhost:%d", srv.Port())
-	p.Success("Graphit UI → %s", url)
-	p.Step("Hub + AST available on this port")
-	p.Step("Press Ctrl+C to stop")
-
-	if !nonInteractive {
-		go func() {
-			time.Sleep(300 * time.Millisecond)
-			openBrowser(url)
-		}()
+	host := srv.Host()
+	switch host {
+	case "0.0.0.0":
+		host = "127.0.0.1"
+	case "::":
+		host = "::1"
 	}
-
-	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-
-	return srv.Start(sigCtx)
+	address := "http://" + net.JoinHostPort(host, fmt.Sprint(srv.Port())) + "/"
+	return srv.StartWithReady(ctx, func() error {
+		p.Success("Graphit UI → %s", address)
+		p.Step("Hub + AST available on this port")
+		p.Step("Press Ctrl+C to stop")
+		if !nonInteractive {
+			openBrowser(address)
+		}
+		return nil
+	})
 }
 
 func runASTQuery(query string, contextName string, aiMode bool, cypherOnly bool, aiOptimized bool) error {

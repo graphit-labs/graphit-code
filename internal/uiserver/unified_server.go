@@ -28,6 +28,7 @@ type UnifiedServer struct {
 	projectName    string
 	mux            *http.ServeMux
 	live           *LiveHandler
+	astServer      *ast.Server
 	agentFeatures  bool
 	auth           *webAuth
 	// defaultProjectDir is the project a request without project_dir is answered for.
@@ -98,7 +99,7 @@ func NewUnifiedServer(
 
 	s := &UnifiedServer{
 		port: port, host: host, allowedOrigins: allowedOrigins,
-		projectName: projectName, mux: mux, live: liveHandler,
+		projectName: projectName, mux: mux, live: liveHandler, astServer: astSrv,
 		agentFeatures: agentFeatures,
 		auth:          webAuthentication,
 
@@ -139,6 +140,10 @@ func (s *UnifiedServer) Start(ctx context.Context) error {
 // StartWithReady calls ready after the selected address is bound, before
 // accepting requests. This lets the daemon publish only a reachable UI URL.
 func (s *UnifiedServer) StartWithReady(ctx context.Context, ready func() error) error {
+	if s.astServer != nil {
+		defer s.astServer.CloseDatabases()
+	}
+
 	ln, err := net.Listen("tcp", net.JoinHostPort(s.host, strconv.Itoa(s.port)))
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
@@ -151,17 +156,30 @@ func (s *UnifiedServer) StartWithReady(ctx context.Context, ready func() error) 
 	}
 
 	srv := &http.Server{
-		Addr:    net.JoinHostPort(s.host, strconv.Itoa(s.port)),
-		Handler: hub.CorsWrapWithAllowedOrigins(s.auth.wrap(withProjectVersion(s.mux, s.defaultProjectDir)), s.allowedOrigins),
+		Addr:        net.JoinHostPort(s.host, strconv.Itoa(s.port)),
+		Handler:     hub.CorsWrapWithAllowedOrigins(s.auth.wrap(withProjectVersion(s.mux, s.defaultProjectDir)), s.allowedOrigins),
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
+	maintenanceCtx, stopMaintenance := context.WithCancel(ctx)
+	defer stopMaintenance()
+	if s.astServer != nil {
+		go s.astServer.MaintainDatabases(maintenanceCtx)
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
 
-	<-ctx.Done()
+	var serveErr error
+	select {
+	case <-ctx.Done():
+	case serveErr = <-errCh:
+	}
+	stopMaintenance()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(shutCtx)
+	if err := srv.Shutdown(shutCtx); err != nil {
+		_ = srv.Close()
+	}
 
 	if s.live != nil {
 		s.live.Manager().CloseAll()
@@ -173,6 +191,9 @@ func (s *UnifiedServer) StartWithReady(ctx context.Context, ready func() error) 
 			return e
 		}
 	default:
+	}
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return serveErr
 	}
 	return nil
 }

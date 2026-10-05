@@ -118,28 +118,25 @@ func TestManagedReplacementReturnsFailureForSupervisor(t *testing.T) {
 	}
 }
 
-func TestManagedDaemonAlwaysServesUI(t *testing.T) {
+func TestDaemonUIStartupRequiresEnvironment(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
-	t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), "false")
-	if !daemonShouldServeUI(true, false) {
-		t.Fatal("managed daemon must serve its UI even when the optional module is disabled")
+	if err := config.SetGlobalConfigValue("modules.daemon_ui", "true"); err != nil {
+		t.Fatal(err)
 	}
-	if daemonShouldServeUI(false, false) {
-		t.Fatal("foreground daemon should keep the configured opt-in behavior")
-	}
-	if !daemonShouldServeUI(false, true) {
-		t.Fatal("--ui should enable the foreground daemon UI")
-	}
-	t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), "true")
-	if !daemonShouldServeUI(false, false) {
-		t.Fatal("foreground daemon should honor explicit UI enablement")
+	for _, value := range []string{"", "false", "invalid", "true"} {
+		t.Setenv(config.ConfigEnvVar("modules.daemon_ui"), value)
+		for _, managed := range []bool{false, true} {
+			if got := config.DaemonUIOnStartup(); got != (value == "true") {
+				t.Fatalf("env=%q managed=%t UI=%t", value, managed, got)
+			}
+		}
 	}
 }
 
 func TestDaemonFlagsAndServiceCommands(t *testing.T) {
 	cmd := newDaemonCmd()
-	if cmd.Flags().Lookup("ui") == nil || cmd.Flags().Lookup("ui").Hidden {
-		t.Fatal("--ui must be visible for foreground use")
+	if cmd.Flags().Lookup("ui") != nil {
+		t.Fatal("startup UI must be enabled only by the environment")
 	}
 	if flag := cmd.Flags().Lookup("managed"); flag == nil || !flag.Hidden {
 		t.Fatal("--managed must remain an internal flag")

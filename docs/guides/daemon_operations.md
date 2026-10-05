@@ -37,21 +37,22 @@ so simultaneous CLI invocations and OS starts cannot produce two active daemons.
 
 ```bash
 graphit daemon
-graphit daemon --ui
+GRAPHIT_MODULES_DAEMON_UI=true graphit daemon
 graphit daemon --no-embedding
 graphit daemon --no-dream
 graphit daemon --log /absolute/path/daemon.log
 ```
 
 The command remains in the foreground; `Ctrl+C`, `SIGINT`, and `SIGTERM` request graceful shutdown.
-`--ui` serves the Observatory from this foreground daemon. The managed service enables the same UI
-automatically. A foreground daemon can also opt in with `modules.daemon_ui=true`.
+`GRAPHIT_MODULES_DAEMON_UI=true` starts the Observatory with the daemon. Otherwise it starts
+only when requested from the tray or `graphit ui`; managed mode and stored module settings
+do not activate it.
 Autostarted instances run through the OS service manager using the stable launcher path when the
 launcher supplied one; a directly executed binary registers its own path.
 
 `--no-embedding` disables the global embedding socket and per-project AST/wiki embedding loops for
 that process. `--no-dream` disables per-project Dream runners. These process flags override module
-configuration. Manual foreground replacement preserves them and `--ui`; managed instances restart through the
+configuration. Manual foreground replacement preserves them; managed instances restart through the
 OS manager with the service's default flags. `graphit daemon restart` also uses those defaults.
 
 ### Lifecycle commands
@@ -91,7 +92,7 @@ graphit daemon service uninstall
 | Windows | User Task Scheduler task | `RestartOnFailure` (up to 255 retries, one minute apart); separate login task only with `--login` |
 
 On Linux without a reachable `systemd --user` manager, an eligible command still starts one
-detached daemon directly with its UI enabled. The PID lock prevents a second daemon, and
+detached daemon directly, with UI inactive unless the environment enables it. The PID lock prevents a second daemon, and
 `graphit daemon stop` or the tray's **Quit** stops it. This fallback has no OS supervisor:
 it does not restart after a crash or start at login. `graphit daemon service install` reports
 the unavailable manager instead of installing a service. If `systemd --user` responds but
@@ -101,8 +102,8 @@ All three mechanisms run under the current user without normal administrator ele
 Linux MCP proxy can start `systemd --user` even when its agent host omits desktop session
 variables: Graphit supplies this user's `/run/user/<uid>` bus address to `systemctl` when needed.
 macOS addresses the `launchd` GUI domain by user ID, and Windows uses the current user's Task
-Scheduler registration. The managed daemon starts its UI module using the configured `ui.host` and `ui.port` and publishes the
-actual address it binds. The service uses no one-minute cron or timer. Installation removes only
+Scheduler registration. The daemon serves its UI in the same process, on demand, using the configured `ui.host` and `ui.port`.
+The daemon publishes the UI's actual address only after its listener binds. The service uses no one-minute cron or timer. Installation removes only
 Graphit's identified legacy watchdog entry. `graphit daemon scheduler` remains an alias for
 `daemon service`. `service uninstall` stops and removes the service and its login startup; `remove`
 is an alias. `service uninstall --only-login` turns off daemon and tray startup at login without stopping the
@@ -123,8 +124,8 @@ or **Quit**. Quit stops the service, when available, and the daemon before
 closing the tray; if stopping fails, the tray stays open and shows an error. When a service is
 installed, it remains registered: the next eligible command can start it again, and login startup
 runs at the next login when enabled. Without `systemd --user`, the tray shows direct daemon state
-and keeps **Start daemon** and **Restart daemon** available. Open UI only opens the daemon's published UI URL in the default browser; it does not
-start another server. The published address includes the actual port when the configured port was
+and keeps **Start daemon** and **Restart daemon** available. Open UI requests the daemon's UI, waits for its listener, and opens the published URL in the default browser.
+Repeated requests reuse that server. The published address includes the actual port when the configured port was
 already occupied. If the daemon is stopped,
 use **Start daemon** first. A browser launch failure produces a tray notification.
 
@@ -429,19 +430,47 @@ the subject used by deny-by-default project ACLs. Client-supplied identity argum
 headers are rejected. The daemon may cache authorized Hub metadata below
 `~/.<brand>/hub/cache/<hub>/<subject>/`, but remote content and mounts always revalidate access.
 
-### Daemon-hosted Observatory
+### Daemon-supervised Observatory
 
-The OS-managed daemon starts the unified UI as a supervised global module. An explicitly foreground
-daemon can opt in with `graphit daemon --ui` or `modules.daemon_ui=true`. The module selects the first active registered
-project, or the global directory when none exists, and opens the AST store read-only. Hub
-unavailability does not stop the mostly local UI.
+The daemon starts its unified UI only when requested by **Open UI** in the tray or `graphit ui`.
+Set `GRAPHIT_MODULES_DAEMON_UI=true` to start it with the daemon, for example in a container.
+An absent, false, or invalid value leaves the UI unallocated until a request; stored
+`modules.daemon_ui` configuration and managed mode do not override this startup rule.
+
+The server runs inside the daemon and shares its native runtime and CPU budget. Its default
+scope is global, with no project selected and no project AST backend opened. Select a project
+in the interface, or use `graphit ui --repo <directory>` for an explicit standalone server.
+Concurrent requests reuse the same UI; the browser opens only after its listener binds.
+The supervisor rebuilds a failed server with normal backoff. Cancelling a requester does not
+stop the server. Daemon shutdown waits for UI resources and removes its published URL before
+releasing the PID lock. Hub unavailability does not stop the mostly local UI.
 
 The UI listener uses `ui.host` and its own port behavior. It is distinct from the MCP listener;
 `ui.auth.enabled` enables Broker browser login and protects its data APIs.
 
+The UI opens AST backends on demand. Every 30 seconds it releases the base backend and
+context backends unused for two minutes, and trims the context cache to its 16 most recently
+used entries. Cleanup waits for active AST requests; later queries reopen or recreate the backend.
+Shutdown drains those requests before closing all backends. This releases native handles,
+prepared statements and the canonical manifest, but native allocators may retain memory pages;
+RSS is not guaranteed to drop immediately. MCP still uses native libraries in the daemon.
+The daemon status API reads at most the final 64 KiB of its log and returns up to 50 complete
+lines. An oversized line crossing that boundary is omitted. Broker-authenticated browsers
+continue to receive no daemon logs or local MCP key.
+
+For maintainers with a launcher built for the host and a Docker image built from the same source,
+`go run ./cmd/qualitygate ui-smoke graphit graphit-ui-optimization:local` checks native UI readiness
+and daemon activation on demand, then container UI on/off, authentication, fixed ports,
+URL ownership, absence of a second UI process and container stop. The first argument may instead name the freshly
+built launcher. This invocation works on Windows, macOS and Linux with Docker available; it creates
+isolated temporary state and containers and removes them afterward. It does not restart the resident
+user daemon. Unit lifecycle tests run through the portable pre-commit gate and the three-OS CI matrix.
+
+
 ## Resource control and failure recovery
 
-The daemon lowers its process priority and uses `GRAPHIT_MAX_WORKERS`/the CPU budget. Because the
+The daemon lowers its process priority and uses `GRAPHIT_MAX_WORKERS`/the CPU budget.
+Its UI shares that same process and Go CPU budget. Because the
 work runs in separate processes, the CPU-heavy commands — `ast index`, `knowledge index`,
 `ast embed`, `wiki embed` and `memory embed` — take one **machine-wide** slot before they start,
 whether the daemon, an interactive command or a Git hook started them. A slot is an advisory file

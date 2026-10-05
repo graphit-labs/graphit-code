@@ -131,7 +131,7 @@ func ensureDirectDaemon() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	cmd := exec.Command(exe, "daemon", "--ui")
+	cmd := exec.Command(exe, "daemon")
 	closeLog := AttachLogStderr(cmd)
 	defer closeLog()
 	sysutil.DetachProcess(cmd)

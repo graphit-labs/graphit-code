@@ -54,7 +54,7 @@ graphit provider add workstation --type local --embedding-mode local --rerank-mo
 graphit -c ast.grammars_blacklist=yaml ast index
 
 # Override through the environment.
-GRAPHIT_UI_HOST=0.0.0.0 graphit ui
+GRAPHIT_UI_HOST=0.0.0.0 GRAPHIT_MODULES_DAEMON_UI=true graphit daemon
 
 # Inspect or remove values.
 graphit config --list
@@ -76,7 +76,7 @@ read from the global configuration used by the completion client. Set them with 
 | Local workstation | local auth provider without broker storage; local embedding; default modules | Sources, graphs, wikis, memory, and tasks stay on the machine while profiles remain isolated. |
 | Shared S3 state | local provider with direct S3 or S3-enabled Broker provider with Broker-issued temporary credentials | Hub artifacts and authenticated Memory/Task tables use direct S3 access; Broker-routed AI remains independently selectable. |
 | CI artifact publisher | non-interactive provider creation and login; agent, Dream, daemon, watcher, and hooks disabled | An ephemeral runner explicitly builds and publishes current AST and knowledge contexts without prompts. |
-| Headless server | `modules.agent=false`, `modules.daemon_ui=true`, `ui.auth.enabled=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and a browser-session protected Observatory UI. |
+| Headless server | `modules.agent=false`, `GRAPHIT_MODULES_DAEMON_UI=true`, `ui.auth.enabled=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and a browser-session protected Observatory UI. |
 | Private distribution | build-time `COMPILE_CONFIG` and brand variables | Defaults and identity ship with an internally distributed launcher. |
 
 See [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for a complete
@@ -212,7 +212,7 @@ validation and noninteractive setup sequence.
 
 | Key | Default | Effect |
 |---|---|---|
-| `ui.host` | `127.0.0.1` | Interface used by `graphit ui` and daemon-hosted UI. |
+| `ui.host` | `127.0.0.1` | Interface used by `graphit ui`, including the UI served in the daemon on demand. |
 | `ui.port` | `8080` | First UI port to bind. Invalid values fall back to `8080`; the environment name is `GRAPHIT_UI_PORT`. |
 | `ui.allowed_origins` | plain-HTTP loopback origins | Comma-separated exact CORS allowlist covering **every** UI surface. A configured list replaces the loopback defaults; `*` allows any browser origin. |
 | `ui.auth.enabled` | `false` | Enables Broker login and requires a valid browser session for data APIs. The Docker image sets `GRAPHIT_UI_AUTH_ENABLED=true`; set that environment variable to `false` to disable it there. Environment values take precedence over project and global config. |
@@ -249,7 +249,7 @@ authorization server to point it at, instead of being sent somewhere that cannot
 usable token. The metadata document itself is readable by any origin, because its whole
 purpose is discovery by a client that cannot authenticate yet.
 
-The UI listener does not authenticate users. CORS is not authorization. Keep both listeners on
+The UI listener requires Broker browser sessions when `ui.auth.enabled=true`. CORS is not authorization. Keep both listeners on
 loopback unless a firewall, private network, or authenticated reverse proxy defines the remote
 trust boundary.
 
@@ -329,7 +329,7 @@ consult it; it is not a blanket authorization layer unless stated below.
 | `modules.hooks` | on | Install or remove Git hooks from the project lockfile during initialization and synchronization (configured hooks on Git 2.54+, `.git/hooks` on older Git). |
 | `modules.agent` | on | Natural-language Cypher generation, AI wiki answers, and Live Search; graph, BM25, vector, and hybrid retrieval remain available. |
 | `modules.dream` | off | Autonomous idle Dream cycles. |
-| `modules.daemon_ui` | off | Long-running UI hosted by the daemon, primarily for server/container deployments. |
+| `modules.daemon_ui` | off | Startup is controlled only by `GRAPHIT_MODULES_DAEMON_UI=true`; stored module settings do not start the UI. Otherwise the tray or `graphit ui` requests it on demand. |
 
 ### Git hook commands in the project lockfile
 
@@ -530,7 +530,7 @@ port with Docker's `HOST:CONTAINER` mapping instead of changing the container si
 | `GRAPHIT_GLOBAL_DIR` | `/home/graphit/.graphit` | Persistent global configuration, auth, providers, and daemon runtime files. |
 | `GRAPHIT_MODULES_AGENT` | `false` | Disables features that require an external Agent CLI in the base image. |
 | `GRAPHIT_MODULES_DREAM` | `false` | Keeps autonomous Dream work disabled. |
-| `GRAPHIT_MODULES_DAEMON_UI` | `true` | Makes the daemon serve the unified UI. |
+| `GRAPHIT_MODULES_DAEMON_UI` | `true` | Starts the UI inside the daemon at startup; `false` leaves it stopped until requested. The image defaults to `true`. |
 | `GRAPHIT_UI_HOST` | `0.0.0.0` | Makes the UI listener reachable through the container network. |
 | `GRAPHIT_UI_PORT` | `8080` | Reserved by the standard image for its fixed UI listener; the entrypoint replaces external overrides and the health check probes port 8080 only while daemon UI is enabled. |
 | `GRAPHIT_UI_ALLOWED_ORIGINS` | empty | Uses the normal same-origin and loopback CORS defaults. |

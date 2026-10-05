@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/auth"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemonctl"
@@ -17,11 +18,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
 )
 
-type daemonUIModule struct {
-	repoPath string
-}
+type daemonUIModule struct{}
 
-func newDaemonUIModule(repoPath string) *daemonUIModule { return &daemonUIModule{repoPath: repoPath} }
+func newDaemonUIModule() *daemonUIModule { return &daemonUIModule{} }
 
 func (m *daemonUIModule) Name() string { return "ui" }
 
@@ -31,9 +30,9 @@ func (m *daemonUIModule) Name() string { return "ui" }
 // owns them for its whole lifetime and closing them is part of stopping. The daemon holds
 // neither — its per-project modules open their own — so there is nothing to share.
 func (m *daemonUIModule) Start(ctx context.Context) error {
-	repoPath := m.repoPath
-	if repoPath == "" {
-		repoPath = resolveDaemonUIRepoPath()
+	repoPath := brand.GlobalDir()
+	if config.ResolveUIAuthEnabled(nil, nil) {
+		ctx = auth.WithWebAuthServer(ctx)
 	}
 
 	reg, err := hub.NewRegistryManager(ctx)
@@ -81,16 +80,10 @@ func (m *daemonUIModule) Start(ctx context.Context) error {
 	})
 }
 
-func resolveDaemonUIRepoPath() string {
-	if mgr, err := hub.NewGlobalLockManager(); err == nil {
-		if active, err := mgr.ListActiveProjects(); err == nil && len(active) > 0 {
-			return active[0].Dir
-		}
-	}
-	return brand.GlobalDir()
-}
-
 func daemonUIASTBackend(repoPath string) ast.GraphDB {
+	if brand.IsGlobalDir(repoPath) {
+		return ast.NewEmptyGraphDB()
+	}
 	storeDir := store.ASTProjectDir(repoPath)
 	return ast.NewLadybugDBReadOnly(ast.LadybugConfig{
 		StoreDir:  storeDir,

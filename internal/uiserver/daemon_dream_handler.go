@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -76,8 +75,8 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 	logPath := filepath.Join(daemon.GlobalDaemonDir(), "daemon.log")
 	_, browser := auth.RequestSnapshot(r.Context())
 	if !browser {
-		if data, err := os.ReadFile(logPath); err == nil {
-			res.RecentLogs = splitLastNLocal(string(data), 50)
+		if lines, err := readLogTail(logPath, 50); err == nil {
+			res.RecentLogs = lines
 		}
 	}
 

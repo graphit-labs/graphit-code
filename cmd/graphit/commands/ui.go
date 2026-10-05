@@ -1,29 +1,52 @@
 package commands
 
 import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
+	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/spf13/cobra"
 )
 
 func newUICmd() *cobra.Command {
 	var repoPath string
-
 	cmd := &cobra.Command{
 		Use:   "ui",
-		Short: "Start the Graphit UI (Hub + AST all-in-one) and open it in the browser",
-		Long: `Start the unified Graphit web UI.
+		Short: "Open the global Graphit UI, starting its daemon server on demand",
+		Long: `Open the global Graphit web UI served by the daemon.
 
-A single server is started on a free port, serving:
-  • Hub: registry, install/uninstall, submit, update
-  • AST Explorer: graph visualizer, Cypher query, schema, export
-
-The browser is opened automatically. Multiple instances can run
-simultaneously, one per project, each on its own port.`,
+The daemon starts its UI only when requested, unless GRAPHIT_MODULES_DAEMON_UI=true.
+Repeated requests reuse that server. Projects are selected in the interface.
+Use --repo <directory> to run an explicit standalone project UI in the foreground.`,
 		Aliases: []string{"serve"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUnifiedServe(repoPath)
+			if repoPath != "" {
+				return runUnifiedServe(repoPath)
+			}
+			return runRequestedUI(cmd.Context(), daemonctl.IsRunning, daemonctl.EnsureRunning, daemonctl.RequestUIURL, openBrowser)
 		},
 	}
-
-	cmd.Flags().StringVar(&repoPath, "repo", "", "Repository path to visualize (default: current directory)")
+	cmd.Flags().StringVar(&repoPath, "repo", "", "Run a standalone UI for this explicit project directory")
 	return cmd
+}
+
+func runRequestedUI(ctx context.Context, running func() bool, ensure func() (bool, error), request func(context.Context) (string, error), browser func(string)) error {
+	if !running() {
+		if _, err := ensure(); err != nil {
+			return fmt.Errorf("starting daemon for UI: %w", err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	defer cancel()
+	address, err := request(ctx)
+	if err != nil {
+		return err
+	}
+	output.NewPrinter("").Success("Graphit UI → %s", address)
+	if !nonInteractive {
+		browser(address)
+	}
+	return nil
 }

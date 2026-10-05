@@ -1,14 +1,18 @@
 package uiserver
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/projectversion"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -52,5 +56,114 @@ func TestRequestsResolveStoresOfTheRequestedVersion(t *testing.T) {
 		httptest.NewRequest(http.MethodGet, "/api/memories?project_version=x", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("a version without a project must be rejected, got %d", rec.Code)
+	}
+}
+
+func TestGlobalASTPOSTAcquiresSelectedVersion(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	t.Setenv(brand.EnvVar("PROJECT_VERSION"), "")
+	project := t.TempDir()
+	for _, path := range []string{"/api/query", "/api/generate-cypher"} {
+		t.Run(path, func(t *testing.T) {
+			entered, unblock, finished := make(chan string, 2), make(chan struct{}), make(chan *httptest.ResponseRecorder, 2)
+			first := true
+			h := withProjectVersion(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["project_dir"] != project {
+					t.Error("middleware lost request body")
+				}
+				entered <- projectversion.Current(project).Version
+				if first {
+					first = false
+					<-unblock
+				}
+			}), brand.GlobalDir())
+			request := func(version string) {
+				body, _ := json.Marshal(map[string]string{"cypher": "RETURN 1", "query": "files", "project_dir": project, "project_version": version})
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body))))
+				finished <- rec
+			}
+			go request("feature/x")
+			if got := <-entered; got != "feature/x" {
+				t.Fatalf("POST did not select requested version: %q", got)
+			}
+			go request("main")
+			select {
+			case got := <-entered:
+				t.Errorf("concurrent request bypassed version lease: %s", got)
+			case <-time.After(20 * time.Millisecond):
+			}
+			close(unblock)
+			if got := <-entered; got != "main" {
+				t.Errorf("override leaked to next request: %q", got)
+			}
+			versions := map[string]bool{}
+			for range 2 {
+				rec := <-finished
+				if rec.Code != http.StatusOK {
+					t.Errorf("POST failed: %d %s", rec.Code, rec.Body.String())
+				}
+				versions[rec.Header().Get(ProjectVersionHeader)] = true
+			}
+			if !versions["main"] || !versions["feature/x"] {
+				t.Errorf("wrong version headers: %v", versions)
+			}
+		})
+	}
+}
+
+func TestGlobalASTPOSTRejectsInvalidScope(t *testing.T) {
+	h := withProjectVersion(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("invalid request reached handler") }), "")
+	for _, body := range []string{`{`, `null`, `{"project_dir":3}`, `{"project_dir":"other"}`, `{"project_id":"other"}`, `{"context":"other"}`, `{"project_version":"other"}`, strings.Repeat("x", (1<<20)+1)} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?project_dir=first&project_id=first&context=first&project_version=first", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("invalid body was accepted: status=%d", rec.Code)
+		}
+	}
+}
+
+func TestGlobalASTPOSTScopeMatchesJSONAliases(t *testing.T) {
+	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
+	t.Setenv(brand.EnvVar("PROJECT_VERSION"), "")
+	first, second := t.TempDir(), t.TempDir()
+	a, _ := json.Marshal(first)
+	b, _ := json.Marshal(second)
+	for _, fields := range []string{
+		`"project_dir":` + string(a) + `,"Project_Dir":` + string(b),
+		`"Project_Dir":` + string(b) + `,"project_dir":` + string(a),
+		`"project_dir":` + string(a) + `,"project_dir":` + string(b),
+		`"Project_Dir":` + string(b) + `,"project_dir":null`,
+	} {
+		body := `{` + fields + `,"context":"first","Context":"second","project_version":"first","Project_Version":"main"}`
+		called := false
+		h := withProjectVersion(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			var decoded struct {
+				ProjectDir string `json:"project_dir"`
+				Context    string `json:"context"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&decoded); err != nil {
+				t.Fatal(err)
+			}
+			if r.URL.Query().Get("project_dir") != decoded.ProjectDir || r.URL.Query().Get("context") != decoded.Context {
+				t.Error("middleware and handler selected different scope")
+			}
+			if projectversion.Current(decoded.ProjectDir).Version != "main" || w.Header().Get(ProjectVersionHeader) != "main" {
+				t.Error("lease/header used a different project/version")
+			}
+		}), brand.GlobalDir())
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(body)))
+		if rec.Code != http.StatusOK || !called {
+			t.Errorf("valid alias request rejected: %d %s", rec.Code, rec.Body.String())
+		}
+		called = false
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query?context=first", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest || called {
+			t.Error("alias conflict bypassed validation")
+		}
 	}
 }

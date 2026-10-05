@@ -1219,6 +1219,7 @@ func (k *LadybugBackend) Close() error {
 		k.db = nil
 	}
 
+	k.canonical = nil
 	return nil
 }
 

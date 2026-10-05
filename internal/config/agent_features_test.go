@@ -52,7 +52,7 @@ func TestAgentFeaturesDisabledByConfigAndByEnvironment(t *testing.T) {
 func TestDaemonUIIsOptIn(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 
-	if DaemonServesUI(nil, nil) {
+	if DaemonUIOnStartup() {
 		t.Fatal("the daemon must not serve a UI unless asked: it would hold a port nobody requested")
 	}
 	if !isOptInModule(DaemonUIModule) {
@@ -60,7 +60,7 @@ func TestDaemonUIIsOptIn(t *testing.T) {
 	}
 
 	t.Setenv(ConfigEnvVar("modules."+DaemonUIModule), "true")
-	if !DaemonServesUI(nil, nil) {
+	if !DaemonUIOnStartup() {
 		t.Fatalf("%s=true must make the daemon serve the UI", ConfigEnvVar("modules."+DaemonUIModule))
 	}
 }
