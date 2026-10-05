@@ -61,6 +61,9 @@ func TestFastChecksBlockCommitAndSlowChecksBlockPush(t *testing.T) {
 			t.Errorf("%s pre-push lacks platform semantics checks: %+v", goos, steps)
 		}
 	}
+	if !contains(commit, "TestSyncOutput.*") || !contains(commit, "TestSyncChildren.*") || !contains(commit, "./cmd/store") {
+		t.Fatal("sync output and store maintenance regressions must block the commit")
+	}
 	if !contains(commit, workflows[0]) {
 		t.Fatal("pre-commit actionlint did not receive the workflow path")
 	}

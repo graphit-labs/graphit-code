@@ -80,6 +80,7 @@ Examples:
 		"Hub artifact to search: [<type>:]<id>[@<version>] (repeatable)")
 	cmd.Flags().StringVar(&agent, "agent", "",
 		"Agent conventions for the throwaway project (default: your configured Agent)")
+	cmd.Flags().BoolP("verbose", "v", false, "Show thinking, tool results, and agent stderr")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"Emit one JSON event per line instead of formatted output")
 

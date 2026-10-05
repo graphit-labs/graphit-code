@@ -30,7 +30,6 @@ These flags can be appended to any command:
 
 | Flag | Shorthand | Description | Default |
 |---|---|---|---|
-| `--verbose` | `-v` | Enables detailed debug logs on stdout. | `false` |
 | `--config` | `-c` | Override a configuration value inline (e.g. `-c agent=cursor`). | `nil` |
 | `--non-interactive` | | Forbids prompts, confirmations, browsers, editors, pagers, and interactive chat; missing input is an error. | `false` |
 | `--project-version` | | Project version whose stores to use — a Git branch name. Applies to the project the command runs in and to the CLI processes it starts (through `GRAPHIT_PROJECT_VERSION`); a sibling project keeps its own version. | the branch checked out, or `main` outside Git |
@@ -119,6 +118,11 @@ directory and sharing this command's output: Phase 1 runs `hub hydrate`, `ast in
 hooks and Hub reconciliation stay in the `sync` process. An interactive `sync` hands Phase 2 to a
 detached `sync --heavy`; a `sync` started by the daemon waits for it. A failing `ast index` or
 `knowledge index` fails the sync; a failing Memory index only warns.
+
+The output shows progress and concise results. Project and user memory indexes
+are identified separately. Internal wiki and memory storage paths, detailed AST timing
+and parser breakdowns, and normal heavy-work slot waits are omitted from terminal output.
+Warnings and errors remain visible.
 
 The AST reindex in `init` and the normal `sync` phase takes the AST store lifecycle lock while
 publishing the graph. Background AST embedding releases that lock during model inference and
@@ -421,6 +425,7 @@ graphit live "where is retry decided?" \
   interactive until `/exit` or a second `Ctrl+C`.
 - `--agent <name>` chooses adapter conventions in the throwaway project.
 - `--json` emits one structured event per line.
+- `--verbose` (`-v`) shows thinking, tool results, and agent stderr for this command.
 - `graphit live sessions` lists retained sessions.
 - `graphit live remove <session-id>` deletes one session and its throwaway workspace.
 

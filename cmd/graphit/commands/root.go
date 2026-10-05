@@ -100,7 +100,6 @@ func init() {
 		newModelCmd(),
 	)
 
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt, open a browser, editor, or pager; fail when input is missing")
 	rootCmd.PersistentFlags().StringArrayP("config", "c", nil, "Override runtime config key=value (repeatable, e.g. -c agent=cursor)")
 	rootCmd.PersistentFlags().StringVar(&projectVersionFlag, "project-version", "",

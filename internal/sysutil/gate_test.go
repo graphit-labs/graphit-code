@@ -1,13 +1,50 @@
 package sysutil
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
 )
+
+func TestHeavySlotWaitIsDiagnosticAndFallbackStillWarns(t *testing.T) {
+	t.Setenv("GRAPHIT_GLOBAL_DIR", t.TempDir())
+	old := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(old) })
+	held, err := lockfile.TryAcquire(heavySlotPath(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+	for _, level := range []slog.Level{slog.LevelInfo, slog.LevelDebug} {
+		var out bytes.Buffer
+		slog.SetDefault(slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: level})))
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		_, err := acquireHeavySlot(ctx, 1)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("contended wait: %v", err)
+		}
+		if strings.Contains(out.String(), "waiting for a machine-wide heavy-work slot") != (level == slog.LevelDebug) {
+			t.Fatalf("level %v: %s", level, out.String())
+		}
+	}
+	// A lock-directory failure is actionable even without verbose output.
+	t.Setenv("GRAPHIT_GLOBAL_DIR", heavySlotPath(0))
+	var out bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	lock, err := acquireHeavySlot(context.Background(), 1)
+	if lock != nil || err != nil || !strings.Contains(out.String(), "level=WARN") {
+		t.Fatalf("fallback must warn and continue: lock=%v err=%v log=%s", lock, err, out.String())
+	}
+}
 
 func TestHeavySlotsDefaultsToOne(t *testing.T) {
 	t.Setenv(heavySlotsEnv, "")

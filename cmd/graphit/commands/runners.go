@@ -457,6 +457,11 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		return fmt.Errorf("AST index failed; see .graphit/runtime/daemon/daemon.log")
 	}
 
+	printASTIndexResult(p, finalResult)
+	return nil
+}
+
+func printASTIndexResult(p *output.Printer, finalResult *ast.PipelineResult) {
 	totalErrors := finalResult.ErrorCount + finalResult.WriteErrorCount
 	if totalErrors > 0 {
 		p.Warn("Completed with %d error(s) out of %d files", totalErrors, finalResult.TotalFiles)
@@ -473,35 +478,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 			finalResult.ParsedFiles, finalResult.ParseTime.Seconds(), finalResult.WriteTime.Seconds(), finalResult.TotalTime.Seconds())
 	}
 
-	if finalResult.DiscoverTime > 0 || finalResult.HashTime > 0 {
-		p.Step("Timing: discover %.2fs, hash %.2fs, parse %.2fs, cache-save %.2fs, write %.2fs",
-			finalResult.DiscoverTime.Seconds(), finalResult.HashTime.Seconds(),
-			finalResult.ParseTime.Seconds(), finalResult.WritePhases.CacheSave.Seconds(),
-			finalResult.WriteTime.Seconds())
-	}
-	if finalResult.WriteTime > 0 {
-		phases := finalResult.WritePhases
-		searchPhase := "search-build"
-		if phases.SearchOverlapped {
-			searchPhase = "search-wait (build overlapped)"
-		}
-		p.Step("Write breakdown: graph-preload %.2fs (overlapped), graph-prepare %.2fs, graph-export %.2fs, graph-publish %.2fs, embeddings %.2fs, search-open %.2fs, %s %.2fs, search-maintain %.2fs, search-close %.2fs",
-			phases.GraphPreload.Seconds(), phases.GraphPrepare.Seconds(), phases.GraphExport.Seconds(), phases.GraphPublish.Seconds(),
-			phases.EmbeddingCache.Seconds(), phases.SearchOpen.Seconds(), searchPhase, phases.SearchBuild.Seconds(),
-			phases.SearchMaintain.Seconds(), phases.SearchClose.Seconds())
-		if phases.SearchSetup > 0 || phases.SearchPrepare > 0 {
-			overlapNote := ""
-			if phases.SearchOverlapped {
-				overlapNote = " (active work, overlapped)"
-			}
-			p.Step("Search breakdown%s: setup %.2fs, prepare %.2fs, files-write %.2fs, entities-write %.2fs, files-fts %.2fs, files-scalar %.2fs, entities-fts %.2fs, entities-scalar %.2fs, publish %.2fs",
-				overlapNote,
-				phases.SearchSetup.Seconds(), phases.SearchPrepare.Seconds(), phases.SearchFilesWrite.Seconds(),
-				phases.SearchEntitiesWrite.Seconds(), phases.SearchFilesFTS.Seconds(), phases.SearchFilesScalar.Seconds(),
-				phases.SearchEntitiesFTS.Seconds(), phases.SearchEntitiesScalar.Seconds(), phases.SearchPublish.Seconds())
-		}
-	}
-
 	if finalResult.TimeoutCount > 0 {
 		p.StepWarn("Timeouts: %d file(s)", finalResult.TimeoutCount)
 	}
@@ -511,27 +487,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	if finalResult.WriteErrorCount > 0 {
 		p.StepWarn("Write errors: %d chunk(s)", finalResult.WriteErrorCount)
 	}
-	if finalResult.EmptyCount > 0 {
-		p.Step("Empty (0 entities): %d file(s)", finalResult.EmptyCount)
-		for i := 0; i < len(finalResult.EmptyFiles); i++ {
-			p.ListItem("%s", finalResult.EmptyFiles[i])
-		}
-	}
-
-	if len(finalResult.EngineStats) > 0 {
-		p.Step("Breakdown:")
-
-		keys := make([]string, 0, len(finalResult.EngineStats))
-		for k := range finalResult.EngineStats {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			p.ListItem("%s — %d file(s)", k, finalResult.EngineStats[k])
-		}
-	}
-
-	return nil
 }
 
 func persistClusterConfig(clusterPathMap map[string]string, defaultCluster string) error {
@@ -1329,8 +1284,7 @@ func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, rese
 		return fmt.Errorf("index failed: %w", err)
 	}
 
-	task.Done("Wiki generated: %d articles → %s (took %s)",
-		result.IndexedFiles, wikiDir, result.TotalTime.Round(time.Millisecond))
+	task.Done("Wiki generated: %d articles", result.IndexedFiles)
 	return nil
 }
 

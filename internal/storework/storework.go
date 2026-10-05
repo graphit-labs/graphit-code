@@ -130,12 +130,12 @@ func IndexMemory(ctx context.Context, projectDir string, userScope, reset bool) 
 	if reset {
 		p.Step("The authoritative table has no derived index to clear; refreshing its indexes in place.")
 	}
-	task := p.StartTask("Refreshing memory indexes at %s...", svc.TableURI())
+	task := p.StartTask("Refreshing %s memory indexes...", scopeLabel(userScope))
 	if err := svc.IndexMemories(ctx); err != nil {
 		task.Fail("Memory indexing failed: %v", err)
 		return err
 	}
-	task.Done("Authoritative memory indexes are current")
+	task.Done("%s memory indexes are current", scopeLabel(userScope))
 	return nil
 }
 

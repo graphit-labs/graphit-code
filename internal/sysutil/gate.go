@@ -109,7 +109,7 @@ func acquireHeavySlot(ctx context.Context, slots int) (*lockfile.Lock, error) {
 			}
 		}
 		if !logged {
-			slog.Info("waiting for a machine-wide heavy-work slot", "slots", slots)
+			slog.Debug("waiting for a machine-wide heavy-work slot", "slots", slots)
 			logged = true
 		}
 		select {
