@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.38
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.3
 	github.com/fatih/color v1.19.0
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gogpu/systray v0.3.0
