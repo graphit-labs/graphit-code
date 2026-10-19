@@ -164,3 +164,7 @@ The former eager `~/.<brand>/hub/registry/` mirror and authoritative
 - [Hub S3 object layout](hub-s3-object-layout.md)
 - [Hub collaboration](hub_collaboration.md)
 - [S3 STS storage and UI network configuration](../guides/s3-and-ui-network.md)
+
+## Ordinary FILE consumers
+
+Main FILE install/update/content/list bind authorization to the stored RemoteFileOrigin and producer. ReadHub authorization remains separate from management writes. List revalidates distinct origin/producer groups on its requested page; content revalidates the bound origin even when bytes are cached. Standalone selects storage explicitly and can independently select a verified Native identity provider; profile username/teams never grant access. Broker metadata-only anonymous resolution cannot obtain STSv3 credentials. See [the FILE consumer contract](remote_file_install.md).

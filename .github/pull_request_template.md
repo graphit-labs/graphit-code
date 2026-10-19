@@ -10,7 +10,7 @@ Describe the user-visible or architectural result and why it belongs in Graphit.
 
 ## Evidence
 
-List the commands, focused tests, full-suite checks, builds, screenshots, or manual flows used to verify the change.
+List the affected checks, builds, screenshots, or manual flows used to verify the change. Distinguish compilation/waiting from test execution and name any remaining functional limitation.
 
 ## Contract review
 
@@ -24,9 +24,8 @@ List the commands, focused tests, full-suite checks, builds, screenshots, or man
 
 ## Validation
 
-- [ ] `make test` (lightweight local unit tier)
-- [ ] `make test-full` (automatic local cgroup on Linux, or an isolated CI runner)
-- [ ] `make lint`
-- [ ] `make build-local`
+- [ ] Affected Rust suites: `cargo xtask test <selector>` or `make test TEST=<selector>`
+- [ ] Formatting: `cargo fmt --all -- --check`
+- [ ] Applicable package/build checks, such as `make build` or `make native-test`
 - [ ] UI lint, tests, and build when frontend code changed
 - [ ] Documentation links, examples, and screenshots when public behavior changed

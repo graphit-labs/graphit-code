@@ -1,0 +1,34 @@
+{
+  "contract_revision": 17,
+  "scope": "Pinned serde-saphyr1.3.0 public scalar dispatch; no fallback; decoder uncompiled",
+  "cases": [
+    {
+      "name": "tagged-bool",
+      "bytes": 55,
+      "sha256": "2f920a7654df046f23576618b81868b0d9a68dc3abcb60a5e7821fa433fd21c2",
+      "expected": "ok",
+      "status": "UNRUN"
+    },
+    {
+      "name": "nullable-nonfinite",
+      "bytes": 27,
+      "sha256": "39e9b5dec8a28688c4bbe5aa17de69f4babde4ef57662bd49e56b18fd63e852e",
+      "expected": "Decode",
+      "status": "UNRUN"
+    },
+    {
+      "name": "nullable-tagged-int-overflow",
+      "bytes": 49,
+      "sha256": "d9b7156b5ff6363774b64bea83a4ca467b66075c16418d56bf7ba670bb1bfbc2",
+      "expected": "Decode",
+      "status": "UNRUN"
+    },
+    {
+      "name": "text-tagged-bool",
+      "bytes": 22,
+      "sha256": "3820c7886f535588b7ad120b0dc3c6fea9d2df9fabc77497508c6172f7256dee",
+      "expected": "Decode",
+      "status": "UNRUN"
+    }
+  ]
+}

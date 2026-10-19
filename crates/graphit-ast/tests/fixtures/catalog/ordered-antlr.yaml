@@ -1,0 +1,4 @@
+language: antlr_alias
+extensions: [.shared]
+parser: antlr4
+grammar: antlr-shared

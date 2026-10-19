@@ -1,0 +1,2 @@
+language: x
+queries: [{data_key: a, graph_label: X}]

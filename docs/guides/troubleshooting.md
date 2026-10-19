@@ -3,7 +3,7 @@ title: "Troubleshooting"
 description: "Diagnose and resolve common issues with Graphit Code — daemon, AST indexing, AI/embedding, memory, hub, MCP, and configuration problems."
 content-type: guide
 audience: developers
-updated: 2026-09-23
+updated: 2026-10-29
 keywords:
   - troubleshooting
   - errors
@@ -24,1191 +24,218 @@ related:
 
 # Troubleshooting
 
-This guide covers common issues you may encounter when using Graphit Code and how to resolve them. Issues are organized by module — jump to the relevant section for your problem.
+Use the actual error category, selected project/version, provider and operation to diagnose a
+failure. A timeout or failed response can follow a committed write; inspect current state before
+retrying. Do not repair access by changing databases, deleting identity, disabling authorization
+or silently switching from S3 to local. [Contracts](../architecture/system_contracts.md) explain
+which component owns recovery.
 
-> **Everywhere this guide writes `~/.graphit`, read the value of `GRAPHIT_GLOBAL_DIR`
-> instead if you have set it.** That variable overrides the location of the global
-> directory, and everything below — the config file, the daemon PID and log, the model
-> cache, the extracted runtime — moves with it. Check it first when a path in these
-> instructions does not exist:
->
-> ```bash
-> echo "${GRAPHIT_GLOBAL_DIR:-$HOME/.graphit}"
-> ```
->
-> See [Storage Layout](../architecture/storage_layout.md#moving-it-graphit_global_dir).
+## Start with a small observation
 
----
-
-## Table of Contents
-
-- [Quick Diagnostics](#quick-diagnostics)
-- [Installation & Setup](#installation--setup)
-- [Configuration Issues](#configuration-issues)
-- [Daemon Issues](#daemon-issues)
-- [AST Indexing Issues](#ast-indexing-issues)
-- [AI & Embedding Issues](#ai--embedding-issues)
-- [Memory Issues](#memory-issues)
-- [Task Issues](#task-issues)
-- [Knowledge Issues](#knowledge-issues)
-- [Hub Issues](#hub-issues)
-- [UI Network Issues](#ui-network-issues)
-- [MCP Connection Issues](#mcp-connection-issues)
-- [Agent Hook and Bootstrap Issues](#agent-hook-and-bootstrap-issues)
-- [Dream Module Issues](#dream-module-issues)
-- [Getting Help](#getting-help)
-
----
-
-## Quick Diagnostics
-
-Run these commands first to gather diagnostic information:
-
-```bash
-# Check Graphit version
-graphit version
-
-# Check daemon status (PID, uptime, scheduler, recent logs)
+```sh
+graphit --version
 graphit daemon status
-
-# Check if the project is initialized
-ls -la graphit.lock.json
-
-# Check global configuration
-graphit config --list --global
-
-# Check project configuration
-graphit config --list
-
-# Inspect active provider/profile and UI network settings
-graphit provider show <provider>
-graphit account show
-graphit config --get ui.host
-
-# Run a full sync to detect issues
-graphit sync
+graphit ui --no-open
+graphit config list
+graphit provider list
+graphit account list
 ```
 
-> **Tip:** The `graphit_daemon_status` MCP tool returns structured JSON with the daemon PID, uptime, scheduler status, and the last 10 lines of the daemon log — very useful for automated diagnostics.
-
----
-
-## Installation & Setup
-
-### Binary not found after installation
-
-**Symptoms:**
-```
-graphit: command not found
-```
-
-**Solutions:**
-1. Ensure the binary is in your `PATH`:
-   ```bash
-   which graphit
-   echo $PATH
-   ```
-2. If installed via the one-liner script, ensure `~/.local/bin` is in your `PATH`:
-   ```bash
-   export PATH="$PATH:$HOME/.local/bin"
-   # Add permanently to ~/.bashrc or ~/.zshrc
-   ```
-3. If installed manually, move to a directory on your `PATH`:
-   ```bash
-   mkdir -p ~/.local/bin && mv graphit ~/.local/bin/
-   # Or system-wide (requires sudo):
-   # sudo mv graphit /usr/local/bin/
-   ```
-4. If built from source, check the install target for your OS:
-   - **Linux:** `make install` → `/usr/local/bin/graphit` (or `make install PREFIX=$HOME/.local/bin`)
-   - **macOS:** `make install-darwin` → `/usr/local/bin/graphit` (or `make install-darwin PREFIX=$HOME/.local/bin`)
-   - **Windows (MSYS2):** `make install-windows` → `C:\Program Files\graphit\graphit.exe` (or `make install-windows PREFIX_WIN='C:\Tools\graphit'`)
-5. On macOS, you may need to approve the binary in System Preferences → Security & Privacy after the first run.
-
-### Build from source fails with CGO errors
-
-**Symptoms:**
-```
-cgo: C compiler "gcc" not found: exec: "gcc": executable file not found in $PATH
-```
-
-**Solutions:**
-- **Linux:** Install `gcc` and `g++`:
-  ```bash
-  sudo apt-get install build-essential   # Debian/Ubuntu
-  sudo dnf install gcc gcc-c++           # Fedora/RHEL
-  ```
-- **macOS:** Install Xcode Command Line Tools:
-  ```bash
-  xcode-select --install
-  ```
-- CGO is required for the graph engine, and the `lancedb` build tag for the search engine. A binary built without the tag links stubs whose error names the tag and the fix.
-
-### Project not initialized
-
-**Symptoms:**
-```
-project not initialized. Run init first
-project not initialised
-```
-
-**Solutions:**
-```bash
-graphit init
-```
-This ensures `graphit.lock.json` contains the immutable project ULID and completes initialization.
-If an earlier stateful operation already created the minimal lockfile, `init` reuses its ULID. If
-you are using an Agent adapter, specify it:
-```bash
-graphit init --agent claude
-```
-
----
-
-## Configuration Issues
-
-### Global config parse error
-
-**Symptoms:**
-```
-parsing global config: ...
-reading global config: ...
-```
-
-**Cause:** The global configuration file (`~/.graphit/config.json`) is corrupted or contains invalid JSON.
-
-**Solutions:**
-1. View the raw file:
-   ```bash
-   cat ~/.graphit/config.json
-   ```
-2. Validate JSON syntax (look for trailing commas, unquoted keys).
-3. If the file is beyond repair, back it up and reset:
-   ```bash
-   mv ~/.graphit/config.json ~/.graphit/config.json.bak
-   ```
-   Graphit will recreate defaults on next use.
-
-### Configuration key not taking effect
-
-**Cause:** Graphit uses a cascading configuration priority system. Higher-priority sources override lower ones:
-
-1. **Inline parameters** (tool call arguments) — highest priority
-2. **Environment variables**
-3. **Project config** (`.graphit-lock.json` → `config` section)
-4. **Global config** (`~/.graphit/config.json`)
-5. **Compiled defaults** — lowest priority
-
-**Diagnosis:**
-```bash
-# Check effective project config
-graphit config --list
-
-# Check global config
-graphit config --list --global
-
-# Verify a specific key
-graphit config --get <key>
-graphit config --get <key> --global
-```
-
-### Agent adapter not detected
-
-**Symptoms:** Rules are not installed for your Agent, or the wrong Agent format is used.
-
-**Solutions:**
-1. Set the Agent explicitly:
-   ```bash
-   graphit config agent claude          # Project-level
-   graphit config agent cursor --global # Global default
-   ```
-2. Re-run sync to apply:
-   ```bash
-   graphit sync --agent claude
-   ```
-
----
-
-## Daemon Issues
-
-### Daemon already running
-
-**Symptoms:**
-```
-daemon already running (pid <N>, started <timestamp>)
-```
-
-**Cause:** Another daemon instance is already active. The daemon is a singleton — only one process runs globally.
-
-**Solutions:**
-1. Check the running daemon:
-   ```bash
-   graphit daemon status
-   ```
-2. Stop it if you need to restart:
-   ```bash
-   graphit daemon stop
-   ```
-3. If the daemon is stuck, force kill:
-   ```bash
-   graphit daemon stop  # Sends SIGTERM, then SIGKILL after 10s
-   ```
-
-### Stale PID file
-
-**Symptoms:** Daemon reports as running but the process does not exist, or commands hang.
-
-**Cause:** The daemon exited but left a PID stamp in its lock file. The stamp is diagnostic; the
-operating system releases the lock when the daemon process exits.
-
-**Solutions:**
-1. Check if the process is actually alive:
-   ```bash
-   graphit daemon status
-   # Look at the "running" field
-   ```
-2. The PID file is stored at `~/.graphit/daemon/daemon.pid`. If the process does not exist, the daemon tools clear the stale stamp and allow a new start. Leave the file in place: removing a lock file while another process has it open can defeat singleton protection.
-
-### Daemon crashes on startup
-
-**Cause:** The daemon failed to write its log file or PID file.
-
-**Solutions:**
-1. Check directory permissions:
-   ```bash
-   ls -la ~/.graphit/daemon/
-   ```
-2. Check the daemon log for errors:
-   ```bash
-   cat ~/.graphit/daemon/daemon.log
-   ```
-3. Ensure disk space is available:
-   ```bash
-   df -h ~/.graphit
-   ```
-
-### Daemon keeps restarting (crash loop)
-
-**Cause:** The daemon has a maximum restart limit of **10 restarts**. If a module crashes within 60 seconds of starting, it counts toward the limit. After 10 fast failures, the module is disabled.
-
-A module is supervised per project, so this disables it for **that project only** and the rest of the
-daemon keeps working — which is why the symptom is usually "one project stopped being maintained"
-rather than an obviously broken daemon. The state lasts until the daemon is restarted; recreating
-whatever the module tripped over does not revive a supervisor that already gave up.
-
-**Solutions:**
-1. Check the daemon log for the failing module, and note the project ID in the line prefix:
-   ```bash
-   tail -50 ~/.graphit/daemon/daemon.log
-   ```
-   The last line for a dead module reads `FAILED — exceeded max restarts (10)`.
-2. Look for patterns like embedding model download failures, port conflicts, or a store this build
-   cannot open — see [Task store rejected as incompatible](#task-store-rejected-as-incompatible).
-3. Fix the underlying issue, then restart the daemon so the disabled supervisor is recreated:
-   ```bash
-   graphit daemon restart
-   ```
-   `graphit daemon stop` followed by any ordinary command also works, since those autostart the daemon.
-
-### OS scheduler not configured
-
-**Symptoms:** The daemon does not autostart after system reboot.
-
-**Diagnosis:**
-```bash
-graphit daemon status
-# Check the "scheduler_status" field
-```
-
-Install or inspect Graphit's user-scoped watchdog:
-
-```bash
-graphit daemon scheduler install
-graphit daemon scheduler status
-```
-
-Linux uses the user crontab, macOS uses a LaunchAgent, and Windows uses Task Scheduler.
-See [Daemon Operations and Monitoring](daemon_operations.md#optional-os-watchdog) for exact files,
-intervals, and removal.
-
----
-
-## AST Indexing Issues
-
-### No files indexed / empty graph
-
-**Symptoms:** `graphit_ast_query` returns no results. `graphit_ast_schema` shows no node labels.
-
-**Solutions:**
-1. Run indexing explicitly:
-   ```bash
-   graphit ast index
-   ```
-2. Check if the `ast` module is disabled in config:
-   ```bash
-   graphit config --get ast.disabled
-   ```
-3. Force a full reindex:
-   ```bash
-   graphit ast index --reset
-   ```
-
-AST indexing and embedding share a cross-process lifecycle lock for store access.
-Full indexing, watcher updates, and `--reset` hold it while publishing; embedding
-releases it during model inference and reacquires it to validate and store each
-batch. A reset waits only for an active store operation, rebuilds exclusively,
-and invalidates vectors inferred from the old generation. The daemon opens the
-published store on its next cycle without a manual restart.
-
-### Unsupported language
-
-**Cause:** The AST parser uses Tree-sitter and ANTLR v4 grammars. Languages without an installed grammar will be skipped during indexing.
-
-**Currently supported languages (44):**
-- **Tree-sitter (39):** Bash, C, C++, C#, Clojure, CSS, Dart, Dockerfile, Elixir, Go, GraphQL, Groovy, Haskell, HCL, HTML, Java, JavaScript, JSON, Julia, Kotlin, Lua, Objective-C, PHP, Protocol Buffers, Python, R, Ruby, Rust, Scala, SQL, Svelte, Swift, TOML, TSX, TypeScript, Vue, XML, YAML, Zig
-- **ANTLR (5):** PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85
-
-Markdown is not on the list: no shipped query file claims `.md`, `.markdown` or
-`.mdx`, so documents are never indexed into the code graph. They are the knowledge
-wiki's — search them with `graphit knowledge search`, not with a Cypher query. The
-`tree-sitter-markdown` grammar is still compiled in, so a project that wants
-markdown structure in the graph adds its own `markdown.yaml` under
-`ast.queries_dir`.
-
-**Diagnosis:** Check the indexing output for skipped files or run with verbose logging.
-
-### An Oracle / T-SQL / DB2 repository indexes nothing
-
-**Cause:** the SQL dialect grammars — `plsql`, `postgresql`, `db2`, `tsql`, `plpgsql` —
-are **exclusive**: they claim no file extensions, so nothing reaches them by extension
-and nothing falls back to them. A `.sql` file is parsed by the tree-sitter `sql`
-grammar, which reads standard DDL and DML and produces nothing for a PL/SQL package
-body; `.pks`, `.pkb`, `.prc`, `.db2` and `.tsql` are not discovered at all.
-
-This is deliberate. Four ANTLR grammars used to claim `.sql` and were tried in turn
-whenever tree-sitter came back empty, which made the dialect a *guess* — decided by
-whichever grammar happened to extract an entity first — and cost up to four full
-parses per file.
-
-**Solution:** name the dialect.
-
-```bash
-# Oracle: the .sql files and the package/procedure files
-graphit config ast.grammar ".sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql,.prc=antlr-plsql,.fnc=antlr-plsql,.trg=antlr-plsql"
-
-# SQL Server
-graphit config ast.grammar ".sql=antlr-tsql"
-
-# PostgreSQL
-graphit config ast.grammar ".sql=antlr-postgresql"
-
-graphit ast index --reset
-```
-
-Use the configuration key rather than the `--grammar` flag when the extension is one
-only a dialect claims: file discovery reads the key, and the flag is applied at parse
-time, after discovery already decided what to offer. Check what is in effect with
-`graphit config --get ast.grammar`.
-
-### Large repository indexing is slow
-
-**Solutions:**
-1. Increase the worker count:
-   ```bash
-   graphit ast index --workers 8
-   ```
-2. Index a specific subdirectory instead of the full repo:
-   ```bash
-   graphit ast index --path src/
-   ```
-3. Disable source indexing to save space and time (source code will not be available via `graphit_ast_source`):
-   ```bash
-   graphit ast index --no-source
-   ```
-4. The AST database uses incremental indexing — only changed files are re-parsed on subsequent runs.
-
-### `failed to open database with status 1`
-
-**Symptoms:**
-```
-failed to open database with status 1
-```
-
-**Cause:** The graph has no database file to lock — it is a Parquet bundle
-(`graph.icebug/`) mounted fresh, in memory, on every query — but the engine's C API
-reports every open failure as this one opaque code, with no message channel to say
-which. In practice this means a query landed in the brief window while the daemon is
-publishing a freshly rebuilt bundle (an atomic directory rename). It is transient: the
-graph backend already retries up to 5 times over roughly 750 ms before surfacing this
-error, so seeing it means that budget was exceeded, not that nothing is there.
-
-**Solutions:**
-1. Retry the query — a rebuild that was still publishing when the budget ran out will
-   have finished a moment later.
-2. If it persists, check whether the daemon is stuck mid-rebuild:
-   ```bash
-   graphit daemon status
-   ```
-3. Reset the AST store:
-   ```bash
-   graphit ast index --reset
-   ```
-4. The store lives under the global graphit directory (`~/.graphit` by default, or
-   `GRAPHIT_GLOBAL_DIR` if set), not inside the project — `graphit ast index --reset`
-   finds and rebuilds it without needing the exact path.
-
----
-
-## AI & Embedding Issues
-
-### ONNX Runtime initialization fails
-
-**Symptoms:**
-```
-init ONNX Runtime: ...
-```
-
-**Cause:** The ONNX Runtime core library could not be loaded. Local embedding and local rerank both
-use it.
-
-**Solutions:**
-1. A release launcher extracts the native files beside the versioned core. Confirm the platform
-   payload contains `libonnxruntime.so.1.29.0` on Linux, `onnxruntime.dll` on Windows, or
-   `libonnxruntime.1.29.0.dylib` on macOS.
-2. A source build must run `make native-deps` or expose the matching library directory through
-   `LD_LIBRARY_PATH`, `PATH`, or `DYLD_LIBRARY_PATH`.
-3. For explicit `cuda`, Linux also needs `libonnxruntime_providers_shared.so` and
-   `libonnxruntime_providers_cuda.so`; Windows needs the equivalent provider DLLs. The host must
-   supply compatible NVIDIA driver/CUDA runtime dependencies. Explicit CUDA does not fall back.
-4. To force a diagnostic CPU run, set the affected service only:
-   ```bash
-   graphit --non-interactive provider update NAME \
-     --embedding-device cpu --rerank-device cpu
-   ```
-
-### Provider configuration rejects a local ONNX device selection
-
-**Symptoms:** `graphit provider add` or `graphit provider update` reports an invalid embedding or
-rerank ONNX execution setting, or says device flags require the corresponding mode to be `local`.
-
-**Cause:** Provider configuration uses the same validation contract as model-session construction. Device IDs must
-be non-negative. `coreml` is valid only on macOS and requires ID `0`; macOS `auto` also requires ID
-`0`. A service routed to `direct`, `broker`, or `disabled` has no ONNX block and rejects local-device
-flags.
-
-**Solutions:**
-1. For portable acceleration with CPU fallback, accept the interactive defaults or configure them:
-   ```bash
-   graphit --non-interactive provider add workstation --type local \
-     --embedding-mode local \
-     --embedding-device=auto --embedding-device-id=0 \
-     --rerank-mode local \
-     --rerank-device=auto --rerank-device-id=0
-   ```
-2. Use `cuda` only on a machine with a working CUDA provider and choose a zero-based NVIDIA device
-   index. Use `coreml` only on macOS. Explicit accelerators fail instead of falling back.
-3. Use `cpu` to disable acceleration for one service without changing the other.
-4. Rerun interactive `provider update NAME` to see the provider's current values in brackets;
-   pressing Enter keeps them. A new local service starts at `cpu` and `0`.
-5. With no active profile, inspect `graphit provider show local`. Setup or the next AI resolution
-   creates this real provider with `cpu`/`0` if it is absent; use `provider update local` to select
-   `auto` or an accelerator explicitly.
-
-### Model download fails
-
-**Symptoms:**
-```
-Embedding model not ready: download model: ...
-download tokenizer: ...
-HTTP <status> from https://huggingface.co/...
-incomplete download: wrote <N> of <M> bytes
-```
-
-**Cause:** A required artifact in the selected embedding or rerank manifest could not be
-downloaded from one of its sources. Model bundles are **not** shipped inside the binary. Built-in
-defaults use Hugging Face; operator-defined manifests may use other HTTPS URLs.
-
-The command that triggered acquisition fails with a non-zero exit status. This can be setup or
-daemon startup for a manifest with `fetch_policy: setup`, or the first model operation for
-`fetch_policy: on_demand`. Rerun that same command after fixing the network or cache.
-
-**Solutions:**
-1. Check your internet connection.
-2. Verify you can reach `huggingface.co`:
-   ```bash
-   curl -I https://huggingface.co
-   ```
-3. If behind a corporate proxy, configure `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
-4. Check disk space for every artifact plus its temporary download.
-5. Re-run the operation that owns the manifest's fetch policy:
-   ```bash
-   graphit setup          # fetch_policy: setup
-   graphit ast embed      # fetch_policy: on_demand for embedding
-   ```
-6. Or move the damaged cache aside and let it start over:
-   ```bash
-   mv ~/.graphit/models ~/.graphit/models.damaged
-   graphit ast embed
-   ```
-7. With no route to Hugging Face at all, supply the files by hand. See
-   [Air-gapped machines](#air-gapped-machines) below.
-
-### The model downloads again after an upgrade
-
-It should not. The catalog lives at `~/.graphit/models/<id>/`, which is
-outside the per-version runtime directory that the launcher wipes on upgrade
-(`~/.graphit/runtime/<version>/`). If a download starts on every upgrade, check
-that nothing is cleaning `~/.graphit/models/`.
-
-### Air-gapped machines
-
-A machine with no model-source route needs a complete bundle before its first local operation.
-Create `~/.graphit/models/<id>/manifest.json` with `fetch_policy: "never"`, copy every required
-artifact to the manifest path, and select the bundle:
-
-```bash
-graphit config --global models.embedding.id offline-embedder
-graphit --non-interactive provider add offline --type local \
-  --embedding-device cpu --rerank-device cpu
-graphit --non-interactive login \
-  --profile offline --provider offline --username local
-graphit ast embed
-```
-
-Required files must match their SHA-256 and minimum-size declarations. Missing or invalid artifacts
-fail clearly, and `never` performs no network request. Full detail is in
-[Air-Gapped Deployments](private_brand_customization.md#air-gapped-deployments) and
-[Local model manifests](ai_models.md#local-model-manifests).
-
-### Downloaded model is corrupt
-
-**Symptoms:**
-```
-artifact <role> is smaller than required
-artifact <role> sha256 mismatch
-```
-
-**Cause:** The download was interrupted or corrupted.
-
-**Solutions:**
-Move the affected bundle aside, then retry the operation. For custom manifests, correct the source
-URL/hash or restore the operator-provided files before retrying.
-
-### Tokenizer load failure
-
-**Symptoms:**
-```
-load tokenizer from <path>: ...
-```
-
-**Solutions:**
-1. Verify that `tokenizer.artifact` names an artifact in the selected manifest.
-2. Ensure its declared format is supported and the tokenizer JSON is valid and complete.
-3. Move the affected bundle aside to re-download it only when its fetch policy and sources permit.
-
-### Embedding proxy connection fails
-
-**Symptoms:**
-```
-daemon embed request: ...
-daemon embed: status <code>
-empty embedding response from daemon
-```
-
-A daemon search may instead report `local embedding model server is not running` (or `rerank`).
-
-**Cause:** The request goes through the local model server, `graphit model serve embedding` or
-`graphit model serve rerank`, a separate process the daemon supervises, and that process is not
-running or not healthy. The daemon never loads a local model itself.
-
-**Solutions:**
-1. Check daemon status and that the model servers are running:
-   ```bash
-   graphit daemon status
-   ps -ef | grep "model serve"
-   ```
-2. Check that the Unix sockets exist:
-   ```bash
-   ls -l ~/.graphit/daemon/embed.sock ~/.graphit/daemon/rerank.sock
-   ```
-   With a very long global directory (`GRAPHIT_GLOBAL_DIR`) the sockets live instead in a
-   `graphit-<hash>/` directory under `$XDG_RUNTIME_DIR` or the temporary directory; the
-   `model server starting` line in the server log names the path in use.
-3. Read the server's own log for a failing model or device configuration:
-   ```bash
-   tail -n 50 ~/.graphit/daemon/model-embedding.log
-   ```
-4. Restart the daemon:
-   ```bash
-   graphit daemon restart
-   ```
-
-The model-server protocols are newline-delimited JSON over Unix sockets. They have no HTTP port
-file or health URL. `mcp.port` belongs to the separate authenticated MCP HTTP listener.
-
-### MCP client gets HTTP 401
-
-**Cause:** The client is not sending an accepted bearer. The daemon runtime key changes at each
-start; profile credentials can also be stale or belong to a non-active account.
-
-**Solutions:**
-
-1. Open **System → Daemon** and copy the full active value from **MCP bearer key**, or read
-   `~/.graphit/daemon/mcp.key` on the host.
-2. Send it as `Authorization: Bearer <key>` to the `/mcp` endpoint.
-3. For a stable credential, log in the active profile with `--mcp-key`; for OIDC, verify refresh
-   succeeds and send the renewed access token. `graphit account show` redacts both.
-
----
-
-## Memory Issues
-
-### Cannot determine user identity
-
-**Symptoms:**
-```
-cannot determine user identity: ...
-```
-
-**Cause:** User-scoped memory requires a git user identity to generate a unique hash. Git is not configured with a user email.
-
-**Solutions:**
-```bash
-git config --global user.email "your@email.com"
-git config --global user.name "Your Name"
-```
-
-### Project not initialised (Memory)
-
-**Symptoms:**
-```
-project not initialised
-```
-
-**Cause:** Memory operations require the project to have a ULID in `graphit.lock.json`.
-
-**Solutions:**
-```bash
-graphit init
-```
-
-### Invalid memory type
-
-**Symptoms:**
-```
-invalid memory type "<type>"
-```
-
-**Cause:** The `type` parameter must be one of: `convention`, `correction`, `decision`, `tension`, `fact`, or `skill`.
-
-**Solutions:** Check your tool call and use one of the valid types listed above.
-
-### Memory is unexpectedly local
-
-**Cause:** Memory uses an authoritative LanceDB table directly on S3 only when the active provider
-has a resolved S3 topology and credentials. Without S3 it falls back to the global filesystem;
-anonymous user memory is always local.
-
-**Solutions:** Configure direct S3 on a local provider or use
-a Broker provider whose discovery advertises `graphit-s3-credentials-v3`. Re-login if the provider
-revision changed, then inspect the redacted account state. Broker credential expiry is managed only
-in process memory and is intentionally absent from account output.
-
----
-
-## Task Issues
-
-### Task store rejected as incompatible
-
-**Symptoms:**
-```
-task table tasks has an incompatible schema; use a fresh store; automatic migration is not supported
-```
-
-Every Task tool fails for that project with this message, and the daemon's `task_maintenance` module
-for it dies after the usual ten restarts.
-
-**Cause:** The store on disk was written by a build whose table layout this one cannot read as is.
-
-A store that merely predates a column — the common case after an upgrade — is **not** this error. It
-is migrated in place the first time it is opened: rows are preserved, the columns this build added are
-filled with their empty value, and the indexes are rebuilt. A store written before durable Task
-sessions, for instance, keeps its tasks and gets an empty `session_id` on each of them.
-
-The message above means the difference is **not** additive: a column was dropped, renamed, or changed
-type. Migrating that would mean deciding what to do with data the store cannot interpret, so it is
-refused instead. The refusal is non-destructive — nothing is dropped or rewritten.
-
-**Solutions:**
-
-1. Confirm which project is affected. The daemon log prefixes each line with the project ID:
-   ```bash
-   grep "incompatible schema" ~/.graphit/daemon/daemon.log
-   ```
-2. Check whether the store holds anything worth keeping before doing anything else. A task store that
-   was created but never used has no data files:
-   ```bash
-   ls ~/.graphit/task/tasks/<project-id>/tasks.lance/data 2>/dev/null | wc -l
-   ```
-3. If it is empty, move it aside and let the next open recreate it:
-   ```bash
-   mv ~/.graphit/task/tasks/<project-id> ~/.graphit/task/tasks/<project-id>.bak
-   graphit daemon restart
-   ```
-   Move rather than delete: the backup costs little and makes the step reversible.
-4. If it holds real task history, do not discard it. There is no repair command, and no automatic
-   migration exists for this case by design. Keep the store, and align the binary with it — run the
-   build that wrote it, or export the history before adopting a build that cannot read it.
-
-There is no `--reset` for the Task store, unlike the AST store: task history is authoritative and
-cannot be rebuilt from the repository.
-
----
-
-## Knowledge Issues
-
-### Knowledge wiki not found
-
-**Symptoms:**
-```
-knowledge wiki not found
-```
-
-**Cause:** The knowledge wiki has not been indexed yet, or the specified context does not exist.
-
-**Solutions:**
-1. Run knowledge indexing:
-   ```bash
-   graphit knowledge index
-   ```
-2. Verify the docs directory exists:
-   ```bash
-   ls docs/
-   ```
-3. If using a custom docs directory, check the configuration:
-   ```bash
-   graphit config --get knowledge.docs_dir
-   ```
-
-### A document exists but is not in the wiki
-
-**Symptoms:** `knowledge search` and `wiki browse` never return a page you know you wrote, and reindexing changes nothing.
-
-**Cause:** It is outside the wiki's scope, which is `knowledge.docs_dir` (default `docs/`) plus the project root's README — and nothing else. This is not a stale index: the file was never read. Earlier versions defaulted this key to `.`, the whole project, so a document anywhere used to be picked up.
-
-**Solutions:**
-1. Check where the wiki is looking:
-   ```bash
-   graphit config --get knowledge.docs_dir
-   ```
-2. Move the document under that directory — the usual answer, since that is where documentation belongs.
-3. Or point the key at where your documentation actually lives:
-   ```bash
-   graphit config knowledge.docs_dir documentation
-   ```
-4. Or restore the old whole-project behaviour:
-   ```bash
-   graphit config knowledge.docs_dir .
-   ```
-5. Missing the **root README** specifically? It is indexed by default; check that it has not been switched off:
-   ```bash
-   graphit config --get knowledge.include_readme
-   ```
-   Only the root README is in scope. A `README.md` in a subdirectory is an ordinary file.
-6. Still nothing? Then it *is* a scope-independent problem — check `.wikiignore`, and that the extension is in `knowledge.extensions`.
-
-### Documentation files are missing from the AST code graph
-
-**Symptoms:** `ast query` returns no `File` node for a path under `docs/`, and `ast source` reports it is not indexed.
-
-**Cause:** Intentional. The documentation tree belongs to the knowledge wiki, so the AST pipeline excludes `knowledge.docs_dir` by default (`ast.index_docs=false`). Query the wiki for those documents instead — it chunks and cross-links prose in ways the code graph cannot.
-
-**Solutions:**
-1. Search the wiki rather than the graph — `knowledge search`, `wiki browse`, `wiki source`.
-2. If you genuinely need structural queries over files in the docs tree — `.proto` or `.graphql` schemas kept there, for instance:
-   ```bash
-   graphit config ast.index_docs true
-   graphit ast index --reindex
-   ```
-3. `!docs/` in `.astignore` will **not** work: built-in default patterns are applied last, and gitignore semantics are last-match-wins, so they outrank the project's own patterns. Use the config key.
-4. One-off, without changing configuration — an explicit path is taken literally:
-   ```bash
-   graphit ast index --path docs
-   ```
-
-### A whole language is missing from the AST code graph
-
-**Symptoms:** `ast query` returns no node at all for a language you know is in the repository — `MATCH (f:File) RETURN f.lang, count(f)` simply does not list it — and no ignore pattern explains it. Or `ParseWithGrammar` fails with `grammar disabled by configuration: <name>`.
-
-**Cause:** most likely a grammar switched off by configuration. `ast.grammars_blacklist` disables the grammars it names; `ast.grammars_whitelist`, when non-empty, disables everything it does *not* name. Both are inherited from the global config, so the answer may not be in this project's lockfile at all.
-
-**Solutions:**
-1. Read both keys, at both levels — the project's, then the machine's:
-   ```bash
-   graphit config --get ast.grammars_blacklist
-   graphit config --get ast.grammars_whitelist
-   graphit config --list --global
-   ```
-   Check the environment too: `GRAPHIT_AST_GRAMMARS_BLACKLIST` and `GRAPHIT_AST_GRAMMARS_WHITELIST` outrank both files.
-2. Clear the one that is wrong, then reindex so the files are discovered again:
-   ```bash
-   graphit config --unset ast.grammars_blacklist
-   graphit ast index
-   ```
-3. **A typo in either key is silent.** An entry matching no known grammar is deliberately inert — the lists are read in processes that may not have a grammar pack installed yet — so `ast.grammars_blacklst` (or `pyton`) disables nothing and reports nothing. Verify the key name letter by letter against `graphit config --list`; a value you set that does not appear there went to a different key.
-4. The name has to match the language, the grammar, or the grammar without its `tree-sitter-` / `antlr-` prefix. `yaml` and `tree-sitter-yaml` are the same language; `yml` is neither.
-5. Neither key set and the language still absent? Then it is one of the other two axes — no query file claims the extension, or a path pattern excludes it. See [ignore_files](ignore_files.md#excluding-a-language-rather-than-a-path).
-6. Nodes from before the key was set survive a **scoped** index (`--path`), because the tree is never walked and nothing can be pruned. A full `graphit ast index` removes them.
-
-### Knowledge export fails
-
-**Symptoms:**
-```
-knowledge export: no index at ...
-knowledge export: the index at ... is empty
-```
-
-**Cause:** `graphit knowledge export` reads the compiled local Knowledge index (or the named
-installed context). The project or context has not been indexed yet, or its native `index.lance/`
-store is incomplete. Export does not publish directly and does not require Hub credentials.
-
-**Solutions:**
-1. Build or rebuild the local Knowledge index:
-   ```bash
-   graphit knowledge index
-   ```
-2. For an installed context, verify its name and synchronize it before exporting:
-   ```bash
-   graphit knowledge list
-   graphit knowledge sync --context <name>
-   graphit knowledge export --context <name> --format package
-   ```
-3. Use `--format package` for the `.knowledge` file accepted by Hub Upload. The `okf` and
-   `obsidian` formats create Markdown directories for people and tools; they are not importable
-   native packages.
-
----
-
-## Hub Issues
-
-### Registry unavailable
-
-**Symptoms:**
-```
-registry unavailable: ...
-```
-
-**Cause:** The broker-backed Hub control plane cannot be accessed or authorization cannot be
-revalidated. Graphit does not fall back to a cached positive decision.
-
-**Solutions:**
-1. Check the provider and active account:
-   ```bash
-   graphit provider show <provider>
-   graphit account show
-   ```
-2. Verify broker endpoint DNS/TLS and discovery output.
-3. Check the broker's private route key, object-store endpoint, bucket policy, and ACL logs;
-   none of these settings belongs in Graphit provider/login configuration.
-4. Re-run `graphit login` if the OIDC session or static broker key is invalid.
-5. For multi-user Broker deployments, verify that the MCP bearer contains both the configured MCP
-   resource audience and the Broker API audience. Graphit forwards that same bearer to Broker APIs
-   and never trusts user/team values supplied in a request body.
-
-### Hub lists no projects
-
-An empty result is valid deny-by-default behavior. First inspect broker discovery. If it advertises
-`graphit-hub-access-v1`, check normalized grants in the broker administration UI/API and its OIDC
-claim mapping; the broker SQL database is authoritative and Graphit intentionally does not inspect
-S3 ACL documents. Otherwise, check whether any applicable document exists at
-`v2/global/projects.json`, `v2/authenticated/projects.json` for a non-anonymous subject,
-`v2/users/<user-id>/projects.json`, or the subject's `v2/teams/<team-id>/projects.json` keys. A
-missing or empty file contributes no grant from that level, and Graphit never creates an implicit
-global `*` grant. Anonymous reads `v2/anonymous/projects.json` instead of authenticated, user, or
-team documents.
-
-Add the intended SQL resource grant in Broker mode, or edit the applicable standalone grant
-document outside Broker mode. Never maintain both as mirrors.
-
-### Hub access is forbidden for a known ID
-
-Knowing a project ULID, artifact ID, version, or logical object key does not grant access. Confirm that the
-current trusted subject has an exact ULID, matching name-prefix, or all-project grant. A lockfile
-installation claim can outlive a grant; reopening its AST or Knowledge mount correctly fails after
-revocation.
-
-### Hub cache is stale
-
-`~/.<brand>/hub/cache/` is disposable discovery metadata. Remove the affected Hub/subject cache or
-let its TTL expire, then retry while the control plane is reachable. Cached rows may be shown as
-stale offline, but they cannot authorize details, content, installation, or mounts.
-
-### Artifact not found
-
-**Symptoms:**
-```
-artifact "<id>" not found
-```
-
-**Solutions:**
-1. List available artifacts:
-   ```bash
-   graphit hub list
-   graphit hub search "<keyword>"
-   ```
-2. Check the artifact ID for typos.
-3. Refresh authorized discovery metadata:
-   ```bash
-   graphit hub update
-   ```
-4. If the artifact ID is ambiguous across projects, qualify it with the publishing project ULID and
-   type.
-
-### Project name already reserved
-
-The friendly name is globally unique within one Hub. Choose another name or complete an interrupted
-rename repair. Do not change the local ULID: it is the project's stable identity and remains valid
-even when name registration fails.
-
-### Cannot load lockfile
-
-**Symptoms:**
-```
-cannot load lockfile: ...
-```
-
-**Cause:** The `graphit.lock.json` file is missing or corrupted.
-
-**Solutions:**
-1. Re-initialize the project:
-   ```bash
-   graphit init
-   ```
-2. If the file exists but is corrupt, check JSON validity:
-   ```bash
-   python3 -m json.tool graphit.lock.json
-   ```
-
----
-
-## UI Network Issues
-
-### Broker web login returns a token exchange error
-
-Start a **new** login and, if shown, note only the short reference in the Code UI. Find the
-matching `Broker web login code exchange failed` entry in the Code container logs. It
-records `stage`, `http_status` (zero when unavailable or not applicable), and a
-limited `oauth_error` value. For `token_validation`, newer Code builds also record
-`token_kind` (`response`, `id_token`, or `access_token`) and a fixed
-`validation_reason`, without token contents. The browser message intentionally omits the remote error
-description. Never copy callback URLs, authorization codes, state, cookies, or tokens into
-logs, tickets, or shared diagnostics.
-
-- `token_transport`: check DNS, TLS, and network access **from the Code container** to
-  the Broker token endpoint advertised by OIDC discovery. Browser access alone does not
-  establish container access.
-- `token_request`: check the advertised token endpoint URL. This stage means Code
-  could not construct its outgoing token request.
-- `token_response`: check whether a reverse proxy returned a non-JSON response, and
-  verify the advertised token endpoint and proxy routing.
-- `token_rejected`: inspect the HTTP status and safe OAuth code. For `invalid_grant`,
-  start a new login after checking the exact registered callback origin, client,
-  PKCE verifier continuity, requested resource, code lifetime, and one-time use. If
-  Broker replicas handle different steps, ensure they share the SQL database and the
-  same `authentication.token_pepper`; this key also protects Broker authorization
-  codes. Do not replay the callback URL.
-- `token_validation`: check Code and Broker image versions, issuer/discovery/JWKS
-  reachability, signing keys, audiences, and required claims. This stage means the
-  token endpoint returned a response, but Code rejected the resulting token set.
-  With a classified reason, check JWKS availability and response format for `jwks`, signing-key
-  consistency for `signature`, exact discovery issuer for `issuer`, client or
-  resource settings for `audience`/`resource_audience`, container clocks for
-  `not_yet_valid`, token lifetime and the `exp` claim for `expired`, and a fresh
-  uninterrupted login for `nonce`.
-- `unknown`: collect the reference and Code version for a maintainer; the failure did
-  not match a classified exchange stage.
-
-For external deployments, `ui.auth.public_url` must be the exact HTTPS origin used
-for the UI, and Broker dynamic client registration must be enabled. After correcting
-configuration or versions, start a fresh login and confirm that the callback reaches
-the workspace. See [Authentication providers](authentication.md#web-ui-login) and
-[Container deployment](container.md).
-
-### Remote browser cannot connect
-
-Check `graphit config --get ui.host`. `127.0.0.1` accepts only local connections;
-`0.0.0.0` accepts reachable IPv4 interfaces, subject to firewall rules. The port is
-selected automatically, so use the URL printed by `graphit ui`.
-
-### Browser reports a CORS error
-
-The page's exact origin, including scheme and non-default port, must appear in the
-comma-separated `ui.allowed_origins`. A configured list replaces the localhost default.
-The embedded UI itself uses same-origin `/api` and normally needs no entry. `*` allows
-every browser origin and is unsafe for most deployments.
-
-When `ui.auth.enabled=false`, a curl request can succeed even when browser CORS blocks a
-page, because CORS is browser enforcement rather than server authorization. With web login
-enabled, data APIs require a Broker browser session cookie. Protect remote access with TLS and
-an intended network boundary. See
-[S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
-
----
-
-## MCP Connection Issues
-
-### MCP stdio server fails to start
-
-**Symptoms:**
-```
-MCP stdio error: ...
-```
-
-**Cause:** The MCP server reads from stdin and writes to stdout using JSON-RPC. Issues arise when stdout is redirected or unavailable.
-
-**Solutions:**
-1. Verify the Graphit binary is accessible from your Agent's configured MCP server command.
-2. Check your Agent's MCP server configuration:
-   - **Claude:** Check `.mcp.json`
-   - **Cursor:** Check `.cursor/mcp.json`
-   - **Gemini:** Check `.gemini/settings.json`
-3. Ensure the binary path is absolute or resolvable from your `PATH`.
-
-### Tool calls returning panics
-
-**Symptoms:**
-```
-internal error (panic): ...
-```
-
-**Cause:** A tool handler panicked. All tool handlers are wrapped with panic recovery, so the error is returned gracefully instead of crashing the server.
-
-**Solutions:**
-1. Note the error details and the tool that caused it.
-2. Check if the issue is related to a corrupted database:
-   ```bash
-   graphit ast index --reset
-   ```
-3. Try restarting the MCP server by restarting your Agent session.
-4. Report the issue with the full error message.
-
-### Daemon autostart from MCP
-
-The stdio MCP process ensures the daemon when it starts and retries before tool handling. If it fails:
-```
-[MCP] Failed to ensure daemon is running: ...
-```
-
-This is logged to stderr and does not block the tool call. The tool continues, and embedding can
-fall back to direct provider construction, but background indexing and recurring maintenance remain
-unavailable until the daemon starts.
-
----
-
-## Agent Hook and Bootstrap Issues
-
-### Graphit tools exist, but the agent ignores Graphit-first instructions
-
-**Cause:** MCP availability and hook execution are independent. The MCP configuration can expose `graphit_*` tools while the host withholds, disables, or has not yet reloaded the project hook that injects Graphit's mandates and installed Hub rules.
-
-**Solutions:**
-
-1. Run `graphit sync` from the repository.
-2. Complete the trust, enablement, reload, and verification steps for your adapter in [Activate Graphit Hooks in Each Agent](agent_hook_activation.md).
-3. Start a new agent session; an already-running session does not retroactively receive its start hook.
-4. Check both the hook and the Graphit MCP tools. Seeing only one does not prove the other is active.
-
-### Main agent uses Graphit, but a subagent does not
-
-**Cause:** The host can give a child different MCP servers, tool allowlists, or permissions. Instructions injected at a subagent boundary cannot expose a tool the host omitted.
-
-**Solutions:**
-
-1. Inspect the custom agent's tool allowlist or deny list and permit the Graphit MCP tools when Graphit-first behavior is required.
-2. Follow the adapter-specific subagent note in [Agent Hook Activation](agent_hook_activation.md).
-3. For Cursor Cloud, configure MCP at the team/enterprise layer or use a local/self-hosted agent; cloud agents do not run `sessionStart` and cannot use your local MCP configuration.
-
-If the host does not provide the hook boundary or Graphit tools to that child, native-tool fallback is expected. Do not block the subagent solely because Graphit is unavailable.
-
----
-
-## Dream Module Issues
-
-### Dream status shows "inactive"
-
-**Cause:** The dream module requires both:
-1. `modules.dream` set to `true` — dream is **opt-in**, so an absent value means off
-2. The background daemon to be running
-
-**Solutions:**
-```bash
-graphit config modules.dream true
-graphit sync  # Ensures daemon is running
-```
-
-### A Dream run creates no report
-
-**Cause:** This is the current design. Dream performs one agentic Memory consolidation pass after
-the idle timeout. It may insert, update, delete, promote, or demote Memory through its constrained
-MCP profile, but it does not generate skills, files, or narrative reports. Task, Knowledge/Wiki,
-AST, Hub, and References are read-only evidence sources.
-
-**Solutions:**
-1. Check Dream state and timing:
-   ```bash
-   graphit dream status
-   ```
-2. Inspect Memory through `graphit memory list/search/source`. The authoritative Memory table and
-   revision history are the semantic result.
-3. Use `graphit dream status` for the latest operational run. The shared provider-aware ledger lives
-   under the Dream module (`brand.GlobalDir()/dream/dreams/<project_id>` locally, or the project
-   Dream S3 prefix remotely) and intentionally contains no model output or memory bodies.
-4. If the run failed before agent execution, verify the selected CLI's authentication and project
-   Graphit MCP configuration. Dream does not require Linux `bubblewrap`; known CLIs without a
-   verified native write restriction still run, with the file-write risk described in the
-   [Dream CLI matrix](../specs/dream_module.md#cli-tool-permissions-and-mcp-enforcement). A
-   `completed_unobserved` run means process exit succeeded but tool calls were not measurable.
-
-### Agents do not see the same tasks
-
-**Cause:** Agents are resolving different project identities, S3 settings, or `task.prefix` values.
-
-**Solutions:**
-```bash
-graphit config --get task.prefix
-graphit provider show <provider>
-graphit account show
-graphit task list
-```
-Also compare `graphit.lock.json` project IDs, active profile/provider, and `GRAPHIT_TASK_PREFIX`.
-Task has no
-repository Markdown replica to reconcile.
-
----
-
-## Getting Help
-
-If your issue is not covered here:
-
-1. **Check the daemon log** for detailed error messages:
-   ```bash
-   cat ~/.graphit/daemon/daemon.log
-   ```
-
-2. **Run a full sync** to trigger all modules and surface issues:
-   ```bash
-   graphit sync
-   ```
-
-3. **Use the MCP diagnostic tools:**
-   - `graphit_daemon_status` — daemon health check
-   - `graphit_ast_schema` — verify AST database is populated
-   - `graphit_knowledge_list` — verify knowledge wiki exists
-   - `graphit_memory_list` — verify memory store is accessible
-   - `graphit_config_list` — review all configuration values
-
-4. **Report issues** on the project's issue tracker with:
-   - Graphit version (`graphit version`)
-   - Operating system and architecture
-   - Full error message or stack trace
-   - Steps to reproduce
+These serve different questions: build identity, real service/manager status, actual Browser URL,
+captured settings, provider topology and active account. Config/provider/account output redacts
+supported secrets; do not paste private tokens, native session IDs or cookie values into reports.
+Use `--help` and the [complete option reference](../reference/cli-options.md) when a command differs
+from an old example. Current commands are Rust; there is no `ast index --reset` recovery alias.
+
+## Installation and native loading
+
+| Symptom | Diagnose and recover |
+|---|---|
+| `graphit` not found | Put the reported complete install directory on the host/agent PATH; do not copy an obsolete executable into another search location |
+| Missing native `.so`/`.dylib`/DLL | Reinstall/preserve the complete matching release: both executables, runtime assets and notices; copying only `graphit` loses its library closure |
+| Source build cannot resolve a fork | Follow [workspace](../development/rust-workspace.md) and [forks](../development/rust-forks.md); unpublished immutable sources are a publication blocker, not permission to substitute upstream |
+| Missing `broker-now-wire` | Keep the matching Broker checkout in the documented sibling directory; use the paired revision |
+| Version/help works but inference fails | Help does not load a model or prove driver/backend/device availability; inspect selected manifest and execution |
+
+The client needs host OS libraries and optional GPU drivers. Packaged redistributable libraries
+are not an extra manual package-manager installation. ONNX Runtime is not a local product backend.
+For source SDK builders, use the pinned origin/license/build instructions rather than a new FFI.
+
+## Daemon and tray
+
+`daemon status` observes the authenticated Source or native per-user manager. Service registration
+and startup at login are distinct: use `daemon install --help` / `daemon login --help` for the
+explicit selection. A manual foreground daemon and a manager-started daemon must not race over
+one installation owner. Stop/restart through the maintained command so jobs, native owners and
+descendants are cancelled/joined and discovery is removed by its real owner.
+
+The Linux tray requires a working desktop session bus and StatusNotifier/AppIndicator host. A
+headless service needs neither. A locked GNOME session or disabled extension can hide the icon.
+`Open interface` uses the same authenticated control as `graphit ui`; if no Browser is configured,
+fix `task.browser` rather than expecting an unrelated web server. `ui --no-open` isolates URL
+retrieval from the system opener. If it returns a URL but the opener fails, open that URL manually
+and check the OS desktop opener. A stale previously bound port is not the current Browser origin.
+
+A slow CLI/MCP/UI operation may be a background job, native storage query, authentication or response
+issue. Capture actual command/error and timings before assuming the UI is rendering slowly. An
+old loaded stdio proxy can retain its old catalog until that client reconnects; do not kill all
+active connections unnecessarily.
+
+## Browser login or an expired challenge
+
+An invalid sign-in form/challenge often means the request expired or belonged to a replaced daemon.
+Start from a fresh `graphit ui` login, not a saved `/oauth/login?id=...` URL. Complete the same
+flow in one browser session; state/nonce/PKCE and callback origin are checked. Use the Broker's
+actual account/MFA method; Graphit cannot infer a user's credential or treat any recovery string
+as a valid challenge response.
+
+Missing Browser configuration is headless state. Configure Global `task.browser` with trusted
+Broker provider names and PROJECT authorization endpoint. Production uses valid HTTPS/public
+origin; local HTTP requires explicit loopback exceptions. The current cookie is an opaque handle for server-owned in-memory state, not encrypted
+access/refresh tokens. Restarting loses that session regardless of a configured cookie key. [Authentication](authentication.md)
+explains callback, expiry, refresh and logout.
+
+A valid JWT is not PROJECT permission. A 401 token/session error and a 403/denied project operation
+are different. Code validates trusted JWTs locally until expiration, without mandatory UserInfo
+per request. Account/claim/revocation changes may remain unseen until access expiry; do not invent
+another local TTL, blacklist or per-call introspection as a workaround.
+
+## Wrong settings or changes not taking effect
+
+Ordinary precedence is Command > captured Environment > Project > Global > Distribution > absent
+consumer default. False, zero and empty values do not fall through. Generic custom settings are
+not implicit features; an environment name is applied only where captured. `config --global list`
+shows stored Global values rather than effective project/env/command values.
+
+Use the consumer's reload boundary. Global model-slot controls are observed and refresh model
+selection; no blanket restart is needed for every selection. `ai.cli` is captured at Ask
+attachment and requires reattachment/restart. Listener/Browser startup topology has its own
+capture. Invalid winning typed data fails explicitly. See [key reference](../reference/configuration-keys.md).
+
+## AST or Knowledge results missing
+
+1. Confirm the authorized PROJECT/version or exact installed artifact. The same display name can
+   identify different projects; a Hub selection has no invented local checkout.
+2. Choose FTS/Source/schema to separate textual/structural availability from semantic coverage.
+   Completed FILE/page publications are usable before the entire source or embedding pass finishes.
+3. Check source/document root, extensions, ignore files, effective grammar/profile and custom image
+   mapping. Unsupported compiler/syntax cannot produce facts just because a file exists.
+4. Read the specific FILE/parse/size/integrity diagnostic. Fix authored input or the explicit
+   configuration. A rejected oversized file is not permission to raise every project's limit.
+5. A known file's Source can fall back to the selected authorized disk checkout even without a
+   supported grammar; wrong/missing extents are not permission to guess another Source for rerank.
+
+Unknown YAML profile fields are rejected for that file. The loader reports/skips an invalid
+profile and captures layers on load; there is no two-second mtime cache guarantee to wait out.
+Read query diagnostics as failures, not no-match evidence. Inspect the actual schema before Cypher.
+[Indexing](indexing.md), [profiles](ast_extensibility.md) and [AST](../specs/ast_module.md) explain recovery.
+
+## Docker compiler image cannot run
+
+Maintained images use the Graphit SCIP GHCR families with a compatibility alias (`v1` default).
+The alias is not their release version. `GRAPHIT_AST_SCIP_PULL_POLICY=always` is default;
+`missing` pulls only if absent, and `never` cannot fetch an image that is not installed.
+A configured custom image reference is passed unchanged and does not receive `ast.scip.version`.
+
+Check Docker on PATH, daemon permission, registry login, exact image/tag/digest, platform support,
+mount contract and the emitted `index.scip`. A compiler's classified unavailable/timeout outcome
+can fall back only after its process/container owners are joined and Original/authority still
+permit it. Authorization, integrity, parent cancellation/deadline and incomplete cleanup remain
+terminal. No silent repair or infinite compiler retry loop is implied.
+
+## Embedding or rerank is unavailable
+
+FTS needs no model. A requested semantic/hybrid service failure is explicit, not a silent lexical
+fallback. Confirm the active provider/account, service mode, discovery and vector-space identity.
+Broker providers permit only Broker/disabled services; configuring local weights or a spare API
+key cannot bypass an unavailable Broker advertisement. Remote modes need no local model process.
+
+For Local inference, install/select the verified task manifest. EmbeddingGemma2 uses BF16 GGUF;
+BGE V2 M3 rerank uses F16 GGUF. `graphit models install bge-reranker-v2-m3` downloads
+the pinned public artifact and verifies its size and SHA-256. A prepared matching
+`--file` remains available for offline installation; another model or precision
+is rejected rather than silently substituted.
+An explicit empty `daemon.models.slots` remains an opt-out until explicit selection.
+
+`search.rerank` is false by default. Configuring a provider/model is not activation. Set an explicit
+query false to isolate first-stage retrieval; disabled rerank must not discover/load/infer. An
+invalid score/document association is an error rather than silent reordering of different results.
+[AI guide](ai_models.md) contains exact provider/model commands.
+
+## GPU selected but CPU or RAM is still visible
+
+CPU is default independently for embedding/rerank. `auto` can legitimately choose CPU and must
+report the selected device/fallback reason. Explicit GPU must fail if backend/driver/device is
+unavailable. Check the complete package's accelerator files and host driver; container GPU access
+also requires host runtime integration. Remote services choose their own hardware.
+
+GPU offload does not eliminate CPU mappings, tokenizer, context, staging or metadata RAM. RSS is
+not private exclusive memory. Compare private/PSS/mapped/shared memory and actual device telemetry
+before calling retention a leak. Native model weights load only on effective use and unload after
+300 seconds idle by default; active work/native cleanup completes first. The service process can
+remain alive with unloaded weights. Cache hits do not extend model residency.
+
+## High daemon/MCP memory or thread count
+
+Distinguish per-process private memory, PSS, shared mappings and historical peak. Library/native
+pages shared across processes must not be summed as each one's exclusive consumption. Thread count
+alone does not identify the owning subsystem; compiler builds, model inference and query handles
+have different owners.
+
+`ast.query.buffer_pool_bytes=0` uses Ladybug's native maximum (about 80% system memory), not a
+reservation of all pages, but opening a pool has metadata cost. Queries should reuse the existing
+in-memory owner rather than create a large pool per retained project. The maximum is not a total
+daemon budget. A too-small arbitrary pool can make a legitimate graph query fail; configure an
+explicit value only for a concrete machine/query need and preserve clear allocation errors.
+Do not add global quotas, purge every request or delete active stores as a memory workaround.
+
+MCP's catalog/transport should retain only reusable data, release large call buffers normally and
+preserve useful SDK reuse. An old RSS number alone proves neither a leak nor a fixed target.
+Use an isolated client for diagnostics and preserve existing active connections.
+
+## S3 credentials or data coherence
+
+Read the actual provider/discovery selection. Valid storage-disabled discovery can select local;
+authentication, denied scope/module, failed STS or unavailable S3 cannot silently create a local
+replacement. PROJECT versions are native branches within the authorized table. USER Memory also
+binds verified issuer/subject and installation. The Broker supplies credentials; data travels
+straight between SDK and S3.
+
+A valid cached STS session does not justify an indefinitely stale read snapshot. New operations
+observe committed heads; an existing captured read/cursor can remain pinned. After a topology
+change, do not reuse another URI's revision or infer the old local table is authoritative.
+[Storage](../architecture/storage_layout.md) and [S3](s3-and-ui-network.md) explain renewal/snapshots.
+
+## Task completion, claims and audit
+
+Cancelled/completed descendants are terminal. Nonterminal work and the parent's own active checks
+still govern completion; cancellation is not delivered functionality. Session/Now totals exclude
+cancelled work but preserve its history. Do not delete or mark cancelled records completed to
+manufacture a delivery count.
+
+A stale revision/fence or expired lease requires a real current read and supported coordination.
+Task and Session tokens are distinct and private. Current get does not load all history/comments;
+request explicit pinned pages and continue to EOF. Invalid cursor/filter changes require a new
+query, not concatenating unrelated generations. There is no generic batch/export/force-takeover
+CLI alias. See [Session guide](task-sessions.md).
+
+## Git snapshot or merge failure
+
+Git post-event failures cannot undo an already created commit/checkout. Read the actual error,
+resolve authorization, unsnapshotted edits or divergent record-family conflicts and retry the
+supported `graphit git snapshot`/`restore` operation. Never move immutable tags, choose an arbitrary
+merge base or fabricate historical state for pre-install commits. USER Memory is not included.
+[Git records](../specs/git_records.md) defines rewrites, partial effects and recovery.
+
+## Sync, modified agent files and disk growth
+
+Use `graphit sync` for all installed exact artifact versions and native agent files, or its component
+commands for a smaller scope. Hub update explicitly selects new remote releases. Foreign/user edits
+produce conflicts under origin/version/hash ownership; restore the intended source/customization,
+not a duplicate hidden payload cache. Then apply the host's documented trust/reload/new-session step.
+
+Native maintenance compacts fragments/indexes and reclaims only unreferenced snapshots allowed by
+branches/Git tags/active readers. Do not remove active Lance fragment files or Icebug shards by glob.
+Build `target`/`.build` directories are development outputs, not installed authoritative corpora;
+cleaning them can require recompilation and does not invalidate earlier evidence for unchanged code.
+[Storage layout](../architecture/storage_layout.md) describes active/derived state and ownership.

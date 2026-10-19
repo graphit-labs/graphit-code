@@ -1,243 +1,135 @@
+---
+references:
+  - target: {type: task, id: tsk-da58}
+    relation: specified_by
+  - target: {type: task, id: tsk-a684}
+    relation: implemented_by
+---
+
 # Memory Module Specification
 
-The Memory module stores durable preferences, corrections, decisions, constraints, facts, and
-learned procedures for AI agents. Each scope has one authoritative LanceDB table. That table holds
-the authored records, revision history, full-text indexes, and embeddings; there is no raw Markdown
-store, compiled memory wiki, sidecar query projection, shard cache, or pull/publish mirror.
+Memory preserves durable project facts, decisions, conventions, corrections and reusable procedures.
+It is authored data, not a compiled wiki. This contract describes the current Rust Records services,
+[Browser](ui_dashboard.md), search and background jobs. The lower-level specifications retain
+field and storage details: [native store](native_memory_store.md),
+[search](native_memory_search.md), [embeddings](native_memory_embeddings.md) and
+[USER storage](native_user_memory_store.md).
 
 ## Scopes and storage
 
-Memory has two primary scopes:
+| Scope | Authority and identity | Versioning |
+|---|---|---|
+| PROJECT | Verified permission for the stable project ID | Native Lance branch for the selected project version; Git snapshot integration when installed |
+| USER | Verified issuer/subject plus installation binding, under the USER admission | Independent of project branches and Git |
 
-- `project`: shared architectural facts, workflows, and team conventions, keyed by the project's
-  ULID;
-- `user`: personal preferences and workstation conventions, keyed by the authenticated Hub user or
-  by the reserved `anonymous` identity.
+The local PROJECT dataset is `<global>/projects/<project-id>/memory/index.lance`.
+USER uses `<global>/users/<principal-key>/runtime/memory/index.lance`. The principal key comes from
+verified identity, not a username query parameter or an `anonymous` substitute. A path, CORS
+policy, `unit.id` or PROJECT read grant does not authorize another user's Memory.
 
-Named imported memory contexts use the same table schema. Every scope resolves to exactly one
-authoritative table:
+When the active provider's valid discovery enables S3, resolve the authorized PROJECT/USER
+`memory` root and open its Lance dataset directly. Obtain scoped temporary credentials through
+the existing STSv3 contract; retain valid credentials and renew when needed. Do not use a local
+mirror, write/upload queue or fallback on authentication/STS/S3 failure. Valid discovery explicitly
+disabling remote storage can select local. New operations capture current committed heads while
+already captured readers can retain snapshots. See [S3](../guides/s3-and-ui-network.md).
 
-```text
-local-only mode:
-  ~/.graphit/memory/memory-<scope>-<id>/
-
-S3 mode:
-  project:            s3://<bucket>/<provider-prefix>/v2/projects/<project-ulid>/memory/
-  authenticated user: s3://<bucket>/<provider-prefix>/v2/users/<user-id>/memory/
-  anonymous user:     ~/.graphit/memory/memory-user-anonymous/
-```
-
-Project memory is kept per [project version](project_identity.md#project-version). Each
-version other than the default is a native Lance branch inside the project table above, at the same
-local or S3 location. The default version is the table's main lineage. A version reads the main
-lineage until its first write forks it, and from then on the two diverge. User memory and imported
-contexts are not project code and have no version: they always use the main lineage.
-`OpenMemoryTableIn` chooses the branch from the table URI and the project directory.
-
-A schema change — most often a new embedding model with another width — rebuilds the table without
-losing a memory: every row of the main lineage and of each version branch is snapshotted under
-`backups/lance-rebuild/` in the global directory before the table is recreated, each branch is
-forked again with its own rows, and only the vectors of the old width are dropped so the embedding
-loop computes them again. An interrupted rebuild is completed from its snapshot on the next open.
-While the embedding width cannot be resolved (no model configured, or the model or broker not
-reachable), the table is used exactly as stored and a missing table is not created; the open
-fails with an error naming the cause instead. See
-[Storage Layout](../architecture/storage_layout.md#rebuilding-a-table-for-a-new-schema).
-
-Nothing is copied into a project's `.graphit` directory or into `~/.graphit/wiki/`. See
-[Storage Layout](../architecture/storage_layout.md).
-
-## Optional S3 backend
-
-Memory uses the active provider's storage; there is no memory-specific repository or bucket key.
-For a Broker provider, project memory and authenticated user memory obtain independent in-memory
-STS grants and topology for their respective fixed roots. When the active provider has an S3 bucket, LanceDB opens project and authenticated-user scopes directly at
-their `s3://` URIs. Otherwise the same schema and operations run against the local table directory.
-
-Project memory is authorized as part of the enclosing project ULID. User memory is authorized by
-the trusted user subject. Without authentication, the scope ID is `anonymous` and its authoritative
-table remains local regardless of S3 configuration. `unit.id` neither selects the user-memory scope
-nor authenticates a remote user. Every remote operation follows
-[Hub Access Control](hub_access_control.md), and cached Hub metadata cannot authorize a memory read
-or mutation. Broker user-memory scope requires an S3 grant that applies to `*` or `global`; an
-exact project grant cannot open the user root.
-
-## Acquisition from user context
-
-A user statement is a memory-capture event when it provides project information the agent did not
-already know or standing guidance for how the agent should act. The user does not need to ask the
-agent to remember it or repeat it. The agent presumes that the statement is durable when it
-describes the project, its lifecycle or environment, policies, or conventions, or when knowing it
-would change planning, implementation, review, compatibility, migration, safety, or risk decisions
-in later work.
-
-The record preserves the user's rationale when it connects a project fact to an operating policy.
-For example, “the project is in development, so changes do not require backward compatibility or
-data migrations” captures both the lifecycle fact and the policy derived from it on the first
-occurrence. Project lifecycle or environment state uses the `fact` type; standing project guidance
-uses `decision` or `convention`. Project scope is the default for both. User scope is reserved for
-preferences that genuinely apply across projects. Standing context needed in every session is
-mandatory; important but conditional context is important without necessarily being mandatory.
-
-An instruction explicitly limited to the current task remains in Graphit Task instead of Memory.
-Transient task state, questions or speculation, and facts obvious from authoritative code or
-documentation are not written as current memory. If later user guidance contradicts a live memory,
-the agent updates the existing record and preserves its revision chain instead of creating a
-duplicate.
-
-## Acquisition from agent discoveries
-
-Analysis, implementation, debugging, and review can also produce memory without a user asking for
-it. The agent automatically creates or updates project memory when it confirms relevant non-obvious
-knowledge that is structural, reusable across tasks, or costly to rediscover. The operational test
-is whether another agent would plan or act better, or avoid material investigation, by knowing it.
-
-Positive cases include implicit invariants and contracts; sources of truth and generation flows;
-non-obvious dependencies, coupling, and structural relationships; recurring root causes and failure
-modes; confirmed decisions and trade-offs; surprising tool, infrastructure, or lifecycle behavior;
-and learned procedures. Project scope is the default. A discovery is mandatory only when every
-session needs it and important when its relevance is conditional.
-
-Graphit Task remains the complete record of the investigation. Memory supplements it with the
-durable reusable conclusion and never substitutes for the Task report. The agent does not capture
-trivial or directly obvious observations, transient progress, one-off results without future value,
-or unconfirmed hypotheses and speculation.
-
-There is no synchronization phase between a local projection and S3:
-
-- inserts and updates commit with `Upsert` on the record key;
-- deletes call `DeleteByKey` on that key;
-- independent records can be written concurrently;
-- same-key concurrent updates are last-writer-wins after commit retry;
-- a mutation is durable when the operation returns.
-
-The scope-reference lock records which scopes this machine uses. Pruning a scope removes only its
-local table; it does not delete a remote table another machine may still use.
+Each corpus holds records, revision history, references, lexical state and nullable compatible
+vectors in the same dataset. PROJECT versions share native fragments until writes diverge.
+No per-version copied dataset, `lineages` registry, Markdown source directory or compiled Memory
+wiki is involved. There is no table deletion/recreation or permanent importer when model width
+changes; incompatible semantic associations are replaced through normal indexing while authored
+history is preserved. [Storage layout](../architecture/storage_layout.md) defines maintenance.
 
 ## Record schema and revision chain
 
-`MemoryRecord` carries identity, title, body, type, tags, importance, mandatory status, timestamps,
-scope identity, revision links, content hash, and embedding. `important` and `mandatory` are
-independent: important marks curated reference material; mandatory means the full memory must be
-loaded unconditionally at session start. The embedding column travels with a remote table and needs
-no separate vector cache.
+The public record contains canonical ID, positive revision, title, Markdown body, classification,
+independent `mandatory`/`important` flags, tags, authored references, reference generation, actor
+attribution and creation/update timestamps. The library distinguishes authored input, current
+record, creation event, revision events and tombstone state. Wire names/encodings come from the
+actual consumer codec, not from an old `MemoryRecord` struct or a generic wiki page.
 
-A memory is one chain across all revisions, identified by a stable ULID:
+Classification describes meaning; importance influences curated retrieval and mandatory means
+unconditional full recall at the defined agent bootstrap boundary. Neither flag grants access or
+implies the other. Explicit typed references create relations; mentioning another ID in prose
+alone does not. Omitted reference patches preserve, `[]` clears, and a supplied list replaces
+explicit references; malformed or unknown fields are rejected.
 
-- the live row key is `<id>`;
-- an archived revision key is `<id>/<revision-id>`;
-- `revision` is the write count, starting at 1;
-- `previous` and `next` make the chain walkable;
-- `revision_id` is empty on the live head and set on archived rows;
-- `superseded` distinguishes history from the current belief;
-- deletion keeps the final archived revision with no successor.
+## Writes, concurrency and history
 
-Updates create the archived row and replace the live row through table operations. There is no
-history directory to scan or repair.
+Create uses a stable idempotency key and returns the producer's confirmed record. Updates/deletes
+use the expected current revision and authenticated write admission. Stale revisions or competing
+changes produce conflicts rather than last-writer-wins overwrite. A successful mutation advances
+its real revision and retains immutable creation/history; removal makes the current record
+unavailable without erasing the authorized audit history.
 
-## Direct indexing, search, and reading
+Do not infer rollback from timeout or a lost response. Inspect current state/history and reported
+confirmed/uncertain effects before retry. Cancelled or expired Original contexts cannot continue
+into a new IO or delivery step. Recovery uses existing producer operations; direct table editing
+is not a public API.
 
-The authoritative table owns inverted-text indexes for `body`, `title`, `tags_json`, and `type`,
-scalar indexes for identity and relevance fields, and a vector index once enough embedded rows
-exist. Writes refresh the table's indexes directly. The daemon embeds records whose in-row vector is
-missing and periodically folds, compacts, and prunes the same table.
+PROJECT Git hooks retain immutable commit tags for Memory and Task, restore corresponding state
+on checkout and merge independent family changes against their merge base. Conflicting changes
+preserve both sides and fail explicitly; USER Memory is never included. No atomic transaction
+spans Git and both datasets. See [Git records](git_records.md).
 
-`graphit_memory_search` queries this table directly. It searches current and archived rows and then
-collapses multiple hits from one revision chain:
+## Search, incremental embeddings and reuse
 
-- if the current revision matched, older hits are omitted;
-- if only an archived revision matched, it is returned as `superseded` with the current memory id;
-- every result is classified by the current memory as `mandatory`, `important`, or `normal`;
-- results are ordered by that category, in that exact sequence, and then by `updated_at` descending
-  inside each category (`created_at` is the fallback for legacy rows);
-- lexical or semantic score remains match metadata and never outranks category or date;
-- `top_k` is applied after collapse and canonical ordering, so it counts distinct memories and
-  cannot exclude a higher-priority memory in favor of a higher-scoring lower-priority one.
+FTS needs no embedding service. Semantic search requires the selected service/vector space;
+hybrid combines lexical and vector channels while retaining lexical candidates without vectors.
+The current filters distinguish classification, literal tags, mandatory, important and exclusion
+of already loaded mandatory records. Returned match location/revision identifies whether the
+match came from current or explicitly eligible historical content. Search does not turn a
+historical/deleted match into a live `get` result.
 
-`graphit_memory_source` reads `<id>` or `<id>/<revision-id>` directly and renders the row as
-Markdown. Memory is not a wiki scope: `graphit_wiki_*` tools operate only on Knowledge, while every
-Memory search, browse, read, index, and mutation goes through `graphit_memory_*`.
+Writes publish authored/textual state immediately. Background inference selects only missing or
+incompatible public inputs, computes batches outside the writer, and attaches results after
+rechecking identity/content fingerprint/model recipe. Compatible unchanged records reuse their
+vectors; partial committed semantic coverage is queryable while the rest advances. Changing a
+body or vector space makes the old association ineligible. No whole-corpus inference or external
+semantic mirror is required for each edit. `modules.embedding=false` preserves CRUD/FTS and
+prevents embedding preparation/loading/inference. Rerank is a separate AST/Knowledge concern.
 
-Catalogue surfaces such as `memory_list`, `memory_important`, and `memory_mandatory` return live
-records only. They use the same category-first, newest-first ordering. `memory_mandatory` is a
-direct filter and returns complete content rather than scored results.
+Unconfigured/failed requested services return explicit errors; they never silently impersonate
+FTS. Broker provider inference is Broker-only; Direct and Local selections cannot bypass it.
+See [retrieval](../guides/retrieval_architecture.md) and [model identity](ai_engine.md).
 
 ## Initial recall protocol
 
-An agent starts memory recall with two ordered operations:
+Agent lifecycle adapters load the current mandatory selection at the configured bootstrap
+boundary. The agent reads all mandatory content before contextual recall, then uses search and
+selected exact records for the current question. Contextual queries can exclude mandatory rows
+already loaded. Static skills/agent files contain normative policy only, never copied private
+runtime memories, credentials or a standing-context snapshot.
 
-1. call `graphit_memory_mandatory` with no query and read every returned memory;
-2. call `graphit_memory_search` for the current context with `exclude_mandatory: true`, then read
-   selected ids with `graphit_memory_source`.
+Persist only non-sensitive, project-inherent reusable knowledge in PROJECT. A transient request,
+progress report, unconfirmed hypothesis or personal detail is not a durable shared fact. Task
+retains execution evidence; Memory supplements it with confirmed reusable conclusions.
 
-The exclusion prevents the contextual result window from repeating memories already loaded in
-full. Importance alone does not imply mandatory recall, and mandatory status does not imply
-importance.
+## Consumers and presentation
 
-## Presentation format
+The Browser Memory Explorer uses its verified actor for catalog/detail/history and CRUD HTTP
+operations; it is not a wiki adapter. Markdown rendering is a view of authored record fields,
+not another authoritative store. Current head/detail/history and conflict behavior must stay
+consistent across the same provider/project/version selection.
 
-The public read surface renders a record as Markdown with YAML frontmatter. This is a presentation
-format produced from table columns, not persisted source data:
+The current Root MCP catalog exposes `graphit_memory_search` and `graphit_memory_index`.
+Do not assume unadvertised CRUD/source/mandatory tool names exist because an older guide listed
+them. Role/Live catalogs and Browser APIs have their own admitted surfaces; inspect the actual
+catalog and [MCP reference](../guides/mcp_tools_reference.md). CLI currently exposes `memory index`.
 
-```yaml
----
-id: "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-title: "Prefer table-driven Go tests"
-type: "convention"
-tags: ["go", "testing"]
-created_at: 2026-08-24T12:00:00Z
-updated_at: 2026-08-24T12:00:00Z
-important: true
-mandatory: true
-revision: 3
-updated_by: "unit-id"
----
+`memory index` ensures the lexical index and configured semantic maintenance; `--refresh` explicitly
+replaces lexical index state. Reads do not perform an implicit global rebuild. Native maintenance
+folds/compacts through SDK APIs and respects branches, Git tags and retained snapshots. It does
+not delete a remote corpus when a local checkout stops using it.
 
-# Prefer table-driven Go tests
+## Implementation map
 
-## What
-Use table-driven cases for related Go scenarios.
+- `graphit-records/src/memory_store/`: current records, revisions, validation and native storage.
+- `graphit-records/src/memory_store/embeddings/`: captured inputs, associations and searches.
+- `graphit-app/src/record_storage.rs`, `native_storage_credentials.rs`: provider/credentials.
+- `graphit-app/src/foreground_memory/`, `foreground_memory_jobs/`: productive CRUD/search/jobs.
+- `graphit-app/src/browser_auth/`: verified Browser admission; `ui/src/components/memory/`: views.
 
-## Why
-The shared setup makes edge cases visible and keeps assertions consistent.
-```
-
-## Write and consolidation cycle
-
-A normal mutation has one persistence step:
-
-```text
-write authoritative LanceDB row -> refresh that table's indexes
-```
-
-Consolidation reads records and embeddings from the table, deduplicates or resolves them, and
-applies mutations back to the same table. A survivor inherits importance and mandatory status
-independently; bare delete suggestions cannot remove either an important or mandatory memory.
-
-## Memory Explorer
-
-The Observatory exposes Memory at `/memory/explorer/<scope>/<memory-id>` through a dedicated
-Memory component and the `/api/memories` HTTP API. It never adapts a memory row into a wiki page or
-calls `/api/wiki`.
-
-The catalogue searches the selected project or user table directly and filters current rows by
-type, tag, importance, and mandatory status. A selected memory shows the current row, authoritative
-metadata, and a navigable revision chain with current/superseded state, timestamps, author,
-previous/next addresses, scope identity, and content hash. Create, edit, flag, and remove actions
-call the Memory service; removal requires explicit confirmation.
-
-The body is authored and edited as Markdown source. The detail view renders that source with GFM
-headings, emphasis, links, lists, tables, quotes, code, and images using the Memory renderer. This
-presentation support does not make Memory a wiki or create a second persistence format.
-
-## Daemon behavior
-
-The daemon owns one maintenance and embedding loop per active project scope and one machine-wide
-pair for the user scope. Embedding checks run immediately and then every two minutes. Maintenance
-checks run immediately and then every 15 minutes; the table's due-time gate decides whether to fold
-indexes, compact fragments, build the vector index, and prune versions. Maintenance also removes
-superseded `record_relations` generations only after matching a confirmed live Memory head, then
-compacts that table and prunes its versions with `memory.version_retention`. It leaves a missing
-relation table absent. Empty tables are skipped and failures reach the supervisor for a later retry.
-A remote table is already the shared source; a local-only table
-remains entirely local.
+Tests qualify their exact boundary. Linux/native GGUF evidence does not imply unexecuted
+Windows/macOS, another vector recipe or a remote storage configuration has been validated.

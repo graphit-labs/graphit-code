@@ -1,0 +1,4 @@
+language: x
+context_types: {old: Class, keep: Method}
+exports: {strategy: modifier, config: {modifier: public}, config_list: {words: [pub, public]}}
+complexity: {node_types: [if], operators: [and], head_calls: {node_type: call, names: [when]}}

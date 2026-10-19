@@ -1,3 +1,21 @@
+---
+references:
+  - target: {type: task, id: tsk-cab0}
+    relation: corrects
+  - target: {type: task, id: tsk-d284}
+    relation: implements
+  - target: {type: task, id: tsk-de12}
+    relation: implements
+  - target: {type: task, id: tsk-1528}
+    relation: implements
+  - target: {type: task, id: tsk-861f}
+    relation: implements
+  - target: {type: task, id: 01M5C6SF19TSS3NE06D71HSM7N}
+    relation: implements
+  - target: {type: task, id: 01M5C9XXR0ZE2Q2GX2MMHA6ZBD}
+    relation: implements
+---
+
 # AST grammars and parser extensibility
 
 Graphit's AST module is language-driven. A language profile is a YAML file that
@@ -5,24 +23,25 @@ selects a parser, claims file extensions, declares extraction queries, and defin
 language-specific behavior such as ownership, exports, complexity, target resolution,
 semantic embedding, and embedded-language regions.
 
-This guide is the user-facing contract for extending that system. It covers every
-supported YAML field, both selector languages, parser installation, precedence,
-hot reload, distribution, validation, and the current extension boundaries.
+This guide covers the supported YAML fields, native selector operations, compiler
+image extension, profile precedence, hot reload, distribution, validation and
+current extension boundaries.
 
 For the shipped languages, declared file extensions and parser-specific boundaries, use the [supported language matrix](../specs/ast_module.md#supported-languages). SQL dialect profiles require explicit selection; a registered extension alone does not promise complete support for every language variant.
 
 ## What can be extended without rebuilding Graphit
 
-You can do all of the following in a project YAML file:
+Project profiles and compiler configuration allow the following:
 
 - add or replace Tree-sitter extraction queries;
-- introduce a new Tree-sitter language when its shared library is installed;
+- associate an extension with a custom Docker image that emits SCIP;
+- customize extraction for the Tree-sitter and ANTLR grammars linked into Graphit;
 - bind extensions to a specific grammar;
 - enable only an allowlist of grammars or disable selected grammars;
 - define new entity labels and relationship types;
 - configure parent contexts, export rules, docstrings, and complexity;
 - control which labels receive semantic vectors;
-- parse JavaScript, TypeScript, CSS, SQL, or another installed language embedded
+- parse JavaScript, TypeScript, CSS, SQL, or another linked language embedded
   inside a host file;
 - merge a small project-specific delta onto a shipped language profile.
 
@@ -31,197 +50,328 @@ profiles. A compiled Markdown grammar is also available internally, but no shipp
 YAML claims Markdown extensions because prose belongs to the Knowledge module by
 default. A project may deliberately add its own Markdown profile.
 
-Tree-sitter is fully data-driven at runtime: an arbitrary compatible shared library
-plus a YAML profile can introduce a language without rebuilding Graphit. ANTLR uses
-the same YAML extraction model, but a new ANTLR grammar currently also requires a
-Graphit contributor to add and register its generated `GrammarDriver` and sidecar
-build target. The five registered ANTLR grammar names are `antlr-plsql`,
+Profiles configure the grammars linked into Graphit. Adding a new Tree-sitter
+grammar to that syntax fallback requires a Graphit build; project-supplied native
+shared libraries are not loaded. A custom compiler image can index an additional
+language without rebuilding Graphit. ANTLR uses the same YAML extraction model,
+but a new ANTLR grammar requires a Graphit contributor to add its generated C++
+recognizers, typed native bridge and build registration. The five registered ANTLR grammar
+names are `antlr-plsql`,
 `antlr-postgresql`, `antlr-tsql`, `antlr-db2`, and `antlr-cobol85`.
 
-## SCIP semantic indexing
+## SCIP as the standard index format
 
-SCIP is an opt-in third parser path. Set `ast.scip.enabled=true` at the project
-or global configuration layer and install Docker. At parse time Graphit creates
-one indexer container per affected language family. The source is bound
-read-only at `/source`; a fresh anonymous Docker volume holds OverlayFS
-`upperdir` and `workdir`, and the image mounts their merged view at
-`/workspace`. This lets indexers and build tools write beside source files
-without copying or modifying the source tree. The container and volume are
-removed after each parse. Indexers write `/output/index.scip` directly, while
-output and persistent `/cache` stay under the project's global AST directory.
-TypeScript's inferred configuration, home and temporary files also stay in
-that cache. A failed mount or indexer uses the syntax parser for affected
-files without making the project writable. OverlayFS retains POSIX permissions
-on source entries: a nested directory that is mode `0555` for the indexer UID
-can still reject a generated file, causing that family to fall back safely.
-`GRAPHIT_SCIP_UID` and `GRAPHIT_SCIP_GID` make the output readable by the
-Graphit process. The image drops all capabilities and sets `no-new-privs`
-after mounting. Docker must permit the OverlayFS mount with `SYS_ADMIN` and
-`apparmor=unconfined`. The default `ast.scip.version` is `v1`. Graphit also
-binds `/workspace` read-only for compatibility with images built before this
-mount contract. Such an image cannot modify the project; if it requires a
-workspace write, that family falls back to syntax parsing.
+SCIP is the common code-index format, not an opt-in third parser. The normal
+Rust pipeline selects a complete compiler indexer for an eligible family and
+uses syntax-derived SCIP when an admitted file has no usable compiler document.
+`ast.scip.enabled` is removed, rather than retained as an always-true setting or
+a hidden Docker selector. `ast.scip.version` selects the maintained-family image tag and defaults
+to the compatibility alias `v1`. This alias describes the Graphit/indexer
+contract, not the image release version: graphit-scip can publish release
+`v0.2.1` as `0.2.1` and advance `v1` to that same image. Code consumes
+`ghcr.io/graphit-labs/graphit-scip-<family>:v1` directly from GHCR; it does not
+select `latest` or derive the compatibility alias from a release's major.
+Keep this default for the current compatible images. Selecting a specific
+release through `ast.scip.version` deliberately pins that tag instead.
 
-Each time a language family's indexer runs, Graphit creates its container with
-Docker's `--pull=always` policy. Docker checks the registry tag and downloads
-new image content when that tag has moved; unchanged layers remain cached. If
-the registry cannot be reached or the pull fails, that family falls back to
-syntax parsing rather than silently running an older local image. A project
-with no affected SCIP family does not start a container or check its tag.
-For a locally built image that has not been published, set
-`GRAPHIT_AST_SCIP_PULL_POLICY=missing` explicitly. This uses a cached image
-when present and does not detect registry updates for that tag.
+This is the SCIP-default integration contract. The maintained Rust dispatcher/
+entrypoint sources and local TypeScript/Rust images have been built. TypeScript
+passed a local smoke and emoji UTF-16 position fixture. The real Rust Docker
+Source journey passed in 34.98 seconds, covering compiler-to-Raw/Source/Graph,
+cross-file CALLS, FILE target association, physical-change rejection and cleanup.
+The integrated Source consumer also passed its Compiler/Absent/Failed scenarios
+in 51.47 seconds, including official SCIP, Graph/Raw/NN association, exact Source
+and CLI-to-MCP delivery. Final strict library Clippy passed in 36.58 seconds for
+AI, Daemon, AST and App. On 2026-10-21, anonymous GHCR manifest requests confirmed
+the compatibility alias `v1` for all ten maintained families. Registry
+availability does not establish that every later local indexer change has been
+published, nor does it qualify real indexing for the other eight families or
+additional platforms. The default consumer pulls the alias on each compiler
+invocation, so a compatible publication can advance its digest without changing
+the Graphit configuration.
 
-| Image family | Source extensions |
+This contract distinguishes source and deployed artifacts. Earlier Rust-only opt-in
+qualifications do not establish the new multi-family flow. Source materialization,
+focused fixtures, real image execution, publication and platform qualification
+remain distinct evidence. See the [native Graph contract](../specs/rust_ast_semantic_graph.md#scip-default-producers-and-the-common-join).
+
+### Compiler semantics and syntax fallback
+
+A complete compiler indexer can supply definitions and references informed by
+build inputs, dependencies and a type system. Tree-sitter and ANTLR supply syntax
+observations and locally justified relationships. Encoding both as SCIP does not
+make those guarantees equal: syntax fallback must not invent types, import or
+overload resolution, or cross-file bindings. Ambiguous, external and unresolved
+targets retain their observed states.
+
+Native extraction remains richer than a standard SCIP message. Labels,
+configured relationships, ownership, exports, docstrings, calculated complexity,
+embedding selection and embedded-language projections remain in the native graph
+and Source contracts. The syntax encoder borrows those observations without
+discarding fields that have no SCIP equivalent or hiding them in diagnostics or
+documentation. A symbol string, display name or artifact path is not Source
+authority.
+
+The maintained complete Docker producers remain:
+
+| Image family | Eligible extension routes |
 |---|---|
 | `go` | `.go` |
 | `typescript` | `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` |
 | `python` | `.py`, `.pyi` |
 | `java` | `.java`, `.kt`, `.kts` |
-| `clang` | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh` |
+| `clang` | `.c`, `.h`, `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh`, `.m`, `.mm` |
 | `dotnet` | `.cs`, `.vb` |
 | `rust` | `.rs` |
-| `ruby` | `.rb` |
+| `ruby` | `.rb`, `.rake`, `.gemspec` |
 | `dart` | `.dart` |
 | `php` | `.php` |
 
-Scala remains on its existing syntax grammar: the pinned scip-java release
-indexes Java and Kotlin but no longer indexes Scala.
+These are eligible routes, not a promise that every selected producer emits every
+listed language. An effective language profile remains authoritative: `.m` with
+a MATLAB profile does not route to Clang just because of its suffix.
 
-The Linux images run through Docker on Linux, Windows and macOS. Images for
-Go, TypeScript, Python, Java/Kotlin, .NET, Rust, Dart and PHP publish amd64 and
-arm64 variants. The upstream scip-clang and scip-ruby binaries currently
-require Linux amd64; Docker Desktop can emulate that architecture on ARM hosts,
-with slower indexing and the compatibility limits of emulation.
-The shared OverlayFS integration has been exercised with Java, .NET, Go and
-TypeScript projects on Linux. Docker Desktop Windows/macOS execution still
-needs native verification. On those platforms, `upperdir` and `workdir` must
-reside in the Docker daemon's Linux filesystem, so Graphit uses a Docker
-volume rather than a host bind mount for them.
+This is the maintained family contract, not proof that every image, architecture
+or Docker Desktop host has been requalified by the new Rust consumer. Keep the
+pins and customizations, including the custom .NET producer; a smaller syntax
+tagger does not replace them. Scala remains on its syntax profile: the pinned
+Java/Kotlin indexer does not establish Scala compiler coverage.
 
-For a document produced by SCIP, Graphit uses the SCIP symbol as its canonical
-identity and does not run Tree-sitter or ANTLR on that file. The semantic grammar
-maps SCIP symbol kinds, documentation, containment, references, implementations,
-type-definition and definition relationships into the code graph. Multiple
-relationship flags create distinct edges; referenced dependency symbols without
-source documents remain canonical stubs, enriched with kind and documentation
-when the index provides `external_symbols`. A symbol documented without a
-definition occurrence also remains a canonical stub with its relationships.
-If Docker, the indexer, or one document fails, affected files use the existing
-syntax-parser chain. An explicit `ast.grammar` override remains the fallback
-grammar for that extension and replaces the default syntax parser. For example,
-with `.sql=antlr-postgresql`, syntax parsing uses ANTLR directly instead of
-Tree-sitter. A SCIP failure never activates an exclusive grammar implicitly.
+The grammar matrix and compiler coverage are different. If an actual producer
+emits a valid document for an admitted file without a native grammar, the common
+assembler retains genuine Raw Source and compiler definitions under the honest
+`scip-compiler` grammar identifier. This accommodates compiler-only source such
+as VB from the maintained .NET producer. That producer supports C#/VB; it does
+not advertise F# routes. Compiler-only assembly does not invent Tree-sitter
+support or manufacture NN vectors. Native-only
+admission requires `NoSelector` and empty grammar filters; it does not reinstate
+stock routes replaced by custom profiles, exclusive routes or explicit overrides.
 
-Tree-sitter native parse checks operation cancellation and has a 30-second
-budget per document, including each embedded document. Set
-`GRAPHIT_AST_PARSE_TIMEOUT` to a positive Go duration such as `2m` to allow
-larger native parses; unset, invalid or nonpositive values use 30 seconds.
-This budget covers native tree construction, not the entire index, query
-extraction or ANTLR. A native timeout is a file parse error and can fall back to
-ANTLR only when a non-exclusive ANTLR profile already participates in the
-configured syntax chain. Exclusive dialects require explicit selection and then
-replace Tree-sitter entirely. Operation cancellation stops parsing and does not start
-another parser. Interrupted parsers are reset before reuse for another document.
-The same recursive `.gitignore` and `.astignore` selection, including negations,
-filters SCIP documents before they enter the graph. Existing language
-`ast.grammars_whitelist` and `ast.grammars_blacklist` filters also apply to
-SCIP selection. For TypeScript/JavaScript projects without `tsconfig.json`,
-Graphit also writes an inferred config in the AST cache whose root `files` are
-exactly the selected sources. This reduces raw SCIP documents from ignored
-roots. A project-owned `tsconfig.json` keeps its own compilation behavior.
-The image still receives the whole workspace: an indexer may read ignored
-dependencies, and other families or project-owned configurations may include
-them in raw `index.scip`. The final Graphit document filter remains in effect.
-An incremental
-run invokes the affected indexer family once and republishes its returned
-documents because a change in one file may alter semantic references in
-another.
-Graphit stores a compact signature of the permitted TypeScript/JavaScript
-roots, the project `tsconfig.json`, and discovered `tsconfig*.json`/
-`jsconfig*.json` files in the global AST cache. The SCIP adapter reads these
-project-owned configuration inputs; generic AST source discovery does not
-interpret them or depend on files generated inside the container. Changes only to
-`.gitignore`, `.astignore`, or those configuration files, and source removals, refresh that
-family even without a source edit; an empty selection removes its old raw
-`index.scip` and inferred config. Watcher paths are checked against the same
-nested ignore rules before either SCIP or syntax parsing, and newly ignored
-files are removed from the graph. A config that stops emitting a still permitted
-source makes that source fall back to syntax parsing. Ignore/config events reconcile the full file
-list; ordinary scoped edits retain the narrower path check.
-For C/C++, Graphit writes its permitted source list and a filtered translation
-database under the global AST cache before `scip-clang` runs. Resolvable
-compilation units excluded by nested ignore rules are omitted; units with
-unresolved source paths remain for the final document filter. Edits to ignores,
-the compilation database or `CMakeLists.txt`, and source removals refresh Clang's
-selection. When no permitted translation unit remains, Graphit removes the old
-raw Clang index. A permitted source omitted by a new compilation database uses
-the syntax parser instead of retaining an old SCIP shard.
-Enabling or disabling SCIP reparses an existing AST cache. After an indexer
-failure, the next run retries SCIP even when source files have not changed.
+An admitted file without a usable compiler document follows its configured
+Tree-sitter or ANTLR profile and emits an official SCIP `Document`. This applies
+to every active grammar, not a reduced language allowlist. Existing Oracle
+PL/SQL and DB2 models remain; generic PostgreSQL, TSQL and COBOL models complete
+the other registered ANTLR paths. COBOL retains Raw Compound observations; its
+Original `programUnit` body may have `SequentialOriginalCoverage`, allowing only
+the maintained preprocessor's seven actual spaces of generated trivia at the
+start of a line, without claiming an Exact projection. `ast.grammar` still selects
+the syntax grammar.
+Exclusive SQL dialects require explicit selection; a compiler failure does not
+activate them implicitly. Parsing respects the actual Original/cancellation and
+operation policy. The native parser uses its actual operation policy.
 
-### SCIP grammar profiles
+### Docker contract and failure boundaries
 
-Graphit ships one declarative `scip-<family>.yaml` profile for each image family
-in `internal/ast/scip_profiles/`. The files state the supported extensions,
-which `SymbolInformation.Kind` values become graph entities, optional Kind to
-graph-label mappings, and which SCIP relationship flags are stored. The shipped
-`kinds: ["*"]` includes every Kind reported by the installed SCIP schema,
-including future kinds; an unspecified or unknown Kind becomes `Symbol`.
-No entity is identified by its display name: profile changes never alter its
-canonical SCIP UID.
+The producer binds the captured project read-only at `/source`. A fresh Linux
+`tmpfs` at `/overlay` supplies empty upper/work directories for the writable
+merged `/workspace`; the original project is neither copied nor made writable.
+The maintained entrypoint uses `GRAPHIT_SCIP_OVERLAY=1`, requires the declared
+`SYS_ADMIN`/`apparmor=unconfined` mount permissions and drops privileges after
+mounting. Output is `/output/index.scip`; family caches are writable installation
+state under `<global>/cache/scip/<family>`. Compiler targets are keyed by stable
+PROJECT ID and selected version; worktrees of the same project/version reuse the
+build tool’s content-validated cache rather than identifying it by checkout path.
+Old-image compatibility mounts are not a second supported contract.
 
-To customize a family, create `scip/scip-<family>.yaml` under the configured
-`ast.queries_dir` (by default, `.graphit/ast/queries/` in the project). A global
-override can live at `~/.graphit/ast/queries/scip/`. Project settings take
-precedence over global settings and the shipped profile. With `merge: true`,
-only fields supplied in the override replace inherited values; `entities.labels`
-merges by Kind. Without `merge: true`, the file must be a complete profile.
+Unix passes the actual `GRAPHIT_SCIP_UID` and `GRAPHIT_SCIP_GID`. Windows uses
+`GRAPHIT_SCIP_OWNER=output-mount` so the Linux entrypoint observes the output
+mount's owner instead of inventing POSIX IDs. Positive integer
+`GRAPHIT_SCIP_TIMEOUT_MS` comes from the finite compiler operation budget.
+Family, PROJECT ID and version isolate compiler targets; each invocation owns a
+separate temporary output directory.
 
-For example, this project override relabels Go functions and omits
-implementation edges while retaining the other shipped rules:
+The default pull policy is `always`: each compiler invocation asks GHCR for the
+selected tag, downloading missing layers or updates to its compatibility alias;
+unchanged layers are reused by Docker. No prior local image build is required.
+A pull failure does not silently select an older cached image. Explicit
+`GRAPHIT_AST_SCIP_PULL_POLICY=missing` permits a cached local image and does not
+check that tag for updates. Explicit `GRAPHIT_AST_SCIP_PULL_POLICY=never` uses
+only images already present locally and never attempts a registry pull. A missing
+local image still follows the diagnosed native syntax fallback after cleanup;
+authorization, cancellation and expiration of the caller's Original remain
+terminal. The default continues to be `always`. Build metadata and dependencies remain family-specific:
+C/C++ needs usable compilation inputs; PHP needs its pinned Composer/autoloader
+contract. Their absence is not evidence of compiler semantics.
 
-```yaml
-merge: true
-entities:
-  labels:
-    Function: Routine
-relations: [CONTAINS, REFERENCES, TYPE_DEFINITION, DEFINITION]
-```
-
-The profile fields are `parser: scip`, `family`, `extensions`, `entities.kinds`
-(`"*"` or explicit SCIP Kind names), `entities.labels`, `relations`,
-`documentation`, and `external_symbols`. Supported relation names are
-`CONTAINS`, `REFERENCES`, `IMPLEMENTS`, `TYPE_DEFINITION`, and `DEFINITION`.
-Invalid Kind, label or relation names reject the profile for that family;
-affected files use the syntax parser and the next run retries SCIP. Changing an
-effective profile invalidates the AST parse cache and reindexes the project,
-even if source files have not changed. These SCIP files live in a `scip/`
-subdirectory so they cannot replace Tree-sitter or ANTLR language profiles.
-An extension omitted from a valid family profile also uses the syntax parser.
-
-SCIP depends on each language's native build metadata and dependencies. For
-example, C/C++ requires a compilation database or CMake project. Absolute host
-paths in a compilation database are translated to the container's `/workspace`
-path, including Windows drive paths. PHP requires `composer.json`,
-`composer.lock`, installed dependencies and an up-to-date Composer autoloader,
-as specified by [scip-php](https://github.com/davidrjenni/scip-php#requirements).
-The pinned indexer uses the project's autoloader and Composer 2 `installed.php`
-metadata. Its dependencies include `composer-runtime-api` `^2.2` and
-`phpstan/phpdoc-parser` `^2.3`; incompatible project autoloaded dependencies
-can cause indexing to fail. Graphit preserves this upstream implementation;
-it does not replace the project's autoloader with a static alternative or
-install/update its dependencies. See the
+PHP requires `composer.json`, `composer.lock`, installed dependencies and an
+up-to-date Composer autoloader. The pinned scip-php implementation uses the
+project's autoloader and Composer 2 `installed.php` metadata; its dependencies
+include `composer-runtime-api` `^2.2` and `phpstan/phpdoc-parser` `^2.3`.
+Graphit preserves that implementation instead of substituting a static
+loader or installing/updating project dependencies. See its
 [pinned requirements](https://github.com/davidrjenni/scip-php/blob/71a5b117ec4c5dd2af302e363410e604e5df309e/composer.json)
 and [Composer integration](https://github.com/davidrjenni/scip-php/blob/71a5b117ec4c5dd2af302e363410e604e5df309e/src/Composer/Composer.php).
-If prerequisites are absent or the indexer fails, Graphit
-falls back to the available syntax parser for that family.
+An incompatible project autoloader is a real compiler failure, not permission to
+claim missing semantic information was resolved.
+
+The admitted Raw source set, with its grammar filters and ignore rules, bounds
+which compiler documents enter the index. An indexer may read dependencies in
+the read-only workspace; its output cannot enlarge source authority. Build-input
+observations are separate from admitted sources. An image tag or SCIP metadata
+alone does not establish source freshness.
+
+Missing Docker, compiler unavailability after confirmed cleanup, or a missing
+eligible document permits syntax SCIP for the affected file. The SDK visitor
+rejects malformed compiler output. The pipeline can explicitly select syntax
+SCIP after rolling back that compiler import and rechecking the parent Source
+Original, authority, cancellation and deadline; no partial compiler index is
+published.
+
+The compiler keeps its own finite derived operation budget; the background
+embedding RPC budget does not change it. A typed compiler Process timeout may
+become compiler unavailability (`Ok(None)`) only after Process join and container
+cleanup have completed, no remaining owner is pending, and the parent Original
+and current authorization still allow fallback. Its safe diagnostic contains
+only the family, failure reason, status and cleanup outcome. The existing native
+syntax path then runs; the `Result<Option<_>>` API is unchanged. Expiration or
+cancellation of the parent Original, integrity or authorization failures and
+incomplete cleanup remain terminal errors.
+
+Cleanup retains and joins the real child/container/output owners. A subsequent
+normal admitted operation can try the compiler again; this introduces no retry
+loop or silent shard repair. The timeout classification awaits its affected
+SCIP tests; earlier component qualifications keep their recorded scope.
+
+Maintained image recipes and release matrices declare their Linux architectures;
+Clang/Ruby have Linux amd64 constraints. Configured CI, possible Docker Desktop
+emulation and a tag name are not evidence of native Windows/macOS/arm64 execution
+or published image contents. Existing Linux proofs cover only their recorded,
+unchanged producer scope.
+
+### Custom compiler images by extension
+
+`ast.scip.parsers` is a string containing comma-separated `extension=image`
+associations. Its default is the empty string. An explicit association wins over the maintained
+compiler family for that extension. It also admits compiler-only extensions that
+have no syntax profile, without enabling an unrelated grammar.
+
+```sh
+graphit config set ast.scip.parsers '.zig=registry.example/team/scip-zig:1,exm=localhost:5000/scip-example@sha256:<digest>'
+graphit config get ast.scip.parsers
+```
+
+Replace `<digest>` with the real image digest before using the second association.
+An extension accepts an optional leading dot and uses ASCII-case-insensitive
+matching: `zig`, `.zig` and `.ZIG` identify the same route. Defining two of those
+in one list is an error. Each item requires `=` with a nonempty extension and
+image; missing assignments, trailing commas and empty segments are errors.
+Whitespace around items and either side of `=` is trimmed. Extensions describe
+one suffix, not globs, filenames or compound suffixes. Images must be single
+references without internal whitespace,
+control characters, a URL scheme or leading CLI option. Docker validates the
+actual registry/name/tag/digest syntax. Private registries use Docker's existing
+login/credential helper; no credentials belong in this configuration.
+
+The exact image reference is passed to Docker unchanged. `ast.scip.version`
+applies only to maintained Graphit families, and is never appended to a custom
+image. Normal Docker pull policy applies to both kinds of image. A changed
+compatibility tag can therefore advance on the next normal compiler invocation.
+Use a digest when an immutable image is required.
+
+Configuration uses the existing whole-value precedence:
+Command > Environment > Project > Global > Distribution. Lists are not merged.
+A higher-layer empty string explicitly clears lower-layer associations; an invalid
+winning value fails instead of selecting a lower value. Configuration files keep
+the normal JSON envelope with a string value, for example
+`{"settings":{"ast.scip.parsers":".zig=registry.example/team/scip-zig:1"}}`.
+The canonical environment setting contains the same plain list:
+
+```sh
+export GRAPHIT_AST__SCIP__PARSERS='.zig=registry.example/team/scip-zig:1'
+# Or select the list for this daemon invocation:
+graphit -c 'ast.scip.parsers=.zig=registry.example/team/scip-zig:1' daemon foreground
+# Clear the Project list, including inherited associations:
+graphit config set ast.scip.parsers ''
+```
+
+#### Build the image
+
+Supply a real compiler/indexer that writes the official SCIP protobuf `Index` to
+`/output/index.scip`. The container receives no language-specific command-line
+arguments from Graphit. Its entrypoint must create the writable overlay and then
+run the indexer from `/workspace`; it must not expect Graphit to pre-create a
+writable source checkout or emit JSON in place of the protobuf.
+
+The maintained Rust `scip-entrypoint` in the graphit-scip project already handles
+overlay mounting and UID/GID selection. It executes
+`/usr/local/bin/graphit-scip-run` after dropping privileges. A custom image may
+reuse that entrypoint and place its own compiler executable at this path:
+
+```dockerfile
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends mount util-linux \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chmod=0755 scip-entrypoint /usr/local/bin/scip-entrypoint
+COPY --chmod=0755 my-scip-indexer /usr/local/bin/graphit-scip-run
+ENTRYPOINT ["/usr/local/bin/scip-entrypoint"]
+```
+
+Build `scip-entrypoint` from the selected graphit-scip revision with
+`cargo build --release --locked --bin scip-entrypoint`; use a binary and base image
+with compatible architecture/libc, and include the real indexer's required
+runtime and licenses. `my-scip-indexer` in this example is your actual compiler
+producer, which must honor the following contract. This recipe does not provide
+a generic language indexer or infer dependencies for it.
+
+| Location or variable | Contract |
+| --- | --- |
+| `/source` | Read-only captured project mount. Never write here. |
+| `/overlay` | Fresh tmpfs. Entrypoint creates empty `upper` and `work`, mounts their OverlayFS over `/source` at `/workspace`. |
+| `/workspace` | Writable merged project used as compiler working directory. Changes are ephemeral. |
+| `/cache` | Writable persistent image-specific cache; home/tmp/XDG state can live here. |
+| `/cache/target` | Writable build cache isolated by stable PROJECT ID and version, reused across matching worktrees. |
+| `/output` | Separate writable output directory owned by this invocation. Publish `/output/index.scip`. |
+| `GRAPHIT_SCIP_OVERLAY=1` | Enable overlay setup; mounting needs the supplied `SYS_ADMIN` and `apparmor=unconfined` permissions. |
+| `GRAPHIT_SCIP_UID`, `GRAPHIT_SCIP_GID` | Actual numeric Unix host owner; entrypoint drops to that identity after mounting. |
+| `GRAPHIT_SCIP_OWNER=output-mount` | Windows selection instead of numeric variables; entrypoint observes the output mount's Linux owner. |
+| `GRAPHIT_SCIP_TIMEOUT_MS` | Positive remaining compiler operation time. Honor cancellation/termination and finish within this budget. |
+
+The image must put source-relative UTF-8 paths in `Document.relative_path`, using
+SCIP's forward-slash convention, with no absolute path, parent traversal or NUL.
+Coordinates and `position_encoding` must describe the exact original file text,
+including Unicode, and ranges must remain within it. Use official SCIP symbols,
+occurrences and relationships; do not infer cross-file bindings the compiler did
+not establish. Graphit validates output and filters it against its admitted files;
+an image's output does not grant filesystem or PROJECT access.
+
+Write diagnostics to stdout/stderr, not into the protobuf. Exit nonzero on actual
+compiler failure; exit zero only with a complete readable `index.scip`. Graphit
+retains process/container cleanup and Original authorization/cancellation/deadline
+checks. Compiler unavailability or missing documents permits configured native
+syntax fallback only when those checks still allow it. A custom extension with
+no linked syntax profile has no fabricated syntax fallback. Invalid output is
+diagnosed and never partially imported. No custom image may turn an authorization
+failure, cancellation, expired parent request or unfinished cleanup into success.
+Caches are derived build state, not a second authoritative AST store. Custom
+image caches are separate from maintained families and other image references;
+output directories and overlays are removed after their invocation.
+
+### YAML patterns, SCM and the Sourcegraph reference
+
+Tree-sitter `queries[].pattern` is already native SCM Query syntax.
+`PreparedTreeSitterProfile` compiles it against the retained grammar and binds
+configured captures. YAML adds labels, query kind, parent/target rules, exports,
+complexity policy, embeds and embedded-language mapping. Changing the wrapper to
+`.scm` does not preserve those fields automatically or demonstrate a speed gain.
+A compiling pattern still needs correct captures and semantic fixtures.
+
+ANTLR executes its own rule-path selectors through the native C++ runtime. Keep
+the complete [language-profile field contract](#top-level-fields) for both engines.
+Advanced metadata stays with those language profiles and the native graph, while
+compiler SCIP retains its actual symbols, documentation and relationships.
+
+The reviewed Sourcegraph `docker-images/syntax-highlighter` snapshot (MIT) is a
+conceptual reference, not an imported runtime. Its tags cover 15 languages and
+locals cover Go/Java/MATLAB/Perl; the effective overlap with both analyses is
+Go/Java. TSX has no tags/locals there. These queries do not establish compiler
+parity or replace Graphit's richer grammar coverage. No Sourcegraph queries or
+code are copied in this integration.
 
 ## The complete YAML shape
 
-The following example intentionally shows every supported key. It is a schema
-reference, not a profile to copy unchanged. Remove fields that do not describe your
-language.
+The following example illustrates common Tree-sitter fields. The field tables below also
+cover ANTLR-specific selectors and optional native extraction controls. This is a schema
+illustration, not a linked example grammar to copy unchanged; remove inapplicable fields.
 
 ```yaml
 language: example
@@ -245,9 +395,8 @@ context_types:
   class_declaration: Class
   function_declaration: Function
 
-context_name_paths:
-  class_declaration: name
-  resource_block: string_lit[1]|name
+context_name_queries:
+  class_declaration: '(class_declaration name: (_) @name) @context'
 
 anon_func_types: [arrow_function, function_expression]
 declaration_types: [class_declaration, function_declaration]
@@ -312,9 +461,9 @@ queries:
     target_fallback: stub
 ```
 
-Unknown YAML keys are currently ignored rather than rejected. Treat spelling as part
-of the contract and validate changes with an index run and the project tests described
-below; a misspelled optional field can otherwise appear to load while doing nothing.
+Unknown YAML fields are rejected when decoding that profile. The loader diagnoses and skips
+an invalid profile file; it does not silently accept a misspelled optional field. Validate
+the intended effective profile and extraction before relying on fallback behavior.
 
 ## Top-level fields
 
@@ -322,8 +471,8 @@ below; a misspelled optional field can otherwise appear to load while doing noth
 |---|---|---:|---|
 | `language` | string | yes | Stable language selector. Files at different precedence levels are paired by this value, case-insensitively. The filename is not the identity. |
 | `extensions` | string list | for discovery | Extensions or filename selectors claimed by the profile, normally including the leading dot. Matching is case-insensitive. An omitted list does not discover new files; it only stops extension-filtering when the language is already selected. |
-| `parser` | string | no | `tree-sitter` when omitted; `antlr4` selects ANTLR. Do not use other values: the current dispatcher treats anything other than `antlr4` as Tree-sitter. |
-| `grammar` | string | no | Runtime grammar name. Defaults to `tree-sitter-<language>` or `antlr-<language>`. Explicit names are recommended and must match the installed binary/registered driver. |
+| `parser` | string | no | `tree-sitter` when omitted; `antlr4` selects the registered ANTLR engine. These choose syntax extraction, independently of the standard SCIP output. `parser: scip` is not a Native language-profile value. |
+| `grammar` | string | no | Runtime grammar name. Defaults to `tree-sitter-<language>` or `antlr-<language>`. Explicit names are recommended and must match the linked grammar/registered driver. |
 | `start_rule` | string | ANTLR metadata | Documents the ANTLR entry rule and participates in profile merging. The current registered `GrammarDriver` chooses its entry rule in code; this field does not dynamically invoke an arbitrary generated parser method. |
 | `merge` | boolean | no | `false`/omitted replaces the same language at the lower level. `true` applies this file as a partial overlay. |
 | `exclusive` | boolean | no | When `true`, keeps the grammar addressable by name but does not register its `extensions`. Use `ast.grammar` to select it explicitly. |
@@ -331,13 +480,15 @@ below; a misspelled optional field can otherwise appear to load while doing noth
 | `exports` | object | no | Export/visibility strategy. |
 | `self_keywords` | string list | no | Source prefixes such as `this.` or `self.` used to resolve receiver types on calls. |
 | `context_types` | string map | no | Parser node/rule kind to graph label. These nodes can own nested entities. |
-| `context_name_paths` | string map | no | Per-context path for finding the owner's name when no `name` field exists. |
+| `context_requires_entity` | string list | no | Rust generic consumer: listed native kinds require an actual Entity query candidate and must exist in `context_types`; default empty. Other kinds can retain native namespaces without Entity queries. |
+| `context_name_queries` | string map | no | Native Tree-sitter queries binding `@context` and `@name`. |
+| `antlr_contexts` | object array | no | ANTLR XPath owner definitions with structured name captures. |
 | `anon_func_types` | string list | no | Tree-sitter node kinds recognized as anonymous functions assigned to names. |
 | `declaration_types` | string list | no | Declaration node kinds eligible for preceding-comment docstrings. |
 | `comment_types` | string list | no | Parser node kinds treated as comments. |
 | `embed_labels` | string list | no | Labels that receive semantic vectors, in collision priority order. All entities still enter FTS. Empty means no semantic vectors for that language. |
 | `target_rules` | map | no | Default target labels and unresolved-target policy per relationship type. |
-| `complexity` | object | no | Syntax shapes counted in cyclomatic complexity. Omitted means base complexity `1`, not keyword guessing. |
+| `complexity` | object | no | Decision shapes for models that calculate complexity. A calculator may define base `1`; capturing a decision alone, including generic ANTLR observations, does not create a calculated cyclomatic/cognitive metric. |
 | `text_normalizers` | named object map | no | Reusable, host-language text decoding rules for embedded blocks. |
 | `embedded` | object list | no | Ordered Tree-sitter selectors for regions written in another language. |
 
@@ -351,19 +502,24 @@ share a key.
 |---|---|---:|---|
 | `data_key` | string | yes | Internal result group. It is also the replacement unit under `merge: true`: redeclaring a key replaces every lower-level query with that key. Custom keys are allowed. |
 | `graph_label` | string | for nodes | Graph node label emitted by an entity query. Relationship-only queries normally leave it empty. Custom labels are allowed. |
-| `pattern` | string | yes | Tree-sitter query or ANTLR rule-path selector, according to `parser`. Invalid Tree-sitter patterns are skipped when compiled; invalid ANTLR patterns are skipped when activated. |
-| `name_capture` | string | no | Name source. Defaults to `name`. In Tree-sitter it is a capture name, without `@`. In ANTLR it is a child-rule path; `name`/omitted uses the matched node's qualified or first terminal text. |
+| `pattern` | string | yes | Tree-sitter query or official ANTLR XPath, according to `parser`. Invalid patterns fail preparation with the native SDK cause. |
+| `name_capture` | string | no | Tree-sitter name capture, without `@`; defaults to `name`. ANTLR uses `captures.name`. |
 | `type` | string | no | `entity` when omitted; `relation` routes the capture as an edge/call input. |
 | `relation_type` | string | for relations | Relationship name. Special routing exists for calls, construction, decorators, exports, and DML; other names become generic references. |
-| `value_capture` | string | no | Captures a data value. Tree-sitter uses a capture name; ANTLR uses a child-rule path. Requires `value_label`; ignored for relations. The value becomes a searchable node and the parent's `value` property. |
-| `value_label` | string | with value | Graph label for the captured value node. If missing, `value_capture` is disabled with a warning. |
-| `name_reject` | regular expression | no | Rejects the entire match when the extracted name matches. Invalid expressions are ignored with a warning. Anchor keyword filters to avoid rejecting substrings. |
-| `span_capture` | string | no | Tree-sitter capture that defines the entity line span instead of the default name-node-to-parent-end span. It does not change export or complexity input. |
-| `name_is_data` | boolean | no | Normalizes the name as data: removes matching surrounding quotes and rejects blank, multiline, or overlong values. `value_capture` and `parent_capture` already imply data normalization. |
+| `value_capture` | string | no | Tree-sitter data-value capture. ANTLR uses `captures.value`. Requires `value_label`; ignored for relations. The value becomes a searchable node and the parent's `value` property. |
+| `captures` | object | no | ANTLR slots `name`, `value`, `span`, `parent`, `qualifier` containing ordered `xpath`, `nearest_descendant` or `nearest_ancestor` operations. Empty list selects the matched node. |
+| `select` | string | no | ANTLR XPath continuation after filtering the anchor. |
+| `keyword`, `child_rule`, `negate` | string/string/boolean | no | ANTLR direct terminal or rule-child condition and optional inversion. |
+| `value_label` | string | with value | Graph label for the captured value node. The Rust typed decoder rejects an incomplete value capture/label pair. |
+| `name_reject` | regular expression | no | Rust generic consumer tests the raw name; an invalid regex is a typed preparation error. Anchor keyword filters to avoid rejecting substrings. |
+| `span_capture` | string | no | Rust generic consumer requires an explicit native capture containing the name to prove full extent. Omission/absent/ambiguous capture remains unavailable; no parent-end default. |
+| `context_capture` | string | no | Rust generic consumer: SDK scopes explicitly owned by an Entity. A native span or declaration must contain name and scope; missing/invalid/ambiguous evidence remains diagnostic. Default empty. |
+| `declaration_capture` | string | no | Rust generic consumer selects a native declaration allowed by `declaration_types` for header exports and complexity, independently of span. Omission remains NoDeclaration. |
+| `name_is_data` | boolean | no | Selects a Data search view: remove one matching outer quote pair and reject blank, multiline or more than 256 Unicode scalars. Raw name/ranges stay intact; escapes and Unicode are not decoded or canonicalized. Value/parent capture also selects Data. |
 | `parent_capture` | string | no | Tree-sitter capture containing the explicit parent's name. Requires `parent_label`. |
-| `parent_label` | string | with parent | Label of the explicit parent node. If missing, `parent_capture` is disabled with a warning. |
+| `parent_label` | string | with parent | Label of the explicit parent node. The Rust typed decoder rejects an incomplete parent capture/label pair. |
 | `target_labels` | string list | no | Labels to which this relationship may resolve. Values are unioned with every query and the language-level rule for the same `relation_type`. Empty defaults to labels declared by this grammar. |
-| `qualifier_capture` | string | no | Qualifies a target as `QUALIFIER.NAME`. Tree-sitter uses another query capture. ANTLR uses `ancestor_rule/path/from/ancestor`. A missing qualifier drops the match. |
+| `qualifier_capture` | string | no | Tree-sitter capture qualifying a target as `QUALIFIER.NAME`. ANTLR uses `captures.qualifier`, typically `nearest_ancestor` followed by `xpath`. A missing qualifier drops the match. |
 | `target_fallback` | string | no | Unresolved target behavior: `stub` (default), `file`, or a graph label to assign to the placeholder. |
 
 ### Relationship routing
@@ -389,62 +545,57 @@ queries:
 
 Predicates must belong to the same pattern expression. For embedded selectors in
 particular, `(node) @body (#eq? @body "x")` is interpreted as two patterns; write
-`(node @body (#eq? @body "x"))` so the predicate constrains the capture.
+`((node) @body (#eq? @body "x"))` so the predicate constrains the capture.
+See the official [Tree-sitter predicate syntax](https://tree-sitter.github.io/tree-sitter/using-parsers/queries/3-predicates-and-directives.html).
 
-`name_capture`, `value_capture`, `parent_capture`, `span_capture`, and the Tree-sitter
+`name_capture`, `value_capture`, `parent_capture`, `span_capture`, `declaration_capture`, `context_capture`, and the Tree-sitter
 form of `qualifier_capture` are YAML names without the `@` prefix. Embedded capture
 names accept either form and are normalized by the loader.
 
 ## ANTLR selectors
 
-ANTLR query `pattern` is a compact rule-path language:
-
-| Form | Meaning |
-|---|---|
-| `//rule` | Match any descendant with this rule name. |
-| `/rule` | Match the root/direct position with this rule name. |
-| `//a/b` | Match direct child `b` under any descendant `a`. |
-| `//a//b` | Match descendant `b` at any depth under `a`. |
-| `//a[KEYWORD]` | Match `a` only when it has the terminal keyword as a direct child, case-insensitively. |
-| `//a[!KEYWORD]` | Match `a` only when it does not have that direct terminal. |
-
-ANTLR `name_capture` and `value_capture` use a different, match-relative child path:
-
-- `identifier` selects a direct child rule;
-- `default_value_part/expression` walks direct children;
-- `**/literal` selects the nearest descendant rule named `literal`;
-- an omitted/default `name_capture` uses the matched node's qualified name or first
-  terminal.
-
-ANTLR `qualifier_capture` is ancestor-anchored. For example,
-`update_statement/general_table_ref` climbs to the enclosing `update_statement` and
-then walks to its `general_table_ref`. The first segment is tracked as an anchor but
-does not become an owning context unless it also appears in `context_types`.
-
-## Parent context and name paths
-
-`context_types` maps a Tree-sitter node kind or ANTLR rule to the label of the entity
-that owns declarations nested inside it:
+`pattern` uses the official ANTLR XPath syntax (`/rule`, `//rule`, token selectors).
+Configure direct terminal conditions with `keyword`, direct rule conditions with
+`child_rule`, and inversion with `negate`. An optional `select` XPath continues
+from each filtered anchor. Capture slots are structured operations:
 
 ```yaml
-context_types:
-  class_definition: Class
-  function_definition: Function
+pattern: '//general_element_part'
+child_rule: function_argument
+captures:
+  name: [{xpath: '/id_expression'}]
+  qualifier: [{nearest_ancestor: update_statement}, {xpath: '/general_table_ref'}]
 ```
 
-By default Tree-sitter reads the context node's `name` field. When a grammar stores
-the name elsewhere, `context_name_paths` supplies alternatives:
+Nearest descendants use breadth-first order; ancestors exclude the selected node.
+A missing later operation does not retry a farther ancestor. See the complete
+[ANTLR selection contract](../specs/rust_ast_antlr_profile_queries.md).
+
+## Parent context and names
+
+Tree-sitter `context_types` maps node kinds to owner labels. Its SDK `name` field
+is the default. Use native queries with explicit context/name captures otherwise:
 
 ```yaml
-context_name_paths:
-  element: STag/Name
-  resource_block: string_lit[1]|name
+context_types: {element: Element}
+context_name_queries:
+  element: '(element (STag (Name) @name)) @context'
 ```
 
-Segments are `/`-separated field names or named child kinds. `kind[n]` selects the
-zero-based occurrence among same-kind children; an unindexed segment selects the
-first. `|` separates fallback paths. ANTLR uses the same configured string through
-its context-name resolver for supported rule paths.
+Each pattern binds the configured kind as `@context` and exactly one `@name`.
+Use ordered patterns for complete alternatives and native anchors for positional
+children. Invalid syntax/bindings fail configuration; absent names remain missing
+observations. Scope association uses the native cursor and preserves self-exclusion,
+anonymous functions and recovered nodes.
+
+ANTLR profiles instead declare native XPath contexts:
+
+```yaml
+antlr_contexts:
+  - pattern: '//create_procedure_body'
+    label: Procedure
+    name: [{xpath: '/procedure_name'}]
+```
 
 ## Target resolution
 
@@ -565,7 +716,7 @@ Without `merge: true`, the upper file is the complete language profile. With it:
 - scalar/list fields inherit when omitted; an explicitly declared non-empty value
   replaces the lower one;
 - `queries` merge by `data_key`, and redeclaring one key replaces that entire group;
-- `context_types`, `context_name_paths`, `target_rules`, and `text_normalizers` merge
+- `context_types`, `context_name_queries`, `target_rules`, and `text_normalizers` merge
   by map key;
 - upper `embedded` blocks are prepended to lower blocks;
 - `complexity.node_types`, `operators`, and `head_calls` inherit independently;
@@ -576,10 +727,10 @@ Without `merge: true`, the upper file is the complete language profile. With it:
 An empty list is indistinguishable from omission for the list-replacement rules. To
 clear inherited list behavior, replace the whole profile rather than merge it.
 
-Profiles are checked for changes at most once every two seconds. The signature uses
-YAML filenames, sizes, and modification times. A change invalidates compiled query,
-embedding-label, extension, filter, and override caches. Invalid files/queries are
-skipped with warnings; the daemon continues running.
+The loader captures configured profile layers for each load. There is no two-second
+filename/size/mtime cache contract. Invalid files or queries are diagnosed and skipped by
+the loader; the remaining valid profiles can continue. Effective compiler/profile identities
+participate in incremental reuse, so a changed producer cannot keep incompatible facts current.
 
 ## Grammar selectors and enable/disable controls
 
@@ -617,132 +768,82 @@ When both non-exclusive backends claim an extension, Tree-sitter runs first. ANT
 attempted only when Tree-sitter errors or extracts no entities. An explicit grammar
 override disables that fallback.
 
-## Installing a Tree-sitter parser
+## Extending syntax profiles
 
-### 1. Build the shared library
+Tree-sitter and ANTLR fallback use grammars linked into the Graphit package.
+Customize those profiles in `<project>/.graphit/ast/queries/<language>.yaml` or the
+configured `ast.queries_dir`; Global profiles use `<GLOBAL_DIR>/ast/queries`.
+Profile YAML and native queries retain their existing hot reload and validation.
+An image association does not install a syntax grammar. To add compiler indexing
+for an extension without a rebuild, use [custom compiler images](#custom-compiler-images-by-extension).
 
-Build the grammar as a native shared library compatible with Graphit's Tree-sitter
-runtime. It must export `tree_sitter_<language>()`. Use one of these filenames, in
-search order within a directory:
-
-```text
-tree-sitter-<language>-<goos>-<goarch>.<ext>
-tree-sitter-<language>-<goos>.<ext>
-tree-sitter-<language>.<ext>
-```
-
-The platform extension is `.so` on Linux, `.dylib` on macOS, and `.dll` on Windows;
-non-Linux platforms also accept a `.so` fallback filename.
-
-The loader derives `<language>` by removing `tree-sitter-` from the YAML `grammar`
-value. Underscores in the lookup language become hyphens in filenames, while the
-exported symbol retains the grammar's actual symbol spelling.
-
-### 2. Install the binary
-
-Grammar binaries have two search levels:
-
-1. `<project>/.graphit/grammars/treesitter`;
-2. `<GLOBAL_DIR>/grammars/treesitter`.
-
-Project-local binaries win. They are platform-specific and gitignored. There is no
-separate versioned-runtime binary lookup; shipped languages normally fall back to
-grammars compiled into Graphit, while Hub language artifacts install external
-binaries into the global directory.
-
-### 3. Add the YAML
-
-Create `<project>/.graphit/ast/queries/<language>.yaml` (or the configured
-`ast.queries_dir`) with at least `language`, `grammar`, `extensions`, extraction
-queries, and appropriate `embed_labels`. The filename can differ, but matching the
-language makes maintenance clearer.
-
-### 4. Restart after binary changes
-
-YAML hot-reloads; shared libraries do not. Language resolution, including failed
-lookups, is process-cached because swapping a native grammar under active parses is
-unsafe. The daemon fingerprints grammar filenames, sizes, and modification times and
-replaces itself when installed libraries change. For direct CLI/MCP processes, start
-a new process after adding, removing, or replacing a grammar binary.
+For the generic syntax route, declare a full native `span_capture` and, when
+header policies or complexity require it, a separate `declaration_capture`.
+Configured roles missing from the query are preparation errors; optional captures
+missing in one match retain diagnostics. For an Entity-owned scope,
+`context_capture` identifies its context; a native span or declaration must
+contain its name as well as its body. `context_requires_entity` can require an
+actual Entity candidate for a polymorphic context. Unclaimed anonymous nodes
+remain scope barriers. These rules use native SDK nodes and do not infer a
+declaration by spelling or capture-parent guesses.
 
 ## Adding an ANTLR parser as a framework contributor
 
 YAML alone can customize extraction for the five registered ANTLR drivers, but cannot
 register a sixth driver today. Adding one requires all of these implementation pieces:
 
-1. generate the Go lexer/parser package under `internal/ast/antlr/<language>`;
-2. implement `antlr/common.GrammarDriver`, including the actual start-rule method and
-   conversion to the shared `TreeNode` representation;
-3. register `antlr-<language>` in `nativeAntlrDrivers`;
-4. add a sidecar build-tag registration file under `cmd/graphit-antlr-sidecar` and add
-   the grammar to the build/release grammar list;
-5. add the complete YAML profile with `parser: antlr4`, grammar metadata, selectors,
-   contexts, targets, complexity, and embeddings;
-6. add hermetic driver, selector, extraction, filtering, exclusivity, and sidecar
-   protocol tests.
+1. generate the recognizers for the official ANTLR C++ runtime and include them
+   in the native build under `crates/graphit-ast/src/antlr_engine/cpp/generated`;
+2. extend the typed dialect boundary in `antlr_engine/bridge.rs` and its C++
+   implementation with the actual generated start rule, source positions,
+   diagnostics and operation-local cancellation;
+3. register the recognizer sources in `antlr_engine/build_bridge.rs` and expose
+   the dialect through the native profile/model dispatch;
+4. add the complete YAML profile with `parser: antlr4`, grammar metadata,
+   selectors, contexts, targets, complexity observations and embedding selection;
+5. preserve original Source/ranges, ownership, extraction and relation fields
+   through the native graph and the official SCIP syntax producer;
+6. add focused fixtures for the driver, selectors, filtering, ranges, malformed
+   input, cancellation and graph/projection integrity.
 
-Supported sidecars are named `antlr-sidecar-<language>` (plus `.exe` on Windows) and
-are searched in:
+The Rust composition calls the native ANTLR bridge. YAML metadata cannot register a generated recognizer or invent a calculated
+complexity metric. A new dialect needs its own native model/NN eligibility
+contract; registering a parser alone does not establish an NN projection.
 
-1. `<project>/.graphit/grammars/antlr`;
-2. `<GLOBAL_DIR>/grammars/antlr`.
+`start_rule` in YAML is descriptive metadata; the native dialect implementation
+is the authority for which generated parser method starts the parse.
 
-Graphit keeps a CPU-budget-sized pool of long-lived sidecar processes, starts them
-lazily, sends length-prefixed requests over stdin, and retries once with a replacement
-process after a protocol/process failure. The request is a little-endian 32-bit frame
-length followed by a null-terminated grammar name and source bytes. The response is a
-32-bit length, one status byte (`0` success, `1` error), and either JSON `TreeNode`
-payload or error text. Response frames above 256 MiB are rejected.
+## Packaging and sharing a compiler
 
-`start_rule` in YAML is descriptive/mergeable metadata; the driver implementation is
-the current authority for which generated parser method starts the parse.
-
-## Packaging and sharing a language
-
-Do not commit native binaries under `.graphit/grammars`. To share a parser across
-machines and operating systems:
-
-1. build one binary per target OS/architecture;
-2. package them into a `.grammar` archive with `graphit-grammar-pack`;
-3. put the archive and one or more YAML files at the root of a language artifact
-   directory;
-4. publish it with `graphit hub submit <id> <directory> --type language --version <version>`;
-5. install it with `graphit hub install <id>@<version> --type language`.
-
-Example pack command:
-
-```bash
-graphit-grammar-pack \
-  -o tree-sitter-example.grammar \
-  -symbol tree_sitter_example \
-  -platform linux/amd64:dist/tree-sitter-example.so \
-  -platform darwin/arm64:dist/tree-sitter-example.dylib
-```
-
-The archive is version 1, zstd-compressed, and selects the exact current Go
-`GOOS/GOARCH`. Its basename must begin with `tree-sitter-` or `antlr-`. Installation
-copies YAML into the global query directory and extracts the current platform binary
-into the corresponding global grammar directory. Project YAML still has higher
-precedence.
+Publish the image to a registry your Docker installation can access, retaining
+its upstream versions, local changes and licenses in the image's maintained
+source. Configure its exact tag or digest in `ast.scip.parsers`. The string setting can
+be shared in project configuration without machine-specific native library paths.
+Custom images use the same process, output and Source authorization boundaries as
+maintained images. Image publication and platform qualification remain separate
+from local source tests.
 
 ## Validation workflow
 
 There is currently no standalone grammar-schema validator, so validate at three
 levels:
 
-1. parse a small fixture with a scoped index:
+1. admit a small fixture through the configured native Source project and wait
+   for its normal indexing outcome, retaining the selected project/version and
+   published generation;
+2. inspect actual entities/relationships with `graphit_ast_query` and Source with
+   `graphit_ast_source`; inspect causal diagnostics for rejected files, fields,
+   patterns or captures. These readers do not trigger indexing;
+3. for framework contributions, select the affected Rust AST suites. For example,
+   changes to source ranges or PostgreSQL composition use:
 
-   ```bash
-   graphit ast index path/to/fixture --reindex
+   ```text
+   cargo xtask test graphit-ast/source_ranges graphit-ast/postgresql_semantic
    ```
 
-2. query the resulting entities and relationships with `graphit ast query`, and
-   inspect daemon/CLI warnings for skipped files, fields, patterns, or captures;
-3. for framework contributions, run the focused AST suite:
-
-   ```bash
-   go test ./internal/ast/...
-   ```
+   Choose targets by the behavior changed rather than porting the retired Go
+   package tests one for one. See [Rust checks and Git hooks](../development/rust-fast-guard.md)
+   for the registered selectors and native fixture prerequisites.
 
 Useful invariants for tests include:
 
@@ -761,15 +862,56 @@ Useful invariants for tests include:
 |---|---|
 | Files are not discovered | The extension includes the expected spelling; the grammar is not exclusive/disabled; an exclusive extension is persisted in `ast.grammar`. |
 | `unknown ... grammar` | The YAML grammar name does not exist in the registered tables, or the query profile did not load. |
-| `grammar load failed` | Shared-library filename, architecture, exported symbol, ABI, and project/global installation path. Restart after fixing it. |
-| YAML edit appears ignored | Wait for the two-second staleness window; verify filename suffix, YAML syntax, `language`, `data_key`, and `pattern`; inspect logs. |
+| Custom compiler does not run | Check `ast.scip.parsers` effective layer, exact image reference, Docker authentication and diagnosed pull/process failure. |
+| YAML edit appears ignored | Verify the next captured profile load, filename suffix, strict YAML fields, `language`, `data_key`, and `pattern`; inspect the invalid-profile diagnostic. |
 | A merged language loses behavior | Lists/scalars replace as a whole; empty lists inherit. Replace the full profile when you need to clear inherited values. |
 | A Tree-sitter predicate matches decoys | Keep predicates inside the same pattern expression and verify capture names. |
-| ANTLR captures the wrong text | Distinguish query `pattern` paths from match-relative capture paths; use `**/rule` only when nearest-descendant behavior is intended. |
+| ANTLR captures the wrong text | Distinguish the anchor `pattern` from `captures` operations; use `nearest_descendant: rule` for the closest matching descendant, and `xpath: '//rule'` for ordinary XPath descendant selection. |
 | Relationships resolve to the wrong kind | Narrow `target_rules.<REL>.labels` or `target_labels`, and qualify names when scope alone is insufficient. |
 | Embedded text has wrong line numbers | Remove newline-changing normalization/wrapping; the loader warns and ignores invalid replacements. |
-| A new ANTLR sidecar is installed but unsupported | External installation does not register arbitrary ANTLR drivers; add the contributor integration described above. |
+| A new ANTLR grammar is unavailable | YAML alone does not register a generated recognizer; add the native contributor integration described above. |
 
 For storage paths and daemon observation behavior, see
 [Filesystem and observation contract](filesystem_contract.md). For the complete AST
 storage/retrieval design, see [AST module specification](../specs/ast_module.md).
+
+
+### Generic NativeNN indexing
+
+Generic profiles may select `embed_labels` once their entity and complete owner
+extents are proven in the original Source. NN stores the original raw name and
+anchor, including quotes and whole mapped atoms; Graph Data display may differ.
+Missing or conflicting extents remain observable and produce no fabricated NN
+row. A namespace with an exact original name can retain its native Graph identity
+with a NonExact unit; its NN descendants remain unavailable until the full owner
+extent is proven.
+
+App uses an active local provider with CPU embedding, the existing configured
+embedding slot and the normal model service. Enabling the embedding module alone
+does not activate a provider; startup reports that missing configuration. The
+Generic consumer retains parse/input mappings across await and publishes through
+the shared format-3 codec. Semantic/hybrid results correlate by UID/data_key and
+Source SHA. A format-2 derived index must reindex normally; changing a metadata
+tag does not convert it. See the [NativeNN contract](../specs/rust_tree_sitter_native_nn.md).
+
+Earlier resource-dependent Linux Generic NN qualification covered the former
+installed-library loader and real local CPU EmbeddingGemma2 inference, incremental
+vector reuse and semantic/hybrid association. That evidence remains scoped to its
+unchanged semantic behaviors; it does not qualify custom compiler-image routing,
+removed native-library installation, GPU execution or other platforms. Select
+current affected tests by the producer and consumer changed, and distinguish
+linked grammar extraction, actual compiler-image execution and model inference.
+
+The retained Generic NN functional selector is:
+
+```sh
+cargo xtask test graphit-app/ast-generic-main-native-nn
+```
+
+Its current test is `ast_generic_nn_executable::generic_main_native_nn`, using a
+custom extraction profile with the linked `tree-sitter-json` grammar. It does not
+load a shared library or run a compiler image. Explicit execution requires
+`GRAPHIT_TEST_MODEL_SERVER` and `GRAPHIT_EMBEDDINGGEMMA2_MODEL` to name the provisioned
+model server and verified EmbeddingGemma2 GGUF asset; missing prerequisites fail
+rather than download a replacement. The fixture selects CPU and exercises the
+normal model service. Its source adaptation does not itself qualify a new run.

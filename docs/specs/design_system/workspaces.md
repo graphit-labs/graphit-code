@@ -1,3 +1,22 @@
+---
+references:
+  - target: {type: task, id: tsk-0257, scope: project, scope_id: 01KSH1CRFFG8Z74B5ZS78WW808}
+    relation: derived_from
+  - target: {type: task, id: tsk-bcaa, scope: project, scope_id: 01KSH1CRFFG8Z74B5ZS78WW808}
+    relation: derived_from
+  - target:
+      type: task
+      id: tsk-b788
+      scope: project
+      scope_id: 01KSH1CRFFG8Z74B5ZS78WW808
+    relation: derived_from
+  - target:
+      type: task
+      id: tsk-d75f
+      scope: project
+      scope_id: 01KSH1CRFFG8Z74B5ZS78WW808
+    relation: derived_from
+---
 # Workspaces and page contracts
 
 [Design system](../design_system.md) · [Foundations](foundations.md) · [Patterns](patterns.md) · [Evolution](evolution.md)
@@ -12,7 +31,7 @@ The internal rebuild replaces the former generic explorer compositions. A graph 
 
 ## Code route and journey matrix
 
-Source of route truth: [App.tsx](../../../internal/ui/src/App.tsx). Source paths below are relative to `internal/ui/src/components/`. Parameterized routes share the same composition with scoped data, not a second design.
+Source of route truth: [App.tsx](../../../ui/src/App.tsx). Source paths below are relative to `ui/src/components/`. Parameterized routes share the same composition with scoped data, not a second design.
 
 | Route | User's question and new composition | Actions and evidence to preserve | Owner |
 | --- | --- | --- | --- |
@@ -24,13 +43,16 @@ Source of route truth: [App.tsx](../../../internal/ui/src/App.tsx). Source paths
 | `/knowledge/explorer`, `/:moduleId`; `/wiki/explorer` | What maintained knowledge supports this decision? Library → focused reading or search results | Context and type filters; keyword/AI answer with source links; source/provenance, references/backlinks; reading history, raw Markdown/copy, image preview; refresh guarded against old context responses | `wiki/WikiExplorerPage.tsx`, `WikiMarkdown.tsx` |
 | `/knowledge/contexts` | Which knowledge collection should I read? Source directory | Project/import origin and page count; open, refresh and confirmed unlink where supported | `wiki/WikiContextsPage.tsx` |
 | `/memory/explorer`, `/:scopeId`, `/:scopeId/:memoryId` | What durable guidance applies and how has it changed? Record catalogue → revision dossier → curation form | Project/personal scope; search/type/tag/mandatory filters; create/edit/delete confirmation; revision selection and provenance; explicit current-versus-historical editing | `memory/MemoryExplorerPage.tsx` |
-| `/hub/registry` | What reusable context can I trust and install? Filtered registry → artifact inspector | Type/publisher/search; identity/version/origin/dependencies; install with optional or required alias, remove and publish when applicable; authorization gates | `hub/RegistryPage.tsx`, `ArtifactCard.tsx` |
-| `/hub/local` | What context does this project own or consume? Owned/Installed/Linked catalogues → origin-specific inspector | Publish/update/unpublish own artifacts; update/remove installations; unlink local context; metadata/dependency review before publication | `hub/ProjectArtifactsPage.tsx`, `hub/modals/SubmitModal.tsx` |
+| `/hub/installed` | Which AST, Knowledge and language libraries are installed here? Installation-wide library list → version/provenance inspector | Exact type/id/version filters and pagination; author metadata, producer and public origin; current Web identity, shared header refresh, keyboard/Escape; independent of PROJECT/version/agent; read only | `hub/InstalledLibrariesPage.tsx` |
+| `/hub/registry` | Which published FILE version should I inspect and install? Explicit source/publisher catalogue → artifact inspector | Literal filters and cursor; declared versions, producer and Markdown; exact FILE install to PROJECT/binding or GlobalCache; qualified reads and mutations remain separately authorized | `hub/RegistryPage.tsx`, `ArtifactCard.tsx` |
+| `/hub/local` | What FILE versions are installed, and which project resource tree should I publish? Installation catalogue → target/provenance inspector; publication metadata → explicit review | Explicit PROJECT or GlobalCache installations; scope-specific maintenance; SourcePROJECT publication captures PROJECT/data version and Broker identity separately from artifact version; recorded effects and original-catalogue inspection after413 | `hub/ProjectArtifactsPage.tsx`, `ArtifactCard.tsx`, `ProjectFilePublication.tsx` |
 | `/hub/upload` | What contract am I publishing for reuse? Package → Metadata & dependencies → Review & publish | Type-specific package extension; virtual power packages; identity, version, author, tags, dependencies; selected project/agent and explicit final submit | `hub/UploadPage.tsx` |
 | `/live` | What evidence boundary should an agent investigate? Prepare context → Run & evidence → Recent sessions | Compatible artifact selection, brief, start/follow-up/cancel; streamed output/activity and source tabs with concise citations; reconnect/dedup; reopen/remove sessions; ephemeral scope | `live/LiveSearchPage.tsx`, `live/LiveEvidence.tsx` |
 | `/system/ecosystem` | Which project identity is relevant, and should its working context come from Workspace or Hub? Unified directory → identity/presence/cluster dossier | All/Same Cluster filters; Workspace/Hub presence; use local or remote context; inspect/copy path; local label add/remove and registration removal confirmation | `system/EcosystemDashboard.tsx` |
 | `/system/daemon` | Is the background service available and how do I connect? Runtime band → logs and process details → agent connection and control | Poll/refresh; actual endpoint/key fields; copy where available; explicit stop confirmation and restart guidance | `daemon/DaemonDashboard.tsx` |
 | `/system/dream` | Is Dream enabled or idle, and what happened in its latest run? State → latest run → conditions | Scoped polling/refresh, state/config, latest operational run; Memory holds the semantic result. No invented quality metric or narrative output | `dream/DreamDashboard.tsx` |
+
+The Rust FILE Registry/Project artifacts consumers are in integration under `tsk-b788`. The SourcePROJECT FILE publication form consumes the qualified bcaa producer and passed its focused real Linux browser journey at 1280, 1024 and 390 px. Remote Registry unpublication now has a qualified Linux Filesystem consumer with real HTTP/CUA and explicit refusal of unsupported ConditionalDelete backends. Broader authored/package journeys retain their own pending qualification. Resources list/tree/content and selected FILE publication are now implemented as a focused consumer awaiting current HTTP/browser qualification. Broader Owned/Linked, package upload and batch journeys remain undelivered; these remain explicit residual requirements until their producers and consumers qualify. Component tests do not replace the final `tsk-d75f` HTTP/browser acceptance. The separate installed-library route retains its existing read-only scope.
 
 `/wiki` is a compatibility redirect to Live or Knowledge according to the existing agent feature gate. The default redirect opens AST contexts in AST app mode and Workspace otherwise. Live remains feature-gated. Preserve these routing contracts when evolving navigation.
 
@@ -42,7 +64,7 @@ An AI answer or generated query is not authoritative source. Show the source sep
 
 ## Broker journey matrix
 
-All administration workspaces live at `/admin` and use permission-filtered local sections. Their owner is Graphit Broker `internal/broker/adminui/index.html`; standalone sign-in/device branches belong to `internal/broker/oauthui/index.html`. The [administration guide](https://github.com/graphit-labs/graphit-broker/blob/main/docs/administration.md) owns operational details.
+All administration workspaces live at `/admin` and use permission-filtered local sections. Their owner is Graphit Broker `crates/broker-presence/assets/admin/index.html`; standalone sign-in/device branches belong to `crates/broker-presence/src/templates/oauth/`. The [administration guide](https://github.com/graphit-labs/graphit-broker/blob/main/docs/administration.md) owns operational details.
 
 | Workspace | Decision and composition | Preserved boundary |
 | --- | --- | --- |
@@ -60,7 +82,7 @@ Write controls are distinct from read visibility. The server authorizes every re
 
 ## Shared Code primitives
 
-Implementation: [EngineeringUI.tsx](../../../internal/ui/src/components/shared/EngineeringUI.tsx) and [engineering.css](../../../internal/ui/src/components/shared/engineering.css). They are local React primitives, not a separately versioned package.
+Implementation: [EngineeringUI.tsx](../../../ui/src/components/shared/EngineeringUI.tsx) and [engineering.css](../../../ui/src/components/shared/engineering.css). They are local React primitives, not a separately versioned package.
 
 | Primitive | Inputs and responsibility | Usage rule |
 | --- | --- | --- |
@@ -95,12 +117,32 @@ Dialogs combine `ModalPortal` behavior with `.work-dialog` presentation. Header 
 
 These are extension requirements, with implementations and regression coverage in the affected pages:
 
-1. Bind requests and selections to project/context/agent or authenticated identity as applicable. Invalidate old request generations when that boundary changes.
+1. Bind requests and selections to project/context/agent or authenticated identity as applicable. Invalidate old request generations when that boundary changes. Hub target inspection also captures the mutation epoch: an earlier inspection cannot mark a later result inspected.
 2. Guard both the response and any follow-up work after an `await`. A rejected old reload must not initiate a new page navigation or reset current global metadata.
-3. Capture the intended target before a mutation. Close incompatible dialogs when scope changes. Successful old operations may not reload an old workspace into the current one.
+3. Capture the intended target before a mutation. Close incompatible dialogs permanently when scope changes, while retaining the already-submitted mutation and receipt under its original tuple. Successful old operations may not reload an old workspace into the current one. Within the same scope, completion refreshes the current submitted query or filters instead of a closure captured before the mutation. API base or authenticated identity changes, including logout, tear down that client owner and discard its private state.
 4. Keep inspection, draft, review, submission and confirmed result distinct. Preserve drafts on validation or revision conflict; explicit reset/cancel follows the domain contract.
 5. Move focus to newly opened reading/editing work when appropriate; restore it after dialogs. Do not scroll with guessed absolute coordinates.
 6. Keep zero, unavailable and empty distinct. Never replace a zero count with a dash or a loading failure with a claim of no records.
+
+The FILE Hub header uses its own Hub/read context bootstrap, POST /api/hub/contexts {}, rather than legacy discovery or version endpoints. Project and Version consume the exact authorized Source tuples; current:null does not select the first project. The same header retains the current eight literal Agent bindings, using the shared ContextSelect. An empty PROJECT context list still permits the remote catalogue and installation cache. Project-scoped actions remain unavailable until an explicit authorized selection; auth/transport errors remain separate from empty data. Changing a header selection does not remount a submitted Hub mutation; identity/API changes tear down its owner and discard delayed bootstrap results.
+
+SourcePROJECT publication reuses the shared ModalPortal and work-dialog composition: the real Resources list and tree review select FILE type/ID/artifact version before metadata editing, review and explicit submission, independently of the header data version, the authenticated provider and captured PROJECT/data version remain facts rather than extra global selectors, and optional metadata/dependencies use progressive disclosure. No new palette, form framework or page-level global picker is introduced. Drafts survive validation/HTTP errors; uncertain project metadata, storage effects or owned temporary residue require original remote-catalogue inspection. The inspector records the original result epoch and does not use installed inventory as publication proof.
+
+Authored Resources navigation reuses RecordLink, the responsive artifact directory/inspector, StyledSelect, FactList and WorkSection. List filters are local to the captured PROJECT; source identity remains a fact in the publication dialog. Keep readable relative file actions, explicit independent list/tree pagination, focus entry/return and Escape from content back to its file action. Text content uses the existing escaped pre/code presentation; long paths wrap and overflow stays inside the reader. Never render host paths, infer metadata or hide AST/Knowledge resources merely because publication accepts FILE kinds. LIST names are explicitly absent through required name:null; REVIEW metadata is separately metadata:null. The reader preserves those exact DTOs; only publication metadata is editable. Context/selection changes discard read generations and review while a submitted publication retains its original owner/result. Finite denied/missing/non-text/limit states stay distinct from empty resources/text. No read promises an immutable tree or a publication grant. Focused API/real component checks are complemented by the actual selected-resource Root browser read/publication journey and Auth-confirmed owned cleanup. Separate M1 security and Global obligations remain open.
+
+Local Resources installation is a separate action in the selected resource inspector for agent/skill/command/workflow. Reuse the same HubActions owner and FileActionDialog/ModalPortal/StyledSelect/FactList composition as existing lifecycle operations. Show captured source and destination as facts, keep the binding from the shared header, and distinguish Link to local resources from Link to Hub cache. The omitted option describes default/preserve intent; names remain drafts on errors and local nonempty literals are not silently rewritten. No new navigation, global target control, free-path input, token palette or mode-derived provenance is introduced. The owner stays mounted through PROJECT/Agent changes, closes incompatible dialogs and keeps submitted receipts under their original tuple; identity/API/logout teardown still discards private work. Existing relative readers and ten-type list remain independent of the four-type local action and eight-type FILE publication. Input/keyboard/focus/Global exclusion and affected old shared branches have focused proof, and one affected production bundle has been promoted. The actual selected-resource Root browser journey and Auth-confirmed cleanup qualify this positive slice; separate M1 security and Global obligations remain open.
+
+PROJECT installation/update adds one local Installation mode StyledSelect inside the existing work-dialog form. Its omitted option says Default (Copy) for install and Preserve current mode for update; explicit Copy and Link to Hub cache keep literal wire values. GlobalCache has no mode or PROJECT naming controls. Retain the inherited typography, semantic tokens, body scrolling, visible footer, label, portaled-select keyboard handling and Escape/focus return. Explain the managed Hub-cache origin and label feedback Requested installation mode; no observed mode is inferred. Unsupported retains the draft, and scope/identity cancellation continues under the existing operation owner. Focused mode/API/DOM and NativePath regression proof is complemented by the real Linux browser Link/omitted-update/Copy/Global-form journey with completed cleanup. Reuse earlier desktop/narrow and shared keyboard/focus proof for unchanged layout primitives; the current mode-specific HTTP slice is qualified by M1 diagnostic8 and the complete mode child in runs7/8. The prior run7 later403→500 security failure retains unknown cause; an Auth-owned causal test and the broader migration remain pending.
+
+FILE operation feedback receives literal Unicode path strings, including possible parent residues and every owned/pending Forget preview source, destination, staging, old destination, payload and backup. It renders that text directly, preserving spaces, accents and escapes. Invalid Unicode is rejected by the service; there is no byte-array decoder or hexadecimal fallback. Parent residues deduplicate by their exact path string. Preview modes are Rust ArtifactMode Link or Copy with its policy, separate from the requested HTTP copy/link value. These observations retain captured identity, effect/pending flags and explicit inspection; Forget changes logical ownership and never grants deletion of the displayed paths.
+
+Every installed FILE entry supplies an explicit source_origin: HubCache, Resources or LocalLink. Inventory rows and the inspector display that provenance, independently of physical Copy/Link. The separate origin field carries only the remote Broker/Standalone transport or null; null never classifies the source as local. HubCache with null remote origin remains HubCache and has no remote Update/content controls. Resources and LocalLink require null remote origin; contradictory or missing/unknown source origins fail the inventory response rather than gaining a default. Remote Update and installed content require both HubCache provenance and a concrete remote origin. Existing PROJECT Remove, Recover and Forget remain available independently of remote eligibility and submit only the captured PROJECT/data version, artifact type/ID/concrete artifact version and binding. They reuse the existing lifecycle endpoints; Remove preserves the source and Forget retains physical files and residues. Provenance participates in selection identity, so a refreshed entry with a changed source origin closes its previous inspector. These fields do not grant source reading or accept a free host path. The Root browser observed LocalLink provenance with null remote transport after real local installation, and Auth confirmed owned cleanup. Focused tests cover the other source-origin and rejection branches; separate M1 security and Global obligations remain open.
+
+Remote catalogue unpublication uses the existing Registry inspector and ModalPortal/work-dialog confirmation, with FactList for the captured provider/producer/type/ID and literal version or explicit whole artifact. Retain the inherited navy/cobalt semantic tokens, Public Sans/IBM Plex Mono, catalogue/detail proportions and responsive stack; add no parallel navigation or global selector. The exact-version and whole-artifact actions are distinct, and whole removal requires a dedicated all-versions checkbox. Long IDs and digests wrap inside the shared fact layout. Optional digest drafts survive validation/HTTP failures; focus isolation, Escape, cancellation and restoration remain shared primitives.
+
+The remote operation owner is bounded by Web identity/API rather than PROJECT, Agent or inspector visibility. Show the captured target while pending and preserve confirmed updated/removed catalogue effects even when HTTP delivery fails. Unknown/uncertain/413 results require explicit original remote-catalogue inspection tied to the result epoch. Keep these source/API/DOM checks separate from remote-effect qualification. The real Broker browser has also verified the pre-submit whole/version dialogs, confirmation, keyboard focus and responsive layout at 1280/1024/390 px; a subsequent real whole-artifact effect also preserved the receipt/focus through catalogue removal and original inspection. Owned probe cleanup is complete. The current Linux Filesystem qualification adds real HTTP/Native integrity proof (incorrect If-Match412 without effect), explicit unsupported-backend refusal and a fresh whole-effect CUA with completed owned cleanup. Earlier MinIO presentation/effect evidence remains historical and does not establish its conditional-delete integrity.
+
+Publisher discovery belongs to its effective source, provider and storage profile. Changing that tuple cancels and clears the old discovery, including errors and cursors; use Browse publishers explicitly for the new source. A discovery failure in the same tuple remains visible when a separate catalogue search succeeds. Draft edits alone do not request discovery or grant access.
 
 ## Verification by journey
 
@@ -150,7 +192,7 @@ The header always refreshes the project/agent catalogue once. `WorkspaceRefreshP
 | Memory | Filtered catalogue and selected revision trace; editing draft remains mounted |
 | Knowledge / Wiki explorer | Collection directory, selected collection pages and open document; no new AI answer |
 | Code / Knowledge contexts | Context directory; retained selected context is reconciled with the returned inventory |
-| Hub registry / Project artifacts | Catalogue, installed/owned artifacts and resolved metadata; filters and inspection selection retained where available |
+| Hub registry / Project artifacts | Published catalogue, installed FILE artifacts and resolved metadata; filters and inspection selection retained where available; mutation outcomes remain separate |
 | Publication | None: preserve package, metadata and review step; refresh global destination catalogue only |
 | Daemon | Current service status/log snapshot; automatic polling remains active |
 | Dream | Conditions and latest-run metadata; polling remains active |
@@ -188,7 +230,7 @@ AST map entry loads the bounded sample once per scope when no explicit search or
 
 ### Workspace Now
 
-The initial Now tab shows active sessions and tasks plus recently maintained project memories and Knowledge. Work is active only with `in_progress` status, a responsible identity and an unexpired lease. Each session record uses `SessionTaskProgress` to show the authoritative completed/total linked-Task count: cancelled Tasks remain in the total and only `completed` increments the numerator. The view includes all project contributors: the global agent selector identifies a CLI context, not the owner identity of a Task claim. Memory uses its recorded author identity; Knowledge does not invent an author. Personal memory is excluded.
+The initial Now tab shows active sessions and tasks plus recently maintained project memories and Knowledge. Work is active only with `in_progress` status, a responsible identity and an unexpired lease. Each session record uses `SessionTaskProgress` to show the authoritative completed/total linked-Task count: cancelled Tasks are excluded from the denominator, and only `completed` increments the numerator. An empty denominator is neutral (0/0), not completed work. Cancelled records remain available in the catalogue and history. The view includes all project contributors: the global agent selector identifies a CLI context, not the owner identity of a Task claim. Memory uses its recorded author identity; Knowledge does not invent an author. Personal memory is excluded.
 
 Now refreshes every five seconds while mounted, shares its loader with the header refresh, and marks both the live request and response `no-store` so an unchanged project URL cannot reuse an older snapshot. It deduplicates in-flight requests and aborts/ignores responses after a project or agent change or navigation. Keep the previous snapshot visible while updating; identify stale data after a failed refresh and retry automatically. Individual source errors remain visible without hiding successful sections: a failed session-progress read does not suppress successfully loaded active Tasks. Each section shows at most the latest 20 records, sorted before limiting, with its total and links to the full record. Preserve the timestamp precision supplied by the source: old date-only Knowledge values remain dates.
 

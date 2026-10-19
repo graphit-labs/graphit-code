@@ -1,0 +1,28 @@
+[package]
+name = "graphit-process"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "subprocess-fixture"
+path = "tests/support/subprocess_fixture.rs"
+test = false
+bench = false
+
+[dependencies]
+process-wrap = { workspace = true, features = ["std"] }
+secrecy.workspace = true
+tokio = { workspace = true, features = ["signal", "net"] }
+graphit-core = { path = "../graphit-core", features = ["async-cancel"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["signal"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

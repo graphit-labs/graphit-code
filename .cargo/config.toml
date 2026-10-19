@@ -1,0 +1,6 @@
+[alias]
+xtask = "run --locked --package xtask --"
+
+[env]
+# Private Cargo-built libraries need real .so files for the binding's asset copier.
+CMAKE_PLATFORM_NO_VERSIONED_SONAME = "ON"

@@ -10,21 +10,21 @@ The design reference is canonical in Graphit Code's `docs/specs/design_system.md
 
 | Concern | Owning source | Consumers to inspect |
 | --- | --- | --- |
-| Code semantic values, shared chrome and responsive composition | `internal/ui/src/index.css` | Workspace, every shell-wrapped route, explorer overrides |
-| Code token utility mapping | `internal/ui/tailwind.config.js` | Components using semantic colors/radii/font utilities |
-| Routes and shell | `internal/ui/src/App.tsx`; `components/layout/AppShell.tsx`, `Sidebar.tsx`, `WorkspaceSelectors.tsx`, `WorkspaceRefresh.tsx` | Existing deep links; exactly one Project/Agent selector group in the common header on every route, including mobile; no sidebar/page duplicates |
-| Workspace content | `internal/ui/src/components/system/WorkspacePage.tsx` | Registered-project store and context/work/evidence destinations |
-| Code theme synchronization | `internal/ui/src/hooks/useTheme.ts` | Theme provider and simultaneous desktop/mobile controls |
-| Code modal lifecycle | `internal/ui/src/components/shared/ModalPortal.tsx` | Memory form, Hub dialogs, daemon confirmation, knowledge image preview; focus/scroll ownership |
-| Code work surfaces | `internal/ui/src/components/shared/EngineeringUI.tsx` and `engineering.css` | All internal page compositions, tables, dossiers, responsive layouts |
-| Code investigation and source | `internal/ui/src/components/ast/ExplorerPage.tsx`, `QueryBar.tsx`, `CodePanel.tsx` | Scoped search, identity resolution, source, relation tables and optional graph |
-| Code feedback | `internal/ui/src/components/shared/Toast.tsx` | Feature outcomes and error announcements |
+| Code semantic values, shared chrome and responsive composition | `ui/src/index.css` | Workspace, every shell-wrapped route, explorer overrides |
+| Code token utility mapping | `ui/tailwind.config.js` | Components using semantic colors/radii/font utilities |
+| Routes and shell | `ui/src/App.tsx`; `components/layout/AppShell.tsx`, `Sidebar.tsx`, `WorkspaceSelectors.tsx`, `WorkspaceRefresh.tsx` | Existing deep links; exactly one Project/Agent selector group in the common header on every route, including mobile; no sidebar/page duplicates |
+| Workspace content | `ui/src/components/system/WorkspacePage.tsx` | Registered-project store and context/work/evidence destinations |
+| Code theme synchronization | `ui/src/hooks/useTheme.ts` | Theme provider and simultaneous desktop/mobile controls |
+| Code modal lifecycle | `ui/src/components/shared/ModalPortal.tsx` | Memory form, Hub dialogs, daemon confirmation, knowledge image preview; focus/scroll ownership |
+| Code work surfaces | `ui/src/components/shared/EngineeringUI.tsx` and `engineering.css` | All internal page compositions, tables, dossiers, responsive layouts |
+| Code investigation and source | `ui/src/components/ast/ExplorerPage.tsx`, `QueryBar.tsx`, `CodePanel.tsx` | Scoped search, identity resolution, source, relation tables and optional graph |
+| Code feedback | `ui/src/components/shared/Toast.tsx` | Feature outcomes and error announcements |
 | Site composition/interaction | `docs/site/index.html`, `styles.css`, `site.js` | Anchors, audience/install tabs, copy, menu, themes |
-| Broker console | Graphit Broker `internal/broker/adminui/index.html` | Permission-filtered navigation, inventories/editors, IDs, event handlers, revision/CSRF contracts |
-| Broker authentication | Graphit Broker `internal/broker/oauthui/index.html` | Go template branches, form actions/names, auth policy and CSP |
+| Broker console | Graphit Broker `crates/broker-presence/assets/admin/index.html` | Permission-filtered navigation, inventories/editors, IDs, event handlers, revision/CSRF contracts |
+| Broker authentication | Graphit Broker `crates/broker-presence/src/templates/oauth/` | Rust template branches, form actions/names, auth policy and CSP |
 | Shared mark | Code public SVGs, site logo, Broker favicon and embedded SVG/CSS glyphs | Browser icon, product navigation, authentication and public site |
 
-Paths beginning `components/` in the Code rows are relative to `internal/ui/src/`. Broker lives in its own repository; resolve the checkout rather than putting machine-specific paths into maintained docs.
+Paths beginning `components/` in the Code rows are relative to `ui/src/`. Broker lives in its own repository; resolve the checkout rather than putting machine-specific paths into maintained docs.
 
 ## Theme contracts
 
@@ -83,8 +83,8 @@ These checks are instructions for future work. They are not a claim that a fresh
 | Area | Method | Expected evidence |
 | --- | --- | --- |
 | Exact values | Compare the token tables with each owning CSS selector | Names and values match; inherited dark values are explicit |
-| Code integration | From `internal/ui/`: `npm run build` and `npm exec vitest run` when UI changes warrant them | Build succeeds; relevant component/store/theme behavior passes |
-| Broker integration | From Broker root: `go test ./internal/broker` when templates/console change | Tests pass; template rendering, handlers and contracts retained |
+| Code integration | From the repository root: `node scripts/build-rust-ui.mjs`; from `ui/`: `npm exec vitest run` for affected components | Build and embedded asset publication succeed; relevant component/store/theme behavior passes |
+| Broker integration | From Broker root: `cargo test --locked --offline -p broker-server --test admin_local_login -- --ignored --exact broker_admin_local_login_http_contract --test-threads=1` when templates/console change | Tests pass; template rendering, handlers and contracts retained |
 | Site | `node --check docs/site/site.js`; check local anchors/assets after content changes | Valid script and resolvable local destinations |
 | Browser layout | Desktop plus 320/390px and boundaries around 767/768, 800, 1000/1050px work surfaces, 1100/1150 as relevant | No page-wide clipping; key actions available; internal scroll intentional |
 | Themes/fonts | Light/dark where implemented; simulate font unavailability | Correct paired colors, readable hierarchy, usable fallback layout |
@@ -103,7 +103,7 @@ These are current constraints to account for when touching related code, not fea
 
 - There is no shared runtime component library, Storybook catalogue, machine-readable cross-repository token package or token synchronization pipeline. Equivalent CSS values are maintained in separate files.
 - Code HSL and Broker/site hex values are related but not byte-equivalent. Surface token names also differ; the foundations mapping is semantic.
-- Code base typography uses Public Sans, but Tailwind `font-sans` still names Manrope. Broker intentionally relies on local fallbacks; auth has no dark implementation.
+- Broker intentionally relies on local font fallbacks; authentication has no dark implementation.
 - Explorer compatibility CSS still overrides legacy `glass-*`, radius, casing and font utilities. New components should use semantic styles directly; avoid spreading those compatibility names.
 - Existing compact text/control sizes require case-by-case accessibility review. Current focus/reduced-motion provisions do not constitute a full contrast, screen-reader or keyboard audit of all screens.
 - `ModalPortal` has no simultaneous-modal stack manager; graph/canvas nonvisual parity and status announcement coverage must be evaluated for the affected journey.

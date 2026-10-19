@@ -3,7 +3,7 @@ title: "MCP Tools Reference"
 description: "Complete reference of all MCP tools available to AI agents through Graphit Code."
 content-type: reference
 audience: developers, ai-agents
-updated: 2026-09-23
+updated: 2026-10-29
 keywords:
   - mcp
   - tools
@@ -15,1439 +15,283 @@ prerequisites:
 related:
   - "docs/guides/user_manual.md"
   - "docs/guides/troubleshooting.md"
+references:
+  - target: {type: task, id: tsk-be6e}
+    relation: reuses
+  - target: {type: task, id: tsk-1b8b}
+    relation: reuses
+  - target: {type: task, id: tsk-abb4}
+    relation: reuses
+  - target: {type: task, id: tsk-4b26}
+    relation: supports
+  - target: {type: task, id: tsk-97d9}
+    relation: supports
+  - target: {type: task, id: tsk-9bd4}
+    relation: supports
+  - target: {type: task, id: tsk-a2bb}
+    relation: supports
+  - target: {type: task, id: tsk-6b5f}
+    relation: supports
+  - target: {type: task, id: tsk-9a3d}
+    relation: supports
+  - target: {type: task, id: tsk-c3c2}
+    relation: supports
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-de72
+    relation: supports
+  - target:
+      type: task
+      id: tsk-a4ca
+    relation: supports
+  - target: {type: task, id: tsk-ced2}
+    relation: relates_to
+  - target: {type: task, id: tsk-3ddb}
+    relation: relates_to
+  - target: {type: task, id: tsk-ad05}
+    relation: relates_to
+  - target: {type: task, id: tsk-e493}
+    relation: relates_to
+  - target: {type: task, id: tsk-7a13}
+    relation: relates_to
+  - target: {type: task, id: tsk-c3bf}
+    relation: relates_to
+  - target: {type: task, id: tsk-0257}
+    relation: relates_to
+  - target: {type: task, id: tsk-47fd}
+    relation: relates_to
+  - target: {type: task, id: tsk-d75f}
+    relation: relates_to
+  - target: {type: task, id: tsk-b788}
+    relation: relates_to
+  - target: {type: task, id: tsk-4323}
+    relation: relates_to
+  - target: {type: task, id: tsk-376b}
+    relation: relates_to
 ---
 
 # MCP Tools Reference
 
-This document provides a complete reference for all MCP (Model Context Protocol) tools exposed by
-Graphit Code. A local installation reaches the catalog through the managed stdio proxy; the daemon
-publishes the same catalog through Streamable HTTP at `/mcp`, authenticated with a bearer key. AI
-agents use these tools to index code, query graphs, manage memories, search knowledge, and more.
-
-Remote clients send `Authorization: Bearer <credential>`. The local runtime key is available from
-**System → Daemon** and the daemon's mode-`0600` `mcp.key` file; it is random and rotates on every
-start. A local provider may use its login's static MCP key. With an active Broker provider, the
-credential is the caller's Broker-issued access JWT: Graphit validates its signature, issuer,
-token purpose, subject, and exact configured MCP resource audience, then forwards that same bearer
-to Broker APIs. Those APIs validate their own audience in the token. The daemon never replaces an
-inbound caller's token with the active profile token.
-
-The tools are organized by module. Every tool name follows the pattern `graphit_<module>_<action>` (e.g., `graphit_ast_query`).
-
----
-
-## Project versions
-
-Every tool that takes `project_dir` also takes an optional `project_version`. A project's stores —
-code graph, documentation wiki, memory, tasks and sessions — are kept per version: the Git branch
-checked out in `project_dir`, or `main` when it is not a Git repository. Omit `project_version` to
-use that checkout's version; pass a branch name to read or write another version of the same project,
-for example the version of a sibling worktree. A version that has no store yet starts from the
-project's default version. `project_version` without `project_dir` is rejected. See
-[Storage Layout](../architecture/storage_layout.md#one-store-per-project-version).
-
-## Typed references between records
-
-When a write relies on a Task, Session, Memory or Knowledge record, send explicit `references` with each target's type and ID. Text mentions do not create database relationships. Omission preserves the current explicit list; `[]` clears it. Query outgoing links or backlinks with `graphit_references_query`; repair missing local projections with `graphit_references_reconcile`. See [Persisted record relationships](../specs/record_relations.md) for the payload, scope, pagination and recovery contract.
-
-## Retrieval Tools Overview
-
-The platform provides multiple retrieval tools across three tiers. Use this matrix to choose the right tool:
-
-| Tool | Backend | AI? | Scope Params | Best for |
-|------|---------|-----|-------------|----------|
-| `graphit_memory_search` | Authoritative LanceDB memory table | No | `scope` (project/user) | Lexical/semantic matching ordered by memory priority then recency |
-| `graphit_knowledge_search` | LanceDB BM25 | No | `context` (empty=project, named=Hub install) | Keyword search in project or mounted docs |
-| `graphit_wiki_search` | BM25 + vector search with hybrid RRF | Embeddings only | knowledge `wikis[]`, `hub_refs[]` | Multi-source lexical, semantic, or hybrid Knowledge search |
-| `graphit_wiki_browse` | LanceDB `index.lance/` catalog | No | `context` | Listing Knowledge documents with filters |
-| `graphit_ast_search` | BM25 + vector search with hybrid RRF | Embeddings only | `context` | Candidate code entities before graph/source reads |
-
-**Key parameter differences:**
-- **`scope`** (Memory tools): `"project"` (default) = project-specific memories, `"user"` = personal cross-project memories
-- **`context`** (Knowledge and Memory tools): empty = local project, `"<name>"` = an installed context. A Hub knowledge context is a versioned `s3://` mount — see [Storage Layout](../architecture/storage_layout.md)
-- **`wikis`** (Wiki search): Knowledge sources only, such as `["project"]`
-- **`hub_refs`** (Wiki search): `["artifact-id@version"]` to include hub knowledge artifacts
-
-> For the full retrieval architecture guide with filesystem paths and decision trees, see [Retrieval Architecture](retrieval_architecture.md).
-
----
-
-## Table of Contents
-
-- [Lifecycle Tools](#lifecycle-tools)
-- [AST Tools](#ast-tools)
-- [Knowledge Tools](#knowledge-tools)
-- [Memory Tools](#memory-tools)
-- [Hub Tools](#hub-tools)
-- [Wiki Tools](#wiki-tools)
-- [Dream Tools](#dream-tools)
-- [Daemon Tools](#daemon-tools)
-- [Cluster Tools](#cluster-tools)
-- [Task Tools](#task-tools)
-
----
-
-## Lifecycle Tools
-
-Tools for project initialization, syncing, updating, removing, and configuration management.
-
-### `graphit_mandates`
-
-**Description:** Return the dynamic global Graphit mandates formerly materialized in `AGENTS.md`.
-
-_No parameters._
-
-The tool does not resolve a project or read a lockfile. Each call uses the canonical config schema to resolve module enablement from environment, global configuration, and framework defaults, then applies global rule overrides. Mandatory memory, memory bootstrap instructions, installed Hub rules, and project configuration are excluded.
-
----
-
-### `graphit_module_skill`
-
-`project_dir` addresses the current server's real checkout for a call; it is not portable project
-identity. Shared documentation, task/memory content and handoffs use logical project identity,
-repository-relative paths or page slugs, and revision/version. Resolve the root anew on each host;
-do not save an engineer's expanded checkout path in those records.
-
-**Description:** Return the complete, authoritative instruction source for one core Graphit module.
-This gives remote agents the same module guidance as an Agent-managed local skill without requiring
-access to the agent's or server's filesystem.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `module` | string | ✅ | `task`, `memory`, `ast`, `hub`, or `knowledge` |
-| `project_dir` | string | | Resolve a real project's skill override and configuration; omit on an artifact-only remote server |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `reference` | string | | Exact framework reference path returned by this tool, such as `references/planning.md`; omit for the main skill |
-
-The JSON result contains `module`, the managed skill `name`, its resolved `enabled` state, and the
-complete `content`. Resolution order is project override, global override, installed Hub override,
-then the framework default; the default-content placeholder is expanded when present.
-The main response also lists available framework `references` by path, without loading their
-contents. At the reading boundary named by the skill, call the same tool with that `reference`
-and the same module/project scope. The result contains only the selected reference in `content`
-and identifies it in `reference`. These bundled references are the same files generated for local
-adapters; arbitrary filesystem paths are rejected. Skill overrides still govern the main source;
-the reference selector addresses framework-bundled resources, not arbitrary override files.
-
-Call `graphit_mandates` first. When the current action matches a returned trigger, read that module
-with `graphit_module_skill` before using the module's tools. See the copy-ready
-[remote agent skill](../examples/skills/graphit-remote/SKILL.md).
-
----
-
-### `graphit_init`
-
-**Description:** Complete initialization in the given project directory, creating a minimal
-identity only when none exists and otherwise preserving the existing ULID.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | The directory of the project to initialize |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, etc.) |
-| `id` | string | | Initial ULID only when identity does not exist; a conflicting existing ULID is rejected |
-| `name` | string | | Initial or renamed human-readable discovery name; remote uniqueness is conditional |
-| `description` | string | | Project description |
-
-`graphit_init` attempts the same Git hook installation as the CLI: `pre-commit`
-plus the events named under `hooks` in the project lockfile.
-On failure its successful result includes a warning and the exact manual
-integration steps.
-
----
-
-### `graphit_sync`
-
-**Description:** Sync and reindex local modules, AST DB, knowledge wiki, authoritative memory indexes, and Agent rules.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory to sync |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `agent` | string | | Target Agent |
-
-This tool performs a full sync cycle:
-1. AST indexing (if the `ast` module is enabled)
-2. Knowledge indexing (if the `knowledge` module is enabled)
-3. Memory cycle (project and user)
-4. Authorized per-project Hub metadata and managed-artifact reconciliation
-5. managed module-skill refresh
-6. native Agent MCP and lifecycle-hook reconciliation
-7. Git hook installation or cleanup according to `modules.hooks` and lockfile
-   event names. Git 2.54+ uses local configured hooks; older Git uses
-   `.git/hooks/<event>`. Failed events are reported with manual instructions
-   in the result notes.
-
----
-
-### `graphit_update`
-
-**Description:** Update all installed hub artifacts to their latest version and refresh rules.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory to update |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `agent` | string | | Target Agent |
-
----
-
-### `graphit_remove`
-
-**Description:** Uninstall and remove Graphit from the current project.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory to remove from |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `agent` | string | | Target Agent |
-
----
-
-### `graphit_config_set`
-
-**Description:** Set a configuration key to the specified value globally or locally.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory (ignored if `global` is `true`) |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `key` | string | ✅ | Runtime configuration key (e.g., `agent`, `cli`, `knowledge.docs_dir`) |
-| `value` | string | ✅ | Configuration value |
-| `global` | boolean | | Save to global configuration instead of project |
-
----
-
-### `graphit_config_get`
-
-**Description:** Get the value of a configuration key.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory (ignored if `global` is `true`) |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `key` | string | ✅ | Configuration key to retrieve |
-| `global` | boolean | | Load from global configuration instead of project |
-
----
-
-### `graphit_config_unset`
-
-**Description:** Unset a configuration key.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory (ignored if `global` is `true`) |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `key` | string | ✅ | Configuration key to unset |
-| `global` | boolean | | Remove from global configuration instead of project |
-
----
-
-### `graphit_config_list`
-
-**Description:** List all configuration keys and their values.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `global` | boolean | | List global configuration |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_version`
-
-**Description:** Get the current version of the Graphit CLI and MCP server.
-
-_No parameters._
-
----
-
-## AST Tools
-
-Tools for building, querying, and managing the AST code graph database.
-
-### `graphit_ast_index`
-
-**Description:** Index files in the project to build the AST code graph database.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory to index |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `path` | string | | Target path to index (defaults to `project_dir`) |
-| `workers` | integer | | Number of parallel worker threads |
-| `reset` | boolean | | Reset the complete store before indexing; coordinated with background indexing and embedding |
-| `reindex` | boolean | | Force reindexing of unchanged files |
-| `cluster` | string | | Optional cluster label for grouping |
-| `no_source` | boolean | | Do not index file source contents |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
-**Returns:** JSON with indexing statistics (files processed, entities found, etc.).
-
----
-
-### `graphit_ast_query`
-
-**Description:** Execute a Cypher query against the AST code **graph** database.
-
-The AST store has two halves. This is the graph, where Cypher runs with `MATCH`, aggregation
-and `ORDER BY`. The other half is the LanceDB full-text index, reached with
-`graphit_ast_fts_query`, which filters rows by predicate and has none of those.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `query` | string | ✅ | Cypher query to execute against the AST graph database |
-| `context` | string | | Named imported context to query instead of the default project |
-| `ai_optimized` | boolean | | Optimize the Cypher query execution for AI context |
-
-> **Tip:** Always set `ai_optimized: true` for AI agent usage. This returns results in a compact, token-efficient format (TOON) rather than raw JSON.
-
----
-
-### `graphit_ast_schema`
-
-**Description:** Return the AST **graph** database schema: node labels, properties, and relationship types.
-
-For the columns of the full-text tables instead, use `graphit_ast_fts_schema`.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported context |
-
----
-
-### `graphit_ast_fts_schema`
-
-**Description:** Show the AST full-text tables: every column with its type, and the row count.
-
-These are LanceDB tables — `entities` for indexed symbols and `files` for indexed files — and a
-different store from the Cypher graph that `graphit_ast_schema` describes.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit to describe a globally installed artifact named in `context` |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported context |
-| `table` | string | | Describe only this table |
-| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
-
----
-
-### `graphit_ast_fts_query`
-
-**Description:** Filter rows of one AST full-text table and return only the columns asked for.
-
-Answers questions ranking cannot: every entity in a file, how many of a kind exist, what is
-project code and what is a dependency. `graphit_ast_search` ranks by relevance;
-`graphit_ast_source` reads code.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit to query a globally installed artifact named in `context` |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `table` | string | ✅ | `entities` or `files` |
-| `filter` | string | | Lance SQL predicate, e.g. `etype = 'Function' AND is_dep = false`. Omit to match every row |
-| `columns` | string[] | | Columns to return; omit for every compact column |
-| `top_k` | integer | | Total row cap across pages (0 = no cap) |
-| `page_size` | integer | | Rows per page (default 20, max 100) |
-| `cursor` | string | | Opaque `next_cursor` from the preceding page of this exact query |
-| `context` | string | | Named imported context |
-| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
-
-> **The `body` and `source` columns are not source code.** They hold BM25 documents the index
-> synthesises — name variants, split identifiers and n-grams, with a NUL separator in the file
-> case — so both are refused in the projection and in the filter. Match against them with
-> `graphit_ast_search` in `fts` mode; read real code with `graphit_ast_source`.
-
----
-
-### `graphit_ast_install`
-
-**Description:** Import another local repository's code graph as a named context.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `path` | string | ✅ | Absolute path to the source project to import |
-| `context` | string | ✅ | Name of the context to assign to the imported project |
-| `reset` | boolean | | Reset the context database before importing |
-| `workers` | integer | | Number of parallel worker threads |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_ast_remove`
-
-**Description:** Remove an imported context or clear the main project code graph.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Name of the imported context to remove. If empty, clears the main project graph. |
-
----
-
-### `graphit_ast_list`
-
-**Description:** List all imported AST contexts and their repository paths.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_ast_source`
-
-**Description:** Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `path` | string | ✅ | Relative path to the file |
-| `context` | string | | Named imported context where the file resides |
-| `entity` | string | | Entity name (function, class, etc.) to extract source using its line range from the graph |
-| `entity_type` | string | | Entity type for disambiguation: Function, Class, Method, Struct, etc. |
-| `head` | integer | | Show only the first N lines |
-| `tail` | integer | | Show only the last N lines |
-| `start_line` | integer | | Start line number (1-indexed) |
-| `end_line` | integer | | End line number (1-indexed, inclusive) |
-| `pattern` | string | | Search for a pattern (literal text or regex if `regex=true`) |
-| `regex` | boolean | | Treat pattern as a regular expression |
-| `before` | integer | | Number of context lines before each pattern match |
-| `after` | integer | | Number of context lines after each pattern match |
-| `line_numbers` | boolean | | Include line numbers in the output (default: `false`) |
-
-`line_numbers` is off by default and worth leaving there: the numbers serve a human
-reading the output, and every line they are prefixed to gets wider. Pattern matches
-always carry their line number, because a match without its location is not an
-answer.
-
----
-
-### `graphit_ast_export`
-
-**Description:** Export the AST database to an Obsidian vault or an importable `.ast` package.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `format` | string | ✅ | Export format: `obsidian` or `package` |
-| `output` | string | ✅ | Output file or directory path; package output receives the `.ast` extension |
-
----
-
-### `graphit_ast_embed`
-
-**Description:** Run embedding cycle to precompute or update semantic embeddings.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported context |
-
----
-
-### `graphit_ast_search`
-
-**Description:** Hybrid search combining BM25 full-text and semantic vector search with Reciprocal Rank Fusion (RRF). Supports three modes: hybrid (default, best results), fts (keyword only), semantic (vector only).
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `query` | string | ✅ | Search query (keywords, natural language, or code identifiers) |
-| `top_k` | integer | | Maximum number of results (default: 15) |
-| `mode` | string | | Search mode: `hybrid` (default), `fts` (BM25 only), `semantic` (vector only) |
-| `context` | string | | Named imported context to search |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-## Knowledge Tools
-
-Tools for indexing, querying, and managing the project documentation knowledge index.
-
-### `graphit_knowledge_index`
-
-**Description:** Index `docs/` into the knowledge index and regenerate the wiki.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory to index |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `path` | string | | Target path to index (defaults to `docs/`) |
-| `workers` | integer | | Number of parallel worker threads |
-| `reset` | boolean | | Clear graph and re-index from scratch |
-| `louvain` | boolean | | Use Louvain community detection |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_knowledge_search`
-
-**Description:** Search the project knowledge wiki using BM25 keyword ranking.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `query` | string | ✅ | Keywords to search for in the knowledge wiki using BM25 |
-| `top_k` | integer | | Maximum number of results (0 = no limit) |
-| `context` | string | | Named imported context to search |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_knowledge_export`
-
-**Description:** Export Knowledge as an importable `.knowledge` package, Open Knowledge Format, or an Obsidian vault.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported Knowledge context |
-| `format` | string | ✅ | Export format: `package`, `okf`, or `obsidian` |
-| `output` | string | ✅ | Output file or directory path; package output receives the `.knowledge` extension |
-
----
-
-### `graphit_knowledge_schema`
-
-**Description:** Show the knowledge index tables: every column with its type, and the row count.
-
-The index is LanceDB, not a graph database. Pages live in `chunks`, the links between them in
-`xrefs`, the index history in `sync_log` and its own metadata in `meta`.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported context |
-| `table` | string | | Describe only this table |
-| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
-
----
-
-### `graphit_knowledge_query`
-
-**Description:** Filter rows of one knowledge index table and return only the columns asked for.
-
-Answers questions a ranked search cannot: which pages are stale, what a page's `doc_type` is,
-and — over `xrefs` — which pages link to a given slug. `graphit_knowledge_search` ranks pages;
-`graphit_wiki_source` reads one.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit to query a globally installed artifact named in `context` |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `table` | string | ✅ | `chunks`, `xrefs`, `sync_log` or `meta` |
-| `filter` | string | | Lance SQL predicate, e.g. `stale_since != ''`. Omit to match every row |
-| `columns` | string[] | | Columns to return; omit for every compact column |
-| `top_k` | integer | | Total row cap across pages (0 = no cap) |
-| `page_size` | integer | | Rows per page (default 20, max 100) |
-| `cursor` | string | | Opaque `next_cursor` from the preceding page of this exact query |
-| `context` | string | | Named imported context |
-| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
-
-A page's `body`, `summary` and `search_terms` are excluded from a default projection for size and
-returned when named; the embedding vector is never returned as numbers.
-
----
-
-### `graphit_knowledge_lint`
-
-**Description:** Audit the knowledge wiki for structural issues.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `deep` | boolean | | Enable AI-assisted contradiction detection |
-| `fix` | boolean | | Auto-repair fixable issues (backlinks) |
-| `stale_days` | integer | | Mark pages older than N days as stale |
-| `context` | string | | Lint an imported context by name |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_knowledge_remove`
-
-**Description:** Remove the project knowledge index or an imported context.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Name of the imported context to remove. If empty, clears local project knowledge wiki. |
-
----
-
-### `graphit_knowledge_sync`
-
-**Description:** Rebuild the local project wiki from its documentation sources.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-
----
-
-### `graphit_knowledge_list`
-
-**Description:** List all articles in the local knowledge wiki.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-## Memory Tools
-
-Tools for managing the project and user persistent memory store.
-
-### `graphit_memory_insert`
-
-**Description:** Add a new memory to the project or user memory store.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `title` | string | ✅ | Memory title |
-| `content` | string | ✅ | Detailed memory content |
-| `type` | string | | Memory type: `convention`, `correction`, `decision`, `tension`, `fact`, or `skill` |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `link_project` | boolean | | Link user memory to project identity |
-| `important` | boolean | | Mark as important |
-| `mandatory` | boolean | | Load unconditionally at session bootstrap |
-| `tags` | string | | Comma-separated tags |
-
----
-
-### `graphit_memory_update`
-
-**Description:** Update the title or content of an existing memory.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Memory ID to update |
-| `content` | string | | New content |
-| `title` | string | | New title |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `expected_revision` | integer | | Compare-and-swap fence against the live revision |
-| `expected_content_hash` | string | | Compare-and-swap fence against the live content hash |
-
-Ordinary callers may omit both fences for compatibility. Under the Dream capability profile, at
-least one is required so an autonomous decision cannot overwrite a newer change.
-
----
-
-### `graphit_memory_delete`
-
-**Description:** Delete a memory entry by ID.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Memory ID to delete |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `expected_revision` | integer | | Delete only while the live revision still matches |
-| `expected_content_hash` | string | | Delete only while the live content hash still matches |
-
-Deletion archives the current revision first. If archival fails, the live record is not removed.
-Under the Dream capability profile at least one fence is required.
-
----
-
-### `graphit_memory_list`
-
-**Description:** List all memories in the project or user store. Results are grouped mandatory,
-important, then normal; each group is ordered newest first.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_memory_search`
-
-**Description:** Search the authoritative LanceDB memory table directly. Results are grouped
-mandatory, important, then normal and ordered by newest `updated_at` inside each group. Match score
-is metadata rather than an ordering key. Results are titles and record keys, not full content; read
-the chosen result with `graphit_memory_source`.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `query` | string | ✅ | Text query to search |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `exclude_mandatory` | boolean | | Exclude records already loaded during mandatory bootstrap |
-| `preview` | boolean | | Include a short excerpt only when titles cannot disambiguate results |
-| `top_k` | integer | | Total result cap; `0` means no limit |
-| `page_size` | integer | | Results per page, up to 100 |
-| `cursor` | string | | Opaque `next_cursor` returned by the preceding identical search |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_memory_source`
-
-**Description:** Read a current memory (`<id>`) or archived revision
-(`<id>/<revision-id>`) directly from the authoritative table, with the same bounded slicing options
-as other source tools.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit only for user scope |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `path` | string | ✅ | Current memory id or archived revision key returned by search |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `head`, `tail`, `start_line`, `end_line` | integer | | Bound the returned Markdown lines |
-| `pattern`, `regex`, `before`, `after` | mixed | | Select matching regions with optional context |
-| `line_numbers` | boolean | | Include line numbers |
-
----
-
-### `graphit_memory_mandatory`
-
-**Description:** Read every mandatory memory in one scope directly from the authoritative table.
-This is the first phase of session recall and does not take a search query.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `ai_optimized` | boolean | | Return compact TOON output by default; set `false` for verbose JSON |
-
----
-
-### `graphit_memory_important`
-
-**Description:** List all memories marked as important.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_memory_promote`
-
-**Description:** Promote a memory to important status.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Memory ID to promote |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `expected_revision` | integer | | Promote only while the live revision still matches |
-| `expected_content_hash` | string | | Promote only while the live content hash still matches |
-
----
-
-### `graphit_memory_demote`
-
-**Description:** Demote a memory from important status.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Memory ID to demote |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `expected_revision` | integer | | Demote only while the live revision still matches |
-| `expected_content_hash` | string | | Demote only while the live content hash still matches |
-
----
-
-### `graphit_memory_mark_mandatory`
-
-**Description:** Mark a memory for unconditional session-start recall. Mandatory and important are
-independent states.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Memory ID |
-| `scope` | string | | Scope: `project` (default) or `user` |
-
----
-
-### `graphit_memory_unmark_mandatory`
-
-**Description:** Remove unconditional recall while preserving the memory and its importance state.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Memory ID |
-| `scope` | string | | Scope: `project` (default) or `user` |
-
----
-
-> **There is no MCP garbage-collection or bulk-consolidation tool, by design.**
->
-> `graphit_memory_gc` existed and was removed. Collecting memories by age answers the
-> wrong question: age says a memory has not been revised, not that it is wrong, and the
-> memories that sit unread for months are exactly the conventions and corrections that
-> later stop a repeated mistake.
->
-> `graphit_memory_consolidate` never existed, and is not being added. An agent reading
-> memories has the task context that makes each judgement correct — which memory
-> matched, which misled it, which the code has outgrown. It resolves duplicates and
-> contradictions with `graphit_memory_update` and `graphit_memory_delete` as it finds
-> them, carrying content into the surviving memory first. A tool would let it trade
-> that judgement for a batch job's caution.
->
-> Dream is itself one agentic consolidation pass: it reads contextual MCP tools and directly calls
-> `graphit_memory_insert`, `update`, `delete`, `promote`, or `demote`. It does not ask a Go apply
-> stage to execute a model-produced plan. The separate `graphit memory consolidate` terminal
-> command remains available as an explicit deterministic workflow.
-
----
-
-### `graphit_memory_index`
-
-**Description:** Refresh the authoritative memory table's lexical and vector indexes in place.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | string | | Scope: `project` (default) or `user` |
-
----
-
-### `graphit_memory_schema`
-
-**Description:** Show the authoritative memory table: every column with its type, and the record count.
-
-Memory is a LanceDB table, not a graph: there are no node labels and no Cypher. The records,
-their revision history, the full-text indexes and the vectors live in the same table.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit for the global scope, which serves user memory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
-
-**Returns:** The table's columns read from the table itself, each with type, nullability, vector
-width where applicable, and whether this layer withholds it from a default projection.
-
----
-
-### `graphit_memory_query`
-
-**Description:** Filter memory records by predicate and return only the columns asked for.
-
-Use it to count, group or list by a field — every mandatory record, everything of one type, what
-changed since a date. `graphit_memory_search` ranks by relevance; `graphit_memory_source` reads
-one record's text.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit for the global scope |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `filter` | string | | Lance SQL predicate, e.g. `mandatory = true`. Omit to match every row |
-| `columns` | string[] | | Columns to return; omit for every compact column |
-| `top_k` | integer | | Total row cap across pages (0 = no cap) |
-| `page_size` | integer | | Rows per page (default 20, max 100) |
-| `cursor` | string | | Opaque `next_cursor` from the preceding page of this exact query |
-| `ai_optimized` | boolean | | Set `false` for verbose JSON; default compact TOON |
-
-> **An `id` repeats across its revisions.** The table holds superseded versions beside live ones,
-> so counting by `id` without `superseded = false` counts a record once per revision it has.
-
----
-
-### `graphit_memory_remove`
-
-**Description:** Remove a memory context sync connection.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | ✅ | Named context to remove |
-
----
-
-### `graphit_memory_sync`
-
-**Description:** Sync memories from an external context.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | ✅ | Named context to sync |
-
----
-
-## Hub Tools
-
-Tools for interacting with the Graphit Hub artifact registry.
-
-Every remote Hub tool runs as the transport's trusted subject. Discovery returns only granted
-projects and uses bounded `limit`/`cursor` pages; exact lookup, content, install, update, submit, and
-mounted reads revalidate authorization. Tool parameters cannot choose a user or team identity, and
-knowing an ULID or artifact ID does not bypass ACL. Artifact identity is project-qualified as
-`(project_id, type, id)`.
-
-### `graphit_hub_list`
-
-**Description:** List one bounded page of artifacts in Hub projects visible to the trusted subject.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `type` | string | | Filter by artifact type: `knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power` |
-| `limit` | integer | | Maximum results in this page, subject to the server cap |
-| `cursor` | string | | Opaque continuation cursor from the preceding page |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_hub_search`
-
-**Description:** Search visible Hub projects for artifacts by name, ID, or description.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | ✅ | Search term to find artifacts |
-| `type` | string | | Filter by artifact type |
-| `limit` | integer | | Maximum results in this page, subject to the server cap |
-| `cursor` | string | | Opaque continuation cursor from the preceding page |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_hub_show`
-
-**Description:** Show detailed information about a specific artifact in the Graphit Hub.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `id` | string | ✅ | Project-qualified artifact ID, or an unambiguous visible artifact ID |
-| `type` | string | | Artifact type (helps disambiguate) |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_hub_install`
-
-**Description:** Install an artifact from the Graphit Hub into a project, or into the global
-version-keyed store when `project_dir` is omitted.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit to install globally on a projectless server |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Artifact ID to install. Use an exact `id@version` for reproducible remote work |
-| `type` | string | | Artifact type |
-| `agent` | string | | Target agent adapter (`claude`, `cursor`, `gemini`, `qwen`, `kimi`, etc.) |
-| `alias` | string | | Alias to assign to installed artifact |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_hub_uninstall`
-
-**Description:** Remove an artifact installed in a project, or drop its global installation when
-`project_dir` is omitted.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | | Project directory; omit to remove a global installation |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Artifact ID to uninstall, optionally qualified with `@version` |
-| `type` | string | | Artifact type |
-| `agent` | string | | Target Agent |
-
----
-
-### `graphit_hub_update`
-
-**Description:** Update installed hub artifacts in the current project.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | | Artifact ID to update. If omitted, updates all artifacts |
-| `type` | string | | Artifact type |
-| `agent` | string | | Target Agent |
-
----
-
-### `graphit_hub_submit`
-
-**Description:** Publish a local artifact to the hub.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `id` | string | ✅ | Artifact ID to publish |
-| `local_path` | string | ✅ | Local directory path to artifact source |
-| `version` | string | | Artifact version (defaults to `1.0.0`) |
-| `name` | string | | Display name override |
-| `description` | string | | Detailed description |
-| `type` | string | | Artifact type (defaults to `rule`) |
-| `tags` | string | | Comma-separated tags |
-
-For AST or Knowledge Git branch publication, set `version` to `branch/<git-branch>` and use a clean,
-initialized checkout at `project_dir`. The `local_path` must exist on the MCP server host; a remote
-web client cannot send a client-side path through this tool. Run `graphit sync` or the corresponding
-index commands on that host first. The tool publishes the committed branch delta and records the
-commit without modifying the project's lockfile, allowing AST and Knowledge to publish from the
-same commit. `graphit sync` alone never publishes.
-
----
-
-### `graphit_hub_link`
-
-**Description:** Link a local project's artifacts into the current project via symlinks.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `name` | string | ✅ | Name of the linked artifact |
-| `source_path` | string | ✅ | Path to local source project to link |
-| `type` | string | ✅ | Artifact type: `ast`, `knowledge`, `rule`, `skill`, `command`, `agent`, `mcp` |
-| `agent` | string | | Target Agent |
-
----
-
-### `graphit_hub_unlink`
-
-**Description:** Remove a linked artifact from the current project.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `name` | string | ✅ | Name of linked artifact to remove |
-| `type` | string | ✅ | Artifact type |
-| `agent` | string | | Target Agent |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_hub_projects`
-
-**Description:** List one bounded page of Hub projects visible to the trusted subject. This remote
-discovery result is distinct from the machine-local ecosystem global lock.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `limit` | integer | | Maximum results in this page, subject to the server cap |
-| `cursor` | string | | Opaque continuation cursor from the preceding page |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_hub_content`
-
-**Description:** Read the files of an installed `rule`, `skill`, `command`, or `agent` artifact.
-The result is keyed by artifact-relative path and names the canonical entry point. AST and Knowledge
-artifacts remain mounted and are read with `graphit_ast_source` or `graphit_wiki_source`.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `id` | string | ✅ | Project-qualified artifact ID, preferably with `@version`; exact qualification is required for reproducible remote work |
-| `project_dir` | string | | Project whose lockfile selects the version; omit for a global installation |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `type` | string | | Disambiguates an ID used by more than one physical artifact type |
-| `path` | string | | Return one artifact-relative file instead of the complete file map |
-
----
-
-### `graphit_hub_type-path`
-
-**Description:** Resolve the native Agent path where a physical skill, command, agent, or MCP
-artifact should be created. Hook-delivered rules intentionally have no physical Agent path.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `type` | string | ✅ | `skill`, `rule`, `command`, `agent`, or `mcp` |
-| `name` | string | ✅ | Artifact name |
-| `agent` | string | | Target adapter; defaults through project/global resolution |
-
----
-
-## Wiki Tools
-
-Tools for multi-source Knowledge-wiki retrieval, catalog browsing, provenance, history, embeddings,
-and source reads. Memory uses only the separate `graphit_memory_*` tools.
-
-### `graphit_wiki_search`
-
-**Description:** Search across multiple wiki sources using BM25 full-text search, semantic vectors,
-or hybrid reciprocal rank fusion. Results are candidate page titles and scores; read the selected
-page with `graphit_wiki_source`.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | ✅ | Natural language question to search across multiple wikis |
-| `wikis` | array[string] | | Knowledge sources to search (`project` or project IDs from ecosystem) |
-| `hub_refs` | array[string] | | Hub knowledge artifact references to include (format: `artifact-id@version`) |
-| `session_id` | string | | Session ID to continue an existing conversation |
-| `mode` | string | | `hybrid` (default), `fts`, or `semantic` |
-| `top_k` | integer | | Maximum merged results across sources (`0` = no limit) |
-| `page_size` | integer | | Results per page, up to 100 |
-| `cursor` | string | | Opaque `next_cursor` returned by the preceding identical search |
-| `preview` | boolean | | Include short excerpts only when titles cannot disambiguate candidates |
-| `project_dir` | string | | Required for project-backed sources; omit only for qualified Hub references |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
-
-> **Tip:** Always set `ai_optimized: true` for AI agent usage. This returns results in a compact, token-efficient format (TOON) rather than raw JSON.
-
-**Returns:** Ranked candidate titles, source metadata, scores, and an optional `next_cursor`.
-
----
-
-### `graphit_wiki_browse`
-
-**Description:** Browse Knowledge-wiki documents.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported Knowledge context |
-| `doc_type` | string | | Filter by document type (e.g., `specification`, `architecture`, `decision`) |
-| `limit` | integer | | Max results (default: 100) |
-| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
-
-> **Tip:** Always set `ai_optimized: true` for AI agent usage.
-
----
-
-### `graphit_wiki_xrefs`
-
-**Description:** Show cross-references for a Knowledge-wiki entity.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `query` | string | ✅ | Entity slug or name to find cross-references for |
-| `context` | string | | Named imported Knowledge context |
-| `depth` | integer | | Depth of graph traversal (default: 1, max: 3) |
-| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
-
-> **Tip:** Always set `ai_optimized: true` for AI agent usage.
-
----
-
-### `graphit_wiki_log`
-
-**Description:** Show Knowledge-wiki sync history.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `context` | string | | Named imported Knowledge context |
-| `limit` | integer | | Max log entries (default: 10) |
-| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
-
----
-
-### `graphit_wiki_embed`
-
-**Description:** Run the Knowledge-wiki embedding cycle.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-
----
-
-### `graphit_wiki_source`
-
-**Description:** Read a Knowledge-wiki page with bounded slicing. Use
-`graphit_memory_source` for current or historical Memory records.
-
-This is the **only** way to read a page. Every wiki lives once, in the global brand
-directory (see [Storage Layout](../architecture/storage_layout.md)), so there is no
-page file inside a project to open — and because the tool takes the project as a
-parameter, it also reads pages belonging to any other project in the ecosystem.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory — may be another project in the ecosystem |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `path` | string | ✅ | The slug returned by search/browse/xrefs, that slug with `.md`, or a path relative to the wiki directory |
-| `context` | string | | Named imported Knowledge context |
-| `head` | integer | | Show only the first N lines |
-| `tail` | integer | | Show only the last N lines |
-| `start_line` | integer | | Start line number (1-indexed) |
-| `end_line` | integer | | End line number (1-indexed, inclusive) |
-| `pattern` | string | | Search for a pattern (literal text or regex if `regex=true`) |
-| `regex` | boolean | | Treat pattern as a regular expression |
-| `before` | integer | | Number of context lines before each pattern match |
-| `after` | integer | | Number of context lines after each pattern match |
-| `line_numbers` | boolean | | Include line numbers in the output (default: `false`) |
-
-`line_numbers` defaults to `false` here for the same reason as in
-[`graphit_ast_source`](#graphit_ast_source): the numbers are for a human, and a wiki
-page read for its content does not need them.
-
-Page lookup is case-insensitive, because a slug generated from a title rarely matches
-the file name exactly. A slug that resolves to nothing comes back with the list of
-pages that do exist; a reference that escapes the wiki directory is refused with its
-own reason and deliberately **without** that list, so the reason is not buried.
-
----
-
-## Dream Tools
-
-Compatibility and status tools for the idle-triggered Memory consolidation module. New Dream runs
-store their semantic result only in Memory and operational metadata in the provider-aware Dream
-LanceDB ledger;
-they do not create report files.
-
-### `graphit_dream_status`
-
-**Description:** Show status and configuration of the dream module.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
-**Returns:** JSON with fields:
-- `enabled` — whether dreaming is active
-- `daemon_running` — whether the background daemon is running
-- `status` — current status: `dreaming`, `deep sleep`, `standby`, or `inactive`
-- `idle_timeout` / `max_duration` — dream timing configuration
-- `last_run` — latest operational `dream_runs` row, without prompt, output, or memory body
-
----
-
-## Daemon Tools
-
-Read-only status inspection for the global background daemon process.
-
-### `graphit_daemon_status`
-
-**Description:** Check status of the global background daemon process.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
-**Returns:** JSON with fields:
-- `pid` — process ID
-- `running` — whether the daemon is alive
-- `started_at` / `uptime_seconds` — uptime information
-- `pid_file_path` — path to the PID file
-- `scheduler_status` — OS scheduler status (user crontab, launchd, or Task Scheduler)
-- `recent_logs` — last 10 lines from the daemon log
-
-This is the complete daemon contract exposed through MCP. Use the `graphit daemon` CLI commands for
-lifecycle administration.
-
----
-
-## Cluster Tools
-
-Tools for managing project cluster labels in the Graphit ecosystem.
-
-### `graphit_cluster_set`
-
-**Description:** Set a cluster label for grouping the project in the ecosystem.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `key` | string | ✅ | Cluster label key |
-| `value` | string | ✅ | Cluster label value |
-
----
-
-### `graphit_cluster_get`
-
-**Description:** Get a specific cluster label value, or all cluster labels set on the project.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `key` | string | | Cluster label key to retrieve. If empty, retrieves all labels. |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_cluster_unset`
-
-**Description:** Remove a cluster label from the project.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `key` | string | ✅ | Cluster label key to remove |
-
----
-
-### `graphit_cluster_projects`
-
-**Description:** List all projects in the same cluster as the current project (including itself). Optionally filter by a specific cluster label key.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `label` | string | | Optional cluster label key to filter by |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-## Task Tools
-
-Task tools persist official project work records and coordinate their lifecycle through shared
-LanceDB tables. Planning may use other tools, including native planning, but the resulting task
-definitions and state must be recorded through Graphit Task tools. External plans do not replace
-self-contained specifications, checks, subtasks, dependencies and milestones in Task. The main contracts are:
-
-| Tools | Required state and result |
+This reference describes the current Rust **Root** catalog: 67 tools in the inspected build.
+The [complete input schemas](../reference/mcp-input-schemas.json) contain nested required fields,
+enums, nullability, bounds and `additionalProperties` rules. They were captured from an isolated
+`graphit mcp --stdio` client on 2026-10-29 and checked against the source catalogs. There is no
+legacy flat-argument compatibility layer. Inspect `tools/list` on your actual endpoint when using
+a different build, native binding or Role/Live credential.
+
+## Connect and authenticate
+
+A local host launches `graphit mcp --stdio` from its project working directory. Use the executable
+on PATH and project-relative selectors; do not publish one machine's absolute installation path.
+The SDK proxy obtains the installation's actual authenticated Source transport. stdout is only
+MCP frames; stderr carries diagnostics. EOF joins this client without stopping the daemon.
+
+The daemon serves Streamable HTTP at `/mcp`. Remote callers supply their admitted bearer; a
+Broker incoming JWT retains its own identity and is never replaced by the active local account.
+JWT validity is separate from PROJECT/version access. Runtime/Local/Broker/Role/Live credentials
+are not interchangeable. `/roles/mcp` has a separate genuine Role grant and filtered catalog.
+A public tool name or a cursor is not authority. See [authentication](authentication.md),
+[Source](../specs/rust_source_mcp.md) and [Role MCP](../specs/rust_role_mcp.md).
+
+## Output representation
+
+Every structured tool accepts strict top-level `ai_optimized`:
+
+| Input | Result |
 |---|---|
-| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments/spec revisions. List/search accept `session_id`; search ranks within that session before limiting. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
-| `graphit_task_schema`, `graphit_task_query` | Describe the Task LanceDB tables, then filter rows of one by predicate and return only the columns asked for. This is the route for a question about records you can already name — the status of a set of ids, which checks are still pending — rather than fetching whole records to read one field. `query` accepts `page_size`, `cursor` and `top_k` and returns `next_cursor`. The claim token is never returned and cannot be named in a filter. |
-| `graphit_task_export` | Returns stable complete JSON for every project task, or an exact task ID and its recursive subtasks. The versioned normalized document contains task snapshots, dependency/check projection records, events, comments, and specification revisions in deterministic order; fencing tokens and scheduler-control rows remain private. |
-| `graphit_task_batch` | Runs 1-100 mutations sequentially in input order. Every item returns its index, optional key, action, task ID, `ok`, and either a value or explicit error; all normal lifecycle gates still apply. |
-| `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `session_id`, `parent_id`, dependencies, priority, type, and stable `idempotency_key`. Agent tasks must resolve to a nonterminal session: explicit ID, parent association, or the caller’s active coordinator session. |
-| `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
-| `graphit_task_force_takeover` | Recovers an unexpired `in_progress` claim whose owner is confirmed unrecoverable; requires exact-ID confirmation, current revision, reason, different new owner, and replacement lease, then rotates the token and audits the ownership transition. |
-| `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_release` | Require task ID, current token, and agent identity; progress/release preserve an exact continuation step. |
-| `graphit_task_comment_add` | Requires token, typed `kind`, body, and optional idempotency key. |
-| `graphit_task_check` | Requires token, check ID, pass/fail result, and concrete evidence. |
-| `graphit_task_revise` | Requires token, `expected_revision`, and reason; replaces supplied specification fields or appends new checks and records immutable before/after state. Title, description, or type changes reset active checks for revalidation. |
-| `graphit_task_check_supersede` | Requires token, `expected_revision`, check ID, and reason; preserves the obsolete check and may create a pending replacement. |
-| `graphit_task_flag`, `graphit_task_unflag` | Add a required completion-gate reason or remove it after resolution. |
-| `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain explicit, cycle-checked ordering edges. |
-| `graphit_task_complete` | Succeeds only when all active checks passed with evidence, every subtask completed, and no flag remains. |
-| `graphit_task_cancel` | Records a terminal cancellation and required reason; cancelling active work also requires its fencing token. |
-| `graphit_task_remove` | Hard-removes only after exact-ID confirmation plus a reason; dependents and subtasks refuse deletion. |
+| Omitted or `true` | TOON in text content, without duplicate complete JSON `structuredContent` |
+| `false` | JSON; use this for machine consumers that read structured data |
+| Null, number or string | Protocol validation failure, not a silently selected default |
 
-`graphit_task_export` accepts only the project scope and optional exact task ID:
+JSON-RPC, arguments, negotiation and `tools/list` remain JSON. Variable-format tools do not
+advertise an incompatible JSON `outputSchema`. Root AST Source and SessionHook remain original
+text; ModuleSkill/KnowledgeSource are structured envelopes whose content strings remain intact.
+CLI and HTTP JSON contracts do not change. [Output specification](../specs/output_module.md)
+defines null/Unicode/escaping, numeric normalization, ordering and measured token trade-offs.
+TOON is not guaranteed to be shorter for every result shape.
+
+Inspect `isError` and the domain result. A protocol `INVALID_PARAMS`/unknown tool, a tool-domain
+failure, a valid `not_found` and a confirmed mutation followed by response failure are different.
+No blanket retry is safe after a timeout; inspect current state and reported effects first.
+
+## Selection, pagination and cancellation
+
+Task tools use `{selection,input}`; other domains have their own exact schema. Do not put every
+field into a generic `input` or force every tool into flat arguments. `project_dir` is a Unicode
+string resolved on this host. Prefer stable project ID/version where the operation supports it;
+shared records should not persist a private checkout path. Imported contexts use exact authorized
+artifact identities and their declared selectors, not arbitrary host paths.
+
+Continue an opaque cursor with unchanged selection/query/page parameters. A page can be empty or
+pinned to an older publication; only EOF proves traversal complete. Authentication and current
+scope are checked again. Calls retain Original cancellation/deadline through inference, IO and
+response delivery; closing a subscriber does not automatically cancel separately server-owned
+Live work. Cancel with its explicit history/control contract.
+
+## Examples
+
+Model-free code search with machine-readable output:
 
 ```json
-{"project_dir":"/path/to/project"}
+{"name":"graphit_ast_search","arguments":{"query":"checkout","mode":"fts","rerank":false,"ai_optimized":false}}
 ```
+
+Known Source file, preserving original text:
 
 ```json
-{"project_dir":"/path/to/project","id":"tsk-abcd"}
+{"name":"graphit_ast_source","arguments":{"path":"Cargo.toml","head":20,"line_numbers":true}}
 ```
 
-The first call exports all project tasks. The second exports `tsk-abcd` and its recursive subtasks.
-Both return a JSON object containing `schema_version`, `project_id`, optional `task_id`, and the
-ordered `tasks`, `dependencies`, `checks`, `events`, `comments`, and `spec_revisions` arrays. Schema version 2 also preserves the selected tasks’ sessions through `sessions`, `session_events`, `session_checkpoints`, and `session_spec_revisions`; an all-project export includes sessions without tasks. Unlike
-compact retrieval tools, export always returns the complete JSON document and has no
-`ai_optimized` parameter.
+Knowledge search uses a nested search request and explicit mode:
 
-Open, unclaimed tasks are backlog. Claims default to one hour, renew without shortening a longer
-lease, and expire or are released by stop hooks so another agent can
-resume from progress, comments, checks, and `next_step`. Direction changes must cancel or remove
-obsolete work immediately instead of leaving open/flagged garbage. See [Task Module](../specs/task_module.md).
+```json
+{"name":"graphit_knowledge_search","arguments":{"search":{"query":"configuration","mode":"fts","top_k":5,"page_size":5,"rerank":false},"ai_optimized":false}}
+```
 
----
+A current Task read uses the actual returned ID (the syntactically valid example ID below is fictional):
 
-### Task Session Tools
+```json
+{"name":"graphit_task_get","arguments":{"input":{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"},"ai_optimized":false}}
+```
 
-Sessions are durable request records inside the Task module, distinct from host conversation IDs.
-Each call requires `project_dir`; structured results support `ai_optimized` (default compact TOON).
-Mutation identity uses the same stable `agent_id`/host identity as task operations. A coordinator
-claim is independent of task worker claims. Read the [session guide](task-sessions.md) for complete
-narrative examples and the [session contract](../specs/task_sessions.md) for storage/lifecycle rules.
+Task current reads do not automatically load history/comments. Use returned first-page cursors
+and explicit sections through EOF when an audit is needed. The [Session guide](task-sessions.md)
+explains private claim fences, expected revisions, owned writes and commit association.
 
-| Tool suffix after `graphit_task_session_` | Required fields beyond `project_dir` and behavior |
-|---|---|
-| `create` | `title`, `description`, `strategy`; optional stable `idempotency_key`. Creates an open request, without claiming. |
-| `get` | `id`; returns `session`, `events`, `checkpoints`, `spec_revisions`, `tasks` (summaries), with tokens redacted. |
-| `list` | Optional `status`, `owner`, `active`, `page_size`, `cursor`; `active` selects open/in-progress. Returns `results`, `next_cursor`. |
-| `search` | `query`; optional `top_k` (default 20), `page_size`, `cursor`. Searches request, strategy and prior history, returning `results`, `next_cursor`. |
-| `claim` | `id`; optional positive `lease` (default 1h). Returns a private token for exclusive coordination. |
-| `revise` | `id`, `claim_token`, `expected_revision`, `reason`; replace supplied `title`, `description`, `strategy`, preserving immutable revisions. |
-| `checkpoint` | `id`, `claim_token`, descriptive `summary`, exact `next_step`; optional `problems`, `decisions`, `strategy` strings. Appends durable history. |
-| `heartbeat` | `id`, `claim_token`; renews coordination without inventing progress. |
-| `release` | `id`, `claim_token`, `summary`, `next_step`; open resumable request, no implicit task release. |
-| `complete` | `id`, `claim_token`, final `summary`; requires all associated tasks completed/cancelled. |
-| `cancel` | `id`, `claim_token`, `reason`; requires associated tasks terminal and never cancels them implicitly. |
-| `force_takeover` | `id`, `confirm_id`, `expected_revision`, `reason`, positive `lease`, different coordinator identity; audited token rotation. |
+## Current Root catalog
 
-Revise/checkpoint/heartbeat accept an optional renewed `lease`. Session statuses are exactly
-`open`, `in_progress`, `completed`, `cancelled`. Complete/cancel are explicit coordinator actions;
-no host Stop hook completes them. Claims and private tokens must never enter shared narratives.
-List/search page sizes default to 20, maximum 100. Follow only a cursor from the same project,
-query/filters, page size and cap. Session search is discovery; `get` is authoritative retrieval.
+Required below means required at the top level only; the full JSON schema remains necessary for
+nested fields, `oneOf` and omitted/null behavior. `ai_optimized` is omitted from the lists for
+readability. Discovery metadata does not imply that the current caller can execute a tool.
 
-Task batch `create` operations accept `session_id` and enforce the same agent association rule as
-single creation. Parents and children share a session, and existing associations cannot be moved.
-Keep complete per-task specs/checks and staged dependency IDs; sessions do not replace planning.
+### AST
 
-## Common Parameters
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_ast_source` | `path` | Read Source from a retained local project or installed AST context id@version; imported fallback requires explicit project_dir. |
+| `graphit_ast_export` | `output` | Export an admitted immutable AST graph to a native package file. |
+| `graphit_ast_imports` | none | List exact installed Native AST contexts. |
+| `graphit_ast_query` | `query` | Execute readonly Cypher over the selected PROJECT or exact installed context. |
+| `graphit_ast_schema` | none | Read the selected graph schema. |
+| `graphit_ast_sample` | none | Sample the selected graph nodes and edges. |
+| `graphit_ast_neighborhood` | `anchor_label`, `relationship`, `other_label`, `anchor_key`, `direction`, `limit` | Read a cursor page around an exact graph anchor. |
+| `graphit_ast_search` | `query` | Search indexed code with FTS, semantic, vector or hybrid retrieval. Selectors grant no access. A stale Source association is an error; missing, empty and disabled indexes are distinct. |
 
-Most tools accept the following common parameters:
+### Task session tools
 
-| Parameter | Description |
-|-----------|-------------|
-| `project_dir` | Real project directory for project-bound tools. Artifact-only remote clients omit it and use qualified Hub contexts; never invent a server path. |
-| `project_version` | string | | Project version (Git branch) whose stores to use; omit for the branch checked out in `project_dir`, or `main` outside Git |
-| `scope` | Used by Memory tools. Either `project` (default) or `user`. Controls which memory store is targeted. |
-| `context` | Used by the tools that declare it to select an imported or Hub context instead of the local project. Use `id@version` for remote Hub content. |
-| `agent` | Target agent adapter: `claude`, `codex`, `cursor`, `gemini`, `kiro`, `opencode`, `antigravity`, `qwen`, or `kimi`. Affects native materialization. |
-| `ai_optimized` | Offered by structured tools that support TOON. Omitted/`true` selects compact TOON; `false` selects verbose JSON. |
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_task_get` | `input` | Read current Task state and explicitly requested snapshot-bound history/comment pages. |
+| `graphit_task_list` | `input` | Read a cursor-pinned Task catalogue, including explicit dates and dependencies. |
+| `graphit_task_query` | `input` | Read a finite projected Task or Session page from one native pin. |
+| `graphit_task_schema` | none | Read the native Task query tables and permitted column types. |
+| `graphit_task_search` | `input` | Search current Task specifications and comments using fts (default), semantic or hybrid retrieval; continue with the returned native cursor. |
+| `graphit_task_session_get` | `input` | Read current Session state and explicitly requested snapshot-bound history pages. |
+| `graphit_task_session_list` | none | Read native Session heads. |
+| `graphit_task_create` | `input` | Create a native Task with acceptance and test checks, and explicit optional calendar dates. |
+| `graphit_task_session_create` | `input` | Create a native Session. |
+| `graphit_task_claim` | `input` | Claim a Task; return the opaque participant fence only to this caller. |
+| `graphit_task_session_claim` | `input` | Claim a Session; return its opaque participant fence. |
+| `graphit_task_heartbeat` | `input` | Renew a Task owner's actual lease and revision. |
+| `graphit_task_session_heartbeat` | `input` | Renew a Session owner's actual lease and revision. |
+| `graphit_task_comment_add` | `input` | Add a literal Markdown comment with the current participant fence and an idempotency key. |
+| `graphit_task_progress` | `input` | Record the current Task owner's progress. |
+| `graphit_task_session_checkpoint` | `input` | Record the current Session owner's checkpoint. |
+| `graphit_task_release` | `input` | Release a Task using its current participant fence. |
+| `graphit_task_session_release` | `input` | Release a Session using its current participant fence. |
+| `graphit_task_commit_set` | `input` | Associate or clear a full Git commit ID using revision CAS; preserve status and checks, including completed tasks. Active claims require their fence. |
+| `graphit_task_revise` | `input` | Revise Task specification; omitted fields stay, schedule null clears. |
+| `graphit_task_session_revise` | `input` | Revise the coordinated Session specification; omitted fields stay and null is invalid. |
+| `graphit_task_check` | `input` | Verify a current Task check with evidence. |
+| `graphit_task_check_supersede` | `input` | Supersede a Task check, optionally creating a replacement. |
+| `graphit_task_update_links` | `input` | Replace Task parent or dependency links with recorded reason. |
+| `graphit_task_flag` | `input` | Set or clear the native Task flag with recorded reason. |
+| `graphit_task_complete` | `input` | Complete a Task after its actual gates pass. |
+| `graphit_task_cancel` | `input` | Cancel an eligible Task with recorded reason and live fence when owned. |
+| `graphit_task_session_complete` | `input` | Complete a Session after its native Task gates pass. |
 
-## Error Handling
+### Memory
 
-All MCP tools follow a consistent error pattern:
-- On success, tools return a `CallToolResult` with `TextContent` or JSON-serialized content.
-- Domain errors are surfaced by the MCP SDK as tool errors (`isError: true`) with readable content.
-- Every tool handler is wrapped in `safeTool()`, which adds panic recovery and automatic daemon autostart.
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_memory_search` | `text`, `top_k` | Search PROJECT Memory with FTS (default), semantic distance, or hybrid RRF. Semantic modes use the existing model and never fall back to FTS. Selectors grant no access. |
+| `graphit_memory_index` | none | Ensure Memory lexical indexes, or explicitly refresh them, and maintain embeddings when configured. PROJECT selectors grant no access. USER requires the verified Native subject and rejects PROJECT selectors. Confirmed lexical and embedding effects survive later failures. |
+
+### Knowledge
+
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_knowledge_search` | `search` | Search an authorized PROJECT or installed Knowledge corpus in fts, semantic or hybrid mode, using configured embeddings only when the captured index is ready. Results retain native namespace, generation, opaque cursor and optional Markdown preview. Selectors and cursors grant no access. |
+| `graphit_knowledge_export` | `output` | Export authorized PROJECT or installed Knowledge as an installable native package or a Markdown, OKF or Obsidian directory. Requires explicit filesystem publication permission. Output must be an absolute NativePath outside the datasets; selectors grant no access. |
+| `graphit_knowledge_live_history` | `operation` | Read or control Live history owned by the authenticated installation. Execution is independently owned; disconnecting a reader does not cancel a run. |
+| `graphit_knowledge_ask` | `query`, `model` | Answer a question from explicitly selected slugs or ranked retrieval in one authorized PROJECT Knowledge corpus using the startup Antigravity, Claude, Codex, Cursor, Grok, Qwen, Kimi, Copilot, Kiro or OpenCode completion provider. Progress contains observed native events; provided slugs and requested model do not confirm model citations or execution identity. |
+
+### Wiki source and history
+
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_wiki_log` | `history` | Read committed Knowledge document synchronization history for the authorized PROJECT and version. Native cursors grant no access; semantic-only transactions are excluded. |
+| `graphit_wiki_source` | `slug` | Read a complete authorized Knowledge page as native metadata and literal Markdown, or an explicit Core slice. Slug is the exact page identity, never a filesystem path. PROJECT/version and installed-artifact selections grant no access; output limits fail instead of truncating. |
+
+### Hub
+
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_hub_publish_native` | `publication`, `project_dir` | Publish captured PROJECT AST or Knowledge SDK snapshots through the active Hub provider. PROJECT read and HubWrite authority are required separately. |
+| `graphit_hub_publish_file` | `publication`, `project_dir` | Publish a captured PROJECT FILE artifact through the configured HubWrite provider. Selects the maintained resource tree by type, full ID and concrete version. |
+| `graphit_hub_install` | `selection`, `global` | Install an authorized remote FILE artifact with verified cache and explicit global or project scope. |
+| `graphit_hub_install_local` | `source_dir`, `producer`, `artifact_type`, `id`, `version`, `project_dir` | Install or reapply canonical local agent/skill/command/workflow instructions into an authorized PROJECT. Source provenance is separate from the physical copy/link mode; removal preserves the original directory. |
+| `graphit_hub_update` | `global` | Update one installed FILE artifact, or omit selection to update the captured target's remote installations. Local authored entries are left unchanged; failures include per-item effects and unattempted items. |
+| `graphit_hub_sync` | `global` | Reapply installed local and remote Hub artifacts from their recorded sources and exact versions; preserve aliases, modes and user changes. |
+| `graphit_hub_content` | none | Read authorized installed FILE content without hydration, or explicitly fetch remote content into a temporary request-owned stage. |
+| `graphit_hub_list` | `global` | List installed Hub metadata with explicit scope, version filters and pagination. Cache metadata grants no remote project access. |
+| `graphit_hub_remove` | `artifact_type`, `scope`, `id` | Remove an exact local PROJECT target or a concrete GlobalCache/GlobalNative metadata version; no remote payload or storage access. |
+| `graphit_hub_recover` | `artifact_type`, `scope`, `id` | Recover the selected FILE PROJECT pending operation; global cache/native metadata cannot enter a physical journal. |
+| `graphit_hub_forget` | `artifact_type`, `scope`, `id` | Forget same-key FILE PROJECT metadata/pending state and preserve physical leftovers; global scope is not accepted. |
+| `graphit_hub_projects` | `transport`, `provider`, `limit` | Discover currently authorized remote Hub project metadata. Discovery does not grant artifact or payload access. |
+| `graphit_hub_authored_list` | `project_dir`, `query` | List authored Resources identities in an authorized retained PROJECT/version. Returns exact kind/id/version tuples and a bound pagination cursor; no provider or remote storage access. |
+| `graphit_hub_authored_review` | `project_dir`, `query` | Review one exact authored Resources tuple in an authorized PROJECT/version. Lists captured relative files and directories; no host paths or remote storage access. |
+| `graphit_hub_authored_content` | `project_dir`, `query` | Read a relative text file from one exact authored Resources tuple in an authorized PROJECT/version. No installed artifact or arbitrary host path fallback. |
+| `graphit_hub_unpublish` | `provider`, `producer`, `artifact_type`, `id`, `target` | Retract an explicit remote Broker artifact version or all observed catalog versions. Payloads, source and local installations are preserved; no local PROJECT selection is required. |
+| `graphit_hub_search` | `transport`, `provider`, `producer`, `limit` | List current artifact manifests of an explicit authorized remote PROJECT. Exact kind/id/version filters; no payload reads. |
+| `graphit_hub_install_native` | `installation` | Install one exact remote NativeRoot under the authenticated installation; Runtime Native installation and HubRead authority are required separately. |
+
+### Shared administration and instructions
+
+| Tool | Required root fields | Purpose |
+|---|---|---|
+| `graphit_module_skill` | `module` | Read one core module skill or its exact framework reference. Omit project_dir for neutral Global guidance; explicit PROJECT and version select current configuration and observed overrides without granting access. |
+| `graphit_sync` | none | Reconcile installed Hub artifacts at their recorded versions, native Graphit skills/agents, Coordinator, hooks and MCP. Administrative Runtime access required; user modifications are preserved as explicit conflicts. |
+| `graphit_now` | `project_id`, `mode` | Read current local heads or the first authorized Broker full snapshot. Local requires an explicit retained version and rejects provider/instance_id; Broker requires a provider. |
+| `graphit_instances` | `project_id`, `provider` | List currently online Broker instances and versions with their full Now heads. Selector DATA confers no access. |
+| `graphit_session_hook` | `engine`, `event` | Render readonly PROJECT hook context and the current Native Coordinator mandatory USER selection at native context events. Supported quiet lifecycle events dispatch project rescan only with Configure permission and read no corpus. Event, version and native path are selectors; they grant no access. Unsupported host/event combinations are rejected. |
+
+## Surface boundaries
+
+The Root catalog currently exposes Memory search/index rather than historical Memory CRUD/source
+names. Browser CRUD uses its verified HTTP actor and Records services. Session search, generic
+Task batch/export and force-takeover are not implied tools. Native `graphit_task_commit_set` does
+exist; host integrations with a stale catalog must reconnect before assuming it is unavailable.
+
+`graphit_sync` reconciles existing artifact versions and agent files with administrative Runtime
+admission; it does not upgrade remote releases, force index completion or grant Role writes.
+`graphit_instances` and `graphit_now` describe actual instance/project/version activity rather than
+a task-count estimate of migration progress. The [CLI](cli_reference.md) exposes the supported
+component operations; [capability matrix](capability_matrix.md) distinguishes HTTP/Browser and CLI.
+
+## Implementation and validation
+
+`mcp_output.rs` applies format defaults/validation at handlers; `source_server.rs`, `task_server.rs`,
+`role_tool_server.rs` and `live_agent_tools.rs` retain typed values until the presentation boundary.
+Internal JSON consumers request `ai_optimized:false` explicitly. The Source proxy preserves public
+protocol codes while removing private upstream diagnostics, and local cancellation/deadline wins
+over late remote failures. Existing stdio connections retain their loaded process/catalog until
+reconnected; do not force-kill active clients to update documentation.
+
+This catalog read does not qualify every mutation, platform or external agent plan. Functional
+receipts remain in the corresponding contracts. Agent integration tests use controlled documented
+protocol peers and do not require vendor executables, accounts or paid plans.

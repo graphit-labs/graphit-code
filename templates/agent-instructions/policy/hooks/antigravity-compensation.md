@@ -1,0 +1,1 @@
+Antigravity-specific hook compensation: `PostToolUse` cannot inject context; apply checkpoints at completed work units without waiting for `PostInvocation`. No subagent-start hook: the role document installed under the agents directory carries the protocol, so pass the assigned session and task ids when delegating and read that document yourself when you cannot delegate.

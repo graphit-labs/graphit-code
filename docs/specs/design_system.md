@@ -63,10 +63,10 @@ Use “Graphit” for the umbrella, “Graphit Code” and “Graphit Broker” 
 
 | Asset | Maintained source |
 | --- | --- |
-| Code logo | [logo.svg](../../internal/ui/public/logo.svg) |
-| Code favicon | [favicon.svg](../../internal/ui/public/favicon.svg) |
+| Code logo | [logo.svg](../../ui/public/logo.svg) |
+| Code favicon | [favicon.svg](../../ui/public/favicon.svg) |
 | Site logo | [logo.svg](../site/assets/logo.svg) |
-| Broker favicon | Graphit Broker: `internal/broker/favicon.svg` |
+| Broker favicon | Graphit Broker: `crates/broker-server/assets/favicon.svg` |
 | Product navigation glyphs | Code `index.css`; Broker embedded admin/auth CSS |
 
 Use diagrams when they explain actual relationships. Label conceptual diagrams as illustrations and give them a readable text equivalent. Product screenshots must represent the current layout, use non-sensitive data and state when fixtures are shown. Raster imagery is optional and must clarify the product rather than replace its explanation.

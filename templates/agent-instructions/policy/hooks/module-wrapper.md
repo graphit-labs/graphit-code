@@ -1,0 +1,1 @@
+<{{ module_tag }}>{{ module_content }}</{{ module_tag }}>

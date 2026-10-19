@@ -1,0 +1,135 @@
+language: scala
+grammar: tree-sitter-scala
+extensions: [".scala", ".sc"]
+
+target_rules:
+  CALLS: { labels: [Function, Package] }
+  READS_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_definition name: (identifier) @name)'
+  - data_key: objects
+    graph_label: Object
+    pattern: '(object_definition name: (identifier) @name)'
+  - data_key: traits
+    graph_label: Trait
+    pattern: '(trait_definition name: (identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_definition name: (type_identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package_clause name: (package_identifier) @name)'
+  - data_key: vals
+    graph_label: Val
+    pattern: '(val_definition pattern: (identifier) @name)'
+  - data_key: vars
+    graph_label: Var
+    pattern: '(var_definition pattern: (identifier) @name)'
+  - data_key: val_declarations
+    graph_label: Val
+    pattern: '(val_declaration name: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_parameter name: (identifier) @name)'
+
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_parameter name: (identifier) @name default_value: [(integer_literal) (floating_point_literal) (boolean_literal) (character_literal) (string) (null_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(val_definition pattern: (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(val_definition pattern: (identifier) @name value: [(integer_literal) (floating_point_literal) (boolean_literal) (character_literal) (string) (null_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_declaration path: (identifier) @name)'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (field_expression field: (identifier) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(extends_clause type: (type_identifier) @name)'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(field_expression field: (identifier) @name)'
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation name: (type_identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import_declaration path: (identifier) @name)'
+
+exports:
+  strategy: no_modifier
+  config_list:
+    keywords: ["private", "protected"]
+
+self_keywords: ["this."]
+
+context_types:
+  class_definition: Class
+  object_definition: Object
+  trait_definition: Trait
+  function_definition: Function
+
+anon_func_types:
+  - lambda_expression
+
+declaration_types:
+  - function_definition
+  - class_definition
+  - object_definition
+  - trait_definition
+  - val_definition
+  - var_definition
+  - type_definition
+
+comment_types:
+  - comment
+  - block_comment
+
+complexity:
+  node_types:
+    - if_expression
+    - for_expression
+    - while_expression
+    - case_clause
+    - catch_clause
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Class
+  - Trait
+  - Object
+  - Function
+  - Type
+  - Package
+  - Field
+  - Val
+  - Var
+  - Variable
+  - Comment

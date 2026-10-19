@@ -1,6 +1,6 @@
 ---
 title: "Cluster Discovery Specification"
-description: "Technical specification of the Cluster Discovery Module, project grouping via labels, and cross-project query delegations."
+description: "Project discovery metadata, current inventory interfaces and the boundary of cluster discovery support."
 content-type: reference
 audience: developers
 keywords:
@@ -16,139 +16,51 @@ related:
   - "docs/specs/hub_collaboration.md"
 ---
 
-# Cluster Discovery Specification
+# Project discovery and cluster metadata
 
-In modern enterprise architectures, applications are composed of multiple distributed services.
-The Cluster Discovery module enables Graphit Code to map and discover related projects in the local environment, allowing AI agents to query code across boundaries.
+This page separates the current Rust inventory from historical cluster command designs. A stable
+PROJECT identity can carry metadata such as labels without exposing a public label mutation or
+automatic sibling-discovery API. Metadata support alone does not prove an executable workflow.
 
----
+## Registered projects and current interfaces
 
-## 🗃️ Global Project Registration
+The private `<global-dir>/project-inventory.json` records stable project IDs, retained versions
+and actual maintained checkouts. Paths are Unicode strings. A checkout path locates a working tree;
+it neither identifies the corpus nor authorizes another project. See [Project identity](project_identity.md)
+and [Storage](../architecture/storage_layout.md).
 
-The discovery mechanism uses the **Global Lock Manager**:
+The supported CLI is `graphit projects maintain-checkout` / `retire-checkout`, with the exact
+arguments in the [CLI reference](../reference/cli-options.md#graphit-projects-maintain-checkout).
+Maintaining a checkout preserves sibling jobs and publishes the actual inventory. Retirement stops
+that checkout's jobs while retaining its versions and records. It does not erase the corpus.
+The authorized Browser project selector and `graphit_instances` expose their respective retained
+project/activity views; neither is a general filesystem or cluster label editor.
 
-- **Global Lock File**:
-  All registered projects are stored in `~/.graphit/global.lock.json`.
-- **Automatic Registration**:
-  When you run `graphit init` or any command in a project, the CLI registers the workspace absolute path, project ULID, name, and description.
-- **Deregistration**:
-  On `graphit remove`, the CLI unregisters the workspace.
-  Stale paths are cleaned up by the daemon if the directory no longer exists.
+## Cluster metadata and unsupported historical commands
 
----
+`ProjectMetadata.cluster` belongs to the project metadata model in `.graphit/project.json`.
+The current Rust CLI does **not** advertise `graphit cluster`, and the inspected Root MCP catalog
+does **not** advertise `graphit_cluster_projects`. Former examples for setting labels, grouping
+projects by equal label values and listing automatic neighbors are not current commands. There
+is no alternate flag or invented tool that enables them. A caller needing that discovery feature
+must use a genuinely advertised producer; the data model is not an implementation of that producer.
 
-## 🏷️ Cluster Labels
+Hub catalog discovery uses its explicit provider/producer/type/version contract and permissions.
+It lists remote artifacts, not arbitrary local checkouts or projects accessible through the host's
+filesystem. [Hub collaboration](hub_collaboration.md) explains those operations.
 
-Projects are grouped into clusters via key-value labels. Projects sharing at least one
-identical label value for the same key are considered part of the same cluster.
-Projects without any labels form their own default group.
+## Cross-project reads after legitimate selection
 
-Cluster labels are stored in `graphit.lock.json` under `project.cluster`. The global lock mirrors
-them for local discovery, while Hub project metadata mirrors them for authorized remote discovery.
-`graphit cluster`, its MCP tools, and the UI all update the project lock first. A later init, update,
-or artifact publication synchronizes the full normalized map to the Hub registry.
+When a host or supported discovery interface supplies a real admitted project directory, use that
+exact `project_dir` only in live module calls and read the target's enabled module instructions.
+AST, Knowledge, Memory and Task all recheck their own project/version authority. A visible directory,
+catalog hit, label or stable ID grants no access by itself. Missing discovery remains a reported
+capability gap rather than a guessed sibling path.
 
-```bash
-# Set a cluster label
-graphit cluster domain backend
+Reuse sufficient source evidence and recall only the Memory/Task history needed for the question.
+The coordinating Task stays in the owning project; read access does not authorize writes elsewhere.
+Persist logical project ID/version and repository-relative evidence, never one host's checkout root.
+Imported Hub contexts without checkouts instead use their exact artifact source selector.
 
-# Get a specific label
-graphit cluster --get domain
-
-# List all labels
-graphit cluster --list
-
-# Remove a label
-graphit cluster --unset domain
-```
-
----
-
-## 🔗 Cluster Project Discovery
-
-List all projects in the same cluster (including the current project):
-
-```bash
-graphit cluster projects
-```
-
-Optionally filter by a specific label key:
-
-```bash
-graphit cluster projects domain
-```
-
-Via MCP:
-
-```json
-{
-  "tool": "graphit_cluster_projects",
-  "arguments": { "project_dir": "/path/to/project" }
-}
-```
-
-With label filter:
-
-```json
-{
-  "tool": "graphit_cluster_projects",
-  "arguments": { "project_dir": "/path/to/project", "label": "domain" }
-}
-```
-
-The result includes all projects sharing at least one cluster label with the
-current project. Each entry contains:
-
-| Field          | Description                                  |
-|----------------|----------------------------------------------|
-| `dir`          | Absolute path to the project root directory  |
-| `name`         | Human-readable project name                  |
-| `description`  | Project description                          |
-| `cluster`      | Cluster labels (key→values map)              |
-| `registeredAt` | When the project was registered              |
-
----
-
-## 📡 Cross-Project Query Delegation
-
-When an AI agent is invoked (e.g., inside Claude Code or Cursor), it can discover cluster projects by calling the `graphit_cluster_projects` tool.
-Every returned project is managed by Graphit, including neighboring checkouts outside the agent's
-working directory. Use the selected returned `dir` as `project_dir` for that target's enabled module
-reads. Discovery starts in the current project; subsequent AST, Knowledge, Memory and Task lookups
-about the neighbor target the neighbor. Do not switch to native grep, glob or filesystem exploration
-simply because the code is in another project. Read only the needed module skill for the target,
-including its overrides and enabled state; reuse retained instructions and evidence per project.
-
-Memory facts/lessons and historical Task specifications/decisions are optional sources according to
-the question, not mandatory calls after every AST/Knowledge read. The coordinating Task remains
-in the project that owns the delivery, and inspecting a neighbor does not authorize mutations there.
-Persist logical project identity, revision and relative references in shared results; absolute paths
-belong only to live tool payloads and must be resolved again on another machine.
-
-The Hub skill's `references/discovery-cases.md` gives a complete origin-to-neighbor example,
-including source reads, selective historical recall and return to the coordinating task. Examples:
-
-
-### 1. Cross-Project AST Queries
-The agent can query the AST of another project by setting the `project_dir` parameter in the AST tool call:
-```json
-{
-  "ServerName": "graphit-code-stdio-mcp",
-  "ToolName": "graphit_ast_query",
-  "Arguments": {
-    "project_dir": "/path/to/auth-service",
-    "query": "MATCH (fn:Function) WHERE toLower(fn.name) CONTAINS 'validate' RETURN fn.name, fn.path",
-    "ai_optimized": true
-  }
-}
-```
-
-### 2. Project Wiki Exploration
-Similarly, the agent can search the compiled documentation of another project:
-- It calls `graphit_knowledge_search` and `graphit_wiki_source` with the sibling's
-  directory as `project_dir`. There is no file to open: the sibling's wiki lives once
-  in the global brand directory, keyed by its project id, which is precisely what lets
-  these tools serve it without the agent leaving its own workspace.
-- It executes targeted searches to understand the API contracts, DTO structs, and routes of the other service.
-
-This cross-project visibility prevents **integration hallucinations**—ensuring the agent writes upstream client calls that exactly match the downstream backend parameters.
+See the [MCP catalog](../guides/mcp_tools_reference.md), [retrieval architecture](../guides/retrieval_architecture.md)
+and [capability matrix](../guides/capability_matrix.md) for the actual current surfaces.

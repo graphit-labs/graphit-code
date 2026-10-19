@@ -1,0 +1,75 @@
+language: lua
+grammar: tree-sitter-lua
+extensions: [".lua"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (dot_index_expression field: (identifier) @name))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment_statement (variable_list name: (identifier) @name))'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment_statement (variable_list name: (identifier) @name) (expression_list value: [(number) (string) (true) (false) (nil)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field name: (identifier) @name value: [(number) (string) (true) (false) (nil)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (identifier) @name)'
+
+exports:
+  strategy: none
+
+self_keywords: ["self."]
+
+context_types:
+  function_declaration: Function
+
+anon_func_types:
+  - function_body
+
+declaration_types:
+  - function_declaration
+  - variable_declaration
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - elseif_statement
+    - for_statement
+    - while_statement
+  operators: ["and", "or"]
+
+embed_labels:
+  - Function
+  - Field
+  - Variable
+  - Comment

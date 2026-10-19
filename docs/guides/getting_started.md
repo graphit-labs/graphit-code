@@ -1,216 +1,225 @@
+---
+title: "Getting Started"
+description: "Install the Rust executables, initialize a project and publish its native agent integration."
+content-type: guide
+audience: developers
+updated: 2026-10-30
+keywords:
+  - setup
+  - installation
+  - agents
+prerequisites: []
+related:
+  - "docs/guides/cli_reference.md"
+  - "docs/guides/configuration.md"
+  - "docs/development/native-runtime-packaging.md"
+references:
+  - target: {type: task, id: tsk-0af7}
+    relation: implements
+---
+
 # Getting Started
 
-This guide takes a project directory from no Graphit installation to a working agent integration, current local indexes, and the Graphit Observatory UI. Git is optional.
+Use this guide to configure the Rust executables, initialize a project and publish
+its maintained agent integration. The project workflow below uses the Linux
+daemon. Native qualification for other platforms remains separate.
 
-## What you will have
+## Install the product
 
-After the first run:
+Linux or macOS:
 
-- the `graphit` launcher and machine-wide runtime are installed;
-- the local embedding model is available to search modules;
-- the project directory is registered and configured for your selected Agent;
-- AST, knowledge, and memory indexes reflect the current project;
-- the daemon can keep those indexes current;
-- the UI can inspect the same project context exposed to agents.
-
-## 1. Install the launcher
-
-### Linux or macOS
-
-```bash
+```sh
 curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
 ```
 
-Use a custom installation directory when needed:
+Choose a directory or release explicitly when needed (replace `RELEASE_TAG` with a published tag):
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh -s -- --dir ~/.local/bin
+```sh
+curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh -s -- --dir ~/.local/bin --version 'RELEASE_TAG'
 ```
 
-Pin a release instead of taking the newest, which is what a reproducible install or a container
-image needs. The archive's SHA-256 is verified either way:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh -s -- --version v0.1.26
-```
-
-### Windows PowerShell
+Windows PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 ```
 
-The Windows installer defaults to `%LOCALAPPDATA%\Programs\graphit`. To choose another destination,
-download the script and pass `-Dir`, or set `GRAPHIT_INSTALL_DIR` before invoking it. The parameter
-wins over the environment variable. The current PowerShell installer selects the latest release;
-for a pinned Windows install, download and verify the named release archive directly.
+The PowerShell installer accepts `-Dir` and `-Version` when downloaded and invoked
+as a script; `GRAPHIT_INSTALL_DIR` also selects its destination. The Unix installer
+supports Linux AMD64 and macOS ARM64; the Windows installer selects AMD64.
+Installers verify the archive checksum and keep `graphit`, `graphit-model-server`
+and `graphit-runtime` together. Add the reported directory to PATH. Manual
+extraction must preserve that layout, including licenses and the bundled agent
+sources, plus the app-local DLLs beside the Windows executables. Redistributable
+native libraries are packaged; clients do not need Homebrew, OpenSSL, OpenBLAS
+or a separate Visual C++ Redistributable installation. The supported operating
+system libraries and an optional GPU driver remain host requirements. Check the
+package's macOS runtime manifest for its actual minimum OS version. See
+[native packaging](../development/native-runtime-packaging.md).
 
-The release installers detect the operating system and architecture, download the latest archive, verify its SHA-256 checksum, and install in a user-owned location. Add the reported directory to `PATH` if the installer cannot do so automatically.
+## Configure local embeddings explicitly
 
-## 2. Prepare the machine
+From any directory, install the pinned EmbeddingGemma2 model when local semantic
+search is needed:
 
-```bash
-graphit setup
+```sh
+graphit models install embeddinggemma2
 ```
 
-Setup prepares the global Graphit directory, persists the default `local` AI provider, and
-provisions local model bundles whose manifests use the `setup` fetch policy. It asks about Hub event
-anonymization plus Agent and coding-agent CLI preferences. It does not ask about ONNX devices.
+This downloads and verifies the pinned BF16 GGUF model. It adds the default
+embedding selection when none exists, preserving an existing selection or an
+explicit opt-out (`slots: []`). Use explicit model selection to enable embedding
+after opting out.
+The download is about 558 MB; setup does not start it implicitly. See
+[models and providers](ai_models.md) for selection and execution settings.
+The daemon observes Global model-slot changes and refreshes their selection;
+already admitted work retains its capture. Changing the captured completion
+`ai.cli` binding instead requires daemon reattachment/restart.
 
-Setup does not ask for account identity, MCP, S3, OIDC, claims, AI service topology, or credentials.
-The provider it creates is a real `auth.json` entry with explicit local embedding/rerank services
-and ONNX `cpu` with device ID `0`; no profile is created. Whenever no profile is active, AI
-resolution uses this provider and recreates it if it was removed. Identity remains anonymous,
-remote Hub remains unavailable, and reranking stays disabled until explicitly enabled. `graphit
-init`, AST, Knowledge, Memory, and Task do not require an account profile.
+## Initialize and maintain a project
 
-Configure authentication separately when you need a named identity or remote capability. Provider
-update asks independently for each local service's device and device ID, preselecting its current
-value; a login activates the named profile:
+The directory must already exist. Git is optional; a directory outside Git uses
+its explicit version selection or the maintained `main` default.
 
-```bash
-graphit provider show local
-graphit login --profile personal --provider local --username "$USER"
-```
-
-Use `graphit provider update local` for custom local execution, or add another named provider when
-you need a separate topology.
-
-For shared storage, SSO, multiple accounts, and non-interactive login, see
-[Authentication providers and account profiles](authentication.md).
-
-## 3. Initialize a project
-
-Run initialization from the project root Graphit should understand:
-
-```bash
+```sh
 cd your-project
-graphit init --agent codex
+graphit setup --agent kiro-v3 --project-dir .
 ```
 
-Replace `codex` with the Agent or coding-agent adapter you use. Run `graphit init --help` to see supported identifiers and options.
+Setup persists the native agent binding in the private installation configuration,
+creates the current project identity through the SDK, and asks the authenticated
+daemon to maintain the checkout. The daemon starts through its existing native
+manager, registering the service if necessary; startup at login is an explicit
+option. Setup reuses an existing project ID and metadata on subsequent runs.
+It does not turn the installation directory into a project.
 
-Initialization registers the project and installs the selected adapter's hooks, MCP configuration, skills, commands, and agents. Graphit mandates and installed Hub rules are delivered dynamically by the hooks; Graphit does not manage `AGENTS.md`, `CLAUDE.md`, or Agent rule files for that purpose. Review generated changes before sharing or committing them.
+Version `.graphit/project.json`: it contains the stable `id`, root metadata
+(`name`, optional `description` and `cluster`, `ephemeral`), ordinary `settings`
+and optional root `githooks`. Subsequent setup/config/sync operations preserve
+the other sections. Keep the ID unchanged across checkouts of the same project.
+Installation-wide configuration stays in `~/.graphit/config.json`; credentials,
+caches and generated state do not belong in the shared project document. See the
+[project document](configuration.md#the-project-document) for fields and precedence.
 
-The project's immutable ULID may already exist: the first earlier command that needed durable
-project state created a minimal `graphit.lock.json`. Initialization reuses that ULID and completes
-adapter and baseline setup. The friendly project name may later change without re-keying any local
-or remote store. See [Project Identity](../specs/project_identity.md).
+On Unix, an existing `.<brand>/runtime` directory must be private (mode `700`);
+setup rejects broader permissions rather than repairing them automatically. If
+that directory belongs to your user, restrict only the directory itself and
+repeat setup. For the default brand, run `chmod 700 .graphit/runtime` from the
+project root; do not apply it recursively. Existing identity and store data stay
+in place. See the [identity writer contract](../specs/project_identity.md#rust-local-identity-contract).
 
-Each developer must complete any trust or activation step required by their agent on their own machine. Follow [Activate Graphit Hooks in Each Agent](agent_hook_activation.md) for exact per-adapter instructions.
+The JSON result identifies the installation, agent and project. Acknowledgement
+means the checkout was admitted; indexing jobs can still be processing files.
+No account profile, credentials or remote PROJECT permission is created by setup.
+Configure named identities and remote access separately through
+[authentication](authentication.md).
 
-## 4. Build the first indexes
+To configure only the installation, omit the project directory:
 
-```bash
-graphit sync
+```sh
+graphit setup --agent kiro-v3
 ```
 
-The initial sync builds the code graph, documentation wiki, and memory indexes. Subsequent runs reuse content hashes and update changed inputs.
+Use `--name <name>` with `--project-dir` to choose a new project's initial name.
+An existing identity keeps its metadata. Optional `--project-id <ULID>` also
+requires `--project-dir`: a new identity uses that canonical, nonzero ID, an equal
+existing ID is preserved, and a different ID is rejected before changing the
+identity or installation agent setting. Omitting the option generates a new ID
+when needed. This neither imports store data nor grants PROJECT permission.
+Setup rejects `--project-version`: it initializes the actual checkout. Select a
+retained version with `graphit projects maintain-checkout --project-id <PROJECT_ID> --project-dir . --version <version> --select`
+when managing an existing checkout instead. A failure after configuration or identity publication
+can leave those confirmed changes present; resolve the reported cause and rerun.
+The SDK reuses the existing identity rather than creating a replacement.
 
-Graphit reads maintained project documentation from `docs/` and includes the root `README.md` in the knowledge wiki. Source exclusions and documentation exclusions are separate; see [Ignore Files](ignore_files.md).
+## Publish the maintained Coordinator and hooks
 
-## 5. Open the Observatory
+For Kiro V3:
 
-```bash
-graphit ui
+```sh
+graphit coordinator install --binding kiro-v3
 ```
 
-Open the displayed loopback URL. The workspace selector should identify the current repository before you interpret explorer data.
+The release includes the authorial Coordinator files. The command captures them
+and publishes the native agent, MCP configuration and PROJECT context hooks
+through the existing authenticated SDKs. Use the returned `profile` value as the
+agent selector in Kiro; do not assume a fixed filename or identifier. Follow the
+host's required trust/reload steps in [agent hook activation](agent_hook_activation.md).
+Start a new session after installation.
 
-![Code investigation showing directed calls in the fictional Aster Delivery project](../site/assets/code-investigation.jpg)
+Generated hooks and MCP configuration call Graphit through PATH and use relative
+PROJECT selectors. Ensure the native host can find the installed executable.
+If this installation uses a custom root, its host environment must also contain
+the branded `GLOBAL_DIR` variable; Codex forwards that variable by name using
+`env_vars`. Do not replace generated commands with machine-specific checkout or
+binary paths. See [bootstrap configuration](configuration.md#bootstrap-deployment-and-runtime-controls).
 
-The example uses invented data. Choose **Code intelligence → Relationship map** to explore a bounded
-sample, follow a relation, and inspect its indexed source. See [Code investigation](code_investigation.md).
+Select `kiro-v3` during setup and restart an already running daemon after changing
+its binding. `graphit coordinator install --binding kiro-v3` publishes the current Markdown profile
+and its inline context hooks. Start the native CLI with V3 explicitly selected;
+Graphit's ACP consumers use `kiro-cli acp --agent-engine=v3`.
+Other bindings can be selected for the
+installation; their native publication and runtime qualification have their own
+contracts in the [native binding guide](../development/native-host-bindings.md). Select each canonical --binding explicitly; Antigravity workspace MCP/hooks are supported without an undocumented customprofile MCP object.
 
-The UI is not an authentication layer. Keep the default loopback binding for local use; read [S3 Credentials and UI Network Configuration](s3-and-ui-network.md) before making it reachable over a network.
+A development binary without adjacent release assets can use
+`graphit coordinator install --binding kiro-v3 --source-dir templates/agent-instructions/coordinator`
+from this repository. This override still undergoes the same product-content,
+publication and authorization checks.
 
-To serve a whole team instead of one machine, run it as a container: the daemon as PID 1, publishing an MCP endpoint that any AI agent can connect to plus this same UI. See [Run as a Server in a Container](container.md).
+## Verify and operate
 
-## 6. Verify the agent tools
-
-First complete the adapter-specific trust and hook check in [Activate Graphit Hooks in Each Agent](agent_hook_activation.md). Then start a fresh session in the configured Agent and ask the agent to:
-
-1. list available Graphit MCP tools;
-2. search the project AST for a known symbol;
-3. read one relevant knowledge page;
-4. search project memory for a repository convention.
-
-Search tools return ranked names or titles. The agent should read the selected source or wiki page, and use graph traversals for relationship questions.
-
-## Daily operation
-
-The daemon watches registered projects and schedules incremental maintenance:
-
-```bash
-graphit daemon
+```sh
+graphit daemon status
 ```
 
-Ordinary CLI and MCP startup ensures it automatically unless `modules.daemon=false`. Use
-[Daemon Operations and Monitoring](daemon_operations.md) for scheduler installation, every watched
-signal and maintenance loop, project parking, logs, and recovery.
+Status succeeds only for an observed running service. In a fresh agent session,
+list the available Graphit MCP tools, read a known source file, and query the
+project's actual AST, Knowledge and Memory data. A source read can use the disk
+fallback; it alone does not prove that an index was built. Hooks deliver context
+and MCP configuration exposes tools; host trust and tool permissions are separate.
 
-Use an explicit sync after bulk external changes such as a checkout, pull, rebase, or restore, or whenever you need a verified all-system checkpoint.
+The daemon maintains the admitted project versions and processes changes
+incrementally. Configuration and source exclusions are described in
+[configuration](configuration.md) and [ignore files](ignore_files.md).
+For the authenticated browser, configure trusted Broker providers and the browser
+PROJECT endpoint; see [container deployment](container.md) for the same Source
+listener and explicit public-origin settings. There is no separate anonymous
+browser startup step in this journey.
 
-Useful next commands:
-
-```bash
-graphit ast schema
-graphit memory list
-graphit knowledge search "architecture"
-graphit ui
+```sh
+graphit daemon restart
+graphit daemon stop
 ```
 
-Confirm exact syntax for your installed version with `graphit --help` and the [CLI Command Reference](cli_reference.md).
-Choose completion CLIs, embedding models, dimensions, and remote provider boundaries with
-[AI Models, Providers, and Agent CLIs](ai_models.md).
+Stop reaches the retained owners and removes the daemon's own discovery and
+runtime key. Project identities, configuration and persistent data remain.
+Use `graphit daemon install --login` only when startup at user login is wanted;
+`graphit daemon login disable` turns that registration off.
+
+If startup fails, inspect the reported cause and the daemon's native manager logs.
+Check that the private installation is accessible to the current user, the selected
+binding is configured and model paths exist when enabled. A live managed-role
+transport cannot run installation setup. A missing bundled Coordinator source
+means the release layout is incomplete; restore `graphit-runtime` or use an explicit
+verified development source directory.
 
 ## Build from source
 
-Source builds require:
+Use the toolchain pinned in `rust-toolchain.toml`, Node.js 22, Make, CMake and a
+C++20 toolchain with `<format>` support (GCC/libstdc++ 13 or newer on Linux).
+The Make targets prepare Ladybug directly from the official Cargo dependency
+using `cargo xtask cargo`; no separate native SDK is needed. See
+[native packaging](../development/native-runtime-packaging.md) for build
+prerequisites, consumed native assets and licenses.
 
-- Go 1.26.6 or newer;
-- Node.js 22 or newer;
-- Make;
-- a C/C++ toolchain for native bindings.
-
-The normal build downloads and verifies an immutable native dependency bundle. Rust is required
-only in the companion `graphit-libs` repository when rebuilding the pinned LanceDB bridge.
-
-```bash
-git clone https://github.com/graphit-labs/graphit-code.git
-cd graphit-code
-make install
-graphit setup
+```sh
+npm --prefix ui ci
+make ui
+make build
 ```
 
-Platform-specific Make targets and development checks are documented in the repository [Contributing Guide](../../CONTRIBUTING.md).
-
-## Troubleshooting the first run
-
-### `graphit` is not found
-
-Add the installer destination to `PATH`, open a new shell, and run `graphit --version`.
-
-### The UI shows another project
-
-Use the workspace selector to activate the intended repository and verify its name before trusting explorer counts. Run `graphit ui` from the target project directory.
-
-### Search works but semantic results are empty
-
-Run `graphit ast embed`; its first local use downloads the model. Keyword search remains available while semantic vectors are being prepared.
-
-### The index appears stale
-
-Run `graphit sync` from the repository root. If the problem persists, inspect daemon status and continue with [Troubleshooting](troubleshooting.md).
-
-## Next steps
-
-- [User Manual](user_manual.md) for daily workflows.
-- [Capability and Surface Matrix](capability_matrix.md) for what is available in CLI, MCP, and UI.
-- [Configuration Reference](configuration.md) for every key, default, module switch, and environment override.
-- [Filesystem, State, and Watchers](filesystem_contract.md) for files, paths, generated state, and change detection.
-- [CLI Command Reference](cli_reference.md) for command syntax.
-- [MCP Tools Reference](mcp_tools_reference.md) for agent-facing contracts.
-- [Agent Hook Activation](agent_hook_activation.md) for trust, reload, and verification steps per adapter.
-- [Architecture Overview](../architecture/architecture_overview.md) for system boundaries.
-- [Storage Layout](../architecture/storage_layout.md) for local and shared data locations.
+The executables are produced by Cargo. `make release PLATFORM=linux-amd64` creates
+the complete distribution, including the authorial Coordinator files. Use a
+focused `make test TEST=<registered-suite>` for the affected suite during
+implementation; see [the Makefile](../../Makefile) for current commands.

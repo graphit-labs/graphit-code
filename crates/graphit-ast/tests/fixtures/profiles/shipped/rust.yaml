@@ -1,0 +1,129 @@
+language: rust
+grammar: tree-sitter-rust
+extensions: [".rs"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+  READS_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_item name: (identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_item name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_item name: (type_identifier) @name)'
+  - data_key: traits
+    graph_label: Trait
+    pattern: '(trait_item name: (type_identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_item name: (type_identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_item name: (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(static_item name: (identifier) @name)'
+
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_item name: (identifier) @name value: [(integer_literal) (float_literal) (boolean_literal) (char_literal) (string_literal) (raw_string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(static_item name: (identifier) @name value: [(integer_literal) (float_literal) (boolean_literal) (char_literal) (string_literal) (raw_string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: imports
+    graph_label: Import
+    pattern: '(use_declaration argument: (scoped_identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(use_declaration argument: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter pattern: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration name: (field_identifier) @name)'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (scoped_identifier name: (identifier) @name))'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (field_expression field: (field_identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(field_expression field: (field_identifier) @name)'
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(attribute_item (attribute (identifier) @name))'
+  - data_key: implements
+    type: relation
+    relation_type: IMPLEMENTS
+    pattern: '(impl_item trait: (type_identifier) @name)'
+
+exports:
+  strategy: modifier
+  config:
+    keyword: "pub"
+
+self_keywords: ["self.", "Self."]
+
+context_types:
+  impl_item: Struct
+  struct_item: Struct
+  trait_item: Trait
+  enum_item: Enum
+  mod_item: Namespace
+  function_item: Function
+
+anon_func_types: []
+
+declaration_types:
+  - function_item
+  - struct_item
+  - enum_item
+  - trait_item
+  - impl_item
+  - type_item
+  - const_item
+  - static_item
+  - mod_item
+
+comment_types:
+  - line_comment
+  - block_comment
+
+complexity:
+  node_types:
+    - if_expression
+    - for_expression
+    - while_expression
+    - match_arm
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Struct
+  - Enum
+  - Trait
+  - Type
+  - Function
+  - Constant
+  - Field
+  - Variable
+  - Comment

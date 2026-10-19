@@ -1,0 +1,2 @@
+language: x
+embedded: [{pattern: "(x)", text_capture: body, languages: {SQL: sql, sql: sql}}]

@@ -144,7 +144,7 @@
         <div>Codex</div>
         <div>Claude Code</div>
         <div>Cursor</div>
-        <div>Gemini</div>
+        <div>AGY</div>
         <div>Any MCP client</div>
       </div>
       <section id="approach" class="approach section wrap">
@@ -234,9 +234,9 @@
           <p class="intro-label">Checks at the Git boundary</p>
           <h2 id="quality-gates-title">Checks tell the agent what to fix.</h2>
           <p>
-            Graphit installs Git hooks during <code>init</code> and <code>sync</code>.
-            Your project lists ordered commands for supported Git events in
-            <code>graphit.lock.json</code>. When the agent commits or pushes,
+            This repository activates native Git registrations with
+            <code>graphit git install</code> (Git 2.54+). The dispatcher reads
+            command arrays from <code>.graphit/project.json</code>. When the agent commits or pushes,
             failed checks return their output to that agent so it can fix the
             cause and try again. Events that support rejection stop Git on failure.
           </p>
@@ -245,7 +245,7 @@
           <li>
             <span class="hook-event">pre-commit</span>
             <h3>Fix problems before the commit exists.</h3>
-            <p>The agent runs the commit. Fast formatting, linting, focused tests and source checks can stop it; the agent reads their output, fixes the cause and retries.</p>
+            <p>The agent runs the commit. Formatting, workflow lint and source checks can stop it; the agent reads their output, fixes the cause and retries.</p>
           </li>
           <li>
             <span class="hook-event">pre-push</span>
@@ -594,10 +594,11 @@
           >
             <button class="copy-button" type="button">Copy</button>
             <pre><code>curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
-graphit setup
 cd your-project
-graphit init --agent codex
+graphit setup --agent codex --project-dir .
+graphit coordinator install --binding codex
 graphit sync
+# Configure Broker browser access before opening the UI
 graphit ui</code></pre>
           </div>
           <div
@@ -610,10 +611,11 @@ graphit ui</code></pre>
           >
             <button class="copy-button" type="button">Copy</button>
             <pre><code>irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
-graphit setup
 cd your-project
-graphit init --agent codex
+graphit setup --agent codex --project-dir .
+graphit coordinator install --binding codex
 graphit sync
+# Configure Broker browser access before opening the UI
 graphit ui</code></pre>
           </div>
           <div
@@ -627,20 +629,18 @@ graphit ui</code></pre>
             <button class="copy-button" type="button">Copy</button>
             <pre><code>VERSION=latest
 docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
-# Loopback trial without Broker browser login
+# Headless service; configure trusted Broker browser access separately
 docker run -d --name graphit \
-  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
-  -e GRAPHIT_UI_AUTH_ENABLED=false \
+  -p 127.0.0.1:8081:8081 \
   -v graphit-global:/home/graphit/.graphit \
   "ghcr.io/graphit-labs/graphit-code:${VERSION}"
-docker exec graphit cat /home/graphit/.graphit/daemon/mcp.key</code></pre>
+docker exec graphit graphit daemon status</code></pre>
             <p class="setup-note">
-              For external UI access, Docker enables Broker browser login by
-              default. Configure a Broker provider with dynamic client
-              registration. Set <code>GRAPHIT_UI_AUTH_PUBLIC_URL</code> to the
-              HTTPS origin and
-              <code>GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY</code> to the same
-              random secret string of at least 32 bytes on every instance. See
+              For external UI access, configure the trusted Broker providers and
+              PROJECT authorization endpoint in <code>task.browser</code>, with
+              the exact HTTPS <code>public_origin</code>. Browser sessions are
+              held by the running daemon; publishing a listener does not grant
+              access to project data. See
               the
               <a href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/authentication.md#web-ui-login">authentication guide</a>
               and
@@ -656,7 +656,10 @@ docker exec graphit cat /home/graphit/.graphit/daemon/mcp.key</code></pre>
             hidden
           >
             <button class="copy-button" type="button">Copy</button>
-            <pre><code>git clone https://github.com/graphit-labs/graphit-code.git
+            <p>Build from matching Code and Broker revisions with the
+              <a href="https://github.com/graphit-labs/graphit-code/blob/main/docs/development/native-runtime-packaging.md#build-and-package">native build prerequisites</a> installed.</p>
+            <pre><code>git clone https://github.com/graphit-labs/graphit-broker.git
+git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
 make install
 graphit setup</code></pre>

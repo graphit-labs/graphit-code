@@ -2,216 +2,325 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-
-  ci:
-    name: CI Gate
-    runs-on: ubuntu-22.04
-
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform == 'linux-amd64' && 'ubuntu-22.04' || matrix.platform == 'darwin-arm64' && 'macos-15' || 'windows-2022' }}
+    defaults:
+      run:
+        working-directory: graphit-code
+    env:
+      GRAPHIT_BROKER_REF: ${{ vars.GRAPHIT_BROKER_REF }}
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["darwin-arm64", "windows-amd64"]' || '["linux-amd64", "darwin-arm64", "windows-amd64"]') }}
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
-
+          path: graphit-code
+      - name: Require explicit Broker source ref
+        shell: bash
+        run: |
+          if [ -z "$GRAPHIT_BROKER_REF" ]; then
+            echo "Set repository variable GRAPHIT_BROKER_REF to the Broker source ref paired with this Code revision." >&2
+            exit 1
+          fi
+      - name: Checkout Broker wire producer
+        uses: actions/checkout@v4
+        with:
+          repository: graphit-labs/graphit-broker
+          ref: ${{ env.GRAPHIT_BROKER_REF }}
+          path: graphit-broker
+          persist-credentials: false
+          token: ${{ secrets.GRAPHIT_BROKER_READ_TOKEN || github.token }}
+      - name: Record paired Broker revision
+        run: git -C ../graphit-broker rev-parse --verify HEAD
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-          cache-dependency-path: internal/ui/package-lock.json
-
-      - name: Install system dependencies
+          cache: npm
+          cache-dependency-path: graphit-code/ui/package-lock.json
+      - name: Install current Git on Linux (native hooks/reftable required)
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev libprotobuf-dev pkg-config protobuf-compiler
-
-      - name: Create UI dist placeholder
-        run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
-
-      - name: Cache verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Cache embedding model
-        uses: actions/cache@v4
-        with:
-          path: /tmp/graphit-model-cache
-          key: embedding-model-${{ runner.os }}-${{ hashFiles('Makefile') }}
-          restore-keys: |
-            embedding-model-${{ runner.os }}-
-
-      - name: Validate workflow files
-        run: make actionlint
-
-      - name: Vet
-        run: make vet
-
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.12.2
-
-      - name: Vulnerability scan
-        run: make vulncheck
-
-      - name: Configure git identity
+          sudo add-apt-repository --yes ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install --yes git
+      - name: Install current Git on macOS (native hooks/reftable required)
+        if: runner.os == 'macOS'
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: UI Build
-        run: make ui
-
-      - name: Test
-        run: make test-full
+          brew install git
+          echo "$(brew --prefix git)/bin" >> "$GITHUB_PATH"
+      - name: Install current Git on Windows (native hooks/reftable required)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco upgrade git --yes --no-progress
+          "${env:ProgramFiles}\Git\cmd" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Verify Git native hooks and shell on PATH (2.54+)
+        run: |
+          git --version
+          git var GIT_SHELL_PATH
+          git -c hook.graphit-ci-native.event=pre-commit -c hook.graphit-ci-native.command='exit 0' hook run pre-commit
+      - name: Install Linux native build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install --yes build-essential gcc-13 g++-13 cmake clang llvm libclang-dev libssl-dev pkg-config protobuf-compiler libprotobuf-dev patchelf
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+      - name: Install macOS native build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake openssl@3 protobuf pkg-config llvm
+          {
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)"
+            echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib"
+            echo "RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,-headerpad_max_install_names"
+          } >> "$GITHUB_ENV"
+      - name: Install Windows native build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install protoc unzip llvm --yes --no-progress
+      - name: Capture Windows compiler and redistributable runtime
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          vsversion: '2022'
+      - name: Build UI shipped with Rust
+        run: |
+          npm --prefix ui ci
+          node scripts/build-rust-ui.mjs
+      - name: Install Windows OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows pkgconf:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=C:/Program Files/LLVM/bin" >> $env:GITHUB_ENV
+          "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $env:GITHUB_PATH
+          "PKG_CONFIG=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build owned Broker Hub storage fixture
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture --target-dir target
+          fixture_bin="$PWD/target/debug/examples/hub_storage_fixture"
+          test -f "$fixture_bin"
+          test -x "$fixture_bin"
+          echo "GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN=$fixture_bin" >> "$GITHUB_ENV"
+      - name: Build model-server executable for Linux contract tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo xtask cargo build --locked -p graphit-daemon --bin graphit-model-server
+          model_server="$PWD/target/debug/graphit-model-server"
+          test -s "$model_server"
+          test -x "$model_server"
+          echo "GRAPHIT_TEST_MODEL_SERVER=$model_server" >> "$GITHUB_ENV"
+      - name: Prepare pinned embedding GGUF for the Linux native NN gate
+        if: runner.os == 'Linux'
+        shell: bash
         env:
-          GRAPHIT_HEAVY_TEST_ISOLATED: "1"
-
-      - name: UI Lint
-        run: make ui-lint
-
-      - name: UI Test
-        run: make ui-test
-
-      - name: Upload LanceDB native library
+          EMBEDDING_MODEL_URL: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/bfcd298762cc34d0357ece5ebdd31791a3a374d8/embeddinggemma-2-BF16.gguf
+          EMBEDDING_MODEL_SHA256: 68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216
+          EMBEDDING_MODEL_BYTES: '557950176'
+        run: |
+          model_file="$RUNNER_TEMP/embeddinggemma-2-BF16.gguf"
+          curl --fail --location --show-error --silent "$EMBEDDING_MODEL_URL" --output "$model_file"
+          printf '%s  %s\n' "$EMBEDDING_MODEL_SHA256" "$model_file" | sha256sum --check
+          test "$(wc -c < "$model_file")" -eq "$EMBEDDING_MODEL_BYTES"
+          echo "GRAPHIT_EMBEDDINGGEMMA2_MODEL=$model_file" >> "$GITHUB_ENV"
+      - name: Check Rust contracts and quality
+        run: cargo xtask gate
+      - name: Install CUDA build toolchain for the Cargo backend
+        if: runner.os == 'Linux'
+        uses: Jimver/cuda-toolkit@21aaab8dcb4e9329ae86f60cf6586a9ef3effbea # v0.2.32
+        with:
+          cuda: '12.9.1'
+          method: network
+          sub-packages: '["nvcc", "cudart-dev", "cccl"]'
+          non-cuda-sub-packages: '["libcublas-dev"]'
+      - name: Configure portable CUDA compilation
+        if: runner.os == 'Linux'
+        run: |
+          {
+            echo "CMAKE_CUDA_HOST_COMPILER=$(command -v g++-13)"
+            echo 'CMAKE_CUDA_ARCHITECTURES=75-real;80-real;86-real;89-real;90-virtual'
+          } >> "$GITHUB_ENV"
+      - name: Build Rust executables on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          GRAPHIT_BUILD_VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p .build
+          features=()
+          if [ "$RUNNER_OS" = Linux ]; then features=(--features graphit-app/cuda); fi
+          cargo xtask cargo build --locked --release -p graphit-app -p graphit-daemon --bin graphit --bin graphit-model-server "${features[@]}" --message-format=json-render-diagnostics > .build/release-artifacts.jsonl
+      - name: Build Rust executables with the Windows compiler environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GRAPHIT_BUILD_VERSION: ${{ github.ref_name }}
+        run: |
+          New-Item -ItemType Directory -Force .build | Out-Null
+          cargo xtask cargo build --locked --release -p graphit-app -p graphit-daemon --bin graphit --bin graphit-model-server --message-format=json-render-diagnostics > .build/release-artifacts.jsonl
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Release build failed' }
+      - name: Package executables and native runtime
+        shell: bash
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+        run: scripts/package-release.sh "$NATIVE_PLATFORM" .build/release-artifacts.jsonl .build/dist
+      - name: Install complete local package on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          sh install.sh --archive ".build/dist/graphit-$NATIVE_PLATFORM.tar.gz" --dir "$RUNNER_TEMP/graphit-install"
+          test -x "$RUNNER_TEMP/graphit-install/graphit-model-server"
+          test -s "$RUNNER_TEMP/graphit-install/graphit-runtime/build.json"
+          cd "$RUNNER_TEMP"
+          env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin "$RUNNER_TEMP/graphit-install/graphit" --version
+          set +e
+          env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin "$RUNNER_TEMP/graphit-install/graphit-model-server" > model-startup.log 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 1
+          grep -F 'model child startup/service failed: InvalidInput' model-startup.log
+      - name: Install complete local package on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./install.ps1 -Archive .build/dist/graphit-windows-amd64.tar.gz -Dir "$env:RUNNER_TEMP/graphit-install"
+          Set-Location $env:RUNNER_TEMP
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:OPENSSL_DIR, Env:OPENSSL_LIB_DIR, Env:CMAKE_PREFIX_PATH, Env:PKG_CONFIG_PATH -ErrorAction SilentlyContinue
+          & "$env:RUNNER_TEMP/graphit-install/graphit.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Graphit failed to start' }
+          foreach ($file in @('graphit-model-server.exe', 'graphit-runtime/build.json')) {
+            if (-not (Test-Path "$env:RUNNER_TEMP/graphit-install/$file" -PathType Leaf)) { throw "Missing installed $file" }
+          }
+          $startup = & "$env:RUNNER_TEMP/graphit-install/graphit-model-server.exe" 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 1 -or $startup -notlike '*model child startup/service failed: InvalidInput*') {
+            throw "Packaged model-server did not reach its entrypoint: $startup"
+          }
+          $global:LASTEXITCODE = 0
+      - name: Exercise the installed model-server on native Windows and macOS
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          export GRAPHIT_TEST_MODEL_SERVER="$RUNNER_TEMP/graphit-install/graphit-model-server$suffix"
+          for consumer in \
+            native_bootstrap_and_missing_auth_fail_without_ready_or_secret_output \
+            cold_child_reports_model_errors_on_demand_and_pre_cancelled_start_has_no_child \
+            actual_child_completion_is_cancel_safe_and_retains_the_same_exit; do
+            cargo xtask cargo test --locked --release -p graphit-daemon --test model_child "$consumer" -- --exact
+          done
+      - name: Upload complete release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-lancedb-native-linux-amd64
-          path: .native
-          include-hidden-files: true
+          name: ${{ matrix.platform }}
+          path: |
+            graphit-code/.build/dist/*.tar.gz
+            graphit-code/.build/dist/*.tar.gz.sha256
           retention-days: 1
 
-  build-linux:
-    name: Build (linux-amd64)
-    needs: [ci]
+  packaging-contracts:
+    name: Native packaging contracts
     runs-on: ubuntu-22.04
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check affected shell scripts and package contracts
+        run: |
+          shellcheck -x install.sh scripts/package-release.sh scripts/graphit-entrypoint.sh
+          node scripts/test-native-packaging.mjs
+          node scripts/test-package-platform-runtime.mjs
 
-      - name: Download LanceDB native library
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [build, packaging-contracts]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
-          name: release-lancedb-native-linux-amd64
-          path: .native
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: internal/ui/package-lock.json
-
-      - name: Install system dependencies (CGO)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libicu-dev \
-            pkg-config \
-            curl \
-            unzip
-
-      - name: Cache verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Build (Linux)
-        run: |
-          make build-linux \
-            VERSION="${{ github.ref_name }}" \
-            BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
-
-      - name: Package and generate SHA-256 checksum
-        run: |
-          cd .build
-          tar -czf graphit-linux-amd64.tar.gz graphit-linux-amd64
-          sha256sum graphit-linux-amd64.tar.gz > graphit-linux-amd64.sha256
-
-      - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-amd64
-          path: |
-            .build/graphit-linux-amd64.tar.gz
-            .build/graphit-linux-amd64.sha256
-          retention-days: 1
-
-  build-darwin:
-    name: Build (darwin-arm64)
-    needs: [ci]
-    runs-on: macos-14
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: internal/ui/package-lock.json
-
-      - name: Install system dependencies (Homebrew)
-        run: |
-          brew install icu4c pkg-config protobuf
-
-      - name: Cache verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-darwin-arm64-${{ hashFiles('native-deps.env') }}
-
-      - name: Build (macOS)
-        run: |
-          make build-darwin \
-            VERSION="${{ github.ref_name }}" \
-            BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
-
-      - name: Package and generate SHA-256 checksum
-        run: |
-          cd .build
-          tar -czf graphit-darwin-arm64.tar.gz graphit-darwin-arm64
-          shasum -a 256 graphit-darwin-arm64.tar.gz > graphit-darwin-arm64.sha256
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+          pattern: "*-amd64"
+          path: release-assets
+          merge-multiple: true
+      - name: Download macOS release artifact
+        uses: actions/download-artifact@v8
         with:
           name: darwin-arm64
-          path: |
-            .build/graphit-darwin-arm64.tar.gz
-            .build/graphit-darwin-arm64.sha256
-          retention-days: 1
+          path: release-assets
+      - name: Verify and combine artifact checksums
+        working-directory: release-assets
+        run: |
+          cat ./*.tar.gz.sha256 > checksums.sha256
+          sha256sum --check checksums.sha256
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Graphit Code ${{ github.ref_name }}"
+          generate_release_notes: true
+          body: |
+            Each archive contains graphit, graphit-model-server and graphit-runtime.
+            Keep the complete extracted package, including Windows app-local DLLs.
+            The native runtime includes its upstream license, notices and provenance.
+
+            Install Linux/macOS:
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
+            ```
+
+            Install Windows (PowerShell):
+            ```powershell
+            irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+            ```
+
+            Verify downloaded archives with checksums.sha256.
+            Linux packages the optional Cargo-built CUDA engine and redistributable runtime with relative loader paths.
+            CPU remains the default. CUDA requires a compatible NVIDIA host driver.
+            See graphit-runtime/NATIVE-RUNTIME.md for model execution configuration.
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.sha256
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-image:
     name: Publish Docker image (linux-amd64)
@@ -220,33 +329,30 @@ jobs:
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Download Linux artifact
         uses: actions/download-artifact@v8
         with:
           name: linux-amd64
-          path: dist/
-
-      - name: Prepare Docker build context
+          path: dist
+      - name: Prepare complete Docker build context
         run: |
-          mkdir -p .build
-          tar -xzf dist/graphit-linux-amd64.tar.gz -C .build
-          test -x .build/graphit-linux-amd64
-
+          (cd dist && sha256sum --check graphit-linux-amd64.tar.gz.sha256)
+          mkdir -p .build/release
+          tar -xzf dist/graphit-linux-amd64.tar.gz -C .build/release
+          test -x .build/release/graphit-linux-amd64/graphit
+          test -x .build/release/graphit-linux-amd64/graphit-model-server
+          test -f .build/release/graphit-linux-amd64/graphit-runtime/build.json
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Generate Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -262,7 +368,50 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
-
+      - name: Build image for native lifecycle validation
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: graphit-code:release-validation
+      - name: Validate native container startup, access and shutdown
+        run: |
+          name="graphit-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          volume="$name-state"
+          cleanup() {
+            docker rm --force "$name" >/dev/null 2>&1 || true
+            docker volume rm "$volume" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker volume create "$volume"
+          docker run -d --name "$name" --health-interval=1s --health-start-interval=1s \
+            --health-start-period=5s -p 127.0.0.1::8081 \
+            -v "$volume:/home/graphit/.graphit" graphit-code:release-validation
+          for phase in first restart; do
+            if [ "$phase" = restart ]; then docker start "$name"; fi
+            healthy=false
+            for _attempt in $(seq 1 30); do
+              if [ "$(docker container inspect --format '{{.State.Health.Status}}' "$name")" = healthy ]; then
+                healthy=true
+                break
+              fi
+              if [ "$(docker container inspect --format '{{.State.Running}}' "$name")" != true ]; then break; fi
+              sleep 1
+            done
+            if [ "$healthy" != true ]; then docker logs "$name"; exit 1; fi
+            test "$(docker exec "$name" id -u)" = 10001
+            docker exec "$name" graphit --non-interactive daemon status >/dev/null
+            published=$(docker port "$name" 8081/tcp)
+            status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null --write-out '%{http_code}' \
+              --header 'Content-Type: application/json' --header 'X-Graphit-Auth-Origin: runtime' \
+              --data '{"operation":"status"}' "http://$published/admin/daemon")
+            case "$status" in 401|403) ;; *) echo "Unauthenticated admin access returned $status" >&2; exit 1 ;; esac
+            docker stop --time 15 "$name"
+            code=$(docker container inspect --format '{{.State.ExitCode}}' "$name")
+            case "$code" in 0|130) ;; *) docker logs "$name"; exit 1 ;; esac
+          done
       - name: Build and publish Docker image
         uses: docker/build-push-action@v7
         with:
@@ -271,191 +420,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-  build-windows:
-    name: Build (windows-amd64)
-    needs: [ci]
-    runs-on: windows-2022
-    defaults:
-      run:
-        shell: msys2 {0}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          path-type: inherit
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-icu
-            mingw-w64-x86_64-protobuf
-            mingw-w64-x86_64-sqlite3
-            make
-            unzip
-            curl
-            tar
-            gzip
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: internal/ui/package-lock.json
-
-      - name: Cache verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-windows-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Build (Windows native)
-        run: |
-          make build-windows-native \
-            VERSION="${{ github.ref_name }}" \
-            BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
-            GITHUB_REPO="graphit-labs/graphit-code" \
-            ORT_CACHE="/c/cache/ort" \
-            MODEL_CACHE="/c/cache/model" \
-            LANCEDB_CACHE="/c/cache/lancedb"
-
-      - name: Package and generate SHA-256 checksum
-        run: |
-          cd .build
-          tar -czf graphit-windows-amd64.tar.gz graphit-windows-amd64.exe
-          sha256sum graphit-windows-amd64.tar.gz > graphit-windows-amd64.sha256
-
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-amd64
-          path: |
-            .build/graphit-windows-amd64.tar.gz
-            .build/graphit-windows-amd64.sha256
-          retention-days: 1
-
-  publish:
-    name: Publish GitHub Release
-    needs: [build-linux, build-darwin, build-windows]
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download release artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: dist/
-
-      - name: Flatten artifact directories
-        run: |
-          mkdir -p release-assets
-          find dist/ -type f -not -name '*.wasm' -exec cp {} release-assets/ \;
-          ls -la release-assets/
-
-      - name: Generate combined checksums file
-        run: |
-          cd release-assets
-          cat ./*.sha256 > checksums.sha256
-          echo "=== checksums.sha256 ==="
-          cat checksums.sha256
-
-      - name: Extract changelog for this tag
-        id: changelog
-        run: |
-          TAG="${{ github.ref_name }}"
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
-          if [ -n "$PREV_TAG" ]; then
-            CHANGES=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- 2>/dev/null || echo "")
-          else
-            CHANGES=$(git log --pretty=format:"- %s (%h)" 2>/dev/null | head -20 || echo "")
-          fi
-          {
-            echo "version=${TAG#v}"
-            echo "changes<<EOF"
-            echo "$CHANGES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Graphit Code ${{ github.ref_name }}"
-          body: |
-            ## What's Changed
-
-            ${{ steps.changelog.outputs.changes }}
-
-            ## Installation
-
-            ### Linux / macOS (one-liner)
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
-            ```
-
-            ### Windows (one-liner — PowerShell)
-            ```powershell
-            irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
-            ```
-
-            ### Docker (Linux amd64)
-            ```bash
-            docker pull ghcr.io/${{ github.repository }}:${{ steps.changelog.outputs.version }}
-            ```
-
-            ### Manual download
-
-            | Platform | Archive |
-            |---|---|
-            | Linux (amd64) | `graphit-linux-amd64.tar.gz` |
-            | macOS (Apple Silicon) | `graphit-darwin-arm64.tar.gz` |
-            | Windows (amd64) | `graphit-windows-amd64.tar.gz` |
-
-            Extract and move to your PATH:
-            ```bash
-            # Linux/macOS
-            tar -xzf graphit-<platform>.tar.gz
-            sudo mv graphit-<platform> /usr/local/bin/graphit
-            ```
-
-            ### Verify integrity
-            ```bash
-            sha256sum -c checksums.sha256
-            ```
-
-            ## Self-update
-            If you already have `graphit` installed:
-            ```bash
-            graphit self-update
-            ```
-            > **Note:** Starting from this release, `graphit self-update` downloads `.tar.gz` archives.
-            > Builds using a custom `SELF_UPDATE_URL` must update their release endpoint accordingly.
-          files: |
-            release-assets/graphit-linux-amd64.tar.gz
-            release-assets/graphit-linux-amd64.sha256
-            release-assets/graphit-darwin-arm64.tar.gz
-            release-assets/graphit-darwin-arm64.sha256
-            release-assets/graphit-windows-amd64.tar.gz
-            release-assets/graphit-windows-amd64.sha256
-            release-assets/checksums.sha256
-          fail_on_unmatched_files: true
-          make_latest: true
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,1 @@
+Cursor-specific hook compensation: `beforeSubmitPrompt` cannot inject context; Cloud may omit `sessionStart`. Reapply {{ brand_display }} routing before new/resumed work. Post-tool reminders govern subsequent actions; they cannot enforce the first action.

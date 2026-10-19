@@ -1,100 +1,86 @@
 ---
 name: graphit-remote
-description: Use a projectless Graphit MCP server to retrieve versioned code, knowledge, shared skills, and durable user memory without assuming access to a source checkout.
+description: Read admitted Graphit content through the actual MCP catalog without inventing a source checkout or authorization.
 ---
 
 # Graphit Remote
 
-Use Graphit as the authoritative context and coordination layer when its MCP tools are available.
+This is an example host skill for the current Rust Root MCP contract. An artifact-only server
+has no implied PROJECT, checkout, Task corpus or USER identity. Inspect its actual `tools/list`
+and use only announced operations with the server's authentication and admitted sources.
 
-## Bootstrap
+## Load the instruction needed for the next action
 
-If the host has not supplied Graphit mandates, call `graphit_mandates` once with no arguments.
-Match the next action against those triggers. Immediately before the first matching action, read
-that module through `graphit_module_skill`; reuse instructions still retained for this scope.
-Reload only when lost after compaction or when scope/overrides change. Do not preload other modules
-or pass `project_dir` on an artifact-only server.
-
-The core module names are `task`, `memory`, `ast`, `hub`, and `knowledge`. The returned `enabled`
-field reflects the server's resolved module configuration. If it is `false`, do not assume that
-module is available merely because its skill source was returned.
-
-## Recall when questions arise during work
-
-At any stage, a question about system behavior, rationale or earlier work may need Memory facts
-and lessons or Task investigations, decisions and validation results. Read the matching module
-skill and retrieve only the missing topic: known ID directly to source/get, otherwise focused
-search followed by selected records. Do not wait for restart, a new plan or a blocker. Reuse
-sufficient context, and compare historical findings with current AST/Knowledge evidence.
-These rules do not make unavailable scopes available: an artifact-only server still has no
-project Task/Memory; use the supported sources and report a needed history gap.
-
-## Load detailed examples at their named boundary
-
-The main skill response includes `references`, a list of exact resource paths. Follow the skill's
-reading trigger: planning a delivery, writing domain documentation, investigating code impact or
-handling an unfamiliar discovery/correction flow may need a detailed guide. Do not load every
-reference simply because it is listed. On an artifact-only server, for example:
+When the host has not already supplied the relevant instructions, use `graphit_module_skill`:
 
 ```json
-{"module":"task"}
+{"module":"knowledge","ai_optimized":false}
 ```
 
-When the returned Task skill calls for its planning reference, use the exact returned path:
+Follow a reference only at its reading boundary, using its exact returned path:
 
 ```json
-{"module":"task","reference":"references/planning.md"}
+{"module":"knowledge","reference":"references/documentation-design.md","ai_optimized":false}
 ```
 
-Both payloads call `graphit_module_skill`. The second response contains the selected reference in
-`content`, with its path in `reference`; it does not repeat the skill or load other examples.
-Keep `project_dir` on both calls only when addressing a real project resolved on the current server.
-It is a runtime argument: never save that server's checkout root in shared docs, tasks, memories or
-handoffs. Save project identity, relative paths/slugs and revision; resolve the root again per host. Read Graphit's built-in
-references through this tool, not as Hub artifacts or by opening server filesystem paths. Reuse
-them until lost or the relevant scope/instructions change. Skill overrides still determine the main
-instructions; the listed references are framework resources and do not override project guidance.
+The module names are `task`, `memory`, `ast`, `hub` and `knowledge`. Reuse retained instructions
+for the same scope; respect disabled modules and project overrides. There is no Root
+`graphit_mandates` tool. Do not preload every module or replace unavailable tools with guessed names.
 
-## Address remote content
+## Resolve exact artifact provenance
 
-An artifact-only server has no project checkout and no meaningful local project path. Never invent,
-infer, or send `project_dir` in this mode.
+Use `graphit_hub_search` for an authorized remote catalog, with its real `transport`, `provider`,
+`producer` and positive `limit`. `graphit_hub_list` lists installed metadata and requires explicit
+`global`. These are different operations; there is no Root `graphit_hub_show` alias.
+Retain producer, type, logical ID, concrete version and origin. Native AST/Knowledge installation
+uses `graphit_hub_install_native` with its typed `installation`; authored artifact installation
+uses `graphit_hub_install` with complete `selection` and `global` fields. Read the actual
+[schema](../../../reference/mcp-input-schemas.json) before performing a mutation. Installing an
+artifact does not grant its data permissions, and an exact-version sync does not upgrade it.
 
-Discover content with `graphit_hub_search`, `graphit_hub_list`, and `graphit_hub_show`. An
-unqualified ID may be used during discovery, but after selecting an artifact resolve its version and
-refer to it as `id@version` on every read, install, query, and handoff. This preserves provenance and
-makes results reproducible when the Hub's latest version changes.
+An imported Knowledge request uses its typed source rather than `hub_refs` or flat `context`:
 
-- Pass `id@version` as `context` to AST and Knowledge tools.
-- Pass `id@version` in `hub_refs` when searching Hub knowledge with `graphit_wiki_search`.
-- Read AST source with `graphit_ast_source` and Knowledge source with `graphit_wiki_source`.
-- Read installed Hub `skill`, `rule`, `command`, or `agent` files with `graphit_hub_content`, using
-  `id: "id@version"` and the selected artifact-relative `path` (for a skill, start at `SKILL.md`).
-  Omitting `path` returns every file; use that only when the whole artifact is required.
-- Read Graphit's own core module instructions with `graphit_module_skill`, not
-  `graphit_hub_content`.
+```json
+{"search":{"query":"authentication","mode":"fts","top_k":5,"page_size":5,"rerank":false},"source":{"kind":"imported_knowledge","artifact":{"id":"example/auth-guide","version":"1.2.0"}},"ai_optimized":false}
+```
 
-Install a missing artifact globally by calling `graphit_hub_install` without `project_dir` and with
-an exact `id@version`. Do not silently upgrade it during the task.
+Read a returned slug with `graphit_wiki_source` and that same exact source. The IDs/version here
+are illustrative: select an actually installed and admitted artifact. AST imported reads retain
+their own literal `context` selector as documented by their schema; do not apply one domain's
+selection shape to every tool. Source is original content; search previews only locate evidence.
 
-Pass `ai_optimized: true` where supported. Start with a narrow search; read selected sources before
-making claims and stop when the question is resolved. Reuse resolved IDs, versions and evidence
-across modules instead of repeating discovery. Separate verified behavior from inference or gaps.
+For installed authored content, `graphit_hub_content` uses a nested `installed` request:
 
-## Project-bound operations
+```json
+{"installed":{"artifact_type":"skill","id":"example/review","version":"1.2.0","global":true,"path":"SKILL.md"},"ai_optimized":false}
+```
 
-When the MCP server exposes initialized projects, a cluster result is also a managed Graphit
-target. Discover with the current project's `project_dir`, then use the selected returned `dir`
-as `project_dir` on that neighbor's AST/Knowledge/Memory/Task reads as needed. Read each needed
-target skill with `graphit_module_skill` and that path; respect `enabled` and target overrides.
-Use AST and wiki source tools even if a local filesystem happens to expose the neighbor. Do not
-switch to grep, glob or directory walks because it is outside the working directory. Keep the
-coordinating Task in its owning project and preserve evidence by logical identity/relative paths;
-read access does not itself authorize modifications. This branch requires a real server-resolved
-project and does not apply to artifact-only content.
+Remote content instead uses `remote:{selection,path}`. Exactly one variant is required.
+`id@version` is not a substitute for separate ID/version fields. The framework's own module
+references come from `graphit_module_skill`, not from a guessed Hub artifact.
 
-Do not call tools that require a real project for indexing, synchronization, project Task state, or
-project Memory when the server is artifact-only. User-scoped Memory remains valid because it belongs
-to the server user rather than to an invented checkout. If the requested operation truly needs a
-project, explain that a checkout must be mounted and initialized on the server, then request its real
-server-side path.
+## Work with a real PROJECT only when supplied
+
+Use the admitted project's directory returned by supported discovery, never a reconstructed host
+path. Pass it only as a live `project_dir` argument. Resolve each neighbor independently and read
+its enabled module instructions. No cluster discovery tool is implied merely by historical docs;
+if the endpoint lacks it, record that limitation and request supported discovery from the host.
+Project reads and writes require their own authority, even when content is locally visible.
+
+Task coordination remains with the owning coordinator and existing Session. Use exact Task reads
+for known IDs and focused search only when advertised. Recall Memory facts/lessons or Task evidence
+when a question actually needs them. Missing PROJECT or USER admission remains an explicit gap;
+it is never inferred from an artifact, path, profile name or public catalog entry.
+
+## Output, paging and evidence
+
+Structured tools default to TOON text. Use top-level `ai_optimized:false` for machine consumers
+requiring JSON, not inside `input` or `search`. AST Source and SessionHook preserve original text;
+Knowledge Source wraps the unchanged Markdown string. Continue opaque cursors with unchanged
+selection/query through EOF when a complete traversal is needed. Preserve authorization,
+cancellation, deadlines and explicit errors. Do not retry a timed-out write blindly.
+
+Persist only project-inherent, non-sensitive findings with logical identities, exact versions and
+repository-relative references. Never store credentials, host checkout paths or live mandatory
+memory snapshots in shared artifacts. Separate inspected source, executed behavior and unresolved
+limitations. See the [Root MCP guide](../../../guides/mcp_tools_reference.md) for complete contracts.

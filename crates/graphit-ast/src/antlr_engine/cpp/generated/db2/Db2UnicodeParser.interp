@@ -1,0 +1,37 @@
+token literal names:
+null
+null
+null
+null
+null
+null
+'\'\''
+null
+null
+null
+null
+null
+null
+
+token symbolic names:
+null
+UNICODE_OPEN
+ARGUMENT_OPEN
+ESCAPE_FOUR
+ESCAPE_SIX
+ESCAPE_PAIR
+APOSTROPHE_PAIR
+GLYPH
+BODY_CLOSE
+INVALID_BODY
+ARGUMENT_SCALAR
+ARGUMENT_CLOSE
+INVALID_ARGUMENT
+
+rule names:
+escape_argument
+unicode_literal
+
+
+atn:
+[4, 1, 12, 20, 2, 0, 7, 0, 2, 1, 7, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 5, 1, 12, 8, 1, 10, 1, 12, 1, 15, 9, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 2, 0, 2, 0, 1, 1, 0, 3, 7, 18, 0, 4, 1, 0, 0, 0, 2, 9, 1, 0, 0, 0, 4, 5, 5, 2, 0, 0, 5, 6, 5, 10, 0, 0, 6, 7, 5, 11, 0, 0, 7, 8, 5, 0, 0, 1, 8, 1, 1, 0, 0, 0, 9, 13, 5, 1, 0, 0, 10, 12, 7, 0, 0, 0, 11, 10, 1, 0, 0, 0, 12, 15, 1, 0, 0, 0, 13, 11, 1, 0, 0, 0, 13, 14, 1, 0, 0, 0, 14, 16, 1, 0, 0, 0, 15, 13, 1, 0, 0, 0, 16, 17, 5, 8, 0, 0, 17, 18, 5, 0, 0, 1, 18, 3, 1, 0, 0, 0, 1, 13]

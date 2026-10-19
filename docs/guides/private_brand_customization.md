@@ -1,3 +1,25 @@
+---
+title: Private Branding and Deployment
+updated: 2026-10-30
+references:
+  - target:
+      type: task
+      id: tsk-cab0
+    relation: corrects
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-8d62
+    relation: supports
+  - target:
+      type: task
+      id: tsk-6997
+    relation: supports
+---
+
 # Private Branding and Deployment
 
 Graphit Code can be compiled as a private white-label distribution and connected
@@ -5,49 +27,152 @@ to a Graphit Broker inside your network. This guide separates build-time
 branding from runtime operator configuration and calls out the network boundaries
 that still need protection.
 
+The maintained product builds through Cargo. The compiled brand selects the
+[namespace and path context](#rust-namespace-and-path-context); native packaging
+and model provisioning are separate operations.
+
 ## Build-time branding
 
-The Makefile injects brand fields through Go linker flags. The relevant variables
-are:
+The App build script validates these public build inputs:
 
-| Make variable | Runtime field | Purpose |
-|---|---|---|
-| `BRAND` | `brand.Brand` | Binary/config-directory prefix |
-| `DISPLAY_NAME` | `brand.DisplayName` | Human-readable product name |
-| `GITHUB_REPO` | `brand.GitHubRepo` | Source/update metadata when applicable |
-| `SELF_UPDATE_URL` | `brand.SelfUpdateURL` | Private update source when provided |
+| Environment variable | Purpose |
+|---|---|
+| `GRAPHIT_BUILD_BRAND` | Validated namespace; defaults to `graphit` |
+| `GRAPHIT_BUILD_VERSION` | Printable product version; release builds require an explicit value other than `dev` |
 
 Example:
 
 ```bash
-make build-local \
-  BRAND=acme-code \
-  DISPLAY_NAME="Acme Code Intelligence"
+GRAPHIT_BUILD_BRAND=acme-code make build
+./target/debug/graphit --help
 ```
+
+Cargo and the maintained package retain the executable filenames `graphit` and
+`graphit-model-server`. The compiled namespace does not rename these files or
+restyle the React UI. Display names, repository URLs and private update endpoints
+are not inputs to this build script. Use the actual package layout described in
+[native runtime packaging](../development/native-runtime-packaging.md) and the
+[self-update contract](../specs/rust_self_update.md).
 
 There are deliberately no compiled Hub bucket, region, or endpoint variables. A private client
 contains no storage topology: it learns only a broker endpoint from its named provider. Configure
-object storage in the broker deployment, never in linker flags or client release workflows.
+object storage in the broker deployment, never in build metadata or client release workflows.
 
-Release builds run natively on each platform because the LanceDB search library
-cannot be cross-compiled. The Windows job must call `make build-windows-native` on
-its MSYS2 runner; that target bundles the Windows-native LanceDB, LadybugDB, and
-ONNX Runtime core/shared/CUDA provider libraries. Do not replace it with a Windows cross-build that omits the
-search engine.
+The release workflow builds Rust executables on each platform and packages their
+native assets. Use `make release` with explicit product version metadata and the
+paired Broker source described in the packaging guide. A successful local Linux
+build does not qualify Windows, macOS or a private distribution's deployment.
 
 ## Global directory and environment names
 
 The brand controls the default global directory and environment prefix. A build
-with `BRAND=acme-code` uses `~/.acme-code/` and `ACME_CODE_*` variables. The
+with `GRAPHIT_BUILD_BRAND=acme-code` uses `~/.acme-code/` and the
+environment prefix `ACME_CODE_*`. The
 environment-only `<PREFIX>_GLOBAL_DIR` can relocate that directory before config
 resolution begins.
 
 Global state includes configuration, global rules, local authoritative stores, compiled AST/wiki
 stores, runtime payloads, models, daemon metadata, managed file artifacts, and the bounded Hub cache
 at `~/.<brand>/hub/cache/`. The cache is isolated by Hub and trusted subject, is safe to remove, and
-is neither an ACL authority nor a complete registry mirror. Project-local source,
-`graphit.lock.json`, rule/query overrides, and generated runtime state remain
-separate. See [Storage Layout](../architecture/storage_layout.md).
+is neither an ACL authority nor a complete registry mirror. Checkout-local files
+are sources, identity, configuration and rule/query overrides; module stores,
+caches and logs use the global PROJECT namespace. See
+[Storage Layout](../architecture/storage_layout.md).
+
+## Rust namespace and path context
+
+`Brand`, `InstallationPaths` and `ProjectPaths` are immutable owned contexts,
+`Clone`/`Send`/`Sync`, consumed by the implemented identity, root-discovery,
+version-selector, Gitignore and configuration helpers. They do not read mutable global branding,
+environment or working-directory state themselves. The caller/build supplies
+the brand and captures bootstrap inputs before normal configuration.
+
+`Brand::new` trims and ASCII-lowercases a 1–64 byte key with alphanumeric edges
+and only alphanumeric/hyphens inside. Underscores are rejected to prevent
+collisions with the hyphen-to-underscore environment derivation. Git control
+keys `git`, `gitignore`, `gitattributes` and `gitmodules`, and Windows device
+names, are reserved before filesystem operations.
+
+| Derivation for `acme-code` | Value |
+| --- | --- |
+| Brand directory | `.acme-code` |
+| Environment prefix | `ACME_CODE` |
+| Binary / Windows binary | `acme-code` / `acme-code.exe` |
+| MCP server for `task` | `acme-code-task-mcp` |
+| Skill for `task` | `acme-code-task` |
+
+Environment suffixes and module/tool names are validated by their respective
+derivation APIs. `InstallationPaths::resolve(brand, start, home, global_override)`
+canonicalizes the existing starting directory. A nonblank override wins: an
+absolute path is kept, a relative path is bound once to that captured start.
+Without one, an absolute home is required and the default is `home/.<key>`.
+Blank overrides count as absent; non-Unicode OS paths are rejected explicitly.
+Both the supplied directory and its canonical target must be Unicode. Resolution
+creates no state, has no global-to-project fallback and does not drift after
+the process changes directory.
+
+Derived path components are portable segments of at most 128 bytes: no
+empty/dot/traversal, absolute/prefix, slash/backslash, controls, Windows-invalid
+characters, trailing dot/space or device names. Device exclusions include
+COM/LPT with digits 1–9 or superscript ¹/²/³, including with extensions. Explicit
+root paths keep OS semantics; these segment rules apply to derived components.
+A distribution runtime version is a component distinct from a Git branch.
+
+`ProjectPaths::at(root, &installation)` binds a canonical project root and
+rejects the canonical installation/global root or aliases. `discover` checks
+that guard at its canonical entry before ascending, then applies brand-specific
+nearest identity/Git boundaries and checks the found root too. It creates no state.
+The same context derives `.<key>/project.json` and its adjacent
+`.<key>/.project.json.lock`. `project_runtime(captured_project_id, parts)` derives
+`<global>/projects/<PROJECT_ID>/<parts>` without reading or creating identity.
+Checkouts of the same PROJECT share storage; Lance branches select versions.
+Identity stores consume `&ProjectPaths`; version
+selection consumes the resolved context without repeating filesystem discovery.
+Pins compare canonical checkout root, global root and brand key, isolating
+different installations and brands in one checkout.
+
+See [Storage Layout](../architecture/storage_layout.md#authoritative-local-data)
+for committed identity/configuration and global machine-owned storage.
+
+The historical Linux 90-entry brand/path gate passed, including ten path-context tests, real child
+process directory changes, reserved-name checks, two identities/pins and
+cross-brand locking/real Git. Final Linux gate and Windows GNU locked all-targets
+compilation passed after reserved names, entry guards and the shared-canonical
+refactor. Compilation is not Windows runtime evidence. Runtime
+macOS/Windows and remote CI were not qualified by that library gate. Those
+historical results do not qualify the current product or a private deployment.
+The build inputs above describe the maintained App consumer. Bucket, region and
+endpoint are never client branding. See
+[Rust Migration](../development/rust-migration.md).
+
+### Rust configuration names and captured inputs
+
+The implemented config library consumes the same immutable contexts: global
+config lives at the installation root, project config under `.<key>/config.json`.
+Neither a getter nor a snapshot reads changing environment/CWD state. Bootstrap
+location is resolved before constructing these config layers. Product consumers
+use the captured brand; environment names follow the Rust derivation below.
+
+`ConfigKey` derives environment suffixes with dots replaced by double underscores
+and single underscores unchanged. `acme-code` / `modules.ast` derives
+`ACME_CODE_MODULES__AST`. Keys are canonical, bounded and reject double
+underscores. This gives unique names by key within one brand, but not for every
+brand/key pair: `acme` / `code_modules.ast` derives that same name. Capture takes
+an explicit brand and requested-key list and ignores unrelated variables. The
+namespace is not an authorization boundary. Configuration authentication keys
+and bootstrap aliases are rejected, rather than merged into another brand's
+provider/account authority.
+
+Global config uses `.config.json.lock`. A Project stores identity, root metadata,
+root `githooks` and `settings` together in `.<brand>/project.json`; its writers
+share `.project.json.lock`. Contexts addressing the same physical document use
+the same lock, while runtime/grammar patterns and marker pairs remain brand-specific.
+The current Linux config gate passed 109 entries and Windows GNU locked
+all-targets compilation passed; macOS/Windows runtime and remote CI remain
+unexecuted. See [Config Module](../specs/config_module.md#rust-configuration-contract)
+for scope/secret/type rules and
+[Rust Migration](../development/rust-migration.md)
+for measured costs and remaining consumers.
 
 ## Setting up private collaboration ecosystems
 
@@ -63,21 +188,16 @@ bind the authenticated subject to each request instead; it must not accept these
 payload or project file.
 
 ```bash
-acme-code setup
+graphit setup
 ```
 
-Setup collects installation preferences, ensures the branded default provider `local`, and
-provisions model bundles whose manifest requests the `setup` fetch policy. Create another named
-local or Broker provider with
-`--broker-endpoint`, `--embedding-mode broker`, and `--rerank-mode broker`, then login with the
-Broker browser flow or a local `--broker-key`; login activates that profile. Broker configuration rejects local, direct, disabled,
-or omitted AI service modes; `search.rerank` still controls whether reranking runs. The
-owner-only global auth file stores identity sessions and broker/MCP/direct-AI keys, never AWS
-credentials or bucket configuration. Broker ACL, bucket/IAM policy, endpoint TLS, and network
-segmentation form the remote data boundary. See
-[Broker Storage and UI Network Configuration](s3-and-ui-network.md) and
-[Hub S3 Object Layout](../specs/hub-s3-object-layout.md), and
-[Hub Access Control](../specs/hub_access_control.md).
+Setup captures the native agent and optionally initializes/maintains a PROJECT. It does not
+silently provision a chat account or download every model. Configure named providers/accounts
+through their dedicated commands. A Broker provider accepts Broker or disabled inference modes;
+a Local provider can select its services independently. The private Auth store retains account
+credentials; Broker-issued temporary S3 sessions remain only in process memory. Standalone Local
+profiles may retain their explicitly configured S3 credentials. See [Authentication](authentication.md)
+and [S3](s3-and-ui-network.md) for exact boundaries.
 
 ### Storage isolation
 
@@ -86,60 +206,44 @@ organizations and projects dynamically without updating or re-logging client pro
 
 ## UI network hardening
 
-The unified UI binds to `127.0.0.1` by default and selects a free port. Browser CORS
-remains limited to localhost until `ui.allowed_origins` is explicitly configured.
-Set `ui.auth.enabled=true` for Broker browser login and protected UI data APIs.
-CORS alone does not stop scripts or direct network clients.
+The shared Source/UI listener uses `mcp.host` and `mcp.port` (loopback and ephemeral port by
+default). The current Browser requires trusted Global `task.browser` with Broker providers and
+PROJECT authorization endpoint. It uses opaque session cookies and server-memory credentials;
+`ui.auth.enabled`, `ui.host` and `ui.auth.public_url` are not current runtime controls.
 
-For a workstation-only private build:
-
-```bash
-acme-code config --global ui.host 127.0.0.1
+```sh
+graphit config --global set mcp.host 127.0.0.1
+graphit config --global set mcp.port 0
 ```
 
-For a shared deployment, publish it through a TLS reverse proxy and set its canonical origin:
-
-```bash
-acme-code config --global ui.host 0.0.0.0
-acme-code config --global ui.allowed_origins https://code.acme.internal
-acme-code config --global ui.auth.enabled true
-acme-code config --global ui.auth.public_url https://code.acme.internal
-```
-
-Configure firewall rules, request limits and TLS at the proxy or platform boundary.
-The Broker must enable dynamic client registration for browser login.
+For an explicitly exposed service, configure the intended listener, HTTPS reverse proxy and exact
+`task.browser.public_origin` with the real Broker/PROJECT endpoint. Do not infer origin from
+forwarding headers or replace current PROJECT authorization with CORS. Native Broker browser
+registration/login must be configured independently. See [Browser authentication](authentication.md#web-ui-login),
+[all fields/defaults](../reference/configuration-keys.md#browser-object) and [container deployment](container.md).
 
 ## Private model and API policy
 
 The local embedding engine does not require an LLM API key. Cloud storage credentials remain in
 the broker and are distinct from direct model-provider API keys. A private distribution can keep
-embeddings local only when it configures no broker; a broker-configured provider must route both
-embedding and rerank through that broker. Prompt-completion integrations remain independent and
+embeddings local under a Local provider; an active Broker provider routes each enabled
+embedding/rerank service exclusively through Broker or explicitly disables it. Prompt-completion integrations remain independent and
 may be disabled, proxied, or explicitly configured.
 
 ## Air-gapped deployments
 
-The launcher embeds runtime binaries, platform ONNX providers, and query YAMLs, but model bundles
-are separate. For an offline image, install a manifest and all of its required artifacts in the
-branded global directory. For the built-in embedding default that is:
+The Rust package contains `graphit`, `graphit-model-server` and
+`graphit-runtime`; model artifacts are provisioned separately. Install the
+selected model's complete files and runtime configuration before using an
+offline image. Local GGUF slots require the matching verified llama.cpp runtime;
+the default EmbeddingGemma2 GGUF backend uses its own runtime. Follow
+[AI models and providers](ai_models.md) for the actual model selection and
+[native runtime packaging](../development/native-runtime-packaging.md) for
+library provenance and package contents. Also provide:
 
-```text
-~/.<brand>/models/coderankembed/model.onnx
-~/.<brand>/models/coderankembed/tokenizer.json
-```
-
-Custom bundles live at `~/.<brand>/models/<id>/manifest.json`. Use `fetch_policy: "never"` for a
-strictly offline bundle; a custom manifest may instead provide HTTPS source URLs plus SHA-256
-digests when controlled downloading is allowed. Select it with `models.embedding.id` or
-`models.rerank.id`. The manifest is hardware-neutral; select CPU/CUDA/CoreML through the `device`
-and `device_id` flags for each local service when adding/updating a provider. With no active
-profile, the persisted provider `local` uses `cpu`/`0` and is recreated if absent. The first client validates the
-complete bundle and skips the network when every artifact is present. Also provide:
-
-- the application/launcher artifacts for every target platform;
+- the complete Rust product package for every target platform;
 - any required native libraries and grammar packages;
 - an internal Broker with STS-capable S3 storage, direct provider S3 configuration, or no S3 for local-only operation;
-- an internal update source if self-update is enabled; and
 - firewall/DNS rules that prevent unintended egress.
 
 Validate the branded binary in a clean environment before release: run setup,

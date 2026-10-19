@@ -1,0 +1,104 @@
+language: python
+grammar: tree-sitter-python
+extensions: [".py"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_definition name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement name: (dotted_name) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_from_statement module_name: (dotted_name) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (identifier) @name)'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (identifier) @name right: [(integer) (float) (true) (false) (none) (string) (concatenated_string)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (default_parameter name: (identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (typed_parameter (identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (typed_default_parameter name: (identifier) @name))'
+
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(decorator (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call function: (attribute attribute: (identifier) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(class_definition superclasses: (argument_list (identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(attribute attribute: (identifier) @name)'
+  - data_key: field_writes
+    type: relation
+    relation_type: WRITES_FIELD
+    pattern: '(assignment left: (attribute attribute: (identifier) @name))'
+
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+self_keywords: ["self."]
+
+context_types:
+  class_definition: Class
+  function_definition: Function
+
+anon_func_types:
+  - lambda
+
+declaration_types:
+  - function_definition
+  - class_definition
+  - decorated_definition
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - elif_clause
+    - for_statement
+    - while_statement
+    - except_clause
+    - boolean_operator
+    - conditional_expression
+
+embed_labels:
+  - Class
+  - Function
+  - Variable
+  - Comment

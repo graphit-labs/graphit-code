@@ -50,10 +50,16 @@ deployment and operations guides for the server-side procedure.
 
 ## Choose the service mode
 
-Providers without broker configuration may select embedding and rerank modes independently. A
-provider with broker configuration is an exclusive AI-routing boundary: both embedding and rerank
-modes must be `broker`. Provider validation rejects omitted, `local`, `direct`, or `disabled` modes
-for either service while a broker is configured.
+Local providers select embedding and rerank independently, including when they
+carry an optional Broker endpoint for static-key services. A provider with
+`--type broker` defaults both services to `broker` and accepts only `broker` or
+explicit `disabled`; `local` and `direct` are rejected on creation, update and
+stored-document reads. Enabled services use only the authenticated Broker's
+advertised endpoints. Discovery, authentication and service errors remain explicit,
+with no Local/Direct fallback or local model preparation, download or loading.
+
+Rerank is a separate opt-in stage. `search.rerank` defaults to `false`; while it is
+disabled, Graphit does not discover the rerank endpoint or perform rerank inference.
 
 | Mode | Where model/endpoint is selected | Where secret lives |
 |---|---|---|
@@ -106,8 +112,8 @@ advertised path.
 Broker provider setup rejects static credentials, anonymous mode, direct upstream OIDC flags and
 token exchange. The same Broker-issued access token is used for broker requests. A Graphit daemon
 using this provider validates inbound Bearer JWTs locally through the Broker's discovered
-issuer, the endpoint's configured resource audience and JWKS, then checks that token with the Broker's userinfo endpoint before binding its
-identity to request context. A remote MCP client therefore needs only its Broker access token:
+issuer, the endpoint's exact resource audience, trusted JWKS and complete token claims before binding
+identity to request context. UserInfo is not required for request validity or revocation. A remote MCP client therefore needs only its Broker access token:
 Graphit uses that caller's token to request temporary STS credentials when it accesses a project or
 Hub scope. Those S3 credentials remain in the daemon's process memory, isolated by caller and
 scope; they are never sent to the MCP client or saved in the login profile.
@@ -140,16 +146,13 @@ upstream IdP `sub`. Graphit verifies the signed ID and access JWTs at login and 
 JWTs locally through standard discovery/JWKS for HTTP MCP. Near expiry, it re-discovers the Broker,
 uses the ordinary OIDC refresh grant, requires a new rotated refresh token, and atomically replaces
 the saved `OIDCSession`. Reuse of an older refresh token is rejected by the Broker and revokes that
-token family. The daemon also checks userinfo for each inbound MCP access token, so a revoked token
-is rejected even before its JWT expiry. Web UI sessions use encrypted browser cookies and are accepted
-locally without a per-request UserInfo call; see [Authentication](authentication.md).
-
-Explicit revocation follows the same path. Revoking a refresh token at the Broker ends the whole
-grant — that token, every access token minted from it, and any further renewal. An MCP client
-holding one of those access tokens is refused on its next request because Code checks UserInfo.
-Code-local UI APIs may still accept a copied cookie until local expiry; Broker APIs reject its bearer.
-Revoking an access token ends only that token and leaves its refresh token working. Revoke the refresh
-token when someone's access has to stop.
+token family. Code verifies access JWTs locally with trusted cached discovery/JWKS and full claim checks;
+UserInfo is optional profile enrichment, not a per-request revocation oracle. Refresh/session
+revocation and account/claim changes can take until access-token expiry to reach a JWT consumer.
+The Broker's configured access lifetime controls that window; do not invent a Code TTL or blacklist.
+Current PROJECT/operation authorization is still separate. Browser opaque handles reference
+server-owned credentials; logout invalidates that Browser session immediately, while a copied
+bearer at another API follows its JWT/authorization contract. See [Authentication](authentication.md).
 
 ## Local provider with a broker key
 
@@ -208,7 +211,7 @@ are a deliberate product requirement.
 
 ## HTTP MCP bearer propagation
 
-A remote Streamable HTTP MCP client sends a Broker-issued access JWT as `Authorization: Bearer ...`. Graphit verifies its signature through the Broker JWKS, exact issuer, expiration, access-token use and the exact canonical MCP resource in `aud`. It then calls Broker UserInfo with that same bearer to confirm the token is still valid and its `sub` matches. The Broker API audience alone does not authorize access to MCP. The accepted resource is configured with `--mcp-resource` and must be advertised by the Broker.
+A remote Streamable HTTP MCP client sends a Broker-issued access JWT as `Authorization: Bearer ...`. Graphit verifies its signature through the Broker JWKS, exact issuer, expiration, access-token use and the exact canonical MCP resource in `aud`. It validates trusted cached discovery/JWKS and the remaining temporal, client/resource and subject bindings locally; UserInfo is optional profile enrichment. Revocation and account/claim changes can remain unseen until access-token expiration. The Broker API audience alone does not authorize access to MCP. The accepted resource is configured with `--mcp-resource` and must be advertised by the Broker.
 
 Every broker call made by that MCP request uses the verified caller's bearer and identity. Concurrent callers remain isolated; the daemon's own login token cannot replace an inbound token. The Broker evaluates current SQL grants independently. The inbound client owns renewal of its token, while the daemon refreshes only its own login profile. Local stdio MCP uses the daemon's local runtime credential.
 
@@ -216,33 +219,30 @@ The Broker's access JWT format is documented by the Broker and includes `token_u
 
 ## Direct providers
 
-On a provider without broker configuration, direct mode preserves the option to let the end user
-supply an AI key at login:
+On a Local provider, Direct inference uses the account's explicit remote API keys.
+The [AI guide](ai_models.md#embedding-modes) gives a complete embedding example with
+full endpoint, model revision, recipe and dimensions. Native Direct rerank uses
+Cohere/Voyage/Jina protocols and the corresponding zero-dimensional scorer declaration:
 
-```bash
-graphit provider add direct-openai --type local \
-  --embedding-mode direct \
-  --embedding-protocol openai \
-  --embedding-endpoint https://api.openai.com/v1 \
-  --embedding-model text-embedding-3-small \
-  --embedding-dimensions 1536 \
-  --rerank-mode direct \
-  --rerank-protocol openai \
-  --rerank-endpoint https://api.openai.com/v1 \
-  --rerank-model text-embedding-3-small \
-  --rerank-dimensions 1536
-
-graphit login --provider direct-openai --profile alice-direct \
-  --username alice \
-  --embedding-api-key "$OPENAI_API_KEY" \
-  --rerank-api-key "$OPENAI_API_KEY"
+```sh
+graphit provider add direct-ai --type local \
+  --embedding-mode direct --embedding-protocol openai-compatible \
+  --embedding-endpoint https://embedding.example/v1/embeddings \
+  --embedding-model deployment-embedding --embedding-model-revision revision-1 \
+  --embedding-recipe retrieval-v1 --embedding-dimensions 768 \
+  --rerank-mode direct --rerank-protocol cohere-v2 \
+  --rerank-endpoint https://rerank.example/v2/rerank \
+  --rerank-model deployment-rerank --rerank-model-revision revision-1 \
+  --rerank-recipe native-logit-v1 --rerank-dimensions 0
+graphit login --provider direct-ai --profile direct-ai --username operator \
+  --embedding-api-key "$EMBEDDING_API_KEY" --rerank-api-key "$RERANK_API_KEY"
 ```
 
-Supported direct embedding protocols are OpenAI/OpenAI-compatible, Cohere, Voyage and Google
-(Gemini API). Direct rerank uses native Cohere, Voyage and Jina endpoints, or simulates rerank for
-OpenAI/OpenAI-compatible and Google by comparing query/document embeddings with cosine similarity.
-Embedding-simulated rerank requires `--rerank-dimensions`; native rerank rejects it. Direct
-endpoint/model/dimensions are topology in the provider; API keys are account secrets in the profile.
+Use real deployment identities and complete request URLs. The active Broker provider
+cannot choose Local or Direct services. Native AST/Knowledge rerank does not implicitly
+simulate a reranker with embedding cosine similarity. Provider validation accepts
+only native Cohere/v2, Voyage/v1 and Jina/v1 rerank protocols with zero dimensions.
+Rerank remains off unless `search.rerank` or an explicit request enables it.
 
 ## Project-scoped STS storage
 
@@ -260,6 +260,10 @@ The module follows the physical object directory, not the artifact type. Project
 `artifacts/`, and `events/` select `hub`; consequently `artifacts/knowledge/` and
 `artifacts/ast/` also use `hub`. User `memory/` selects user/memory, while global `registry/` and
 `global/rules/` select hub/hub. Unknown or ambiguous project paths fail closed.
+
+Native Task and Memory access checks the saved Code-profile access token on demand. If it requires renewal, the daemon uses its own Runtime administrative authority and the existing native profile manager to perform one rotating OAuth refresh under the originating request's cancellation and deadline. Concurrent callers share that renewal and then capture fresh service authority. Provider revision, profile, issuer and subject must still match; a concurrent account/provider change is an error. Native USER Memory prepares renewal before authenticating its USER identity. Device profiles require a new login at expiry; incoming HTTP and Web callers retain responsibility for their own tokens.
+
+A failed or dropped refresh that may have rotated its remote token is retained only for that exact profile/token revision, preventing replay. A fresh login or independently published valid token is usable normally. No background polling or local-storage fallback is added. Valid discovery with S3 disabled still selects the ordinary local record store after Native credential validation and any required renewal.
 
 When S3 is disabled, valid discovery omits `s3_credentials`. Login and OIDC token renewal continue,
 the profile stores no S3 grant, and Tasks, Memory, Knowledge and AST use their normal filesystem
@@ -305,12 +309,14 @@ advertising v2 or any other protocol fails closed. There is no fallback, dual st
 or alias. The `v2/...` S3 key namespace remains unchanged because it versions the storage layout,
 not the credential protocol.
 
-With Broker S3 enabled, Tasks and Memory use remote LanceDB tables; Hub Knowledge and AST FTS mount
-remote LanceDB; Hub Icebug uses LadybugDB against remote Parquet. Local Knowledge/AST FTS retain
-their shallow-clone base in S3 with a filesystem overlay, while local Icebug stays entirely local.
-Publication and export use the renewable session for their project scope. Without Broker S3, these
-stores and local
-artifacts stay on the filesystem and remote Hub publication is unavailable.
+When discovery selects remote Records, Tasks and Memory open their authoritative Lance tables
+directly in the authorized S3 scope/module and native version branch. They do not maintain a
+parallel local mirror. Installed Hub Knowledge and AST searchable corpora open their selected
+remote snapshots; Hub Icebug reads remote Parquet through in-memory Ladybug. Maintained PROJECT
+AST/Knowledge remain their own producer corpora, not a shallow-clone overlay of a Hub artifact.
+Publication/export capture the admitted source and use the renewable authorized storage session.
+Explicit storage-disabled discovery follows the local contract; authentication, STS or S3 errors
+never silently switch a write to local storage. See [S3 and UI](s3-and-ui-network.md).
 
 ## Embedding compatibility
 
@@ -318,12 +324,11 @@ Broker discovery publishes revision and dimensions. Graphit includes the broker 
 revision and dimensions in the Lance artifact fingerprint and validates revision/dimensions again
 on every embedding response. Embedding and rerank requests do not include `model` or `route`;
 each service uses its single broker-configured upstream. Embedding responses do not include `model`.
-Change the broker revision whenever the effective vector space changes, then rebuild:
-
-```bash
-graphit ast embed
-graphit wiki embed
-```
+Change the broker revision whenever the effective vector space changes. Existing vectors then
+become ineligible; the normal background indexing pass computes compatible replacements while
+retaining immediate text/graph access. Do not recreate stores or erase authored records. This
+CLI does not expose `ast embed` or `wiki embed`; `graphit sync` reconciles installed artifacts,
+not semantic coverage. Check [indexing](indexing.md) and the actual advertised maintenance catalog.
 
 Graphit refuses to silently reuse an incompatible index. A model swap behind an unchanged revision
 is an operator error because no client can detect semantic incompatibility from equal dimensions
@@ -334,7 +339,7 @@ alone.
 Selecting a provider backend does not add query cost by itself. Enable the second stage separately:
 
 ```bash
-graphit config --global search.rerank true
+graphit config --global set search.rerank true
 ```
 
 AST and Knowledge keyword/hybrid searches widen retrieval and call the configured reranker with
@@ -372,9 +377,9 @@ dependent profiles to log in again.
 | dynamic registration returns 404 | The Broker has `dynamic_registration` disabled, so `/.well-known/openid-configuration` omits `registration_endpoint`. Enable it, or register the client by hand and configure the agent with that `client_id`. |
 | dynamic registration returns `invalid_client_metadata` | The request asked for something a registered client may not have. Registration requires `token_endpoint_auth_method: none`, grants within `authorization_code`/`refresh_token`, `response_types: ["code"]`, and scopes the Broker already supports. Each redirect URI must be absolute, with no fragment or embedded credentials, and either `https` on a non-loopback host or plain `http` on loopback — `https` on a loopback host is refused, as is `http` anywhere else. |
 | authorization returns `invalid_target` | The `resource` indicator is not in the Broker's `mcp_resources`, is relative, carries a fragment, or more than one was sent. It must be the exact canonical identifier from the protected resource metadata document. |
-| MCP rejects a token the Broker just issued | Require this deployment's exact canonical MCP resource in `aud`; a token with only the Broker API audience is insufficient. Also check JWT signature/claims and the Broker UserInfo response. |
+| MCP rejects a token the Broker just issued | Require this deployment's exact canonical MCP resource in `aud`; a token with only the Broker API audience is insufficient. Also check trusted JWT signature/algorithm, issuer, token use, temporal claims and client/resource binding. |
 | MCP rejects a token that worked a moment ago | The Broker's `access_ttl` is short, 10 minutes by default. Refresh instead of reusing, and check clock sync between the Broker and the daemon. |
-| browser MCP client blocked by CORS | Declare the agent's origin in `mcp.allowed_origins` (`GRAPHIT_MCP_ALLOWED_ORIGINS`), empty by default. The metadata document itself is readable by any origin; the configured policy applies to the MCP endpoint. |
+| browser MCP client blocked by cross-origin policy | The current Rust listener does not consume `mcp.allowed_origins` or `GRAPHIT_MCP_ALLOWED_ORIGINS`. Use an explicitly configured trusted deployment gateway for cross-origin MCP, and retain authenticated resource/origin checks; Browser APIs use their configured exact `task.browser` origin. A retained custom key alone does not configure CORS. |
 | 403 | Token is valid; inspect broker ACL principal/project/operation. |
 | MCP works but broker returns 401 | Confirm the access JWT also carries the Broker API audience and has not been revoked. |
 | broker Hub access is unavailable | Restore the broker; `projects.json` is intentionally not a fallback for this provider. |

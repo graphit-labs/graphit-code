@@ -1,0 +1,1 @@
+If module routing was not injected, use `{{ mcp_tool_mandates }}` once when available. Read matching installed skills first; fetch a missing skill with `{{ mcp_tool_module_skill }}`. Project instructions remain authoritative.

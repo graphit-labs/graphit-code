@@ -1,93 +1,88 @@
-# Publishing Graphit artifacts from GitHub Actions
+# Publish native artifacts from CI
 
-Artifact publishing in CI requires an S3-enabled
-[Graphit Broker](https://github.com/graphit-labs/graphit-broker) and a remote embedding service. The
-runner must never receive S3 keys or topology. Setup owns runtime preferences, ensures
-the default `local` provider, and provisions models whose manifest selects `fetch_policy: setup`;
-provider configuration owns custom AI routing and local ONNX execution settings, and login happens
-in an ephemeral global directory.
+This guide publishes an already maintained PROJECT's current native AST/Knowledge snapshots.
+Publication is explicit; `graphit sync` does not index, wait for full coverage, clone an ancestor
+or publish a Hub release. Current commands are `hub publish-native`, not `hub submit`.
 
-Create these GitHub secrets/variables:
+## Prerequisites and identity
 
-- `GRAPHIT_BROKER_URL` and, when using a static service identity, `GRAPHIT_BROKER_KEY`;
-- `GRAPHIT_AST_ARTIFACT_ID` and `GRAPHIT_KNOWLEDGE_ARTIFACT_ID` for the two stable Hub IDs;
-- either an existing non-interactive OIDC access/ID/refresh token set, or a workflow step that
-  obtains them for the broker audience;
-- a broker deployment that advertises the required embedding service; the runner never receives a
-  direct embedding or rerank provider key.
+Install the intended complete Graphit release/package and its paired native assets. The producer
+checkout must retain its actual `.graphit/project.json` and selected version, and its daemon must
+have published the data you intend to share. Native export/publication captures a coherent snapshot;
+it is not a universal signal that every source or embedding job finished. Decide whether the
+release represents progressive coverage or requires a separately verified complete snapshot.
 
-Static broker-key example:
+For Broker-managed S3, use a valid Broker account/profile with current producer PROJECT permission,
+Hub publication rights and storage discovery. The Broker issues restricted STSv3 credentials in
+memory; data uploads directly to S3. A Local provider's static Broker AI key does **not** magically
+give that provider Broker-managed S3 storage: standalone Local storage needs its own authorized
+configuration. Do not distribute permanent Broker S3 keys to runners.
 
-```yaml
-- name: Configure Graphit runtime
-  env:
-    GRAPHIT_GLOBAL_DIR: ${{ runner.temp }}/graphit-global
-  run: |
-    graphit --non-interactive setup \
-      --anonymize-events=false --agent=codex --cli=codex
+The current CLI has native browser/device login and rotating `refresh`; it does not have a generic
+`--access-token`/ID-token importer or a client-credentials grant for a fresh headless runner.
+`--non-interactive login` still requires completing the actual public authorization flow. Do not
+invent unattended login by writing Auth JSON or storing a copied global directory in Git/artifacts.
+Use an appropriately protected maintained runner/service with an existing admitted identity, or
+implement a separately authorized workload-auth integration before promising ephemeral unattended
+Broker publication. [Authentication](authentication.md) defines the supported flows.
 
-- name: Configure broker provider and login
-  env:
-    GRAPHIT_GLOBAL_DIR: ${{ runner.temp }}/graphit-global
-    BROKER_URL: ${{ vars.GRAPHIT_BROKER_URL }}
-    BROKER_KEY: ${{ secrets.GRAPHIT_BROKER_KEY }}
-  run: |
-    graphit --non-interactive provider add ci --type local \
-      --broker-endpoint "$BROKER_URL" \
-      --embedding-mode broker \
-      --rerank-mode broker
-    graphit --non-interactive login \
-      --profile publisher --provider ci \
-      --username ci-publisher --team release-engineering \
-      --broker-key "$BROKER_KEY"
-```
+## Example: prepared self-hosted publisher
 
-Both broker modes are required by provider validation. Reranking is still inactive by default
-because `search.rerank=false`, so declaring the broker rerank backend does not add a CI request.
-
-Discovery must advertise both the broker embedding capability and `graphit-s3-credentials-v3`
-before publishing. Graphit requests a short-lived STS session for the publishing project whose
-policy is derived from the current principal's grants, then uploads directly to S3. The Broker owns bucket, region, endpoint,
-prefix, role and its permanent AWS identity; the runner receives only the temporary session.
-
-For a repository that already commits `graphit.lock.json`, use the following job steps with the local-provider login sequence above. These are composable steps, not a standalone workflow: install a Graphit
-binary built from the intended source revision before runtime setup, and provide a working broker
-identity. Run this job on a branch push at the committed `HEAD`. Full Git history lets sync choose
-the nearest published ancestor. `graphit sync` hydrates that base and builds the local AST and
-Knowledge overlay; it does **not** publish. The two `hub submit` calls publish the current Git
-commit to the branch, applying changed LanceDB rows and changed non-Lance objects only.
+The following is a template for a protected runner whose private installation/provider/profile
+and maintained source snapshot are already configured. Values are project variables; credentials
+are not echoed or written by these steps. Select actual IDs, provider and artifact versions.
 
 ```yaml
-- uses: actions/checkout@v4
-  with:
-    fetch-depth: 0
-
-# Insert the runtime setup and the local-provider login sequence shown above here.
-
-- name: Index and publish the branch commit
-  env:
-    GRAPHIT_GLOBAL_DIR: ${{ runner.temp }}/graphit-global
-    GRAPHIT_GIT_BASE_BRANCH: ${{ github.ref_name }}
-    AST_ID: ${{ vars.GRAPHIT_AST_ARTIFACT_ID }}
-    KNOWLEDGE_ID: ${{ vars.GRAPHIT_KNOWLEDGE_ARTIFACT_ID }}
-  run: |
-    test "${GITHUB_REF_TYPE}" = branch
-    test -f graphit.lock.json
-    test -n "$AST_ID" && test -n "$KNOWLEDGE_ID"
-    graphit sync --no-background
-    test -z "$(git status --porcelain)"
-    graphit hub submit "$AST_ID" . --type ast --version "branch/$GRAPHIT_GIT_BASE_BRANCH"
-    graphit hub submit "$KNOWLEDGE_ID" . --type knowledge --version "branch/$GRAPHIT_GIT_BASE_BRANCH"
+name: Publish prepared Graphit context
+on: workflow_dispatch
+jobs:
+  publish:
+    runs-on: self-hosted
+    env:
+      GRAPHIT_GLOBAL_DIR: ${{ vars.GRAPHIT_PUBLISHER_GLOBAL_DIR }}
+      HUB_PROVIDER: ${{ vars.GRAPHIT_HUB_PROVIDER }}
+      AST_ID: ${{ vars.GRAPHIT_AST_ARTIFACT_ID }}
+      KNOWLEDGE_ID: ${{ vars.GRAPHIT_KNOWLEDGE_ARTIFACT_ID }}
+      ARTIFACT_VERSION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the prepared runtime
+        run: |
+          test -n "$GRAPHIT_GLOBAL_DIR"
+          test -f .graphit/project.json
+          graphit daemon status
+          graphit ast schema
+          graphit knowledge search configuration --mode fts --rerank=false
+      - name: Publish the selected native snapshots
+        run: |
+          graphit --non-interactive hub publish-native --kind ast \
+            --provider "$HUB_PROVIDER" --project-dir . \
+            --id "$AST_ID" --version "$ARTIFACT_VERSION" --name 'Project code'
+          graphit --non-interactive hub publish-native --kind knowledge \
+            --provider "$HUB_PROVIDER" --project-dir . \
+            --id "$KNOWLEDGE_ID" --version "$ARTIFACT_VERSION" --name 'Project documentation'
 ```
 
-The checkout must remain clean after indexing; commit intended source and lockfile changes before
-running CI. Git-backed AST and Knowledge branch publication records the commit in Hub history
-without modifying the project lockfile, so both artifacts can publish from the same commit. The
-diff is logical: an unchanged LanceDB row or file is not rewritten, but a changed non-Lance file
-is uploaded as a whole object and LanceDB may rewrite affected fragments. Repeating the same
-commit with no changes adds no LanceDB table version. A web MCP client can use `graphit_hub_submit`
-with the same `branch/<name>` version if the project and indexed artifact paths exist on the MCP
-server host; a remote client cannot upload its own local path through this tool.
+Readiness above proves a readable publication, **not complete source/semantic coverage**. The
+prepared-runner prerequisite includes current checkout selection and the desired coverage; do not
+publish a different checkout's stale snapshot under this SHA. `projects maintain-checkout` updates
+selection, but its acknowledgement alone does not wait for all indexing. Gate the intended producer
+state before this template where full coverage is required.
 
-Disable unused background modules for an ephemeral publisher. Never cache or upload the runner's
-global auth directory, and never log tokens, broker keys, or temporary S3 credentials. Broker-issued temporary S3 credentials live only in runner memory and are reacquired after a new process starts.
+AST and Knowledge publications are independent. The first can succeed if the second fails; inspect
+actual outcomes before retry. A lost response is not proof of rollback. Artifact version is the
+literal version supplied here, separate from project branch/version and SCIP compatibility alias.
+Use the existing Hub conflict/replacement rules rather than an invented idempotent-overwrite promise.
+
+## Models, scopes and data handling
+
+FTS/native text/graph publication need no completion model or rerank. If semantic vectors are
+required, configure the actual embedding service and wait for the intended compatible coverage.
+A Broker provider routes enabled embedding/rerank only through Broker; rerank stays opt-in and is
+not required for export. Remote inference requires no local GGUF/ONNX model download.
+
+Never upload or cache `auth.json`, private runtime keys, credentials, cookies or the installation's
+whole global directory as a build artifact. Native packages contain their admitted snapshots and
+public artifact metadata. [Package formats](../development/native-packages.md),
+[Hub lifecycle](../specs/hub_collaboration.md) and [S3](s3-and-ui-network.md) define integrity,
+authorization and actual storage boundaries. A configured workflow is not a remote execution PASS.

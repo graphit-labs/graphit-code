@@ -1,370 +1,197 @@
-# User Manual
+# User manual
 
-Graphit is the context and control plane around coding agents. It keeps structural code, maintained
-knowledge, persistent memory, deterministic work state, and reusable ecosystem artifacts distinct,
-then exposes them through CLI commands, MCP tools, native agent hooks, and the Graphit Observatory.
+Graphit connects code, documentation, durable Memory, shared Tasks and reusable agent artifacts.
+Use this manual after [getting started](getting_started.md). Choose your goal below rather than
+learning internal stores first. [Capabilities](capability_matrix.md) distinguishes CLI, MCP and
+Browser; [configuration](configuration.md) explains exact defaults and opt-ins.
 
-## Mental model
+## Establish the project context
 
-| Module | Source of truth | Best question |
-|---|---|---|
-| AST | Indexed project source | “What calls this?”, “What imports that?”, “What would this change affect?” |
-| Knowledge | Maintained project documentation | “How is this feature intended to work?”, “What decision explains it?” |
-| Memory | Structured project or user records | “What did we learn or correct before?” |
-| Task | Authoritative project work tables | “Who owns this?”, “What blocks it?”, “What evidence makes it complete?” |
-| Hub | Published reusable artifacts | “Does the ecosystem already provide this rule, skill, language, AST, or documentation?” |
-| Live Search | A temporary agent workspace assembled for a question | “What answer needs evidence from several selected artifacts?” |
+Open the Browser with `graphit ui` (or print its URL with `graphit ui --no-open`). Sign in through
+the configured Broker, then select Project, version and Agent in the shared header. Project shows
+the authorized name; IDs remain the durable identity and disambiguate equal names. A Hub target
+is a remote artifact/project, not a fabricated local checkout. Loading/absent/denied selections
+are not permission to silently choose a different project.
 
-Use the narrowest source that can answer the question. Full-text or semantic search finds
-candidates; a graph traversal settles structural relationships; a source or wiki read supplies the
-actual content; Task controls project mutation and completion.
+The Browser reads the same domain services as other clients. A selected URL/ID is not access.
+A valid JWT does not grant PROJECT permission. Local CLI and Browser identities may differ; check
+the intended profile and provider before interpreting a result.
 
-## Teams, agents, and software ecosystems
+## Inspect code
 
-Graphit separates identity and sharing so one workflow can scale without merging unrelated state:
+1. Use AST search to find candidate names/paths. Choose FTS for literal terms or semantic/hybrid
+   when the configured embedding service is appropriate.
+2. Read the selected Source or entity; do not infer callers from similar text.
+3. For relationships, inspect the schema, anchor an exact entity and query typed edges with
+   distinct reached results. The relationship map is a separate bounded visualization.
+4. Keep source identity/fingerprint and current project/version in the result. A concurrent edit
+   may require a new read rather than reuse of stale coordinates.
 
-| Boundary | Graphit behavior |
-|---|---|
-| Several agents in one project | One Task queue, atomic ownership, fenced mutations, explicit dependencies, and resumable checkpoints. |
-| One person across projects | Authenticated user memory follows the Hub user; anonymous memory is machine-local. Project memory remains isolated by project ULID. |
-| Several repositories on one machine | The ecosystem registry resolves each sibling's own AST and wiki instead of copying its checkout. |
-| Several machines or teammates | S3-backed providers share Hub artifacts and authoritative Memory/Task LanceDB tables; an S3-enabled Broker issues restricted temporary sessions. |
-| Several coding assistants | Each adapter writes its native project-local MCP and lifecycle-hook format; the MCP server remains the shared capability surface. |
-| Several external systems | Hub contexts are addressed by artifact ID and version, then queried in place through the same AST or Wiki contracts. |
-
-This is deterministic coordination around nondeterministic models. Graphit never promises that two
-models will produce the same patch; it guarantees that claims, revisions, dependencies, evidence,
-and completion transitions follow the same rules.
-
-## Project lifecycle
-
-### Register and configure
-
-Run from the repository root:
-
-```bash
-graphit init --agent codex
+```sh
+graphit ast search 'checkout' --mode fts --rerank=false
+graphit ast source Cargo.toml --head 20 --line-numbers
+graphit ast schema
+graphit ast query --help
 ```
 
-Initialization registers the project, records the selected adapter, and installs managed instructions and MCP configuration. Re-run it when changing adapters or refreshing generated integration files.
+AST uses SCIP by default, specialized Docker indexers and generic Tree-sitter/ANTLR fallback.
+Custom images map file extensions through CSV configuration. [Parser extensibility](ast_extensibility.md)
+explains how to build an image and produce valid SCIP. Known Source paths can fall back to the
+authorized selected checkout even for unsupported extensions; no Git command is required.
 
-### Build a verified snapshot
+## Read and maintain Knowledge
 
-```bash
-graphit sync
+Maintain source documents under the configured documentation root (`docs` by default); README
+inclusion is on by default. `.wikiignore`, extensions and profile/format choices define selection.
+The daemon compiles changed files progressively. Source metadata, references and text become
+queryable before all embeddings finish. Indexing is not a generated Markdown rewrite of your
+source files.
+
+```sh
+graphit knowledge search 'configuration' --mode fts --rerank=false
+graphit knowledge source '<returned-slug>' --head 40
+graphit knowledge log --help
 ```
 
-Sync coordinates the active project indexes and shared registry state. Use it for the first build, after bulk changes that occurred while the daemon was unavailable, and before a decision that requires a verified current snapshot.
+Use an exact slug from search. Source supports line/pattern slices; the slug is not a filesystem
+path. Explicit typed frontmatter references create cross-module relationships, while normal wiki
+links keep their own document-link meaning. Keep broken links/invalid metadata visible and fix
+the authored source instead of editing the generated store.
 
-### Keep indexes current
+Ask is optional agent synthesis over selected pages or retrieval:
 
-```bash
-graphit daemon
+```sh
+graphit knowledge ask --query 'How is configuration resolved?' \
+  --retrieval fts --top-k 5 --model '<model-supported-by-your-agent>'
 ```
 
-The daemon watches registered projects and schedules incremental AST and wiki work. It also owns
-shared local or remote embeddings, memory maintenance, the authenticated MCP HTTP endpoint, and
-optional Dream and Observatory services. It starts automatically before ordinary CLI/MCP work
-unless `modules.daemon=false`; an OS scheduler can keep it alive independently. See
-[Daemon Operations and Monitoring](daemon_operations.md) for every start path, watched signal,
-module loop, runtime file, and recovery behavior.
+The completion CLI owns its model account and must be available for actual use. Retrieval/model
+or native-session errors are explicit; Graphit does not silently switch CLIs. Conversation/Live
+have their own state and cancellation rules. A successful synthetic test does not imply a vendor
+account is configured. [AI models](ai_models.md) describes those independent services.
 
-### Branches and worktrees
+## Preserve durable Memory
 
-Graphit keeps a separate copy of a project's AST graph, wiki, project Memory, Tasks, sessions and
-Dream ledger for each **project version**: the checked-out Git branch, or `main` without Git. Each
-worktree therefore sees the code and records of its own branch.
+Use Memory for confirmed reusable facts, corrections, conventions, decisions and procedures.
+PROJECT is shared and versioned; USER is private to the verified identity/installation and is
+independent of project Git branches. Keep Task progress and temporary hypotheses in Task, not as
+mandatory Memory. Never place secrets or personal details in shared records.
 
-| Situation | What happens |
-|---|---|
-| a new branch or worktree | starts from the default branch's state (`origin/HEAD`, else `main`, else `master`) and reindexes only what differs |
-| work on that branch | stays on that branch; the default branch does not see it, and nothing merges back |
-| a linked worktree | run `graphit sync` once there; the daemon then supervises it separately |
-| `git switch` in a checkout | the daemon notices the new branch and runs a full sync for it |
-| a detached HEAD, for example in CI | uses `GRAPHIT_GIT_BASE_BRANCH` when set, else the default branch |
-| state from before versions | belongs to the default branch |
-| user memory | shared by every branch: it is about you, not the code |
+The Memory Explorer reads current records and explicit revision history and provides admitted
+CRUD actions with CAS/revision checks. A stale edit conflicts instead of overwriting another
+writer. Mandatory and important are independent flags; mandatory content loads at the configured
+agent bootstrap boundary. Search supports FTS, semantic and hybrid with partial compatible vectors.
+The current Root MCP catalog exposes search/index; do not guess old CRUD tool names.
 
-To read another branch's state without checking it out, pick it in the Observatory's **Version** menu
-(next to Project; every page then shows that branch's data and the choice is remembered per
-project), pass `project_version` to an MCP tool, or `--project-version` to the CLI. The menu lists the
-branches checked out in your worktrees and every other branch Graphit already has data for. For a
-Hub project it lists the default version and the branches teammates have shared tasks or memory on;
-a branch nobody has written yet can be read but not written from the Hub view. For example, compare a feature branch's tasks with `main`:
-
-```bash
-graphit task list --project-version main
+```sh
+graphit memory index --scope project
+graphit memory index --scope user
 ```
 
-With a Hub configured, `graphit sync` hydrates the branch's own published snapshot
-(`branch/<branch>`), or the default branch's when the branch has none. See
-[Storage Layout](../architecture/storage_layout.md#one-store-per-project-version) and
-[Project Identity](../specs/project_identity.md#project-version).
-
-## AST workflow
-
-To add a language, override extraction, select a dialect, or understand every grammar
-YAML field, use [AST Grammars and Parser Extensibility](ast_extensibility.md).
-
-AST exploration has three stages:
-
-1. inspect the current schema before writing Cypher;
-2. search for candidate names when the exact entity is unknown;
-3. query the graph for the relationship or aggregate that answers the question.
-
-Example:
-
-```cypher
-MATCH (caller)-[:CALLS]->(target:Function {name: 'RunSync'})
-RETURN DISTINCT caller.name, caller.path
-```
-
-Use source retrieval after the graph identifies the relevant file or entity. Do not infer callers, imports, inheritance, or impact from text matches alone.
-
-AST search supports three retrieval modes:
-
-- `fts` for precise identifiers and terms;
-- `semantic` for meaning rather than spelling;
-- `hybrid` (default) for BM25 and vector candidates fused with reciprocal rank fusion.
-
-The graph is stored as Icebug files and attached to an in-memory LadybugDB catalog when queried.
-That on-the-fly catalog makes local and published contexts portable without a separate graph-server
-deployment.
-
-The Code investigation workspace separates **Find & inspect**, **Query lab** and **Relationship map**.
-Search and Run query open their results in Relationship map. The map organizes returned entities by directory, file, language or configured cluster; it loads a sample only when no explicit request is active. Scalar and mixed query values remain available in Query rows, and Query lab retains the editable draft.
-Select a boundary and an entity. Its Incoming/Outgoing neighborhood is queried from the index, including neighbors outside the result. Follow a neighbor or use **Back** without changing the original catalogue. **Load more relationships** continues large neighborhoods; failures remain visible with retry. Choose **Inspect source & impact** to read the implementation and investigate potential impact.
-Clusters are configured path groups, not inferred communities. Counts describe the loaded result;
-missing sample edges do not prove that a dependency is absent.
-
-Relationship names come from the active store's canonical manifest. AI-assisted Cypher uses the
-selected agent and project context; inspect execution activity and the resulting query before relying
-on its answer. The current Icebug engine's unsafe wildcard and type-alternation scans are refused;
-use a supported anchored logical traversal instead. See [Code investigation](code_investigation.md)
-for the workflow and [query contracts](../specs/ast_module.md#the-rules-and-what-each-refusal-says).
-
-![Code investigation around Checkout in fictional Aster Delivery](../site/assets/code-investigation.jpg)
-
-*This and the following screenshots use invented English data in an isolated example project.*
-
-## Knowledge workflow
-
-Graphit compiles `docs/` and the root `README.md` into a source-backed wiki.
-
-1. Search by topic to receive ranked page titles.
-2. Choose the relevant page.
-3. Read the page content and frontmatter.
-4. Follow cross-references when the answer spans documents.
-5. Check provenance when exact source wording or freshness matters.
-
-The Knowledge Explorer exposes the same page index, keyword and AI-assisted search modes, confidence, provenance, outbound links, and update history.
-
-Direct keyword and semantic retrieval do not require a coding-agent CLI. AI synthesis does and is
-controlled by `modules.agent`. Search returns candidate titles; `wiki_source` is the evidence read.
-
-![Knowledge reading view with the fictional checkout contract and its source provenance](../site/assets/code-knowledge.jpg)
-
-## Memory workflow
-
-Memory stores context the code and current documentation cannot reconstruct.
-
-- **Project memory**: repository-specific conventions, corrections, decisions, facts, tensions, and reusable debugging skills.
-- **User memory**: preferences and techniques that should follow one person across projects.
-
-Good memories state:
-
-- what happened;
-- why it matters;
-- how the team should act on it;
-- what it changes or constrains.
-
-Mandatory memories are loaded without a query at session start. Contextual search excludes those
-already-loaded records and returns candidate titles; read the selected memory before acting on it.
-Importance and mandatory recall are independent flags. When a correction supersedes an existing
-memory, update it in place so the revision chain remains searchable instead of leaving contradictory
-records.
-
-A memory decision can be explicitly linked to a task or session. Those typed references are persisted; they are not inferred from prose links.
-
-## Hub and ecosystem workflow
-
-The ecosystem registry identifies local sibling projects. Each registered project retains its own AST, knowledge, and project memory; cross-project work should query the sibling's own context rather than copying its repository into the current one.
-
-The Hub distributes reusable artifacts:
-
-- rules;
-- skills;
-- agents;
-- commands;
-- MCP servers;
-- powers;
-- languages;
-- AST bundles;
-- knowledge bundles.
-
-Optional S3-compatible storage holds published catalog and artifact data. Installing or publishing is an explicit action. Read the relevant artifact metadata and understand its scope before applying it to a project.
-
-Each project has an immutable ULID and a mutable globally unique friendly name. The ULID owns paths,
-locks, installed claims, and exact grants; rename changes discovery metadata without moving data.
-Remote discovery is deny-by-default and shows only the union of projects granted globally, directly
-to the trusted user, or through that user's teams. List and search are paginated. Knowing an artifact
-or project ID does not bypass authorization for show, content, install, update, or a mount.
-
-`~/.<brand>/hub/cache/` may make repeated discovery faster, but it is disposable, isolated by Hub
-and subject, and never grants access. File artifacts already installed for an adapter live
-separately under `~/.<brand>/artifacts/modules/`.
-
-AST and knowledge artifacts may use mutable `branch/<git-branch>` channels, including branch names
-with `/`, or compact `tag/<git-tag>` snapshots. On every `graphit sync`, Graphit looks for the
-exact compatible Git commit or nearest published ancestor. It retains a matching local overlay or
-shallow-clones an advanced LanceDB base and reindexes local changes: inherited data is read from S3
-while new project changes stay in the local filesystem. LadybugDB/Icebug is rebuilt from source.
-The Hub changes only when `graphit hub submit` explicitly publishes a clean commit.
-Projects outside Git continue to sync entirely locally and may publish a new `branch/...` name as a
-mutable snapshot without commit history. Adding S3 later does not replace an initialized local
-store; the first publication seeds an empty remote channel from that local state.
-See [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the complete
-unattended S3 and remote-embedding workflow.
-
-## Live Search
-
-Live Search assembles selected artifacts into an ephemeral workspace and runs a supported coding agent against a concrete question.
-
-Use it when the answer genuinely spans several sources. Do not use it in place of a direct AST traversal, a single wiki read, or a known CLI action.
-
-The temporary workspace is not registered as a normal project. Selected artifacts and the prompt
-define its scope; deleting the session removes its ephemeral project data. Live Search requires an
-installed coding-agent CLI and is unavailable when `modules.agent=false`. Its related agent turns
-reuse one native session when the CLI has a verified continuity protocol, always with the
-ephemeral workspace as cwd. Saved wiki/chat interactions persist the native ID together with the
-CLI name and reject that ID after a CLI or project change.
+`--refresh` is an explicit lexical-index replacement, not required for every read. Background
+updates reuse compatible embeddings and persist progressively in the same corpus.
+[Memory contract](../specs/memory_module.md) specifies scope, revisions and storage.
 
 ## Dream and Task
 
-![Fictional task dossier with checks, illustrative evidence and persisted record links](../site/assets/code-evidence.jpg)
+Task coordinates shared work deterministically. Session preserves the evolving demand; Tasks
+have specifications, hierarchy/dependencies, dates, checks and current claims. Read current state
+before claiming and keep private returned tokens out of shared content. Gantt uses explicit dates;
+progress excludes cancelled tasks. Completed/cancelled descendants are terminal but the parent
+must still satisfy its own required work.
 
-*Inspect the work contract and the evidence together. The example contains an illustrative documentation review, not a production test result.*
-
-
-Dream runs during configured idle periods as one constrained agentic pass over Memory. It reads
-Memory plus supporting Task, Knowledge/Wiki, AST, Hub, and References evidence through MCP and may
-only insert, update, delete, promote, or demote Memory. It does not generate reusable agent
-artifacts, edit project files, or consume the Task backlog.
-
-Task is separate. Open, unclaimed LanceDB tasks are backlog. Dependencies decide readiness; an
-atomic claim returns a fencing token that every owner mutation must present. Agents checkpoint the
-exact next step, attach typed decisions/problems/lessons, and record pass/fail evidence against
-structured acceptance and test checks. Releases and expired leases preserve enough state for safe
-takeover.
-
-Completion fails closed when any active check is pending or failed, a flag remains, or a nested
-subtask is incomplete. Scope changes require the current task revision and preserve immutable
-before/after history; obsolete checks are superseded rather than rewritten. When direction changes,
-agents cancel work whose history remains useful or explicitly remove certainly erroneous,
-unreferenced work. Dream never consumes the Task backlog.
-
-Open **Task → _project name_** in the Observatory to inspect this state without creating a second
-task model. The catalogue searches IDs, titles, specifications, ownership, progress, and next steps,
-and filters both stored lifecycle states and the derived blocked/flagged views. It requests bounded
-pages and loads more only on demand, so routine browsing does not transfer every task's audit data.
-Selecting a task loads its authoritative complete record: specification, claim metadata, progress, checks and
-evidence, dependencies, subtasks, comments, events, and specification revisions. The project and
-task download actions save the same versioned JSON returned by the CLI and MCP surfaces.
-
-Use the complete export when another tool needs a portable machine-readable snapshot:
-
-```bash
-# Every task in the current project.
-graphit task export > tasks.json
-
-# One exact task plus all of its recursive subtasks.
-graphit task export tsk-abcd > tsk-abcd.json
+```sh
+graphit task session-heads
+graphit task schema
+graphit task search --text parser --mode fts --page-size 10 --top-k 10
 ```
 
-The MCP equivalent is `graphit_task_export`: omit `id` for the project document or pass one exact
-task ID. Both surfaces return arrays for task snapshots, dependency and check projection records,
-lifecycle events, comments, and specification revisions in deterministic order. Claim fencing
-tokens and internal scheduler-control rows remain private and are never part of the export.
+Exact reads initially load current/creation/last-event, not every historical event or comment.
+Use explicit pinned pages through EOF for full evidence/export. The Browser uses the same audit
+contracts; there is no `task export`/`graphit_task_export` command or generic force-takeover tool.
+After an authorized commit/amend, update included Tasks with the full actual SHA via
+`task set-task-commit`. [Session guide](task-sessions.md) gives exact mutation envelopes.
 
-## Retrieval and reranking
+Dream is an explicit background Memory workflow, not a source of automatic task completion.
+Enable both its module and `dream.enabled`, choose `dream.program` and `dream.model`, and use its
+scoped permissions. It does not authorize arbitrary project writes. [Dream](../specs/dream_module.md)
+contains prerequisites and lifecycle; leave it off when not wanted.
 
-Graphit's retrieval surfaces are deliberately different:
+## Versions and Git
 
-| Need | Use |
-|---|---|
-| Exact term or identifier | BM25/FTS search |
-| Similar concept with different wording | semantic vector search |
-| Strong general recall | hybrid BM25 + vector search with RRF |
-| Proven code relationship | AST Cypher query |
-| Exact content | AST source or Wiki source slicing |
-| Several selected contexts plus synthesis | Live Search or an AI wiki query |
+Project stores are keyed by stable ID/corpus. Versions are native Lance branches sharing
+fragments; worktrees do not create full private copies merely because their paths differ.
+Product Git hooks snapshot PROJECT Task/Memory for observed commits, restore on checkout and
+merge independent edits with explicit conflicts. They never include USER Memory. A failed
+post-commit hook cannot undo the Git commit: inspect the error and retry supported recovery.
+Projects without Git continue normal version operation. [Git records](../specs/git_records.md)
+defines snapshots, tags, rewrites and pre-install historical limits.
 
-Graphit also implements a bounded optional second-stage reranker with local, direct, and broker
-backends. Local and direct modes are available only on providers without broker configuration; a
-broker-configured provider requires broker mode for both embedding and rerank. AST and Knowledge
-keyword/hybrid searches attach the reranker only when `search.rerank=true`; it widens retrieval
-before reordering, preserves the candidate set, and uses deterministic tie-breaking. See
-[Retrieval Architecture](retrieval_architecture.md) and the [AI Engine](../specs/ai_engine.md).
-For model selection, CLI fallback and invocation protocols, credentials, dimensions, and local or
-remote data boundaries, use [AI Models, Providers, and Agent CLIs](ai_models.md).
+## Teams, agents and software ecosystems
 
-## Observatory navigation
+The Hub separates project discovery, authored resource review, artifact publication and consumer
+installation. Capture authored Source through the authorized PROJECT/version, review its exact
+kind/ID/artifact version, then publish/install using the provider's grants. A local source link
+and a remote versioned artifact have different provenance.
 
-The Graphit Observatory groups routes by intent:
+`hub install` installs an exact artifact; `hub install-local` uses an explicit authorized local
+source. Native AST/Knowledge imports can be queried on-the-fly without a repository clone. Local
+Icebug reads Parquet through in-memory Ladybug; remote Icebug reads authorized S3 ranges through
+the same path. An artifact version is distinct from a project version and from SCIP image
+compatibility aliases.
 
-- **Live Search** — multi-source agent runs;
-- **Hub** — registry, project artifacts, and upload;
-- **Knowledge** — project and imported documentation contexts;
-- **AST** — project and imported code contexts;
-- **Memory** — project and user scopes;
-- **Task** — deterministic project backlog and complete lifecycle records;
-- **System** — daemon, Dream, and ecosystem state.
+```sh
+graphit hub authored list --project-dir . --limit 20
+graphit hub list --help
+graphit hub install --help
+graphit hub update --help
+```
 
-Always verify the active workspace before interpreting explorer data. The selected workspace is persisted between browser sessions.
+General sync reapplies exact recorded versions and Graphit's installed agent files:
 
-Hub Submit and Upload publish from the active project; the Global Registry is the discovery view,
-not a publication owner. To upload compiled code or documentation manually, first export an
-importable package: `graphit ast export --format package` creates `.ast`, and
-`graphit knowledge export --format package` creates `.knowledge`. Knowledge can instead be exported
-for people and tools with `--format okf` or `--format obsidian`; those directories are not accepted
-as native Hub uploads. Other file artifact types continue to use `.zip`.
+```sh
+graphit sync
+graphit skills sync
+graphit roles sync
+graphit hooks sync --binding codex
+graphit coordinator sync --binding codex
+graphit hub sync
+```
 
-Light and dark modes share the same semantic hierarchy. On mobile, the global navigation becomes a drawer and explorer rails can be collapsed.
+It does not upgrade artifacts, clone repositories, hydrate by Git ancestry or wait for all
+indexing. `hub update` explicitly chooses newer remote releases. User modifications remain
+protected by origin/version/hash ownership; a conflict needs reconciliation, not deletion.
+[Hub](../specs/hub_collaboration.md) and [filesystem](filesystem_contract.md) explain lifecycle.
 
-## Local and shared data
+## Choose inference deliberately
 
-Compiled graphs, wikis, memory stores, search indexes, models, and caches live once in the global Graphit directory, keyed by identity. A project checkout keeps source, documentation, its lockfile, and small project records—not duplicate compiled stores.
+Embedding is enabled by the module default but still needs a usable service/model. To disable its
+background work use `modules.embedding=false`; CRUD/FTS remains usable. Local embedding uses
+EmbeddingGemma2 GGUF BF16. Local rerank uses BGE V2 M3 GGUF F16 and is off by default
+(`search.rerank=false`). Installing a reranker does not enable it.
 
-See [Storage Layout](../architecture/storage_layout.md) for the exact structure and [S3 Credentials and UI Network Configuration](s3-and-ui-network.md) for shared storage.
+CPU is default for each local purpose. Choose CPU, explicit accelerator or auto independently on
+the provider; explicit unavailable GPU fails, auto reports selection/fallback. Local models load
+on demand and unload after the configured idle timeout (300 seconds default). Remote modes need
+no local model; with an active Broker provider both services are Broker-only or disabled.
+[AI configuration](ai_models.md) contains exact examples and artifact publication limitations.
 
-## Network and security
+## Operate and troubleshoot
 
-The UI is local by default; `ui.auth.enabled` enables Broker browser login and requires its cookie for data APIs. Its bind host and exact-origin CORS policy are configurable, but CORS does not protect non-browser clients. The daemon's MCP HTTP endpoint is a separate authenticated listener. In local mode, **System → Daemon** can show its per-start runtime key; Broker-authenticated browsers never receive that key or daemon logs. A local provider may use a static MCP key, while a Broker provider verifies each caller's Broker-issued access JWT for the configured MCP resource and forwards it to the Broker. See [Authentication](authentication.md).
+```sh
+graphit daemon status
+graphit daemon install --help
+graphit daemon login --help
+graphit ui --no-open
+```
 
-Before remote access:
+Service login startup is explicit. Linux tray requires the desktop bus and StatusNotifier host;
+headless services do not. The Browser requires its trusted Broker configuration/login, not a
+`ui.auth.enabled` switch. Port zero selects a real ephemeral listener, so use the returned URL
+rather than bookmarking one old port. Restarting/replacing a daemon can invalidate an unfinished
+login challenge; start a fresh login from Graphit.
 
-- bind only to an intended interface;
-- restrict traffic with a firewall or VPN;
-- place the service behind an authenticated TLS proxy when appropriate;
-- keep credentials out of repository configuration.
-- distinguish the MCP bearer from trusted user/team identity;
-- for Broker-managed S3, keep permanent credentials exclusively in Graphit Broker; Graphit holds
-  returned topology and temporary credentials only in memory per project/user/Hub scope and physical module. Grant only
-  the intended logical operations through the Broker ACL UI.
-
-## Operational checklist
-
-When something looks wrong:
-
-1. confirm the active project and working directory;
-2. confirm the daemon is running;
-3. distinguish a transient store lock during reindex from a missing index;
-4. run an explicit sync after bulk external changes;
-5. check the relevant module guide or specification before deleting or rebuilding data.
-
-Continue with [Troubleshooting](troubleshooting.md), the [CLI Reference](cli_reference.md), or the [MCP Tools Reference](mcp_tools_reference.md).
-
-For every default, module switch, provider, and environment override, use the
-[Configuration Reference](configuration.md).
-For repository files, generated state, agent adapter layouts, and filesystem change detection, see
-[Filesystem, State, and Watchers](filesystem_contract.md).
+Errors can preserve confirmed partial effects; check current records before retry. Do not delete
+stores/credentials, remove live lock files or switch silently to local storage to hide a failure.
+[Daemon operations](daemon_operations.md), [troubleshooting](troubleshooting.md) and
+[storage layout](../architecture/storage_layout.md) are the next steps.

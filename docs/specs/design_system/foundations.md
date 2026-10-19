@@ -12,7 +12,7 @@ The brand anchors are cobalt `#3155D9`, navy `#142449`, cool canvas `#F3F6FC`, i
 
 ### Code: exact semantic tokens
 
-Source: [index.css](../../../internal/ui/src/index.css), `:root` and `.dark`. Color values are HSL channels, consumed as `hsl(var(--token))`; `--radius` is a length. [Tailwind configuration](../../../internal/ui/tailwind.config.js) maps these tokens to classes such as `bg-card`, `text-foreground`, `border-border` and `ring-ring`.
+Source: [index.css](../../../ui/src/index.css), `:root` and `.dark`. Color values are HSL channels, consumed as `hsl(var(--token))`; `--radius` is a length. [Tailwind configuration](../../../ui/tailwind.config.js) maps these tokens to classes such as `bg-card`, `text-foreground`, `border-border` and `ring-ring`.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ This is a composition example, not a new exported component or API.
 
 ### Broker administration: exact tokens
 
-Source: Graphit Broker `internal/broker/adminui/index.html`, `:root` and `body.dark`. Values without a dark override are inherited, including dimensions. `--muted` is text here, so do not mechanically copy a Code token name.
+Source: Graphit Broker `crates/broker-presence/assets/admin/index.html`, `:root` and `body.dark`. Values without a dark override are inherited, including dimensions. `--muted` is text here, so do not mechanically copy a Code token name.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -80,7 +80,7 @@ Source: Graphit Broker `internal/broker/adminui/index.html`, `:root` and `body.d
 | `--sidebar-width` | `238px` | `238px` |
 | `--radius` | `8px` | `8px` |
 
-Authentication in `internal/broker/oauthui/index.html` is light-only. Its local tokens are `--ink: #202d45`, `--muted: #5b6983`, `--line: #d5deee`, `--blue: #3155d9`, `--paper: #fff`, and `--ground: #f3f6fc`. The brand bar is navy `#142449`; fields use `#b7c5df`, error/success use the corresponding admin light values. There is no dark override or theme switch. Token names differ from administration; copy semantic roles, not names.
+Authentication in `crates/broker-presence/src/templates/oauth/` is light-only. Its local tokens are `--ink: #202d45`, `--muted: #5b6983`, `--line: #d5deee`, `--blue: #3155d9`, `--paper: #fff`, and `--ground: #f3f6fc`. The brand bar is navy `#142449`; fields use `#b7c5df`, error/success use the corresponding admin light values. There is no dark override or theme switch. Token names differ from administration; copy semantic roles, not names.
 
 ### Public site: exact tokens
 
@@ -127,7 +127,7 @@ Code imports Public Sans and IBM Plex Mono through Google Fonts in CSS; the site
 
 Current Code work headings use tracking `-0.04em`; site headings `-0.05em`; auth `-0.04em`. Keep monospace text at normal tracking. Use sentence case for user-facing labels, preserve conventional acronyms (AI, API, AST, CLI), and reserve small uppercase captions for established patterns.
 
-Adoption gap: Tailwind `font-sans` still names Manrope, while the base Code CSS uses Public Sans. New UI should inherit the base font; any future cleanup must reconcile the utility and its consumers instead of assuming it already matches.
+Code base typography and the Tailwind `font-sans` utility both use Public Sans with system fallbacks; monospace content uses IBM Plex Mono.
 
 ## Spacing, density and shape
 

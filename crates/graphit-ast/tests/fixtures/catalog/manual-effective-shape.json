@@ -1,0 +1,37 @@
+{
+  "case": "Minimal effective defaults independently specified",
+  "x": {
+    "language": "x",
+    "extensions": [],
+    "parser": "tree-sitter",
+    "grammar": "tree-sitter-x",
+    "start_rule": null,
+    "exclusive": false,
+    "queries": [],
+    "exports": {
+      "strategy": "none",
+      "config": {},
+      "config_list": {}
+    },
+    "context_types": {},
+    "context_name_queries": {},
+    "target_rules": {},
+    "embedded": [],
+    "text_normalizers": {},
+    "self_keywords": [],
+    "anon_func_types": [],
+    "declaration_types": [],
+    "comment_types": [],
+    "embed_labels": [],
+    "complexity": {
+      "node_types": [],
+      "operators": [],
+      "head_calls": null
+    },
+    "context_requires_entity": []
+  },
+  "input_files": [
+    "minimal-x.yaml",
+    "minimal-y.yaml"
+  ]
+}

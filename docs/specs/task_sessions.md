@@ -1,89 +1,79 @@
-# Durable Task sessions
+# Task Sessions contract
 
-This reference describes the session entity in the Task module for integrators and maintainers. For agent and CLI procedures, see the [session guide](../guides/task-sessions.md); for task checks, dependencies and execution, see the [Task specification](task_module.md).
+A Session records one evolving demand across agent/chat interruptions. It retains title,
+description, strategy, immutable creation, current revision/status, ownership and the latest
+checkpoint. Tasks reference its canonical ID. The current Rust wire contract is in
+[rust_task_protocol](rust_task_protocol.md); [the user guide](../guides/task-sessions.md)
+contains actual CLI/MCP envelopes.
 
-A session preserves the user's current demand and the reasoning needed to continue it across turns, compaction, disconnection and agent handoff. It belongs to one Graphit project. Its `ses-*` ID is distinct from a host conversation ID, an MCP transport session, an agent identity and a task ID. A new turn does not automatically create or close a session.
+## Storage and selection
 
-## Intent, execution and coordination
+Sessions share the authorized PROJECT Task dataset and native Lance branch with their Tasks,
+including direct S3 when selected. They do not have a separate copied database, Session text-search
+corpus or export format. Current/queryable fields and immutable events are encoded by the current
+schema/producer; obsolete SQL-like `task_session_checkpoints` table examples are not another public
+storage contract. Query `graphit_task_schema` before typed projection queries.
 
-The session owns the detailed current request, scope and strategy. Tasks own executable specifications, dependency/subtask graphs, acceptance criteria, validation and individual execution claims. A session coordinator may hold one session claim and one task claim independently. Other agents may work on tasks in the same session without taking its coordination claim. Delegation carries the durable session ID and task IDs; it never shares claim tokens.
+Project/version/directory selectors identify retained data; they grant no authority. Current
+authentication and Task-module read admission authorize Session reads. Creation requires the Task
+operation, while claims, revisions, checkpoints, release and completion require CoordinateTask
+admission. USER identity cannot be chosen through a Session field. Cross-project reads require
+that project's own admission. Paths persist as Unicode strings, never `os/units`.
 
-Create a session with a title, self-contained description, strategy and stable idempotency key. The description should identify requested outcomes, constraints, known context, open questions and completion conditions. It must be revised when the request changes. Repeating a create with the same project/key returns the existing session without replacing its content or returning its claim token. The default key is the canonical title; use a new explicit key for a genuinely different demand with the same title.
+## Operations and states
 
-Task creation resolves `session_id` in this order:
-
-1. The explicitly supplied session, agreeing with the parent when present.
-2. The parent's session, for a subtask.
-3. The caller's live coordinated session, for a root task.
-
-A parent and child must have the same association. A task cannot be reassigned to another session by revision, and a parent change cannot cross sessions. The session must exist and be `open` or `in_progress` at task creation. MCP task creation, including each create in a batch, requires a resolved session; the agent receives an error instead of silently creating unassociated work. Manual CLI/service creation can omit association when there is no parent/current session. An unassociated manual parent cannot be used to bypass the agent requirement. Reusing a task idempotency key from an unassociated record in agent work, or from a different explicitly/inferred session, is rejected; choose a key for the actual work unit instead of silently reusing another demand.
-
-Task `get`, list/search/catalog and export preserve `session_id`; list/search can filter on it. Search applies the filter before the result cap, including comment matches. Session list and search summaries derive `completed_tasks` and `total_tasks` from every Task whose authoritative `session_id` matches: cancelled Tasks remain part of the total and only `completed` Tasks increment the completed count. The counts are computed with the summary read, so catalogue clients do not fetch every session detail. `session_get` returns linked task summaries; retrieve selected task specifications/evidence with Task tools. Reading another project's sessions uses that project's resolved runtime `project_dir`, never a path persisted in shared descriptions.
-
-## Storage and relationships
-
-Sessions use the same authorized project LanceDB store, project-version branch and scheduler lease as tasks, so a session and its Tasks always belong to one [project version](project_identity.md#project-version). Task-disabled projects also disable session tools and hooks. Existing project S3 authorization, bounded operation timeouts and strong read consistency apply.
-
-| Table | Authority and queryable fields |
+| Operation | Preconditions / effects |
 |---|---|
-| `task_sessions` | Current snapshot. Indexed ID, idempotency key, status, owner and full-text search; explicit title, description, strategy, timestamp/revision columns and complete snapshot JSON. |
-| `task_session_events` | Immutable lifecycle events by session/revision, including actor, status transition, summary and next step. |
-| `task_session_checkpoints` | Immutable descriptive checkpoints by session/revision; sequence, actor, time, summary, problems, decisions, strategy and next step. Full-text search includes all descriptive fields. |
-| `task_session_revisions` | Immutable intent revisions with reason, actor/time and before/after title, description and strategy. Both prior and current intent are searchable. |
-| `tasks.session_id` | Indexed authoritative task-to-session relationship, empty only for unassociated manual work. Task specification history and export preserve the association. |
+| create | Canonical nonempty title/description/strategy and stable idempotency key; open initial record |
+| claim | Actual available record and positive lease; returns its private token and current revision |
+| heartbeat | Live owner/fence/revision; renews actual lease |
+| revise | Live owner, lease, reason and real supported specification/reference change; preserves immutable before/after history |
+| checkpoint | Live owner and positive lease; summary/next_step records progress, not a specification replacement |
+| release | Live owner/current revision; records handoff and clears ownership |
+| complete | Live owner/current revision and real linked Task closure gates; preserves all history |
 
-The session snapshot includes its latest event and any associated checkpoint/specification revision. A single-row revision CAS commits the decision. History tables materialize it idempotently using session/revision keys. Before the next mutation replaces that recovery anchor, the prior event is materialized. A failed projection may follow a successful authoritative write: an error or lost response is not proof that nothing changed.
+There is no Session search, batch mutation, force-takeover, cancel or delete operation in the current
+Root catalog. The shared state type can encode cancelled historical data without advertising a new
+Session cancellation API. Never infer a tool from another runtime's schema or from a state enum.
 
-Reads do not mutate the store. `session_get` overlays the latest authoritative event if its projection is missing. Lifecycle reconciliation repairs missing projections and releases expired claims. Historical checkpoints/revisions are preserved through heartbeat, release and subsequent updates. Maintenance includes the session tables and their indexes.
+Task and Session use `open`, `in_progress`, `completed`, `cancelled` states. A stale/expired token
+cannot write, even before maintenance observes it. Distinct targets have their own claims; a
+one-active-Task executor guideline is not a global user quota. Tokens appear only in participant
+claim responses/private client state, never ordinary reads or history.
 
-This schema changes the Task store and export schema (version 2). A store written before `session_id` existed is migrated in place the first time it is opened: the rows are preserved — snapshotted before the table is recreated, so an interrupted migration completes on the next open — and the tasks that predate sessions get an empty `session_id`. The session tables are simply created alongside them.
+## Specification, progress and references
 
-That migration is deliberately limited to additive differences — columns this build adds around the stored ones. A column that was dropped, renamed or changed type is not migrated, because choosing what to do with the data it holds is not something the store may decide on its own; that case still fails explicitly with `task table <name> has an incompatible schema; use a fresh store; automatic migration is not supported`, and opening it neither deletes nor resets anything.
+Revision accepts only its advertised replacement fields and `reason`; omission preserves and null
+is rejected for required text. It must actually change the specification/references. Checkpoint
+accepts summary/next_step and lease; there are no separate wire `problems`, `decisions` or `strategy`
+fields on that operation. Include necessary evidence/rationale in summary; use revise to change
+current strategy. Unknown fields fail instead of being discarded.
 
-## Public state and concurrency
+Typed references have target type/ID, relation and optional qualifiers. Omission preserves authored
+relations, `[]` clears and a complete list replaces. A prose mention creates no database relation.
+Structural Task-to-Session links remain managed by the domain model.
 
-| Operation | Starting state and requirements | Result |
-|---|---|---|
-| create | Required title, description, strategy and actor | `open`; durable identity and initial intent revision |
-| claim | `open`, or same live owner reclaiming its token | `in_progress`; coordinator, lease, fencing token/epoch |
-| revise | Live claim, current `expected_revision`, nonempty reason, actual intent change | New current intent and immutable before/after revision |
-| checkpoint | Live claim; nonempty `summary` and `next_step` | Append descriptive checkpoint and advance latest progress/continuation |
-| heartbeat | Live claim | Renew lease without changing semantic intent/checkpoint |
-| release | Live claim; descriptive summary and next step | `open`, clear ownership; append handoff checkpoint |
-| lease expiry | Expired claim reconciled or claimed again | `open`, preserve intent/history; former token cannot write |
-| force_takeover | `in_progress`, exact ID confirmation/current revision, reason, explicit positive lease | Rotate owner/token/epoch; record recovery rationale |
-| complete | Live claim, final summary, all linked tasks terminal and valid | `completed`; clear ownership and preserve final outcome |
-| cancel | Live claim, cancellation reason, all linked tasks terminal and valid | `cancelled`; clear ownership, no task cancellation cascade |
+## Reads, pagination and progress
 
-The four statuses are exactly the Task statuses: `open`, `in_progress`, `completed`, `cancelled`. Blockers and problems are descriptive evidence, not additional states. There is no implicit reopen or session deletion operation. New work after closure belongs to a new session that can reference the previous outcome.
+Current `session_get` returns Session, creation, last event, generation and first history cursor.
+History is null unless explicitly requested. A loaded empty page is different from null. Continue
+with the actual opaque Session history cursor and unchanged selection until EOF for full evidence.
+Current reads do not load every lifecycle event or all linked Task dossiers.
 
-Only one live coordinator session is permitted per actor. Task claims remain independent. A competing coordinator is rejected; an expired/stale token cannot mutate the session, even before a hook reconciles expiry. A revised intent requires the latest revision; reread after conflicts instead of replaying a stale update. Force takeover is an explicit exceptional recovery, not a way to claim another live agent's work casually.
+Session heads derive completed/total counts from linked Tasks. Cancelled Tasks remain retained and
+authorized in the inventory but are excluded from the denominator; only completed Tasks increment
+the completed count. With no non-cancelled Tasks, counts are 0/0. These counts are workflow state,
+not a delivery percentage or migration estimate.
 
-`session_get`, list, search and export never expose claim tokens. Lifecycle mutation responses expose only the participating coordinator's token while still claimed. Session history does not embed private claim state. Task export includes sessions and their histories, filtered to referenced sessions for a task/subtree export; a full export also includes sessions with no tasks.
+## Closure, interruption and recovery
 
-## Checkpoints and changes of direction
+Nonterminal linked work prevents completion according to the current gates. Cancelled children are
+terminal, but cancellation does not certify delivery of a required outcome. The demand must be
+reconciled before the coordinator completes the Session. Closing a chat or completing one Task does
+not implicitly close coordination.
 
-`summary` states progress and evidence, with task/check references. `problems` states concrete failures or blockers. `decisions` includes rationale. `strategy` records the approach at that checkpoint. `next_step` names the next action, target and completion condition. Optional fields may be omitted when no relevant change occurred; do not fill them with boilerplate. Checkpoints complement task evidence rather than duplicating all task descriptions.
-
-Changing the current strategy or demand uses `session_revise`, with `expected_revision` and reason. The `strategy` field of a checkpoint is a historical observation; it does not silently replace the current session strategy. Reconcile affected task packets/dependencies/checks before executing a changed plan.
-
-For example, after the user adds audit requirements, revise the current session description and strategy with that requirement, record why it changes the approach, update/create the affected tasks, then checkpoint the resulting plan with returned IDs and unresolved validations. A later coordinator reads the current description plus relevant history and does not have to infer which of two plans is authoritative.
-
-## Closure and handoff
-
-Both `complete` and `cancel` share the same closure gate: they reject any linked `open`/`in_progress` task, or a completed task whose checks/dependencies/subtasks are no longer valid. A cancelled task is terminal, but cancellation does not prove its requirement was delivered: the final summary must explain the current agreed scope and any explicitly cancelled work. Neither operation silently cancels children.
-
-Finish required task checks and documentation evidence first, then close the session and confirm the result before declaring the user's demand finished. Completing the last task alone leaves the session active. A session with no tasks can close only as an explicitly summarized outcome such as an analysis; agents are still instructed to represent executable work in tasks.
-
-On interruption, record a handoff containing current intent, evidence, decisions, outstanding problems and exact next action. Release the coordinating claim when handing over. The replacement lists active sessions or searches the relevant topic, gets the chosen session and selected tasks, claims with its own identity and continues from the saved state. Do not choose the first unrelated open session merely because it exists.
-
-Native Stop/SessionEnd hooks are execution boundaries, not proof of completion. They may release ownership only when the actor can be correlated safely, preserving substantive checkpoints and recording a lifecycle event. They never invent the user's description or mark a session completed. Without a reliable native identity, explicit tool handoff and lease expiry preserve isolation. See [adapter enforcement](../architecture/adapter-hook-enforcement.md).
-
-## Verification and implementation ownership
-
-- `internal/task/session_types.go`: public entity, revision/checkpoint and request/response shapes.
-- `internal/task/session_table.go`: schemas, snapshot encoding, history projection and CAS recovery.
-- `internal/task/session_service.go`: lifecycle, ownership, discovery, closure and relationship resolution.
-- `internal/task/types.go`, `table.go`, `service.go`, `batch.go`: Task association, filters and export.
-- `internal/task/session_lancedb_test.go`: fresh-store/reopen handoff, parent/child/batch association, filtered search, stale revision/token/expiry/takeover, closure/cancel gates, projection recovery, historical search and concurrent claims.
-- MCP and CLI adapters expose the same service contract; their integration tests exercise transport inputs and public results. Hook and generated-instruction tests cover the supported agents separately.
+On interruption, checkpoint/release with result/evidence, real blocker and exact next action. A
+replacement reads the same demand/current strategy plus relevant history and resumes normally.
+After timeout, observe current state before retrying a mutation; it may have committed. Native
+post-event hooks request asynchronous rescans and do not fabricate completion. Git snapshot/merge
+preserves Session records as part of the Task corpus, with the same conflict/history rules.

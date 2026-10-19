@@ -1,0 +1,3 @@
+language: antlr_alias
+parser: antlr4
+grammar: antlr-shared

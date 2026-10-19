@@ -3,11 +3,15 @@ title: "Hub S3 object layout"
 description: "The versioned S3 key and document contract for project identity, discovery, access control, artifacts, and mutable project state."
 status: draft
 created: 2026-08-21
-updated: 2026-09-10
+updated: 2026-10-11
 tags: [hub, s3, registry, project, acl, artifact, icebug, lancedb]
 ---
 
 # Hub S3 object layout
+
+Artifact keys and file integrity now follow [Remote artifact storage](remote_artifact_storage.md).
+The artifact sections below use that current Rust contract. Project/name/access/event document
+examples remain control-plane design proposals; they do not establish implemented Rust routes.
 
 The Hub's authoritative backend is an S3 bucket. This document fixes the keys, ownership
 boundaries, publication ordering, and document shapes shared by publishers and consumers. Project
@@ -33,9 +37,8 @@ global registry and rules use hub/hub. It never sends a
 requested bucket, prefix, policy, role or duration to the Broker. Broker
 ACL and STS/IAM policy constrain the returned session, while object requests flow directly to S3.
 
-Credential protocol v3 is exclusive and requires a coordinated Broker/Graphit rollout. Any other
-advertised protocol fails closed. This does not rename the `v2/` keys below: their version is the
-object-layout version, not the credential-protocol version.
+Credential protocol v3 is the current exchange contract. An unsupported advertised protocol
+fails closed. Its version is independent of the artifact object-layout version.
 
 ## Version 2 key convention
 
@@ -47,8 +50,6 @@ v2/
 
   projects/<project-ulid>/
     project.json
-    registry/<artifact-type>/<artifact-id>.json
-    artifacts/<folder>/<artifact-id>/<version>/...
     events/<artifact-type>/<event-ulid>_<action>.json
 
   global/
@@ -140,56 +141,26 @@ evaluation contract is in [Hub Access Control](hub_access_control.md).
 
 ## Artifact registry entries
 
-`v2/projects/<project-ulid>/registry/<artifact-type>/<artifact-id>.json` contains discovery metadata
-and all published versions for one artifact. The tuple `(project_id, type, artifact_id)` is the
-stable artifact identity; an artifact ID need not be globally unique.
-
-```json
-{
-  "v": 2,
-  "entry": {
-    "project_id": "01J...",
-    "id": "payments-core",
-    "name": "Payments Core",
-    "type": "ast",
-    "description": "Indexed code graph of the payments service",
-    "tags": ["billing", "go"],
-    "author": {"username": "publisher"},
-    "latest": "2.1.0",
-    "versions": ["2.0.0", "2.1.0"],
-    "hashes": {"2.1.0": "9f2c4e1b7a03d5c8"},
-    "dependencies": []
-  }
-}
-```
-
-The key type and ID, enclosing project ULID, and document fields must agree. Dependencies may carry
-`project_id`, `type`, `id`, and `version`; omission of `project_id` means the same publishing project,
-not a global artifact.
+Use the strict Rust `RemoteArtifactManifest` version-1 codec and the exact identity
+keys defined in [Remote artifact storage](remote_artifact_storage.md). Producer, type,
+full artifact ID and exact concrete version must agree; current hashes have 32 bytes.
+The earlier envelope, short hashes and unencoded artifact keys are not accepted or
+converted. Registry metadata never supplies authorization.
 
 ## Publication ordering
 
-An artifact version is the prefix
-`v2/projects/<ULID>/artifacts/<folder>/<artifact-id>/<version>/`. It is the unit of upload,
-replacement, and retraction.
-
-The publisher uploads or mirrors the payload first and writes the per-project registry entry last.
-An interrupted upload therefore leaves unreferenced bytes, never a visible half-published version.
-Replacing an already published version updates its content hash, but readers that already mounted
-the prefix must reopen it; a new numeric version is the safe snapshot cutover.
-
-`branch/...` may retain native Lance history and `graphit-history.json`; `tag/...` is a compact
-self-contained snapshot. Retention must not delete objects still referenced by a registry entry or
-protected branch history.
+Publish the content-addressed release first and conditionally update its registry
+last, following [Remote artifact storage](remote_artifact_storage.md#publication-and-concurrency).
+Keep partial effects and conditional-write conflicts explicit. Do not overwrite an
+open native release or silently erase a concurrent publisher's versions.
 
 ## Native mounts and file artifacts
 
-Hub Knowledge and AST FTS are LanceDB prefixes opened directly on S3. Hub AST graphs are canonical
-Icebug Parquet bundles queried directly from S3 by LadybugDB. A local project may shallow-clone a
-published Lance branch: inherited fragments stay in S3 and new fragments form a local overlay until
-publication. File artifacts required by an Agent as ordinary files are downloaded into the managed
-local installation. A lockfile claim proves membership and version selection, while current grants
-and storage policy still determine access.
+Ordinary file artifacts use one ZIP object, hashed over its final exact bytes and
+streamed into an owned stage. Native Lance and Icebug remain direct S3 mounts, with
+backend-specific generation/root integrity. Their SDK opener is pending in `tsk-478c`;
+the file ZIP/hash contract does not qualify a native mount. Local explicit native ZIP
+import remains the separate [Native packages](../development/native-packages.md) transport.
 
 ## Mutable project state
 
@@ -236,12 +207,12 @@ mirror and `~/.<brand>/hub.registry.json` authority are removed.
 | Registry entry names a missing payload | Hard integrity error |
 | Cache absent, stale, or deleted | Re-read selectively from the authoritative control plane |
 
-## Clean cutover
+## Current formats
 
-Only this v2 layout is valid. Hub does not discover, import, copy, or fall back to objects stored
-under another layout. Projects and artifacts that must remain available are registered and
-published again into v2, and grant documents are created explicitly. Objects outside `v2/` are
-invisible to the runtime and never imply access.
+Use only the current format for each implemented component. There is no old-layout
+probe, converter or migration workflow. Artifact layout is defined independently in
+[Remote artifact storage](remote_artifact_storage.md); control-plane examples above
+remain proposals until their specific Rust producers are implemented and tested.
 
 ## Related specifications
 

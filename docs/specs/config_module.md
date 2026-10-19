@@ -1,11 +1,11 @@
 ---
 title: "Config Module Specification"
-description: "Technical specification of the configuration system: YAML schema, layered resolution, defaults, environment variable overrides, and compiled defaults."
+description: "Rust configuration CLI, typed documents, resolution, scope, safe inspection and atomic writes."
 content-type: reference
 audience: developers
 keywords:
   - config
-  - yaml
+  - json
   - defaults
   - environment variables
   - settings
@@ -14,837 +14,354 @@ prerequisites:
 related:
   - "docs/specs/daemon_module.md"
   - "docs/specs/mcpstdio_module.md"
+references:
+  - target: {type: task, id: tsk-b45e}
+    relation: implements
+  - target: {type: task, id: tsk-4504}
+    relation: implements
+  - target:
+      type: task
+      id: tsk-f4cd
+    relation: supports
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-6997
+    relation: supports
+  - target:
+      type: task
+      id: tsk-fcf0
+    relation: supports
+  - target:
+      type: task
+      id: tsk-542d
+    relation: supports
+  - target: {type: task, id: tsk-3ddb}
+    relation: relates_to
+  - target: {type: task, id: tsk-e493}
+    relation: relates_to
+  - target: {type: task, id: tsk-ad05}
+    relation: supports
 ---
 
 # Config Module Specification
 
-The `internal/config` package implements a layered configuration system that resolves settings from multiple sources in a strict precedence order. It provides a unified interface for all Graphit modules to read configuration values without knowing their origin.
+## CLI configuration
 
----
+Main exposes four explicit commands. Default mutation targets the current
+Graphit checkout; `--global` targets only the installation. No old command aliases
+or configuration import is provided.
 
-## ⚙️ Architecture
-
-Runtime configuration is stored as a flat `ConfigMap` (`map[string]any`) that supports one level of nesting via dot-notation keys (e.g., `knowledge.docs_dir`, `modules.ast`). Authentication state is separate. Runtime values flow through a resolution chain where the first non-empty match wins.
-
-```mermaid
-graph TD
-    Caller["ResolveConfig(key, inline, project)"]
-    Caller --> Inline{"Inline Config?"}
-    Inline -- found --> Return["Return Value"]
-    Inline -- not found --> Env{"Environment Variable?"}
-    Env -- found --> Return
-    Env -- not found --> Project{"Project Config?"}
-    Project -- found --> Return
-    Project -- not found --> Global{"Global Config JSON?"}
-    Global -- found --> Return
-    Global -- not found --> Compiled{"Compiled Defaults?"}
-    Compiled -- found --> Return
-    Compiled -- not found --> Empty["Return empty string"]
+```sh
+graphit config set knowledge.docs_dir documentation
+graphit config get knowledge.docs_dir
+graphit config list
+graphit config unset knowledge.docs_dir
+graphit config set ast.scip.parsers '.zig=registry.example/team/scip-zig:1'
 ```
 
-### Resolution Order
+`set KEY VALUE` uses JSON booleans, numbers, arrays, objects and quoted strings;
+other text is a literal string. Empty strings, whitespace, `false` and `0` remain
+present values. Public null is rejected. Supported secret keys always receive
+strings. `set` and `unset` print only `{"changed":true|false}`. Module values are
+checked with the existing `ModuleSettings` before persistence.
 
-1. **Inline config** — Passed directly by the caller (e.g., lockfile config section).
-2. **Environment variables** — Derived from the runtime key: `GRAPHIT_<UPPER_DOT_TO_UNDERSCORE>` (e.g., `knowledge.docs_dir` → `GRAPHIT_KNOWLEDGE_DOCS_DIR`).
-3. **Project config** — Stored in the project lockfile's `config` section.
-4. **Global config** — Stored in `~/.graphit/config.json`, or in the directory named by
-   `GRAPHIT_GLOBAL_DIR` when it is set — see below.
-5. **Compiled defaults** — Baked into the binary at build time via `-ldflags`.
+`get` emits the SDK inspection entry with `key`, `source` and a public value or
+secret configured state. A missing key fails with empty stdout. `list` emits
+ordered inspection entries. Default reads capture Command, requested Environment,
+current Project when present, Global and Distribution layers; `--global get/list`
+inspect only the stored Global document, without Project or transient overrides.
+Environment inspection retains captured text; typed domain getters interpret it.
+The CLI captures the maintained known keys, stored/inline keys and the requested
+`get` key. An unrelated environment variable does not become a setting.
 
----
+Reads work without a project and create no configuration, lock, identity, profile
+or daemon. Default writes require an existing Graphit checkout; Global writes
+work outside projects. `--project-version` is rejected because configuration
+belongs to the physical checkout. `--global-dir` selects the installation as in
+other commands. `--timeout` is the positive writer-lock wait in seconds, default
+30; cancellation and SDK errors remain causal. Clap usage errors exit2, operational
+errors exit1 and interruption exits130.
+
+Providers, account profiles and their secrets remain in `provider`/`account` and
+the Auth store. AST profiles remain YAML consumed by the existing loader. See
+[Configuration Reference](../guides/configuration.md) and
+[CLI Reference](../guides/cli_reference.md).
+
+## Rust configuration contract
+
+`crates/graphit-core/src/config/{key,value,document,snapshot,store}.rs` implements
+`ConfigDocument`, `ConfigSnapshot`, `ConfigStore` and safe inspection. The Main
+CLI consumes these APIs in `graphit-app/src/config_entry.rs` under `tsk-b45e`.
+Configuration is separate from Auth providers/accounts, AST profile YAML and
+agent installation. It does not create authority or a consumer for a custom key.
+
+### Keys, values and captured layers
+
+`ConfigKey::new` trims and ASCII-lowercases keys, limits them to 128 bytes and
+16 dot-separated components, and requires alphanumeric edges with alphanumeric
+or single underscores inside each component. Double underscores are rejected;
+the encoded environment suffix is also capped at 128 bytes. Public custom keys
+are accepted, but this does not create a consumer for an unknown setting.
+Authentication namespaces `auth`, `providers`, `accounts`, provider/account S3
+keys, `mcp.api_key`, and embedding/rerank provider/model/base-url/API-key keys
+are excluded. Bootstrap `global_dir`, `model_cache`, `project_version`,
+`ai.agent_args` (including descendants) and `ast.cluster` are outside runtime configuration. See `config/key.rs` for the exact registry.
+
+`ConfigDocument` owns an immutable, cheaply cloned ordered map bound to one
+`Brand` and `ConfigSource`. Public values are typed `serde_json::Value`; a
+setting-level null is invalid, while empty strings, `false`, `0`, arrays and
+objects are values. Strings retain whitespace unless a domain consumer later
+normalizes it. Secret settings require strings.
+
+`ConfigSnapshot` captures explicit documents in this priority order:
+`Command` → `Environment` → `Project` → `Global` → `Distribution`. The first
+**present key** wins, including an empty value. Duplicate sources or documents
+from another brand are invalid. Getters never reread files, environment or CWD;
+old snapshots remain unchanged after writes. An incompatible winning type is
+an error, without falling through to another layer. Typed `get<T>` interprets
+JSON text only for strings sourced from `Environment`; every other source
+preserves its JSON type. `layer(source)` provides candidate access used by the
+implemented Hub [adapter selector](#rust-adapter-selection-and-layout), whose
+specialized precedence does not change Core's generic getter. Provider and model
+selection retain their own domain contracts.
+
+`capture_environment` receives the brand, a requested-key list and an OS-string
+iterator. It derives uppercase names with dots replaced by **double underscores**:
+`knowledge.docs_dir` → `GRAPHIT_KNOWLEDGE__DOCS_DIR`; `a.b` and `a_b` are distinct.
+Unrequested variables, including bootstrap variables, are ignored. Relevant
+non-UTF-8 values, duplicate relevant names and limits fail without echoing values.
+Empty environment text is an explicit override. Matching values feed the bounded
+document constructor incrementally, rather than accumulating an unbounded map.
+
+Environment names are bijective by key **within one brand**, not globally by
+(brand, key): brand `acme-code` / key `modules.ast` and brand `acme` / key
+`code_modules.ast` both derive `ACME_CODE_MODULES__AST`. Callers choose a brand
+and key list explicitly. This namespace is not an authorization boundary.
+
+### Scope and inspection
+
+The shared policy marks `client.secret` and `ui.auth.cookie_encryption_key` as
+secrets. They, `unit.id`, `ai.cli`, `models.embedding.id` and `models.rerank.id` reject
+`Project` storage. Syntax fallback uses package-linked grammars; configuration
+does not authorize loading project-provided native shared libraries.
+`modules.daemon_ui` accepts only `Environment`. The registry and policy apply
+across constructors, persisted reads and mutations. Consumers retain their
+own semantic rules, including global model selection. `ai.cli` is a completion
+executable name or path captured once at daemon startup. A configured path is
+retained; an invalid selection or missing executable never selects another CLI.
+Without an explicit value, the selected agent integration determines one CLI.
+
+Secrets use pinned `secrecy` 0.10.3 `SecretString`, with explicit
+`expose_secret` access for internal consumers. Logical documents have no public
+`Serialize` implementation. Their `Debug` output and inspection cannot reveal
+secret payloads. Inspection entries contain `key`, `source` and `value`:
+public values use `{ "kind": "public", "value": ... }`, while secrets expose
+only `{ "kind": "secret", "configured": true|false }`, based on nonempty text.
+There is no separate scope field; `Global`/`Project` source identifies persisted
+scope. Document inspection lists its stored keys; snapshot inspection lists
+resolved winners. Both are ordered, and mutation results report only `changed`.
+
+### Explicit document input
+
+`ConfigDocument::decode(&Brand, ConfigSource, &[u8]) -> io::Result<ConfigDocument>`
+exposes the strict decoder for an explicitly selected file. The caller supplies
+bytes and the source: Global uses optional root `githooks` plus `settings`;
+Project requires the unified `project.json` with root identity/metadata. It preserves
+canonical keys, scope restrictions, secret redaction, duplicate/unknown-field
+rejection and the 256 KiB input limit. Errors remain sanitized `InvalidData`.
+It creates no files, imports no other layout and grants no authority. Reading
+an explicitly selected path under the original filesystem capture/request
+remains the caller's responsibility; `encode` stays private.
+
+Main Config uses `ConfigStore::load` and its existing decoder. It adds no
+alternate configuration-file format or independent parser. SDK decoder checks
+remain separate from the affected Main executable tests.
+
+### Persisted format, bounds and errors
+
+Global persistence uses root configuration sections:
+
+```json
+{"githooks":{"pre-commit":["git diff --cached --check"]},"settings":{"knowledge.docs_dir":"docs","modules.ast":true,"custom.retry_count":0}}
+```
+
+Project persistence adds required `id`/`name` and maintained metadata at the root;
+see [Project document](../guides/configuration.md#the-project-document). There is
+one Project file. `githooks` cannot appear inside `settings` and no earlier key
+is accepted. Its complete command strings preserve commas, Unicode and escapes.
+The identity/metadata portion keeps its 64 KiB validation within the complete
+256 KiB Project document.
+
+The envelope rejects unknown fields and duplicate envelope/settings entries.
+Persisted keys must already be canonical and satisfy source policy. Nested
+public JSON follows Serde JSON behavior; this is not rejection of every nested
+object duplicate. Limits are 256 KiB encoded UTF-8, 1,024 settings and, per value,
+64 structural levels / 8,192 nodes. Constructors and mutation batches enforce
+structural and aggregate encoded-size budgets incrementally before retaining
+all large inputs. Consumers still own semantic validation of domain values.
+
+Invalid logical input, key, policy or mutation returns `InvalidInput`; malformed
+persisted JSON/key/policy returns sanitized `InvalidData`. Incompatible typed
+getters return `InvalidData`; ordinary getters for a secret require explicit
+secret access and return `InvalidInput`. Other I/O errors propagate;
+cancellation is `Interrupted`, lock waiting timeout is `TimedOut`, and changes
+to read-only targets return `PermissionDenied`. Reads do not repair bad files.
+
+### Stores and atomic mutation
+
+`ConfigStore::global(&InstallationPaths)` targets `<global>/config.json`;
+`ConfigStore::project(&ProjectPaths)` targets `<root>/.<brand>/project.json`.
+Project root metadata and identity remain project-owned, not configuration layers.
+Root `githooks` is projected into the normal typed `githooks` key; it is rejected
+inside `settings`. Identity keys cannot enter Global/Environment/Command layers.
+Construction and loading create no directories, lock, identity or config file;
+absence yields an empty document. Observed project brand directories and config
+sources are revalidated: symlinks and special sources are rejected.
+
+An owned non-Clone writer holds the stable target-adjacent lock: `.config.json.lock`
+for Global and `.project.json.lock` for Project, shared with ProjectIdentityWriter.
+`apply(&mut self, changes)` rereads under that lock, preserving other writers'
+keys and, on Project writes, the identity and metadata; metadata writers preserve
+configuration in the other direction. Convenience `set`/`unset` validate input before acquiring it. Handles
+pointing to the same target coordinate on the same kernel
+lock. Equal changes return `false` without target rewriting; unsetting an absent
+key does not create a config file, though acquiring a mutation writer can create
+its directories and lock. Neither normal release nor cleanup may replace or
+unlink the lock while holders or waiters exist.
+
+The shared configuration reader uses `Zeroizing<Vec<u8>>` from allocation,
+including error exits; private encoding also uses a zeroizing buffer. Secret
+ownership and raw buffers are wiped on drop, without a guarantee covering every
+allocator/Serde copy or memory locking. Atomic writes use a same-parent temporary,
+permissions before payload, file sync and cancellation before replacement.
+Global directories are created with Unix 0700 and new global files with 0600;
+existing global permissions become `original & 0600`, never adding permissions
+(0460 becomes 0400), and read-only changes remain denied. Project public-config
+files preserve existing permissions; new files use 0666 with umask or Windows
+creation defaults. The shared filesystem limits are in
+[Filesystem State](../guides/filesystem_contract.md#project-owned-files).
+
+The shared Gitignore excludes `.graphit/.project.json.lock`; Project's unified
+`project.json` remains versionable. Global's lock stays in the private installation.
+Config and metadata edits publish one complete document, preserving its ID.
+A Project write requires an initialized identity; it never creates/rekeys one.
+CLI mutation uses this same writer and does not start a daemon or create an Auth
+profile or installation identity. Root `githooks` uses whole-map precedence and
+ordered command arrays; null, CSV strings, invalid events and the prior key are
+rejected. See [Project document](../guides/configuration.md#the-project-document).
+
+## Rust adapter selection and layout
+
+The maintained Hub adapter selector consumes captured `ConfigSnapshot` and
+membership. It returns a canonical `NativeBinding` and origin. Kiro uses the
+current V3 engine and Markdown agents/hooks; V2 and preview bindings are absent.
+Generic configuration precedence remains Command → Environment → Project →
+Global → Distribution. Adapter membership selection retains its explicit and
+ambient rules rather than changing the Core getter.
+
+Selection and layout metadata grant no ownership or authorization and do not
+prove installed vendor execution. See
+[native installation identity](hub_native_installations.md) for the maintained
+APIs, targets, registry, errors and recovery boundaries.
+
+## Rust installation identity and salt
+
+`crates/graphit-core/src/installation_identity.rs` implements the semantic
+consumer for global `unit.id` and `client.secret` under `tsk-fcf0`. Configuration
+inspection does not invoke identity generation; product callers explicitly use
+the maintained `load` or `ensure` operations.
+
+`InstallationSettings::resolve(&ConfigSnapshot)` is pure: it validates captured
+winning values, represents missing/partial state and returns owned settings
+without I/O, generation or persistence. Valid command/environment overrides
+win without being copied to disk. `InstallationIdentityStore::new(&InstallationPaths)`
+binds only `ConfigStore::global`; `load()` reads persisted global state with
+optional ID/salt, creating no config, directory or lock. Neither read path treats
+an invalid present value as absence or repairs it.
+
+`InstallationId::new` trims peripheral whitespace and accepts 1–128 ASCII bytes,
+alphanumeric edges and alphanumeric/`.`/`_`/`-` inside, preserving case. Custom
+IDs need not be ULIDs. Generated IDs are canonical ULIDs with a 48-bit millisecond
+timestamp and 80 bits of OS entropy. A clock before the epoch or beyond the
+48-bit range fails rather than truncating. This identifier is local attribution
+and diagnostics, not trusted Hub identity or user-memory authority; it is not
+a validated path component.
+
+The salt is `SecretString`: 32–4,096 UTF-8 bytes, not entirely whitespace.
+Valid bytes are preserved without trimming; custom values have no promised
+entropy. Generated salts use 32 OS-random bytes encoded as base64url without
+padding (43 ASCII characters, 256 bits). Salt supports future event pseudonyms;
+it is not a cookie/OAuth/access credential. Empty values, wrong types and invalid
+IDs/salts require explicit config correction rather than automatic replacement.
+Semantic errors from persisted Global values are sanitized `InvalidData`;
+logical Command/Environment/Distribution errors are `InvalidInput`.
+
+`ensure(timeout, &Cancellation)` acquires the existing global config writer,
+rereads and validates both fields, generates only missing fields, then publishes
+all required insertions in **one** `apply`. Other settings and valid existing
+fields are preserved. A complete pair returns without apply, RNG or target
+rewrite, including on a read-only target. It still acquires the lock and reads;
+this is different from effect-free `load`/pure `resolve`. Partial read-only or
+invalid persisted state fails. A complete owned `InstallationIdentity` is
+returned only after publication succeeds.
+
+Pinned `getrandom = "=0.4.3"` provides fallible OS entropy with no predictable
+fallback. Raw entropy buffers are zeroizing from allocation, including partial
+RNG failures. RNG/clock/budget/cancellation/permission/I/O failures do not publish
+a partial pair or return generated values that were not persisted. RNG failure
+is a sanitized `Other`; timeout/cancellation retain their distinct config-store
+errors. OS entropy and filesystem syscalls are not interruptible. The existing
+stable `.config.json.lock`, atomic writer, permissions and cleanup limits apply;
+no separate identity lock is introduced.
+
+`InstallationSettings` and complete `InstallationIdentity` have private fields,
+explicit ID/secret getters, secret-redacted Debug and no public Serialize.
+Shared config inspection exposes only secret configured state. This does not
+promise memory locking or wiping every allocator/Serde copy. Event hash/HMAC,
+domain separation, rotation/shipping and fail-closed publication belong to Hub
+integration; this helper provides no hash stub. Cookie and OAuth consumers retain their separate authentication contracts.
+
+
+## Rust module settings contract
+
+`ModuleSettings::resolve` computes the twelve existing gates from one captured
+snapshot. Task, Memory, AST, Knowledge, Hub, Daemon, Sync, Embedding, Hooks and Agent
+are enabled by default; Dream and DaemonUi are opt-in. Invalid winning values
+fail rather than becoming defaults. The CLI checks recognized module values with
+this API before a mutation; `modules.daemon_ui` remains Environment-only.
+
+These switches control orchestration, independently of authorization and native
+executable availability. Changing a setting does not grant PROJECT access or
+implicitly start an agent. Each consumer owns when it captures or reloads its
+view; see [daemon operations](../guides/daemon_operations.md). Existing AST profile
+reload remains separate from configuration CRUD.
 
 ## The one setting that is not a config key
 
-**`GRAPHIT_GLOBAL_DIR` — the location of the global brand directory — is read from the
-environment only. `graphit config` cannot set it, and it does not pass through
-`ResolveConfig`.**
-
-The reason is structural, not a gap: the global config file lives *inside* the global
-directory (`AppDir()` → `<global>/config.json`). A key naming that directory could only
-be read after the directory had already been located, so the resolution chain above can
-never be the layer that answers "where is the chain's own storage". The environment is
-the only layer that resolves before the filesystem does.
-
-Two consequences worth stating plainly:
-
-- **It is read in `internal/brand`, not here.** `brand.GlobalDir()` calls
-  `os.Getenv(brand.EnvVar("GLOBAL_DIR"))` directly. Routing it through this package
-  would be an import cycle — `internal/config` imports `internal/brand`.
-- **`GRAPHIT_GLOBAL_DIR` is therefore *not* the env layer of a `global_dir` key.** The
-  step-2 mapping (`key` → `GRAPHIT_<KEY>`) is a coincidence of naming here; there is no
-  `global_dir` key to set in a lockfile, in `config.json`, or in the compiled defaults,
-  and setting one has no effect. `graphit config` accepts unknown keys silently, so a
-  `graphit config global_dir /some/path` reports success and changes nothing.
-
-Full behaviour — precedence, the white-label name, relative values, and what moves with
-it — is in [Storage Layout](../architecture/storage_layout.md#moving-it-graphit_global_dir).
-
----
-
-## 🧩 Key Types & Interfaces
-
-### `ConfigMap`
-
-```go
-type ConfigMap = map[string]any
-```
-
-A type alias for `map[string]any`. Supports flat keys (`"agent"`) and one-level nested maps (`"hub" → {"repo": "..."}`) accessed via dot notation.
-
-### `CompiledDefaults`
-
-```go
-var CompiledDefaults string
-```
-
-A package-level variable populated at build time via Go's `-ldflags` mechanism. It is a comma-separated string of `key=value` pairs:
-
-```
-agent=claude,knowledge.docs_dir=docs
-```
-
-Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is processed exactly once.
-
----
-
-## 📋 Configuration Keys
-
-### Top-Level Keys
-
-| Key | Description | Default |
-|---|---|---|
-| `agent` | Target agent adapter (`antigravity`, `cursor`, `claude`, `gemini`, `kiro`, `codex`, `opencode`, `qwen`, `kimi`) | `opencode` |
-| `cli` | CLI tool command name | Derived from Agent |
-
-### Nested Keys
-
-| Key | Description | Default |
-|---|---|---|
-| `agent` | Default coding-agent adapter | `opencode` fallback |
-| `cli` | Default coding-agent CLI used for synthesis and live work | mapped from `agent`, then `opencode` |
-| `ai.cli` | Global compatibility override for the completion CLI | (empty) |
-| `ai.agent_args` / `ai.agent_args.<binary>` | Global generic or executable-specific CLI arguments | (empty) |
-| `search.rerank` | Enables the optional second stage in AST and Knowledge keyword/hybrid searches | `false` |
-| `hub.events.anonymize` | Replace explicit project/user IDs in Hub event payloads with installation-salted SHA-256 hashes | `false` |
-| `client.secret` | Secret installation salt used only when Hub event identifiers are anonymized | generated ULID during setup; lazy fallback on first anonymized event |
-| `hub.icebug.reverse_edges` | Whether AST artifacts publish a separate reverse CSR for every relationship type. Only explicit `false` disables it. | `true` |
-| `ui.host` | Address on which the unified UI server listens | `127.0.0.1` |
-| `ui.port` | First port the unified UI server attempts to bind; invalid values fall back to 8080 | `8080` |
-| `ui.allowed_origins` | Comma-separated exact CORS origins; configured values replace the localhost default allowlist | localhost loopback origins |
-| `mcp.host` | Interface used by the daemon's authenticated HTTP MCP listener | `127.0.0.1` |
-| `mcp.port` | MCP port; `0` requests an OS-assigned port | `0` |
-| `knowledge.docs_dir` | Relative path to the project documentation directory. Set to `.` to index the whole project. | `docs` |
-| `knowledge.include_readme` | Whether the project root's README is indexed into the wiki on top of `knowledge.docs_dir` | `true` |
-| `knowledge.extensions` | Comma-separated list of file extensions to index (e.g., `md,yaml,json,proto`). The `.` prefix is optional. | `md,markdown,mdx,txt,adoc,rst,puml,plantuml,yaml,yml,json,proto,graphql,gql,wsdl,xml` |
-| `wiki.version_retention` | Minimum retention window for old wiki table versions | `15m` |
-| `ast.index_source` | Whether to store file source in the AST graph | `true` |
-| `ast.index_docs` | Whether the AST pipeline indexes `knowledge.docs_dir`. Off, because the docs tree belongs to the knowledge wiki. | `false` |
-| `ast.queries_dir` | Relative path to the directory holding the project's own grammar query files. The default is tracked by git, so this is only needed to keep grammars elsewhere. | `.graphit/ast/queries` |
-| `ast.grammar` | Comma-separated `.ext=grammar-name` pairs binding a file extension to one grammar. The only way an `exclusive` grammar — the SQL dialects — is ever used. | (empty — no override) |
-| `ast.grammars_blacklist` | Comma-separated grammars the AST index must **not** use. Their files are not discovered, not parsed, and their queries do not resolve. | (empty — nothing disabled) |
-| `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
-| `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
-| `task.prefix` | Namespace for authoritative Task LanceDB tables inside `v2/projects/<project-ulid>/` when S3 is configured. | `tasks` |
-| `dream.idle_timeout` | Inactivity in **seconds** before a dream cycle starts | `7200` (2 hours) |
-| `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
-| `daemon.activity_window` | Go duration string; how recently a project must have changed to stay supervised. `0` disables parking. | `30m` |
-| `memory.version_retention` | Minimum retention window for authoritative memory table versions | `720h` (30 days) |
-| `unit.id` | Local installation identity used for attribution and diagnostics; never a user-memory scope or trusted Hub identity | generated ULID during setup; lazy fallback on first attribution use |
-| `modules.<name>` | Enable/disable a module (`true`/`false`) | Enabled for core, disabled for opt-in |
-
-The maintained [Configuration Reference](../guides/configuration.md) is the user-facing inventory
-for these keys, provider defaults, feature boundaries, deployment profiles, and runtime-only
-environment controls. This specification defines resolution and implementation behavior.
-
-### Authentication is outside runtime configuration
-
-`graphit setup` owns runtime settings and ensures the canonical non-secret provider `local` in the
-authentication store. Authentication-related Hub/S3/MCP keys are not part of the layered
-configuration namespace and `graphit config` rejects them. Named providers and account profiles
-live in the restricted, atomically replaced `auth.json`. Local ONNX device/device ID also belongs
-to each provider AI service rather than layered model configuration; with no active profile, AI
-resolution ensures and uses the persisted `local` provider with `cpu`/`0` defaults. See
-[Authentication](../guides/authentication.md).
-
-### Hub identity, access control, and cache
-
-S3 keys authenticate the Graphit workload to object storage; they are not a user identity and do
-not determine which projects a caller may see. Trusted `user_id` and `team_ids` arrive from the
-local single-user deployment boundary, workload identity, or authenticated proxy context. They are
-not accepted as ordinary project/global config keys because doing so would let a caller impersonate
-another subject.
-
-Hub v2 grant documents and matching are defined by
-[Hub Access Control](hub_access_control.md). The local `~/.<brand>/hub/cache/` tree uses compiled,
-bounded TTL/LRU defaults unless dedicated cache controls are introduced. It is isolated by Hub and
-subject, contains no authoritative registry or ACL, and may be removed without migration. A cache
-setting must never enable stale positive authorization after a control-plane failure.
-
-### Feature and process modules: `modules.agent`, `modules.daemon_ui`
-
-Both follow the ordinary `modules.<name>` convention, so each gets an environment variable and both
-config layers for free.
-
-**`modules.agent`** gates every feature that needs a coding-agent CLI installed on the machine — not
-an API key, not an embedding model, but a binary the framework shells out to. It is ON by default.
-
-| Disabled feature | Route |
-|---|---|
-| Natural-language Cypher in the AST explorer | `POST /api/generate-cypher` |
-| AI search in the knowledge explorer | `POST /api/wiki/ai-search` |
-| Live search | `/api/live/*`, which is not registered at all when the module is off |
-
-Each of those reaches `ai.NewClientFromConfig`, which only ever returns a CLI resolved from `PATH`.
-There is no HTTP fallback behind it, so without a binary they cannot degrade — only fail. The flag
-states that no usable Agent CLI is available in this deployment. The published base container image
-sets it off because it ships without an Agent CLI, while a derived image may install and authenticate
-one and override `modules.agent`, `agent`, and `cli` through the normal configuration system.
-
-It deliberately does **not** cover anything running on local ONNX embeddings or on the graph alone:
-`GET /api/search` (BM25 + vector hybrid), `GET /api/wiki/search` (BM25), and every Cypher, graph,
-complexity and dead-code route keep working, as does the whole MCP tool surface.
-
-The UI reads the same flag, injected into the page by the server as `window.__AGENT_FEATURES__`
-rather than fetched, and does not render the controls. Injection rather than a request is the point:
-the UI must never offer a feature it cannot deliver, not even for the one frame before a capability
-response arrives.
-
-**`modules.daemon_ui`** makes the daemon serve the unified UI for as long as it runs, as one of its
-supervised global modules. It is **opt-in** — listed in `OptInModules` beside `dream` — because on a
-workstation the UI is something you start with `graphit ui` and close when you are done, and a
-background process silently holding port 8080 is not what anyone asks the daemon for. A container is
-the case it exists for: there one process must both own the MCP server and serve the UI, and it is
-PID 1.
-
-### The daemon's MCP listener: `mcp.host` and `mcp.port`
-
-| Key | Default | Meaning |
-|---|---|---|
-| `mcp.host` | `127.0.0.1` | The interface the daemon's MCP server binds |
-| `mcp.port` | `0` | The port, or `0` for a kernel-assigned one |
-
-The host and port defaults reproduce exactly what the daemon did before these keys existed. The endpoint is
-authenticated by a bearer key, but a key is not a reason to publish a port: the stdio proxy every Agent
-uses reaches it over loopback.
-
-A container needs the opposite of an ephemeral port — one known before the process starts, so it can
-be declared in the image and mapped on the host. The chosen port is published to
-`<DaemonDir>/mcp.port` either way, and a freshly generated runtime bearer key to
-`<DaemonDir>/mcp.key` (mode `0600`). The listener additionally accepts the active account profile's
-static MCP key for a local provider. With an active Broker provider, it accepts and verifies each
-caller's Broker access JWT for the configured canonical MCP resource audience, then forwards the
-same bearer to Broker APIs. The token also contains the Broker API audience, which those APIs
-verify independently.
-
-An unparseable or out-of-range `mcp.port` falls back to `0` rather than failing the daemon. That is
-deliberate: in a container the daemon is PID 1, so refusing to start over a typo in one key would
-take the indexers and both servers down with it instead of producing a diagnostic.
-
-### Secret keys: environment-supplied and redacted
-
-One runtime-configuration key holds a confidential salt, declared in one place —
-`config.SecretConfigKeys`:
-
-| Key | Environment variable |
-|---|---|
-| `client.secret` | `GRAPHIT_CLIENT_SECRET` |
-
-Two properties follow from that list rather than from anything remembered per call site:
-
-- **Every one of them resolves from its environment variable**, through the ordinary
-  `ResolveConfig` chain, where the environment outranks both the project lockfile and the global
-  config file. This is what lets a container or a pipeline supply a credential without writing it
-  to disk — and an *empty* variable is skipped rather than treated as an answer, so declaring the
-  variables empty for discoverability does not blank a stored value.
-- **Every one of them is redacted** by `graphit config get` and `graphit config --list`, because
-  `IsSecretConfigKey` is derived from the list. This is the gap it closed: redaction previously
-  protects every supported configuration secret. Authentication, broker and AI secrets use the
-  auth-domain redaction path and exist only in the restricted profile store.
-
-`ConfigEnvVar(key)` returns the variable name for any runtime key, so help text and documentation
-name it instead of spelling out the rule and drifting from it — and secrets use the same derivation
-as every other key rather than a scheme of their own.
-
-The AI providers additionally accept their own native variables when the Graphit key is unset —
-`OPENAI_API_KEY`, `COHERE_API_KEY`, `VOYAGE_API_KEY`, `GOOGLE_API_KEY` / `GEMINI_API_KEY`.
-
-### Unified UI network access: `ui.host`, `ui.port`, and `ui.allowed_origins`
-
-The unified UI server binds to `127.0.0.1:8080` by default. `ui.host` can publish it on
-another interface or every IPv4 interface, while `ui.port` selects the first port it attempts to
-bind. Like every normal config key, a project value overrides a global value;
-`GRAPHIT_UI_HOST` and `GRAPHIT_UI_PORT` override both. An invalid `ui.port` falls back to 8080.
-
-`ui.allowed_origins` is a comma-separated list of exact browser origins. When the
-key is absent or empty, the secure default remains unchanged: empty/same-origin
-requests and `http://localhost`, `http://127.0.0.1`, and `http://[::1]` (with
-optional ports) are accepted. Once configured, the list **replaces** that default;
-add any localhost origin explicitly if it must remain available. `*` explicitly
-allows every origin and should only be used when exposing the project data behind
-another trusted access-control boundary.
-
-```bash
-# apply to every project on this machine
-graphit config --global ui.host 0.0.0.0
-graphit config --global ui.allowed_origins https://graph.example.com
-
-# override for the current project
-graphit config ui.host 127.0.0.1
-graphit config ui.allowed_origins http://localhost:5173,https://preview.example.com
-```
-
-The unified page uses the same-origin `/api` path, so a browser connecting through
-a remote hostname or reverse proxy does not try to call its own `localhost`.
-With `ui.auth.enabled=true`, data APIs require a Broker browser session; without it,
-the listener retains its local development access model. CORS limits browser reads
-but is not a network authorization boundary. A server bound to `0.0.0.0` should
-use HTTPS and appropriate network policy. See the complete
-[S3 and UI network operator guide](../guides/s3-and-ui-network.md).
-
-### The documentation tree: `knowledge.docs_dir`
-
-```go
-const DefaultDocsDir = "docs"
-
-func ResolveDocsDir(inlineCfg, projectCfg ConfigMap) string
-```
-
-`knowledge.docs_dir` is the single fact three modules read, and it decides more
-than which directory the wiki walks:
-
-| Consumer | What it does with the value |
-|---|---|
-| Knowledge indexer | walks it, and reports every source path relative to the **project root**, not to this directory |
-| AST indexer | *excludes* it, unless `ast.index_docs` is `true` |
-| Daemon watcher | routes a changed file under it to the wiki rather than to the code graph |
-
-This default was `.` — the whole project — until it was changed to `docs`. The old
-value made the wiki index every indexable file in the repository: vendored
-markdown, generated JSON, Agent adapter directories, anything the ignore file did
-not happen to name. A project whose documentation lives elsewhere now says so:
-
-```bash
-# this project keeps documentation in documentation/
-graphit config knowledge.docs_dir documentation
-
-# nested paths work, and are matched exactly — documentation/other/ stays out
-graphit config knowledge.docs_dir documentation/wiki
-
-# restore the old behaviour: index the whole project
-graphit config knowledge.docs_dir .
-
-# for every project on this machine
-graphit config --global knowledge.docs_dir documentation
-
-# one command only
-GRAPHIT_KNOWLEDGE_DOCS_DIR=documentation graphit knowledge index
-```
-
-`graphit knowledge index <path>` bypasses the key altogether: an explicit path is
-taken literally and indexed wholesale, README rule included or not.
-
-### The root README: `knowledge.include_readme`
-
-```go
-func ResolveKnowledgeIncludeReadme(inlineCfg, projectCfg ConfigMap) bool
-```
-
-The project root's README is indexed into the wiki **whatever `knowledge.docs_dir`
-says**, because it is by convention not inside the docs tree and it is the one page
-a reader reaches for first. Scoping the wiki to `docs/` without this would have
-dropped the front page of every project.
-
-The name is not a fixed string: `knowledge.RootReadme` reads the root directory
-and takes the first file whose base name is `readme` (any casing) with an
-extension `knowledge.extensions` accepts — `README.md`, `readme.markdown`,
-`README.rst`, `README.adoc`. A `README.pdf` is not a document this pipeline can
-chunk, so it is not one it picks up.
-
-```bash
-# index the docs tree alone
-graphit config knowledge.include_readme false
-```
-
-Only the **root** README is in scope. A `README.md` one directory down is an
-ordinary file: in the wiki if it is under the docs tree, in the code graph
-otherwise.
-
-### The docs tree in the code graph: `ast.index_docs`
-
-```go
-func ResolveAstIndexDocs(inlineCfg, projectCfg ConfigMap) bool
-```
-
-The AST pipeline has parsers for markdown, YAML, JSON and XML, so before this key
-existed it indexed the documentation tree as well as the wiki did — a `File` node
-per page and a `Heading` node per section, in a graph meant for code. It is off by
-default and the docs tree is excluded.
-
-```bash
-# put the docs tree back in the code graph
-graphit config ast.index_docs true
-```
-
-**This is the override, and `.astignore` is not an alternative to it.** The
-exclusion is injected as a default ignore pattern, and default patterns are
-applied last, which under gitignore's last-match-wins ordering makes them the
-highest-priority patterns in the checker — a `!docs/` line in `.astignore` cannot
-outrank one. See [ignore_files](../guides/ignore_files.md).
-
-Two configurations produce no exclusion at all, because excluding them would be
-wrong rather than merely opinionated:
-
-- `knowledge.docs_dir` is `.` — the docs tree is the project, so the pattern would
-  exclude everything and the graph would come out empty.
-- the path escapes the project (absolute, or starting with `..`) — the ignore
-  checker matches project-relative paths, so no pattern could describe it.
-
-A scoped index (`graphit ast index --path internal/auth`) resolves configuration
-from the path it was given, so it sees no project lockfile and applies no
-exclusion. That is deliberate: an explicit path is an explicit request, and
-`graphit ast index --path docs` indexes the docs tree.
-
-### Cluster Tagging for Monorepos: `ast.cluster_map` and command flags
-
-```go
-func ResolveClusterPathMap(inlineCfg, projectCfg ConfigMap) map[string]string
-```
-
-The AST module supports **logical cluster tagging** to enable filtered queries across different domains within a monorepo (e.g., Oracle SQL, XML export, Java backend, frontend TypeScript). Each indexed node receives a `cluster` property.
-
-**Configuration:**
-```bash
-# Set cluster map (comma-separated path=cluster pairs, paths are directory prefixes)
-graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
-
-# Apply a default cluster to this explicit index operation
-graphit ast index --cluster default-cluster
-```
-
-**How it works:**
-- Paths are directory prefixes (trailing slash optional). `schema/` matches `schema/table.sql`.
-- Most specific (longest) prefix wins when multiple match.
-- Files not matching any prefix use the `--cluster` value for that command, when supplied.
-- `graphit ast index --cluster-path` persists `ast.cluster_map` to `graphit.lock.json`.
-
-The command also persists an `ast.cluster` field for historical compatibility, but no configuration
-resolver currently consumes that field during automatic indexing. It is not an active default
-configuration key. Use `ast.cluster_map` for persistent automated routing and `--cluster` for an
-explicit default on one `index` or `watch` invocation.
-
-**Querying:**
-```cypher
-// All Oracle SQL tables
-MATCH (n:Table {cluster: 'oracle'}) RETURN n.name, n.path
-
-// Cross-cluster calls
-MATCH (f:Function {cluster: 'backend'})-[:CALLS]->(s:Function {cluster: 'oracle'})
-RETURN f.name, s.name
-```
+The global directory is a bootstrap input, supplied by `--global-dir` or the
+branded `GLOBAL_DIR` environment variable before configuration is loaded. It
+cannot be changed by persisting `global_dir`. The SDK binds each store to that
+captured installation or project; it does not rediscover CWD or environment.
 
 ### The project's grammars: `ast.queries_dir`
 
-```go
-func DefaultASTQueriesDir() string
-func ResolveASTQueriesDir(inlineCfg, projectCfg ConfigMap) string
-```
-
-A project overrides a grammar by dropping a query YAML into its own queries
-directory, which the resolution chain reads before the user's and the runtime's.
-That directory was fixed at `.graphit/ast/queries`, and `graphit init` ignored
-`.graphit/` wholesale — so the one kind of customization that belongs to the
-repository rather than to the machine lived in the one directory the repository
-does not track. The next clone, and every other developer, silently got the
-shipped grammar back.
-
-Both halves of that were fixed, and the second one made the first optional. Machine
-state and generated output inside the brand directory moved into `.graphit/runtime/`;
-the generated `.gitignore` also names `.graphit/grammars/` for platform-specific
-parser binaries. The **default query location** remains tracked, and a committed query
-override reaches every checkout with no configuration at all. See
-[Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
-
-The key remains for a project that would rather keep its grammars beside its other
-tooling:
-
-```bash
-# grammars the whole team gets, versioned with the code
-graphit config ast.queries_dir tooling/grammars
-
-# for every project on this machine
-graphit config --global ast.queries_dir tooling/grammars
-
-# one command only
-GRAPHIT_AST_QUERIES_DIR=tooling/grammars graphit ast index
-```
-
-The value is a path relative to the project root, and it **replaces** the default
-rather than adding to it: a project has one grammar directory, and two would mean
-two answers for the same language with no rule to choose between them. Files left
-under `.graphit/ast/queries` after the key is set are not read.
+The AST loader consumes the configured queries directory under its existing
+project admission. Configuration CRUD persists the setting; it does not load a
+parser or infer a profile. See [AST customization](ast_module.md).
 
 ### Turning grammars off: `ast.grammars_blacklist` and `ast.grammars_whitelist`
 
-```go
-func ResolveASTGrammarsBlacklist(inlineCfg, projectCfg ConfigMap) string
-func ResolveASTGrammarsWhitelist(inlineCfg, projectCfg ConfigMap) string
-```
-
-Both keys are comma-separated lists of grammar names, and together they decide
-which languages exist for the AST index:
-
-| The configuration | What is enabled |
-|---|---|
-| neither key set | every registered language — the default |
-| `ast.grammars_blacklist=yaml,css` | everything **except** those two |
-| `ast.grammars_whitelist=go,sql` | **only** those two |
-| whitelist `go,sql` + blacklist `sql` | only `go` — a name in both loses |
-
-```bash
-# stop indexing YAML in this project
-graphit config ast.grammars_blacklist yaml
-
-# …on this machine, for every project
-graphit config --global ast.grammars_blacklist yaml
-
-# …for one command only
-GRAPHIT_AST_GRAMMARS_BLACKLIST=yaml graphit ast index
-graphit ast index -c ast.grammars_blacklist=yaml
-
-# index nothing but Go and SQL
-graphit config ast.grammars_whitelist go,sql
-```
-
-**What the names match.** A grammar query file carries both a `language:` and a
-`grammar:`, and the two are frequently different — `language: yaml` with
-`grammar: tree-sitter-yaml`, `language: plsql` with `grammar: antlr-plsql`. An
-entry matches, case-insensitively and after trimming whitespace, if it equals
-**any** of three names: the language, the grammar, or the grammar without its
-`tree-sitter-` / `antlr-` prefix. So `yaml` and `tree-sitter-yaml` both disable
-the same language, which is what someone writing the list means.
-
-**An unknown name is inert.** `ast.grammars_blacklist=cobol` on a machine with no
-COBOL grammar disables nothing and reports nothing. This is deliberate: the lists
-are read on every lookup, in processes that may not have a grammar pack installed
-yet, and rejecting an unknown name would turn "not installed here" into a hard
-failure of the whole index. The cost is that a typo is silent — see
-[the troubleshooting entry](../guides/troubleshooting.md).
-
-**Why this is not `.astignore`.** That file excludes *paths*; these keys exclude a
-*language*, which cuts across paths. And it is not removing a query file either:
-the shipped ones live in the installed runtime directory, which is regenerated on
-every install and is not a consumer's to edit. See
-[the AST module](ast_module.md#turning-a-grammar-off-by-configuration) for where
-the keys are enforced and what happens to nodes already in the graph.
-
-### Binding an extension to one grammar: `ast.grammar`
-
-```go
-func ResolveGrammarOverrides(inlineCfg, projectCfg ConfigMap) map[string]string
-func ParseGrammarOverrides(val string) map[string]string
-func MergeGrammarOverrides(base, priority map[string]string) map[string]string
-```
-
-Comma-separated `.ext=grammar-name` pairs. The extension gets a leading dot if the
-value omits one, and the grammar name selects the backend on its own: `antlr-*` is
-ANTLR v4, anything else tree-sitter.
-
-```bash
-# this project's .sql is Oracle, and its package files are PL/SQL too
-graphit config ast.grammar ".sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql"
-
-# …on this machine, for every project
-graphit config --global ast.grammar ".sql=antlr-tsql"
-
-# …for one command only
-graphit ast index --grammar .sql=antlr-postgresql
-```
-
-**It selects rather than reorders.** A bound extension is parsed by the named grammar
-and by nothing else — there is no fallback to whatever the extension tables would have
-chosen, which is the whole point of stating it.
-
-**It is what makes an exclusive grammar usable.** `plsql`, `postgresql`, `db2`, `tsql`
-and `plpgsql` declare `exclusive: true` in their query YAML, so they claim no
-extensions at all. Without an entry here, `.sql` is parsed by the tree-sitter `sql`
-grammar and `.pks` / `.db2` / `.tsql` are not indexed at all. See
-[Exclusive grammars](ast_module.md#exclusive-grammars--reachable-only-when-named).
-
-**It does not revive a disabled grammar.** `ast.grammars_blacklist` and
-`ast.grammars_whitelist` are checked after this key: a grammar they exclude stays
-excluded, and the files bound to it are not discovered. Exclusivity means *off by
-default, on when named*; the blacklist means *off*.
-
-**The configured key reaches further than the `--grammar` flag.** File discovery, the
-watcher and the daemon's batch router decide what to offer the parser from the project
-configuration alone — they have no command line. The flag is merged on top for parsing
-only. So for an extension that no other grammar claims, the key is what makes its files
-visible; the flag alone would leave the parser with nothing to parse.
-
-### Shared task tables: `task.prefix`
-
-```go
-func ResolveTaskPrefix(inlineCfg, projectCfg ConfigMap) string
-```
-
-The Task module stores backlog and active/history state in one authoritative LanceDB
-database — see [Task Module](task_module.md). The default namespace is `tasks`. With
-S3 configured, it is nested under the Hub prefix and project identity:
-
-```bash
-graphit config task.prefix engineering/tasks
-graphit config --global task.prefix shared/tasks
-GRAPHIT_TASK_PREFIX=ci/tasks graphit task list
-```
-
-Prefix values are slash-normalized. Normal configuration precedence applies: inline,
-environment, project lockfile, global config, then default. The key changes the table
-location; it does not create a repository directory, replica, or migration workflow.
-
-### Reading project config without the hub
-
-```go
-func LoadProjectConfig(projectDir string) ConfigMap
-```
-
-Reads the `config` object out of a project's lockfile. This duplicates a sliver of
-`hub.LoadLockfile` on purpose: `hub` imports `ast`, so `ast` cannot import `hub`,
-and the AST side needs project configuration to decide whether the docs tree is
-its business. A missing or malformed lockfile resolves to `nil`, which
-`ResolveConfig` treats as "nothing set here" and falls through. Anything richer
-about a lockfile still belongs to the hub package.
-
-### Module System
-
-`IsModuleDisabled(module, inline, project)` resolves `modules.<name>`. Explicit `false` disables;
-explicit `true` enables. `dream` and `daemon_ui` are the only opt-in modules and are disabled when
-absent. Every other named module is enabled when absent.
-
-The currently consumed module names are:
-
-| Module | Boundary |
-|---|---|
-| `task` | Task mandate, lifecycle reconciliation, and fail-closed Task service operations |
-| `memory` | Memory mandate/bootstrap, synchronization, and maintenance |
-| `ast` | AST mandate plus lifecycle/daemon indexing |
-| `knowledge` | Knowledge mandate plus lifecycle/daemon indexing |
-| `hub` | Hub mandate and artifact-preparation routing |
-| `daemon` | automatic daemon startup |
-| `sync` | daemon filesystem synchronization; `false` prevents construction of the per-project recursive watcher while explicit sync/index operations remain available |
-| `embedding` | daemon and heavy-checkpoint embedding work |
-| `hooks` | Git hook reconciliation |
-| `agent` | CLI-agent-dependent UI/API features and Live Search |
-| `dream` | autonomous idle improvement cycles (opt-in) |
-| `daemon_ui` | UI hosted as a daemon global module (opt-in) |
-
-These are orchestration gates, not a generic authorization system. Direct command behavior remains
-module-specific; Task is the exception that checks its gate inside the service and refuses every
-operation when disabled.
-
----
-
-## 🔧 CRUD Operations
-
-### Reading
-
-```go
-func GetConfigValue(cfg ConfigMap, dotKey string) (string, bool)
-```
-
-Splits `dotKey` at the first `.` to resolve nested maps. Returns the string value and whether it was found.
-
-### Writing
-
-```go
-func SetConfigValue(cfg ConfigMap, dotKey, value string)
-```
-
-Creates nested map structure if needed. For flat keys, sets directly on the map.
-
-### Deleting
-
-```go
-func UnsetConfigValue(cfg ConfigMap, dotKey string)
-```
-
-Removes the key. For nested keys, also cleans up empty parent sections.
-
-### Listing
-
-```go
-func ListConfigEntries(cfg ConfigMap) [][2]string
-```
-
-Returns all key-value pairs as sorted `[key, value]` tuples. Nested maps are flattened to dot-notation keys.
-
----
-
-## 🌐 Global Config
-
-Stored at `~/.graphit/config.json`. The `AppDir()` function resolves `~/.graphit/` and creates it with mode `0o700`.
-
-| Function | Description |
-|---|---|
-| `LoadGlobalConfig()` | Load and parse JSON. Returns empty `ConfigMap` if file does not exist. |
-| `SaveGlobalConfig(cfg)` | Serialize to indented JSON. Removes empty nested sections. File mode `0o600`. |
-| `GetGlobalConfigValue(key)` | Load → get → return `(value, found, error)`. |
-| `SetGlobalConfigValue(key, value)` | Load → set → save. |
-| `UnsetGlobalConfigValue(key)` | Load → unset → save. |
-
----
-
-## 🎯 Agent & CLI Resolution
-
-### Agent Resolution
-
-```go
-func ResolveAgent(flagValue string, inlineCfg, projectCfg ConfigMap) string
-```
-
-Priority: flag → `ResolveConfig("agent", ...)` → `config.FallbackAgent`, which is `"opencode"`.
-
-```go
-func ResolveProjectAgent(flagValue string, inlineCfg, projectCfg ConfigMap, lockfileAgents []string) string
-```
-
-Extended resolution that also considers:
-1. Flag value
-2. Inline config `agent` key
-3. Project config `agent` key
-4. **Ambient Agent** (env var `GRAPHIT_AGENT` → global config → compiled defaults)
-5. **Lockfile Agents list**: If the ambient Agent matches a registered Agent, use it. Otherwise, use the first registered Agent.
-
-### CLI Resolution
-
-```go
-func ResolveCLI(flagValue string, inlineCfg, projectCfg ConfigMap, resolvedAgent string) string
-```
-
-Priority: flag → `ResolveConfig("cli", ...)` → `CLIForAgent(resolvedAgent)` → `config.FallbackCLI`, which is `"opencode"`.
-
-The `CLIForAgent()` mapping:
-
-| Agent | CLI |
-|---|---|
-| `antigravity` | `agy` |
-| `gemini`, `gemini-code` | `gemini` |
-| `claude`, `claude-code` | `claude` |
-| `cursor` | `cursor-agent` |
-| `codex` | `codex` |
-| `opencode` | `opencode` |
-| `kiro` | `kiro-cli` |
-| `qwen` | `qwen` |
-| `kimi` | `kimi` |
-
-`deepseek` is not an Agent/CLI alias.
-
-### Effective default Agent and CLI chains
-
-The values described by setup as the **default Agent** and **default CLI** are not
-display-only preferences: they participate in runtime resolution and in executable
-fallback discovery.
-
-- `DefaultAgent()` calls `ResolveAgent("", nil, nil)`. With no inline or project maps in
-  that call, the effective order is `GRAPHIT_AGENT` → global `agent` → compiled `agent` →
-  `config.FallbackAgent`.
-- `DefaultCLI()` calls `ResolveCLI("", nil, nil, DefaultAgent())`. Its effective order is
-  `GRAPHIT_CLI` → global `cli` → compiled `cli` → CLI mapped from the fully resolved
-  default Agent → `config.FallbackCLI`.
-- Interactive setup uses `DefaultAgent()` and `DefaultCLI()` as the prompt defaults and
-  persists the accepted values as global `agent` and `cli`, respectively.
-
-**The two fallbacks are named constants, not literals.** `config.FallbackAgent` and
-`config.FallbackCLI` are both `"opencode"`, and they are constants because this value is read at
-the bottom of five different resolution paths — `ResolveAgent`, `resolveAmbientAgent`, `ResolveCLI`,
-the unified UI server, and `CLIForAgent`'s pairing. As separate string literals they could be changed
-one at a time, and the result would not fail: the paths would simply disagree about what the default
-is, which nothing reports. `TestFallbackAgentAndCLIAgree` pins the invariant that `FallbackCLI` is the
-CLI `CLIForAgent` pairs with `FallbackAgent`.
-
-AI CLI discovery adds one more layer after configuration resolution. `NewClientFromConfig()`
-first honors the legacy/specific global `ai.cli` key; when absent, it passes `DefaultCLI()`
-to `tryFallbackCLI()`. Executable lookup then tries, in order:
-
-1. the resolved/configured default CLI;
-2. the CLI mapped from the resolved default Agent, when distinct;
-3. the built-in provider/default candidate list, skipping duplicates.
-
-Each candidate is checked with `exec.LookPath`; therefore, a configured default that is not
-installed does not stop resolution — lookup continues through the remaining candidates.
-Resolution fails only when no candidate exists in `PATH`.
-
-The build injects `CompiledDefaults` through the Make variable `COMPILE_CONFIG`; there are no
-separate `DEFAULT_AGENT` or `DEFAULT_CLI` Make variables. A white-label build that wants these
-compiled layers must include them explicitly, for example
-`COMPILE_CONFIG='agent=cursor,cli=cursor-agent'`. Without those entries, the global values,
-Agent-to-CLI mapping, and terminal fallbacks above still apply.
-
----
-
-## 🔗 Active-profile S3 resolution
-
-Hub artifacts and shared memories use the active provider. Local providers expose
-one ambient S3 configuration. Broker providers require a project, user-memory, or Hub-metadata
-scope plus its physical storage module and resolve a separate in-memory configuration for each
-scope/module pair. There is no `hub.repo` or
-`memory.repo` configuration key.
-
-| Function | Description |
-|---|---|
-| `ResolveHubS3(inline, project)` / `HubS3Config()` | Return the ambient local `S3Config`; Broker callers must use a scoped resolver. Inline/project config cannot override authentication. |
-| `ProjectS3Config(ctx, id, module)` | Resolve or renew the Broker grant/topology for one project and physical module; other providers return their ambient S3 view. |
-| `UserS3Config(ctx)` | Resolve or renew the authenticated user-memory scope. |
-| `HubMetadataS3Config(ctx)` | Resolve or renew registry and global-rule storage. |
-| `S3ConfigForURI(ctx, uri)` | Derive the narrow Broker scope/module from a canonical S3 URI; unknown or ambiguous project paths fail closed. |
-| `ResolveHubEventsAnonymize(inline, project)` / `HubEventsAnonymize()` | Resolve the opt-in event identifier anonymization switch. |
-| `IsSecretConfigKey(key)` | Identify values that CLI output must redact; derived from `SecretConfigKeys`. |
-| `ConfigEnvVar(key)` | The environment variable that supplies a key. **The** derivation — `ResolveConfig` calls it, and anything that needs to name a variable calls it rather than rebuilding the rule. |
-| `AgentFeaturesEnabled(inline, project)` | Whether the agent-CLI-dependent features may be offered. |
-| `DaemonServesUI(inline, project)` | Whether the daemon should run the unified UI itself. |
-| `ResolveMCPHost` / `ResolveMCPPort` | The daemon's MCP bind address. |
-| `SecretConfigKeys` | The canonical list of credential and confidential-salt keys. |
-| `SecretConfigEnvVars()` | The environment variable for each secret key, in `SecretConfigKeys` order; derived with `ConfigEnvVar`. |
-
-The object-key contract is documented in
-[Hub S3 Object Layout](hub-s3-object-layout.md).
-
-Dream applies a narrower provider rule at its ledger boundary: `ProviderLocal` always uses
-`brand.GlobalDir()/dream/dreams/<project_id>` and therefore does not call the ambient local S3 view.
-Broker providers with Dream S3 enabled call `ProjectS3Config(..., module=dream)` and require
-the temporary scoped grant.
-
----
-
-## 🏁 Setup Detection
-
-```go
-func IsSetupDone() bool
-```
-
-Returns `true` if `~/.graphit/config.json` exists. Used by the CLI to determine if the initial setup wizard needs to run.
-
----
-
-## 🚨 Error Handling
-
-- **Missing global config file** — `LoadGlobalConfig()` returns an empty `ConfigMap` (not an error). This allows first-run scenarios to work without setup.
-- **JSON parse errors** — Wrapped with `"parsing global config: %w"` for actionable error messages.
-- **Missing keys** — `GetConfigValue()` returns `("", false)`. Callers use the boolean to distinguish "not set" from "empty".
-- **Thread safety** — `CompiledDefaults` parsing uses `sync.Once` to prevent race conditions during concurrent access.
-
----
-
-## 📦 Dependencies
-
-### Internal
-
-| Package | Usage |
-|---|---|
-| `internal/brand` | `DotDir()` for the application directory name, `EnvPrefix()` for environment variable prefixes. |
-
-### External
-
-| Package | Usage |
-|---|---|
-| `encoding/json` | Global config file serialization/deserialization. |
-| `sync` | `sync.Once` for compiled defaults lazy initialization. |
+Grammar selection belongs to the maintained AST selector and selects linked
+syntax grammars independently of compiler images. `ast.scip.parsers` is an
+ordinary layered string of comma-separated `extension=image` items. The winning
+complete string replaces lower layers; an explicit empty string clears them.
+The consumer trims surrounding item/assignment whitespace and rejects missing
+`=`, empty extension/image, empty comma-separated segments, colliding normalized
+extensions and invalid image arguments. `ConfigSnapshot.get<String>` consumes the
+same value from `GRAPHIT_AST__SCIP__PARSERS`; no second environment decoder,
+JSON-object reader or deep merge is used. See [custom compiler images](../guides/ast_extensibility.md#custom-compiler-images-by-extension).
+See [AST](ast_module.md) and [ignore files](../guides/ignore_files.md).

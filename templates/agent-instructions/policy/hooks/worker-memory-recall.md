@@ -1,0 +1,1 @@
+When a question about the system, rationale or learned behavior exceeds what you were given, read `{{ skill_name_memory }}` and query `{{ mcp_tool_memory_search }}` with `exclude_mandatory: true`, `top_k: 5`, `ai_optimized: true`, then read the selected ids with `{{ mcp_tool_memory_source }}`.

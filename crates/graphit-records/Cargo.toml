@@ -1,0 +1,39 @@
+[package]
+name = "graphit-records"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+lance = { version = "=14.0.2", default-features = false }
+graphit-core = { path = "../graphit-core" }
+graphit-data = { path = "../graphit-data" }
+graphit-auth = { path = "../graphit-auth" }
+graphit-hub = { path = "../graphit-hub" }
+chrono = { version = "=0.4.45", default-features = false, features = ["std", "serde"] }
+serde.workspace = true
+serde_json.workspace = true
+schemars = "=1.2.2"
+base64.workspace = true
+arrow-array = "=58.3.0"
+arrow-schema = "=58.3.0"
+lance-io = { version = "=14.0.2", default-features = false }
+lance-table = { version = "=14.0.2", default-features = false }
+lance-index = { version = "=14.0.2", default-features = false }
+futures = "=0.3.34"
+tokio.workspace = true
+url.workspace = true
+ulid.workspace = true
+getrandom.workspace = true
+sha2 = "=0.10.9"
+
+[dev-dependencies]
+aws-lc-rs = "=1.18.1"
+graphit-http = { path = "../graphit-http" }
+graphit-core = { path = "../graphit-core", features = ["auth-test-support"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[lints]
+workspace = true

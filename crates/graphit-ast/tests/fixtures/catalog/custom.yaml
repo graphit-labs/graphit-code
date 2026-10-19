@@ -1,0 +1,4 @@
+language: tracked_lang
+extensions: [.tracked, .TRACKED]
+queries:
+  - {data_key: custom, pattern: "(invalid", graph_label: CustomLabel}

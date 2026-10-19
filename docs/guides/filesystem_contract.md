@@ -1,230 +1,386 @@
 ---
 title: Filesystem, State, and Watchers
 type: guide
-updated: 2026-09-23
+updated: 2026-10-30
 tags: [filesystem, configuration, daemon, watchers, state, adapters]
+references:
+  - target: {type: task, id: tsk-8069}
+    relation: implements
+  - target: {type: task, id: tsk-749e}
+    relation: documents
+  - target: {type: task, id: tsk-a320}
+    relation: documents
+  - target: {type: task, id: tsk-1ed0}
+    relation: implements
+  - target: {type: task, id: tsk-1bf2}
+    relation: implements
+  - target: {type: task, id: tsk-9840}
+    relation: implements
+  - target: {type: task, id: tsk-8ee5, scope: project, scope_id: 01KSH1CRFFG8Z74B5ZS78WW808}
+    relation: implements
+  - target: {type: task, id: tsk-907c}
+    relation: derived_from
+  - target: {type: task, id: tsk-13ae}
+    relation: derived_from
+  - target: {type: task, id: tsk-c75a}
+    relation: derived_from
+  - target: {type: task, id: tsk-8bb7}
+    relation: derived_from
+  - target: {type: task, id: tsk-5035}
+    relation: derived_from
+  - target: {type: task, id: tsk-d3b4}
+    relation: derived_from
+  - target: {type: task, id: tsk-ffaa}
+    relation: derived_from
+  - target: {type: task, id: tsk-a8a3}
+    relation: derived_from
+  - target: {type: task, id: tsk-74f5}
+    relation: derived_from
+  - target: {type: task, id: tsk-0a82}
+    relation: derived_from
+  - target: {type: task, id: tsk-5d08}
+    relation: derived_from
+  - target: {type: task, id: tsk-6a07}
+    relation: derived_from
+  - target: {type: task, id: tsk-6b0a}
+    relation: derived_from
+  - target: {type: task, id: tsk-fa44}
+    relation: derived_from
+  - target: {type: task, id: tsk-d0f5}
+    relation: derived_from
+  - target: {type: task, id: tsk-cb52}
+    relation: derived_from
+  - target: {type: task, id: tsk-f49d}
+    relation: derived_from
+  - target: {type: task, id: tsk-c29b}
+    relation: supports
+  - target: {type: task, id: tsk-035c}
+    relation: supports
+  - target: {type: task, id: tsk-2006}
+    relation: relates_to
+  - target: {type: task, id: tsk-7bbb}
+    relation: relates_to
+  - target: {type: task, id: tsk-7bbb}
+    relation: supports
+  - target: {type: task, id: tsk-31f2}
+    relation: relates_to
+  - target: {type: task, id: tsk-31f2}
+    relation: supports
+  - target: {type: task, id: tsk-4b26}
+    relation: supports
+  - target: {type: task, id: tsk-2f54}
+    relation: supports
+  - target: {type: task, id: tsk-ced2}
+    relation: relates_to
+  - target: {type: task, id: tsk-1833}
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-10b5
+    relation: supports
+  - target:
+      type: task
+      id: tsk-216a
+    relation: supports
+  - target:
+      type: task
+      id: tsk-9b6d
+    relation: supports
+  - target:
+      type: task
+      id: tsk-47a5
+    relation: supports
+  - target:
+      type: task
+      id: tsk-cc0e
+    relation: supports
+  - target:
+      type: task
+      id: tsk-f4cd
+    relation: supports
+  - target:
+      type: task
+      id: tsk-78d4
+    relation: supports
+  - target:
+      type: task
+      id: tsk-d9b2
+    relation: supports
+  - target:
+      type: task
+      id: tsk-78d4
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-f4cd
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-cc0e
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-47a5
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-9b6d
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-d9b2
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-216a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-4b26
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-3ddb
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-7a69
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-a388
+    relation: supports
+  - target:
+      type: task
+      id: tsk-0f61
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-00a4
+    relation: supports
+  - target:
+      type: memory
+      id: 01M49CSNFTV703GYZ7C0VTK0XA
+    relation: derived_from
+  - target:
+      type: task
+      id: tsk-650b
+    relation: supports
+  - target:
+      type: task
+      id: tsk-f30e
+    relation: supports
+  - target:
+      type: task
+      id: tsk-92b3
+    relation: supports
+  - target:
+      type: task
+      id: tsk-467f
+    relation: supports
+  - target:
+      type: task
+      id: tsk-3ba8
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-6a69
+    relation: relates_to
+  - target:
+      type: memory
+      id: 01M493837ABS01KQM54Y953ZRS
+    relation: derived_from
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-b5d6
+    relation: supports
+  - target:
+      type: task
+      id: tsk-e079
+    relation: supports
+  - target:
+      type: task
+      id: tsk-1fee
+    relation: supports
+  - target:
+      type: task
+      id: tsk-8d62
+    relation: supports
+  - target:
+      type: task
+      id: tsk-6997
+    relation: supports
+  - target:
+      type: task
+      id: tsk-fcf0
+    relation: supports
+  - target: {type: task, id: tsk-ad05}
+    relation: relates_to
+  - target: {type: task, id: tsk-e493}
+    relation: relates_to
+  - target: {type: task, id: tsk-7a13}
+    relation: relates_to
+  - target: {type: task, id: tsk-c3bf}
+    relation: relates_to
+  - target: {type: task, id: tsk-0257}
+    relation: relates_to
+  - target: {type: task, id: tsk-47fd}
+    relation: relates_to
+  - target: {type: task, id: tsk-d75f}
+    relation: relates_to
+  - target: {type: task, id: tsk-b788}
+    relation: relates_to
+  - target: {type: task, id: tsk-4323}
+    relation: relates_to
+  - target: {type: task, id: tsk-376b}
+    relation: relates_to
+  - target: {type: task, id: tsk-250c}
+    relation: derived_from
+  - target: {type: task, id: tsk-3e75}
+    relation: derived_from
+  - target: {type: task, id: tsk-2706}
+    relation: implements
+  - target: {type: task, id: tsk-98e7}
+    relation: supports
+  - target: {type: task, id: tsk-e911}
+    relation: derived_from
 ---
 
-# Filesystem, State, and Watchers
+# Filesystem, state and watchers
 
-Graphit separates repository-owned configuration from machine-owned compiled state. Understanding
-that boundary explains what to commit, what the daemon watches, what can be deleted, and which files
-Graphit updates when it connects an agent environment.
-
-For storage-engine internals and the complete compiled-store tree, see
-[Storage Layout](../architecture/storage_layout.md). For every configuration key and environment
-override, see the [Configuration Reference](configuration.md).
+This page tells users which files belong in a project and which are private generated state.
+[Storage layout](../architecture/storage_layout.md) is the canonical physical layout; lower-level
+filesystem contracts specify publication, ownership and recovery. All persisted/transmitted paths
+are Unicode strings. There is no `os/units` codec or silent lossy path conversion.
 
 ## Project-owned files
 
-| Path | Purpose | Commit it? |
+| File or directory | Owner and effect | Share in Git? |
 |---|---|---|
-| `graphit.lock.json` | Project identity, project config, installed artifacts, contexts, and adapter membership | Yes |
-| `.gitignore` | Receives a marked Graphit block for machine-owned directories | Yes |
-| `.astignore` | Adds code-index exclusions; nested files apply to their subtree | Usually |
-| `.wikiignore` | Adds knowledge-index exclusions; nested files apply to their subtree | Usually |
-| `.graphit/rules/<module>.md` | Project mandate overrides shared by the team | Yes |
-| `.graphit/rules/<module>_skill.md` | Project override for the full managed Task, Memory, AST, Hub, or Knowledge skill; may include the default-content placeholder | Yes |
-| `.graphit/ast/queries/*.yaml` | Project grammar-query overrides, unless `ast.queries_dir` moves them | Yes |
-| `.graphit/grammars/{treesitter,antlr}/` | Platform-specific local parser libraries | No |
-| `.graphit/runtime/` | Generated caches, locks, stamps, exports, Dream state, and per-project logs | No |
+| `.graphit/project.json` | Stable ID, root metadata and `githooks`, ordinary `settings`; preserve across moves/worktrees | Yes, for the same project identity; secrets are rejected |
+| `.graphit/rules/` | Maintained raw instruction overrides, under the template contract | Yes when authored for the project |
+| `.graphit/ast/queries/` | Maintained extraction-profile overrides | Yes when intentionally customized |
+| `.astignore`, `.wikiignore` | Source/document selection exclusions | Yes |
+| `.agents/skills/` and host-native agent files | Effective installation, or user-authored content at that host's required destinations | Follow the team's policy; preserve user edits |
+| Adjacent locks, temporary staging, runtime receipts | Generated synchronization/private publication state | No |
 
-The first operation that must persist project state creates a minimal lockfile with an immutable
-project ULID and a mutable discovery name. `graphit init` then creates or reconciles the remaining
-lockfile fields and the managed `.gitignore` block without changing that ULID. Graphit edits only
-its marked block and leaves user-owned ignore rules intact. `graphit remove` removes the files or
-sections it owns without treating the rest of an agent configuration as disposable. See
-[Project Identity](../specs/project_identity.md).
-
-The generated ignore block covers `**/.graphit/runtime/` and `**/.graphit/grammars/` at every depth.
-The broader `.graphit/` directory is intentionally not ignored: rules and AST query overrides are
-repository knowledge.
-
-## Generated project runtime
-
-The default generated tree is:
-
-```text
-.graphit/runtime/
-├── ast/export/                    default AST export destination
-├── dream/dream.state              current Dream timing/session/exhaustion state
-├── daemon/daemon.log              project supervision log
-├── cache/skills/<adapter>/<name>  managed-skill content and mtime cache
-├── cache/artifacts/...            managed-artifact synchronization cache
-├── sync.stamp                     recent-sync debounce marker
-├── sync.lock                      regular synchronization lock
-└── sync-heavy.lock                heavyweight synchronization lock
-```
-
-This tree is disposable machine state, except for an export you deliberately want to preserve.
-Dream runs do not create a result document: Memory is the semantic source of truth.
+Identity is not inferred from a checkout pathname. Copying another project's identity is not a
+safe way to create a different project. A missing/malformed identity is an explicit initialization
+problem; do not delete it to fix a failed query. There is no productive project lockfile that
+holds all module data. `graphit.lock.json` is not the current configuration or artifact registry.
 
 ## Global state
 
-Graphit uses `~/.graphit/` by default. `GRAPHIT_GLOBAL_DIR` moves the whole global root; it is an
-environment-only bootstrap setting because the global config file lives inside the directory it
-selects. A relative override is resolved from the process start directory, but an absolute path is
-recommended for daemons and containers.
+By default `<global>` is `~/.graphit`. `--global-dir` and the branded `GLOBAL_DIR` bootstrap
+variable select another installation. Their value is not ordinary `config` state. Private roots
+and credentials must retain their required OS access policy.
 
-Important global paths include:
+- `config.json`, `auth.json` and the global project inventory retain installation choices and
+  identities; Auth is not a place for arbitrary ordinary settings.
+- `projects/<project-id>/{ast,knowledge,memory,task}/` contains authoritative local corpora and
+  derived graph publications. Versions use native Lance branches, not copied stores by checkout.
+- `projects/<project-id>/artifact-store.json` and `hub.json` retain concrete installation origin,
+  version, hash/ownership, pending publication and selected artifact state. A field is not a
+  second content payload or a new authorization grant.
+- `models/` holds canonical installed model artifacts. `tmp/` may contain private active model
+  snapshots; a file named temporary is not by itself proven unowned.
+- `daemon/`, private logs and platform service records belong to the installation, not a project.
+- Verified USER Memory uses its own principal/installation root and is not a project branch.
 
-| Path under the global root | Purpose |
-|---|---|
-| `config.json` | Global configuration |
-| `global.lock.json` | Registered projects and global artifact metadata |
-| `memory.lock.json` | Legacy memory scope registrations; no longer written, and an entry is removed when its scope is pruned |
-| `backups/lance-rebuild/` | Row snapshots taken before a Lance table is rebuilt for a schema change; a pending one is replayed on the next open |
-| `hub/cache/<hub-fingerprint>/<subject-fingerprint>/` | Bounded, lazy, non-authoritative Hub metadata and discovery cache |
-| `daemon/daemon.pid` | Single-daemon lock and process metadata |
-| `daemon/daemon.log` | Daemon log |
-| `daemon/mcp.port` | Actual MCP port, including an OS-selected port |
-| `auth.json` | Named providers, isolated account profiles, sessions, credentials, and active selection; atomic, mode `0600` |
-| `.auth-tmp/` | Fixed private staging directory for atomic `auth.json` replacement; mode `0700`, empty after a completed write |
-| `daemon/mcp.key` | Local runtime MCP bearer key generated per daemon start; mode `0600` |
-| `daemon/embed.sock` | Local embedding model-server socket (`graphit model serve embedding`) |
-| `daemon/rerank.sock` | Local rerank model-server socket (`graphit model serve rerank`). When a socket path would exceed 103 bytes, both sockets live in a private `graphit-<hash>/` directory under `$XDG_RUNTIME_DIR` or the temporary directory instead |
-| `daemon/model-<task>.log`, `daemon/memory-*-user.log` | Output of the daemon's global child processes |
-| `locks/heavy-slot-<n>.lock` | Machine-wide heavy-work slots taken by indexing and embedding commands; advisory, released when the holder exits |
-| `logs/graphit.log` | Process-wide structured log, truncated after 5 MiB |
-| `sync.log` | Errors that prevented a detached lifecycle-triggered full sync from starting |
-| `runtime/<version>/` | Extracted, version-scoped framework runtime |
-| `models/` | Local embedding and optional reranker models |
-| `frameworks/`, `artifacts/modules/` | Installed framework content and managed file-artifact materializations |
-| `rules/<module>.md`, `rules/<module>_skill.md` | User-global mandate and managed-skill overrides |
-| `hub/rules/` | Installed Hub overrides used after project and user-global rules |
-| `grammars/{treesitter,antlr}/`, `ast/queries/` | Globally installed parser binaries and user/Hub grammar profiles |
-| `ast/`, `wiki/`, `memory/`, `task/` | Authoritative compiled graphs, indexes, memories, and task state |
-| `dream/dreams/<project_id>/` | Local provider-aware Dream operational ledger, shared per project |
-| `ast/project/.*.lifecycle.lock`, `wiki/knowledge/project/.*.lifecycle.lock` | Advisory cross-process locks beside mutable AST/Knowledge stores; they remain in place across destructive reset |
-| `sessions/<project-hash>/{meta,messages}/` | Saved AI chat metadata and JSONL messages |
-| `sessions/<session-id>/` | Ephemeral multi-artifact Live Search workspaces and event history |
-
-Saved chat `meta.json` records `agent_session_id` together with `agent_cli` when the selected CLI
-supports verified continuity. The pair is valid only for that chat's canonical `project_dir`;
-Graphit drops it rather than resuming under another CLI or project. The native transcript itself
-remains in the agent CLI's storage, not in Graphit's session directory.
-
-Do not commit global state or read compiled stores directly. Use Graphit tools so project identity,
-scope, version, remote storage, and pagination remain correct. When the question is about the shape
-or contents of a compiled store rather than its records, each module answers it: `*_schema` reports
-a store's tables and columns, and `*_query` filters rows of one by predicate — for Task, Memory,
-Knowledge, and the AST full-text index under `graphit_ast_fts_*`. The narrower `GRAPHIT_MODEL_CACHE`
-override can place model weights on a different volume without moving the other state.
-
-The Hub cache is isolated by both Hub and authenticated subject and may be deleted at any time. It
-does not contain an eager registry mirror, cannot establish a permission, and is not used after a
-failed authorization refresh. Cached discovery may be displayed as explicitly stale while offline,
-but it cannot authorize content or a remote mount. See
-[Hub Access Control](../specs/hub_access_control.md).
-
-In the supplied container, `GRAPHIT_GLOBAL_DIR=/home/graphit/.graphit`, so daemon files are under
-`/home/graphit/.graphit/daemon/`, not under a project `.graphit/runtime/` tree.
-
-The project Dream runtime directory contains `dream.state`. Runs do not create a report or sentinel.
-Deep sleep is the `exhausted` field in `dream.state`. The operational `dream_runs` table is not project runtime state: locally it resolves
-dynamically from `brand.GlobalDir()` to `dream/dreams/<project_id>`; remote providers use the Dream
-S3 prefix and temporary credentials.
+Do not publish these files in Git or copy private credentials into hooks. Do not clear active
+Lance fragments, branch refs, model snapshots or pending owned publications by filename guesses.
+S3 providers access their authoritative remote tables directly; local caches are not a mirror to
+edit or synchronize back later. See [S3](s3-and-ui-network.md).
 
 ## Agent adapter files
 
-`graphit sync` materializes installed rules, commands, agents, skills, MCP definitions, and lifecycle
-hooks in the selected adapter's native layout. Existing user configuration is reconciled; Graphit
-tracks and removes only managed entries.
+The selected native binding owns its destination and format. Kiro is V3, OpenCode is 2 and
+Antigravity uses `agy`; there is no Kiro V2/preview coexistence or Gemini CLI compatibility layer.
+Google Gemini inference protocols are independent from a retired CLI binding.
 
-| Adapter | Managed root | Hook file | MCP file |
-|---|---|---|---|
-| Antigravity | `.agents/` | `.agents/hooks.json` | `.agents/mcp_config.json` |
-| Claude Code | `.claude/` | `.claude/settings.json` | `.mcp.json` |
-| Codex | `.codex/` | `.codex/hooks.json` | `.codex/config.toml` |
-| Cursor | `.cursor/` | `.cursor/hooks.json` | `.cursor/mcp.json` |
-| Gemini | `.gemini/` | `.gemini/settings.json` | `.gemini/settings.json` |
-| Kiro | `.kiro/` | `.kiro/hooks/graphit-memory.json` | `.kiro/settings/mcp.json` |
-| OpenCode | `.opencode/` | `.opencode/plugins/graphit-memory-session-start.js` | `opencode.json` |
-| Qwen Code | `.qwen/` | `.qwen/settings.json` | `.qwen/settings.json` |
-| Kimi Code | `.kimi-code/` | `~/.kimi-code/config.toml` (shared, reference-counted) | `.kimi-code/mcp.json` |
+Use `graphit coordinator install`, `roles install`, `skills sync` and `hooks install` rather than
+writing one generic format to every host. [Agent activation](agent_hook_activation.md) and the
+[native binding reference](../development/native-host-bindings.md) specify exact destinations,
+events and host permission semantics. Run tests with controlled protocol peers; actual usage of a
+vendor model still needs that vendor's executable/account, but product tests do not require them.
 
-Within those roots, the normal destinations are `rules/`, `commands/`, `skills/<name>/SKILL.md`,
-and `agents/`; Kiro uses `steering/` for rules and `hooks/` for commands, and Antigravity uses
-`workflows/` for commands. Kimi has no project command directory. No adapter points its rule and
-agent directories at the same place: the two are distinct surfaces, and aliasing them would let an
-agent and a rule of the same name resolve to one file. The adapter reference is the source of truth
-when an upstream client changes its layout.
+The installed Graphit package is the canonical source of builtin templates. Installed files are
+compared with the recorded content hash to detect user edits. There is no retained
+`owned-payloads` directory of duplicate rendered content. Remote artifacts can retain the verified
+canonical package/cache they actually need; removing that active cache is not harmless cleanup.
 
-Rule artifacts are never written into those rule directories. They are read from their installed Hub
-source and delivered through the context injected at lifecycle boundaries, so the directory exists
-only as the fallback destination for an agent on a host that declares no agents directory.
+Generated hooks and MCP configurations use the executable on PATH and project-relative inputs.
+Host launch environment supplies custom installation variables by name where supported, never
+resolved private values in shared JSON/TOML. Static files contain normative instructions, not
+runtime mandatory memories or private Role/Runtime credentials.
 
-The `agents/` directory holds two different things. Agents a team publishes arrive through the Hub
-like any other artifact. Alongside them, sync writes Graphit's own delegated roles — a scout for
-recall, a tracker for impact review, and a scribe for transcription — which are part of the tool
-rather than catalogue content, and are refreshed on every sync like the module skills. Each is
-rendered in the host's own format: markdown with frontmatter on most hosts, standalone TOML on Codex.
-A role can be overridden per project by placing `<role>_agent.md` under the Graphit rules directory,
-the same way module skills and rules are overridden. Removal deletes only files that still carry the
-managed marker, so a role rewritten by hand is left alone.
+## Synchronize installations
+
+```sh
+graphit sync
+graphit sync --agent codex
+graphit skills sync --agent codex
+graphit roles sync --agent codex
+graphit coordinator sync --binding codex
+graphit hooks sync --binding codex
+graphit hub sync
+graphit hub update --help
+```
+
+General sync reapplies installed exact Hub versions and updates native Graphit roles/skills,
+Coordinator, hooks and MCP using current configuration. Component commands run the corresponding
+smaller operation. An explicit Hub update selects newer remote releases. Sync is not a Git pull,
+clone, automatic artifact upgrade, full index rebuild or wait for all embeddings.
+
+Foreign files and content changed since installation produce conflicts according to the owning
+publisher. Do not erase them to make sync pass. Inspect current content, choose the intended
+source/customization and retry the supported operation. Independent successful steps can remain
+committed when a later step fails; there is no cross-installation rollback promise.
 
 ## Git and agent lifecycle hooks
 
-With `modules.hooks=true`, `init` and `sync` install Graphit's `pre-commit`
-integration and each additional event named in the lockfile's top-level `hooks`
-map. Git 2.54+ uses repository-local configured hooks named
-`<brand>-<event>` (`graphit-pre-push` for `pre-push` by default). Older Git uses
-marked shell blocks at `<git-common-dir>/hooks/<event>` — `.git/hooks` in a main checkout, and the
-repository's shared hooks directory when run from a linked worktree, whose `.git` is a pointer file.
-Each block runs only while Git is older than 2.54
-and the configured hook is absent. Both forms check for the Graphit executable,
-then run the commands in `graphit.lock.json` under `hooks.<event>`.
+Product Git hooks bind PROJECT Memory/Task snapshots to commits and restore/merge their state.
+`graphit git install/remove/snapshot/restore` controls them. This is separate from repository
+quality gates and from agent lifecycle context hooks. Other Git/native-host entries remain owned
+by their original authors. [Git records](../specs/git_records.md) covers conflicts and recovery.
 
-The older path preserves third-party shell content but does not handle a non-shell
-or unsupported shell shebang, `core.hooksPath`, or third-party hook managers. Installation failure produces a warning with manual instructions. Without
-an active integration, the consistency checks cannot gate commits and determinism
-is substantially reduced. `remove` and `modules.hooks=false` clean Graphit's own
-registrations and marked blocks for every supported event.
-
-Agent lifecycle files are separate from Git hooks. Supported adapters use the events their host
-offers to load mandatory memory and routing context at session start, reassert current mandates on
-later turns, request Task checkpoints after work units, and dispatch a full asynchronous sync at
-stop. A host that lacks a particular event receives the nearest supported subset; the
-[Capability and Surface Matrix](capability_matrix.md) does not imply hooks that an agent host cannot
-express.
+Agent hooks load current module instructions/mandatory memory at their documented lifecycle
+boundaries. Stop/SessionEnd requests an asynchronous PROJECT index rescan; it does not execute the
+general publication sync or upgrade remote artifacts on every stop.
 
 ## What the daemon watches
 
-With `modules.sync=true`, the daemon registers an operating-system filesystem watch recursively over
-each active project. It does not poll `git status`.
+The daemon retains registered checkout/version selections and captures relevant source,
+documentation, project configuration and installation controls. Source changes wake per-project
+incremental work; record changes can wake only semantic record work without walking AST/Knowledge.
+Configuration changes are applied at their consumer's reload boundary. For example, model slots
+are refreshed from global control changes; `ai.cli` captured by Ask requires daemon reattachment
+(restart) to change its completion binding.
 
-Set `modules.sync=false` in a project's configuration to create no watcher for that project. Set it
-globally to suppress watchers for every project, or use `GRAPHIT_MODULES_SYNC=false` in the daemon
-environment. Restart the daemon after changing the setting; manual `graphit sync` and direct index
-commands continue to work because this switch controls only daemon orchestration.
+Ignored/generated directories do not become source merely because a watcher observed them.
+Extraction settings, profile layers, custom image mappings and source fingerprints participate in
+incremental reuse. Changing the producer must not leave old compiler facts eligible indefinitely.
+[Ignore rules](ignore_files.md) and [indexing](indexing.md) describe actual selection and publication.
 
-- `.git/` is always skipped.
-- AST and Knowledge each apply their own ignore rules; a directory is excluded from the shared watch
-  only when both consumers reject it.
-- AST always excludes `.graphit/` and the root `graphit.lock.json`; it also excludes the configured
-  documentation tree unless `ast.index_docs=true`.
-- Knowledge watches `knowledge.docs_dir` plus the root README when
-  `knowledge.include_readme=true`, filtered by `knowledge.extensions` and `.wikiignore`.
-- Events are coalesced after one second of quiet and flushed after at most five seconds.
-- A newly created directory is registered and scanned immediately, closing the creation/watch race.
-- A kernel event overflow requests a full rescan, restoring correctness rather than trusting a
-  partial event set.
+## Publication, safety and maintenance
 
-Projects without filesystem activity are parked after `daemon.activity_window` (default `30m`) to
-release watchers, embedding work, and Dream work. Set it to `0` to keep every registered project
-supervised. Any event under the watched tree refreshes activity, even when no indexable file changed.
+Private filesystem writers use existing locks, captured identities/descriptors, validated relative
+components, staging and atomic publication. These protect concurrent writers, confinement,
+user modifications and interruption recovery; they are not artificial global resource quotas.
+A pending intent/receipt can represent a real incomplete publication and must not be deleted to
+fake success. Recovery must prove ownership before changing unknown files.
 
-On Linux, a large repository or many active projects can exhaust inotify watches. Raise
-`fs.inotify.max_user_watches` and `fs.inotify.max_user_instances` when Graphit reports `no space left
-on device` or `too many open files` while registering directories.
+Native Lance maintenance compacts fragments and maintains indexes through SDK APIs, respecting
+branch heads, retained Git tags and active snapshots. Icebug publication replaces changed FILE
+shards and retires obsolete owned shards only when readers permit it. There is no `.lbug` store
+to retain locally or periodic whole-corpus reconstruction for each edit.
 
-## Change detection and manual synchronization
-
-The watcher keeps active projects current, while lifecycle hooks dispatch a full asynchronous sync
-when supported agents stop. Run `graphit sync` explicitly after changing configuration, artifacts,
-ignore rules, grammar queries, or when you need a deterministic freshness boundary before a query.
-
-Changing `GRAPHIT_GLOBAL_DIR` does not migrate existing state. Move the directory yourself or accept
-a fresh store and run `graphit sync`. Deleting `.graphit/runtime/` only clears project-local generated
-state; deleting global stores removes authoritative compiled data, memories, or task history and
-should be done only through the corresponding Graphit command or tool.
+For internal publication invariants use [Core/Hub storage contracts](../development/rust-storage-contracts.md),
+[shared documents](../specs/native_shared_documents.md),
+[artifact installation](../specs/hub_native_installations.md) and
+[paths](../architecture/storage_layout.md). Never infer a cleanup guarantee from historical tests
+on another platform or from the word `cache` alone.

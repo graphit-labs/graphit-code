@@ -1,3 +1,22 @@
+---
+references:
+  - target: {type: task, id: tsk-0257, scope: project, scope_id: 01KSH1CRFFG8Z74B5ZS78WW808}
+    relation: derived_from
+  - target: {type: task, id: tsk-bcaa, scope: project, scope_id: 01KSH1CRFFG8Z74B5ZS78WW808}
+    relation: derived_from
+  - target:
+      type: task
+      id: tsk-b788
+      scope: project
+      scope_id: 01KSH1CRFFG8Z74B5ZS78WW808
+    relation: derived_from
+  - target:
+      type: task
+      id: tsk-d75f
+      scope: project
+      scope_id: 01KSH1CRFFG8Z74B5ZS78WW808
+    relation: derived_from
+---
 # UI Dashboard Specification
 
 The Graphit Observatory is the embedded web interface for Graphit Code. It presents the same project, context, registry, daemon, knowledge, memory, and AST state exposed by the CLI and MCP tools.
@@ -15,11 +34,11 @@ The UI provides:
 - live multi-source agent sessions;
 - daemon, Dream, and ecosystem status.
 
-It uses the optional Broker browser session for authenticated data APIs and does not maintain an independent copy of domain data.
+It requires its configured Broker browser session for authenticated Browser data APIs and does not maintain an independent copy of domain data. Without trusted `task.browser` configuration the service is headless. Sessions use opaque HttpOnly cookies with credential state in daemon memory, not persistent encrypted token cookies.
 
 ## Frontend architecture
 
-The SPA lives in `internal/ui/`.
+The SPA lives in `ui/`.
 
 | Concern | Implementation |
 |---|---|
@@ -30,9 +49,9 @@ The SPA lives in `internal/ui/`.
 | HTTP | Axios-based API modules |
 | Markdown | Dedicated Knowledge and Memory renderers over their respective domain records |
 | Relationships | Deterministic boundary catalogue and directed entity neighborhoods |
-| Packaging | Production assets embedded into the Go binary |
+| Packaging | Versioned production assets embedded into the Rust binary |
 
-`npm run build` writes `internal/ui/dist/`. The Go UI server embeds that output and serves it with same-origin API routes.
+`node scripts/build-rust-ui.mjs`, from the repository root, builds the React UI and copies the three production assets from `ui/dist/` to `crates/graphit-app/assets/ui/`. The Rust UI server embeds those versioned assets and serves them with same-origin API routes. A standalone `npm run build` in `ui/` only refreshes `ui/dist/`; it does not update the assets embedded by Cargo.
 
 ## Visual system
 
@@ -116,8 +135,9 @@ Page-specific context choices (indexed AST/Knowledge source, Memory scope, publi
 Routes that require a checkout render the shared **Local workspace required** state while a Hub
 target is selected. The state names the retained remote project and directs the user to the global
 Project selector; it does not execute the route with an empty path or the previous Workspace path.
-Workspace Now, local artifact management/publication, Live workspace search and Dream analysis use
-this guard. Task, Session, project Memory, Knowledge and AST remain available remotely.
+Local artifact management/publication, Live workspace search and Dream analysis use
+this guard. Workspace Now uses the authorized native working-context header and the
+Rust Web Now stream, including instances publishing the same project/version. Task, Session, project Memory, Knowledge and AST remain available remotely.
 
 Switching projects updates:
 
@@ -135,11 +155,17 @@ The AST relationship reader chooses a related entity type from the scoped schema
 
 The default **Find & inspect** workspace starts with a question, not a graph sample. Search indexed symbols and files within the selected project or imported context, then explore the returned candidates in **Relationship map**. Selecting **Inspect source & impact** opens indexed source in that same workspace. **Source**, **Incoming**, **Outgoing** and **Potential impact** answer distinct questions about that implementation.
 
-Relationship inspection requires the indexed identity already carried by the selected result. Search and sample results include the symbol `uid`; File/Directory results use `path`. A missing identity produces an actionable message without guessing from name, path or line. Traversal uses that declared identity, never a canvas renderer ID, together with the selected relationship type. In the explicit source/impact inspector, incoming/outgoing results are limited to 100 distinct nodes; potential impact follows incoming CALLS up to two hops. These are indexed candidates, not a claim that every dynamic runtime dependency is represented. Select a related result to continue investigating its source.
+A failed **Read entity source** request reports its causal error beside Source and preserves the previously loaded source for that same file and scope. **Read entity source** retries explicitly; **Read complete file** requests the full file. Selecting another file or scope clears the previous source. Ambiguous or unavailable entity selection remains an error; the browser does not fabricate a snippet or claim a full-file response is the selected entity.
+
+Relationship inspection uses the primary key declared for the selected label, not a renderer ID or a guessed name, path, line or UID. Search observations resolve that key to one published node before traversal; a missing, ambiguous or changed key/UID produces an explicit error. Local syntax entities use the reserved `entity_key`; imported artifacts retain their own label/primary-key metadata. In the explicit source/impact inspector, incoming/outgoing results are limited to 100 distinct nodes; potential impact follows incoming CALLS up to two hops. These are indexed candidates, not a claim that every dynamic runtime dependency is represented. Select a related result to continue investigating its source.
 
 **Query lab** offers direct read-only Cypher and **Draft with AI**. Generation fills an editable draft; it does not execute. The user reviews scope, relationship and limit before choosing **Run query**, which opens Relationship map immediately with loading feedback. Query lab retains its editor draft. Result tables in the map retain full values and offer explicit CSV export. Project/context changes invalidate outstanding results.
 
-**Relationship map** loads a bounded sample only when no explicit request is active, or explores the current search/Cypher result. Empty, scalar and failed requests are never silently replaced by a sample. A stable catalogue groups entities by directory, file, language or configured cluster. Selecting a boundary shows its members and directed crossings; selecting an entity queries its incoming and outgoing neighbors across all declared direct relationship/type partitions, independently of the original result. Reader navigation (including Back) queries the selected entity by UID/path, even when it was absent from the catalogue. Up to 100 actual relations per partition are shown per page, continued by relation UID, with explicit partial failures and retry. Each link has a stable `uid`; parallel source/type/target relations remain distinct. A native Ladybug `id` can accompany a link as snapshot metadata but is never the navigation key. The selected node's UID is visible in its card and relation UIDs are available on their links. Catalogue filters do not hide queried neighbors. Header refresh reloads both the active result and selected neighborhood. A changed index generation during pagination restarts the neighborhood from the same node UID, replacing stale evidence; a second concurrent change offers retry. Following a neighbor stays in the map, while **Inspect source & impact** opens the source and typed-relation inspector within the map. Filters are above the work area, all entity actions are keyboard-accessible and narrow screens stack the panels. Counts deduplicate repeated relation UIDs and never imply repository completeness. Configured clusters are not inferred communities. Arbitrary scalar query rows are not fabricated into graph edges. Source search, copy and line highlighting remain available in the source viewer. See [Investigate code relationships](../guides/code_investigation.md).
+**Relationship map** loads a bounded sample only when no explicit request is active, or explores the current search/Cypher result. Empty, scalar and failed requests are never silently replaced by a sample. A stable catalogue groups entities by directory, file, language or configured cluster. Selecting an entity loads its incoming/outgoing declared endpoint partitions, up to 100 relations per partition and page. Source and typed relationship inspection remain in the same workspace. Filters do not hide queried neighbors; entity actions retain keyboard access and narrow screens stack the panels.
+
+AST search uses public entity identities without graph/search/Source/model generation fields. Text, graph and semantic publication advance independently; a fresh response remains usable while another file is indexed. Schema metadata supplies labels, relationship types and primary keys, and does not rewrite returned IDs. Physical NODE/REL/endpoint IDs remain scoped to their own response; a query rejects mixed physical-ID scopes within that one result. Neighborhood partitions may observe different graph publications and join nodes by their public primary keys, after checking the anchor label, key and observed UID. Each opaque continuation cursor remains bound to its own query, literal project/artifact version and anchor; it is never transferred between partitions. Parallel edges retain their native identity within each response, even when UIDs coincide.
+
+Project/context changes and cancellation discard late responses. Header refresh reloads the active result and neighborhood. Missing schema metadata remains an explicit limitation rather than inferring a primary key from UID. Published file observations are independently queried when their disclosure opens; an older schema does not invalidate them. A missing or ambiguous file observation is shown locally and does not replace the literal Source. Counts describe returned indexed evidence, not repository completeness. See [Investigate code relationships](../guides/code_investigation.md).
 
 **Indexed contexts** is a searchable directory followed by an origin dossier and **Investigate this context** action. Imported-context unlinking is confirmed and scoped to the selected project; it removes that project’s reference without deleting the shared index. Tables scroll within their containers; investigation, source and controls stack on smaller screens.
 
@@ -150,13 +176,7 @@ request carries `project_id` plus the exact `id@version`. The server opens that 
 read-only on demand; it neither installs the context nor creates a local project claim. Unlink and
 other local mutation actions are absent for these rows.
 
-User-facing relationship names are resolved dynamically from the active project or context's `graph.icebug/icebug.json` manifest. `CanonicalRelGroup.Type` is the public name used by the translator, schema controls, filters, and relationship readers. Physical edge-table names are internal Icebug storage details and must not cross the explorer API boundary.
-
-Context totals and the schema controls’ label, relationship-type, and language counts come from the
-same canonical manifest. Listing a large project must not mount LadybugDB or run global `count`
-queries; reverse relationship mirrors are storage-only and are excluded from the displayed totals.
-
-The mapping is scoped to `project_dir` or imported context; the frontend must not maintain a global hard-coded relationship map.
+Labels, declared endpoint types, primary keys and exact counts come from the Native schema endpoint of the selected project or exact imported artifact version. The frontend does not maintain a global hard-coded relationship map or read storage manifests directly. Native integer parsing preserves counts and IDs without converting large values to imprecise JavaScript numbers.
 
 ### Knowledge Explorer
 
@@ -172,6 +192,8 @@ search all send the immutable `project_id` + `id@version` pair. The handler moun
 LanceDB URI read-only for that request and never treats the reference as a filesystem directory or
 persists an installation. Switching project, artifact or version clears previous pages, documents,
 answers and outstanding requests before the new source is shown.
+
+Persisted record links show projection warnings once per requested source in a collapsed, keyboard-accessible disclosure. Expanding it retains every returned warning and locator detail. Outgoing and incoming completeness remain separate, and the partial-view notice stays visible when either requested direction is incomplete.
 
 ### Memory Explorer
 
@@ -212,74 +234,162 @@ Tasks and Sessions share a full-width, bounded catalogue followed by a reading d
 
 Sessions preserve one evolving request: next step and latest checkpoint come first, followed by request/strategy, linked tasks, checkpoint decisions/problems, specification revisions and a readable lifecycle timeline. The complete JSON record remains available for inspection. Continuity metadata and its notice lead the supporting column; persisted record relationships come last in that column and in mobile DOM order. This prevents asynchronously loaded links and backlinks from shifting the session's primary work or continuity context. The catalogue retains status, search, active-only and cursor pagination; each row shows the authoritative completed/total linked-task count with a compact progress bar when tasks exist, while an empty session says `No tasks` without implying completion. Task/session links preserve the selected project.
 
-The Task Explorer uses the lightweight `GET /api/tasks` catalogue for paginated discovery. Its
-server-side text and lifecycle filters show status, priority, flags, and dependency blocks without
-transferring checks or audit history for every task. Selecting a task loads the exact versioned
-export document and presents its robust specification, current ownership/progress, checks and
-evidence, dependencies, subtasks, typed
-comments, lifecycle events, immutable specification revisions, and raw JSON. Users can download
-either the complete project document or the selected task/subtask document.
+Task discovery uses the native `POST /api/tasks/catalogue` reader with an authorized
+Project/Version selection, filters and opaque catalogue cursors. Catalogue rows contain
+summaries, without audit snapshots or full comment bodies. Selecting a task calls
+`POST /api/tasks/get` with `{id}` and immediately displays the current specification,
+checks, ownership, progress and creation evidence. A `null` result means the task is absent;
+`history: null` and `comments: null` mean those sections have not been loaded, not that
+no events or comments exist. The current JSON disclosure retains those distinctions.
 
-The frontend never reconstructs authoritative Task state. Catalogue summaries and derived readiness
-fields come from the Task service, while detail arrays come from the shared export service. Query,
-status, project, and page size are bound into opaque cursors; stale responses are discarded when
-the view changes.
+**Load history** and **Load comments** explicitly request one 20-item page through the
+same TaskGet reader. Their first request echoes the corresponding opaque start cursor
+from the selected current result, preserving its generation. Later pages echo
+`next_cursor` unchanged. Each section keeps one content page and a stack of previous
+cursor strings; it replaces the content when moving forward or back. Lifecycle and
+specification revisions share the same history page. The first revision comparison uses
+that page's authoritative `before` predecessor, and subsequent comparisons use the
+preceding event in the page. Empty-state messages describe the loaded page only.
+Loading and errors remain local to the affected section, with an explicit retry that
+retains the requested cursor. Current authorization is revalidated by the producer;
+401/403 invalidates the selected workspace. Ordinary publications do not silently
+change the pinned audit snapshot.
 
-`GET /api/tasks` accepts exactly one of `project_dir` or immutable Hub `project_id`, plus `query`,
-`status`, `page_size`, and `cursor`. It returns a
-bounded `results` array and `next_cursor`; page size defaults to 20 and is capped by the shared API
-pagination limit. Results run from newest creation time to oldest, with task ID as a deterministic
-tie-breaker. A cursor from another query, status, project, or page size returns `400`.
+Changing task, native project path, version or current generation invalidates section
+requests and discards their page content. Aborted responses cannot replace the new
+dossier or invalidate its workspace. Navigation uses native buttons with visible focus
+and disabled/busy states; the existing reading/support columns stack on narrow screens.
+Record-reference bindings continue to use the exact selected project/version and Task ID.
 
-`GET /api/tasks/export` accepts the same exclusive project address and `id` as query parameters.
-When neither address is supplied, `project_dir` defaults to the server's active project. Omitting
-`id` returns the complete project document, while an exact
-`id` returns that task and its recursive subtasks. A missing task returns `404`; an unavailable Task
-module also returns `404`; invalid project resolution returns `400`.
+**Export complete JSON** and **Export all tasks** explicitly traverse the pinned history
+and comment pages. Only the download assembles complete audit content, as serialized
+Blob parts rather than a browsing cache of snapshots. The project export traverses the
+catalogue and reads each Task's current result before its pinned sections; it does not
+claim one transaction spanning every Task in that catalogue. Failed, missing or denied
+reads do not produce a partial download. Scope changes and unmount abort export work.
+Native integer parsing/serialization preserves revisions, sequences and generations
+without rounding. The UI does not decode audit cursors or reconstruct authoritative
+Task state, permissions or completion decisions.
 
-Successful responses use this versioned envelope:
+### Session current state and audit
 
-```json
-{
-  "schema_version": 1,
-  "project_id": "project-ulid",
-  "task_id": "tsk-abcd",
-  "tasks": [],
-  "dependencies": [],
-  "checks": [],
-  "events": [],
-  "comments": [],
-  "spec_revisions": []
-}
-```
+Selecting a Session reads current state through the native SessionGet reader with
+`input: {id}`. It returns `session`, `creation`, nullable `last_event`, `generation`,
+`history_start_cursor` and `history: null`. The request, strategy, latest checkpoint
+and next action appear immediately; linked Task discovery has independent loading,
+error and retry states. A slow or failed linked catalogue does not erase the current
+Session. An absent Session is distinct from unloaded history.
 
-`task_id` is omitted for a project-wide export. The API never returns fencing tokens or
-`task_control` scheduler rows.
+**Load history** explicitly requests `{id, history: {page_size: 20, cursor}}` through
+that same reader. The first request echoes `history_start_cursor`; continuation
+passes `next_cursor` unchanged. Checkpoints, specification revisions and lifecycle
+share one returned `{before, events, next_cursor}` page. Moving forward or back
+replaces that content; only previous cursor strings are retained. The first revision
+comparison uses the native `before` Session, including at a page boundary. Empty
+messages and checkpoint counts describe the loaded page, never the whole history.
+Creation remains visible while historical events are unloaded.
+
+The current-response JSON disclosure preserves `history: null`. **Export complete
+JSON** is a separate action that traverses the Session's pinned pages to EOF and
+assembles serialized Blob parts for the download. A missing, unloaded, failed or
+denied page prevents the download. No cursor is decoded or used to select authority,
+a corpus path or another version.
+
+Changing the selected Session, native PROJECT/version, API base, Web identity or
+current response discards the old dossier's history and aborts its pending reads and
+export. Explicit cancellation and unmount ignore late results and errors. Loading,
+retry and page controls reuse the existing dossier layout, focus styles, native
+buttons and responsive reading/support columns. The original request, admission,
+EOF, branch provenance and integrity checks remain responsibilities of the native
+[Session reader](native_task_store.md) and [shared protocol](rust_task_protocol.md).
+These consumer sources await the coordinated native build and installed Browser
+qualification; earlier Task Get qualification does not establish that result.
 
 ### Hub
 
-The registry starts with a filterable catalogue and a selected artifact dossier: inspect identity, publisher, version, origin and dependencies before choosing an installation action. Project artifacts separates Owned, Installed and Linked origins, each with its applicable maintenance actions. Switching project or agent closes scoped dialogs and discards responses from the previous workspace.
+The Rust consumer source separates three workspaces. `/hub/installed` remains the
+read-only installation-wide AST, Knowledge and language library inspector.
+`/hub/registry` browses explicit Broker or Standalone sources, their publisher
+projects and cursor-paginated artifact catalogues. `/hub/local` currently inspects
+FILE installations in an explicit PROJECT or the installation cache. The latter
+two consumers are being integrated under `tsk-b788`; component fixtures and type
+checks do not establish qualified HTTP or browser behavior.
 
-Publication is a three-step workspace: Package → Metadata & dependencies → Review & publish. Existing artifacts use a focused metadata/review dialog. Artifact descriptions support Markdown in the catalogue, inspector and both publication review flows. Review uses the shared renderer while editing and submission retain the exact authored source. Review preserves the complete submission contract; explicit publication remains the only write step. Dialogs isolate background controls, trap keyboard focus, close on Escape and restore focus.
+Native context inventories for Task, Memory, Knowledge, AST, Hub and Now return
+`projects: [{project_id, name}]` as display metadata for their own authorized
+contexts. The shared Project trigger and options show this name. Selection
+objects and URLs still carry only `project_dir`, `project_id` and
+`project_version`; names do not grant access or become request selectors.
+Missing names retain the exact ID, and duplicate names remain distinguishable
+by the existing checkout or remote-origin details. Metadata is cleared with its
+module, identity and API scope, including failed inventory loads.
 
-The Hub routes present:
+The FILE Hub routes bootstrap the shared header with POST /api/hub/contexts and an empty object. These are active local Source PROJECT tuples authorized by Hub/read, with exact native path, project ID and data version; Task, Now, AST and installed-inventory grants do not replace that decision. The current tuple is selected only when returned as authorized; current:null requires an explicit Project choice. Version options come from those tuples, with no legacy global-projects, project-catalog or project/versions requests. The Agent menu retains the eight current literal bindings as an explicit destination choice. Without a PROJECT, remote catalogues and GlobalCache remain available while PROJECT actions and publication require a selection. Identity/API changes invalidate bootstrap responses; choosing another version preserves an already submitted mutation under its original tuple.
 
-- ACL-filtered, cursor-paginated project and artifact discovery;
-- project-installed artifacts;
-- artifact details and version metadata;
-- install, update, uninstall, and publish actions where supported.
+The registry shows literal type/ID/version filters, declared versions and latest,
+publisher and Markdown descriptions before installation. Install/update selects
+an explicit FILE version and PROJECT/binding or GlobalCache destination. PROJECT
+uses the captured header identity, project ID, real resolved version and current
+binding; GlobalCache does not invent a PROJECT. Supported wire bindings include
+`kiro-v3`, `opencode` and `antigravity`, alongside the other current native
+bindings. No `main` version or grant is inferred.
 
-Submit and Upload always publish under the active project's publisher ULID; there is no selectable
-global artifact-owner namespace. The Global Registry remains the discovery catalogue. Manual AST
-and Knowledge upload is an import operation: AST accepts only a `.ast` file produced by
-`graphit ast export --format package`, Knowledge accepts only a `.knowledge` file produced by
-`graphit knowledge export --format package`, and other file artifacts use `.zip`. The server
-validates the package envelope, version, declared type, and native store before publication.
+PROJECT install/update exposes Installation mode with optional values supported by the resource. Agent, Skill, Command and Workflow are rendered for the selected agent and offer only Copy or Default (Copy), including updates. Omitting mode uses Copy for these rendered resources. Original-source resources such as Rule retain Copy and Link; their updates can omit mode to preserve the previous physical mode. Blank alias/entry name on update remain omitted and preserve their previous values. GlobalCache exposes none of these PROJECT-only fields and sends no mode, binding, alias or entry_name.
 
-Remote operations depend on configured Hub storage, a trusted subject, and current project grants.
-The UI never fetches an all-project export implicitly. It distinguishes an empty authorized result
-from unavailable authentication, forbidden access, and a stale offline cache. Selecting a cached
-row does not authorize details, content, installation, or a mount; those requests revalidate.
+Copy installs the selected content; for rendered agent resources, the installed files are the rendered result. For original-source resources, Link projects the captured published version from the managed Hub cache with its publisher/version provenance. Rendered resources cannot link to an additional managed copy. This choice selects no free local source path and adds no LocalLink discovery or unlink action. Explicit modes require a compatible Physical target; Unsupported keeps the chosen mode and drafts and never falls back or claims success. Captured feedback labels the requested/default/preserved mode; the current installed inventory and install/update receipt DTO do not provide an observed physical mode. The field reuses the shared select, dialog keyboard/focus and owner lifecycle. The focused API/Registry/Project cases, NativePath regressions and corrected production bundle are complemented by the real Linux browser journey: Link installation, omitted update preserving the symlink, explicit Copy and Global form exclusion passed with cleanup complete. The current real M1 diagnostic8 and complete mode child in runs7/8 qualify the mode-specific HTTP slice. The earlier run7 later security case returned500 instead of403; its cause is unknown, and the unchanged-product diagnostic pass does not prove a fix. Auth owns the final causal security test; the broader migration remains open.
+
+FILE operation feedback receives literal Unicode path strings, including possible parent residues and every owned/pending Forget preview source, destination, staging, old destination, payload and backup. It renders that text directly, preserving spaces, accents and escapes. Invalid Unicode is rejected by the service; there is no byte-array decoder or hexadecimal fallback. Parent residues deduplicate by their exact path string. Preview modes are Rust ArtifactMode Link or Copy with its policy, separate from the requested HTTP copy/link value. These observations retain captured identity, effect/pending flags and explicit inspection; Forget changes logical ownership and never grants deletion of the displayed paths.
+
+Every installed FILE entry supplies an explicit source_origin: HubCache, Resources or LocalLink. Inventory rows and the inspector display that provenance, independently of physical Copy/Link. The separate origin field carries only the remote Broker/Standalone transport or null; null never classifies the source as local. HubCache with null remote origin remains HubCache and has no remote Update/content controls. Resources and LocalLink require null remote origin; contradictory or missing/unknown source origins fail the inventory response rather than gaining a default. Remote Update and installed content require both HubCache provenance and a concrete remote origin. Existing PROJECT Remove, Recover and Forget remain available independently of remote eligibility and submit only the captured PROJECT/data version, artifact type/ID/concrete artifact version and binding. They reuse the existing lifecycle endpoints; Remove preserves the source and Forget retains physical files and residues. Provenance participates in selection identity, so a refreshed entry with a changed source origin closes its previous inspector. These fields do not grant source reading or accept a free host path. The Root browser observed LocalLink provenance with null remote transport after real local installation, and Auth confirmed owned cleanup. Focused tests cover the other source-origin and rejection branches; separate M1 security and Global obligations remain open.
+
+Installed FILE actions preserve scope: PROJECT supports update, remove, recover
+and logical forget; GlobalCache supports remove of a concrete version and
+preserves cached payload. File content uses an explicit relative path and retains
+remote-ephemeral versus installed-Verified provenance. Catalogue availability and
+paths do not authorize reads, mutation or deletion of physical residues.
+
+Publisher discovery belongs to its effective source, provider and storage profile. Changing that tuple cancels and clears the old discovery, including errors and cursors; use Browse publishers explicitly for the new source. A discovery failure in the same tuple remains visible when a separate catalogue search succeeds. Draft edits alone do not request discovery or grant access.
+
+Mutation feedback retains the captured target, source/producer when supplied,
+and confirmed, pending, cleanup and unknown effects, including while the request
+is running. Changing PROJECT/version/binding or installation destination keeps
+the owned mutation and its original receipt; its completion cannot reload another
+selection. Incompatible dialogs close permanently. Changing API base, Web identity
+or logging out aborts the client owner and discards its private result. Successful receipts must match the submitted selection and
+report recognized publication effects; install/update also require a confirmed
+cache result. A known unchanged result with `committed:false` can complete.
+Unknown changes and incomplete receipts require inspection, including HTTP413
+with only the inspection header. A late inspection cannot release a later
+mutation. Within the same scope, completion refreshes the current query or filters. Errors retain drafts and effects, and no mutation is retried
+automatically. Context changes invalidate old responses and incompatible dialogs;
+shared header refresh preserves applicable filters, selection and drafts. Dialogs
+retain focus isolation, Escape and focus restoration.
+
+Project resources uses the authorized PROJECT and data version from the shared header. Choose Browse project resources, filter the current Resources inventory by type, exact ID or artifact version, select a resource, and inspect its paginated tree. Select a listed relative file to read bounded text; there is no host path or installed-cache reader in this journey. All ten artifact types remain readable; AST and Knowledge do not expose FILE publication. LIST entries return required name:null; REVIEW returns metadata:null and says that no source metadata descriptor is supplied. These are separate DTO fields: missing name is not replaced with metadata, and no descriptor is fabricated. Empty text, missing404, non-text415, limit413, denied and transport failures remain distinct. Each list/review/content request captures current source independently, with no immutable snapshot or invented digest. Refresh from the first list page to include new items before the lexical cursor; no universal cursor reset is inferred.
+
+The local installation consumer starts from the selected authored Resources entry and supports agents, skills, commands and workflows. Install local resource captures that source PROJECT/data version/type/ID/artifact version separately from the current PROJECT installation scope and literal Agent binding; no extra project picker or host path is accepted. Other resource types remain readable and retain their existing FILE publication eligibility. Global installation cache is not a local-install destination. These local Agent, Skill, Command and Workflow installations render the source for the selected agent and offer Copy or Default (Copy), with no Link option. LocalLink records source provenance; it does not imply physical Link. Omitting mode uses Copy; omitted alias/entry name preserve existing options. Empty form fields omit those names, while nonempty local names are sent literally and invalid values remain visible for explicit correction. Explicit null is never treated as omission. Local installation reads the source and mutates the captured destination under separate Web admissions; it does not publish, request storage credentials or require a remote Hub/write grant.
+
+Local installation reuses the existing mutation owner, confirmation modal, optional fields, requested-mode feedback and captured-target inventory inspection. Success must correlate operation install_local/source local/producer and both destination representations before completion. The response does not echo alias, entry name or mode: feedback labels requested intent, and refreshed inventory supplies its observed facts. Confirmed publication can survive a later error; named reconciliation/cleanup/observation flags and bounded-response inspection remain intact. No generic pending field, rollback, silent fallback or observed mode is invented. The source consumer has 40 focused new cases and 16 affected shared cases passing. Its single production build and exact three-asset promotion passed; the previous a68 authored bundle remains historical evidence. The actual selected-resource Root browser Copy/Link and publication journey passed with Auth-confirmed owned cleanup; separate M1 security and Global obligations remain open.
+
+SourcePROJECT FILE publication starts from a selected, reviewed FILE resource in Project artifacts. Its FILE type/full ID/concrete artifact version are captured source facts, distinct from the header PROJECT data version; the form no longer accepts a manually entered source tuple. Enter the publication name and optional metadata/dependencies, review the captured source and draft, then explicitly Publish artifact. Omitted dependencies preserve them; replacing with an empty list clears them. The latest pointer changes only when selected, and replacing different destination bytes at the same version requires the expected archive SHA256. That catalogue precondition is not a source snapshot digest. Publication captures the current selected Resources tree independently and can fail if it disappeared or changed. No path, package upload, binding or GlobalCache destination selects this source. Read admission does not grant publication authority.
+
+Confirmed success requires a matching producer/type/ID/version receipt. Uncertain metadata or storage effects, cleanup residue, an unobserved result or HTTP413 require explicit inspection of the original remote catalogue before another attempt. Absence from that catalogue does not prove rollback or absence of physical residue. Inspection belongs to the result epoch; changing PROJECT or the installation scope retains the submitted tuple while closing the incompatible dialog. Identity/API changes tear down the owner.
+
+Remote unpublication is an independent Registry action for every published artifact type. Use the authenticated Broker catalogue, inspect a full artifact ID, and choose **Unpublish version** after selecting a literal version, or **Unpublish artifact** for the whole catalogue entry. Each opens an explicit confirmation; whole-artifact confirmation explicitly covers all published versions, including releases added concurrently. An optional expected archive SHA256 applies only to the selected version. Catalogue visibility does not grant write authority, and no local PROJECT, Agent binding or installation destination is required.
+
+Only the remote catalogue is retracted: payloads, source and existing installations remain. If the retracted version was latest, latest becomes absent; the client never chooses another version. The receipt lists the versions actually observed by the server and retains the resulting latest/catalogue state. A failed HTTP delivery may still contain a confirmed updated/removed catalogue receipt, which remains visible without a success message. Uncertain, unknown, oversized or otherwise unobserved results (including cancellation without a confirmed receipt) require explicit **Inspect original catalogue** before another unpublication. Inspection reads the captured Broker/provider/producer/type/ID, never installed inventory; an older inspection cannot unlock a later result.
+
+The operation owner survives closing the inspector, header PROJECT/Agent changes and catalogue refresh. Changing the effective remote tuple closes an incompatible dialog while keeping its submitted request/result. Identity, logout and API-base changes abort and discard private results. No automatic retry occurs. Incorrect If-Match DELETE returns 412 without effect in the Filesystem backend; MinIO without ConditionalDelete support is refused with not_attempted.
+
+The required broader publication journey remains Package → Metadata &
+dependencies → Review & publish, with a focused metadata/review dialog for an
+existing artifact. Descriptions use the shared Markdown renderer while drafts
+and submission retain authored source; review never publishes implicitly.
+Submit/Upload must use the active project publisher ULID, never a selectable
+global artifact-owner namespace. AST import requires an exported `.ast` package,
+Knowledge an exported `.knowledge` package, and other FILE artifacts a `.zip`;
+the producer must validate envelope, version, declared type and native store.
+These requirements remain pending producer/consumer qualification.
 
 ### Live Search
 
@@ -292,19 +402,42 @@ presences. All Projects and Same Cluster compare cluster metadata from both sour
 shows the local path when present, Hub revision and remote-context capabilities; **Use workspace**
 and **Use Hub context** change the one global selector. Cluster editing and unregistering remain
 local-only operations with explicit confirmation. A partial source failure keeps the available
-catalogue visible and identifies the unavailable source. **Daemon** starts with process/connection
-state and polling logs; stopping uses a focused confirmation. **Dream** separates runtime
+catalogue visible and identifies the unavailable source. **Daemon** shows the global process PID
+and state, alongside the portable MCP agent configuration. **Dream** separates runtime
 conditions from latest-run metadata, with scope changes clearing previous evidence.
 **Workspace** is a job chooser (Continue, Understand, Reuse & share, Operate) with project metadata
 and a link to project administration. Global context selection stays in the header.
 
-- **Daemon** exposes process status and recent operational information.
+- **Daemon** reads process status and supplies the MCP stdio configuration.
 - **Dream** exposes configuration, session state, and the latest operational run. Memory holds the semantic result.
 - **Ecosystem** lists registered projects, labels, and active project identity.
 
+### Daemon status
+
+The browser reads `GET /api/daemon/status` through its authenticated same-origin
+Web session. The Rust response is direct JSON: `{ "pid": 123, "state": "running" }`.
+`pid` is a non-null unsigned 32-bit integer; `state` is `running` or `stopping`.
+The read uses `no-store`; an absent or invalid session returns HTTP 401, and the
+server rejects a foreign Origin. The screen refreshes every five seconds without
+overlapping a pending read. Header refresh supersedes an older read. Identity/API
+changes and unmount abort pending requests and discard their late responses.
+Read failures clear the observed process result and expose the causal error with
+an explicit retry action.
+
+**Connect an agent** provides this portable configuration, with `graphit` available
+in the agent's PATH:
+
+```json
+{
+  "mcpServers": {
+    "graphit": { "command": "graphit", "args": ["mcp", "--stdio"] }
+  }
+}
+```
+
 ## Go server boundary
 
-`internal/uiserver/`:
+`graphit-app` Browser/Source composition:
 
 - serves the embedded SPA;
 - resolves the active project and imported contexts;
@@ -314,7 +447,7 @@ and a link to project administration. Global context selection stays in the head
 
 The built-in UI host is the IPv4 loopback address. The frontend uses same-origin `/api` URLs so it continues to work behind a correctly configured reverse proxy.
 
-When `ui.auth.enabled=true`, the server requires an encrypted Broker browser session cookie for data APIs; the header shows the verified identity or Anônimo. CORS still limits browser origins but does not authorize
+When Global `task.browser` is configured, the server requires its verified Broker session for Browser data APIs; the opaque cookie points to credential state held in daemon memory. The header shows the verified identity or anonymous session state. CORS still limits browser origins but does not authorize
 non-browser clients. A multi-user Hub deployment must also protect its listener and configure Broker Hub grants per user. See
 [S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md) and
 [Hub Access Control](hub_access_control.md).
@@ -334,7 +467,7 @@ non-browser clients. A multi-user Hub deployment must also protect its listener 
 - The active project is visible on project-scoped surfaces.
 - AST relationship names match the active manifest's friendly names.
 - Screenshot and public documentation examples use the current Graphit Observatory UI.
-- The production bundle builds with `npm run build`.
+- The production bundle and embedded assets are generated together with `node scripts/build-rust-ui.mjs`.
 - Task discovery uses a bounded paginated catalogue; exact detail and explicit JSON download consume the canonical complete export contract.
 - Memory routes use only the dedicated Memory API and render Markdown without a wiki-page adapter.
 - The embedded server serves the SPA and same-origin API calls.
@@ -348,7 +481,13 @@ The shared [design system](design_system.md) defines the current visual identity
 
 ### Current project activity
 
-`GET /api/workspace/now?project_dir=...` returns `project_id`, `generated_at` and `sections` keyed by `sessions`, `tasks`, `memories`, and `knowledge`. Each section contains `items`, `total`, `has_more` and an optional `error`. Items contain identity/title/link, available responsible identity and update time; current work additionally includes lease, progress and next action. Session items also expose the authoritative completed/total linked-task count: every linked Task, including cancelled work, contributes to `total_tasks`, while only `completed` contributes to `completed_tasks`. The NOW record presents that count as text plus a compact progress bar when tasks exist, and as `No tasks` without a bar when the total is zero. Its aggregation reads only Tasks linked to the active session IDs; a session-progress failure marks the sessions section without hiding a successfully loaded tasks section. Fencing tokens, raw session snapshots, audit histories and complete document/memory bodies are excluded. Domain readers retain their normal project authorization. Metadata is ordered by parsed update timestamp descending with ID as the stable tie-breaker before the 20-item cap. Task/session claims must be in progress and unexpired. Knowledge is the project's own corpus; personal memory and imported corpora are not included.
+Workspace Now uses cookie-authenticated Rust endpoints: `POST /api/now/web/contexts` resolves exact retained native paths, project IDs and versions allowed by the Broker; `POST /api/now/web/subscribe` receives NDJSON full snapshots for the selected context. Both require the configured same Origin. The native header provides Project and Version selection without the legacy workspace catalogue or agent-based identity. The stream displays this daemon's published local heads and other authorized instances of that project/version, with instance IDs and leases. Broker PresenceRead PROJECT authorization is independent of JWT authentication; its module mask preserves separate Task, Memory and Knowledge permissions. Forbidden sections expose no items or known counts; missing corpora and empty available sections remain distinct.
+
+Session items expose the authoritative completed/total linked-task count: every non-cancelled linked Task contributes to `total_tasks`, while only `completed` contributes to `completed_tasks`. Cancelled Tasks remain visible in the linked inventory and history. Now presents that count as text plus a compact progress bar when applicable tasks exist, and as `No applicable tasks` without a bar for zero, including sessions with only cancelled Tasks. Native integer parsing preserves exact counts. Record links carry the admitted native context into authorized dossiers; complete progress/next-action bodies, raw snapshots, audit history, fencing tokens and document/memory bodies are excluded from the broadcast. Metadata remains the producer's allowlisted, ordered, 20-item section view. Task/session claims must be in progress and unexpired; personal Memory and imported corpora are excluded.
+
+Each instance shows `Observed at` from the snapshot’s original `generated_at` (UTC epoch nanoseconds), formatted in the viewer’s locale. `Live updates` describes the stream connection; receiving the same snapshot again does not mean its records were observed again. The reader preserves `generated_at` exactly, and the view changes its observation time only when the producer sends a different timestamp. No client receipt clock or heartbeat resets that time.
+
+Updates arrive through the Broker realtime channel without periodic Now requests. The UI cancels the old stream on context change or unmount, ignores late responses and withdraws disconnected snapshots. It shows reconnection state and reconnects after transient failures; authentication, forbidden and invalid-selection failures require an explicit retry. The shared header refresh refreshes working contexts and restarts the owned stream. See [Rust Now and Presence integration](rust_now_presence_integration.md#web-now-consumer).
 
 `GET /api/project-catalog` returns `workspace_projects` and `hub_projects` independently, with
 `workspace_error` and `hub_error` for partial failures. Clients deduplicate both sources by immutable

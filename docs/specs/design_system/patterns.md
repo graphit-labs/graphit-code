@@ -17,6 +17,8 @@ Code's navigation is grouped by engineering purpose:
 
 Keep existing route and feature gates. `AppShell` supplies global navigation and the common header. Its right-hand `WorkspaceSelectors` group is the single owner of global Project, Version and Agent controls on every route. Explorers supply only local domain context and work tools; do not repeat global selectors in page headers, sidebars or mobile drawers. Do not add another application sidebar inside a feature. The active project, its version and the active agent are separate concepts: changing one must not silently imply another changed. A version is remembered per project.
 
+Native PROJECT readers retain the exact project path, ID and version as a selection preference across modules within the same access identity and API. Each destination obtains its own authorized context inventory before using that preference; inventories and access decisions never carry across modules. An explicit selection in the URL takes priority. If the preferred context is unavailable, show the unavailable state instead of switching to another version or project. Changing identity or API clears the preference.
+
 Broker groups Workspace, Identity & access, and Operations. Authorized resource access and administrative privileges are distinct; visibility follows existing permission checks. Place inventory before editing so the operator can inspect state before acting. The site uses a content journey, not application navigation: proposition → engineering approach → product roles → adoption context → installation → documentation.
 
 ## Page compositions
@@ -59,6 +61,8 @@ Current implementations: Code `components/layout/AppShell.tsx`, `Sidebar.tsx`, `
 
 Project and Agent use themed Radix Select menus: Tab reaches each trigger; Enter/Space opens it; arrows and type-ahead move through options; Escape closes and restores trigger focus. The menu is portaled, uses semantic surface/action tokens, highlights the active option and marks the selected item with a check. Project options are grouped by working-context origin: Workspace includes the checkout directory; **Hub · remote** includes the immutable project ID and the selected trigger retains the Hub label. Menus stay within the viewport and scroll independently. Both remain visible in the shared header at narrow widths; labels and selection are never replaced by unlabeled icons. Keep the controls disabled with loading/empty text when options are unavailable, and retain the shared Refresh action. Disambiguate repeated project names by origin and directory or ID. A stale retained Hub target stays explicit and must not produce a local path fallback. Selecting a project leaves the agent unchanged and vice versa; global context changes still invalidate scoped requests and dialogs. A domain filter such as publisher project or indexed source is separate and belongs with the data it filters.
 
+Native Task, AST, Knowledge, Memory, Now and Hub headers use `TaskWorkspaceSelectors` with their own authorized inventory. Their Project trigger and options show the configured project name from the inventory's separate `projects: [{project_id, name}]` metadata. Linked worktrees share that name and retain their exact checkout paths in option details. A missing name falls back to the immutable ID; the UI never derives a name from a directory or another module's inventory. Names refresh with the inventory and clear with access, module or identity changes. The selection remains only `project_dir`, `project_id` and `project_version`; display metadata never enters record URLs or request selections. Reuse `ContextSelect` and its existing tokens, keyboard behavior and async states.
+
 ### Combined refresh
 
 `WorkspaceRefreshProvider` in AppShell owns the single Refresh action in the header. It refreshes the global project/agent catalogue once, then runs every `usePageRefresh` callback still registered for the active route/project/agent. Pages register their data loaders, not a remount or browser reload. Catalogue and selected-detail loaders participate together; polling and mutation revalidation continue independently. Workspace, Ecosystem and publication forms need only the global catalogue refresh; publication drafts are preserved.
@@ -83,6 +87,12 @@ Effects own subscriptions, requests and their cleanup. Cancel a deferred initial
 
 Prefer one emphasized primary action per decision region, not an arbitrary limit of one button per page. While a mutation is pending, prevent duplicate submission and preserve a meaningful progress label. A disabled control needs an understandable reason nearby where the restriction is not obvious. Do not use disabled opacity to conceal an authorization failure.
 
+Code actions reuse `work-button`, with `primary` or `danger` as a separate class.
+Disabled controls retain their resting treatment on hover. Recovery actions in
+`WorkNotice` appear below the message with space to distinguish the action from
+the error. Broker destructive hover retains the destructive border; mobile
+actions and navigation controls have a 44px minimum hit area and wrap where needed.
+
 ### Fields and forms
 
 Current examples: Memory form, project switchers, Broker grant/identity editors, OAuth templates.
@@ -94,7 +104,15 @@ Current examples: Memory form, project switchers, Broker grant/identity editors,
 5. Confirm success only after the authoritative response. On conflict, explain that state changed and direct the user to refresh/review before retrying; do not silently overwrite.
 6. Preserve backend validation, CSRF/revision protections, permissions and existing destructive confirmation behavior.
 
-Broker `focusEditor` focuses the correct field and scrolls its actual panel into view. Reuse this relationship when rearranging forms; a fixed pixel scroll offset is not a reliable navigation contract. Authentication field names, form methods/actions and Go template branches are protocol surfaces and must survive a visual change.
+Broker `focusEditor` focuses the correct field and scrolls its actual panel into view. Reuse this relationship when rearranging forms; a fixed pixel scroll offset is not a reliable navigation contract. Authentication field names, form methods/actions and Rust template branches are protocol surfaces and must survive a visual change.
+
+Knowledge questions separate the question, model/evidence settings, evidence
+selection and submit/cancel actions. The complete page selection list scrolls
+within a 16rem region; it does not truncate available evidence or impose a
+request limit. Checkbox labels keep title and slug on separate wrapping lines.
+On narrow screens the form becomes one column, preserving every control.
+The global pending indicator uses the same card/text tokens and a readable
+sentence-case status, announced politely, rather than a separate visual theme.
 
 ### Lists, tables and filters
 
@@ -145,6 +163,8 @@ Memory uses a current-record catalogue and revision dossier. The revision chain 
 ### Investigation and query evidence
 
 Current AST implementation: `ExplorerPage`, `QueryBar`, `TabularResults`, `ContextsPage`. Search is the first action and queries the selected index; the Relationship map loads its sample on first selection, not on page entry. Search and Run query automatically open Relationship map with visible execution feedback. Its source inspector provides Source/Incoming/Outgoing/Potential impact without leaving the result workspace. Query lab retains the authoring draft. Resolve one indexed identity before traversal. Empty, ambiguous or stale identities must not silently merge evidence.
+
+Source readers show the returned code immediately. Published file observations are supporting evidence in a named native disclosure, closed for each newly selected Source or scope. Fetch and decode their complete payload only while the disclosure is open; keep loading, empty, failed/retry and cancellation states local to that evidence. Closing it cancels the read and releases its payload. Source remains usable while observations load or fail. Replacing Source, changing scope or unmounting cancels the old evidence read and rejects its late result; preserve exact native schema/generation checks, integer values and Source provenance. The native summary keeps keyboard activation, and an explicit Cancel returns focus to it.
 
 AI-generated Cypher is an editable draft. Generation and execution have separate labels, loading states and explicit user actions. Scope changes invalidate results and pending generation. A bounded traversal returns evidence about the indexed endpoints; label its limit and dynamic-analysis gaps. Do not manufacture graph edges from a result table.
 

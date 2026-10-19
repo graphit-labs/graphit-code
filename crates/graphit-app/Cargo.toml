@@ -1,0 +1,136 @@
+[package]
+name = "graphit-app"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "graphit"
+path = "src/main.rs"
+
+[[bin]]
+name = "kiro-knowledge-fixture"
+path = "tests/support/kiro_knowledge_fixture.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "opencode-knowledge-fixture"
+path = "tests/support/opencode_knowledge_fixture.rs"
+test = false
+bench = false
+
+[features]
+cuda = ["graphit-ai/cuda"]
+
+[dependencies]
+uuid = { version = "=1.28.0", features = ["v4"] }
+path-clean.workspace = true
+zip = { version = "=9.0.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+aws-config = "=1.12.0"
+aws-credential-types = "=1.3.0"
+serde-saphyr = { version = "=1.3.0", default-features = false, features = ["deserialize"] }
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+async-trait = "=0.1.92"
+lance-io = { version = "=14.0.2", default-features = false }
+lance = { version = "=14.0.2", default-features = false }
+object_store = { version = "=0.14.2", default-features = false, features = ["aws"] }
+whoami = { version = "=2.1.3", default-features = false, features = ["std"] }
+shlex = "=2.0.1"
+agent-client-protocol = { version = "=3.3.0", features = ["process", "stdio"] }
+arrow-array = "=58.3.0"
+arrow-schema = "=58.3.0"
+arrow-select = "=58.3.0"
+arrow-json = "=58.3.0"
+graphit-runtime = { path = "../graphit-runtime" }
+graphit-core = { path = "../graphit-core" }
+graphit-hub = { path = "../graphit-hub" }
+graphit-fs = { path = "../graphit-fs" }
+graphit-ai = { path = "../graphit-ai" }
+graphit-process = { path = "../graphit-process" }
+graphit-http = { path = "../graphit-http" }
+graphit-daemon = { path = "../graphit-daemon" }
+graphit-ast = { path = "../graphit-ast" }
+scip.workspace = true
+protobuf.workspace = true
+graphit-auth = { path = "../graphit-auth" }
+graphit-records = { path = "../graphit-records" }
+graphit-data = { path = "../graphit-data" }
+graphit-knowledge = { path = "../graphit-knowledge" }
+serde.workspace = true
+secrecy.workspace = true
+zeroize = "=1.9.1"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std", "async-await", "io"] }
+tokio-util = { workspace = true, features = ["io", "codec", "compat"] }
+rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-streamable-http-server", "client", "transport-streamable-http-client-reqwest", "transport-io", "schemars"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json", "query", "multipart"] }
+hyper = { version = "=1.12.0", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "=0.1.21", default-features = false, features = ["server-auto", "service", "tokio"] }
+axum-extra = { version = "=0.12.6", default-features = false, features = ["cookie"] }
+cookie = { version = "=0.18.1", default-features = false }
+base64.workspace = true
+getrandom.workspace = true
+gix = { version = "=0.89.0", default-features = false, features = ["sha1", "sha256", "status", "parallel"] }
+url.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+semver = "=1.0.28"
+tar = { version = "=0.4.46", default-features = false }
+flate2 = "=1.1.10"
+percent-encoding = "=2.3.2"
+reqwest = { workspace = true, features = ["stream"] }
+tokio.workspace = true
+tracing = { workspace = true, features = ["attributes"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+tokio-stream = "=0.1.18"
+open = "=5.4.4"
+tempfile.workspace = true
+clap = { version = "=4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "string"] }
+ctrlc = { version = "=3.5.2", default-features = false, features = ["termination"] }
+crossterm = { version = "=0.29.0", default-features = false, features = ["windows"] }
+rustix = { workspace = true, features = ["fs", "process"] }
+unicode-width.workspace = true
+which = "=8.0.6"
+
+[target.'cfg(windows)'.dependencies]
+process-wrap.workspace = true
+windows-sys = { workspace = true, features = ["Win32_System_IO", "Win32_System_Threading"] }
+
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+tikv-jemallocator = { version = "=0.7.0", features = ["background_threads", "override_allocator_on_supported_platforms"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "=0.3.6", default-features = false, features = ["tokio"] }
+zbus = { version = "=5.13.2", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+tarpc = { version = "=0.38.0", default-features = false }
+tree-sitter-rust = "=0.24.2"
+tree-sitter-json = "=0.24.8"
+broker-presence = { path = "../../../graphit-broker/crates/broker-presence", version = "=0.1.0" }
+broker-control = { path = "../../../graphit-broker/crates/broker-control", version = "=0.1.0" }
+broker-security = { path = "../../../graphit-broker/crates/broker-security", version = "=0.1.0" }
+rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
+sqlx-core = { version = "=0.9.0", default-features = false, features = ["json", "_rt-tokio", "_tls-rustls-ring-webpki"] }
+sqlx-postgres = { version = "=0.9.0", default-features = false, features = ["json"] }
+axum = { version = "=0.8.9", default-features = false, features = ["ws"] }
+parquet-graph-fixture = { package = "parquet", version = "=60.0.0", default-features = false, features = ["zstd"] }
+aws-lc-rs = "=1.18.1"
+
+[build-dependencies]
+graphit-core = { path = "../graphit-core" }
+
+[lints.rust]
+unsafe_code = "deny"
+
+# Match the workspace style policy while retaining this crate's unsafe boundary.
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[[bin]]
+name = "app-copilot-fixture"
+path = "tests/support/copilot_cli_fixture.rs"
+test = false
+bench = false

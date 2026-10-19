@@ -1,0 +1,60 @@
+language: bash
+grammar: tree-sitter-bash
+extensions: [".sh", ".bash", ".zsh", ".ksh"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition name: (word) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(variable_assignment name: (variable_name) @name)'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(variable_assignment name: (variable_name) @name value: [(word) (number) (string) (raw_string) (ansi_c_string)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(command name: (command_name (word) @name))'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(command_substitution (command name: (command_name (word) @name)))'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  function_definition: Function
+
+anon_func_types: []
+
+declaration_types:
+  - function_definition
+  - variable_assignment
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - elif_clause
+    - for_statement
+    - while_statement
+    - case_item
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Function
+  - Variable
+  - Comment

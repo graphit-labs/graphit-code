@@ -7,138 +7,148 @@ keywords:
   - task
   - sessions
   - handoff
+references:
+  - target: {type: task, id: tsk-678a}
+    relation: implements
+  - target: {type: task, id: tsk-13af}
+    relation: implements
 ---
 
-# Coordinate and resume Task sessions
+# Coordinate work with Sessions and Tasks
 
-A Task session preserves one evolving user request, its current specification and strategy, descriptive checkpoints, and the tasks that deliver it. Use it when coordinating work that another agent may need to resume. A session is durable project data; it is not an MCP connection, agent identity, terminal process, or chat turn.
+A Session preserves one evolving demand across agent/chat interruptions. Its description states
+what to deliver and its strategy explains execution. Tasks represent independently verifiable
+outcomes; progress records evidence and next action. This is the current Rust workflow, not the
+retired `task session ...` interface.
 
-The Task module must be enabled and its configured LanceDB store available. MCP agents use the tools below. Human operators may use the equivalent `graphit task session` commands from the intended project's directory. Project identity and relative source paths belong in shared descriptions; a host's checkout path belongs only in the live `project_dir` argument.
+## Selection and identity
 
-## Find existing work before creating it
+Use the current project or explicit `--project-dir` / `--project-id`, and `--project-version` only
+for another retained version. MCP uses the optional `selection` object. These identify records;
+the verified caller and current PROJECT permissions authorize the operation. There is no `--agent`
+flag to manufacture the actor.
 
-At the start of a request, after interruption, and whenever you need prior reasoning:
+CLI fields are named flags; list options are repeatable. The CLI builds the MCP envelope internally:
 
-1. If the session ID is known, call `graphit_task_session_get` immediately. Otherwise list with `active: true`, or search by the request's business outcome, decision or problem.
-2. Read the selected session's current description and strategy, checkpoints, specification revisions and task summaries. Use `graphit_task_get` for relevant task detail, or `graphit_task_list` with `session_id` to inspect its work graph.
-3. Confirm that the session matches the current request. A similar title does not authorize replacing another request. Reuse sufficient context; avoid exporting the entire project for one question.
-4. Claim an open/released session before coordinating. A different active owner must release it, its lease must expire, or an explicitly justified force takeover must succeed.
-
-`graphit_task_session_list` supports `status`, `owner`, `active`, `page_size` and `cursor`. Active means `open` or `in_progress`. Search accepts `query`, `top_k`, `page_size` and `cursor`; `top_k` caps the complete ranked result set. Both return `results` and `next_cursor`. Preserve filters and query when following a cursor. Search can recover earlier checkpoints and revisions, not only the latest summary; `get` establishes current authoritative state.
-
-CLI equivalents:
-
-```bash
-graphit task session list --active
-graphit task session search 'archive export retry' --limit 5
-graphit task session get "$SESSION_ID"
-graphit task list --session "$SESSION_ID"
-graphit task search 'retry decision' --session "$SESSION_ID"
+```sh
+graphit task session-heads
+graphit task get-session --id '<SESSION_ID>'
+graphit task get-task --id '<TASK_ID>'
 ```
 
-Variables in these examples stand for actual returned values. Never copy illustrative IDs or another agent's private claim token into a live call.
+`<SESSION_ID>`, `<TASK_ID>` and private tokens below are placeholders: substitute actual returned
+values; do not send angle-bracket examples as IDs. [MCP input schemas](../reference/mcp-input-schemas.json)
+contain every required field, enum and nested shape.
+The JSON examples below are MCP tool arguments, not CLI syntax. CLI operations
+use the named flags in the [complete option reference](../reference/cli-options.md).
 
-## Create a complete request and plan its tasks
+## Create or resume a demand
 
-For a new request, `graphit_task_session_create` requires `title`, `description` and `strategy`. Supply a stable `idempotency_key` for retries of that logical request. Creation returns an open session; claim separately with `graphit_task_session_claim`. Record the returned ID and keep its claim token private.
-
-The description must capture the requested outcome, current scope, requirements and success criteria, constraints, known sources and unresolved questions. The strategy explains how to investigate, decompose, implement and validate the request. A generic title or copied short prompt is insufficient for handoff.
-
-Illustrative complete initial content for a request to add archived-record exports:
+Read Session heads and the selected Session before deciding whether a demand is new. Continue the
+same Session when requirements evolve; revision changes its specification, checkpoint records
+execution. Creating another Session is not a substitute for reading current work.
 
 ```json
 {
-  "title": "Export archived records with predictable retry behavior",
-  "description": "The user needs authorized operators to export archived records without changing the default active-only listing. Preserve existing access controls and export columns. R1: an explicit archived filter selects archived records only. R2: repeated delivery of the same export request must not produce duplicate jobs. R3: document the filter and retry behavior for operators and API consumers. First inspect the current listing/export implementations and documented contracts; the exact retry key location is unresolved. Success requires contract tests for active/default and archived filters, duplicate-delivery evidence, and updated user/API documentation.",
-  "strategy": "Read the existing listing and export contracts through Knowledge and implementation through AST; recall prior retry decisions. Resolve the key contract before saving the execution graph. Create separate scoped tasks for filter behavior, retry handling, and integrated validation/documentation, with explicit dependencies, acceptance and tests. Checkpoint findings and reconcile the request if evidence changes the plan.",
-  "idempotency_key": "archive-export-request-01",
-  "ai_optimized": true
+  "selection": {"project_id":"<PROJECT_ID>","project_version":"main"},
+  "input": {
+    "idempotency_key":"deliver-parser-support",
+    "title":"Deliver custom parser support",
+    "description":"Allow configured extension-to-image routes; preserve authorization and fallback.",
+    "strategy":"Inspect existing producer, implement its consumers, validate the Docker contract."
+  },
+  "ai_optimized":false
 }
 ```
 
-Add the current `project_dir` only to the MCP call envelope; the JSON's descriptive content is portable. This is an illustrative domain, not a fixed architecture or task count.
+Send this to `graphit_task_session_create`. Creation returns `result.id`. Reusing the same
+idempotency key does not revise an existing request. Keep meaningful durable requirements in
+Session/Task; keep credentials, personal details and transient impressions out of shared records.
 
-CLI creation accepts the same narrative through `--description` and `--strategy`:
+## Claim coordination and ready work
 
-```bash
-graphit task session create 'Export archived records with predictable retry behavior' \
-  --description "$REQUEST_SPECIFICATION" --strategy "$REQUEST_STRATEGY" \
-  --idempotency-key archive-export-request-01 --agent coordinator-a
-graphit task session claim "$SESSION_ID" --agent coordinator-a --lease 2h
+`graphit_task_session_claim` and `graphit_task_claim` each accept:
+
+```json
+{"input":{"id":"<RETURNED_ID>","lease_ms":600000},"ai_optimized":false}
 ```
 
-After investigation, save executable task specifications, checks and dependencies as described in the [Task module](../specs/task_module.md). Session context complements those task packets; it does not replace their detailed specification or allow implementing a whole project under one generic task.
+Each returns `result.record` and its own private `result.token`. The lease here is a caller choice,
+not a product-wide quota. Use Task `record.specification.revision` or Session `record.revision` as
+appropriate. A Task token cannot mutate a Session. Existing live ownership must be respected;
+there is no force-takeover capability in this catalog.
 
-New MCP tasks must resolve to a session. Pass `session_id`, inherit the parent task's session, or let Graphit infer the session currently coordinated by the same actor. Explicit and inherited associations must agree. Children share their parent's session; a task's association is immutable. An explicit nonterminal session allows separate workers to create tasks without taking the coordinator's claim. A terminal session accepts no new tasks.
+Create a Task with `session_id`, explicit `task_type`, `priority`, detailed description, stable
+idempotency key and at least one `acceptance` and one `test` check. Optional `parent_id`,
+`depends_on` and dates express real hierarchy/dependencies/schedule, not administrative ceremony.
+Only claim ready work. Pass the returned IDs to delegates; coordinator-owned lifecycle stays
+separate from read-only impact/recall.
 
-For planned independent creations, use `graphit_task_batch` with `session_id` on each operation when needed. Parent/dependency IDs must already exist; create dependency stages in separate calls and inspect every result. Human CLI creation can remain unassociated when neither an explicit, inherited nor active-coordinator session applies; use `graphit task create ... --session "$SESSION_ID"` to associate it.
+## Progress, specification changes and checks
 
-## Checkpoint and revise while working
-
-The coordinator and task workers hold independent claims. Completing a worker's task does not close the session. Each worker records task-level evidence; the coordinator checkpoints independently meaningful outcomes in the session, referencing those tasks.
-
-`graphit_task_session_checkpoint` requires `id`, the session `claim_token`, `summary` and `next_step`. Optional `problems`, `decisions` and `strategy` preserve the reasoning needed for continuation. Use descriptive evidence, not “working” or a log of every tool call. Checkpoint `strategy` records the observed approach in that checkpoint; replacing the session’s current strategy requires `revise`. All three context fields are strings, so each can contain structured Markdown.
-
-A checkpoint JSON body for `graphit task session checkpoint "$SESSION_ID" - --claim-token "$SESSION_TOKEN" --agent coordinator-a`:
+Owned progress/checkpoint/revise operations generally accept:
 
 ```json
 {
-  "summary": "The filter contract is implemented and its focused tests passed in the filter task. The retry task has reproduced duplicate delivery in its isolated fixture. The integrated user/API documentation check remains pending.",
-  "problems": "The existing request identifier is generated after queue submission, so it cannot currently deduplicate submissions. No production data was changed during the reproduction.",
-  "decisions": "Use the caller's request key at the submission boundary. Preserve the existing job identifier for retrieval; replacing it would break consumers. Record the exact validation contract in the retry task before implementation.",
-  "strategy": "Finish the retry contract and implementation, then execute the integration task against both filter and duplicate-submission behavior.",
-  "next_step": "Read the retry task's reproduction and submission contract, revise its specification with the agreed key validation, then implement and run its duplicate-delivery cases. Resume integration only when both prerequisite tasks are complete."
+  "input":{
+    "target":{"id":"<ID>","claim":{"token":"<PRIVATE_TOKEN>","expected_revision":3}},
+    "lease_ms":600000,
+    "summary":"Implemented parser route; configuration and consumer tests passed.",
+    "next_step":"Validate the affected image contract."
+  },
+  "ai_optimized":false
 }
 ```
 
-Use actual returned task IDs and source/test evidence in the real checkpoint. The same fields go directly into the MCP checkpoint call alongside the session ID, token and project scope.
+This is the progress/checkpoint shape. Revision instead requires `reason` and supported replacement
+fields; do not send progress fields to revision. Superseding a check uses its actual `check_id`,
+reason and optional replacement. `verify-task-check` records actual evidence, not planned tests.
+Use each operation's schema; completion and commit metadata have different envelopes.
 
-When the user adds requirements, changes direction, or investigation invalidates the plan, first call `graphit_task_session_revise` with the latest `expected_revision`, `reason`, and replacement `title`, `description` or `strategy`. It preserves before/after specifications. Then reconcile affected task descriptions, checks and dependencies before executing the changed work. A checkpoint alone does not revise the current request specification.
+Re-read revisions after writes and concurrent changes. Stale revision/fence, authorization,
+cancellation and deadline failures are meaningful; never fabricate a new actor or bypass the
+writer. Omitted reference patches preserve relations, `[]` clears explicit relations, and a
+complete typed list replaces them. Mentioning an ID only in prose creates no relation.
 
-CLI revision consumes a strict JSON patch:
+## Read complete evidence deliberately
 
-```bash
-graphit task session revise "$SESSION_ID" request-patch.json \
-  --expected-revision "$SESSION_REVISION" --reason 'User added a CSV contract requirement' \
-  --claim-token "$SESSION_TOKEN" --agent coordinator-a
-```
+Current reads return `history:null` and, for Tasks, `comments:null` unless requested. They provide
+creation/current/last-event and first-page cursors. To load history, send
+`history:{page_size:20,cursor:<history_start_cursor>}` inside input. Comments use their own section
+and cursor. Continue through `next_cursor` until EOF for an audit/export. Do not reuse Task,
+Session and comment cursors interchangeably or change selection while continuing.
 
-`request-patch.json` contains only supplied replacement fields: `title`, `description`, `strategy`. Omitted fields remain unchanged. Read the current revision again after intervening mutations or a stale-revision error. Claims default to one hour; heartbeat/checkpoint/revise can renew without shortening a longer active lease. `graphit_task_session_heartbeat` renews coordination without inventing progress.
+Typed query uses the advertised schema and columns; search finds current Task public content,
+check evidence and comments. It does not search Session strategies or every old specification.
+FTS is model-free; semantic/hybrid use compatible vectors already published incrementally.
 
-## Hand off and resume safely
+## Finish or hand off
 
-Before stopping, preserve the request's actual state: completed and remaining work, blockers, decisions, evidence, and an exact continuation. Release task claims as appropriate through their own tools; releasing the session does not release other workers' tasks.
+Completion uses `input:{id,claim:{token,expected_revision}}`, not the progress target envelope.
+The parent must meet its own checks and dependency/hierarchy gates. Completed/cancelled children
+are terminal; cancellation does not certify a required feature. Cancelled tasks do not inflate
+the Session progress denominator. Complete the Session only when its actual demand is delivered.
 
-```bash
-graphit task session release "$SESSION_ID" --agent coordinator-a \
-  --claim-token "$SESSION_TOKEN" \
-  --summary 'Filter task complete; retry contract resolved, implementation pending; integration waits on retry.' \
-  --next-step 'Read the retry task, claim it with the worker identity, implement its saved contract and pass its checks before integration.'
-```
+When stopping unfinished work, release Task and Session separately with the real current fence,
+summary and next step. A closed chat, lost process or expired lease does not complete the demand.
+If a mutation timed out, inspect current/history before retrying; it may already have committed.
 
-The next coordinator reads the session and relevant tasks, claims the session using its own stable identity, and uses the newly returned token. It does not reuse the prior coordinator's token. Expiry and supported stop hooks preserve an open resumable request; hooks do not write fictional narrative or mark the work complete. Where a host does not expose a safe identity, use explicit handoff; the lease remains the fallback.
+After an authorized commit/amend, resolve the full actual SHA and use `graphit_task_commit_set`
+(or CLI `task set-task-commit`) for included Tasks. This preserves status/checks and does not
+authorize Git push. Product [Git snapshots](../specs/git_records.md) separately preserve Task/Memory
+state at commits.
 
-An unexpired claim whose owner is demonstrably unrecoverable can be recovered through `graphit_task_session_force_takeover`, requiring `confirm_id`, `expected_revision`, a reason, a positive replacement `lease` and a different new coordinator. CLI: `graphit task session force-takeover`. Read first; normal release/claim is preferable when the owner can cooperate.
+## Common failures
 
-## Close only after the request is resolved
-
-Finish and validate each associated task. Cancel obsolete work explicitly with its reason; cancellation is not delivery evidence. Read the session's tasks and reconcile the final scope before `graphit_task_session_complete`, which requires the current coordinator token and a meaningful final `summary` mapping outcomes to evidence and explaining cancelled scope or limitations.
-
-Complete and cancel both refuse an associated task still `open` or `in_progress`, or a completed task whose checks/dependencies/subtasks are no longer valid. Neither operation silently completes/cancels children. An analysis-only session without tasks can close with its descriptive result; do not invent tasks/checks to satisfy a count. A finished chat turn or disconnected MCP connection never means the session is complete.
-
-CLI completion: `graphit task session complete "$SESSION_ID" --claim-token "$SESSION_TOKEN" --agent coordinator-a --summary "$FINAL_EVIDENCE"`. For an obsolete request, use `cancel` with the same ownership fields and `--reason`, after explicitly resolving all associated tasks. Session states are exactly `open`, `in_progress`, `completed`, `cancelled`.
-
-## Diagnose rejected actions
-
-| Result | Meaning and recovery |
+| Result | Action |
 |---|---|
-| Task creation requires a session | Create/claim the described request or pass its known nonterminal ID. Do not create an empty automatic session or switch identities. |
-| Unknown/conflicting session or parent | Read the session and parent; use the correct shared association. Existing tasks cannot move to another session. |
-| Coordinator already claimed or stale token | Read current state. Coordinate release, wait for actual expiry, or use justified explicit takeover; never bypass fencing. |
-| Stale revision | Reread, reconcile the request against the current state, then revise with that revision. |
-| Session has nonterminal tasks | Inspect `task_list(session_id)` and finish/cancel that work explicitly before closing. |
-| Request timed out | Read the current record/history before retrying. Retry creation with its original idempotency key; a repeated creation does not revise saved content. |
-| Invalid JSON or unknown patch field | CLI revision/checkpoint accept one strict JSON object. Correct the input; do not silently drop unrecognized fields. |
-| Invalid cursor | Restart with the intended filters/query or use the cursor's original parameters; never reuse it for a different session filter. |
+| Not found / no corpus | Check actual ID, PROJECT/version and authorization; do not recreate a store to hide it |
+| Stale revision | Reread and reconcile with the latest version |
+| Invalid/expired claim | Recover coordination through the supported real claim lifecycle |
+| Blocked completion | Inspect nonterminal descendants/dependencies, active checks and flags |
+| Invalid cursor | Resume the original pinned parameters or start a new read |
+| Delivery failure after write | Inspect reported committed/uncertain effects before retry |
+| Unavailable tool | Inspect the current catalog; no batch/export/force-takeover alias is implied |
 
-[CLI reference](cli_reference.md#task) · [MCP tools](mcp_tools_reference.md#task-session-tools) · [Session contract](../specs/task_sessions.md).
+[Task contract](../specs/task_module.md) · [CLI](cli_reference.md#source-records-and-live-views) ·
+[MCP](mcp_tools_reference.md#task-session-tools).

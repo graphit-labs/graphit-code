@@ -1,0 +1,25 @@
+
+
+language: plpgsql
+extensions: [".plpgsql"]
+exclusive: true
+
+queries:
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(decl_stmt (decl_statement (decl_varname) @name))'
+    name_capture: name
+
+complexity:
+  node_types:
+    - stmt_if
+    - elsif_clause
+    - stmt_for
+    - stmt_while
+    - stmt_foreach_a
+    - case_when
+    - proc_exception
+
+embed_labels:
+  - Variable

@@ -1,287 +1,222 @@
-# Hub Collaboration Specification
+---
+title: Hub Collaboration Specification
+content-type: reference
+audience: developers
+updated: 2026-10-29
+references:
+  - target: {type: task, id: tsk-4208}
+    relation: implements
+  - target: {type: task, id: tsk-2006}
+    relation: relates_to
+  - target: {type: task, id: tsk-7bbb}
+    relation: relates_to
+  - target: {type: task, id: tsk-31f2}
+    relation: relates_to
+  - target: {type: task, id: tsk-4b26}
+    relation: supports
+  - target: {type: task, id: tsk-d83c}
+    relation: supports
+  - target: {type: task, id: tsk-2f54}
+    relation: supports
+  - target: {type: task, id: tsk-ced2}
+    relation: supports
+  - target: {type: task, id: tsk-a2bb}
+    relation: supports
+  - target: {type: task, id: tsk-84f3}
+    relation: supports
+  - target: {type: task, id: tsk-1833}
+    relation: supports
+  - target: {type: task, id: tsk-bc28}
+    relation: supports
+  - target: {type: task, id: tsk-aa20}
+    relation: supports
+  - target:
+      type: task
+      id: tsk-10b5
+    relation: supports
+  - target:
+      type: task
+      id: tsk-216a
+    relation: supports
+  - target:
+      type: task
+      id: tsk-9b6d
+    relation: supports
+  - target:
+      type: task
+      id: tsk-47a5
+    relation: supports
+  - target:
+      type: task
+      id: tsk-cc0e
+    relation: supports
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target: {type: task, id: tsk-3ddb}
+    relation: relates_to
+  - target: {type: task, id: tsk-ad05}
+    relation: relates_to
+  - target: {type: task, id: tsk-e493}
+    relation: relates_to
+  - target: {type: task, id: tsk-7a13}
+    relation: relates_to
+  - target: {type: task, id: tsk-c3bf}
+    relation: relates_to
+  - target: {type: task, id: tsk-0257}
+    relation: relates_to
+  - target: {type: task, id: tsk-47fd}
+    relation: relates_to
+  - target: {type: task, id: tsk-d75f}
+    relation: relates_to
+  - target: {type: task, id: tsk-b788}
+    relation: relates_to
+  - target: {type: task, id: tsk-4323}
+    relation: relates_to
+  - target: {type: task, id: tsk-376b}
+    relation: relates_to
+  - target: {type: task, id: tsk-427f}
+    relation: supports
+  - target: {type: task, id: tsk-81ba}
+    relation: implements
+---
 
-The Hub is the broker-mediated object control and data plane used to share rules, skills, commands, agents,
-MCP definitions, language queries, AST graphs, and knowledge contexts. Every project's durable
-remote state is rooted at its immutable ULID. A lightweight global name directory provides friendly
-discovery without making the mutable project name a storage address. No Git checkout or Hub
-repository is involved in the persistence model.
+# Hub collaboration and artifact lifecycle
 
-## Backend and configuration
+The Hub shares versioned artifacts and native code/document contexts across projects and machines.
+It separates authored producer sources, registry metadata, remote payloads, verified caches and
+effective installations. Project discovery or knowing an artifact ID is not an access grant.
+Use the [CLI guide](../guides/cli_reference.md) and [current MCP schemas](../reference/mcp-input-schemas.json)
+for exact operations; [consumer contract](hub_consumer_contract.md) specifies authority/lifecycle.
 
-The active profile's named provider supplies the storage mode. Local providers may configure S3
-directly. Broker providers obtain a restricted temporary S3 session plus topology when discovery
-advertises `graphit-s3-credentials-v3`; those grants are resolved and cached only in memory for
-each project, user-memory, or Hub-metadata scope and physical module. Providers without S3 remain
-filesystem-only. An advertised Broker capability or renewal of an existing grant fails closed on error.
+## Identity and backend
 
-AST publication also resolves `hub.icebug.reverse_edges` through the standard
-inline → environment → project → global → default chain. Its default is `true`, and
-only an explicit `false` disables it. The environment spelling is
-`GRAPHIT_HUB_ICEBUG_REVERSE_EDGES`. Because `ConfigMap` nests only the first dotted
-section, the project lockfile representation is:
+A project has an immutable ID and a mutable discovery name. PROJECT version selects its records/
+sources; artifact version selects a published artifact; these are not the same field. Native
+context selectors retain exact artifact IDs/versions and aliases. A private brand can change
+names/paths through supported branding, not by embedding one machine's checkout path.
 
-```json
-{"config":{"hub":{"icebug.reverse_edges":"false"}}}
-```
+Broker discovery/PROJECT rules and scoped S3 credentials authorize storage. Standalone providers
+retain their own validated identity/topology/ACL contract. The client cannot choose an arbitrary
+bucket/root or substitute local storage after a denied remote call. Object bodies move directly
+between SDK/storage and Graphit. A cached registry or readable payload does not grant access.
+See [Hub access](hub_access_control.md), [object layout](hub-s3-object-layout.md) and
+[S3](../guides/s3-and-ui-network.md).
 
-The exact object prefixes, registry documents, publication ordering, and error
-contract are defined in [Hub S3 Object Layout](hub-s3-object-layout.md). Operator
-configuration and security guidance are in
-[Authentication providers and account profiles](../guides/authentication.md).
-The separation between immutable ULID and mutable globally unique name is defined in
-[Project Identity](project_identity.md). Deny-by-default grants, trusted subjects, selective
-discovery, and cache rules are defined in [Hub Access Control](hub_access_control.md).
+## Artifact families
 
-## Registry and artifact operations
-
-The global registry contains only `name -> project ULID` identity records. Project metadata,
-artifact entries, payloads, events, memory, and Tasks live below `v2/projects/<ULID>/`.
-Project metadata includes the normalized cluster map from `graphit.lock.json`; authorized clients
-can therefore discover related projects without a checkout. Init, update, and project-scoped
-publication synchronize name, description, and cluster together. The global lock remains a local
-projection and is never the Hub authority.
-
-The UI may make a Hub project the active working target without installing it. Live Task and project
-Memory stores are addressed by project ULID. Published Knowledge and AST are discovered through the
-project context inventory, resolve `latest` to a concrete version, and are read as exact
-`artifact-id@version` stores on demand. These reads create no lockfile entry, context claim or local
-artifact copy. User Memory remains a private user scope independent of the selected project.
-Operations use object-store semantics:
-
-- `Sync` resolves the caller's grants, reads only authorized project and artifact metadata, and
-  reconciles installed artifacts against `graphit.lock.json`.
-- `Submit` publishes a versioned payload first and writes its registry pointer
-  last, so a visible entry does not name incomplete data.
-- `Install` records the selected version, downloads file artifacts needed by Agents, and mounts
-  native AST and Knowledge stores directly on S3.
-- `Update` resolves newer registry versions and reapplies installation.
-- `Uninstall` removes the current project's claim and deletes shared local data
-  only when no project still references it.
-
-S3 object writes replace the old commit/push/fetch workflow. Independent artifact versions use
-disjoint prefixes. Publication ordering prevents consumers from observing a pointer before its
-payload exists. Name creation and rename use conditional writes; two clients cannot successfully
-reserve the same normalized name. Renaming changes only the name index and project metadata and
-never moves the `v2/projects/<ULID>/` prefix.
-
-### Manual package import
-
-The Observatory Upload route does not compile AST or Knowledge input. It imports native, versioned
-packages exported by Graphit itself: `.ast` from `graphit ast export --format package` contains
-`graph.icebug/` and its available `search.lance/`; `.knowledge` from
-`graphit knowledge export --format package` contains `index.lance/`. Both are ZIP containers with a
-typed `graphit-package.json` envelope. Upload checks the filename extension against the selected
-artifact type, safely extracts the container, validates envelope format/version/type and required
-native store, and only then publishes it under the active project ULID. Other file artifact types
-continue to accept `.zip`. The Global Registry remains a catalogue; it is not an owner namespace
-selectable by Submit or Upload.
-
-## Where installed artifacts live
-
-| Type | Local placement | Claim |
+| Family | Canonical source | Consumer |
 |---|---|---|
-| `rule`, `skill`, `command`, `agent`, `mcp` | managed materialization below `~/.<brand>/artifacts/modules/`, then adapter/project files | `graphit.lock.json` |
-| `knowledge` | direct S3 LanceDB mount for Hub; shallow-clone base plus local overlay for local projects | project lockfile and context registry |
-| `ast` | direct S3 LanceDB FTS and Icebug Parquet mounts for Hub; local FTS overlay and local Icebug for local projects | project lockfile |
-| `language` | managed global grammar/query materialization | project lockfile |
+| agent, skill, command, workflow, rule | Authored Resources or selected installed package | Host-native files rendered under the selected binding |
+| MCP, language, power | Descriptor/content for that artifact kind | Existing host/Graphit-specific consumer, not automatic arbitrary executable authority |
+| AST, Knowledge | Captured native SDK publication | Installed exact native context, local or authorized S3 on-the-fly |
 
-AST and knowledge artifacts publish versioned graph/search data that is read-only to consumers. A
-publisher may add a version or replace the payload and content hash of an existing version. Native
-engines read the selected S3 version on demand. File-based artifacts are written into the target
-Agent/project and remain version-locked.
+A language artifact/profile alone cannot register another native recognizer. Custom parser Docker
+routes are configured with `ast.scip.parsers`; native grammars are contributor build inputs.
+Complete descriptors, validation, templates and required entries are in
+[native installations](hub_native_installations.md). Do not invent a universal descriptor from
+an old Go example when its current kind has a strict schema.
 
-Local project graphs use the **same canonical icebug format** as Hub artifacts,
-but with `storage='<abs>/graph.icebug'` (filesystem) and a `:memory:` catalog
-rebuilt per connection from `graph.icebug/schema.cypher` – no `ladybugdb` file,
-no WAL, no swap. Publish uploads the completed local bundle through the provider's S3 store. Hub
-consumers open the versioned Icebug prefix through LadybugDB with temporary credentials; Parquets
-are identical and their bodies do not traverse the Broker.
+## Discover, review and publish authored sources
 
-Every AST relationship is exported as two independent Icebug CSR tables by default:
-`TYPE` contains exactly the directed graph, while `TYPE_REVERSE` contains the mirror
-of every non-self-loop edge with the same properties. Keeping them separate lets
-agent queries use the reverse adjacency for inbound or direction-agnostic traversal
-without making a directed `-[:TYPE]->` pattern invent edges. Reverse rows are derived
-and therefore do not increase the manifest's logical edge count.
+`hub authored list` enumerates maintained resource identities under the authorized producer
+PROJECT/version. Review selects the exact kind/ID/artifact version and paginates entries; content
+reads a selected relative text path. These readers capture sources through the PROJECT, not an
+arbitrary user-supplied host root or copied internal codec in the App.
 
-Every Icebug Parquet file contains exactly one row group. This is a correctness
-constraint, not a tuning default: the current reader can silently return incorrect
-bound-endpoint results on large graphs when a file has multiple row groups. The
-writer emits one Arrow record with one `Write` per file, and
-`TestIcebugWritesOneRowGroupPerFile` protects that container contract. Consequently,
-row-group pruning is intentionally unavailable; node-label filtering may scan the
-corresponding canonical label table.
-
-AST artifacts are published in the CANONICAL icebug layout: one node table
-per label over its own columns and primary key, and one rel table per
-(type, from, to) pair declared over the real endpoints —
-`calls__function_function(FROM Function TO Function)` — plus optional
-`<member>_reverse` mirrors for inbound and undirected reachability.
-Self-loops live once, in the forward member CSR. The v3 `icebug.json`
-manifest maps each logical TYPE to its member tables, records the
-invariants (indptr single row group, self-loop policy), and travels
-beside schema.cypher. It also records node-table row totals and per-language
-histograms so interactive context/schema statistics do not scan the graph. The
-installer stages it next to the mounted catalog so the backend adopts it at connect.
-
-On a canonical catalog every multi-hop query belongs to this project's
-planner, which resolves the logical TYPE against the manifest and runs
-UNBOUNDED breadth-first frontiers — termination comes from visited
-saturation and the caller's deadline, never a hop ceiling — expanding
-only members whose both endpoint tables carry `uid`. It answers
-`RETURN DISTINCT reached.prop [AS alias]` projections (materialized per
-uid when more than the uid itself is projected, because batched
-bound-node lookup is not reliable on large Parquet files) and
-`count([DISTINCT] reached.uid)` over the reached set. Anything richer
-fails CLOSED naming the plannable types. Bare single-hop patterns are
-exactly-one-hop traversals through the same mechanism. `X.uid = 'lit'`
-is rewritten to an IN list before anything else runs, because MEASURED
-equality against an icebug-disk primary key answers zero rows.
-
-The v3 `icebug.json` manifest and canonical per-label tables are required. A bundle without that
-manifest, or with a different table shape, fails as an unsupported artifact format.
-`graphit hub link --type ast|knowledge <path>` records a sibling-project pointer
-instead of copying its compiled store. Reads resolve that sibling's global store
-from the source project identity.
-
-## Project lockfile
-
-Every durable project receives `graphit.lock.json` when its first stateful operation needs an
-identity; this may happen before full `graphit init`. Its `project.id` is an immutable ULID and its
-`project.name` is mutable discovery metadata. `agents` lists adapters, `config` stores project-scoped
-layered values, and `artifacts` records installed versions and origins. See
-[Project Identity](project_identity.md).
-
-Configuration values mirror dotted CLI names as one nested level and are strings:
-
-```json
-{
-  "project": {"id": "01JM6B7T3B...", "name": "billing"},
-  "agents": ["codex"],
-  "config": {
-    "ui": {
-      "host": "127.0.0.1",
-      "allowed_origins": "http://localhost:8080"
-    }
-  },
-  "artifacts": {
-    "language": {
-      "elixir": {"version": "1.0.0", "origin": "hub"}
-    }
-  }
-}
+```sh
+graphit hub authored list --project-dir . --limit 20
+graphit hub authored review --help
+graphit hub authored content --help
+graphit hub publish --help
+graphit hub publish-native --help
 ```
 
-See [Configuration Module](config_module.md) for precedence and the full key list.
+An absent authored namespace can list empty. Malformed metadata, unauthorized selection or changed
+source fails explicitly. A read does not authorize publishing. FILE publication uses its captured
+source and producer write grant; Native publication captures actual SDK snapshots. Version collisions,
+source changes and uncertain effects remain producer outcomes, not silent overwrite or guessed success.
 
-## Reconciliation
+## Install and update
 
-On `graphit sync`, the Hub:
+A remote install retains transport/provider/producer, exact artifact tuple, entry/alias, native
+binding, scope, hash and concrete publication/ownership state. PROJECT and GlobalCache/GlobalNative
+have distinct admissions. Another checkout of the same project can have its own effective native
+files while logical corpus/version identity remains shared.
 
-1. authenticates the subject, resolves global/anonymous-or-authenticated/user/team grants, and obtains
-   or refreshes the provider's S3 credential for the project or Hub-metadata scope being accessed;
-2. verifies payloads and re-installs missing or changed files;
-3. reinjects managed rule blocks into configured Agent targets;
-4. maintains project claims in the global lock; and
-5. refreshes team rule overrides from the logical `rules/` prefix through the active S3 store.
+Copy is the initial physical default. Omitted update mode preserves an existing supported mode.
+Rendered agent/skill/command/workflow outputs require Copy; Link is for eligible original sources,
+not a retained duplicate render payload. Global cache operations reject a physical project mode.
+A local source link's provenance is separate from its installation's physical mode.
 
-The team-wide `rules/<module>.md` and `rules/<module>_skill.md` objects form the Hub
-layer of the rule hierarchy. Project rules win over global CLI rules, which win
-over Hub rules, which win over compiled defaults.
+`hub install-local` selects an explicit canonical local source with authorized producer and consumer
+PROJECTs and literal artifact version. Reapplying captures current source and preserves omitted
+alias/entry/mode choices. It uses the same writer/renderer and does not log in or fabricate remote
+publication. [Local installation](../development/local-hub-installation.md) gives exact examples.
 
-## Collaboration channels
+`hub update` explicitly selects newer declared remote releases. Without a single artifact selector,
+it updates the recorded remote installations of the chosen target; local/Resources sources are not
+silently turned into remote latest. Aliases/entries/physical modes stay selected. A missing declared
+latest fails rather than guessing. Independent completed items remain committed if a later item
+fails; results distinguish ok/error/not_attempted and actual observed effects. There is no atomic
+rollback across all artifacts.
 
-There is one knowledge distribution channel: `hub submit` publishes a named, versioned artifact and
-`hub install` records the selected version. Hub Knowledge readers open its remote LanceDB URI
-directly. Local project Knowledge can shallow-clone a compatible branch base from S3 and add a
-filesystem overlay until the next commit/publication.
+## Sync, user modifications and removal
 
-## Publication mutation and cleanup
+`graphit hub sync` reapplies installed **exact versions**, sources and target choices. General
+`graphit sync` also reconciles Graphit's roles/skills/Coordinator/hooks/MCP using their package
+producers. It does not upgrade releases, clone repositories, select published Git ancestors or
+wait for source/embedding completion.
 
-The registry is mutable. A version may be a numeric release or an exact named channel such as
-`branch/main`, `branch/feature/api`, or `tag/v2.0.0`. Publishing a new version appends it to the
-artifact and advances resolution for unqualified installs. Republishing an existing numeric or
-named version is also valid: its payload prefix is mirrored, stale objects within that exact prefix
-are deleted after successful upload for immutable and tag snapshots, and the version's content hash
-changes. Branch publication preserves Lance history while mirroring only non-Lance files. Concurrent
-writes to the same entry or version remain last-writer-wins and should be serialized by the publisher.
+The installed Graphit package is the canonical builtin instruction source. Destinations are the
+effective installation; origin/version/hash detect edits. There is no `owned-payloads` duplicate
+render store, payload pins or payload GC. Active remote packages/verified caches remain only where
+actually needed for current readers/reapplication and are not the same as obsolete rendered copies.
 
-A `branch/...` publication is a mutable, Git-addressed Lance lineage. The branch prefix remains
-stable; every clean Git commit compares the desired rows with the branch head and writes only
-inserted, changed, and deleted keys. An unchanged table keeps its current version; each table
-receives a native `git-<sha>` tag, and the commit is appended to the branch history manifest only
-after all tables and non-Lance files are durable.
-Non-Lance files are uploaded only when their content changes. A changed file is still stored as a
-whole S3 object, and Lance may rewrite fragments that contain changed rows; the diff guarantee is
-at the logical row/file level, not a byte-level patch of S3 objects.
-Every sync checks the remote branch of the current
-[project version](project_identity.md#project-version) and shallow-clones the exact commit or nearest
-compatible ancestor into that version's local stores only. A version with no publication of its own
-falls back to the default version's `branch/<default>` lineage, where its nearest published ancestor
-lives. The `.graphit-base.json` marker records the local version that owns the base, so a base is
-never reconciled against another branch's checkout. Publishing `branch/<name>` reads the stores of
-version `<name>`. A publication from a checkout pinned to another version is refused. If the compatible base changes, sync replaces the generated local index with a fresh
-clone and reconciles the checkout delta on top of it. If the base is unchanged, the local layer is
-retained. AST applies only files changed since the base commit to its cloned Lance tables, while
-Knowledge syncs changed wiki chunks in place. Compatibility is semantic (artifact format plus
-embedding provider, model, and dimensions); the Graphit producer version is retained only for
-audit. Project writes remain local until the next explicit publication.
+The writer preserves foreign files and user modifications. A mismatch can be a conflict even when
+another source happens to render similar bytes. Remove changes only within the established ownership
+contract. `recover` resolves a real pending publication under current authority; `forget` drops
+only the admitted installation metadata/effect defined by that operation. Neither authorizes
+deleting unknown directories, adopting arbitrary files or claiming an uncertain write rolled back.
+Unpublish removes the selected remote artifact version under producer authority, not a local install.
 
-Outside Git, sync remains local and does not attempt branch hydration. A non-Git publisher may use a
-new `branch/...` name as a mutable exact snapshot, but it has no commit manifest or ancestor reuse.
-It cannot replace a channel that already contains Git-backed Lance history.
+## On-the-fly Native contexts
 
-A `tag/...` publication is a compact release snapshot. The publisher operates on its temporary
-staging copy, compacts every LanceDB table, prunes every superseded MVCC version, and verifies that
-one current table version remains before upload. The source database is unchanged. Exact S3
-mirroring then removes stale files from an earlier publication of that same tag without touching
-any other branch or tag prefix.
+AST and Knowledge packages capture domain snapshots and metadata. Import/install retains their exact
+identity and readable native data rather than reconstructing it from a Git checkout. Local Icebug
+and S3 Icebug both use in-memory Ladybug reading Parquet ranges; no persistent `.lbug` materialization
+is required. Knowledge readers use the installed native corpus directly. Credentials and data
+snapshots have independent lifetimes; current permission is checked again on consequential reads.
 
-A new numeric version is the safe production cutover because its registry pointer is written only
-after the new prefix exists. A same-version replacement is useful for mutable branch/tag channels,
-but a reader with a cached materialization must refresh it after publication and may not treat the
-replacement as an atomic snapshot switch.
+Use `ast imports`, exact context selection, typed Knowledge `source` and the installed artifact
+catalog. Explicit local Source fallback requires an authorized retained project selection; an
+installed graph is not a generic filesystem grant. [Native packages](../development/native-packages.md)
+define export/import formats, integrity and provenance.
 
-Lance maintenance does not garbage-collect Hub artifacts. It compacts local indexes only. Branch
-commit tags protect historical versions used as shallow-clone bases; deleting or
-pruning their manifests and fragments independently can orphan a local clone. Published Hub versions
-are retained until explicitly retracted. See
-[Publishing Graphit artifacts from GitHub Actions](../guides/github-actions-artifacts.md) for the
-unattended named-channel workflow.
+## Templates and native host customizations
 
-Memory and Task are mutable native LanceDB stores. With S3 configured they use authoritative remote
-tables and LanceDB performs its internal reads and writes on demand with renewable credentials;
-without S3 they use the global filesystem directory. See [Memory Module](memory_module.md) and
-[Task Module](task_module.md).
+All builtin instructions originate in maintained Markdown templates. Render with the actual Brand,
+module tool names, skill aliases, artifact source and target binding. Raw PROJECT/Global overrides
+and explicitly selected installed Hub bundles retain their documented precedence. A malformed
+selected template fails instead of silently falling back. Do not embed private runtime mandatory
+Memory, account secrets or checkout paths into static agent files.
 
-## Security, discovery, and cache behavior
+`agents.<binding>.instructions` saves logical publication choices so later sync can reuse aliases,
+bundles and module-tool settings. [Template contract](../architecture/rust-agent-instruction-templates.md)
+and [instruction libraries](../architecture/rust-skill-instructions.md) specify inputs and escaping.
+Host-native permissions are separate from Graphit's Role/Runtime authorization; tests use documented
+controlled peers rather than requiring vendor plans or binaries.
 
-- A trusted subject supplies a user ID and team IDs. Without one, Graphit uses the reserved,
-  teamless `anonymous` subject. Request parameters, CORS, `unit.id`, and a shared daemon bearer key
-  are not user identity.
-- Without broker Hub-access capability, effective project visibility for a non-anonymous subject is the union of
-  `v2/global/projects.json`, `v2/authenticated/projects.json`, the user's projects file, and one
-  `v2/teams/<team-id>/projects.json` file per team. Anonymous instead reads only global and
-  `v2/anonymous/projects.json`.
-  Missing files contribute no grant; invalid or unavailable access state fails closed.
-- With `graphit-hub-access-v1`, broker SQL grants are authoritative instead. Graphit resolves
-  selectors with the request bearer and never reads or falls back to those S3 grant documents.
-- List and search are paginated and ACL-filtered. Exact ULIDs use direct reads and name-prefix
-  selectors list only the matching portion of the global name directory.
-- Authorization protects exact lookup, content, install, update, events, submit, and unpublish;
-  knowing a logical key never bypasses it.
-- `~/.<brand>/hub/cache/<hub>/<subject>/` is a bounded, lazy, disposable metadata cache. Cached data
-  never grants access and consequential operations revalidate permission. It is not the former
-  eager registry mirror and is separate from installed file-artifact materializations.
-- S3-enabled Broker providers keep the temporary credentials and topology returned by the Broker
-  only in process memory and isolate them by authenticated identity, provider revision, and project,
-  user-memory, or Hub-metadata scope. The Broker retains its permanent identity and converts current grants into the STS session policy.
-  A Broker provider whose valid discovery omits storage keeps its authenticated identity but uses
-  filesystem paths.
-  Local providers use their explicitly configured S3 topology. Bucket/IAM policy remains
-  the data-plane boundary.
-- A registry entry whose payload is missing is a hard integrity error. A valid Broker discovery
-  document without the optional storage capability selects local storage, so remote Hub operations
-  are unavailable. A malformed advertised capability, discovery/authentication failure, or failed
-  renewal of an existing S3 grant fails closed and does not trigger local fallback. None of these
-  states is interpreted as a Git or old-layout fallback.
+## Process, recovery and implementation
+
+Core owns filesystem capture/publication and small installation records. Hub owns artifact identity,
+rendering, membership, pending operations and native binding semantics. App composes existing
+producers for CLI/MCP/HTTP; it must not copy internal codecs or create another authority layer.
+Native context data uses Data/Records SDKs. Broker owns ACL/discovery/STS, not a copy of every
+client store or a proxy through which object bodies must flow.
+
+Original cancellation/deadline, permissions, identity confinement, content integrity, concurrent
+writer checks, joined processes and honest confirmed/uncertain outcomes remain required. Platform
+support/publication claims need their corresponding executed artifact/consumer evidence; a router,
+factory or controlled descriptor test alone is not a complete installed journey.

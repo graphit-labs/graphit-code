@@ -1,107 +1,136 @@
+---
+title: Ignore Files
+updated: 2026-10-29
+references:
+  - target: {type: task, id: tsk-84a0}
+    relation: implements
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-ab16
+    relation: supports
+  - target:
+      type: task
+      id: tsk-b5d6
+    relation: supports
+  - target:
+      type: task
+      id: tsk-1fee
+    relation: supports
+  - target:
+      type: task
+      id: tsk-e079
+    relation: supports
+  - target:
+      type: task
+      id: tsk-8d62
+    relation: supports
+  - target:
+      type: task
+      id: tsk-6997
+    relation: supports
+---
+
 # Ignore Files
 
-Graphit uses ignore files to control which project files are indexed by the AST and Knowledge modules. These files follow `.gitignore` syntax and are layered on top of `.gitignore` rules.
+Graphit uses `.gitignore`, `.astignore` and `.wikiignore` syntax to select files
+for AST and Knowledge. The scope is the admitted project and version; a rule
+file is configuration, not authority to read another project.
 
-## File Types
+## File types and layering
 
-| File | Module | Purpose |
-|---|---|---|
-| `.gitignore` | All | Base layer — always loaded first |
-| `.astignore` | AST | Controls which source files are parsed and indexed in the code graph |
-| `.wikiignore` | Knowledge | Controls which documentation/source files are included in the knowledge wiki |
-
-## How Layering Works
-
-Rules are evaluated in order using **last match wins** semantics (same as git):
-
-1. `.gitignore` patterns are loaded first (base layer)
-2. `.astignore` or `.wikiignore` patterns are loaded after (custom layer)
-3. Built-in default patterns are loaded last
-
-The custom ignore file can:
-
-- **Add** new ignore rules on top of `.gitignore`
-- **Negate** (override) rules from `.gitignore` using `!` patterns
-
-> ⚠️ **Built-in defaults are loaded last, so under last-match-wins they outrank
-> everything the project writes.** This is deliberate — the `.graphit/` entry
-> exists to stop the indexer from indexing its own output, and a project must not
-> be able to break that by accident. The consequence is that a `!` negation in
-> `.astignore` or `.wikiignore` **cannot** re-include something a default excludes.
-> Where a default is meant to be adjustable, there is a config key for it; see
-> [the docs tree](#the-docs-tree-is-excluded-from-the-ast-by-default) below.
-
-### Example
-
-```gitignore
-# .gitignore
-build/
-vendor/
-```
-
-```gitignore
-# .astignore
-# Ignore all generated ANTLR code
-internal/ast/antlr/
-
-# But re-include specific files we need indexed
-!internal/ast/antlr/common/
-!internal/ast/antlr/*/driver.go
-!internal/ast/antlr/*/parser_sll_ll.go
-
-# This also overrides .gitignore — include vendor/ in AST
-!vendor/internal/
-```
-
-## Syntax
-
-Follows standard `.gitignore` syntax:
-
-| Pattern | Meaning |
+| File | Purpose |
 |---|---|
-| `pattern` | Ignore files matching pattern |
-| `pattern/` | Ignore directories matching pattern |
-| `!pattern` | Negate — re-include previously ignored files |
-| `#` | Comment line |
-| `*` | Wildcard — matches any characters except `/` |
-| `**` | Matches any number of directories |
-| `?` | Matches a single character |
+| `.gitignore` | Base repository rules |
+| `.astignore` | AST source selection |
+| `.wikiignore` | Knowledge document selection |
 
-## Negation Patterns and Directory Traversal
-
-When a directory is ignored but contains negated children, Graphit's walker **descends** into the directory instead of skipping it entirely. This is handled by `ShouldDescend` in the ignore checker.
-
-Example: with `.astignore` containing:
+Defaults have priority, followed by custom files from deepest scope to root,
+then `.gitignore` files from deepest scope to root. Within one source, the last
+direct match wins. A custom negation can reopen a user-ignored path but cannot
+reopen a matching default exclusion.
 
 ```gitignore
-internal/ast/antlr/
-!internal/ast/antlr/*/driver.go
+generated/*
+!generated/driver.rs
 ```
 
-The walker will:
+`should_descend` enters only permitted directories. A file negation does not
+reopen an excluded parent; keep parents permitted, as above, or explicitly
+reinclude the required directories. Nested rule files
+apply only in their subtree. New batches capture edited rules while existing
+captures retain the rules admitted for their operation.
 
-1. See `internal/ast/antlr/` is ignored
-2. Check `ShouldDescend` — finds negation targeting children → enters the directory
-3. Inside, each file is checked individually — `driver.go` files pass, everything else is ignored
+## Rust IgnoreScope contract
 
-## File Placement
+`crates/graphit-core/src/ignore_rules.rs` implements captured ignore scopes
+with the mature `ignore` crate. AST selection and watchers use these scopes.
 
-The checker first collects rules by walking **up** from its start directory to the
-project root. AST file discovery then loads `.gitignore` and `.astignore` again as
-it enters each nested directory. Each file's patterns are scoped to the directory
-it sits in ("its domain"), relative to the project root:
+`IgnoreScope::load(root, start_relative, custom_filename, defaults)` loads rules
+from the canonical project root to the starting scope. `child(basename)` enters
+one existing child directory; `is_ignored(project_relative, is_dir)` tests a
+path, and `should_descend(project_relative_directory)` tells a future walker
+whether to enter it. Getters expose the root and scope directory. Consumers
+supply their defaults, including configured documentation exclusions; this
+helper does not duplicate AST/Knowledge's default lists.
 
-- **Project root**: rules apply to every path
-- **The scoped start directory**: rules apply within it — `rascunho.md` in
-  `docs/.wikiignore` matches `docs/rascunho.md` and not `rascunho.md` at the root
+The first source with a match decides, in this priority order:
 
-For the Knowledge module the start directory is `knowledge.docs_dir`, so **both**
-`.wikiignore` at the project root and `.wikiignore` inside the docs tree are read.
-For the AST module the start directory is the indexed root. A nested file such
-as `internal/x/.astignore` applies to files under `internal/x/`; the AST walker
-also honors negations when deciding whether to enter an ignored directory.
+1. Project defaults.
+2. Custom ignore files, from the deepest loaded scope to the root.
+3. `.gitignore` files, from the deepest loaded scope to the root.
+
+Rules apply relative to their source directory and do not leak into siblings.
+Local `.gitignore` files are read even without a `.git` directory; global Git
+rules, `.git/info/exclude` and remote sources are not read. Within each source,
+the last rule matching the queried path directly wins. If none matches directly,
+the nearest matching parent is inherited using the crate's
+`matched_path_or_any_parents` API. Each parent is resolved through the same
+matcher before a descendant can be included. Both Git and custom files follow
+the [Git parent-exclusion rule](https://git-scm.com/docs/gitignore): a file
+negation cannot reopen an excluded directory. This includes scoped and
+deleted-path queries; they need no filesystem lookup to resolve these prefixes.
+For example, keep the directory permitted and exclude its children before
+reincluding one file:
+
+```gitignore
+generated/*
+!generated/driver.rs
+```
+
+By contrast, reversing `generated/driver.rs` and `!generated/driver.rs` changes
+the result because both match that file directly. A custom negation cannot
+override a matching default.
+
+An unrelated negation such as `!.env.example` does not reopen `target/` or any
+other excluded directory. No global whitelist state broadens traversal. The
+helper uses the existing matcher for each native path prefix, without predicting
+glob prefixes or scanning for rules below pruned directories. Walkers apply
+`should_descend` before entering and check each child individually. Protected
+defaults remain authoritative over both rule-file families.
+
+Scopes share immutable `Arc` policy/layers and are `Clone`/`Send`/`Sync`. A fresh
+load observes edits; existing clones retain loaded rules. Entering a child loads
+its own layer then, so the tree is not an atomic filesystem snapshot. Queries
+are lexical, perform no I/O, and can test deleted paths. They reject absolute,
+traversing or out-of-scope paths; custom filenames and child names must be single
+basenames. Child directory symlinks are rejected; a root alias is canonicalized.
+
+Only observed regular rule files are accepted. Symlinks, including local,
+external and dangling links, and nonregular sources return `InvalidInput`.
+Actual absence supplies empty rules; other I/O errors propagate. Files are
+limited to 256 KiB and UTF-8 with an optional initial BOM. Any parsing/build
+error aborts loading rather than accepting a partial rule set. This validation
+does not promise atomic protection against concurrent filesystem replacement
+or timed interruption of filesystem I/O.
 
 ## Default Patterns
+
+Defaults protect generated/private state; project custom rules do not reopen
+a path rejected by those defaults.
 
 ### `.astignore`
 
@@ -109,8 +138,8 @@ The AST module has three built-in defaults; everything else is controlled by the
 
 | Pattern | Why | Adjustable |
 |---|---|---|
-| `.graphit/` | The framework's own directory inside the project it is indexing: caches, logs, grammar query YAMLs, rule overrides. Indexing its own output amplifies rather than merely wastes — a shard is a `.json` file and `.json` has a parser, so indexing a shard emits a shard for the shard, each round producing more files than the last. `graphit init` ignores part of it in git, but that file belongs to the user, so the guard cannot rest on it. | No |
-| `/graphit.lock.json` | The same output, written outside that directory. It is the framework's own state, `.json` has a parser, and it is rewritten on every install, sync and config change — so it churns the graph with `Pair` and `Value` nodes describing the indexer to itself. Anchored with a leading slash: only the project's own lockfile is the framework's, and one inside a fixture or a nested checkout belongs to that project. | No |
+| `.git/` | Git metadata directories contain mutable refs, locks and objects rather than project source. Automatic AST discovery and watch exclude them, including nested repositories. Custom negations cannot reopen them. This default does not change an explicitly authorized Source FILE read. | No |
+| `.graphit/` | The project's Graphit directory contains identity, configuration, grammar query YAMLs and rule overrides. These control indexing rather than being parsed as project code. This exclusion applies independently of repository Git rules. | No |
 | `knowledge.docs_dir` (default `docs/`) | The documentation tree belongs to the knowledge wiki. | Yes — `ast.index_docs` |
 
 > **Markdown is excluded by the language set, not by a pattern.** No shipped query
@@ -122,15 +151,17 @@ The AST module has three built-in defaults; everything else is controlled by the
 > [AST Module](../specs/ast_module.md#supported-languages).
 
 > **Ignored by the indexer is not the same as ignored by git.** The `.gitignore`
-> block `graphit init` writes names `.graphit/runtime/` and `.graphit/grammars/`.
-> Project query YAMLs under `.graphit/ast/queries/` and rule overrides remain visible
-> to Git; generated outputs and local parser binaries do not. See
-> [Git Module](../specs/git_module.md#the-generated-gitignore-block) and
-> [Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
+> rules maintained by the repository select generated state and parser shared
+> libraries (`.so`, `.dylib`, `.dll`). Authored grammar sources, project query YAMLs
+> under `.graphit/ast/queries/` and rule overrides remain eligible for Git tracking.
+> `graphit setup` does not write an automatic ignore block. See
+> [Git Module](../specs/git_module.md) and
+> [Storage Layout](../architecture/storage_layout.md#what-stays-in-the-project).
 > The `.astignore` default above still keeps the **whole** brand directory out of the
 > code graph, grammar YAMLs included, and that is intended: they configure the parser
 > rather than being parsed. The two layers answer different questions, and a `!` line
-> in `.astignore` cannot re-include what a built-in default excludes.
+> in `.astignore` cannot re-include what a built-in default excludes in the
+> captured matcher contract.
 
 #### The docs tree is excluded from the AST by default
 
@@ -156,7 +187,7 @@ To put the docs tree back in the code graph — for `.proto` or `.graphql` schem
 kept under `docs/`, say:
 
 ```bash
-graphit config ast.index_docs true
+graphit config set ast.index_docs true
 ```
 
 This puts the *directory* back, not markdown: no shipped query file claims `.md`,
@@ -164,7 +195,7 @@ so what returns is the structured files under `docs/`. Markdown is a separate
 opt-in — a `markdown.yaml` under `ast.queries_dir`.
 
 **Use the key, not `.astignore`.** The exclusion is a built-in default, and
-defaults outrank the project's own patterns, so `!docs/` in `.astignore` has no
+defaults outrank the project's own patterns in the captured matcher contract, so `!docs/` in `.astignore` has no
 effect. Two configurations produce no exclusion at all: `knowledge.docs_dir` set
 to `.` (the docs tree is the project, and excluding it would empty the graph), and
 a docs dir that escapes the project. Full detail in
@@ -180,13 +211,13 @@ to edit. That is the third axis, and it is configuration:
 
 ```bash
 # take one language out of this project's graph
-graphit config ast.grammars_blacklist yaml
+graphit config set ast.grammars_blacklist yaml
 
 # out of every project on this machine
-graphit config --global ast.grammars_blacklist yaml
+graphit config --global set ast.grammars_blacklist yaml
 
 # or the other way round: index nothing but these
-graphit config ast.grammars_whitelist go,sql
+graphit config set ast.grammars_whitelist go,sql
 ```
 
 Both keys are comma-separated. A name matches the language, the grammar, or the
@@ -195,7 +226,7 @@ grammar without its `tree-sitter-` / `antlr-` prefix — so `yaml` and
 is exhaustive, and the blacklist still subtracts from it. Semantics and precedence:
 [config_module](../specs/config_module.md#turning-grammars-off-astgrammars_blacklist-and-astgrammars_whitelist);
 enforcement and what happens to nodes already indexed:
-[ast_module](../specs/ast_module.md#turning-a-grammar-off-by-configuration).
+[ast_module](../specs/ast_module.md#configuration-and-customization).
 
 So the three axes, in the order a file meets them:
 
@@ -225,7 +256,8 @@ The Knowledge module includes built-in defaults that ignore:
 - **Agent config**: `.agents/`, `.claude/`, `.cursor/`, `.gemini/`, etc.
 - **Graphit internal**: `.graphit/`
 
-Because defaults outrank project patterns, a `!` negation in `.wikiignore` will not
+In the captured matcher contract, defaults outrank project
+patterns, so a `!` negation in `.wikiignore` will not
 re-include any of these — the list itself is the contract.
 
 ## What the Knowledge Module Sees Before Ignore Rules Apply
@@ -260,3 +292,20 @@ When an ignore file is modified:
 
 AST shard directories are cleaned up automatically after file removal. Knowledge has no shard
 directory.
+
+## Rust AST policy from captured configuration
+
+`graphit_ast::ignore_policy::AstIgnorePolicy::from_config` derives the module's
+`.astignore` filename and protected defaults from the actual Core ConfigSnapshot
+and Original. The defaults protect Git metadata directories and use the captured Brand directory, its root-only
+`<brand>.lock.json`, and the root-only docs tree when `ast.index_docs=false`.
+The Core matcher continues to own custom/Git rules, precedence and reinclusion;
+this producer adds no walker or language filter.
+
+The policy preserves admitted lexical docs path aliases, omits the docs exclusion
+for the project root or paths escaping it, and quotes literal glob names with the
+mature SDK. Winning configuration type errors remain errors. `index_docs=true`
+removes the docs default without consulting the unused docs setting. For API,
+path/error/native-platform details and qualification scope, see
+[Policy Rust de ignores AST](../specs/rust_ast_ignore_policy.md).
+The actual Main/watcher consumer remains a separate integration delivery.

@@ -1,11 +1,10 @@
 ---
 title: "Git Module Specification"
-description: "Technical specification of Git operations, the singleton CLI backend, Default()/DefaultErr() accessors, SSH error handling, block manager, hooks, and ignore patterns."
+description: "System Git checkout/hooks and native record snapshots, Role gix reads, process ownership and configured-hook contracts."
 content-type: reference
 audience: developers
 keywords:
   - git
-  - singleton
   - cli backend
   - hooks
   - ignore
@@ -15,341 +14,154 @@ prerequisites:
 related:
   - "docs/specs/daemon_module.md"
   - "docs/specs/mcpstdio_module.md"
+references:
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-b5d6
+    relation: supports
+  - target:
+      type: task
+      id: tsk-8d62
+    relation: supports
+  - target:
+      type: task
+      id: tsk-6997
+    relation: supports
+  - target:
+      type: task
+      id: tsk-a4ca
+    relation: supports
+  - target:
+      type: task
+      id: tsk-2dfb
+    relation: supports
 ---
 
 # Git Module Specification
 
-The `internal/git` package provides a Git abstraction layer for all Graphit operations that interact with Git repositories. It implements a singleton CLI backend pattern, SSH error wrapping, content block injection/removal, git hook management, and gitignore management.
-
----
-
-## ⚙️ Architecture
-
-The module is structured around a `Git` interface with a single concrete implementation (`cliBackend`) that shells out to the system `git` binary. A package-level singleton ensures a single, lazy-initialized instance shared across the application.
-
-```mermaid
-graph TD
-    Caller["Any Graphit Module"] --> Singleton["Default() / DefaultErr()"]
-    Singleton -->|sync.Once| LookPath["exec.LookPath('git')"]
-    LookPath -- found --> Backend["cliBackend{}"]
-    LookPath -- not found --> Error["defaultInitErr"]
-    Backend --> BuildCmd["buildCmd(repoDir, env, args)"]
-    BuildCmd --> GitCLI["exec.Command('git', ...)"]
-    GitCLI -->|error| SSHWrap["wrapSSHError()"]
-    GitCLI -->|stderr| CleanStderr["CleanStderr()"]
-    
-    subgraph "Block Manager"
-        InjectBlock["InjectBlock()"]
-        RemoveBlock["RemoveBlock()"]
-    end
-    
-    subgraph "Hooks"
-        HookManager["HookManager"]
-        HookManager --> Install["Install()"]
-        HookManager --> Remove["Remove()"]
-    end
-    
-    subgraph "Ignore"
-        InjectGitignore["InjectGitignore()"]
-        RemoveGitignore["RemoveGitignore()"]
-    end
-```
-
----
-
-## 🧩 Key Types & Interfaces
-
-### `Git` Interface
-
-```go
-type Git interface {
-    Run(repoDir string, args ...string) error
-    RunOutput(repoDir string, args ...string) (string, error)
-    RunSilent(repoDir string, args ...string) string
-    RunWithStdin(repoDir string, data []byte, args ...string) (string, error)
-    RunWithEnv(repoDir string, env map[string]string, args ...string) error
-    RunOutputWithEnv(repoDir string, env map[string]string, args ...string) (string, error)
-    RunGlobal(args ...string) error
-    RunGlobalOutput(args ...string) (string, error)
-}
-```
-
-All methods accept a `repoDir` parameter which is translated to `git -C <repoDir>`. An empty `repoDir` runs git in the current working directory.
-
-| Method | Returns | Description |
-|---|---|---|
-| `Run` | `error` | Execute git with combined stdout+stderr. Returns wrapped error on failure. |
-| `RunOutput` | `(string, error)` | Execute git and return trimmed stdout. Stderr captured separately. |
-| `RunSilent` | `string` | Execute git silently, swallowing errors. Returns trimmed stdout. |
-| `RunWithStdin` | `(string, error)` | Execute git with piped stdin data. |
-| `RunWithEnv` | `error` | Execute git with additional environment variables. |
-| `RunOutputWithEnv` | `(string, error)` | Execute git with env and return output. |
-| `RunGlobal` | `error` | Execute git without a repo directory (delegates to `Run("")`). |
-| `RunGlobalOutput` | `(string, error)` | Execute git globally and return output. |
-
-### `cliBackend`
-
-```go
-type cliBackend struct{}
-```
-
-The sole concrete implementation. Contains no state — all configuration is resolved per-command.
-
----
-
-## 🔄 Singleton Pattern
-
-### `Default() Git`
-
-Returns the singleton `Git` instance. Uses `sync.Once` to:
-1. Call `exec.LookPath("git")` to verify the `git` binary exists in PATH.
-2. If found, create a `&cliBackend{}` and store it as `defaultInstance`.
-3. If not found, store the error in `defaultInitErr` and leave `defaultInstance` as `nil`.
-
-**Returns `nil`** if git is not available. Callers that cannot tolerate a nil instance should use `DefaultErr()`.
-
-### `DefaultErr() (Git, error)`
-
-Returns both the singleton instance and any initialization error. Forces `Default()` to run first (if it has not already), then returns `(defaultInstance, defaultInitErr)`.
-
-### Thread Safety
-
-Both functions are safe for concurrent use. `sync.Once` guarantees the initialization runs exactly once regardless of how many goroutines call it simultaneously.
-
----
-
-## 🛠️ Command Execution
-
-### `buildCmd(repoDir string, env map[string]string, args ...string) *exec.Cmd`
-
-1. If `repoDir` is non-empty, prepends `-C repoDir` to the args.
-2. Creates `exec.Command("git", fullArgs...)`.
-3. Sets `GIT_SSH_COMMAND=ssh -o BatchMode=yes` unless the caller has already set `GIT_SSH_COMMAND` in their environment.
-4. Merges any caller-provided env vars via `MapToEnv()`.
-
-The `BatchMode=yes` SSH option prevents interactive prompts (password requests, host key confirmations) that would hang headless processes like the daemon.
-
----
-
-## 🔐 SSH Error Handling
-
-### `wrapSSHError(err error, stderr string) error`
-
-Intercepts git errors where stderr contains SSH host key verification failures. Detection triggers:
-- `"host key verification failed"`
-- `"no matching host key"`
-- `"known_hosts"`
-
-When detected, appends an actionable remediation message:
-
-```
-the remote host is not in your known_hosts file.
-  Verify the host manually:  ssh -T git@github.com
-  Once verified, retry the operation.
-```
-
-### `extractHost(stderr string) string`
-
-Scans stderr lines for tokens containing `@` (e.g., `git@github.com`) to provide a specific host in the remediation message. Falls back to a generic `git@<hostname>` placeholder.
-
----
-
-## 📝 Stderr Handling
-
-### `CleanStderr(raw string) string`
-
-Filters and normalizes git stderr output to produce actionable error messages:
-
-1. Strips empty lines.
-2. Removes **progress lines** (lines containing transfer progress like `"Counting objects:"`, `"Compressing objects:"`, `"Receiving objects:"`, `"Resolving deltas:"`, and `"remote: ..."` prefixed progress).
-3. If no meaningful lines remain, returns the last non-empty line from the raw output.
-4. If more than 3 meaningful lines remain, keeps only the last 3.
-5. Joins lines with `"; "`.
-
-Returns `"(no stderr output)"` if raw is empty, or `"(git returned no useful error details)"` if only progress lines were found.
-
-### `IsProgressLine(line string) bool`
-
-Returns `true` if the line matches any of the recognized progress keywords:
-`Counting objects:`, `Compressing objects:`, `Receiving objects:`, `Resolving deltas:`, `remote: Counting`, `remote: Compressing`, `remote: Total`.
-
-### `MapToEnv(m map[string]string) []string`
-
-Converts a `map[string]string` to `[]string` of `"KEY=VALUE"` entries suitable for `exec.Cmd.Env`.
-
----
-
-## 📦 Block Manager
-
-The block manager provides idempotent injection and removal of delimited content blocks within files. It is used by hooks, gitignore management, and Agent rule installation.
-
-### Block Styles
-
-| Style | Start | End | End Prefix | End Suffix |
-|---|---|---|---|---|
-| `ShellBlockStyle` | `# --- ` | ` ---` | `# --- END ` | ` ---` |
-| `HTMLBlockStyle` | `<!-- ` | ` -->` | `<!-- END ` | ` -->` |
-
-A block with marker `"FOO"` in shell style looks like:
-```sh
-# --- FOO ---
-...content...
-# --- END FOO ---
-```
-
-### `InjectBlock(filePath, content, marker, shebang string) error`
-
-Injects a content block into a file:
-
-1. Reads existing file content (creates file if missing).
-2. If a block with the same marker already exists, **replaces it in-place** preserving surrounding newlines.
-3. If no existing block, **appends** the block to the end of the file.
-4. Normalizes excessive blank lines (3+ consecutive newlines → 2).
-5. If the file only contained a shell shebang before injection, replaces the content entirely.
-6. If `shebang` is non-empty, sets file permissions to `0755` (executable).
-
-### `RemoveBlock(filePath, marker string, deleteIfEmpty bool) (bool, error)`
-
-Removes a block from a file:
-
-1. Reads the file; returns `(false, nil)` if file does not exist.
-2. Strips the block using regex matching.
-3. If `deleteIfEmpty` is `true` and the remaining content is only a shell shebang (or empty), **deletes the file entirely**.
-4. Otherwise, writes the cleaned content back.
-5. Returns `(true, nil)` if the file was modified.
-
-### `InjectBlockStyled` / `RemoveBlockStyled`
-
-Generic versions that accept a `BlockStyle` parameter, enabling both shell and HTML block formats.
-
----
-
-## 🪝 Hooks
-
-`HookManager` installs `pre-commit` by default and each additional event named in
-the lockfile's top-level `hooks` map. Keys must be event names from Git's
-[githooks manual](https://git-scm.com/docs/githooks/2.54.0); unknown names fail
-lockfile loading. On Git 2.54 or later it writes one repository-local
-`hook.<brand>-<event>.command` and `.event=<event>` pair per selected event
-(`hook.graphit-pre-push` for `pre-push` in the default build). The command checks
-that the brand executable exists before invoking `<brand> _git-hook <event>` with
-Git's arguments. This follows Git's
-[configured hook contract](https://git-scm.com/docs/git-hook/2.54.0).
-
-On older Git, `Install` injects a marked shell block into each selected
-`<git-common-dir>/hooks/<event>`: `.git/hooks` in a main checkout, or — from a linked worktree,
-whose `.git` is a `gitdir:` pointer file — the shared directory named by that git directory's
-`commondir`, which is the one every worktree runs. Configured hooks are repository-local
-configuration, so they are shared by every worktree as well. The block checks the Git version, confirms that the
-configured Graphit hook is absent, and checks the executable before invoking the
-same runner. After a Git upgrade, a successful configured registration removes the
-Graphit block from that event's old file. It deletes a file containing only the
-Graphit block and shebang, but preserves any third-party content. If registration
-fails, the old block remains; its version guard prevents duplicate execution on
-Git 2.54+. A cleanup failure is reported while the new registration remains.
-The marked block is placed immediately after the shebang so an existing
-third-party `exit` cannot bypass the Graphit checks. Existing shell content is
-preserved. A non-shell or unsupported shell shebang causes an actionable
-installation warning and leaves the file intact.
-
-The runner reads the project's `graphit.lock.json` `hooks.<event>` array and runs
-all commands in order from the project root through `sh -c` on Unix or `cmd /C`
-on Windows. A project-owned executable uses a path relative to that root; an
-external executable is resolved by name from the system `PATH`. No check requires
-`sh` as its executable, and commands must not embed machine-dependent paths.
-All commands must succeed; their stdout and stderr remain visible to Git.
-Git's positional arguments are `$1`, `$2`, etc. in Unix commands;
-all platforms receive `GRAPHIT_HOOK_NAME`, `GRAPHIT_HOOK_ARG_COUNT`, and
-`GRAPHIT_HOOK_ARG_1` (and subsequent indices). Git-supplied finite stdin is
-replayed to every command for `pre-push`, `pre-receive`, `post-receive`,
-`post-rewrite`, and `reference-transaction`. Other events inherit stdin without
-reading it in advance, so an open terminal does not delay `pre-commit`.
-Protocol events `proc-receive` and `fsmonitor-watchman` accept only one
-command; `proc-receive` keeps its interactive stdin stream. Missing brand executable
-causes Graphit checks to be skipped. `init` and `sync` report installation failures
-with manual integration instructions for each failed event. For an older Git
-installation failure, the warning also recommends Git 2.54 or newer followed by
-`graphit sync`. A configured-hook failure on Git 2.54+ retains the manual
-instructions without suggesting an upgrade. Events removed from the lockfile
-are cleaned on sync. `remove` and `modules.hooks=false` remove all Graphit
-registrations and marked blocks without changing third-party hook content.
-
-The older path deliberately ignores `core.hooksPath`, linked-worktree `.git` pointer
-files and third-party hook managers. The configured Git 2.54+ path does not depend
-on `.git/hooks`. If the active hook is not installed or manually integrated,
-configured checks do not run and the project's consistency gate loses substantial
-determinism. Unmarked hooks from earlier development versions are not migrated.
-
----
-
-## 🚫 Ignore Patterns
-
-### `InjectGitignore(targetPath, content string) error`
-
-Injects a content block into `.gitignore` using the brand's ignore marker. Used by
-`graphit init` — both the CLI command and the `graphit_init` MCP tool — to keep the
-project's runtime directory out of the repository.
-
-### `RemoveGitignore(targetPath string) (bool, error)`
-
-Removes the Graphit block from `.gitignore`. Unlike hooks, does **not** delete the file if empty (`deleteIfEmpty: false`).
-
-### The generated `.gitignore` block
-
-The content is not this module's to invent: it comes from `brand.GitignoreContent()`,
-and contains the complete ownership policy for generated and machine-local project data.
-
-```gitignore
-# --- GRAPHIT AUTOGENERATED IGNORER ---
-**/.graphit/runtime/
-**/.graphit/grammars/
-# --- END GRAPHIT AUTOGENERATED IGNORER ---
-```
-
-Two entries are sufficient because the brand directory is **split by ownership** rather
-than ignored wholesale — see
-[Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
-Generated output and state live under `brand.RuntimeSubdir()`. Project-local parser
-libraries live under `grammars/` and are ignored because they are platform-specific
-binaries. Query YAMLs under `ast/queries/` and source overrides under `rules/` remain
-repository-owned and versionable.
-
-The block used to be `.graphit/`, which took the project's grammar overrides and rule
-overrides down with the caches. Carving those back out with negations is not
-possible: gitignore cannot re-include anything beneath an excluded directory, so a
-`!/.graphit/ast/queries/` line under `.graphit/` is never even consulted. Doing it
-properly took six lines that re-included each level in turn. Naming the two machine-local
-subdirectories reaches the intended outcome without ordering rules or negations.
-
-**The `**/` prefix is load-bearing.** A pattern with a separator in the middle is
-anchored to the directory of the `.gitignore` that declares it, so a bare
-`.graphit/runtime/` would ignore this project's machine state while exposing that of
-every nested checkout, sub-project and test fixture below it. The prefix restores the
-any-depth matching that the old trailing-slash-only pattern had for free.
-
-`internal/brand` owns the content because the block is a naming and ownership contract:
-the brand directory, its runtime subdirectory, and its project-local grammar tree. Nothing
-above `brand` has to be consulted to produce it, and callers cannot maintain divergent
-lists.
-
-`InjectGitignore` runs at `graphit init` and nowhere else, so an existing checkout
-keeps the block it was given until `graphit init` runs again. The injection is
-idempotent and replaces the marked block in place.
-
----
-
-## 📦 Dependencies
-
-### Internal
-
-| Package | Usage |
-|---|---|
-| `internal/brand` | Brand name for block markers, binary name for hook scripts, ignore marker, display name for comments. |
-
-### External
-
-| Package | Usage |
-|---|---|
-| `os/exec` | `LookPath` for git discovery, `Command` for command execution. |
-| `sync` | `sync.Once` for singleton initialization. |
-| `regexp` | Block detection and replacement in the block manager. |
+Checkout facts, configured hooks and Task/Memory snapshot integration use the system Git
+executable. Role Git status/diff readers use the mature `gix` library through their own
+authorized read boundary. These are deliberate consumer-specific backends, not a shared
+singleton or a second homegrown Git implementation. Commands retain their captured project,
+environment policy, deadline and cancellation, and report the actual operation failure.
+See [record snapshots and merges](git_records.md) for Git/Lance version binding.
+
+## Checkout and version
+
+`crates/graphit-core/src/git_checkout.rs` reads checkout facts through Git itself,
+including worktrees, submodules and detached HEAD. It performs no repository or
+Graphit mutation. [Project versions](project_identity.md#project-version) use
+that observation without turning a branch name into project identity or authority.
+
+## Command execution and ownership
+
+Configured Git operations use explicit captured paths and suppress interactive
+prompts where the consumer cannot answer them. Authenticated native callers
+retain the required project grants and process custody. A failed SSH host-key
+check remains an actionable error; accepting or replacing host trust is a user
+operation, not an automatic retry policy.
+
+## Rust configured-hook registry
+
+`crates/graphit-core/src/git_hooks.rs` reconciles brand-owned local hook
+registrations through Git 2.54 or newer on PATH. Missing or unsupported Git
+fails before config mutation. See the official
+[configured-hook](https://git-scm.com/docs/git-hook/2.54.0) contract.
+
+### Capture, desired state and namespace
+
+`Registry::capture(checkout: &Path, brand: Brand, options: Options,
+&Cancellation)` is read-only. It canonicalizes an explicitly supplied existing
+main/linked-worktree/submodule root or bare Git directory, asks Git for
+show-toplevel/common Git dir (the Git dir itself for bare repositories),
+and rejects nested/non-Git inputs. Native returned paths strip only the
+Git line terminator, preserving Unix native bytes and requiring valid Windows
+UTF-8. There is no implicit CWD fallback or private .git-file parser. Clones
+retain captured paths/brand/options, without an FD or global registry cache.
+
+`Options { timeout, max_command_bytes, max_snapshot_bytes }` is mandatory.
+Timeout is nonzero/monotonic-overflow checked, commands have a positive bound,
+and snapshot acceptance is at most the process cap of 64 KiB. Checked preflight
+requires room for all 28 owned event registrations and their key/event/enabled
+overhead at the command bound; oversized options fail before Git/lock.
+Subprocess capture itself remains capped at 64 KiB per stream, with a smaller
+caller snapshot cap checked on the response. Path/OS/allocator overhead is no
+hard-RSS guarantee.
+
+`reconcile(&self, desired: &[Registration { event, command }], &Cancellation)`
+receives trusted borrowed UTF-8 Git commands. Empty/whitespace-only/NUL/oversized
+commands and duplicate desired events fail validation. `Event::ALL` contains
+28 canonical events; FromStr/as_str rejects unknown/case/traversal names. An
+empty desired list removes owned registrations; the registry invents no
+pre-commit selection, command, authorization or executable-skip policy.
+`Report` exposes selected/changed/removed events and successful Git config-write
+count. Registration/Registry/HookError Debug omit commands/raw paths/output;
+there is no automatic Serialize contract.
+
+The owned friendly name is `<brand>--<event>`.
+Events contain no `--` and Brand ends in alnum, making the suffix unambiguous
+even for brands with internal double hyphens. Thus `graphit--post-update` and
+`graphit-post--update` remain independent, as do graphit/prepare-commit-msg and
+graphit-prepare/commit-msg. No namespace conversion or old registration importer is provided.
+
+### Local ownership and cooperative changes
+
+Every operation uses the captured Git common dir explicitly and the shared
+Git command helper: inherited GIT_* routing is removed, system/global config
+and prompts are disabled, while native Git resolves repository paths/config.
+A permanent `<git-common-dir>/.hooks-manager.lock` coordinates cooperating
+brands/worktrees with FileLock and remaining operation budget. It must never
+be unlinked/replaced during contention. Reconcile may create this sidecar even
+when config already matches; it creates no directories or script replacements.
+External Git tools use native config.lock per write, not this grouped lock;
+hostile filesystem races/hardlink/case-alias coordination are not certified.
+
+Only local `hook.<brand>--<canonical-event>.command/event/enabled` fields are read
+with config get --local --no-includes --all --show-names --regexp --null. The
+bounded response uses Git's key-LF-value-NUL protocol, borrowing values and
+counting duplicates; this is not a Git config-file parser. Unknown fields/names,
+other brands, scripts, includes, global and worktree config are preserved.
+Set/unset use --local and Git alone writes its local config; --no-includes is a
+read option, not accepted by those mutation commands.
+
+Exact single command/event/enabled=true values are a no-op: zero config writes
+and unchanged config mtime. For each changed selected event, stable event order
+writes enabled=false, command, event, then enabled=true. Removal unsets present
+event first, then enabled and command, preserving unknown fields. No-op proof is
+the existing snapshot; after mutations a fresh local snapshot must match desired
+before a report succeeds.
+
+Git's individual config writes are atomic; reconciling multiple fields/events
+is not a transaction or proof of effective global/worktree activation. Failures
+abort with possible disabled/partially updated local state, without rollback or
+automatic whole-operation retry. A caller's explicit next reconcile can converge.
+The registry does not execute checks; Git governs trusted command execution,
+arguments and ordinary user-hook ordering. `reconcile_events` limits a consumer
+to its selected events and preserves the brand's other registrations. App uses the existing gix discovery to distinguish non-Git projects from bare repositories;
+Git itself validates the exact root, version and configuration before mutation. The
+[configured dispatcher](../guides/git-hooks.md) uses full `reconcile`
+for the union of nonempty `githooks` events and enabled Task/Memory events.
+Git stores only `<brand> git hook <event> --`, never the configured command bodies.
+`git install`, `git sync`, setup and project-wide CLI/MCP sync share that producer.
+The [Task/Memory consumer](git_records.md) sends authenticated post-operation
+notifications and retains native Lance commit snapshots before configured commands run.
+Quality-only events need no Source startup. `git var GIT_SHELL_PATH` selects the local
+POSIX shell; original argv stays separate, stdin uses inherited handles/replay,
+and the existing Process supervisor owns cancellation and descendants. No parallel
+registry, generated hook scripts or `core.hooksPath` fallback is installed.
+
+### Budgets, errors and proof boundary
+
+Capture and each reconcile have fresh deadlines. Within reconciliation the
+shared Budget covers Git version/preflight, lock waiting, writes and verification;
+FileLock receives only remaining time. Cancellation is explicit. Blocking
+filesystem calls/OS close/power loss are not hard deadline or durability promises.
+`HookError { stage, failure, may_have_changed }` has fixed stage/failure categories
+and I/O kind/OS code or Git exit/event, with no raw command/path/stdout/stderr.
+may_have_changed becomes true before the first mutating Git attempt, even if it
+fails or times out after the child could have committed. Preflight/read/lock-only
+failures remain false. A primary operation error wins over unlock failure.

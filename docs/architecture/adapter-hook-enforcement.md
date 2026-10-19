@@ -2,240 +2,232 @@
 title: Adapter hook enforcement
 type: architecture
 status: active
-updated: 2026-09-23
+updated: 2026-10-17
 tags: [adapters, hooks, mandates, skills, enforcement]
+references:
+  - target: {type: task, id: tsk-0c26}
+    relation: supports
+  - target: {type: task, id: tsk-aa20}
+    relation: implements
+  - target: {type: task, id: tsk-be6e}
+    relation: implements
+  - target: {type: task, id: tsk-97d9}
+    relation: relates_to
+  - target: {type: task, id: tsk-ced2}
+    relation: relates_to
+  - target: {type: task, id: tsk-9bd4}
+    relation: relates_to
 ---
 
 # Adapter hook enforcement
 
-## Objective
+## Runtime authority and publication
 
-Graphit uses hooks for observable guarantees and reserves instructions for decisions that require interpretation. The boundary is deliberate:
+The Rust policy classifies maintained tool effects and uses authenticated
+capabilities for catalog emission and direct dispatch. Native allowlists
+supplement that policy. A wildcard MCP selection includes mutations and cannot
+establish a read-only grant. Role text and user overrides cannot expand the
+authenticated capability.
 
-- **hook**: the event and input are objective, so the action can run or be blocked without judgment;
-- **mandate**: a resident router dynamically composed by the hook only for enabled modules;
-- **skill**: teaches the decision workflow only after its domain becomes relevant;
-- **tool schema**: remains the argument reference and is not copied into the skill.
+Shared MCP/settings/hook documents require field or exact-tuple ownership;
+a name, substring or marker does not authorize adopting the whole file.
+User fields, disabled hooks and foreign entries survive publication and removal.
+The [shared-document SDK](../specs/native_shared_documents.md) implements
+native command handlers and Kimi's Installation-owned PROJECT reference set
+through the existing Core operation and common lock. This serializes Graphit
+writers and detects observed changes before replacement, while retaining the
+external-after-comparison window. The lock and atomic replacement do not claim
+universal CAS. OpenCode's plugin uses Core exclusive-file ownership and receipts.
 
-More prose does not turn an obligation into a guarantee. Likewise, a hook must not block legitimate work based on a classification it cannot prove.
+The managed-role/runtime producer persists generic policy. Mandatory memory
+and other live context are loaded at the qualified runtime boundary. Static
+files contain no current `Standing context`, memory titles or memory snapshot.
+The [Runtime context contract](../specs/rust_project_hook_context.md) records
+selection, authority, capture, cancellation and qualified consumers.
 
-## Guarantees executed by hooks
+## Native bindings and OpenCode 2
 
-### Memory and task bootstrap
+The native catalog has eight bindings: Codex, Claude, Cursor, Qwen, OpenCode 2,
+Kiro V3, Antigravity/AGY and Kimi. Kiro uses Markdown agents, YAML metadata and
+PascalCase inline hooks. Its typed profile writer preserves the literal policy
+body. Other command hosts use their selected JSON/TOML schemas; OpenCode uses
+plugin callbacks. The [native binding contract](../development/native-host-bindings.md)
+records the supported schemas, event outputs and actual isolated observations.
+An enum entry or successful parser does not establish native event delivery.
 
-The hidden `_session-hook` command reads the authoritative `project` and `user` memory tables directly. Mandatory content is injected into the agent's first context, so the initial `graphit_memory_mandatory` call no longer depends on the model. If a table cannot be opened, the payload falls back to MCP recall for each missing scope (`project` and `user` in a project session); the default MCP scope alone does not load both.
+The OpenCode file exports the native `{id, async setup(ctx)}` object. Setup
+registers `context` and `compaction` session hooks; only text SystemParts are
+appended to `event.system`. Existing messages/options/tools remain intact.
+A foreign compaction `result` stays intact and makes Graphit context delivery
+unavailable. Title/generate and per-tool callbacks are not inferred coverage.
 
-Contextual recall remains semantic and applies throughout questions, exploration, implementation, debugging and review. When retained context does not answer a new question, the agent selects Memory facts/lessons or Task investigations/decisions/results, searches the missing topic and reads selected records. Known IDs bypass search. Startup/resume is not a prerequisite; neither is a new plan, scope change or blocker. Reuse means avoiding an already-answered lookup, not forbidding new questions in the same session. The hook does not choose memories by score as though relevance were mechanically certain.
+The public session client resolves the actual session location before execution;
+the plugin instance location is insufficient for cross-project subscriptions.
+The lookup and child share a deadline and cancellation. OpenCode 2 stream events use
+`data.sessionID` only for correlation: deletion/interruption cancels the
+matching call, operational idle/deleted commands require the matching location,
+and returned cleanup aborts the subscription and awaits child close. Full output
+is applied only on success. Errors preserve causal codes without private output.
+Core remains the exclusive-file publisher and recovery authority.
 
-With Task enabled, the bootstrap first establishes a durable Task Session. It instructs the agent to list active sessions, search relevant history and read the selected session's current request, strategy, checkpoints and linked task IDs. A matching open session is resumed; otherwise the agent creates a detailed request description and strategy before claiming coordination. Hooks never manufacture that description from a session-start event. A native conversation/session identifier is an execution identity, not the durable Graphit `session_id`.
+MCP configuration is `mcp.servers.<name>`. Agent `permissions` are ordered
+`{action,resource,effect}` rules, with broad denial followed by selected grants.
+Native actions use `shell`, `edit` and MCP `server_tool`; edit/write/patch
+must be representable as a complete mutation family. Existing Root readonly
+admission remains intact. These declarations do not replace server authorization. See the [shared-document contract](../specs/native_shared_documents.md).
 
-The bootstrap instructs the agent to read an assigned task directly with `graphit_task_get`, or use a focused `graphit_task_search` to locate work and relevant precedents. Read the selected task, its parent specification and relevant dependencies; follow `next_cursor` only while a concrete context gap remains. Reuse evidence already recalled for the same scope instead of rescanning history on every turn. Memory and Task recall follow their own module switches: disabling one never suppresses the other, and disabling both leaves only the routing invariant.
+## Hooks, instructions and runtime context
 
-### Dynamic resident context
+Hooks act on concrete events and authenticated inputs. Mandates route enabled
+modules; skills teach decisions when their domain becomes relevant. Published
+tool schemas remain the argument reference. A hook cannot decide which evidence
+answers a question or whether a semantic work unit is complete.
 
-In the same event, `_session-hook` resolves the project root at runtime from the host's native field: `cwd` for Claude, Codex, Gemini, and Kiro; `workspace_roots` for Cursor; and `workspacePaths` for Antigravity. It walks upward from every candidate to the nearest Graphit lockfile, with the process working directory as the final candidate. OpenCode starts the subprocess with its runtime `directory` as the working directory. `.git` never defines a Graphit root: projects without Git work through the lockfile, while a missing lockfile leaves the root unresolved and enables only the compact fallback. No absolute checkout path from the machine that ran sync is serialized into the hook. Generated mandates and module skills also distinguish the runtime `project_dir` tool argument from durable content: docs, tasks, memories and handoffs keep logical project identity and repository-relative references, never an engineer's checkout root. Another host resolves its own root before calling MCP. The `--project-dir` flag remains an explicit diagnostic starting point and must also reach a lockfile. The hook also resolves the [project version](../specs/project_identity.md#project-version) checked out at that root (an explicit `GRAPHIT_PROJECT_VERSION` wins) and names it in the bootstrap, so the agent knows which version's graph, docs, memory and tasks it is reading and passes `project_version` only to reach another one. Mandatory memory is read from that version.
+The hidden `_session-hook` command resolves the active PROJECT from the host's
+runtime input and nearest Graphit lockfile. OpenCode resolves the actual session
+location before starting the child. Project identity and version follow the
+captured checkout, not an agent file's publication path. Generated instructions
+and shared records retain logical identity and repository-relative references;
+each host resolves its own runtime `project_dir`.
 
-After resolution, the command reads that project's configuration and lockfile. In stable order, it composes only the mandates for enabled modules and the bodies of installed Hub `rule` artifacts. Rules are read from the authoritative artifact (`RULE.md`), including local links; they are not copied into Agent rule directories.
+The authenticated Source consumer captures the selected PROJECT/configuration, Original request, deadline and cancellation. At a context-delivery boundary it uses current admitted sources and the selected rendering format. Bootstrap and `CoreInvariant` remain distinct formats; the invariant retains the compact Graphit-first router and persistence boundary. Those observations do not imply that every native event delivers a bootstrap.
 
-The single resident preamble also carries a persistence boundary for every enabled module and every delegated role. Shared project records may contain only non-sensitive content inherent to the project and needed for confirmed contracts, decisions, evidence, operations, or technical continuity. Agents must not persist personal or sensitive user/organization data, secrets, credentials, material whose retention creates a security risk, or an engineer's feelings, frustration, transient impressions, or unconfirmed speculation. User-only context can be considered only for private user memory when it is a durable, legitimately useful preference or correction; otherwise it is not persisted. A technical hypothesis that is necessary to continue an investigation remains explicitly labelled as a hypothesis and is never promoted to a fact merely because it was recorded.
+With Task enabled, bootstrap tells the agent to read the assigned Task or locate
+relevant work, read its parent and prerequisites, and resume the matching durable
+session. The coordinator records the request and strategy before claiming it.
+A native conversation ID cannot supply that description or substitute for a
+Graphit session. Memory and Task follow their own module switches.
 
-This is an agent mandate, not a claim that the storage layer can infer sensitivity or intent from arbitrary text. Hooks deliver the same classification rule before any enabled module is used; module skills define their own write workflows. The compact invariant repeats the boundary after compaction and at recurring model boundaries so resumed agents do not lose it. Tests and examples use synthetic classifications rather than copying real sensitive material.
+Recall remains semantic during exploration, implementation, debugging and
+review. Reuse sufficient context; when a new question exceeds it, select Memory
+facts/lessons, Task decisions or Knowledge contracts and read the relevant
+sources. Known IDs bypass search. Neighboring checkouts returned by cluster
+discovery remain Graphit-managed and use their returned target for module reads.
+Unavailable Graphit MCP tools permit native tools; the Graphit CLI never
+substitutes for MCP.
 
-Knowledge and Task complement one another: documentation supplies authoritative project context; task records supply current specifications, prior findings and validation evidence. Reuse Task context already retrieved for the question. Search additional task history when a new question needs knowledge of system behavior, earlier work or rationale, then read selected records with `graphit_task_get`. When Task is disabled or unavailable, Knowledge remains usable. Recurring reminders retain this mid-work recall rule without replaying either initial retrieval workflow.
-
-Context-capable adapters do not create or update `AGENTS.md`, `CLAUDE.md`, or equivalents to deliver these instructions. Skills remain physical in native host directories because hosts must discover and load them on demand.
-
-Managed delegated-role documents are static discovery artifacts. They contain the generic router and mandate boundaries plus an instruction to load mandatory memory at runtime; they never serialize a current `Standing context` block, memory titles, or memory content. Live mandatory memory is injected only at the applicable runtime session/subagent boundary.
-
-External agents can retrieve only global mandates through parameterless `graphit_mandates`. The tool does not resolve a project or read its lockfile. On every call, the canonical configuration schema resolves environment, global configuration, defaults, and global rule overrides through the same builder used by the hook. Mandatory memories, bootstrap instructions, installed Hub rules, and project configuration are excluded from this response.
-
-### Invariant reinjection
-
-The invariant also covers neighboring projects found through cluster discovery: they remain
-Graphit-managed. The selected `dir` becomes `project_dir` for that target’s module reads, with
-skills reused per target/overrides. An external working directory does not justify native code
-discovery. Hub/AST explain the transition; Memory/Task/Knowledge preserve each lookup target
-while the coordinating task remains in its owning project.
-
-Full resident context is reserved for a real session or subagent start and reconstruction after compaction, except Kimi: its reliable context boundary is `UserPromptSubmit`, so it retains bootstrap delivery there without assuming `SessionStart` stdout was consumed. Other recurring prompt or invocation boundaries receive only `CoreInvariant`, the short Graphit-first priority reminder; they do not rebuild or repeat mandatory memory, mandates, rules, or the initial bootstrap. When an adapter has a compensable gap, only that adapter's format appends its specific instruction to the invariant or checkpoint. Post-action boundaries without a gap receive only `UnitCompletionReminder`. If a required Graphit MCP tool is unavailable in the current agent, the agent continues with its native tools. The only prohibited substitution is using the Graphit CLI as though it were MCP.
-
-Because the persistence boundary governs every later write, `CoreInvariant` retains its compact form: project records stay non-sensitive and project-inherent; personal/sensitive data, secrets, credentials, security-risk material, and transient feelings/speculation are not persisted; durable user-only preferences or corrections belong only in private user memory. This reminder preserves the decision boundary without replaying the full mandate.
-
-Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. The hook only restores the router; the agent still classifies the domain and loads the corresponding skill only when the next action matches a trigger.
+The resident preamble carries the persistence boundary for every enabled module
+and delegated role. Shared records contain only non-sensitive, project-inherent
+content needed for confirmed contracts, decisions, evidence, operations or
+technical continuity. Personal/sensitive data, secrets, credentials, security-risk
+material and transient feelings or speculation are not persisted there.
+Durable user-only preferences belong only in private user memory. Necessary
+technical hypotheses remain labelled and are not promoted to facts.
 
 ### Task state, checkpoints, and finalization
 
-Graphit treats the smallest semantically reportable unit as a checkpoint, not as a mechanical synonym for every tool call. At available post-action events, the hook asks the agent to decide whether the unit finished and, if so, immediately update the active Graphit task with the detailed result, relevant discoveries, and exact next step. No state is written to Markdown task logs. Kiro also exposes `PostTaskExec`, which provides an objective specification-task boundary.
+A semantic checkpoint follows the smallest independently reportable work unit.
+The responsible agent explicitly calls `graphit_task_progress` with its result,
+evidence and exact next step; the coordinator explicitly calls
+`graphit_task_session_checkpoint` with evidence, problems, decisions/rationale,
+strategy and next action. These calls use the real owner, fence and lease
+required by their Task/session producers. A tool invocation, file write or MCP
+read is not itself a checkpoint, and no hook can infer that semantic boundary.
+Task state is not recorded in Markdown task logs.
 
-That distinction is now enforced by configuration, not only stated in the text. Each host registers its post-tool hook with a matcher restricted to tools that change something, so a read or a search no longer pays for a reminder whose own wording says it does not apply. The matchers are per host because the tool vocabularies genuinely differ, and they are anchored because an unanchored `Write` also matches `TodoWrite`. Graphit's own MCP mutations are deliberately excluded: they are the checkpointing, so prompting for a checkpoint immediately after one is noise. Two hosts stay unmatched for reasons of their own: Antigravity fires per invocation rather than per tool, so there is no tool name to filter, and OpenCode emits the reminder from the managed plugin's `tool.execute.after` rather than from hook configuration.
+Before delivery, the agent checks implementation and documentation in both
+directions and records the actual inspected targets and evidence. Added scope
+or changed direction requires the coordinator to revise the current session
+and affected Tasks before execution. Completion, cancellation, release and
+recovery retain their explicit Task/session contracts and authority. Stop,
+SessionEnd, silence or lease expiry cannot reconstruct a missing handoff or
+prove delivery. See [Task sessions](../guides/task-sessions.md).
 
-The same `UnitCompletionReminder` runs before the agent can legitimately complete a task and requires a bidirectional code-documentation review. Code, configuration, interface, or behavior changes require identifying and updating every affected current documentation/Knowledge surface. Documentation-only changes require comparison with authoritative code or behavior and correction of whichever side is stale. The agent records concrete inspected targets and evidence in Graphit Task; unresolved divergence blocks completion. This is semantic model work, so the hook delivers the obligation deterministically at the last context-capable boundary. The generic Task mandate and skill do not duplicate hook-owned guidance. Only an adapter that truly lacks such a boundary receives the complete obligation through its own adapter-specific mandate or lifecycle compensation. Final stop events remain too late to request additional work and are used only for deterministic reconciliation and asynchronous synchronization.
+The current Rust installation plan consists of supported context events and
+supported Stop/SessionEnd boundaries. It does not install post-tool or
+specification-task checkpoint callbacks. An event such as `PostToolUse` in a
+codec enum does not prove installation, native delivery or semantic checkpoint
+execution.
 
-The same hook performs deterministic reconciliation in the LanceDB tables: it restores dependency, check, comment, and event projections interrupted after the authoritative CAS; expires leases; releases only claims belonging to the stopped agent when the host supplies a correlatable identity; and reopens any completion that violates a flag, evidenced checks, or subtask completion. Post-tool events renew the agent's Task claim and its independent coordinator Session claim under the same scheduler lock. Silent completion (`no-output`) also releases both claims for the identified owner. Workers may own tasks within another actor's session; their stop never releases that coordinator's session. Session release/expiry returns the session to `open`, preserving its last semantic checkpoint. Only an explicit Session completion/cancellation tool can make it terminal; neither Stop nor SessionEnd implies delivery. Missing identity never releases another owner's work. If a process dies before a release hook can run, the separate guarded force-takeover operation can rotate the claim under exact confirmation, revision fencing, and an audited reason. These transitions do not depend on model interpretation.
+For a supported Stop/SessionEnd with Hooks enabled, the actual path is:
 
-The coordinator checkpoints meaningful progress with evidence, problems, decisions/rationale, strategy and an exact next step. Added requests and changed direction require revising the session's current description/strategy and reconciling affected tasks before execution. The recurring reminder names Task progress and Session checkpoint without replaying the initial plan. Before reporting delivery, the coordinator explicitly completes the session after its linked tasks are terminal and explains any cancelled scope. An interruption instead requires a descriptive checkpoint and release; lease expiry and automatic stop events cannot reconstruct missing handoff content. See [Task sessions](../guides/task-sessions.md).
+1. `_session-hook` enters the [Graphit CLI](../../crates/graphit-app/src/session_hook_entry.rs)
+   and the authenticated [Source hook](../../crates/graphit-app/src/source_server/project_hook.rs).
+   Source retains the captured PROJECT/version and Original, authenticates the
+   actual Runtime/Local caller, revalidates the physical capture and requires
+   `Configure` before requesting rescan.
+2. [RoleToolServer::request_project_rescan](../../crates/graphit-app/src/role_tool_server.rs)
+   selects the retained owner by exact PROJECT ID, checkout and version.
+   A missing or stopped owner is an error; Hooks disabled produces no hint.
+3. The existing [supervisor](../../crates/graphit-daemon/src/supervisor.rs)
+   accepts a `Notify` hint, runs its callback serially with producer work and
+   retains its real job through shutdown/join.
 
-Hook identity resolution accepts explicit agent, session/conversation and thread fields, including OpenCode's `sessionID`. MCP ownership uses the stable proxy-session header when available. A host identifier may not match a proxy-generated fallback identity, so hooks never guess by project, most recent session or another actor. In that case the agent must explicitly checkpoint/release through MCP; otherwise lease expiry permits later recovery. OpenCode forwards its native session ID through stdin on bootstrap, post-tool, compaction, idle and deletion events. Its post-tool path invokes the hook to renew ownership and uses the returned reminder, including an empty reminder when Task is disabled. Unknown IDs remain absent.
+The response is native Quiet before Memory, Task or USER corpus admission and
+without Task/session lifecycle work. Success means the existing owner accepted
+a rescan hint, not that indexing completed. Pending hints coalesce; there is no
+one-execution-per-turn guarantee. The hook starts no `graphit sync` child,
+watcher or new scheduler and does not wait for indexing.
 
-After the final task update, the final event dispatches `graphit sync` in the background. `_session-hook --sync` starts the active Graphit executable with the `sync` argument, releases the child process, and immediately returns the native completion payload. It does not wait for indexing, a lock, or process completion. Failure to start the dispatcher is a hook error, but an already-started sync does not control or delay the agent's final response.
+Rust final hooks do not reconcile Task CAS projections, expire or renew leases,
+release or adopt claims, force takeover, reopen completion or turn Stop into a
+handoff. A host conversation/session ID is correlation data, not a Graphit
+owner/fence/lease. Existing Task tools remain responsible for their real
+lifecycle contracts; quiet rescan supplies none of that authority.
 
-### Subagents: three separate guarantees
+Lifecycle coverage is maintained in `stop_and_session_end_dispatch_exact_owned_rescans_with_configure_authority` and `explicit_rescan_coalesces_during_jobs_without_parallel_work`.
 
-A subagent is covered correctly only when three independent layers hold:
+### Subagents and tool visibility
 
-1. **Instruction delivery** — the isolated context receives the Graphit protocol. Conversation inheritance or a rules file is never assumed when the host provides a dedicated boundary.
-2. **Tool visibility** — the runtime includes Graphit MCP servers in the child's tool registry. This layer belongs to the host and can be restricted through `tools`, `disallowedTools`, permissions, `includeMcpJson`, or cloud configuration.
-3. **Usage routing** — hooks deliver Graphit-first priority. A prompt cannot create a tool that is not exposed, so the child falls back to the host's native tools instead of blocking.
+A delegated role requires three separate guarantees:
 
-`SubagentProtocol` is self-contained and marked with `GRAPHIT_SUBAGENT_PROTOCOL_V1`. It contains the same independent current-request Memory and Task flows as the main bootstrap. Claude and Codex receive it through `SubagentStart`. Cursor cannot add context at that event, so its adapter attempts to inject the complete protocol into the `Task` input through `preToolUse`. This hook is deliberately fail-open: if a host version does not apply `updated_input`, the child still starts and uses its native tools. Antigravity exposes no subagent-start context event, so its adapter-specific compensation requires a delegating agent to include the complete protocol—and therefore both enabled recall flows—in the child prompt. Delegation also includes the durable `session_id` and assigned Task IDs. The worker reads those records, claims its own task, and reports to the coordinator; it does not claim or close the coordinator's Session.
+1. The isolated context receives its complete routing and role protocol.
+2. The host exposes the admitted Graphit tools in the child's registry.
+3. The instructions route their use when the next action matches a module.
 
-Graphit preserves user-owned subagent allowlists. Changing them silently could grant access the user intentionally removed. When an allowlist excludes Graphit, the subagent continues with the tools permitted by the host.
-
-An external limit remains: when a host requires trust or allows hooks to be disabled, a project file cannot approve itself. Cursor Cloud also runs read-only exploratory turns before loading repository hooks. No project file can enforce Graphit-first routing before the host loads it; during that interval, the agent operates with its default capabilities. To use Graphit in cloud execution, MCP must be configured at the host's team or enterprise layer. Concrete trust, activation, reload, and verification steps are documented per adapter in [Activate Graphit Hooks in Each Agent](../guides/agent_hook_activation.md).
-
-### Native fallback
-
-Adapters do not block native tools. A tool-use hook payload does not prove that `graphit_ast_*` is exposed in the current agent or subagent; denying `Grep`, `Glob`, `rg`, or equivalents could block all work. The mandate and skill prioritize Graphit when available and permit the host's standard tools when it is not.
-
-For supported local code, the skill still requires AST-first discovery. Unindexed content, unsupported formats, or unavailable tools use native discovery directly. Imported contexts have no native fallback because their source is not present in the agent's workspace.
-
-## Adapter matrix
-
-### Dream is a runtime capability, not a lifecycle hook
-
-The nine workspace adapters below synchronize each host's durable MCP configuration and lifecycle
-hooks. Dream does not add a hook, skill, rule, command, or adapter artifact. It uses the selected
-CLI's existing project MCP discovery and applies `dream-memory-v1` at launch: native CLI restrictions
-on model-invoked file/command tools plus an exact Graphit MCP allowlist. The whole CLI process is
-not placed in a filesystem jail, so its own state remains writable on Windows, macOS and Linux.
-If a CLI has no verified per-run policy, Dream runs it without a restriction flag; that CLI may
-modify project files through its own tools. The Graphit MCP bearer still restricts Graphit tools.
-Unstructured CLIs record successful process exit as `completed_unobserved`, because tool counts
-cannot be inferred from prose.
-
-Authorization comes from a separate HMAC-authenticated bearer bound to the Dream profile; the
-local proxy refuses a missing scoped bearer while the Dream profile is active, and the daemon
-forces the authenticated bearer profile instead of trusting the client header. Native CLI
-permissions do not isolate the process from the daemon key on the same OS account; this is a
-documented trust limit. This is separate from normal session
-hooks: no mandatory-memory bootstrap, Task checkpoint hook, or final synchronization hook grants or
-widens Dream authority.
-
-### Work lifecycle
-
-| Adapter | Resume/reinjection | Smallest available unit | Asynchronous finalization |
-|---|---|---|---|
-| Claude Code | `SessionStart`/`SubagentStart` load bootstrap; `UserPromptSubmit` reinjects only the compact invariant | `PostToolUse` requests detailed progress and code-documentation consistency | `SubagentStop`, `Stop`, and `SessionEnd` dispatch sync |
-| Codex | `SessionStart`/`SubagentStart` load bootstrap; `UserPromptSubmit` reinjects only the compact invariant | `PostToolUse` requests detailed progress and code-documentation consistency | `SubagentStop`, `Stop`, and `SessionEnd` dispatch sync |
-| Cursor | `sessionStart`; `preToolUse(Task)` initializes the child | `postToolUse` requests detailed progress and code-documentation consistency | local `subagentStop`, `stop`, and `sessionEnd` dispatch sync |
-| Gemini CLI | `SessionStart` loads bootstrap; `BeforeAgent` reinjects only the compact invariant | `AfterTool` requests detailed progress and code-documentation consistency | `AfterAgent` and `SessionEnd` dispatch sync |
-| Kiro | `SessionStart`, `UserPromptSubmit`, and `AgentSpawn` | `PostToolUse` carries the shared reminder; `PostTaskExec` covers a specification task | `Stop` dispatches sync |
-| Antigravity | `PreInvocation` loads bootstrap at invocation zero and only the invariant afterward | `PostInvocation` carries the shared progress and consistency reminder | `Stop` dispatches sync |
-| OpenCode | per-session system transform and a compaction hook | `tool.execute.after` renews identified claims and appends the shared progress/session/consistency reminder | `session.idle` and `session.deleted` use `Bun.spawn(...).unref()` |
-| Qwen Code | `SessionStart`/`SubagentStart` load bootstrap; `UserPromptSubmit` reinjects the compact invariant | `PostToolUse` requests progress and code-documentation consistency | `SubagentStop`, `Stop`, and `SessionEnd` dispatch sync |
-| Kimi Code | global `UserPromptSubmit` supplies the full bootstrap on the first prompt of a session and only the compact invariant afterwards; `SubagentStart` supplies the child protocol | `PostToolUse` requests progress and code-documentation consistency; `SessionStart` still runs for lifecycle visibility but is not relied on for context delivery | `SubagentStop`, `Stop`, and `SessionEnd` dispatch sync |
-
-Kimi is the one host whose turn boundary carries the bootstrap, because its `SessionStart` output is discarded before it reaches the model. Repeating the whole protocol on every turn would be the obvious cost of that compensation, so the hook marks each host session once, keyed by the `session_id` in the payload, and downgrades later turns to the invariant. Every failure path in that check answers "not yet delivered" and re-sends the bootstrap: repeating it only costs tokens, while wrongly skipping it would leave the agent with no routing at all.
-
-All final dispatches are fire-and-forget. The dispatcher uses runtime process APIs; OpenCode uses an argument array, while hosts whose schema requires a command string receive an executable escaped for the current operating system. Other generated hook configurations contain no checkout path.
-
-An event appearing in an API does not automatically count as coverage. Antigravity exposes `PostToolUse`, but its output accepts only `{}` and cannot reinject task-management guidance. The adapter therefore uses `PostInvocation`, which supports `injectSteps[].ephemeralMessage`, and does not install an empty `PostToolUse`. Likewise, Cursor's `beforeSubmitPrompt` cannot replace a reinjection boundary because its output cannot add context. Native limitations remain explicit instead of being hidden behind hooks with no effect.
-
-Compensation is strictly adapter-specific. Cursor receives guidance through `sessionStart` and `postToolUse` to reapply Graphit-first routing on every prompt because `beforeSubmitPrompt` cannot inject context and Cloud may omit `sessionStart`; a late reminder governs only subsequent actions. Its `preToolUse(Task)` fallback prefixes the delegated protocol for the role being spawned, reading the target agent's name from the tool input and falling back to the generic worker protocol when the name is unknown. Antigravity receives guidance through `PreInvocation` to apply the checkpoint after each tool despite the context-free `PostToolUse`, and, because it has no dedicated subagent-start boundary, to pass the assigned session and task ids when delegating and to read the installed role document itself when it cannot delegate. Neither instruction enters the common `CoreInvariant` or the other five adapters. Compensation does not duplicate the full bootstrap at recurring boundaries, create the missing event, or turn instruction compliance into native enforcement.
+Conversation inheritance or an installed file does not establish delivery to a
+child. A prompt cannot create a missing MCP tool. Native trust, activation and
+allowlists remain host-controlled; Graphit preserves user-owned restrictions.
+Use the qualified binding and [activation instructions](../guides/agent_hook_activation.md)
+for the actual host. A project cannot approve its own trust or grant itself
+permissions before the host loads it.
 
 ## Delegated roles
 
-A delegated performer is not a second coordinator. It receives the session and task ids it needs, so instructing it to open or claim a session only produces a duplicate one — which is what happened while the subagent protocol was a copy of the coordinator bootstrap. The protocol is now scoped by role: it carries the routing invariant, the mandate rules for the modules that role actually uses, and five contracts. The performer claims at most its own task and never creates, claims or closes a coordination session. It delivers evidence and may finish its turn; finishing that turn does not complete the Graphit work, which remains the coordinator's decision. It releases only host resources it was asked to manage, never another agent's Graphit records. And each role states what it must return.
+A delegated performer receives the assigned session and task IDs. The protocol is scoped by role: it carries the routing invariant, the mandate rules for the modules that role actually uses, and five contracts. The coordinator owns acceptance, checkpoints, Task/session claims, revisions, completion and lifecycle. The performer reads and reports evidence, or transcribes only expressly decided content within its assigned role. If a write requires a coordinator claim, it returns a draft instead of acquiring that claim. It may finish its turn; finishing that turn does not complete the Graphit work, which remains the coordinator's decision. It releases only host resources it was asked to manage, never another agent's Graphit records. And each role states what it must return.
 
-Scoping by module was not enough on its own. The Task module's own mandate rule is written around owning a session, so a performer carrying it was still told to create one; the module therefore has a separate worker rule that routes reading assigned work and recording progress, and nothing else.
+The delegate mandate routes reading assigned work and returning anchored evidence or a draft to the coordinator. Task progress and checkpoints remain with the coordinator; the delegate does not acquire claims or perform lifecycle mutations.
 
 The default and its exception are explicit. An agent does not create subagents unless the user or an applicable mandate, `AGENTS.md`, loaded skill, or higher-priority instruction explicitly assigns bounded work to a delegated role. That instruction is itself both authorization and an obligation, but only for that role and work; it is not permission for unrelated delegation. The Graphit mandate makes three such assignments: recall goes to the scout, impact review to the tracker, and transcription of decided content to the scribe. A performer already acting in the assigned role does the bounded work directly instead of delegating recursively.
 
 After a delegate answers, it may finish its turn. The coordinator may later send that same delegate another instruction through the host's follow-up or resume mechanism when the host supports that operation, continuing from its recorded evidence. This is a capability, not a lifecycle rule: no waiting loop, keep-alive, reuse, or explicit dismissal is required, and the guidance does not prevent a later supported follow-up. Availability and resource lifetime remain host-specific. Acceptance, checkpointing, Task/session claims, revisions, completion, and session lifecycle always remain with the coordinator.
 
-The protocol has two readers: a subagent when the role is delegated, and the main agent performing the role itself where the host has no subagent. It is written for the first, and the second is served by an explicit exception clause at the end of the contracts. Where the host cannot run the named role separately, the coordinator reads that role's installed document and performs only that bounded role itself. That compatibility fallback does not weaken the default prohibition, broaden the named authorization, or transfer lifecycle ownership.
+The protocol has two readers: a subagent when the role is delegated, and the main agent performing the role itself where the host has no subagent. It is written for the first, and the second is served by an explicit exception clause at the end of the contracts. Where the host cannot run the named role separately, the coordinator reads that role's installed document and performs only that bounded role itself. Performing the role locally retains its bounded scope and coordinator lifecycle ownership.
 
-### Native roles, not Hub artifacts
+### Managed role documents
 
-Graphit ships three roles — a scout for recall, a tracker for impact review, and a scribe for transcribing decided content into Task and Memory. They are a native surface, written and refreshed by sync alongside the module skills, and they are deliberately not Hub artifacts even though `agent` is a first-class Hub artifact type. The two routes coexist: the Hub route stays available for agents a team publishes, while these three are part of the tool.
+Graphit maintains scout for recall, tracker for impact review and scribe for
+transcribing decided Task/Memory content. They are published as native role
+documents alongside module skills. Each host receives only its supported fields;
+server authorization remains authoritative even where a native schema can
+express a restriction.
 
-Each role is rendered into the host's own document format. Most hosts read markdown with YAML frontmatter, where the body becomes the system prompt. Codex is the exception: it reads standalone TOML and carries the instructions in a `developer_instructions` field. Only fields a host documents are emitted — where a host cannot express a restriction, nothing is fabricated, and the restriction stays as an instruction in the body. Cursor's `readonly` is used because it is real; Claude, Qwen and Kimi receive no tool allowlist, so a read-only role is read-only by instruction there rather than by enforcement.
+The role document supplies generic routing and the bounded role contract. Live
+context is admitted at runtime; no current memory snapshot is serialized into
+that document. On hosts without a separate role runtime, the coordinator reads
+the installed document and performs only the assigned role itself.
 
-Because the document is installed on every host, it serves two readers. Where the host can spawn a subagent, it is that subagent's system prompt. Where it cannot, the mandate tells the main agent to read the role's document and perform the role itself. That is why the text is addressed to whoever performs the role rather than to "the subagent", and why the delegation rule in the mandate always carries its own fallback: an instruction that only says "delegate" would simply fail on a host that cannot.
+## Publication, reads and bounded output
 
-Removal deletes only files carrying the managed marker. A role the user rewrote by hand loses that marker and survives, because a host's agent directory is also where the user keeps their own agents.
+The [compiled-skill publisher](../../crates/graphit-app/src/compiled_skills.rs)
+renders the maintained bundles and references through current captured sources
+and the existing Core writer. Publication preserves foreign files and reports
+partial effects, pending cleanup and delivery failures. Removal and recovery
+retain the writer's real ownership and receipts. See
+[Global instructions](../development/native-global-instructions.md).
 
-### Rules are never files
+The [Root module-skill reader](../specs/rust_root_module_skill.md) returns the
+entrypoint and advertised companion names, or one exact selected companion.
+Omitted PROJECT selects neutral Global guidance; explicit PROJECT/version uses
+its current admitted configuration and observed overrides. Role consumers use
+their announced scoped tools and authenticated input contract. Reading guidance
+does not grant publication, remote access or access to another PROJECT.
 
-Rule artifacts are not written into host rule directories on any adapter. They are read from their installed Hub source and delivered through the injected context at lifecycle boundaries. This is worth stating because the directory configuration suggests otherwise: adapters still declare a rules directory, which is used only as the fallback destination for an agent when a host declares no agents directory. That fallback is why no adapter may point its rule and agent directories at the same place, even though nothing writes to the former today.
-
-All nine currently supported adapters therefore receive the bidirectional finalization obligation through a context-capable checkpoint path or an explicit adapter-specific compensation. Adding a nominal hook whose output cannot inject context is not coverage. Adapter tests enumerate the supported agents so a future addition cannot silently omit both mechanisms.
-
-### Subagents and visibility
-
-| Adapter | Subagent instruction | MCP tool visibility | Fallback and limit |
-|---|---|---|---|
-| Claude Code | `SubagentStart` injects `SubagentProtocol`; it does not depend on `CLAUDE.md`, which some built-ins do not load. | The child inherits parent tools except for background restrictions and custom-agent `tools`/`disallowedTools`. | An allowlist that removes MCP leaves the child with its permitted native tools. |
-| Codex | `SubagentStart` injects `SubagentProtocol` as developer context. | The adapter installs MCP in the project; child availability still depends on the Codex surface that performed the spawn. | Without Graphit in the child registry, that surface's standard tools remain available. |
-| Cursor | `preToolUse(Task)` attempts protocol injection without blocking the spawn. | A local child inherits all parent tools. A cloud child uses team-configured MCP, not local MCP configuration. | Missing Graphit or failed input rewriting leaves the native subagent path open; `subagentStart` has no context gate. |
-| Gemini CLI | `BeforeAgent` reapplies compact context on each turn; `SessionStart` provides the main bootstrap. | A custom agent without `tools` inherits its parent; an explicit list can exclude `mcp_*`/`mcp_server_*`. | A restricted configuration continues with its configured built-ins. |
-| Kiro | Steering is shared; `SessionStart` covers the IDE and `AgentSpawn` covers the CLI. | Subagents share project MCP and permissions; a custom profile can disable `includeMcpJson` or declare its own MCP servers. | Without project MCP, the profile continues with native tools. |
-| Antigravity | `PreInvocation` injects bootstrap at invocation zero and compact context afterward; no dedicated subagent event is exposed. | Dynamic clones can inherit the toolset; a static agent controls `tools` and `mcpServers`, which default to empty. | Executions outside project hooks or without MCP continue with the host-defined toolset. |
-| OpenCode | `experimental.chat.system.transform` initializes every `sessionID`, including child sessions, and `experimental.session.compacting` preserves context during compaction. | MCP configuration belongs to the project, but agent-specific permissions can deny MCP tools. | Denied MCP permissions leave the tools permitted for that agent; the plugin does not block alternatives. |
-| Qwen Code | `SubagentStart` injects the self-contained protocol. | Project `.qwen/settings.json` owns MCP visibility; explicit agent restrictions may still narrow it. | A restricted child continues with Qwen's permitted native tools. |
-| Kimi Code | global `SubagentStart` injects the self-contained protocol and resolves the active project from runtime input/CWD. | Project `.kimi-code/mcp.json` supplies the servers; custom agents may still restrict tools. | A restricted child continues with Kimi's permitted native tools. |
-
-Each concrete adapter owns synchronization, removal, format, and path behavior for its host. `FolderBasedAdapter` knows nothing about hook events or formats.
-
-## Synchronization contract
-
-`graphit sync` reconciles each adapter as one lifecycle unit: physical skills, commands, and agents where the host supports them; MCP configuration; and native hooks or documented compatibility artifacts. This happens on every synchronization, not only during `init`. The writer replaces previous Graphit entries with current state, preserves user-owned entries, and must be idempotent. `rule` artifacts remain in the authoritative cache and are consumed by the next hook.
-
-There are two separate wait contracts. An explicit CLI or MCP invocation reports its result to the caller. Automatic finalization only dispatches synchronization and does not wait. The agent therefore finishes without being blocked by indexing, while every supported final boundary starts a complete reconciliation attempt.
-
-A partial update cannot be reported as success. MCP resolution or write failures and hook parse or write failures propagate through `SyncAgentAdapter`; both the CLI and `graphit_sync` report the error. Tests synchronize twice and remove twice across all nine adapters, verifying current Graphit entries, selective cleanup, and preservation of user content.
-
-## What remains semantic
-
-The following cannot be automated safely without a model:
-
-- building an appropriate Cypher query, selecting a source, and assessing edit impact;
-- deciding which Hub artifact is relevant or when external documentation is required;
-- selecting which memory or wiki results must be read;
-- deciding whether a discovery is durable, duplicate, contradictory, or important;
-- selecting a matching durable session and recording its detailed request, revisions, descriptive checkpoints and final delivery summary;
-- deciding when to record progress or a typed decision, problem, lesson, or knowledge comment on the active task;
-- recognizing whether an action completed the smallest independently reportable unit before updating the task;
-- identifying documentation affected by implementation changes and checking documentation-only changes against authoritative code or behavior;
-- deciding when freshness must be proven before a conclusion.
-
-Routing and domain-specific decision workflows remain in mandates and skills without duplicating schema manuals, generic justification, or examples. The pre-completion code-documentation review is different: it remains in the deterministic checkpoint hook, or solely in an affected adapter's specific compensation when that hook boundary does not exist.
-
-## Context budget
-
-- The resident preamble has a tested 2,900-byte limit and appears only once in composed context. The budget includes the cross-module persistence boundary so it is not duplicated inside every module mandate.
-- Repeated Antigravity invocation context, which combines `CoreInvariant` with its adapter-specific compensation, has a tested 1,600-byte ceiling. The invariant keeps the compact persistence classification because it must survive compaction and resume boundaries.
-- Recurring post-action payloads have a tested 550-byte ceiling and never include long mandatory memory or full module instructions. Adapter-specific compensation remains at the appropriate bootstrap boundary; Cursor repeats only its short routing reminder after tools.
-- Each module mandate has a tested compact limit. It names the trigger, the exact point to read the skill, and the initial tool route; detailed procedures stay in the skill.
-- Skills have module-specific entrypoint byte ceilings. Detailed authoring guides and complete examples live in selectively loaded `references/` resources, with explicit reading triggers in each skill. Instruction depth is preserved without injecting all examples into every action.
-- Module `InstallSkill` functions install the complete bundle through `InstallManagedSkillWithReferences`, using each adapter's `GetSkillDir`. Resources are written before the main skill, restored when absent and updated when their content changes; identical resources keep their mtime. Unrelated files remain untouched. The normal daemon/module sync invokes these generators, so a newly activated runtime updates examples alongside the main skill. Integration tests compare module-generated bundles across every supported adapter and the repository's installed copies.
-- Remote agents retrieve the same generated resources through `graphit_module_skill(reference: ...)`. Main reads return resource names only; selected reads return one body. This does not require a local agent directory and does not expose arbitrary server files.
-- Tools are introduced at the decision where they are needed, without repeating a complete tool catalogue. Published tool schemas remain the argument reference; integration tests verify named tools are actually registered.
-- Memory and Task bootstrap plus full dynamic context occur at session/subagent start or the documented Kimi prompt fallback. Other recurring prompt or invocation boundaries receive only `CoreInvariant`; post-action checkpoints receive only `UnitCompletionReminder`, including the bidirectional code-documentation review. Compaction may reconstruct dynamic context because it represents actual context loss, not an ordinary turn event.
-
-Bytes are the deterministic regression metric because token counts vary by host tokenizer.
-
-## Verified official sources
-
-- [Claude Code hooks](https://code.claude.com/docs/en/hooks)
-- [Claude Code subagents](https://code.claude.com/docs/en/sub-agents)
-- [OpenAI Codex hooks](https://learn.chatgpt.com/docs/hooks)
-- [Cursor hooks](https://prod.cursor.com/docs/hooks) and [Cursor subagents](https://prod.cursor.com/docs/subagents)
-- [Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/) and [Gemini CLI subagents](https://geminicli.com/docs/core/subagents/)
-- [Kiro hooks](https://kiro.dev/docs/hooks/), [triggers](https://kiro.dev/docs/hooks/types/), and [Kiro subagents](https://kiro.dev/docs/chat/subagents/)
-- [Google Antigravity hooks](https://antigravity.google/docs/ide/hooks/) and [Antigravity subagents](https://www.antigravity.google/docs/subagents/)
-- [OpenCode plugins/hooks](https://opencode.ai/docs/plugins/) and [OpenCode agents](https://opencode.ai/docs/agents/)
-- [OpenCode native plugin input contracts](https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/index.ts) and [idle event identity](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/status.ts)
-- [Bun subprocess stdin buffers](https://bun.com/reference/bun/spawnSync)
-
-The original host capability matrix was verified on 2026-09-03; the OpenCode identity inputs and Bun buffer-stdin contract were checked on 2026-09-17. Vendor changes must update this matrix and its adapter tests first; they must never be simulated through a shared abstraction the host does not support.
+The [instruction renderer](../../crates/graphit-runtime/src/instructions.rs)
+enforces current template, variable, output, fuel and recursion limits under
+the original request's deadline and cancellation. Long examples and authoring
+procedures remain in selectively loaded references. Tool schemas supply their
+arguments; instruction text need not repeat a catalog. Qualification records
+identify their actual sources, environment and executed checks; fixture or
+Graphit-consumer success does not prove installed vendor/model behavior or
+execution on another operating system.

@@ -1,0 +1,1 @@
+Explicitly send typed references (target type/id and relation) when citing records in writes; prose alone creates no database relation. Read the module skill for scope and update semantics.

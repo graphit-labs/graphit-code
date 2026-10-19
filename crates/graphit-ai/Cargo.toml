@@ -1,0 +1,55 @@
+[package]
+name = "graphit-ai"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+cuda = ["llama-cpp-sys-2/cuda-no-vmm", "llama-cpp-sys-2/dynamic-link"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-sys-2 = { git = "https://github.com/utilityai/llama-cpp-rs", rev = "424d1ffe6c1c4212d5da8e6075f473e33e35fb7f", default-features = false, features = ["metal"] }
+
+[dependencies]
+uuid = { version = "=1.28.0", features = ["v4"] }
+agent-client-protocol = { version = "=3.3.0", features = ["process"] }
+tracing.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+graphit-process = { path = "../graphit-process" }
+graphit-core = { path = "../graphit-core", features = ["async-cancel"] }
+graphit-fs = { path = "../graphit-fs" }
+graphit-http = { path = "../graphit-http" }
+graphit-auth = { path = "../graphit-auth" }
+http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+secrecy.workspace = true
+cxx = "=1.0.205"
+llama-cpp-sys-2 = { git = "https://github.com/utilityai/llama-cpp-rs", rev = "424d1ffe6c1c4212d5da8e6075f473e33e35fb7f", default-features = false }
+tokio.workspace = true
+
+[build-dependencies]
+cxx-build = "=1.0.205"
+
+[dev-dependencies]
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json", "ws"] }
+graphit-hub = { path = "../graphit-hub" }
+
+[[bin]]
+name = "ai-cli-plain-fixture"
+path = "tests/support/cli_plain_fixture.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "ai-copilot-fixture"
+path = "tests/support/copilot_fixture.rs"
+test = false
+bench = false
+
+[lints.rust]
+unsafe_code = "deny"

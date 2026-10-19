@@ -1,0 +1,1 @@
+Example write input: `references: [{"target": {"type": "memory", "id": "<verified memory ID>"}, "relation": "supports"}]`. The source is the record being written; do not repeat a source ID. Read its existing references before replacing the list so unrelated links survive.

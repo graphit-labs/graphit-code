@@ -1,0 +1,112 @@
+language: kotlin
+grammar: tree-sitter-kotlin
+extensions: [".kt", ".kts"]
+
+target_rules:
+  CALLS: { labels: [Function, Package] }
+  READS_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration (simple_identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration (type_identifier) @name)'
+  - data_key: objects
+    graph_label: Object
+    pattern: '(object_declaration (type_identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_header (identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package_header (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration (variable_declaration (simple_identifier) @name))'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration variable: (variable_declaration (simple_identifier) @name) expression: [(integer_literal) (real_literal) (hex_literal) (bin_literal) (long_literal) (boolean_literal) (character_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: enum_members
+    graph_label: EnumMember
+    pattern: '(enum_entry (simple_identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter (simple_identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_body (property_declaration (variable_declaration (simple_identifier) @name)))'
+
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation (user_type (type_identifier) @name))'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (simple_identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (navigation_expression (simple_identifier) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(delegation_specifier (user_type (type_identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(navigation_expression (simple_identifier) @name)'
+
+exports:
+  strategy: no_modifier
+  config_list:
+    keywords: ["private", "protected", "internal"]
+
+self_keywords: ["this."]
+
+context_types:
+  class_declaration: Class
+  object_declaration: Object
+  companion_object: Object
+  function_declaration: Function
+
+anon_func_types:
+  - anonymous_function
+  - lambda_literal
+
+declaration_types:
+  - function_declaration
+  - class_declaration
+  - object_declaration
+  - companion_object
+  - property_declaration
+
+comment_types:
+  - line_comment
+  - multiline_comment
+
+complexity:
+  node_types:
+    - if_expression
+    - for_statement
+    - while_statement
+    - when_entry
+    - catch_block
+    - conjunction_expression
+    - disjunction_expression
+
+embed_labels:
+  - Class
+  - Object
+  - Function
+  - Package
+  - Field
+  - EnumMember
+  - Variable
+  - Comment

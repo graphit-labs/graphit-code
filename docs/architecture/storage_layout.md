@@ -1,611 +1,271 @@
 ---
 title: Storage Layout
 type: architecture
-updated: 2026-10-04
+updated: 2026-10-30
 tags: [architecture, storage, ast, knowledge, memory, hub]
-related:
-  - "docs/guides/github-actions-artifacts.md"
-  - "docs/specs/hub-s3-object-layout.md"
+references:
+  - target: {type: task, id: 01M5C6B85MCWH5HX932YVEKN3Z}
+    relation: implements
 ---
 
 # Storage Layout
 
-> Where every compiled artifact of this framework lives, and why there is exactly one
-> of each.
-
-Everything the framework persists locally — code graphs, documentation wikis, authoritative memory
-and task tables, search indexes, and caches — lives in the **global brand directory**,
-keyed by an identifier. A project directory holds no compiled data at all: only its
-own source, its lockfile, and a handful of small per-project records.
-
-The single resolver for all of it is `internal/store`. Nothing else composes these
-paths.
-
----
+This reference describes local storage ownership, version isolation and maintenance.
+Use Graphit consumers to read and modify records; a filesystem path, project ID or
+cached artifact never grants authorization.
 
 ## Where the root is
 
-The root is `~/.graphit` by default — `os.UserHomeDir()` joined with the brand's dot
-directory — and `brand.GlobalDir()` (`internal/brand/brand.go`) is the one function that
-resolves it. Every path in this document hangs off its return value.
+`InstallationPaths::resolve` captures the global directory once at bootstrap.
+The default is `~/.graphit`; a private brand uses its own brand directory. An
+explicit `--global-dir` or brand-specific `GLOBAL_DIR` environment override is
+resolved against the captured process start directory. The installation cannot
+also be a project checkout. Missing home or invalid Unicode paths fail explicitly.
 
-### Moving it: `GRAPHIT_GLOBAL_DIR`
+Hooks, MCP declarations and shared configuration use the executable from PATH and
+project-relative inputs. Private installation records can retain runtime-resolved
+absolute paths. Moving a checkout does not change its storage identity.
 
-Set `GRAPHIT_GLOBAL_DIR` and it **prevails** over the home directory. On a white-label
-build the name follows the brand, so a binary built as `acme` reads `ACME_GLOBAL_DIR` —
-the variable is `strings.ToUpper(Brand) + "_GLOBAL_DIR"`, the same rule every other
-`<BRAND>_*` variable follows.
-
-```bash
-export GRAPHIT_GLOBAL_DIR=/mnt/fast/graphit
-graphit sync
-```
-
-The override is total, not partial. Everything named below moves with it:
-
-| What | Resolver |
-|---|---|
-| every AST graph, wiki and memory store | `store.Root()` |
-| the global config file, `config.json` | `config.AppDir()` |
-| named providers, profiles, and active account, `auth.json` | `auth.Open()` |
-| the embedding and reranker models | `ai.ModelsDir()` |
-| the extracted core runtime, `runtime/<version>/` | the launcher, and `brand.RuntimeDir()` |
-| global and Hub rule overrides | `brand.GlobalRulesDir()`, `brand.HubRulesDir()` |
-| `frameworks/` and cached Hub `artifacts/` | `paths.GetPaths()` and Hub artifact resolvers |
-| user grammar libraries, `grammars/{treesitter,antlr}` | the AST grammar loaders |
-
-Things worth knowing before you set it:
-
-- **It is not a config key, and `graphit config` cannot set it.** The global config file
-  lives *inside* the global directory, so a key naming that directory could only be read
-  after the directory had already been found. The environment is the only layer that
-  resolves before the filesystem does. See
-  [Config Module](../specs/config_module.md#the-one-setting-that-is-not-a-config-key).
-- **It must be inherited, not just exported once.** The daemon, the MCP server and the
-  core binary the launcher execs all resolve the root independently; they agree because
-  they share an environment. Set it where every one of them will see it — a shell
-  profile, the MCP server definition, the service unit — not in a single terminal.
-- **Nothing migrates.** Pointing the variable at an empty directory gives you an empty
-  framework: the next `graphit sync` reindexes from source, and the old root is left
-  untouched. Move the contents yourself if you want the history.
-- **A blank value means unset.** Whitespace-only is treated as absent, and the home
-  default applies.
-- **A relative value is resolved once**, against the working directory the process
-  started in — not against the live one, because the daemon chdirs into the global
-  directory and would otherwise resolve one level deeper on every later call. Prefer an
-  absolute path.
-- **`GRAPHIT_MODEL_CACHE` still wins for the models.** It is the narrower override and
-  is checked first, which is what lets the ~1.1 GB of model weights sit on a different
-  volume from the rest.
-- **The test suite ignores it.** `internal/brand/testhome.go` unsets the variable inside
-  a test binary, so an operator with it exported in their shell does not have a `go test`
-  run write into their real store. Test isolation is `HOME`, and stays `HOME`.
-
----
-
-## The layout
-
-```
-~/.graphit/
-├── config.json                         global configuration (mode `0600`)
-├── auth.json                           provider/profile credentials and active account (mode `0600`, atomic)
-├── .auth-tmp/                          owner-only staging for atomic auth replacement (empty between writes)
-├── global.lock.json                    registered projects and installed artifact metadata
-├── memory.lock.json                    legacy memory scope registrations; no longer written, an entry is removed when its scope is pruned
-├── backups/lance-rebuild/<uri-hash>/   row snapshots of Lance table rebuilds: `<table>-<ns>.pending.json` until the rebuild completes, then `.done.json` (last 5 per table)
-├── hub/
-│   └── cache/<hub-fingerprint>/<subject-fingerprint>/
-│       ├── names/                      selectively resolved name records
-│       ├── projects/                   authorized project metadata
-│       ├── discovery-pages/            bounded paginated responses
-│       └── cache-state.json            TTL, ETag/revision, size, and LRU state
-├── daemon/
-│   ├── daemon.pid                      process metadata plus the single-daemon file lock
-│   ├── daemon.log                      daemon output
-│   ├── mcp.port                        actual streamable HTTP MCP port
-│   ├── mcp.key                         active generated or configured bearer key (mode `0600`)
-│   ├── embed.sock                      local embedding model-server socket
-│   ├── rerank.sock                     local rerank model-server socket
-│   ├── model-<task>.log                model-server output
-│   ├── memory-*-user.log               user-scope Memory child output
-│   └── launcher.stamp                  launcher/runtime replacement marker
-├── locks/heavy-slot-<n>.lock           machine-wide heavy-work slots (advisory)
-├── logs/graphit.log                    process-wide structured log
-├── sync.log                            detached lifecycle-sync launch errors
-├── rules/                              user-global mandate and managed-skill overrides
-├── hub/rules/                          installed Hub mandate and managed-skill overrides
-├── grammars/{treesitter,antlr}/        globally installed native parser binaries
-├── runtime/<version>/                  extracted version-scoped core runtime
-├── frameworks/                         globally installed framework content
-├── artifacts/modules/                  managed file-artifact materializations
-├── sessions/<project-hash>/            saved AI chat metadata and JSONL messages
-├── sessions/<session-id>/              ephemeral Live Search workspaces and events
-├── ast/
-│   ├── project/<project-id>/            a project's own code graphs, one per project version
-│   │   └── versions/<version>/              one version's graph — icebug filesystem, :memory: catalog
-│   │       ├── graph.icebug/                    the graph — Parquet CSR bundle (nodes_*.parquet, indices_*.parquet, indptr_*.parquet)
-│   │       │   ├── schema.cypher                    storage = '<abs>/graph.icebug', format='icebug-disk'
-│   │       │   └── icebug.json                      canonical manifest v3 (cardinality + language statistics)
-│   │       ├── search.lance/                    the search index — text, terms, vectors
-│   │       ├── manifest.json                    parse-shard manifest
-│   │       └── shards/                          independently compressed per-file caches
-│   │           ├── <relPath>.nodes.json.zst     parsed entities
-│   │           ├── <relPath>.edges.json.zst     parsed relationships
-│   │           └── <relPath>.emb.zst            exact float32 embedding cache in a Zstandard frame
-│   ├── context/<name>/                  a locally imported code graph — same icebug filesystem layout
-│   │   └── graph.icebug/ + search.lance/ …
-│   ├── hub/<project-ulid>/<artifact-id>/<version>/ compatibility/cache area; native Hub AST mounts use S3
-│   └── queries/                         USER grammar query overrides (not a store)
-├── wiki/
-│   ├── knowledge/
-│   │   ├── project/<project-id>/versions/<version>/ one project version's local `index.lance/`
-│   │   ├── context/<name>/              a linked/local documentation wiki
-│   │   └── hub/<project-ulid>/<artifact-id>/<version>/ compatibility/cache area; native Hub Knowledge mounts use S3
-├── memory/memory-<scope>-<id>/          filesystem fallback when Memory has no S3 (versions are Lance branches inside)
-├── task/<task-prefix>/<project-id>/     filesystem fallback when Task has no S3 (versions are Lance branches inside)
-├── models/<model-id>/                   manifest-selected local ONNX bundle; provider hardware selection lives in auth.json
-│   ├── manifest.json                        artifacts, URLs/hashes, tokenizer and inference contract
-│   ├── model.onnx                           conventional built-in path; custom paths are allowed
-│   └── tokenizer.json                       present when required by the manifest
-└── …                                    other versioned runtime and machine state
-```
-
-A saved chat's metadata may bind it to a native coding-agent session with
-`agent_session_id` plus `agent_cli`. Graphit resumes that pair only with the chat's canonical
-project directory and the same effective CLI. Agent transcripts remain owned by the external CLI;
-the Graphit session tree stores Graphit's chat metadata and messages, not a duplicate transcript.
-
-The Hub cache is not a registry mirror. It is populated only by requested, authorized reads,
-partitioned by broker/provider identity and authenticated subject, and safe to
-delete. It cannot grant access: remote content requests revalidate authorization, and a failed
-revalidation fails closed. The removed `hub.registry.json` and eager `hub/registry/` mirror must not
-be recreated under another name. File artifacts under `artifacts/modules/` are different: they are
-managed installed content that Agents need as ordinary files.
-
-Authoritative S3 project state uses the layout below; the complete object and document schemas are
-in [Hub S3 Object Layout](../specs/hub-s3-object-layout.md):
+## Authoritative local data
 
 ```text
-v2/registry/names/<normalized-name>.json
-v2/projects/<project-ulid>/{project.json,registry/,artifacts/,events/,memory/,<task.prefix>/}
-v2/global/projects.json
-v2/users/<user-id>/projects.json
-v2/teams/<team-id>/projects.json
+<global>/
+├── config.json
+├── auth.json
+├── project-inventory.json
+├── projects/<project-id>/
+│   ├── ast/
+│   │   ├── source.lance
+│   │   ├── corpus.lance
+│   │   └── live/<version-key>/
+│   │       ├── graph/icebug.json         current FILE/shard publication
+│   │       ├── graph/shards/             immutable Icebug Parquet node/fact/CSR files
+│   │       └── ...                       text/NN publication state
+│   ├── knowledge/index.lance
+│   ├── memory/index.lance
+│   ├── task/index.lance
+│   ├── hub.json
+│   ├── artifact-store.json
+│   ├── cache/
+│   └── logs/
+├── users/<principal-key>/runtime/memory/index.lance
+├── cache/scip/<family>/                shared compiler package caches
+├── models/
+├── tmp/                               private, active verified model snapshots
+├── daemon/
+├── logs/
+└── broker/                             when running a local Broker
 ```
 
-Every local knowledge-wiki directory has the same shape:
+The immutable project ID comes from `.graphit/project.json`. `ProjectPaths`
+retains the installation root; `project_runtime(project_id, parts)` resolves
+only validated components below that project's global directory. It does not
+hash a checkout path to create an identity. Different projects have different
+namespaces even when their names or source files match.
 
-```
-<wiki dir>/
-└── index.lance/                 chunks with vectors, xrefs, typed references, sync history, and metadata
-```
+The inventory retains identities, versions and checkout locations. These locations
+select Source and Git context; they are not alternative authoritative stores.
+The USER namespace derives from the verified issuer/subject pair and retains its
+installation binding. PROJECT permission does not confer USER access.
 
-Generated pages, manifests, community caches, and embedding shards do not exist. Catalogue, page,
-and log Markdown are rendered from the tables on demand. A remote knowledge artifact is the same
-Lance directory under a versioned object prefix and is opened there rather than copied here. See
-[Wiki Module](../specs/wiki_module.md#the-store-indexlance).
+### Versions and worktrees
 
-### Git-aware local Lance overlays
+Memory, Task, Knowledge and AST corpus datasets use the existing native Lance
+branch selection. The configured default version uses the default Lance branch;
+other versions use Core's collision-free `lance_branch_name` encoding. New
+branches share the existing fragments until writes diverge. A readonly inherited
+view does not materialize a branch or copy its rows.
 
-A local project's writable LanceDB URI remains a filesystem path — the store of the checkout's
-[project version](#one-store-per-project-version). With configured S3, every `graphit sync` looks
-for a compatible snapshot on that version's published branch, `branch/<version>`, and hydrates
-only that version's directory: worktrees on other branches keep their own stores. It retains a
-matching local base or shallow-clones the exact commit or nearest published ancestor into that path
-and reindexes local differences. A version with no publication of its own starts from the default
-version's published branch: its nearest published ancestor lives on that lineage. The
-`.graphit-base.json` marker records both the published branch used and the local version that owns
-the base, and the AST pipeline reconciles the checkout delta only when that version matches the
-checkout. The local manifest
-references inherited fragments in the branch's S3 dataset, while new parsing and embedding writes
-create fragments only in the local filesystem. This is native Lance shallow-clone behavior rather
-than an application-level union of two databases. Publishing `branch/<name>` reads the stores of
-project version `<name>`; publishing from a checkout pinned to another version is refused.
+For Task and PROJECT Memory, [Git record hooks](../specs/git_records.md) retain
+immutable native tags for commits, restore commit state and merge record changes.
+These references share fragments and protect snapshots used by Git history;
+they must not be treated as disposable unreferenced internal versions.
 
-Without Git, sync uses the same local stores and simply skips branch hydration. Configuring S3 after
-those stores have been populated also leaves them untouched: initialized local tables take
-precedence, and the first publication seeds an empty remote channel from the local snapshot. There
-is no automatic two-way merge when local and remote were both changed independently. A non-Git
-`branch/...` publication is therefore a mutable exact snapshot without commit ancestry; it cannot
-replace an existing Git-backed branch lineage.
+AST graph publication remains under `ast/live/<version-key>`.
+The graph directory persists Icebug Parquet and its manifest, with stable sparse
+node ranges and FILE-sized CSR members. Ladybug reads those captured local or
+remote ranges through the same in-memory query engine. It does not persist a
+local `.lbug` file. Rebuildable lookup indexes use a temporary directory outside
+the authoritative graph; closing the owner removes them. A FILE edit retains
+unrelated node/CSR files and replaces the manifest atomically. Superseded shards
+are collected only after retained graph readers release the publication guard.
 
-LadybugDB/Icebug does not use this overlay. A local graph is derived from source and queried locally;
-Hub consumers query the published Parquets directly from S3. Only `graphit hub submit` publishes
-the completed local state back to the branch lineage. Native
-commit tags keep source versions reachable, so pruning a live branch dataset or applying an S3
-lifecycle rule to its manifests and data can orphan local clones. A `tag/...` publication instead
-materializes inherited data in temporary staging, compacts every table, and uploads a self-contained
-snapshot with one current version. See
-[Publishing Graphit artifacts from GitHub Actions](../guides/github-actions-artifacts.md).
 
-### Two engines, and which one owns what
+Each PROJECT/corpus has exactly one authoritative dataset at its canonical
+module path. Core `local_corpus::resolve` validates that fixed relative path;
+it does not read a per-version directory map. Project versions select native
+Lance branches in that same dataset. Source and the entity corpus are distinct
+AST corpora because a complete source file is not duplicated into each entity.
 
-**LadybugDB holds the graph. LanceDB holds everything that answers a text query.** The split
-is by question, not by convenience:
+Remote storage is selected before local path resolution. S3 operations open the
+authorized remote dataset directly and do not create an authoritative local
+copy. USER Memory keeps its separate verified-principal namespace.
 
-| | engine | holds |
-|---|---|---|
-| the graph | LadybugDB | nodes, edges, and the properties a Cypher `MATCH` reads |
-| the search index | LanceDB | file text, the matchable fields, the gram bags, the vectors |
+Fragment compaction, index maintenance and obsolete-version cleanup use Lance's
+native APIs, never filesystem globs over active dataset contents. Native branch
+heads, retained Git tags and still-used snapshots constrain reclamation. Do not
+remove fragments or index files merely because another branch no longer refers
+to them. Maintenance does not re-embed unchanged records or create a parallel
+search corpus.
 
-So a code store is a **bundle directory** and a Lance index — `graph.icebug/` and `search.lance/` — and a wiki is one
-directory, `index.lance/`. The Ladybug catalog is `:memory:`, rebuilt per connection from `graph.icebug/schema.cypher` (`storage='<abs>'`, `format='icebug-disk'`); no `ladybugdb` file, no `.wal`/`.shadow`, no `CHECKPOINT`. Nothing indexed for retrieval lives in the graph, and no
-structure lives in the index.
+Two checkouts with the same project identity and selected version read the same
+local corpus. Read selectors may pair a retained checkout path with an explicit
+version retained in another checkout of the same project, brand and global root.
+The selected checkout still requires fresh authorization; a path or version is
+not an access grant. Publication keeps its exact checkout/version selection.
+Different versions remain isolated. Graph and file Source have
+their own granularities and captured version/generation contracts; storing the
+whole file in every search entity is unnecessary. The Ladybug/Icebug format is
+independent of this directory organization.
 
-This was one engine for three days, with the search tables inside the graph database. What
-brought it back apart is a single measured property: **liblbug does not maintain a full-text
-index on insert** — 22 of 25 rows stay invisible — so every write had to DROP and CREATE all
-seven indexes afterwards, which is `O(corpus)` work for an `O(1)` change. On the real corpus
-at 39,429 files a full rebuild took 988 s and an incremental of ONE file took **1,178 s**,
-slower than rebuilding everything. A sidecar index does the same incremental in ~300 ms, because
-it does not have to reindex the corpus to see one new row — SQLite got there with triggers, and
-LanceDB gets there by scanning the fragments it has not folded in yet.
+Task's single dataset includes sessions, checks, comments, claims, history and
+associated records. Memory's current rows, revision history, references and
+nullable embeddings remain together. Moving these datasets must preserve their
+records and revisions, not replace them with rebuilt databases.
 
-Three consequences follow, and each was chosen rather than inherited:
+## Text and vectors share a corpus
 
-- **The search index is updated in place**, not copied into the graph's working directory
-  and not published by its `rename(2)`. That is what buys the ~300 ms. The cost is real and
-  bounded: for the width of one update a reader can see the new index against the old graph.
-  The next incremental corrects it, and paying `O(corpus)` per edit to close that window is
-  exactly the trade being refused.
-- **An appended row is searchable before it is indexed.** The engine scans the fragments it has
-  not folded into the inverted index yet, alongside the index — MEASURED, and the opposite of
-  what the intuition says. So an incremental deletes by path, appends, and folds afterwards for
-  latency; the fold is never load-bearing for correctness. The SQLite era got the same property
-  from triggers, and paid for it per row on every write.
-- **The embedding is a column of the entity.** There is no separate vector table and no row-id
-  bridge between the two, so the whole class of bug where a stale vector answers for an entity
-  that no longer exists cannot be expressed: deleting the entity deletes its vector. The uid is
-  the key, so nothing has to be numbered either.
+AST entities and Knowledge documents publish text before inference completes.
+Their FTS and vector indexes belong to the same Lance dataset as the searchable
+rows. There is no second corpus for pending work or an authoritative local mirror
+of an inference result. Pending work is derived from current persisted rows.
 
-Two things the engine imposes, worth knowing before reading a surprise as a defect:
+A corpus can exist before a model has been admitted. The first actual model adds
+nullable semantic fields and a `FixedSizeList<Float32>` vector of its real width
+using native Lance schema evolution. This metadata operation does not rewrite
+all text. An incompatible model change invalidates only incompatible semantic
+state and follows normal background reindexing.
 
-- **A vector index needs 256 rows to train.** IVF-PQ trains on the data, so below that floor the
-  index is skipped and semantic search answers by scanning — which at that size is what an index
-  would degenerate into anyway. A project with fewer than 256 indexed entities therefore has no
-  vector index, and that is correct rather than broken.
-- **One text column, not seven weighted fields.** The engine's full-text query takes one column,
-  so the fields are concatenated into one document and BM25 ranks it — it already weights by term
-  rarity, which is what the manual weights approximated. The fusion that used to do this in Go is
-  gone, and reranking that could not be expressed as one query is the engine's own RRF.
+Each embedding carries its model identity, dimensions, recipe and input fingerprint.
+Publication verifies the current entity/document identity and fingerprint before
+attaching the result. Updating or deleting content cannot resurrect an old vector.
+Unchanged compatible inputs retain their embeddings during incremental processing.
+Semantic queries select only compatible, valid vectors; records without embeddings
+remain covered by lexical search. Source per file and graph relationships can stay
+separate because they do not duplicate the searchable corpus's purpose.
 
-What the split costs is a **build tag**, and the tag changed character when the engine did. It
-used to be `fts5`, which was one compiler flag on a vendored C file — `#cgo CFLAGS:
--DSQLITE_ENABLE_FTS5` — so a build without it linked and then failed at run time with `no such
-module: fts5`, and two `!fts5` guard files existed to turn that into one actionable line.
+Index preparation uses the SDK's native FTS/vector APIs. Queries retain coverage of
+new fragments even before an index maintenance pass has folded them in. Merely
+opening a query does not rebuild an index or create a publication. A small corpus
+may use the SDK's exact vector scan until a usable native index is available;
+this does not suppress valid vectors or postpone textual availability.
 
-It is now `lancedb`, and it is heavier: the patched native is compiled on a matching Linux,
-macOS, or Windows GitHub runner and published with the other native dependencies as an immutable,
-checksum-verified bundle. There is no guard file this time, deliberately — a build without the tag
-links stubs whose error already names the tag and the fix, which is precisely what `no such
-module: fts5` did not do. See [the LanceDB link contract](../../internal/lancestore/cgo_lancedb.go)
-for why there are two rpaths.
+## Remote storage
 
-The link library itself resolves like every other native this tree consumes — through what a
-machine-global location already holds, not through per-checkout state. `make lancedb-native` walks
-a provenance-checked cascade. An existing project copy or a library extracted under any
-`~/.<brand>/runtime/<version>/` directory is reused only when its adjacent
-`lancedb_go_build.sha` matches both the pinned `lancedb-go` commit and patch identity from
-`native-deps.env`; otherwise the exact platform bundle is downloaded from
-[`graphit-labs/graphit-libs`](https://github.com/graphit-labs/graphit-libs) and verified by
-its pinned archive digest, internal `SHA256SUMS`, recipe, and platform manifest fields. Launchers
-bundle the provenance stamp beside the library so a compatible release runtime remains reusable by
-a source checkout. The product repository does not vendor or fork `lancedb-go`; the companion
-repository owns the explicit maintainer source-build path and Graphit's binding patch.
+When authorized Broker discovery enables S3, Memory and Task obtain scoped
+short-lived credentials and open Lance tables directly at the authorized remote
+URI. The module, project or USER identity and selected version remain part of
+resolution. The Broker authorizes access; it does not proxy record data.
 
-### What identifies a store
-
-| Store | Key |
-|---|---|
-| a project's graph and wiki | the project's **lockfile ULID** and the checkout's **project version** |
-| a project not yet fully `init`ed | the ULID created by its first stateful operation, and the version |
-| a locally imported context | its **sanitised name** |
-| a Hub context, AST or documentation | publishing project **ULID**, artifact **ID**, and **version** |
-| a memory scope | `project` → the project id, with the project version as a Lance branch; `user` → a hash of `unit.id` from the global config; a context → its own name |
-| Task and Dream tables | the project id, with the project version as a Lance branch |
-| the embedding model | nothing — there is one copy per machine, shared by every project and every version |
-
-Identity creation is a smaller operation than full initialization. The first command that needs to
-persist project state atomically creates a minimal `graphit.lock.json`; later `graphit init`
-reconciles adapters and baselines without changing the ULID. Pure reads do not create identity.
-Only the ULID-addressed store is valid; `path-*` directories are neither read nor migrated. Missing
-state is rebuilt under the ULID. See [Project Identity](../specs/project_identity.md).
-
-### One store per project version
-
-Every branch and worktree of a repository shares the committed lockfile, and so the ULID, but
-not the code. A project's graph and wiki are therefore kept per **project version**: the checked-out
-Git branch, or `main` for a directory that is not under Git. `internal/projectversion` resolves it
-from Git's own files (worktrees and submodules included; a reftable repository goes through
-the `git` CLI with any enclosing hook's `GIT_DIR`/`GIT_INDEX_FILE` scope removed, see
-`internal/gitenv`); a detached HEAD uses
-`GRAPHIT_GIT_BASE_BRANCH` when set and otherwise the project's default version. The **default
-version** is the branch `origin/HEAD` names, else an existing `main`, else `master`, else the
-checked-out branch of a fresh repository that has no branch yet, else `main`.
-A version is a path segment, never part of the identity: a branch with a `/` becomes one opaque
-segment through `store.VersionPathSegment`, the same rule Hub versions use.
-
-The segment comes after the identity: `ast/project/<id>/versions/<version>/` and
-`wiki/knowledge/project/<id>/versions/<version>/`. `store.ASTProjectRoot` /
-`KnowledgeProjectRoot` (and the `*ByID` forms) name the directory holding every version.
-
-- **A new version starts from the default version.** The stateful entry points
-  (`store.EnsureASTProjectDir`, `EnsureKnowledgeProjectDir`, used by indexing) create a missing
-  version as a copy of the default version's store, so indexing it reparses only the files that
-  differ. Data files are hard-links — every writer of these stores replaces a file by rename and
-  never edits one in place — and the small `.json`/`.cypher` files that record their own absolute
-  location are copied and repointed. If the default version is busy being written for more than two
-  minutes, the new version indexes from nothing instead of waiting. Reads never create a version.
-- **A store written before versions belongs to the default version.** The first resolution moves the
-  old layout at the root into `versions/<default>/` (a rename under the store lifecycle lock) and
-  repoints its location metadata. While another process still holds the old store, reads keep using
-  it and the move is retried later.
-- **Nothing merges back.** Versions diverge after the fork; deleting a branch does not delete its
-  store.
-
-#### Memory, Task and Dream: native Lance branches
-
-Project Memory, the Task tables (tasks, sessions and their companions) and the Dream run ledger keep
-their URIs, local or S3, and keep each project version as a **native Lance branch inside the same
-table dataset**. `projectversion.Info.LanceBranch()` names it. The default version is the dataset's
-main lineage, so data written before versions already is the default version and nothing is copied
-or moved. Any other version is a branch named after the Git branch, or `h-<hex>` when Lance cannot
-use that name.
-
-| Behaviour | Rule |
-|---|---|
-| first write in a version | forks the branch from the main lineage as it is then (`<table>#fork=<branch>`); the version inherits everything written before |
-| read in a version that never wrote | reads the main lineage it would fork from; a read-only open never creates a branch |
-| afterwards | the version and the default version diverge in both directions; nothing merges back |
-| objects | `<table>.lance/tree/<branch>/…` and `<table>.lance/_refs/branches/<branch>.json`, inside the module prefix, so Broker module credentials already cover them |
-| main-lineage compaction and pruning | keep the fragments a branch still references |
-| user memory and imported contexts | stay on the main lineage: they are not project code, so they have no version |
-| `DropTable` from a version | refused (`lancestore.ErrBranchScoped`) |
-| a Task schema migration that would recreate a table | refused from a version, and refused from the default version while the table has branches, because recreating the dataset deletes them |
-| a Memory schema rebuild | rebuilds the main lineage and every branch, keeping each one's rows (matched by `key`); only vectors of an old width are dropped, to be embedded again |
-| a schema computed while the embedding width is unknown | never applied: the table is opened as it is, and a missing one is not created |
-| a project reached by ID alone (a Hub project in the UI) | uses a version's branch only once that version is confirmed real — it has a branch in the project's Task or Memory store; otherwise reads the main lineage and refuses writes (`lancestore.Config.NoFork`, `ErrVersionNotShared`), so a default version selected by name can never create a branch |
-
-#### Rebuilding a table for a new schema
-
-Lance cannot change a column type in place, so a schema change — a new embedding width, or a column
-a newer build adds — rebuilds the table. `lancestore.RebuildTable` does it without a window in
-which the rows exist only in memory:
-
-1. it reads every row of the main lineage and of every branch; a failed read stops before anything
-   is touched, and so does a target schema that is not valid (such as a vector column of width 0);
-2. it writes those rows, already adapted to the new schema, to
-   `backups/lance-rebuild/<uri-hash>/<table>-<ns>.pending.json` in the global directory, durably;
-3. only then does it drop and recreate the table, append the main rows and fork each branch again
-   with its own rows;
-4. it renames the snapshot to `.done.json`, keeping the last five per table as a backup.
-
-A rebuild interrupted after the drop is completed from its pending snapshot the next time the
-store is opened (`lancestore.RecoverRebuild`). Rebuilds of one store are serialized by a lock
-file beside the snapshots. Memory and Task use it; the wiki and AST search tables are derived
-from sources and are rebuilt by reindexing instead, but neither is reset while the embedding width
-is unknown.
-
-Which versions exist is derived from these stores on demand — Lance branches of Task, Memory and
-Dream, local `versions/*` AST and Knowledge layers, and each worktree's checkout
-(`GET /api/project/versions`). No separate version registry exists. Without S3 the Task, Memory and
-Dream datasets are local directories in the global directory and branch the same way.
-
-### Having an identity is not the same as being entitled to a store
-
-A live search session builds a workspace that looks exactly like a project: it has a
-lockfile, and therefore an identity, because the agent CLI discovers everything from its
-working directory and would otherwise find an empty folder. Every resolver above keys on
-that identity, so for a while a search that existed for a few minutes acquired a code
-graph, a documentation wiki and a memory scope. The memory table was orphaned after the session.
-
-So the lockfile carries `project.ephemeral`, and `store.IsEphemeralProject` is what the
-resolvers ask:
-
-| | a project | an ephemeral session |
-|---|---|---|
-| its own code graph | yes | **no** — refused, and there is no source to index |
-| its own documentation wiki | yes | **no** — the sets it can read are the contexts it selected, by name |
-| its own memory scope | yes | **no** — a project-scope request is served from the **user** scope, and says so |
-| imported contexts, graph and wiki | yes | **yes** — this is what a session is for |
-
-The flag is recorded rather than inferred. "Has no source of its own" would also describe
-a real project on its first day. See
-Graphit Task `tsk-976ef4e8973d` records why an ephemeral session owns no store.
-
-### Platform-safe identity segments
-
-**A Windows device name is defused on every platform.** `nul`, `con`, `com1` and the
-rest are refused as directory names by Windows, and a user-chosen artifact ID can genuinely be one.
-`nul` becomes `nul_` everywhere — not only on Windows — so that one artifact resolves to the same
-path on every machine, including a global directory carried to another one or a shared CI image.
-
-The rule goes through `storeIDSegment`, which changes nothing else: case and characters
-are left alone, because an id is an identity and the two resolvers keyed by it
-(`ProjectStoreID` and the `*ByID` variants) must agree on the path or a project's own
-store and the same store seen from the ecosystem become two directories.
-
-`internal/store` is CGO-free and is exercised on Linux, macOS and Windows by the
-`platform-semantics` CI job, which is where these rules are actually verified rather
-than asserted.
-
----
+Valid discovery explicitly disabling remote storage can select the local backend.
+Authentication, STS or S3 failures are errors, not permission to write a local
+replacement. Credential lifetime and SDK snapshot freshness are independent:
+new operations observe committed heads while an already captured reader may
+retain its snapshot. See [S3 and UI networking](../guides/s3-and-ui-network.md).
 
 ## What stays in the project
 
-```
-<project>/
-├── graphit.lock.json          project identity + installed Hub artifacts
-└── .graphit/
-    ├── ast/queries/                       project query YAMLs — versionable
-    ├── rules/                             rule and skill overrides — versionable
-    ├── grammars/                          local parser libraries — gitignored
-    │   ├── treesitter/
-    │   └── antlr/
-    └── runtime/                           generated output and state — gitignored
-        ├── ast/export/                    default `graphit ast export` output
-        ├── dream/                         dream.state
-        ├── daemon/                        daemon.log
-        ├── cache/skills/<agent>/<skill>/    sync cache
-        ├── cache/artifacts/<agent>/<type>/  artifact sync cache
-		├── sync.stamp
-        ├── sync.lock
-        └── sync-heavy.lock
+```text
+<checkout>/
+├── .graphit/
+│   ├── project.json                   ID, root metadata/githooks and ordinary settings
+│   ├── rules/                         maintained instruction overrides
+│   └── ast/queries/                   maintained extraction overrides
+├── .astignore
+├── .wikiignore
+└── agent-specific files               at their host's required destinations
 ```
 
-The project-local tree mixes repository source, platform-specific parser binaries,
-generated output, and machine state. The ownership boundary — not the file extension —
-decides what belongs in Git:
+Identity and Project configuration writers share `.graphit/.project.json.lock` and
+preserve each other's sections during atomic updates. The lock is generated state,
+not repository content. Identity creation needs no preexisting project ID
+and creates no project runtime directory. Locks remain stable while holders or
+contenders exist; removing a lock is not a contention recovery mechanism.
 
-- **Data is global.** One graph, one wiki, one memory store per identity.
-- **Membership is per-project.** Which contexts a project may query is a fact about
-  the project and cannot be derived from a global directory listing without telling
-  project A about project B's imports.
+Shared `.gitignore` rules exclude generated state, temporary output and execution
+evidence. The policy cannot rely on one engineer's global ignore or `.git/info/exclude`.
+Files already tracked require explicit removal; ignoring them alone is insufficient.
+Installed agent files may remain at their required project destinations and keep
+user-authored modifications under the existing publication ownership rules.
 
-### Inside a project's brand directory
+## Growth and cleanup
 
-The brand directory is split by **ownership**. The generated `.gitignore` names the two
-machine-local trees (`**/.graphit/runtime/` and `**/.graphit/grammars/` — see
-[Git Module](../specs/git_module.md#the-generated-gitignore-block)).
+Lance commits preserve reader snapshots and native branches. Compaction, index
+optimization and removal of unreferenced files must use SDK maintenance APIs and
+account for retained snapshots and branches. A request does not trigger corpus
+reconstruction, forced allocator purges or a new auxiliary commit merely to read.
+Physical SDK versions are distinct from the record revision/history stored in rows.
 
-| Path | What | Committed? |
-|---|---|---|
-| `ast/queries/` | grammar query overrides, `ast.queries_dir` by default | yes — a grammar override is about the repository |
-| `rules/` | module mandate and skill source overrides | yes — written by a human for the team |
-| `grammars/{treesitter,antlr}` | local parser libraries added or customized for this checkout | **no** — platform-specific binaries; distribute shared grammars through a Hub language artifact |
-| `runtime/ast/export/` | default output of `graphit ast export` | **no** — an explicit `--output` remains user-owned |
-| `runtime/dream/` | Dream state | **no** — runs create no report artifact |
-| `runtime/daemon/` | this project's daemon log | **no** |
-| `runtime/cache/{skills,artifacts}/` | content hashes that let `sync` skip unchanged artifacts | **no** |
-| `runtime/sync.stamp`, `runtime/sync.lock`, `runtime/sync-heavy.lock` | the sync's debounce stamp and its two locks | **no** |
+The installed Graphit package is the canonical source of bundled skills, agents
+and templates. Their rendered files at the host's effective destinations (for
+example `.agents/skills/`) are the installation, not a cache projection backed by
+another full tree. `artifact-store.json` retains package origin, package version,
+content fingerprint and the physical receipts needed for safe publication and
+recovery. Updates and removals compare the current content with that fingerprint;
+user modifications cause a conflict and are preserved. Byte-identical atomic
+editor saves remain acceptable. Rendering uses transient staging only; there is
+no `owned-payloads/`, retained render cache, pin inventory or payload GC.
 
-Every writer under `runtime/` goes through `brand.ProjectRuntimePath`. That is the point
-of the helper: a path built by hand somewhere else lands outside the generated-output
-boundary and can appear in `git status`. Grammar loaders resolve the separate ignored
-`grammars/` tree because it stores platform-specific parser libraries, not runtime state.
+The catalogue stores the logical owner only once in `scope`. Its own file inode
+is observed while reading/writing, not embedded in the document. Persisted scope
+directory bindings contain only path, physical identity and permissions. File
+receipts keep identity, relative name, permissions, content length/hash and the
+temporal fence needed by native readers; `verified` does not repeat identity,
+kind, length or permissions. JSON identities use their native fields without a
+per-node OS tag.
 
-Nothing under `runtime/` is repository source. It contains generated exports, operational state,
-local state, caches, locks, stamps, and logs. Delete it only when those local outputs are no
-longer needed; the framework recreates the directories as required.
+These physical identities have concrete consumers: checkout-root identity
+selects one worktree's installation, and receipts detect replaced objects during
+update, cleanup and recovery. They are independent of the content hash that
+detects user edits. Hashes do not confer permission to an arbitrary path.
 
-> `runtime/` is also where the **degenerate** store path goes: `store.globalOr` falls
-> back to it on a machine with no home directory, since a store is machine state too.
-> On a normal machine no store is ever written inside a project.
+`hub.json` records artifact origin/version, target, alias, display data and the
+backend necessary to find or update the installation. A source directory is
+derived from its origin/root and artifact identity rather than stored twice.
+A distinct physical artifact ID is recorded only for a real alias. Rendered
+metadata retains the original selection, source policy and source fingerprint;
+the output hash belongs to the Core receipt. Transient renderer context, output
+staging selections and duplicated output fingerprints are not persisted.
 
-The Dream operational table follows the Task/Memory store selection rule. Without configured S3,
-including a local provider by default or a Broker profile with S3 disabled, it resolves
-`brand.GlobalDir()` dynamically and uses `dream/dreams/<project_id>`; the brand alone owns the
-environment/default global-directory rule. An explicit S3 bucket on a local provider, or a Broker
-provider with S3 enabled, opens `v2/projects/<project_id>/dream` directly. Broker STS credentials
-are resolved on the fly for `module=dream`; resolution failures do not fall back to local. The
-table is shared per project and uses
-globally unique run IDs. Local writers serialize refresh-plus-merge with a cross-process lock; S3
-writers rely on refresh plus conditional commit retry across hosts. Concurrent agents therefore
-preserve independent runs. The table contains operational metadata only; Memory and its revision
-history remain semantic truth.
+External Hub packages retain their genuine source cache and upstream identity;
+this is distinct from duplicating a generated installation. Generated artifacts
+are copied to their effective destination. Explicit Link mode is rejected for
+rendered artifacts; genuine local source links remain supported. Forget removes
+ownership metadata and leaves effective files in place.
 
-The whole brand directory stays out of the **code graph** regardless, through a default
-`.astignore` pattern — being versioned and being indexed are different questions. See
-[Ignore Files](../guides/ignore_files.md).
+Physical agent and skill installations in different checkouts have explicit
+publication slots based on the captured filesystem root identity. The logical
+artifact key and the PROJECT catalog stay shared; updating or removing one
+checkout's installation does not select the other checkout's installation, even
+when their roots are nested. Hub selects the consumer before artifact version,
+target or pagination. This selection does not grant filesystem access: the
+original request, source and destination guards still apply. Permissions are
+not part of the slot identity. An update, remove or recovery affects only the
+selected physical publication. Native context imports, their cache
+and remote S3 releases retain their existing shared scope and artifact versions.
 
-`.graphit/ast/export/` and `.graphit/dream/` are not runtime paths and are never discovered
-implicitly. Current generated output belongs below `.graphit/runtime/`.
+Model weights are cached once per selected artifact and shared by projects.
+An active native worker retains its verified GGUF snapshot under `<global>/tmp`,
+on the installation filesystem rather than the operating system's temporary
+directory, which may be RAM-backed. The snapshot is removed after the native
+model is dropped, including idle unload; it is not a second permanent model
+cache. CPU and accelerator selection do not change this lifetime.
+Temporary test copies, completed release staging, old validation output, historical
+exports and already-used recovery scripts have no role as permanent product data.
+The maintained documentation sources belong at their normal source paths; recovery
+metadata and duplicate recovered copies are not another Knowledge source.
 
-### Membership has one home: `graphit.lock.json`
+This layout introduces no old-layout discovery, symlink redirection, dual readers
+or permanent importer. An installation relocation is a coordinated, one-time
+operation over current stores. Its validation must distinguish source changes,
+installed behavior and actually measured allocated bytes; directory counts and
+logical file sizes alone do not establish disk savings.
 
-Every context a project can reach is an artifact entry in its lockfile, whatever the
-origin:
+## Related contracts
 
-| Origin | `version` | `origin` | `source_path` |
-|---|---|---|---|
-| `hub install` | the resolved version | `hub` | — |
-| `ast install <path>` / local knowledge import | `local` | `local` | the directory it was indexed from |
-| `hub link` at a sibling project | `local` | `link` | the sibling's directory |
-
-It used to be two homes. A Hub **AST** artifact resolved from the lockfile while a local
-import, a link, and a Hub **knowledge** artifact resolved from a separate
-`.graphit/contexts.json`. That split followed no principle — it followed the store path:
-an AST Hub store is version-keyed, so resolving one required reading the version, and the
-version was in the lockfile; a knowledge store was not version-keyed, so its resolution
-never needed the lockfile and never learned to read it. The consequence nobody chose was
-that **a knowledge context was not versioned at all**: two projects pinned to different
-versions shared one directory and the last install won.
-
-`source_path` is stored **relative to the project**, slash-separated. The lockfile is
-committed and shared, so an absolute path would only be true on the machine that wrote
-it. See `projectlock.RelSourcePath` / `SourceDir`.
-
-**No store path is ever recorded.** A link keeps the sibling's *directory* and the store
-is derived from it on every read (`store.ASTContextDBPathIn`,
-`store.KnowledgeContextDirIn`). Recording the store instead froze it: the moment the
-sibling ran `init` and re-keyed, the stored path pointed at the old location.
-
-See Graphit Task `tsk-4840632da67f` for the context-membership registry history.
-
----
-
-## Why one copy
-
-The previous layout compiled into the global directory **and** replicated into every
-project that read it. Three costs, and the third is the one that hurt:
-
-1. **Disk.** A graph plus its search index, or a wiki index, once per consuming project.
-2. **Work.** A compile per copy, or a copy per compile, plus a fan-out pass on every
-   change and a Windows-specific failure mode where a replica held open by a reader
-   cannot be overwritten.
-3. **Correctness.** Two copies of one wiki can disagree, and a project reading a
-   replica nobody refreshed answers with yesterday's data *and looks perfectly
-   healthy while doing it*. The memory module had exactly this: `RunProjectCycle`
-   compiled into the project replica while the daemon compiled into the global wiki,
-   so whichever ran last decided what a project could recall — and a memory arriving
-   from the remote reached nobody until someone ran a sync inside each project.
-
-One copy removes the class of bug rather than its instances. There is nothing to keep
-in step, so nothing can fall out of step.
-
-The second reason is about the agent. An agent is confined to its own workspace and
-must not read another project's files. Because a graph and a wiki are never read as
-files — every path into them goes through this binary — moving them out of the
-project costs the agent nothing and gains it the ability to query a sibling project
-by passing a different `project_dir`.
-
----
-
-## How a store is reached
-
-| What you want | Tool |
-|---|---|
-| source text of any indexed file, in any project or context | `graphit_ast_source` |
-| the AST graph, in Cypher | `graphit_ast_query`, `graphit_ast_schema` |
-| the AST full-text tables, by relevance or by predicate | `graphit_ast_search`, `graphit_ast_fts_query`, `graphit_ast_fts_schema` |
-| a wiki page's content | `graphit_wiki_source` |
-| the knowledge-wiki index | `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_knowledge_search`, `graphit_knowledge_query`, `graphit_knowledge_schema` |
-| an authoritative memory table | `graphit_memory_search`, `graphit_memory_source`, `graphit_memory_list`, `graphit_memory_mandatory`, `graphit_memory_query`, `graphit_memory_schema` |
-| the Task tables | `graphit_task_get`, `graphit_task_search`, `graphit_task_query`, `graphit_task_schema` |
-
-Every one of them takes `project_dir`, which is what makes a sibling project's store
-reachable: it is a parameter, not an ambient working directory. Correspondingly,
-**no store is readable with a file tool** — there is no copy inside the project, and
-the global directory is outside the agent's workspace. The three skills state this
-as a hard rule.
-
-## Deleting a store
-
-`os.RemoveAll` on a file another process holds open **fails on Windows**, where on Unix
-the directory entry simply goes and the open inode lives on. Two commands now aim at
-the authoritative store rather than at a copy — `graphit_memory_remove` for a memory
-context, and `graphit_knowledge_remove` — so on Windows a removal contending with a
-reader returns an error and the store survives. That is the intended outcome: a visible
-failure on the real store beats a silent success against a replica, which is what the
-same commands used to do.
-
----
-
-## Cross-references
-
-- [AST Module](../specs/ast_module.md) — the graph, its shards and its search index
-- [Wiki Module](../specs/wiki_module.md) — how a wiki is compiled and indexed
-- [Memory Module](../specs/memory_module.md) — authoritative tables, revision chains, and scopes
-- [Hub Collaboration](../specs/hub_collaboration.md) — artifacts, versions, shared stores
-- [Retrieval Architecture](../guides/retrieval_architecture.md) — which tool reads what
-- Graphit Task `tsk-c17ea719bfbf` — the change that produced this layout
+- [Filesystem, state and watchers](../guides/filesystem_contract.md)
+- [Project identity](../specs/project_identity.md)
+- [Memory embeddings](../specs/native_memory_embeddings.md)
+- [Native packages](../development/native-packages.md)
+- [Rust Knowledge semantic data](rust-knowledge-semantic-data.md)
+- [Native runtime packaging](../development/native-runtime-packaging.md)

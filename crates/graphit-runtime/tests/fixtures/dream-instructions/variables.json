@@ -1,0 +1,16 @@
+{
+  "graphit": {
+    "dream_session_id": "dream-session-fixture-graphit",
+    "dream_agent": "codex",
+    "project_id": "project-fixture-graphit",
+    "project_version": "main",
+    "memories_json": "{\"memories\":[]}"
+  },
+  "orbit": {
+    "dream_session_id": "dream-session-fixture-orbit",
+    "dream_agent": "codex",
+    "project_id": "project-fixture-orbit",
+    "project_version": "main",
+    "memories_json": "{\"memories\":[]}"
+  }
+}

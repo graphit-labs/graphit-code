@@ -1,0 +1,203 @@
+{
+  "task": "tsk-0ac6",
+  "producer": "tsk-e4a9 COMPLETE52",
+  "status": "EXPECTED_ONLY_UNRUN",
+  "cases": [
+    {
+      "name": "relation-without-graph-label",
+      "fixture": "joint/relation-without-graph-label.yaml",
+      "bytes": 96,
+      "sha256": "96abedae04dfb624d3af2bd26b367b44d9d8fce5748d6a3a7f657864c4df2537",
+      "expected": {
+        "outcome": "decoded_patch",
+        "query_types": [
+          "relation"
+        ],
+        "opaque_pattern": "(opaque)"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/relation-without-graph-label.yaml"
+    },
+    {
+      "name": "unicode-crlf",
+      "fixture": "joint/unicode-crlf.yaml",
+      "bytes": 37,
+      "sha256": "0704bf49fab3c43ba8475666d02eb770d4dadb8188a9adfd96ac4ab4e3354777",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_values": {
+          "extensions[0]": "\u03b1\ud83d\ude00"
+        },
+        "source_bytes_preserved": true
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/unicode-crlf.yaml"
+    },
+    {
+      "name": "bom-origin",
+      "fixture": "joint/bom-origin.yaml",
+      "bytes": 15,
+      "sha256": "22a47d365221db9a7972e1c5815597a3a4b1b56249f6d17a38c28071cefd6502",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_values": {
+          "language": "x"
+        },
+        "producer_original_origin": true
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/bom-origin.yaml"
+    },
+    {
+      "name": "numeric-language-decimal",
+      "fixture": "joint/numeric-language-decimal.yaml",
+      "bytes": 14,
+      "sha256": "e292fe59b24ed08958bf65844cf9c746852db0c1edfd0c3ac896557536ed1432",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/numeric-language-decimal.yaml"
+    },
+    {
+      "name": "numeric-language-float-magnitude",
+      "fixture": "joint/numeric-language-float-magnitude.yaml",
+      "bytes": 16,
+      "sha256": "c854f627a9754d2eb0fc14ba19fe16580cf47423c31f9adb212da69e3354c08f",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/numeric-language-float-magnitude.yaml"
+    },
+    {
+      "name": "numeric-language-hex-magnitude",
+      "fixture": "joint/numeric-language-hex-magnitude.yaml",
+      "bytes": 30,
+      "sha256": "c8ffe4e0a9a136a119f1fe217fc015592a3dc1c73e2f8031065f81ad2b4a28b1",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/numeric-language-hex-magnitude.yaml"
+    },
+    {
+      "name": "numeric-language-octal-magnitude",
+      "fixture": "joint/numeric-language-octal-magnitude.yaml",
+      "bytes": 35,
+      "sha256": "ade8302d93f15ac41e7274fa4ca1ac565afe5c185af5f3cab69b04848d7f883c",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/numeric-language-octal-magnitude.yaml"
+    },
+    {
+      "name": "duplicate-key",
+      "fixture": "joint/duplicate-key.yaml",
+      "bytes": 24,
+      "sha256": "1826dc62791aaec5b121f29b406956e838491f92ba3b1a8333b72e3c06716926",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/duplicate-key.yaml"
+    },
+    {
+      "name": "anchor-alias",
+      "fixture": "joint/anchor-alias.yaml",
+      "bytes": 27,
+      "sha256": "a6362b3ac3537406e48487c1448708e527828a4667f716290f182c41b7252b8f",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/anchor-alias.yaml"
+    },
+    {
+      "name": "merge-key",
+      "fixture": "joint/merge-key.yaml",
+      "bytes": 40,
+      "sha256": "732cbfbdb9372d97c0805d0a0981c52bbd7c14a2766f329271703f1475610906",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/merge-key.yaml"
+    },
+    {
+      "name": "multiple-documents",
+      "fixture": "joint/multiple-documents.yaml",
+      "bytes": 28,
+      "sha256": "5bc53d3893d9dfbc14b656f26b51040eee5acc77b4b9a40f269ff65c15b0cbc2",
+      "expected": {
+        "outcome": "error",
+        "code": "QuotaExceeded"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/multiple-documents.yaml"
+    },
+    {
+      "name": "query-half-value-pair",
+      "fixture": "joint/query-half-value-pair.yaml",
+      "bytes": 87,
+      "sha256": "c4df32b4b34e3372af3b0c1fc87cbd0d160e2719dcd1fb3a8d52cb07770773e5",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.value_capture"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/query-half-value-pair.yaml"
+    },
+    {
+      "name": "query-half-parent-pair",
+      "fixture": "joint/query-half-parent-pair.yaml",
+      "bytes": 91,
+      "sha256": "40bfa8becbba662be7ee657f3d5412b0f75fc0b5e0b25664c63924ca483e2edd",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.parent_capture"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/query-half-parent-pair.yaml"
+    },
+    {
+      "name": "query-missing-pattern",
+      "fixture": "joint/query-missing-pattern.yaml",
+      "bytes": 53,
+      "sha256": "97a743da0b61165c22c5d3e7a16218d7f5d073c36a567f9ddfc77ca787ac969b",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.pattern"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/query-missing-pattern.yaml"
+    },
+    {
+      "name": "opaque-malformed-query",
+      "fixture": "joint/opaque-malformed-query.yaml",
+      "bytes": 70,
+      "sha256": "f4a3453b172d7820ca26c5770b1f2f3816fbcf3940cf6d751eb06a4616646d06",
+      "expected": {
+        "outcome": "decoded_patch",
+        "ordered_query_patterns": [
+          "(((("
+        ],
+        "native_compile_executed": false
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/opaque-malformed-query.yaml"
+    },
+    {
+      "name": "exclusive-quoted-bool",
+      "fixture": "joint/exclusive-quoted-bool.yaml",
+      "bytes": 31,
+      "sha256": "ecdb4de67963fef0e6330624df424f028ed7ea4de3c36e4614ac8c739b29d4c4",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exclusive"
+      },
+      "producer_fixture": "crates/graphit-ast/tests/fixtures/profiles/schema-cases/exclusive-quoted-bool.yaml"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
-internal/ast/antlr/
-!internal/ast/antlr/common/
-!internal/ast/antlr/*/driver.go
-!internal/ast/antlr/*/parser_sll_ll.go
-!internal/ast/antlr/*/preprocessor.go
+# Generated parsers and copied runtime headers are compiled, not indexed as project code.
+/crates/graphit-ast/grammars/tree_sitter/**/parser.c
+/crates/graphit-ast/grammars/tree_sitter/**/parser.c.inc
+/crates/graphit-ast/grammars/tree_sitter/**/tree_sitter/*.h
+/crates/graphit-ast/src/antlr_engine/cpp/generated/
 
-internal/ast/treesitter/**/*.h
-internal/ast/treesitter/**/*.c.inc
-internal/ast/treesitter/**/*.js
-internal/ast/treesitter/**/*.json
+# Exact Vite outputs copied by scripts/build-rust-ui.mjs; authored UI stays indexed.
+/crates/graphit-app/assets/ui/index.html
+/crates/graphit-app/assets/ui/logo.svg
+/crates/graphit-app/assets/ui/favicon.svg

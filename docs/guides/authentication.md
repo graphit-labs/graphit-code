@@ -1,75 +1,160 @@
+---
+references:
+  - target: {type: task, id: tsk-aeda}
+    relation: relates_to
+---
+
 # Authentication providers and account profiles
 
-Graphit Code has two provider types: `local` and `broker`. A provider stores reusable service configuration; a profile stores one login result. `graphit setup` creates the non-secret default `local` provider and does not log anyone in. `graphit login` creates and activates a profile.
-
-Development configurations that still contain a direct `oidc` provider or embedded upstream OIDC settings are rejected. Remove those provider entries and create a `broker` provider for interactive login; there is no automatic conversion.
+A provider stores reusable, non-secret topology. An account profile stores a login/session and its
+secrets in the private installation. `provider` operations do not log in; `login` creates/activates
+a profile, `account use` selects an existing one. Identity and PROJECT permission remain separate.
+See [OIDC](oidc-integration.md) for token contracts and [S3](s3-and-ui-network.md) for storage.
 
 ## Local provider
 
-A local provider uses a username and optional organization and teams supplied at login. It can use local or direct AI services, local files, explicitly configured S3 credentials, and an optional static Broker key for Broker capabilities.
+A Local profile uses its explicit local identity and permissions. Its two inference services can
+select Local, Direct, Broker or disabled independently. It can use local storage or its explicit
+standalone S3 configuration. An optional static Broker key is automation identity, not OIDC.
 
-```bash
+```sh
 graphit provider add workstation --type local \
-  --embedding-mode local --rerank-mode local
-
-graphit login --provider workstation --profile alice \
-  --username alice --organization acme --team platform
+  --embedding-mode local --embedding-device cpu --embedding-device-id 0 \
+  --rerank-mode local --rerank-device cpu --rerank-device-id 0
+graphit login --provider workstation --profile workstation --username workstation
 ```
 
-A local provider may use a Broker key for automation:
+The selected local model still needs an installed `daemon.models` slot. Configuring a rerank
+service does not enable rerank. Direct keys belong to the profile at login, not project Config.
+A Local provider with Broker service mode needs its configured Broker endpoint and admitted
+`--broker-key`, or explicit anonymous policy/grants where supported. No local username can
+impersonate a verified Broker subject or acquire another user's Memory.
 
-```bash
-graphit provider add services --type local \
-  --broker-endpoint https://broker.example.com \
-  --embedding-mode broker --rerank-mode broker
+## Broker provider and native login
 
-graphit login --provider services --profile ci \
-  --username ci --broker-key "$GRAPHIT_BROKER_KEY"
+Graphit Broker is the OpenID Provider; an upstream enterprise IdP is configured entirely there.
+Code receives Broker tokens, never the upstream password/token. A Broker provider accepts only
+Broker or explicit disabled embedding/rerank and cannot bypass it with Local/Direct inference.
+
+```sh
+graphit provider add company --type broker --broker-endpoint https://broker.example.com
+graphit login --provider company --profile workstation
+graphit account list
+graphit account show workstation
 ```
 
-The static key does not turn this into OIDC login. The Broker evaluates its own grants for that key. Anonymous Broker calls require explicit `--broker-allow-anonymous` and an anonymous grant at the Broker.
+Native login is a public-client Authorization Code flow with PKCE S256, state, nonce and loopback
+callback. Validate discovery issuer/origin, trusted JWKS, permitted algorithm, ID-token issuer/
+audience/authorized party/nonce/subject/times and access-token issuer/audience/client/token-use/
+subject/times. The token response must be Bearer with valid lifetime. Refresh rotates its opaque
+credential and verifies the returned access token even when no new ID token is supplied.
 
-## Broker provider
+Access JWTs are verified locally against trusted cached discovery/JWKS, including key rotation.
+UserInfo is optional enrichment for missing profile fields, not mandatory proof of validity or
+revocation. Account blocking, token revocation or changed claims can take until access expiration
+to become visible to a JWT consumer. Current PROJECT authorization is still independently checked;
+a valid JWT is not permission for every project. Token duration is the configured Broker access
+lifetime, not another silently invented Code TTL. The current Broker default is 600 seconds
+(`broker-server/src/config.rs::access_ttl`); an operator can configure the actual issuance lifetime.
 
-A Broker provider makes the Graphit Broker the OpenID Provider for login. Graphit Code is a public native client: Authorization Code, PKCE S256, state, nonce, a loopback callback, and no client secret. The Broker may authenticate with a local account or an external IdP; that upstream connection and its secrets remain at the Broker.
+`--non-interactive` suppresses local prompts/browser opening; the printed authorization URL still
+requires completion before the finite callback deadline. Actual agent/model use needs its own
+provider account; documentation/contract tests use local controlled peers without paid plans.
 
-```bash
-graphit provider add company --type broker \
-  --broker-endpoint https://broker.example.com
+## Profile lifecycle and running services
 
-graphit login --provider company --profile alice
+```sh
+graphit account use workstation
+graphit refresh
+graphit logout --profile workstation
 ```
 
-Graphit Code checks exact issuer and Broker origin, discovery capabilities, the EdDSA ID token signature and OIDC claims, and the signed Broker access JWT. The ID token must target the advertised public client; the access JWT must target the Broker audience and carry `token_use: access`, the client ID, token ID, timestamps and the same stable subject. Nonce is checked when sent. The token response must use `Bearer`. Refresh tokens rotate, and Graphit verifies the new access JWT even if no new ID token is returned.
+Provider update preserves omitted topology fields but changes its revision; dependent credentials
+must match the new provider generation. Log in again where required. There is no merging of keys
+from another profile or automatic conversion of retired Auth formats.
 
-The active profile stores the Broker issuer and stable Broker subject, plus short-lived access and opaque refresh tokens. It never receives an upstream IdP token or password. Broker providers default embedding and rerank to Broker mode. When the Broker advertises S3, Graphit obtains restricted, temporary credentials for each requested storage scope and holds them only in process memory; otherwise storage stays local.
+When the installation's daemon owns its singleton, CLI Auth operations use its genuine Runtime
+administrative route. Otherwise supported native/local operations acquire the installation-only
+owner and clean up their standalone resources. Failed authentication or a busy owner is not
+permission to start another daemon or replace its key. Reads redact credentials.
+
+Records consumers reuse native refresh for an expiring active profile under actual Runtime
+administrative admission, preserving provider/issuer/subject/CAS and Original. Incoming HTTP and
+Browser callers retain their own credentials and refresh responsibilities. Other consumers can
+report NeedsRefresh explicitly; `graphit refresh` renews the active native profile. A dropped
+rotation may have changed the remote token: preserve the producer's uncertain result instead of
+replaying it blindly. A fresh valid login remains usable. No per-request UserInfo/introspection,
+credential polling or silent storage fallback is introduced.
 
 ## Web UI login
 
-The Observatory header always shows the current account or **Anônimo**. Set `ui.auth.enabled=true` (or `GRAPHIT_UI_AUTH_ENABLED=true`) to offer login for configured `broker` providers. When exactly one Broker provider is available, **Entrar** starts its login directly; with multiple Broker providers, **Entrar** opens a menu to choose one. With no Broker provider, no login action appears. The CLI profile remains separate: each browser logs in to the Broker with its own public client, Authorization Code, PKCE S256, state and nonce. The Broker must enable `authentication.local.tokens.dynamic_registration`. The web client requests the Broker API resource `<issuer>/v1`; the Broker returns an access token with both that resource and its own API audience. Local providers do not appear as web login choices.
+The current Rust Browser uses Global `task.browser`, not `ui.auth.enabled`, `ui.auth.public_url`
+or `ui.auth.cookie_secure`. Its strict object selects trusted Broker provider names,
+`project_endpoint`, optional `public_origin`, explicit local HTTP exception and session timings.
+Absent Browser configuration is headless service state, not an anonymously authorized data API.
+See [all fields/defaults](../reference/configuration-keys.md#browser-object).
 
-Graphit verifies the Broker ID and access JWTs, then stores the browser's access and rotating refresh tokens in an AES-256-GCM encrypted `HttpOnly`, `SameSite=Strict` cookie. The temporary callback cookie is also encrypted, `HttpOnly` and `SameSite=Lax`. Both cookies are `Secure` by default. Web tokens are not written to `auth.json` or exposed to JavaScript. When web auth is enabled, the UI's data APIs accept only the browser cookie and use its Broker identity for downstream calls; missing or invalid cookies return `401` while the session endpoint reports **Anônimo**. Code accepts a valid cookie locally without querying Broker UserInfo on each UI request. Logout revokes the refresh grant at the Broker and clears the browser cookie. A previously copied cookie can still authorize Code-local APIs until its access token or session expires; Broker APIs can reject its revoked bearer.
+```sh
+# Illustrative production topology; configure this real provider first.
+graphit config --global set task.browser '{"providers":["company"],"project_endpoint":"https://broker.example.com/v1/project/access/authorize","public_origin":"https://graphit.example.com"}'
+graphit daemon restart
+graphit ui
+```
 
-If the browser login callback fails, Code returns to the workspace home and shows an error alert with a retry instruction. Token exchange failures may include a short reference that an operator can match to the server log. The alert does not display authorization codes, tokens, IdP responses or internal error text.
+The Browser logs in independently of the active CLI profile. Its native public Web client retains
+PKCE/state/nonce, exact configured callback origin and signed token checks. Only configured Broker
+providers appear. Mutation handlers check the exact browser Origin and current operation authority;
+Host/forwarding headers cannot replace trusted origin configuration.
 
-**Strongly configure `ui.auth.cookie_encryption_key` for deployed UI instances.** Set it to a cryptographically random secret string of at least 32 bytes; `GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY` is the environment equivalent. Code derives the 32-byte AES key with SHA-256, so Base64 encoding is unnecessary. Give every Code instance the same secret. When unset, Code generates a different key on each start; restarting a process or switching instances then makes existing login and session cookies unreadable and requires a new login. The key does not synchronize in-memory OAuth state or simultaneous rotating refreshes across replicas, so a shared key alone does not guarantee seamless load balancing. `HttpOnly` restricts page JavaScript and `Secure` restricts transport to HTTPS; neither conceals a cookie stored on disk. AES-GCM conceals the token values and detects cookie tampering. A stolen cookie remains replayable at Code-local APIs until local expiration, while Broker rejects revoked bearers at its APIs.
+**Cookies contain opaque random login/session handles, not access/refresh tokens.** The daemon
+holds OAuth flows and credential-bearing sessions in process memory. Cookies are HttpOnly,
+path `/`, SameSite Lax for callback/login and Strict for the session; HTTPS uses Secure and
+`__Host-` names. Explicit loopback HTTP development uses its separate unprefixed cookie names.
+Credentials and rotation are serialized under the actual session owner, not exposed to JavaScript
+or written to `auth.json` by Web login.
 
-For external HTTPS access, set `ui.auth.public_url` to the exact public origin, such as `https://code.example.com`. If developing on loopback HTTP, set `ui.auth.cookie_secure=false`; the callback URL then follows the loopback request host and port. Mutating UI requests require a same-origin request header, and the server checks the browser `Origin` when provided. See [Configuration](configuration.md) and [Container deployment](container.md).
+Logout removes/cancels the server session and clears its cookie; a removed handle cannot continue
+accessing that Browser session. This immediate handle invalidation is separate from the JWT
+expiration window for a copied bearer used at another admitted API. Restart/drain loses in-memory
+sessions/flows, requiring a fresh login. Sharing a cookie key cannot replicate this state across
+instances. `ui.auth.cookie_encryption_key` is a redacted installation-secret key accepted by generic
+Config, but it is **not consumed by the current opaque-handle Browser implementation**; it does
+not make sessions durable, encrypt token cookies or enable replica failover.
+
+If an old `/oauth/login?id=...` page says the form/challenge is invalid, start a fresh login from
+`graphit ui` and complete that same flow. Do not reuse an expired challenge from a replaced daemon.
+The UI exposes a bounded error/retry result rather than secrets or raw IdP responses.
 
 ## HTTP MCP access
 
-For a Broker-backed HTTP MCP endpoint, configure its canonical public URI in both the Broker's `authentication.local.tokens.mcp_resources` and the Code provider:
+Configure the exact public MCP resource at the Broker and Code provider:
 
-```bash
+```sh
 graphit provider add company --type broker \
   --broker-endpoint https://broker.example.com \
   --mcp-resource https://graphit.example.com/mcp
 ```
 
-Graphit advertises that URI in OAuth protected resource metadata. A remote public MCP client sends it as `resource` on authorization, code exchange and refresh. The Broker includes the URI in the access JWT `aud`; Graphit requires that exact audience, verifies the signature and claims, then checks the token with Broker UserInfo for revocation and matching `sub`. A Broker API token without the MCP resource audience receives `401` at MCP. Each request retains the caller's bearer for Broker calls, even when several callers share one daemon. `graphit mcp --stdio` connects with the daemon's local runtime credential.
+The remote public client requests that exact resource during authorization, token exchange and
+refresh. The access JWT must include this audience and the Broker audience for subsequent Broker
+calls. Code verifies complete trusted token claims locally; a Broker-only token or one for another
+resource is rejected. The caller's verified bearer remains bound to its request and is not replaced
+with the daemon's active profile. Local stdio uses the installation's admitted runtime transport.
+OAuth protected-resource metadata and Bearer challenges describe the resource; CORS and a public
+URL do not authorize PROJECT access.
 
-See [OpenID Connect through Graphit Broker](oidc-integration.md) and [Graphit Broker](auth-broker.md) for the protocol and deployment details.
+## Storage and USER isolation
 
-## Profiles and lifecycle
+Valid S3 discovery obtains independent restricted STSv3 sessions for scope/module. Broker-issued
+credentials remain in memory and are reused until renewal, not written to Auth. Failure to obtain
+credentials or access storage is explicit. Only valid disabled-storage discovery selects local;
+no error-driven local mirror exists. USER Memory includes verified issuer/subject and installation,
+not the project's identity or a display username. [S3](s3-and-ui-network.md) specifies exact roots.
 
-`graphit account list` shows stored profiles; `graphit account use <name>` activates one; `graphit logout --profile <name>` removes one. Updating a provider invalidates dependent login sessions. Local identity and Broker-issued identity are separate: switching profiles changes the active identity, tokens, service configuration and cache subject together.
+## Implementation map
+
+`graphit-auth` owns provider/profile validation, JWT/OIDC and service credentials. App's
+`auth_cli`, `auth_active`, `admin_auth` and record-storage adapters compose those APIs. Browser
+`browser_auth.rs` / `browser_auth/session.rs` owns opaque cookies and server sessions;
+`foreground_tasks.rs` owns Browser topology. Historical token-cookie/Go descriptions do not
+describe this implementation. Platform/library tests retain their own execution scope.

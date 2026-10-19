@@ -3,7 +3,7 @@ title: "MCP Stdio Module Specification"
 description: "Technical specification of the MCP stdio server, tool registration, JSON-RPC message flow, request context resolution, and error handling."
 content-type: reference
 audience: developers
-updated: 2026-09-23
+updated: 2026-10-06
 keywords:
   - mcp
   - stdio
@@ -15,368 +15,134 @@ prerequisites:
 related:
   - "docs/specs/daemon_module.md"
   - "docs/specs/ast_module.md"
+references:
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-de72
+    relation: supports
+  - target:
+      type: task
+      id: tsk-9e3d
+    relation: supports
 ---
+
 
 # MCP Stdio Module Specification
 
-The `internal/mcpstdio` package implements the Model Context Protocol (MCP) server that exposes Graphit's capabilities to AI coding assistants over a JSON-RPC stdio transport. It is the primary integration point between external AI agents and the Graphit toolchain.
+`graphit mcp --stdio` exposes the Rust MCP transport. It uses the same Source
+catalog and authorization as authenticated HTTP consumers. Protocol stdout
+contains MCP frames only; diagnostics belong to the explicit diagnostic sink.
+The [Source entrypoint](rust_source_entrypoint.md) defines proxy construction,
+authenticated discovery and the distinct Root/Role ingress paths.
 
----
+## Startup and transport
 
-## ⚙️ Architecture
+The caller captures its starting project/version, native environment and
+original request. The proxy resolves the existing Runtime discovery and uses
+its authenticated Source connection. A missing or invalid owner is a real
+startup error. Role credentials cannot silently select or authorize the Root
+ingress; Role calls use their dedicated transport.
 
-The server communicates over stdin/stdout using the MCP JSON-RPC protocol. It registers typed tool handlers that are dispatched by the underlying `go-sdk/mcp` framework.
+Each job preserves its original cancellation, deadline and captured selection.
+Response drop, shutdown and cancellation retain process/transport ownership
+until the relevant jobs have joined. Broken protocol input, provider failures
+and encoding failures are causal errors rather than empty successful results.
 
-```mermaid
-graph TD
-    Agent["AI Agent (Claude, Gemini, Cursor, etc.)"] -->|stdin/stdout| Transport["IOTransport (JSON-RPC)"]
-    Transport --> Server["mcp.Server"]
-    Server --> Dispatch["Tool Dispatch (AddTool)"]
-    Dispatch --> SafeTool["safeTool Wrapper"]
-    SafeTool --> DaemonCheck["daemon.EnsureRunning()"]
-    SafeTool --> Handler["Typed Tool Handler"]
-    Handler --> Context["Context Resolution"]
-    Context --> Domain["Domain Services (AST, Memory, Hub, etc.)"]
-    Handler -->|success| TextResult["textResult / jsonResult"]
-    Handler -->|error| ErrResult["errResult"]
-    SafeTool -->|panic| Recovery["Panic Recovery"]
+## Tool registration and categories
+
+The current catalog is exposed through MCP discovery; names and schemas are
+not inferred from a prefix or from an old static handler list. Supported tools
+cover lifecycle/configuration, AST, Knowledge, Memory, Task/sessions, Hub,
+cluster discovery, Dream and daemon operations as enabled by the active services.
+See the [MCP tool reference](../guides/mcp_tools_reference.md).
+
+Task lifecycle and search use the same [Task protocol](rust_task_protocol.md)
+and [Task MCP](rust_task_mcp.md) as the CLI. AST and Knowledge tools retain
+selected project/version or imported artifact pins. Knowledge Ask is advertised
+only when the captured service offers it. Unknown tools and malformed inputs
+are rejected before invoking an unrelated handler.
+
+## Request context and authority
+
+`project_dir` selects a call-local project context; `project_version` explicitly
+selects that project's version. Neither is a stored identity or a permission.
+Imported contexts retain their own exact artifact identity and authorization;
+there is no fallback to the current project's files for imported reads.
+
+Authentication verifies the credential. Each handler separately obtains its
+actual module/operation grant, retains that admission through I/O and checks
+it again before delivery when required. Discovery, profile metadata and a valid
+JWT alone grant no PROJECT access. The Dream tool policy must agree between
+`tools/list` and direct dispatch; aliases cannot bypass it.
+
+## Structured output and errors
+
+Structured Source Root and Role tools accept optional top-level `ai_optimized`,
+a strict JSON boolean. Omission or `true` selects TOON text; `false` selects
+JSON. Typed JSON results may expose both the SDK `structuredContent` object and
+JSON text; this is not a guarantee for every handler or error. Null, strings and numbers are rejected instead of coerced. The flag is
+outside a domain's `selection`/`input` envelope and is not an authorization,
+query optimization or result-selection option.
+
+In TOON mode the MCP result carries the encoded document in `TextContent` and
+does not duplicate it as JSON `structuredContent`. A machine consumer requiring
+JSON must explicitly request `ai_optimized: false`, for example:
+
+```json
+{"name":"graphit_task_get","arguments":{"ai_optimized":false,"input":{"id":"00000000000000000000000001"}}}
 ```
 
-### Server Startup
-
-1. `NewServer()` creates an `mcp.Server` instance with the branded server name (`graphit-code-stdio`) and the current `version.Version`.
-2. Tool groups are registered in order: Lifecycle → AST → Knowledge → Memory → Task → References → Hub → Wiki → Dream → Daemon → Cluster. Every registration passes through `addTool`, which applies any active capability profile before the tool enters the catalog.
-3. `Serve(ctx)` mutes CLI output via `output.Mute()`, redirects Go's `log` to stderr, then constructs a decoupled `IOTransport` using `io.NopCloser(os.Stdin)` and a `nopWriteCloser{os.Stdout}` to prevent interference from `os.Stdout` reassignment.
-
-### Transport Decoupling
-
-The server deliberately avoids the SDK's `StdioTransport` helper, which hardcodes `os.Stdin`/`os.Stdout`. Instead, it captures explicit reader/writer references at startup, so even if another package reassigns `os.Stdout`, the JSON-RPC transport is unaffected.
-
----
-
-## 🧩 Key Types & Interfaces
-
-### Core Helpers
-
-| Type / Function | Description |
-|---|---|
-| `safeTool(handler)` | Generic wrapper adding panic recovery to every typed tool handler. |
-| `textResult(text string)` | Returns a `CallToolResult` with a single `TextContent` payload. |
-| `errResult(err error)` | Returns the error directly to the MCP framework for standard error rendering. |
-| `jsonResult(v any)` | Marshals `v` as indented JSON and returns it as `TextContent`. |
-| `toonResult(v any)` | Formats `v` using `toon.FormatAny()` (reflection-based TOON) and returns it as `TextContent`. Used when `ai_optimized` is `true`. |
-| `nopWriteCloser` | Wraps an `io.Writer` with a no-op `Close()` for the transport. |
-
-### Input Structs
-
-Every tool defines a typed input struct with `json` and `jsonschema` tags. The `json` tags control deserialization from JSON-RPC params. The `jsonschema` tags provide human-readable descriptions that AI agents use for parameter discovery.
-
-Example pattern:
-```go
-type syncInput struct {
-    ProjectDir  string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
-    Agent         string `json:"agent,omitempty" jsonschema:"Target Agent"`
-    AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
-}
-```
-
-> Structured tools that declare `ai_optimized` use a nullable boolean: omitted or `true` returns
-> compact TOON, while `false` requests verbose JSON. Some tools intentionally return fixed text or
-> JSON and do not expose that option.
-
----
-
-## 🔧 Tool Registration
-
-Tools are registered via the package-level `addTool` wrapper around `mcp.AddTool`. Each tool group
-has a dedicated `register*Tools(server *mcp.Server)` function. Centralizing registration is a
-security boundary: a capability profile can deny a newly added tool by default instead of relying
-on every group author to remember a separate check.
-
-### Dream Memory profile
-
-`dream-memory-v1` registers an exact allowlist of contextual reads from Memory, Task/session,
-Knowledge/Wiki, AST, Hub, and References, plus only five mutations:
-`graphit_memory_insert`, `graphit_memory_update`, `graphit_memory_delete`,
-`graphit_memory_promote`, and `graphit_memory_demote`. A tool absent from that list is not exposed,
-including future tools added to an existing group.
-
-For direct in-process stdio use, the profile is selected by `GRAPHIT_MCP_CAPABILITY_PROFILE`.
-For the normal daemon path, the launcher derives an HMAC-authenticated bearer from the daemon
-runtime key and binds it to `dream-memory-v1`; the child environment is reduced to known
-runtime/model-provider inputs, and the local proxy refuses master-key fallback while the Dream
-profile is active. There is no process sandbox or credential-file mask: the CLI remains on the
-same OS account and that account can read its own daemon key. The HTTP boundary verifies the bearer
-and forces its authenticated profile onto the request, ignoring client attempts to forge or remove
-the profile header. The factory then creates the restricted server before registration. An unknown
-non-empty profile exposes no tools. Under the
-Dream profile, update/delete/promote/demote also require `expected_revision` or
-`expected_content_hash`; insert remains available for verified missing durable knowledge.
-
-### The `safeTool` Wrapper
-
-Every handler is wrapped with `safeTool()`, which:
-
-1. **Recovers from panics** — catches `recover()` in a deferred function and converts it to a structured error (`"internal error (panic): %v"`).
-
-### Naming Convention
-
-Tool names use `brand.MCPToolName(group, action)` which produces names like `graphit_ast_query`, `graphit_memory_insert`, etc. Tools with a single action omit the action suffix (e.g., `graphit_init`, `graphit_sync`, `graphit_version`).
-
----
-
-## 🗺️ Request Context Resolution
-
-### `resolveProjectDir(projectDir string)`
-- Validates the `project_dir` parameter is non-empty.
-- Converts it to an absolute path via `filepath.Abs()`.
-- Verifies the directory exists via `os.Stat()`.
-- Returns a clear error message if validation fails.
-
-### `withProjectDir(projectDir string, fn func() error)`
-- Saves the current working directory.
-- Changes to `projectDir` before calling `fn()`.
-- Restores the original working directory via `defer`.
-- Used by tools that need domain services to resolve relative paths from the project root.
-
-### `withProjectVersion` — the `project_version` argument
-- Every tool input that has `project_dir` also has an optional `project_version`. `addTool` wraps
-  every handler with `withProjectVersion`, which reads both arguments by reflection.
-- Without `project_version`, store resolvers answer the version checked out in `project_dir`: the
-  Git branch, or `main` without Git.
-- With it, `projectversion.Acquire(dir, version)` holds that directory for the call. Resolvers reached
-  during the call answer the named version, and concurrent calls for the same directory wait instead
-  of reading the wrong store. The override ends with the call.
-- `project_version` without `project_dir` is rejected.
-
-### `openASTDB` / `openASTDBReadWrite`
-- Changes to the project directory.
-- Resolves the LadybugDB config (default or named context).
-- Opens the AST graph database in read-only or read-write mode.
-- Returns an actionable error if no database exists.
-
-### `newMemorySvc(userScope bool, projectDir string)`
-- Creates a `MemoryService` scoped to either `project` (using the lockfile project ID) or `user` (using a git-derived user hash).
-- Initializes the memory store and ensures directory structure exists.
-
-### `loadProjectConfig(projectDir string)` / `loadProjectLockInfo(projectDir string)`
-- Loads the project lockfile from `<projectDir>/<lockFileName>`.
-- Extracts the `Config` map and/or `Agents` list for config resolution.
-
-### `resolveAgentFromProject(agent, projectDir string)`
-- Combines the Agent flag, inline config, project config, and lockfile Agents to determine the active Agent via `config.ResolveProjectAgent()`.
-
-### `sanitizeContextName(name string)`
-- Prevents path traversal by stripping directory components via `filepath.Base()`.
-- Rejects `.`, `..`, and names containing path separators.
-
-### Trusted Hub subject
-
-Remote Hub transports attach a trusted `user_id` and `team_ids` to request context before a Hub,
-mounted AST/knowledge, project Memory, or project Task handler runs. Tool arguments cannot override
-that subject. A local stdio process may use the deployment's single-user subject; a remote daemon
-must receive identity from an authenticated proxy or another trusted adapter. The daemon bearer key
-authenticates access to the MCP endpoint but is not, by itself, a multi-user identity.
-
-The request resolves deny-by-default grants before discovery and revalidates authorization before
-content or mount access. See [Hub Access Control](hub_access_control.md).
-
----
-
-## 📂 Tool Categories
-
-### 1. Lifecycle Tools (`tools_lifecycle.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_mandates` | Resolve dynamic mandates from global config/rule overrides and framework defaults; takes no parameters and reads no lockfile. |
-| `graphit_module_skill` | Return the resolved Task, Memory, AST, Hub, or Knowledge skill, enabled state and available framework reference names. Optional `reference` reads only that bundled guide/example; `project_dir` is optional. |
-| `graphit_init` | Complete project initialization: ensure the existing or newly created ULID, set up gitignore and adapters, and register in the global lock. |
-| `graphit_sync` | Full sync: reindex AST, rebuild knowledge wiki, maintain authoritative memory indexes, sync hub, install Agent rules. |
-| `graphit_update` | Update all installed hub artifacts to latest versions and refresh Agent rules. |
-| `graphit_remove` | Uninstall Graphit: remove hooks, gitignore entries, hub artifacts, and Agent rules. |
-| `graphit_config_set` | Set a config key (project-local via lockfile or global via JSON). |
-| `graphit_config_get` | Retrieve a config key value. |
-| `graphit_config_unset` | Remove a config key. |
-| `graphit_config_list` | List all config entries as JSON. |
-| `graphit_version` | Return the current CLI/server version string. |
-
-### 2. AST Tools (`tools_ast.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_ast_index` | Index project files into the AST code graph database. Supports workers, reset, reindex, cluster labels, and no-source mode. |
-| `graphit_ast_query` | Execute a Cypher query against the AST graph. Supports `ai_optimized` output formatting and named contexts. |
-| `graphit_ast_fts_query` | Filter rows of one AST full-text table (`entities`, `files`) by Lance predicate and project columns. The LanceDB half of the AST store, distinct from the Cypher graph above. |
-| `graphit_ast_schema` | Return GRAPH schema: node labels, properties, and relationship types. |
-| `graphit_ast_fts_schema` | Return the full-text tables' columns, types and row counts. |
-| `graphit_ast_install` | Import another local repository as a named AST context. |
-| `graphit_ast_remove` | Remove an imported context or clear the main project graph. |
-| `graphit_ast_list` | List all imported AST contexts and their paths. |
-| `graphit_ast_source` | Retrieve source code with head/tail, line ranges, entity extraction, and pattern search with context lines. |
-| `graphit_ast_export` | Export the AST database as an Obsidian vault or importable `.ast` package. |
-| `graphit_ast_embed` | Run the embedding cycle to precompute/update semantic embeddings. |
-| `graphit_ast_search` | Hybrid search combining BM25 full-text and semantic vector search via Reciprocal Rank Fusion. Modes: `hybrid`, `fts`, `semantic`. |
-
-### 3. Knowledge Tools (`tools_knowledge.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_knowledge_index` | Index docs/ into the knowledge index and regenerate the wiki. |
-| `graphit_knowledge_export` | Export an importable `.knowledge` package, OKF, or an Obsidian vault. |
-| `graphit_knowledge_search` | BM25 keyword search across the knowledge wiki; returns ranked page titles for selective reading. |
-| `graphit_knowledge_schema` | Show the knowledge index tables (`chunks`, `xrefs`, `sync_log`, `meta`), their columns and row counts. The index is LanceDB, not a graph database. |
-| `graphit_knowledge_query` | Filter rows of one knowledge index table by Lance predicate and project columns. |
-| `graphit_knowledge_lint` | Audit the wiki for structural and staleness issues. |
-| `graphit_knowledge_remove` | Remove an imported context or clear local knowledge. |
-| `graphit_knowledge_sync` | Rebuild the local project wiki from docs. |
-| `graphit_knowledge_list` | List all articles in the local knowledge wiki. |
-
-### 4. Memory Tools (`tools_memory.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_memory_insert` | Add a new memory with type, scope, tags, importance, and mandatory status. |
-| `graphit_memory_update` | Update title or content of an existing memory. |
-| `graphit_memory_delete` | Delete a memory by ID. |
-| `graphit_memory_list` | List all memories in project or user scope. |
-| `graphit_memory_search` | Ranked search directly on the authoritative LanceDB memory table; can exclude mandatory rows already loaded. |
-| `graphit_memory_source` | Read a current memory id or archived revision key directly from the authoritative table with bounded slicing. |
-| `graphit_memory_mandatory` | Return every mandatory live memory with full content and no search query. |
-| `graphit_memory_mark_mandatory` | Require unconditional session-start recall for one memory. |
-| `graphit_memory_unmark_mandatory` | Remove that requirement when it no longer applies. |
-| `graphit_memory_important` | List all memories marked as important. |
-| `graphit_memory_promote` | Promote a memory to important status. |
-| `graphit_memory_demote` | Demote a memory from important status. |
-| `graphit_memory_index` | Refresh the authoritative memory table's own lexical and vector indexes. |
-| `graphit_memory_schema` | Show the authoritative memory table's columns, types and record count, read from the table. Memory is a LanceDB table, not a graph. |
-| `graphit_memory_query` | Filter memory records by Lance predicate and project columns. |
-| `graphit_memory_remove` | Remove a memory context sync connection. |
-| `graphit_memory_sync` | Sync memories from an external context. |
-
-### 5. Hub Tools (`tools_hub.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_hub_list` | Return one bounded page of artifacts from projects visible to the trusted subject, optionally filtered by type. |
-| `graphit_hub_search` | Search only projects visible to the trusted subject and return a bounded page. |
-| `graphit_hub_show` | Show one authorized project-qualified artifact; a known ID does not bypass ACL. |
-| `graphit_hub_install` | Install an artifact into a project, or globally when `project_dir` is omitted. Supports version pinning (`@version`) and project Agent targeting. |
-| `graphit_hub_uninstall` | Remove a project installation, or a global installation when `project_dir` is omitted. |
-| `graphit_hub_update` | Update one or all installed artifacts. |
-| `graphit_hub_submit` | Publish a local artifact to the Hub. Defaults: version `1.0.0`, type `rule`. |
-| `graphit_hub_link` | Link a local project's artifacts via symlinks. |
-| `graphit_hub_unlink` | Remove a linked artifact. |
-| `graphit_hub_content` | Read a Hub artifact's source content with bounded slicing. |
-| `graphit_hub_projects` | List one bounded page of Hub projects visible to the trusted subject; local ecosystem registration is a separate concern. |
-| `graphit_hub_type-path` | Resolve the conventional project path for an artifact type. |
-
-### 6. Wiki Tools (`tools_wiki.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_wiki_search` | Search project, ecosystem-project, and Hub knowledge sources. |
-| `graphit_wiki_browse` | Browse wiki documents with optional document-type filtering. |
-| `graphit_wiki_log` | Read the ordered synchronization history for a wiki. |
-| `graphit_wiki_xrefs` | Traverse inbound and outbound wiki references to a bounded depth. |
-| `graphit_wiki_embed` | Generate or update knowledge-wiki vectors. |
-| `graphit_wiki_source` | Read one selected knowledge page. Memory rows are read only with `graphit_memory_source`. |
-
-### 7. Dream Tools (`tools_dream.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_dream_status` | Show status (dreaming/standby/deep sleep/inactive), daemon info, config, and the latest operational run. |
-
-Task control is registered independently through Task tools. Dream never consumes or executes
-tasks; deterministic ownership belongs to the Task module.
-
-### 8. Daemon Tools (`tools_daemon.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_daemon_status` | Check daemon status: PID, uptime, scheduler status, last 10 log lines. |
-
-The daemon tool group is deliberately status-only. Lifecycle administration is performed through
-the `graphit daemon` CLI commands documented in the daemon operations guide.
-
-### 9. Cluster Tools (`tools_cluster.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_cluster_set` | Set a cluster label (`key=value`) for ecosystem grouping. |
-| `graphit_cluster_get` | Get a specific label or all labels for the project. |
-| `graphit_cluster_unset` | Remove a cluster label. |
-| `graphit_cluster_projects` | List all projects in the same cluster, optionally filtered by label key. |
-
-### 10. Task Tools (`tools_task.go`)
-
-| Tool | Description |
-|---|---|
-| `graphit_task_search`, `graphit_task_get`, `graphit_task_list` | Discover and retrieve current/prior work, audit history, checks, comments, dependencies, and subtasks. |
-| `graphit_task_schema`, `graphit_task_query` | Describe the Task LanceDB tables, then filter rows of one by Lance predicate and project columns. The claim token is redacted in both directions. |
-| `graphit_task_export` | Export a versioned, normalized complete JSON document for all tasks or one exact task and its recursive subtasks. |
-| `graphit_task_batch` | Run up to 100 ordered mutations with an explicit result for every item while reusing the normal lifecycle gates. |
-| `graphit_task_create` | Idempotently create a robust task specification in shared LanceDB tables. |
-| `graphit_task_claim`, `graphit_task_heartbeat`, `graphit_task_release` | Own and transfer work through leases and fencing tokens. |
-| `graphit_task_force_takeover` | Recover an unexpired claim from a confirmed dead session with exact-ID confirmation, revision fencing, reason, replacement lease, token rotation, and an ownership audit event. |
-| `graphit_task_progress`, `graphit_task_comment_add` | Preserve resumable checkpoints and typed findings. |
-| `graphit_task_check` | Record acceptance/test pass or failure with evidence. |
-| `graphit_task_revise`, `graphit_task_check_supersede` | Correct claimed scope with expected-revision fencing and preserve obsolete checks as audited history. |
-| `graphit_task_flag`, `graphit_task_unflag` | Gate completion with a recorded reason and resolve the gate. |
-| `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain cycle-checked ordering edges. |
-| `graphit_task_complete` | Complete only after flags, checks, and subtasks satisfy deterministic gates. |
-| `graphit_task_cancel`, `graphit_task_remove` | Cancel with durable history or hard-remove certainly obsolete, unreferenced work with exact-ID confirmation. |
-
-When the launcher installs a changed Core, the daemon replaces itself. The stdio proxy watches the
-daemon port/key files, reconnects, replays the initialize handshake, and then sends
-`notifications/tools/list_changed`. MCP clients that implement the notification refresh the live
-catalog; clients without that protocol behavior require a fresh session. The proxy also forwards a
-stable host-agent session header on every HTTP request, so task ownership does not change when the
-daemon allocates a new backend MCP session during reconnection.
-
----
-
-## 🚨 Error Handling
-
-### Error Patterns
-
-1. **`errResult(err)`** — Standard error return. Passes the error to the MCP framework, which renders it as a JSON-RPC error response.
-2. **Panic recovery** — `safeTool` catches panics and converts them to errors with `"internal error (panic): %v"`.
-3. **Validation errors** — Input validation (missing `project_dir`, invalid context names, non-existent directories) returns descriptive errors with actionable messages.
-4. **Service initialization errors** — When domain services fail (e.g., missing AST database), the error includes remediation hints like `"index first with: graphit ast index"`.
-
-### SSH Error Wrapping
-
-Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from hanging on interactive prompts. The `wrapSSHError()` function in `internal/git/cli_backend.go` detects host key verification failures and appends actionable remediation instructions.
-
----
-
-## 📦 Dependencies
-
-### Internal
-
-| Package | Usage |
-|---|---|
-| `internal/ast` | AST graph database operations, pipeline, embeddings, source retrieval. |
-| `internal/brand` | Tool naming, directory conventions, lockfile names. |
-| `internal/config` | Configuration resolution, module enable/disable, Agent/CLI resolution. |
-| `internal/daemon` | Background daemon management, PID file, ensure running. |
-| `internal/dream` | Dream state/configuration and latest operational run lookup. |
-| `internal/task` | Shared LanceDB task lifecycle, claims, checks, comments, dependencies, and hooks. |
-| `internal/hub` | Hub registry, artifact management, lockfile operations, global lock. |
-| `internal/knowledge` | Knowledge indexing pipeline, wiki management. |
-| `internal/memory` | Authoritative memory tables, scoping, direct retrieval, embeddings, consolidation, and GC. |
-| `internal/output` | Output muting for MCP mode. |
-| `internal/version` | Version string for server identity. |
-| `internal/wiki` | Wiki search, BM25, lint operations. |
-| `internal/toon` | Generic TOON (Token-Optimized Object Notation) formatter using reflection for `ai_optimized` output. |
-| `internal/wikisvc` | Multi-wiki search service. |
-| `internal/ai` | Embedding and agent-dependent AI services used by the surfaces that enable them. |
-
-### External
-
-| Package | Usage |
-|---|---|
-| `github.com/modelcontextprotocol/go-sdk/mcp` | MCP server framework, tool registration, JSON-RPC transport. |
-| `github.com/oklog/ulid/v2` | ULID generation for project identity. |
+The ID is illustrative DATA. JSON-RPC frames, tool arguments, catalogue metadata
+and JSON Schemas remain JSON. Native HTTP and CLI JSON responses keep their own
+unchanged contracts; this MCP output selector does not belong in their domain
+bodies. MCP failures retain `isError` and the actual domain outcome; a successful
+HTTP status is not proof of successful tool execution. Plain textual errors remain text, even when JSON was requested. Protocol errors
+remain JSON-RPC errors.
+The stdio proxy preserves a remote tool-call RPC error code while replacing its
+untrusted message and data with finite local diagnostics. A domain `isError`
+result remains a tool result, independently of that protocol error path.
+
+Root AST Source and SessionHook retain their original textual payloads. ModuleSkill,
+Knowledge Source and Role Source (including Live MCP AST Source) are structured
+envelopes containing content
+strings: the envelope follows the selected output format while the original
+Markdown/source string remains a value, without encoding its syntax tree or
+rewriting it as TOON data.
+
+The [Core codec](output_module.md#rust-structured-output-codec) encodes already
+authorized, projected DTOs using TOON specification 4.1 defaults: comma delimiter,
+two-space indentation, lexicographically ordered object keys and retained array
+order. Signed/unsigned 64-bit integers stay exact. Integral floats and negative
+zero normalize numerically; there is no two-decimal rounding. TOON may use more
+or fewer tokens depending on the document and tokenizer.
+
+Existing input, depth and output bounds still apply. Encoding errors produce no
+partial document or silent JSON fallback. Output limits govern publication;
+they do not guarantee a peak-allocation cap. Domain schemas, pagination and
+redaction remain the producer's responsibility. Unknown counters are not
+fabricated as zero.
+
+Formatting can fail after a write has completed. The tool then returns `isError:
+true` with a bounded textual diagnostic such as `completed; response_limit`
+(or `tool_error` / `response_encoding_failed` for the corresponding outcome),
+without JSON fallback or a claim that the write rolled back. Check the current
+record before retrying a write. Only an invalid output policy, or a bound too
+small for the diagnostic itself, becomes an internal JSON-RPC error carrying
+`tool_completed`, `tool_reported_error` and `reason`; it is not a success receipt.
+
+Untrusted provider bodies, credentials and private native session selectors do
+not belong in ordinary diagnostics. Cancellation and late authorization denial
+must suppress a final answer when its consumer contract requires it while
+retaining truthful accepted progress and observed cleanup.
+
+## Related product contracts
+
+- [Source callers](rust_source_callers.md)
+- [Managed Role MCP](rust_role_mcp.md)
+- [Task and session lifecycle](task_module.md)
+- [Knowledge Ask](../architecture/rust-knowledge-question.md)
+- [Dream capability boundary](rust_dream_records.md#exact-dream-capability-boundary)

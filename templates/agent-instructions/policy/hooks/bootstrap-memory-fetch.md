@@ -1,0 +1,1 @@
+If available, read `{{ skill_name_memory }}`; call `{{ mcp_tool_memory_mandatory }}` with `ai_optimized: true` once per missing available scope (`project` for a resolved project, and `user`). Consume all standing context before acting.

@@ -1,132 +1,94 @@
-
 [CmdletBinding()]
 param(
-    [string]$Dir
+    [string]$Dir,
+    [string]$Version = $env:VERSION,
+    [string]$Archive
 )
 
 $ErrorActionPreference = 'Stop'
-
-$Repo      = "graphit-labs/graphit-code"
-$BinName   = "graphit"
-$Platform  = "windows-amd64"
-
+if ($Archive -and $Version) { throw '-Archive and -Version are mutually exclusive' }
+$Repo = 'graphit-labs/graphit-code'
+$Platform = 'windows-amd64'
+if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -and $env:PROCESSOR_ARCHITEW6432 -ne 'AMD64') {
+    throw 'No release target for this operating system and architecture'
+}
 $InstallDir = if ($Dir) {
     $Dir
 } elseif ($env:GRAPHIT_INSTALL_DIR) {
     $env:GRAPHIT_INSTALL_DIR
 } else {
-    Join-Path $env:LOCALAPPDATA "Programs\graphit"
+    Join-Path $env:LOCALAPPDATA 'Programs\graphit'
 }
-
-function Write-Step   { param($msg) Write-Host "  → $msg" -ForegroundColor Cyan }
-function Write-Ok     { param($msg) Write-Host "  ✓ $msg" -ForegroundColor Green }
-function Write-Warn   { param($msg) Write-Host "  ⚠ $msg" -ForegroundColor Yellow }
-function Write-Fail   { param($msg) Write-Host "  ✗ $msg" -ForegroundColor Red; exit 1 }
-
-Write-Host ""
-Write-Host "Graphit Code Installer" -ForegroundColor White -BackgroundColor DarkBlue
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkBlue
-Write-Host ""
-
-Write-Step "Fetching latest version..."
-try {
-    $ApiUrl  = "https://api.github.com/repos/$Repo/releases/latest"
-    $Headers = @{ "User-Agent" = "graphit-installer/1"; "Accept" = "application/vnd.github+json" }
-    $Release = Invoke-RestMethod -Uri $ApiUrl -Headers $Headers
-    $Version = $Release.tag_name
-} catch {
-    Write-Fail "Could not fetch latest version: $_"
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
+$ArchiveName = "graphit-$Platform.tar.gz"
+$BaseUrl = if ($Version) {
+    "https://github.com/$Repo/releases/download/$Version"
+} else {
+    "https://github.com/$Repo/releases/latest/download"
 }
-Write-Ok "Latest version: $Version"
-
-$ArchiveName  = "$BinName-$Platform.tar.gz"
-$BaseUrl      = "https://github.com/$Repo/releases/download/$Version"
-$ArchiveUrl   = "$BaseUrl/$ArchiveName"
-$ChecksumUrl  = "$BaseUrl/checksums.sha256"
-
-$TmpDir = Join-Path $env:TEMP "graphit-install-$(New-Guid)"
-New-Item -ItemType Directory -Path $TmpDir | Out-Null
-$TmpArchive  = Join-Path $TmpDir $ArchiveName
-$TmpChecksum = Join-Path $TmpDir "checksums.sha256"
-
+$TempDir = Join-Path ([IO.Path]::GetTempPath()) "graphit-install-$(New-Guid)"
+New-Item -ItemType Directory -Path $TempDir | Out-Null
 try {
-    Write-Step "Downloading $ArchiveName..."
-    Invoke-WebRequest -Uri $ArchiveUrl -OutFile $TmpArchive -UseBasicParsing
-    Write-Ok "Downloaded archive"
-
-    Write-Step "Downloading checksums..."
-    Invoke-WebRequest -Uri $ChecksumUrl -OutFile $TmpChecksum -UseBasicParsing
-
-    Write-Step "Verifying checksum..."
-    $ChecksumContent = Get-Content $TmpChecksum
-    $Expected = ($ChecksumContent | Where-Object { $_ -match [regex]::Escape($ArchiveName) } |
-                 ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
-    if (-not $Expected) {
-        Write-Fail "Checksum for $ArchiveName not found in checksums.sha256"
-    }
-    $Actual = (Get-FileHash -Path $TmpArchive -Algorithm SHA256).Hash.ToLower()
-    if ($Actual -ne $Expected.ToLower()) {
-        Write-Fail "Checksum mismatch!`n  Expected: $Expected`n  Got:      $Actual"
-    }
-    Write-Ok "Checksum verified"
-
-    Write-Step "Extracting archive..."
-    if (Get-Command tar -ErrorAction SilentlyContinue) {
-        & tar -xzf $TmpArchive -C $TmpDir
+    $ArchiveFile = Join-Path $TempDir $ArchiveName
+    $Checksum = Join-Path $TempDir 'checksum'
+    if ($Archive) {
+        Copy-Item -LiteralPath $Archive -Destination $ArchiveFile
+        Copy-Item -LiteralPath "$Archive.sha256" -Destination $Checksum
     } else {
-        Write-Fail "'tar' not found. Please install Windows 10 1803+ or Git for Windows."
+        Invoke-WebRequest -Uri "$BaseUrl/$ArchiveName" -OutFile $ArchiveFile -UseBasicParsing
+        Invoke-WebRequest -Uri "$BaseUrl/$ArchiveName.sha256" -OutFile $Checksum -UseBasicParsing
     }
+    $Pattern = '^([a-fA-F0-9]{64})\s{2}' + [regex]::Escape($ArchiveName) + '\r?\n?$'
+    $Match = [regex]::Match((Get-Content -LiteralPath $Checksum -Raw), $Pattern)
+    if (-not $Match.Success) { throw 'Missing or ambiguous release checksum' }
+    $Expected = $Match.Groups[1].Value
+    $Actual = (Get-FileHash -LiteralPath $ArchiveFile -Algorithm SHA256).Hash
+    if ($Actual -ne $Expected) { throw 'Release archive checksum mismatch' }
 
-    $TmpBin = $null
-    foreach ($candidate in @(
-        Join-Path $TmpDir "$BinName-$Platform.exe"
-        Join-Path $TmpDir "$BinName.exe"
-    )) {
-        if (Test-Path $candidate) { $TmpBin = $candidate; break }
+    Get-Command tar -ErrorAction Stop | Out-Null
+    & tar -xzf $ArchiveFile -C $TempDir
+    if ($LASTEXITCODE -ne 0) { throw "Archive extraction failed with exit code $LASTEXITCODE" }
+    $PackageRoot = Join-Path $TempDir "graphit-$Platform"
+    $Required = @(
+        'graphit.exe',
+        'graphit-model-server.exe',
+        'graphit-runtime\LICENSE',
+        'graphit-runtime\build.json',
+        'graphit-runtime\windows-libraries.json'
+    )
+    foreach ($Relative in $Required) {
+        $Item = Get-Item -LiteralPath (Join-Path $PackageRoot $Relative) -ErrorAction Stop
+        if ($Item.PSIsContainer -or $Item.Length -eq 0 -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Release archive is missing a regular file: $Relative"
+        }
     }
-    if (-not $TmpBin) {
-        Write-Fail "Could not find binary in extracted archive"
+    $Runtime = Get-Content -LiteralPath (Join-Path $PackageRoot 'graphit-runtime\windows-libraries.json') -Raw | ConvertFrom-Json
+    $Executables = @($Runtime.executables | ForEach-Object { $_.file } | Sort-Object)
+    if ($Runtime.platform -ne $Platform -or $Executables.Count -ne 2 -or
+        $Executables[0] -ne 'graphit-model-server.exe' -or $Executables[1] -ne 'graphit.exe' -or
+        $null -eq $Runtime.libraries) { throw 'Invalid Windows runtime manifest' }
+    $Seen = @{}
+    foreach ($Library in $Runtime.libraries) {
+        if ($Library.name -cnotmatch '^[A-Za-z0-9_.-]+\.dll$' -or $Library.file -cne $Library.name -or $Seen.ContainsKey($Library.name)) {
+            throw 'Invalid Windows runtime DLL path'
+        }
+        $Seen[$Library.name] = $true
+        $Item = Get-Item -LiteralPath (Join-Path $PackageRoot $Library.file) -ErrorAction Stop
+        if ($Item.PSIsContainer -or $Item.Length -eq 0 -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Release archive is missing a regular DLL: $($Library.file)"
+        }
     }
-    Write-Ok "Archive extracted"
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    Get-ChildItem -LiteralPath $PackageRoot -Force | Copy-Item -Destination $InstallDir -Recurse -Force
 
-    Write-Step "Installing to $InstallDir..."
-    if (-not (Test-Path $InstallDir)) {
-        New-Item -ItemType Directory -Path $InstallDir | Out-Null
-    }
-    $Dest = Join-Path $InstallDir "$BinName.exe"
-    Copy-Item -Path $TmpBin -Destination $Dest -Force
-    Write-Ok "Installed to $Dest"
-
-    $UserPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($UserPath -notlike "*$InstallDir*") {
-        Write-Step "Adding $InstallDir to user PATH..."
-        [System.Environment]::SetEnvironmentVariable(
-            "PATH",
-            "$UserPath;$InstallDir",
-            "User"
-        )
+    $UserPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
+    $Entries = @($UserPath -split ';' | Where-Object { $_ })
+    if ($Entries -notcontains $InstallDir) {
+        [Environment]::SetEnvironmentVariable('PATH', (($Entries + $InstallDir) -join ';'), 'User')
         $env:PATH = "$env:PATH;$InstallDir"
-        Write-Ok "PATH updated (restart your terminal to take full effect)"
-    } else {
-        Write-Ok "$InstallDir already in PATH"
     }
-
-    Write-Host ""
-    Write-Host "  Installation complete!" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  Next steps:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    1. Open a new terminal (to pick up PATH)" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "    2. Run initial setup:" -ForegroundColor Cyan
-    Write-Host "         graphit setup" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    3. Initialize your project:" -ForegroundColor Cyan
-    Write-Host "         graphit init --agent <antigravity|gemini|claude|cursor|kiro|codex|opencode|qwen|kimi|deepcode>" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    4. Docs: https://github.com/$Repo/tree/main/docs" -ForegroundColor Cyan
-    Write-Host ""
-
+    Write-Host "Installed graphit and graphit-model-server in $InstallDir"
+    Write-Host 'Open a new terminal to pick up PATH changes.'
 } finally {
-    Remove-Item -Recurse -Force -Path $TmpDir -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 }

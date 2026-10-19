@@ -1,0 +1,5 @@
+language: x
+merge: true
+exclusive: false
+queries:
+  - {data_key: c, pattern: c, graph_label: C}

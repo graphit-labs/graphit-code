@@ -1,0 +1,1783 @@
+{
+  "format": "graphit-antlr-coordinate-fixtures-v1",
+  "project": "graphit-code",
+  "task_id": "tsk-0395",
+  "session_id": "ses-c98a",
+  "status": "SOURCE_STAGE_EXPECTATIONS_UNRUN",
+  "sdk_candidate": "antlr4 C++ 4.13.2",
+  "native_execution": "UNRUN",
+  "mapping_implementation_execution": "UNRUN",
+  "fixtures": [
+    {
+      "id": "C01-ascii-lf",
+      "original": {
+        "hex": "610a62",
+        "utf8": "a\nb",
+        "bytes": 3,
+        "sha256": "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "prepared": {
+        "hex": "610a62",
+        "utf8": "a\nb",
+        "bytes": 3,
+        "sha256": "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            3
+          ],
+          "original": [
+            0,
+            3
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 2,
+            "stop_inclusive_scalar": 2
+          },
+          "expected_prepared": [
+            2,
+            3
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              2,
+              3
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C02-unicode-crlf",
+      "original": {
+        "hex": "61c3a90d0af09fa68065cc810a",
+        "utf8": "aé\r\n🦀é\n",
+        "bytes": 13,
+        "sha256": "371b69038e2c7277189e17bb8d48a3cce20dcd2fe69e3a0fe173d876cb78fda3",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          3,
+          4,
+          5,
+          9,
+          10,
+          12,
+          13
+        ]
+      },
+      "prepared": {
+        "hex": "61c3a90d0af09fa68065cc810a",
+        "utf8": "aé\r\n🦀é\n",
+        "bytes": 13,
+        "sha256": "371b69038e2c7277189e17bb8d48a3cce20dcd2fe69e3a0fe173d876cb78fda3",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          3,
+          4,
+          5,
+          9,
+          10,
+          12,
+          13
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            13
+          ],
+          "original": [
+            0,
+            13
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [
+        {
+          "prepared": 13,
+          "original_candidates": [
+            13
+          ]
+        }
+      ],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 4,
+            "stop_inclusive_scalar": 6
+          },
+          "expected_prepared": [
+            5,
+            12
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              5,
+              12
+            ]
+          }
+        },
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Eof",
+            "scalar_index": 8
+          },
+          "expected_prepared": [
+            13,
+            13
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              13,
+              13
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C03-initial-bom",
+      "original": {
+        "hex": "efbbbfc3a9f09fa680",
+        "utf8": "﻿é🦀",
+        "bytes": 9,
+        "sha256": "810c25700ce873bb92a41299886dfe9f543f938c8af68613932b716239eed4a4",
+        "original_scalar_byte_boundaries": [
+          0,
+          3,
+          5,
+          9
+        ]
+      },
+      "prepared": {
+        "hex": "efbbbfc3a9f09fa680",
+        "utf8": "﻿é🦀",
+        "bytes": 9,
+        "sha256": "810c25700ce873bb92a41299886dfe9f543f938c8af68613932b716239eed4a4",
+        "original_scalar_byte_boundaries": [
+          0,
+          3,
+          5,
+          9
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            9
+          ],
+          "original": [
+            0,
+            9
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 1
+          },
+          "expected_prepared": [
+            3,
+            9
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              3,
+              9
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C04-interior-bom",
+      "original": {
+        "hex": "61efbbbf62",
+        "utf8": "a﻿b",
+        "bytes": 5,
+        "sha256": "47a12dcb64e9ad8dc2c0819464d72388679ea0da7811edea2acedaf2f13deda7",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          4,
+          5
+        ]
+      },
+      "prepared": {
+        "hex": "61efbbbf62",
+        "utf8": "a﻿b",
+        "bytes": 5,
+        "sha256": "47a12dcb64e9ad8dc2c0819464d72388679ea0da7811edea2acedaf2f13deda7",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          4,
+          5
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            5
+          ],
+          "original": [
+            0,
+            5
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 1,
+            "stop_inclusive_scalar": 1
+          },
+          "expected_prepared": [
+            1,
+            4
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              1,
+              4
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C05-empty-eof",
+      "original": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "prepared": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "segments": [],
+      "removed_original": [],
+      "anchors": [
+        {
+          "prepared": 0,
+          "original_candidates": [
+            0
+          ]
+        }
+      ],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Eof",
+            "scalar_index": 0
+          },
+          "expected_prepared": [
+            0,
+            0
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C06-bom-only-eof",
+      "original": {
+        "hex": "efbbbf",
+        "utf8": "﻿",
+        "bytes": 3,
+        "sha256": "f1945cd6c19e56b3c1c78943ef5ec18116907a4ca1efc40a57d48ab1db7adfc5",
+        "original_scalar_byte_boundaries": [
+          0,
+          3
+        ]
+      },
+      "prepared": {
+        "hex": "efbbbf",
+        "utf8": "﻿",
+        "bytes": 3,
+        "sha256": "f1945cd6c19e56b3c1c78943ef5ec18116907a4ca1efc40a57d48ab1db7adfc5",
+        "original_scalar_byte_boundaries": [
+          0,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            3
+          ],
+          "original": [
+            0,
+            3
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [
+        {
+          "prepared": 3,
+          "original_candidates": [
+            3
+          ]
+        }
+      ],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Eof",
+            "scalar_index": 0
+          },
+          "expected_prepared": [
+            3,
+            3
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              3,
+              3
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C07-synthetic-mixed",
+      "original": {
+        "hex": "78",
+        "utf8": "x",
+        "bytes": 1,
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "prepared": {
+        "hex": "287829",
+        "utf8": "(x)",
+        "bytes": 3,
+        "sha256": "ec84ac67768312115554ab2ce62babb31be64d20af9eba87cf4c8a06f5a215d0",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Synthetic",
+          "prepared": [
+            0,
+            1
+          ],
+          "reason": "InsertedByTransform"
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            1,
+            2
+          ],
+          "original": [
+            0,
+            1
+          ]
+        },
+        {
+          "kind": "Synthetic",
+          "prepared": [
+            2,
+            3
+          ],
+          "reason": "InsertedByTransform"
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 2
+          },
+          "expected_prepared": [
+            0,
+            3
+          ],
+          "expected_projection": {
+            "kind": "Compound",
+            "pieces": [
+              {
+                "kind": "Synthetic",
+                "reason": "InsertedByTransform"
+              },
+              {
+                "kind": "Original",
+                "original": [
+                  0,
+                  1
+                ]
+              },
+              {
+                "kind": "Synthetic",
+                "reason": "InsertedByTransform"
+              }
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C08-recovery-unindexed",
+      "original": {
+        "hex": "c3a9",
+        "utf8": "é",
+        "bytes": 2,
+        "sha256": "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c",
+        "original_scalar_byte_boundaries": [
+          0,
+          2
+        ]
+      },
+      "prepared": {
+        "hex": "c3a9",
+        "utf8": "é",
+        "bytes": 2,
+        "sha256": "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c",
+        "original_scalar_byte_boundaries": [
+          0,
+          2
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            2
+          ],
+          "original": [
+            0,
+            2
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Unindexed",
+            "reason": "RecoveryToken"
+          },
+          "expected_prepared": null,
+          "expected_projection": {
+            "kind": "Unmappable",
+            "reason": "UnindexedToken"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C09-deletion-anchor",
+      "original": {
+        "hex": "61585862",
+        "utf8": "aXXb",
+        "bytes": 4,
+        "sha256": "d1e45ebd0d71302aefbb6e313c81fe2c1e5d4a8a04c829d593437b501a4fd3ab",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "prepared": {
+        "hex": "6162",
+        "utf8": "ab",
+        "bytes": 2,
+        "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            0,
+            1
+          ]
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            1,
+            2
+          ],
+          "original": [
+            3,
+            4
+          ]
+        }
+      ],
+      "removed_original": [
+        [
+          1,
+          3
+        ]
+      ],
+      "anchors": [
+        {
+          "prepared": 1,
+          "original_candidates": [
+            1,
+            3
+          ]
+        }
+      ],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 1
+          },
+          "expected_prepared": [
+            0,
+            2
+          ],
+          "expected_projection": {
+            "kind": "Compound",
+            "pieces": [
+              {
+                "kind": "Original",
+                "original": [
+                  0,
+                  1
+                ]
+              },
+              {
+                "kind": "Original",
+                "original": [
+                  3,
+                  4
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "operation": "project_prepared",
+          "args": [
+            1,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Ambiguous",
+            "original_point_candidates": [
+              1,
+              3
+            ]
+          }
+        },
+        {
+          "operation": "inverse_original",
+          "args": [
+            1,
+            3
+          ],
+          "expected_projection": {
+            "kind": "Removed"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C10-replacement-full-and-interior",
+      "original": {
+        "hex": "0958",
+        "utf8": "\tX",
+        "bytes": 2,
+        "sha256": "924595be31d0ad1a623e12818a976081855eda2b27b79e273daf001162c53c29",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "prepared": {
+        "hex": "202058",
+        "utf8": "  X",
+        "bytes": 3,
+        "sha256": "3d4a9e05011142f54b09c1b7607fb69727052c5a2cb93297d1c9d48da6a58aab",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "MappedAtom",
+          "prepared": [
+            0,
+            2
+          ],
+          "original_fragments": [
+            [
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            2,
+            3
+          ],
+          "original": [
+            1,
+            2
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 1
+          },
+          "expected_prepared": [
+            0,
+            2
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              0,
+              1
+            ]
+          }
+        },
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": [
+            0,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Unmappable",
+            "reason": "PartialMappedAtom"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C11-copied-origin-inverse",
+      "original": {
+        "hex": "6162",
+        "utf8": "ab",
+        "bytes": 2,
+        "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "prepared": {
+        "hex": "616162",
+        "utf8": "aab",
+        "bytes": 3,
+        "sha256": "38760eabb666e8e61ee628a17c4090cc50728e095ff24218119d51bd22475363",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            0,
+            1
+          ]
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            1,
+            3
+          ],
+          "original": [
+            0,
+            2
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "inverse_original",
+          "args": [
+            0,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Ambiguous",
+            "prepared_candidates": [
+              [
+                [
+                  0,
+                  1
+                ]
+              ],
+              [
+                [
+                  1,
+                  2
+                ]
+              ]
+            ]
+          }
+        },
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 1
+          },
+          "expected_prepared": [
+            0,
+            2
+          ],
+          "expected_projection": {
+            "kind": "Compound",
+            "pieces": [
+              {
+                "kind": "Original",
+                "original": [
+                  0,
+                  1
+                ]
+              },
+              {
+                "kind": "Original",
+                "original": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C12-mapped-fragments",
+      "original": {
+        "hex": "612b62",
+        "utf8": "a+b",
+        "bytes": 3,
+        "sha256": "300273daf0bb57c239f83585d71ced54ce6b3b5fb81615abbeeb3f9cf5fae92f",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "prepared": {
+        "hex": "58",
+        "utf8": "X",
+        "bytes": 1,
+        "sha256": "4b68ab3847feda7d6c62c1fbcbeebfa35eab7351ed5e78f4ddadea5df64b8015",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "segments": [
+        {
+          "kind": "MappedAtom",
+          "prepared": [
+            0,
+            1
+          ],
+          "original_fragments": [
+            [
+              0,
+              1
+            ],
+            [
+              2,
+              3
+            ]
+          ]
+        }
+      ],
+      "removed_original": [
+        [
+          1,
+          2
+        ]
+      ],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": [
+            0,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Compound",
+            "pieces": [
+              {
+                "kind": "Original",
+                "original": [
+                  0,
+                  1
+                ]
+              },
+              {
+                "kind": "Original",
+                "original": [
+                  2,
+                  3
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C13-partial-atom-and-direct",
+      "original": {
+        "hex": "0958",
+        "utf8": "\tX",
+        "bytes": 2,
+        "sha256": "924595be31d0ad1a623e12818a976081855eda2b27b79e273daf001162c53c29",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "prepared": {
+        "hex": "202058",
+        "utf8": "  X",
+        "bytes": 3,
+        "sha256": "3d4a9e05011142f54b09c1b7607fb69727052c5a2cb93297d1c9d48da6a58aab",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "MappedAtom",
+          "prepared": [
+            0,
+            2
+          ],
+          "original_fragments": [
+            [
+              0,
+              1
+            ]
+          ]
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            2,
+            3
+          ],
+          "original": [
+            1,
+            2
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 1,
+            "stop_inclusive_scalar": 2
+          },
+          "expected_prepared": [
+            1,
+            3
+          ],
+          "expected_projection": {
+            "kind": "Compound",
+            "pieces": [
+              {
+                "kind": "Unmappable",
+                "reason": "PartialMappedAtom"
+              },
+              {
+                "kind": "Original",
+                "original": [
+                  1,
+                  2
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C14-invalid-utf8",
+      "original": {
+        "hex": "eda080",
+        "utf8": null,
+        "bytes": 3,
+        "sha256": "91a681b998555fb475479817b126c94e57e52011fa1842c5d188795a4a05226b",
+        "original_scalar_byte_boundaries": null
+      },
+      "prepared": {
+        "hex": "78",
+        "utf8": "x",
+        "bytes": 1,
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "segments": [],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "InvalidUtf8",
+      "queries": [],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN",
+      "entrypoint": "PreparedInput::new -> real SourceText::new"
+    },
+    {
+      "id": "C15-interior-utf8-boundary",
+      "original": {
+        "hex": "c3a978",
+        "utf8": "éx",
+        "bytes": 3,
+        "sha256": "75ffd91e9de1dcdd5f349e17f877dd3ea559667e1bdbf4c8f3560ca0b81a0b02",
+        "original_scalar_byte_boundaries": [
+          0,
+          2,
+          3
+        ]
+      },
+      "prepared": {
+        "hex": "c3a978",
+        "utf8": "éx",
+        "bytes": 3,
+        "sha256": "75ffd91e9de1dcdd5f349e17f877dd3ea559667e1bdbf4c8f3560ca0b81a0b02",
+        "original_scalar_byte_boundaries": [
+          0,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            3
+          ],
+          "original": [
+            0,
+            3
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_prepared",
+          "args": [
+            1,
+            2
+          ],
+          "expected_projection": {
+            "error": "NotCharBoundary"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C16-stop-overflow",
+      "original": {
+        "hex": "61",
+        "utf8": "a",
+        "bytes": 1,
+        "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "prepared": {
+        "hex": "61",
+        "utf8": "a",
+        "bytes": 1,
+        "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            0,
+            1
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 18446744073709551615
+          },
+          "expected_prepared": null,
+          "expected_projection": {
+            "error": "ArithmeticOverflow"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C17-reversed-token",
+      "original": {
+        "hex": "616263",
+        "utf8": "abc",
+        "bytes": 3,
+        "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "prepared": {
+        "hex": "616263",
+        "utf8": "abc",
+        "bytes": 3,
+        "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            3
+          ],
+          "original": [
+            0,
+            3
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 2,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": null,
+          "expected_projection": {
+            "error": "InvalidTokenSpan"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C18-wrong-empty-eof",
+      "original": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "prepared": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "segments": [],
+      "removed_original": [],
+      "anchors": [
+        {
+          "prepared": 0,
+          "original_candidates": [
+            0
+          ]
+        }
+      ],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Eof",
+            "scalar_index": 1
+          },
+          "expected_prepared": null,
+          "expected_projection": {
+            "error": "InvalidTokenSpan"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C19-regular-on-empty",
+      "original": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "prepared": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "segments": [],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": null,
+          "expected_projection": {
+            "error": "InvalidTokenSpan"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C20-direct-byte-mismatch",
+      "original": {
+        "hex": "61",
+        "utf8": "a",
+        "bytes": 1,
+        "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "prepared": {
+        "hex": "62",
+        "utf8": "b",
+        "bytes": 1,
+        "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            0,
+            1
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "InvalidPlanByteMismatch",
+      "queries": [],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C21-prepared-coverage-gap",
+      "original": {
+        "hex": "6162",
+        "utf8": "ab",
+        "bytes": 2,
+        "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "prepared": {
+        "hex": "6162",
+        "utf8": "ab",
+        "bytes": 2,
+        "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            0,
+            1
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "InvalidPlanPreparedCoverage",
+      "queries": [],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C22-prepared-only-bom",
+      "original": {
+        "hex": "61",
+        "utf8": "a",
+        "bytes": 1,
+        "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "prepared": {
+        "hex": "efbbbf61",
+        "utf8": "﻿a",
+        "bytes": 4,
+        "sha256": "1951c7860e968e742658b3af34e60741eb4aaf2a8d2ecc3993727016b12e81e8",
+        "original_scalar_byte_boundaries": [
+          0,
+          3,
+          4
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Synthetic",
+          "prepared": [
+            0,
+            3
+          ],
+          "reason": "InsertedByTransform"
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            3,
+            4
+          ],
+          "original": [
+            0,
+            1
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": [
+            3,
+            4
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              0,
+              1
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C23-original-bom-transform-removed",
+      "original": {
+        "hex": "efbbbf61",
+        "utf8": "﻿a",
+        "bytes": 4,
+        "sha256": "1951c7860e968e742658b3af34e60741eb4aaf2a8d2ecc3993727016b12e81e8",
+        "original_scalar_byte_boundaries": [
+          0,
+          3,
+          4
+        ]
+      },
+      "prepared": {
+        "hex": "61",
+        "utf8": "a",
+        "bytes": 1,
+        "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            3,
+            4
+          ]
+        }
+      ],
+      "removed_original": [
+        [
+          0,
+          3
+        ]
+      ],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": [
+            0,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Exact",
+            "original": [
+              3,
+              4
+            ]
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C24-missing-boundary-anchor",
+      "original": {
+        "hex": "6162",
+        "utf8": "ab",
+        "bytes": 2,
+        "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "prepared": {
+        "hex": "6162",
+        "utf8": "ab",
+        "bytes": 2,
+        "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+        "original_scalar_byte_boundaries": [
+          0,
+          1,
+          2
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Direct",
+          "prepared": [
+            0,
+            1
+          ],
+          "original": [
+            0,
+            1
+          ]
+        },
+        {
+          "kind": "Direct",
+          "prepared": [
+            1,
+            2
+          ],
+          "original": [
+            1,
+            2
+          ]
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_prepared",
+          "args": [
+            1,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Unmappable",
+            "reason": "MissingAnchor"
+          }
+        },
+        {
+          "operation": "inverse_original",
+          "args": [
+            1,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Unmappable",
+            "reason": "MissingAnchor"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    },
+    {
+      "id": "C25-whole-synthetic",
+      "original": {
+        "hex": "",
+        "utf8": "",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_scalar_byte_boundaries": [
+          0
+        ]
+      },
+      "prepared": {
+        "hex": "78",
+        "utf8": "x",
+        "bytes": 1,
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+        "original_scalar_byte_boundaries": [
+          0,
+          1
+        ]
+      },
+      "segments": [
+        {
+          "kind": "Synthetic",
+          "prepared": [
+            0,
+            1
+          ],
+          "reason": "InsertedByTransform"
+        }
+      ],
+      "removed_original": [],
+      "anchors": [],
+      "expected_constructor": "Valid",
+      "queries": [
+        {
+          "operation": "project_antlr",
+          "metadata": {
+            "kind": "Regular",
+            "start_scalar": 0,
+            "stop_inclusive_scalar": 0
+          },
+          "expected_prepared": [
+            0,
+            1
+          ],
+          "expected_projection": {
+            "kind": "Synthetic",
+            "reason": "InsertedByTransform"
+          }
+        }
+      ],
+      "native_execution": "UNRUN",
+      "transform_execution": "UNRUN"
+    }
+  ],
+  "limits_context_expectations": [
+    {
+      "id": "L01-zero-limit",
+      "setup": "any MappingLimits member is zero",
+      "expected": "InvalidLimit"
+    },
+    {
+      "id": "L02-original-size",
+      "setup": "original source exceeds positive max_original_bytes",
+      "expected": "InputTooLarge"
+    },
+    {
+      "id": "L03-piece-cap",
+      "setup": "projection exceeds max_projection_pieces",
+      "expected": "LimitExceeded; no truncated projection"
+    },
+    {
+      "id": "L04-work-counter-overflow",
+      "setup": "checked work counter addition overflows",
+      "expected": "ArithmeticOverflow; no refund of previously admitted work"
+    },
+    {
+      "id": "L05-allocation-failure",
+      "setup": "owned try_reserve fails after approved reservation",
+      "expected": "Allocation; no partial graph or counter reset"
+    },
+    {
+      "id": "L06-original-cancelled",
+      "setup": "original SnapshotContext.check returns Interrupted before constructor work",
+      "expected": "Cancelled before source work"
+    },
+    {
+      "id": "L07-original-deadline",
+      "setup": "same original SnapshotContext expires before final projection return",
+      "expected": "DeadlineExceeded; no publish"
+    },
+    {
+      "id": "L08-context-denial",
+      "setup": "original context returns another io ErrorKind",
+      "expected": "ContextDenied without vendor message"
+    },
+    {
+      "id": "L09-exact-positive-cap",
+      "setup": "all relevant counts and usage equal their positive caps",
+      "expected": "admit, preserving exact data"
+    }
+  ],
+  "limits_context_execution": "UNRUN",
+  "source_fixture_sha256": "4df03f3c7777fe9b6c5b251ee4ac3f3a7cd972f4cfeba18756522954d2a0686e",
+  "stage_deltas": [
+    "C14 now calls PreparedInput::new; actual SourceText::new rejects invalid original UTF-8.",
+    "C24 additionally tests inverse_original at a boundary without an explicit anchor; MissingAnchor."
+  ]
+}

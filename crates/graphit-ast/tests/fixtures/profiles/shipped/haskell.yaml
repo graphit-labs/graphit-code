@@ -1,0 +1,80 @@
+language: haskell
+grammar: tree-sitter-haskell
+extensions: [".hs", ".lhs"]
+
+target_rules:
+  CALLS: { labels: [Function, Constructor] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function (variable) @name)'
+  - data_key: signatures
+    graph_label: TypeSignature
+    pattern: '(signature (variable) @name)'
+  - data_key: data_types
+    graph_label: DataType
+    pattern: '(data_type name: (name) @name)'
+  - data_key: type_classes
+    graph_label: TypeClass
+    pattern: '(class name: (name) @name)'
+  - data_key: instances
+    graph_label: Instance
+    pattern: '(instance name: (name) @name)'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(module) @name'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import module: (module) @name)'
+  - data_key: constructors
+    graph_label: Constructor
+    pattern: '(data_constructor constructor: (prefix name: (constructor) @name))'
+
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import module: (module) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(apply (variable) @name)'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  function: Function
+  data_type: DataType
+  class: TypeClass
+
+anon_func_types:
+  - lambda
+
+declaration_types:
+  - function
+  - signature
+  - data_type
+  - class
+  - instance
+
+comment_types:
+  - comment
+  - haddock
+
+complexity:
+  node_types:
+    - conditional
+    - case
+
+embed_labels:
+  - Module
+  - DataType
+  - TypeClass
+  - Instance
+  - Function
+  - TypeSignature
+  - Constructor
+  - Comment

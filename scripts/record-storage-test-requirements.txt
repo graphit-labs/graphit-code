@@ -1,0 +1,2 @@
+# Isolated local S3/STS contract fixture; no cloud account or supplier CLI.
+moto[server,s3,sts,iam]==5.1.12

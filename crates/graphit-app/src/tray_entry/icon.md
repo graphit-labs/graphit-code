@@ -1,0 +1,1 @@
+The 32×32 ARGB32 icon is rendered from the maintained `ui/public/favicon.svg` using librsvg/Cairo, preserving the supplied bracket geometry and cobalt/white mark. It is embedded directly so a packaged tray needs no checkout, image decoder, icon-theme installation or SVG runtime. The desktop controls menu typography and surfaces. No new logo or theme is introduced.

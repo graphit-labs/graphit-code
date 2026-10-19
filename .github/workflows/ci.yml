@@ -15,284 +15,161 @@ concurrency:
 
 jobs:
 
-  native-linux:
-    name: Linux Native Dependency
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Cache verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Install verified native dependencies
-        run: make lancedb-native
-
-      - name: Upload LanceDB native library
-        uses: actions/upload-artifact@v4
-        with:
-          name: lancedb-native-linux-amd64
-          path: .native
-          include-hidden-files: true
-          retention-days: 1
-
-  lint:
-    name: Lint & Vet
-    needs: native-linux
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download LanceDB native library
-        uses: actions/download-artifact@v4
-        with:
-          name: lancedb-native-linux-amd64
-          path: .native
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Restore verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Install CGO dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
-
-      - name: Create UI dist placeholder
-        run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
-
-      - name: Validate workflow files
-        run: make actionlint
-
-      - name: Vet
-        run: make vet
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.12.2
-
-  test:
-    name: Tests
-    needs: [native-linux, ui-build]
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download LanceDB native library
-        uses: actions/download-artifact@v4
-        with:
-          name: lancedb-native-linux-amd64
-          path: .native
-
-      - name: Set up Go
-        id: go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Locate Go cache directories
-        id: go-cache-paths
-        run: |
-          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-
-      # Keep the full-suite cache separate from small jobs sharing setup-go's
-      # immutable key. New commits restore the previous complete build and save
-      # their additions; -count=1 still executes every test.
-      - name: Cache full-suite Go dependencies and build outputs
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ steps.go-cache-paths.outputs.modules }}
-            ${{ steps.go-cache-paths.outputs.build }}
-          key: go-test-full-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'native-deps.env') }}-${{ github.sha }}
-          restore-keys: |
-            go-test-full-${{ runner.os }}-${{ runner.arch }}-ubuntu22-${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum', 'native-deps.env') }}-
-
-      - name: Restore verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Install CGO dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
-
-      - name: Download built UI
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-dist
-          path: internal/ui/dist
-
-      - name: Configure git identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Cache embedding model
-        uses: actions/cache@v4
-        with:
-          path: /tmp/graphit-model-cache
-          key: embedding-model-${{ runner.os }}-${{ hashFiles('Makefile') }}
-          restore-keys: |
-            embedding-model-${{ runner.os }}-
-
-      - name: Run tests
-        run: make test-full
-        env:
-          GRAPHIT_HEAVY_TEST_ISOLATED: "1"
-
-      - name: Convert coverage to Cobertura XML
-        run: go run github.com/boumenot/gocover-cobertura@v1.5.0 < coverage.out > coverage.xml
-        env:
-          GOFLAGS: "-tags=lancedb"
-
-      - name: Upload coverage report
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage.xml
-          flags: go
-          name: code-coverage/go
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-  platform-semantics:
-    name: Platform semantics (${{ matrix.os }})
+  rust-contracts:
+    name: Rust contracts (${{ matrix.os }})
+    defaults:
+      run:
+        working-directory: graphit-code
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
-
+    env:
+      CARGO_BUILD_JOBS: "2"
+      RUST_TEST_THREADS: "2"
+      GRAPHIT_BROKER_REF: ${{ vars.GRAPHIT_BROKER_REF }}
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Watcher and ignore rules
-        run: go test -race -count=1 -timeout 10m ./internal/fswatch/... ./internal/ignorer/...
-      - name: Store path resolution
-        run: go test -race -count=1 -timeout 5m ./internal/store/...
-      - name: Project version resolution
-        run: go test -race -count=1 -timeout 5m ./internal/projectversion/...
-      - name: Cross-process lock semantics
-        run: go test -race -count=1 -timeout 5m ./internal/lockfile ./internal/storelifecycle ./internal/daemonctl
-      - name: Subprocess tree and machine-wide heavy gate
-        run: go test -race -count=1 -timeout 5m ./internal/clirun ./internal/sysutil
-
-  security:
-    name: Security Scan
-    needs: native-linux
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download LanceDB native library
-        uses: actions/download-artifact@v4
-        with:
-          name: lancedb-native-linux-amd64
-          path: .native
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Restore verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Install CGO dependencies
+          path: graphit-code
+      - name: Require explicit Broker source ref
+        shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
-
-      - name: Create UI dist placeholder
-        run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
-
-      - name: Run govulncheck
-        run: make vulncheck
-
-  build-check:
-    name: Build Check
-    needs: native-linux
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
+          if [ -z "$GRAPHIT_BROKER_REF" ]; then
+            echo "Set repository variable GRAPHIT_BROKER_REF to the Broker source ref paired with this Code revision." >&2
+            exit 1
+          fi
+      - name: Checkout Broker wire producer
         uses: actions/checkout@v4
-
-      - name: Download LanceDB native library
-        uses: actions/download-artifact@v4
         with:
-          name: lancedb-native-linux-amd64
-          path: .native
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: internal/ui/package-lock.json
-
-      - name: Restore verified native bundle
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/graphit/native
-          key: graphit-native-linux-amd64-${{ hashFiles('native-deps.env') }}
-
-      - name: Install CGO and build dependencies
+          repository: graphit-labs/graphit-broker
+          ref: ${{ env.GRAPHIT_BROKER_REF }}
+          path: graphit-broker
+          persist-credentials: false
+          token: ${{ secrets.GRAPHIT_BROKER_READ_TOKEN || github.token }}
+      - name: Record paired Broker revision
+        run: git -C ../graphit-broker rev-parse --verify HEAD
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Install current Git on Linux (native hooks/reftable required)
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
-
-      - name: Build
-        run: make build-linux
+          sudo add-apt-repository --yes ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install --yes git
+      - name: Install current Git on macOS (native hooks/reftable required)
+        if: runner.os == 'macOS'
+        run: |
+          brew install git
+          echo "$(brew --prefix git)/bin" >> "$GITHUB_PATH"
+      - name: Install current Git on Windows (native hooks/reftable required)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco upgrade git --yes --no-progress
+          "${env:ProgramFiles}\Git\cmd" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Verify Git native hooks and shell on PATH (2.54+)
+        run: |
+          git --version
+          git var GIT_SHELL_PATH
+          git -c hook.graphit-ci-native.event=pre-commit -c hook.graphit-ci-native.command='exit 0' hook run pre-commit
+      - name: Install Linux native build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install --yes build-essential gcc-13 g++-13 cmake clang llvm libclang-dev libssl-dev pkg-config protobuf-compiler libprotobuf-dev patchelf
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+      - name: Install macOS native build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake openssl@3 protobuf pkg-config llvm
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - name: Install Windows native build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install protoc unzip llvm --yes --no-progress
+      - name: Select Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          vsversion: '2022'
+      - name: Install Windows OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows pkgconf:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=C:/Program Files/LLVM/bin" >> $env:GITHUB_ENV
+          "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $env:GITHUB_PATH
+          "PKG_CONFIG=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build owned Broker Hub storage fixture
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture --target-dir target
+          fixture_bin="$PWD/target/debug/examples/hub_storage_fixture"
+          test -f "$fixture_bin"
+          test -x "$fixture_bin"
+          echo "GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN=$fixture_bin" >> "$GITHUB_ENV"
+      - name: Build model-server executable for Linux contract tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo xtask cargo build --locked -p graphit-daemon --bin graphit-model-server
+          model_server="$PWD/target/debug/graphit-model-server"
+          test -s "$model_server"
+          test -x "$model_server"
+          echo "GRAPHIT_TEST_MODEL_SERVER=$model_server" >> "$GITHUB_ENV"
+      - name: Prepare pinned embedding GGUF for the Linux native NN gate
+        if: runner.os == 'Linux'
+        shell: bash
         env:
-          VERSION: ci-${{ github.sha }}
+          EMBEDDING_MODEL_URL: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/bfcd298762cc34d0357ece5ebdd31791a3a374d8/embeddinggemma-2-BF16.gguf
+          EMBEDDING_MODEL_SHA256: 68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216
+          EMBEDDING_MODEL_BYTES: '557950176'
+        run: |
+          model_file="$RUNNER_TEMP/embeddinggemma-2-BF16.gguf"
+          curl --fail --location --show-error --silent "$EMBEDDING_MODEL_URL" --output "$model_file"
+          printf '%s  %s\n' "$EMBEDDING_MODEL_SHA256" "$model_file" | sha256sum --check
+          test "$(wc -c < "$model_file")" -eq "$EMBEDDING_MODEL_BYTES"
+          echo "GRAPHIT_EMBEDDINGGEMMA2_MODEL=$model_file" >> "$GITHUB_ENV"
+      - name: Check Rust contracts and quality
+        run: cargo xtask gate
+
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: |
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/actionlint" actionlint
+          echo "$RUNNER_TEMP/actionlint" >> "$GITHUB_PATH"
+
+      - name: Validate workflow files
+        run: actionlint -no-color .github/workflows/*.yml
+
 
   ui-build:
     name: UI Build
@@ -307,10 +184,13 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: internal/ui/package-lock.json
+          cache-dependency-path: ui/package-lock.json
 
-      - name: Build UI
-        run: make ui
+      - name: Build UI shipped with Rust
+        run: |
+          npm --prefix ui ci
+          node scripts/build-rust-ui.mjs
+          git diff --exit-code -- crates/graphit-app/assets/ui/index.html crates/graphit-app/assets/ui/logo.svg crates/graphit-app/assets/ui/favicon.svg
 
       - name: Lint UI
         run: make ui-lint
@@ -322,5 +202,22 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ui-dist
-          path: internal/ui/dist
+          path: ui/dist
           retention-days: 1
+
+  native-packaging:
+    name: Native packaging contracts
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check affected shell scripts and package contracts
+        run: |
+          shellcheck -x install.sh scripts/package-release.sh scripts/graphit-entrypoint.sh
+          node scripts/test-native-packaging.mjs
+          node scripts/test-package-platform-runtime.mjs

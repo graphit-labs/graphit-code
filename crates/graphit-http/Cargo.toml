@@ -1,0 +1,29 @@
+[package]
+name = "graphit-http"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+graphit-core = { path = "../graphit-core", features = ["async-cancel"] }
+http.workspace = true
+hyper = { version = "=1.12.0", default-features = false }
+reqwest.workspace = true
+reqwest-websocket.workspace = true
+futures-util = "=0.3.34"
+tungstenite = { version = "=0.28.0", default-features = false }
+secrecy.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite = { version = "=0.28.0", default-features = false, features = ["handshake"] }
+bytes = "=1.12.1"
+rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["aws_lc_rs", "tls12"] }
+tower.workspace = true
+
+[lints]
+workspace = true

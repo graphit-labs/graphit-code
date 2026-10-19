@@ -1,6 +1,7 @@
 ---
 title: "Configuration Reference"
-description: "Complete user-facing reference for Graphit configuration layers, feature switches, providers, storage, networking, indexing, automation, and runtime resource controls."
+updated: 2026-10-30
+description: "Rust configuration commands, typed settings, layers, scopes, module switches and domain configuration references."
 content-type: reference
 audience: users
 keywords:
@@ -20,565 +21,624 @@ related:
   - "docs/guides/ai_models.md"
   - "docs/guides/daemon_operations.md"
   - "docs/guides/github-actions-artifacts.md"
+references:
+  - target: {type: task, id: tsk-b45e}
+    relation: implements
+  - target: {type: task, id: tsk-861f}
+    relation: implements
+  - target:
+      type: task
+      id: tsk-f4cd
+    relation: supports
+  - target:
+      type: task
+      id: tsk-3747
+    relation: supports
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-6997
+    relation: supports
+  - target:
+      type: task
+      id: tsk-fcf0
+    relation: supports
+  - target:
+      type: task
+      id: tsk-542d
+    relation: supports
+  - target:
+      type: task
+      id: tsk-a4ca
+    relation: supports
+  - target:
+      type: task
+      id: tsk-2dfb
+    relation: supports
+  - target:
+      type: task
+      id: tsk-6e2e
+    relation: supports
+  - target:
+      type: task
+      id: tsk-8ba1
+    relation: supports
+  - target:
+      type: task
+      id: tsk-c10c
+    relation: supports
+  - target:
+      type: task
+      id: tsk-9d9d
+    relation: supports
+  - target:
+      type: task
+      id: tsk-ba35
+    relation: supports
+  - target:
+      type: memory
+      id: 01M48ZVYFZQE3W17F7T2ZMAE84
+    relation: derived_from
+  - target: {type: task, id: tsk-3ddb}
+    relation: relates_to
+  - target: {type: task, id: tsk-ad05}
+    relation: relates_to
+  - target: {type: task, id: tsk-e493}
+    relation: relates_to
+  - target: {type: task, id: tsk-7a13}
+    relation: relates_to
+  - target: {type: task, id: tsk-c3bf}
+    relation: relates_to
+  - target: {type: task, id: tsk-0257}
+    relation: relates_to
+  - target: {type: task, id: tsk-47fd}
+    relation: relates_to
+  - target: {type: task, id: tsk-d75f}
+    relation: relates_to
+  - target: {type: task, id: tsk-b788}
+    relation: relates_to
+  - target: {type: task, id: tsk-4323}
+    relation: relates_to
+  - target: {type: task, id: tsk-376b}
+    relation: relates_to
+  - target: {type: task, id: tsk-13b9}
+    relation: supports
+  - target: {type: task, id: tsk-61a0}
+    relation: derived_from
+  - target: {type: task, id: tsk-ec10}
+    relation: derived_from
+  - target: {type: task, id: tsk-27c1}
+    relation: implemented_by
+  - target: {type: task, id: tsk-5f7d}
+    relation: relates_to
 ---
 
 # Configuration Reference
 
 Graphit can run entirely on one workstation, coordinate several agents against shared S3-backed
 state, or serve reusable contexts to a team. The same configuration system covers those modes.
-This page lists every supported user-facing key, its default, and the boundary it changes.
+This page explains configuration CRUD, typed values, resolution and scope. Domain guides document
+the settings consumed by each feature. The [key/default reference](../reference/configuration-keys.md)
+lists current switches, structured settings, input bounds, capture and reload behavior.
+JSON examples containing only `settings` are Global documents or sections of an
+initialized project document; a complete project document also requires its stable
+`id` and `name`. See [the project document](#the-project-document) before editing it.
+
+The Rust CLI edits the maintained typed configuration stores. Authentication
+providers/accounts and AST profile YAML keep their own commands and consumers.
+See the [configuration contract](#rust-configuration-library) for scope and safe inspection.
+
+## List values and structured settings
+
+Scalar-list configuration uses comma-separated text, not a JSON array argument.
+Quote the whole value in the shell when needed. The same values work in Project
+and Global configuration, environment overrides and `-c` command overrides, under
+the existing precedence rules. A higher-priority layer replaces the whole list.
+
+```sh
+graphit config set knowledge.extensions 'md,txt,pdf'
+graphit config set ast.grammars_whitelist 'rust,typescript'
+graphit config set ast.scip.parsers 'foo=registry.example/team/scip-foo:1,bar=registry.example/team/scip-bar:2'
+graphit -c knowledge.extensions=md,txt config get knowledge.extensions
+```
+
+The scalar CSV keys are `ast.grammar` (`extension=grammar`),
+`ast.grammars_whitelist`, `ast.grammars_blacklist`, `ast.scip.parsers`
+(`extension=image`) and `knowledge.extensions`. Their consumers retain each key's
+validation; empty text clears or removes that key's selection according to its
+contract. CSV has no custom escaping layer: a comma separates items, so do not use
+it inside one item. Empty or duplicate items are handled by the corresponding
+consumer's validation, rather than silently removed globally.
+
+`task.browser` is still one strict configuration object: its `providers` field can
+be `"dev,team"` or an array of provider names. The other fields (authorization
+endpoint, origin and session options) keep their own types. Empty providers and
+duplicates remain invalid. `daemon.models.slots` and agent instruction rules,
+`skill_aliases` and `skill_bundles` contain nested records and therefore retain
+structured JSON; flattening them into CSV would lose fields and types. Edit those
+settings in the ordinary configuration file or use their existing specialized
+commands. Do not create a second file format or encode object lists as an ad hoc
+CSV language.
+
+`config set` and `-c KEY=VALUE` use the same key-aware parser. Secrets stay literal
+strings (even when the value resembles `false`, `123` or JSON), and unrelated
+strings containing commas are not inferred to be lists. Boolean/numeric settings
+and structured objects retain their JSON types. This is CLI/configuration syntax;
+it does not change MCP or HTTP schemas.
 
 ## Resolution and scope
 
-Most keys use the first non-empty value in this order:
+Ordinary layered settings use the first **present** value in this order, including
+empty strings, `false` and `0`:
 
 1. one-command override: `graphit -c key=value ...`;
 2. environment variable;
-3. project config in `graphit.lock.json`;
+3. project config in the checkout's `.graphit/project.json`;
 4. global config in `~/.graphit/config.json`;
 5. a value compiled into a private distribution;
 6. the code default described below.
 
 Every ordinary key gets an environment variable mechanically: uppercase the key, replace dots
-with underscores, and prefix it with `GRAPHIT_`. For example, `knowledge.docs_dir` becomes
-`GRAPHIT_KNOWLEDGE_DOCS_DIR` and `modules.task` becomes `GRAPHIT_MODULES_TASK`.
+with **double underscores**, and prefix it with `GRAPHIT_`. For example,
+`knowledge.docs_dir` becomes `GRAPHIT_KNOWLEDGE__DOCS_DIR` and `modules.task` becomes
+`GRAPHIT_MODULES__TASK`. Bootstrap variables retain their documented names.
 
-```bash
-# Persist for this project.
-graphit config knowledge.docs_dir documentation
+```sh
+# Persist for the current Graphit checkout.
+graphit config set knowledge.docs_dir documentation
 
-# Persist for every project on this machine.
-graphit provider add workstation --type local --embedding-mode local --rerank-mode local
+# Persist only in this installation.
+graphit config --global set custom.retry_count 3
 
-# Override one command.
-graphit -c ast.grammars_blacklist=yaml ast index
+# Override one command or use the SDK environment name.
+graphit -c knowledge.docs_dir=documentation config get knowledge.docs_dir
+GRAPHIT_KNOWLEDGE__DOCS_DIR=documentation graphit config get knowledge.docs_dir
 
-# Override through the environment.
-GRAPHIT_UI_HOST=0.0.0.0 GRAPHIT_MODULES_DAEMON_UI=true graphit daemon
-
-# Inspect or remove values.
-graphit config --list
-graphit config --get knowledge.docs_dir
-graphit config --unset knowledge.docs_dir
+# Inspect resolved values or only the stored Global document.
+graphit config list
+graphit config get knowledge.docs_dir
+graphit config --global list
+graphit config unset knowledge.docs_dir
 ```
 
-`--secret` remains available for supported configuration secrets such as `client.secret`.
-Authentication, broker and AI keys do not live in configuration; provider/account output redacts
-them from the restricted auth store.
+Default writes require an existing Graphit checkout. Default `get/list` resolve
+captured layers, including the current project when available; `--global get/list`
+inspect only Global and ignore Project, environment and inline overrides. Reads
+outside projects are supported and create no files. Configuration operates on the
+physical checkout and rejects `--project-version`. `--timeout` controls the
+positive writer-lock wait, default 30s; it creates no resource reservation.
 
-Two compatibility keys do not use the normal layered resolver: `ai.cli` and `ai.agent_args` are
-read from the global configuration used by the completion client. Set them with `--global`.
+Values use JSON types or literal text; public null is invalid. `set/unset` report
+only `changed`; `get/list` include source and SDK inspection. Public values appear
+as `{"kind":"public","value":...}`. Supported secrets such as `client.secret`
+appear only as `{"kind":"secret","configured":true|false}` and cannot be stored
+in Project. No `--secret` flag or raw-secret output is needed. Authentication,
+Broker, AI and S3 credentials belong to the restricted Auth provider/account store.
+`ai.cli` selects one completion executable name or path, captured when the daemon starts. `ai.agent_args` remains outside runtime configuration.
 
-## Deployment profiles
+## Installation settings
 
-| Profile | Essential settings | Result |
-|---|---|---|
-| Local workstation | local auth provider without broker storage; local embedding; default modules | Sources, graphs, wikis, memory, and tasks stay on the machine while profiles remain isolated. |
-| Shared S3 state | local provider with direct S3 or S3-enabled Broker provider with Broker-issued temporary credentials | Hub artifacts and authenticated Memory/Task tables use direct S3 access; Broker-routed AI remains independently selectable. |
-| CI artifact publisher | non-interactive provider creation and login; agent, Dream, daemon, watcher, and hooks disabled | An ephemeral runner explicitly builds and publishes current AST and knowledge contexts without prompts. |
-| Headless server | `modules.agent=false`, `GRAPHIT_MODULES_DAEMON_UI=true`, `ui.auth.enabled=true`, fixed `mcp.port`; usually remote storage | One daemon serves the authenticated MCP endpoint and a browser-session protected Observatory UI. |
-| Private distribution | build-time `COMPILE_CONFIG` and brand variables | Defaults and identity ship with an internally distributed launcher. |
+These settings belong to the installation and cannot be persisted in Project:
 
-See [Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for a complete
-production publisher. `setup --non-interactive` configures runtime preferences; separate
-non-interactive provider/login commands establish AI topology, local ONNX execution, the account,
-and the S3 boundary. See also
-[Authentication providers and account profiles](authentication.md).
+| Key | Purpose |
+| --- | --- |
+| `ai.cli` | Completion CLI executable, separate from the selected agent integration; restart the daemon after changing it. |
+| `unit.id` | Local installation attribution; it does not grant remote authority. |
+| `client.secret` | Secret installation salt for event pseudonyms. |
+| `ui.auth.cookie_encryption_key` | Accepted secret scope policy; not consumed by the current opaque-handle Rust Browser. |
 
-## General and agent selection
+For example:
 
-| Key | Default | Scope and effect |
-|---|---|---|
-| `agent` | `opencode` fallback | Selects the project adapter used for native MCP and lifecycle-hook files. `graphit init --agent` wins for that command. |
-| `cli` | mapped from `agent`, then `opencode` | Default coding-agent CLI used when Graphit needs text synthesis or a Live Search worker. |
-| `ai.cli` | unset | Global compatibility override checked before the normal CLI fallback chain. |
-| `ai.agent_args` | unset | Global arguments appended only to streamed agentic runs with tool use enabled, currently Live Search and Dream. |
-| `ai.agent_args.<binary>` | unset | Global agentic-run arguments for one executable, such as `ai.agent_args.claude`; wins over the generic value. Values split on whitespace, without shell quoting. |
-| `unit.id` | generated ULID | Local installation identity provisioned during setup for attribution and diagnostics. A lazy fallback covers non-CLI callers that bypass setup. It does not select user memory and is not trusted remote Hub identity. |
+```sh
+graphit config --global set ai.cli copilot
+graphit config --global get ai.cli
+```
 
-Supported agent adapters are `antigravity`, `claude`, `codex`, `cursor`, `gemini`, `kiro`,
-`opencode`, `qwen`, and `kimi`. The adapter owns the native MCP and lifecycle format.
-Most are project-scoped; Kimi hooks are global and reference-counted across Graphit projects.
+## AST compiler images
 
-There is no Graphit chat-completion model key: the selected CLI owns its provider and model. See
-[AI Models, Providers, and Agent CLIs](ai_models.md) for the complete fallback order, prompt
-transport used by every supported executable, session/stream behavior, and completion consumers.
+`ast.scip.parsers` is a string of comma-separated `extension=image` associations,
+defaulting to the empty string. It uses ordinary configuration layers and wins as
+a complete value: Command > Environment > Project > Global > Distribution.
+A higher-layer empty string clears lower routes; lists are not merged. The normal
+JSON configuration envelope stores a string, for example
+`{"settings":{"ast.scip.parsers":".zig=registry.example/team/scip-zig:1"}}`.
 
-## Embeddings and hybrid retrieval
+```sh
+graphit config set ast.scip.parsers '.zig=registry.example/team/scip-zig:1'
+export GRAPHIT_AST__SCIP__PARSERS='zig=localhost:5000/scip-zig:dev'
+graphit -c 'ast.scip.parsers=.zig=registry.example/team/scip-zig:1' daemon foreground
+```
 
-Graphit's current production retrieval combines lexical and semantic candidates. AST search uses
-BM25 full-text search plus vector similarity fused with reciprocal rank fusion (RRF); wiki search
-can run lexical, semantic, or multi-wiki retrieval. The embedding provider controls how vectors
-are produced, not whether exact graph traversal or BM25 search exists.
-
-The active named provider selects `local`, `direct`, `broker`, or `disabled`. With no active
-profile, AI resolution uses the persisted provider named `local`, creating it with explicit local
-embedding/rerank and `cpu`/`0` ONNX execution if absent. Identity remains anonymous; local init,
-AST, Knowledge, Memory, and Task remain available, while remote Hub is unavailable. Direct
-endpoint/model/dimensions are provider topology and the API key is a login secret. Local reads the
-`models.embedding.id` global key and obtains dimensions and semantics from that manifest. Broker
-discovery supplies route/revision/dimensions; Graphit fingerprints and validates them. If the
-provider has broker configuration, both embedding and rerank modes must be `broker`; mixed,
-disabled, or omitted service modes are rejected. See [AI Models](ai_models.md) and [Broker](auth-broker.md).
-
-| Key | Default | Values and effect |
-|---|---|---|
-| `models.embedding.id` | `coderankembed` | Selects a built-in or operator-defined local embedding manifest under the global `models/` directory. |
-
-Local execution is not a layered config key. Each provider service in `local` mode stores
-an `onnx` block with `device` and `device_id`. Provider add/update exposes independent embedding and
-rerank flags and, interactively, preselects the provider's current values or `cpu`/`0`. `auto`
-tries CoreML then CPU on macOS and CUDA then CPU on Linux/Windows. Explicit accelerators fail rather
-than falling back; CUDA IDs are zero-based, and CoreML is macOS-only with ID `0`. For local
-embeddings, `auto` also recovers from accelerator OOM/resource failures by repeating the request on
-CPU and periodically retrying a fresh accelerator session with bounded backoff. It returns to the
-accelerator only after a successful inference; explicit device selections never switch at runtime.
-
-## Second-stage reranking
-
-Graphit contains a bounded two-stage reranking engine: the first stage widens retrieval to 50
-candidates by default, then a cross-encoder, native remote rerank provider, or embedding-simulated
-cosine scorer reorders the same candidate set and trims it to the requested limit. Tie-breaking is
-deterministic.
-
-| Key | Default | Values and effect |
-|---|---|---|
-| `search.rerank` | `false` | Enables the second stage in AST and Knowledge keyword/hybrid searches. |
-| `models.rerank.id` | `bge-reranker-base` | Selects a built-in or operator-defined local rerank manifest under the global `models/` directory. It is independent from `search.rerank`, which still controls activation. |
-
-In non-interactive provider commands, `--embedding-device*` and `--rerank-device*` apply only to a
-corresponding local service. Omitted values preserve the provider's current value or use `cpu`/`0`
-for a new local service. Direct, broker, and disabled services store no ONNX block and reject these
-flags. This rule follows service mode regardless of whether provider authentication is local,
-or Broker-managed.
-
-On providers without broker configuration, the active provider selects local/direct/broker/disabled
-for this backend independently. A broker-configured provider must use broker mode for both embedding
-and rerank. Local resolves `models.rerank.id` according to the selected manifest's fetch policy;
-direct keys are login secrets; broker model selection is server-side. The stage widens retrieval,
-preserves the same candidate set, and then
-trims to the requested limit. `search.rerank=false` still prevents construction and calls even though
-the configured backend mode is broker.
-
-Direct rerank accepts native `cohere`/`cohere-v2`, `voyage`/`voyage-v1`, and `jina`/`jina-v1`
-protocols. It also accepts `openai`, `openai-compatible`, `openai-embeddings-v1`, and `google` as
-embedding-simulated protocols. Simulated protocols require `--rerank-dimensions` and rank by cosine
-similarity between the query embedding and batched document embeddings; native protocols reject
-that flag. The endpoint, embedding model and dimensions belong to the provider, while the key is
-stored as `Profile.RerankAPIKey`. Google means the Gemini API; Graphit applies the model-appropriate
-query/document retrieval task or textual instruction and requests the configured output width.
-
-## Hub, shared state, and published artifacts
-
-Hub storage and identity are not layered configuration keys. A local provider may own direct S3
-topology and choose login credentials, an AWS profile, or the allowed AWS chain. A first-class Broker provider
-resolves topology and a restricted temporary session in memory for each project/user/Hub scope when discovery
-advertises `graphit-s3-credentials-v3`; when the capability is absent because Broker S3 is disabled,
-the profile remains authenticated and storage is local. A profile owns identity, service keys and
-direct-provider renewable sessions; Broker S3 sessions are process-local. See [Authentication](authentication.md).
-
-| Runtime key | Default | Effect |
-|---|---|---|
-| `hub.events.anonymize` | `false` | When `true`, Hub event payloads replace `project_id` and `user_id` with SHA-256 `project_hash` and `user_hash` values salted by the installation's `client.secret`. |
-| `client.secret` | generated ULID | Installation salt provisioned during setup for anonymized event IDs. A lazy fallback covers non-CLI callers that bypass setup. Keep it stable to preserve hash continuity; changing it rotates every project/user hash. It is redacted as a secret. |
-| `hub.icebug.reverse_edges` | `true` | Set explicit `false` to omit reverse CSR data from published AST artifacts. |
-| `task.prefix` | `tasks` | Final namespace for authoritative Task tables in the filesystem fallback or S3. It changes location; it does not migrate existing tables. |
-
-Hub artifact types are `knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power`,
-and `language`. Installed artifacts are version-pinned in `graphit.lock.json`; Hub AST and Knowledge
-native stores are mounted directly through `s3://`. File artifacts remain managed local files.
-
-The Hub uses the project's immutable ULID for logical keys and treats its globally unique mutable
-name as discovery metadata. In Broker mode, Graphit sends its bearer only when resolving access or
-renewing credentials; the Broker derives identity and session policy, and object traffic then goes
-directly to S3. See
-[Project Identity](../specs/project_identity.md) and
-[Hub Access Control](../specs/hub_access_control.md).
-
-`~/.<brand>/hub/cache/` is a bounded, lazy metadata cache isolated by Hub and subject. It has no
-user-facing authority switch: clearing it is safe, and no configuration may make stale cache data
-authorize remote content or mounts. File artifacts required by adapters are managed separately
-under `~/.<brand>/artifacts/modules/`.
-
-The unattended artifact-publisher profile creates a named provider and logs in with explicit
-flags under global `--non-interactive`. Its event privacy switch is
-`GRAPHIT_HUB_EVENTS_ANONYMIZE`; absence or any value other than `true`
-keeps explicit identifiers. Its embedding topology is created by `graphit provider add`, while a
-direct API key or broker key/token is supplied by `graphit login`. See
-[Publishing Graphit artifacts from GitHub Actions](github-actions-artifacts.md) for the complete
-validation and noninteractive setup sequence.
-
-## Network listeners
-
-| Key | Default | Effect |
-|---|---|---|
-| `ui.host` | `127.0.0.1` | Interface used by `graphit ui`, including the UI served in the daemon on demand. |
-| `ui.port` | `8080` | First UI port to bind. Invalid values fall back to `8080`; the environment name is `GRAPHIT_UI_PORT`. |
-| `ui.allowed_origins` | plain-HTTP loopback origins | Comma-separated exact CORS allowlist covering **every** UI surface. A configured list replaces the loopback defaults; `*` allows any browser origin. |
-| `ui.auth.enabled` | `false` | Enables Broker login and requires a valid browser session for data APIs. The Docker image sets `GRAPHIT_UI_AUTH_ENABLED=true`; set that environment variable to `false` to disable it there. Environment values take precedence over project and global config. |
-| `ui.auth.cookie_secure` | `true` | Sets `Secure` on the HttpOnly browser session and login cookies. Set `false` only for loopback HTTP development. |
-| `ui.auth.cookie_encryption_key` | unset | Cryptographically random secret string of at least 32 bytes; Code derives an AES-256-GCM key with SHA-256 for both web cookies. **Strongly recommended**, especially for exposed or multiple Code instances. Set the same value on every instance through global/project config or `GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY`; env has the usual highest precedence. When unset, each instance generates its own random key at startup, so a restart or a request sent to another instance invalidates the cookie. A configured value shorter than 32 bytes prevents web authentication from starting. |
-| `ui.auth.public_url` | empty | Canonical UI origin used for the exact Broker callback `<origin>/api/auth/callback` and Origin checks. Set it to the public HTTPS origin behind a reverse proxy; omit paths. Without it, login is available only from loopback. |
-| `mcp.host` | `127.0.0.1` | Interface for the daemon's streamable HTTP MCP listener. |
-| `mcp.port` | `0` | Fixed port, or `0` for an OS-assigned port written to the daemon runtime directory. Invalid values fall back to `0`. |
-| `mcp.allowed_origins` | empty | Comma-separated exact CORS allowlist for the MCP endpoint; the environment name is `GRAPHIT_MCP_ALLOWED_ORIGINS`. Empty emits no CORS headers at all. Only a browser-based MCP client needs it; an agent whose runtime connects server-side is unaffected. |
-
-The daemon writes a fresh local runtime key to `~/.graphit/daemon/mcp.key` with mode `0600` on
-each start. Static MCP keys are local-provider credentials. With an active Broker provider, remote
-HTTP MCP callers present their own Broker-issued access JWT. The daemon verifies its EdDSA signature,
-issuer, access-token claims, UserInfo subject, and the exact canonical MCP resource in `aud`.
-The JWT may also carry the Broker API audience so the Code can forward the same bearer to Broker
-APIs. A token bearing only the Broker API audience cannot enter the MCP listener. The stdio bridge
-uses the local daemon runtime key or a scoped capability token; it does not use an active login's
-access token to impersonate that user over HTTP.
-
-A client that holds no credential yet is told where to get one. An unauthenticated request to
-the MCP endpoint answers `401` with a `WWW-Authenticate: Bearer` challenge carrying
-`resource_metadata`, and that URL serves an OAuth 2.0 protected resource metadata document
-(RFC 9728) naming the authorization server, the supported scopes, and this endpoint's canonical
-resource identifier. A Broker provider stores that canonical URI in `broker.mcp_resource`; the
-daemon advertises it only when Broker discovery lists the same URI in `mcp_resources` and the
-request host and port match. The authorization server comes from Broker discovery. When no
-resource can be confirmed, the daemon announces no authorization server.
-
-When there is nothing to advertise — a `local` provider, or a Broker that does not list this
-deployment — the `401` carries a generic `WWW-Authenticate: Bearer` challenge without
-`resource_metadata`, and the metadata path answers `404` rather than an empty or partial document.
-A client learns that this endpoint has no
-authorization server to point it at, instead of being sent somewhere that cannot issue a
-usable token. The metadata document itself is readable by any origin, because its whole
-purpose is discovery by a client that cannot authenticate yet.
-
-The UI listener requires Broker browser sessions when `ui.auth.enabled=true`. CORS is not authorization. Keep both listeners on
-loopback unless a firewall, private network, or authenticated reverse proxy defines the remote
-trust boundary.
-
-## Knowledge indexing
-
-| Key | Default | Effect |
-|---|---|---|
-| `knowledge.docs_dir` | `docs` | Project-relative documentation tree. `.` indexes the whole project. An explicit path passed to `knowledge index` wins. |
-| `knowledge.include_readme` | `true` | Adds the first supported root README to the wiki even when it is outside the docs tree. |
-| `knowledge.extensions` | see below | Comma-separated extension allowlist; leading dots are optional. |
-| `wiki.version_retention` | `15m` | Minimum retention window for old wiki table versions. Values below one second fall back to the default. |
-
-The default knowledge extensions are `md`, `markdown`, `mdx`, `txt`, `adoc`, `rst`, `puml`,
-`plantuml`, `yaml`, `yml`, `json`, `proto`, `graphql`, `gql`, `wsdl`, and `xml`.
-
-## AST indexing and language control
-
-For the complete grammar-file schema, query selectors, merge semantics, binary
-resolution, and new-parser workflow, see [AST Grammars and Parser Extensibility](ast_extensibility.md).
-
-| Key | Default | Effect |
-|---|---|---|
-| `ast.index_source` | `true` | Stores source text needed for source reads and the full-text sidecar. |
-| `ast.index_docs` | `false` | Adds `knowledge.docs_dir` to the code graph. Use only for code-shaped documentation such as schemas. |
-| `ast.queries_dir` | `.graphit/ast/queries` | Project-relative, versionable directory for grammar query overrides. |
-| `ast.grammar` | empty | Comma-separated `.extension=grammar` bindings. This is how exclusive SQL dialect grammars become reachable. |
-| `ast.scip.enabled` | `false` | Opts into semantic SCIP indexing for supported source extensions. A successful SCIP document takes precedence over Tree-sitter and ANTLR; a failed or missing SCIP document falls back to the existing parser chain. Requires Docker and the corresponding `graphit-scip` image. |
-| `ast.scip.version` | `v1` | Tag shared by the language-specific images `ghcr.io/graphit-labs/graphit-scip-<family>:<tag>`. Choose a specific release tag to avoid the moving `v1` alias; registry tags can still be replaced. |
-| `ast.grammars_blacklist` | empty | Disables matching language/grammar names. |
-| `ast.grammars_whitelist` | empty | When non-empty, enables only matching names; the blacklist still wins. |
-| `ast.cluster_map` | empty | Comma-separated `path=cluster` prefixes. The longest matching path wins. |
-
-For example, `graphit config ast.scip.enabled true` enables SCIP for the current
-project, while `graphit config --global ast.scip.enabled true` makes it the global
-default. `graphit config ast.scip.version 0.2.1` pins the image series. The
-indexer runs when the AST pipeline parses affected source. Graphit checks the
-registry tag with Docker's `--pull=always` policy before each indexer container
-is created, so a moved tag uses the new image. A failed pull falls back to
-syntax parsing instead of using an older local image. For an unpublished local
-image, set `GRAPHIT_AST_SCIP_PULL_POLICY=missing` to use the cached tag without
-a registry check. This environment variable accepts `always` (the default) or
-`missing`. The project is mounted read-only, output and persistent
-language cache live in the global AST directory, and each run uses a fresh
-container and temporary OverlayFS volume.
-Windows and macOS use Docker Desktop's Linux containers. Docker Desktop and
-rootless Docker use UID/GID 0 in the container so bind-mounted files map to
-the invoking host user; a native Linux daemon uses the host UID/GID.
-The file selection still follows recursive `.gitignore` and `.astignore` rules.
-SCIP entity and relation extraction is declared in `scip-<family>.yaml` profiles;
-project overrides go in `<ast.queries_dir>/scip/` and global overrides in
-`~/.graphit/ast/queries/scip/`. Editing a profile forces reindexing even when
-source files have not changed.
-See [AST grammars and parser extensibility](ast_extensibility.md#scip-semantic-indexing)
-for the supported language families and fallback behavior.
-
-`graphit ast index --cluster <name>` applies a default cluster to that invocation, and
-`--cluster-path path=name` adds path mappings. The command persists an `ast.cluster` field for
-historical compatibility, but automatic indexing does not currently resolve that field; use
-`ast.cluster_map` for persistent automated routing and `--cluster` for an explicit invocation.
+Extensions accept an optional leading dot and ASCII-case-insensitive matching;
+collisions and malformed winning configuration fail. Surrounding item/assignment
+whitespace is trimmed; missing `=`, empty extension/image and empty comma-separated
+segments are errors. `graphit config set ast.scip.parsers ''` clears the current
+Project associations. Custom routes override the
+maintained compiler route for their extensions and can admit compiler-only
+extensions. References are passed unchanged to Docker; `ast.scip.version` applies
+only to maintained Graphit images. Docker's normal credentials handle private
+registries. An image association does not install a syntax grammar; fallback uses
+the Tree-sitter/ANTLR grammars linked into Graphit. See
+[AST extensibility](ast_extensibility.md#custom-compiler-images-by-extension) for
+the image, mounts, output, cache, failure and Source contracts.
 
 ## Module switches
 
-Every `modules.<name>` value is `true` or `false`. Core and process modules are on when absent,
-except `dream` and `daemon_ui`, which are opt-in. A switch controls the orchestration paths that
-consult it; it is not a blanket authorization layer unless stated below.
+Module switches use actual JSON booleans. The CLI validates recognized switches
+with the same `ModuleSettings` API used by consumers before persisting them.
+An invalid winning value is an error; it never falls through to a default.
 
-| Key | Default | What the switch controls |
-|---|---|---|
-| `modules.task` | on | Task mandate, lifecycle reconciliation, and all Task service operations. Disabled operations fail closed. |
-| `modules.memory` | on | Memory mandate/bootstrap, synchronization, and daemon maintenance. |
-| `modules.ast` | on | AST mandate plus lifecycle/daemon indexing. Direct AST commands remain explicit operations. |
-| `modules.knowledge` | on | Knowledge mandate plus lifecycle/daemon indexing. Direct Knowledge commands remain explicit operations. |
-| `modules.hub` | on | Hub routing in injected agent context and artifact preparation flows. |
-| `modules.daemon` | on | Automatic daemon startup from ordinary CLI commands and setup. Manual daemon commands remain available. |
-| `modules.sync` | on | Daemon filesystem synchronization module. `false` removes the recursive project watcher and incremental AST/Knowledge reactions. An explicit `graphit sync` remains available. |
-| `modules.embedding` | on | Background and heavy-checkpoint embedding work. Exact graph and lexical operations remain available. |
-| `modules.hooks` | on | Install or remove Git hooks from the project lockfile during initialization and synchronization (configured hooks on Git 2.54+, `.git/hooks` on older Git). |
-| `modules.agent` | on | Natural-language Cypher generation, AI wiki answers, and Live Search; graph, BM25, vector, and hybrid retrieval remain available. |
-| `modules.dream` | off | Autonomous idle Dream cycles. |
-| `modules.daemon_ui` | off | Startup is controlled only by `GRAPHIT_MODULES_DAEMON_UI=true`; stored module settings do not start the UI. Otherwise the tray or `graphit ui` requests it on demand. |
+| Keys | Default |
+| --- | --- |
+| `modules.task`, `modules.memory`, `modules.ast`, `modules.knowledge`, `modules.hub` | `true` |
+| `modules.daemon`, `modules.sync`, `modules.embedding`, `modules.hooks`, `modules.agent` | `true` |
+| `modules.dream`, `modules.daemon_ui` | `false` |
 
-### Git hook commands in the project lockfile
+`modules.embedding=false` is the embedding opt-out, including Task consumers;
+enabling Task or selecting a provider/model must not bypass it. It does not
+disable the independently selected rerank service. Source publication and
+lexical retrieval do not require embedding inference.
 
-The `hooks` member is a top-level member of `graphit.lock.json`, alongside `project`,
-`artifacts`, and `config`. It is not a `config` key. Each hook name maps to an ordered
-array of shell command strings. Graphit installs `pre-commit` by default and any
-additional event named in this map. Use names from Git's
-[githooks reference](https://git-scm.com/docs/githooks/2.54.0); an unknown name is
-rejected when the lockfile loads. Merge this example with the existing
-top-level members of the project lockfile:
-
-```json
-{
-  "hooks": {
-    "pre-commit": [
-      "go vet ./...",
-      "go test ./..."
-    ],
-    "pre-push": [
-      "go test ./..."
-    ]
-  }
-}
+```sh
+graphit config --global set modules.embedding false
 ```
 
-`pre-commit` and `pre-push` are examples, not the full set of supported events.
-The same map can configure hooks such as `commit-msg` and `post-checkout`.
-Some Git events run after an operation and cannot reject it; use an event that
-supports rejection for a blocking quality gate.
+Task and Memory orchestration consume this same switch; inspect the selected
+build/provider and current service error rather than assuming model installation
+enables work. See the [foreground runtime contract](../specs/rust_source_foreground.md).
 
-Put consistency checks such as linting, formatting checks, tests, or generated-file
-validation in this list. Graphit runs every command in order from the project root
-using the platform shell (`sh -c` on Unix, `cmd /C` on Windows). A nonzero result or
-an empty command blocks the Git operation when that event supports rejection,
-even if later commands succeed. Standard output and standard error appear in Git's
-output. An absent or empty list runs no checks; a missing or malformed project lockfile
-blocks the Git operation when the Graphit binary
-is available. Both installation forms check whether the Graphit executable exists before
-loading this lockfile; when it is absent, the Graphit checks cannot run. Git hook
-failures also return their output and nonzero status to the coding agent that
-ran `git commit` or `git push`. In an agent-led delivery, that agent fixes the
-reported cause. It retries a push only when the engineer's explicit request
-for that specific push still authorizes the retry. A commit, delivery, or installed
-or successful `pre-push` hook never authorizes the agent to initiate a push.
-Graphit installs and runs the configured checks, but does not create commits,
-push, or repair the project automatically.
-
-Git hook entries should use one invocation that works unchanged on Windows, macOS
-and Linux. A check may invoke any executable; it need not invoke `sh`. For an
-executable owned by the project, use a path relative to the project root. For
-every other executable, use its name and resolve it through the system `PATH`.
-Never persist a machine-dependent absolute path. Avoid shell-specific syntax.
-If a check needs platform-specific steps, put them in a versioned project runner
-invoked identically on each OS. Install missing external tools and verify that
-they resolve through `PATH`.
-Test the exact lockfile command on available target platforms and record which
-platforms remain untested. A successful run on one OS does not prove portability.
-In this repository, `graphit.lock.json` already registers
-`go run ./cmd/qualitygate pre-commit` and `go run ./cmd/qualitygate pre-push`.
-Both invoke the versioned Go runner from the project root without a
-machine-specific path. `go`, `git`, `gofmt`, `golangci-lint`, and `npm` must
-resolve through `PATH`; install the Go and Node dependencies and run
-`npm ci` in `internal/ui` before committing. The pre-commit gate checks
-formatting of tracked Go files, the lightweight Go unit tier, LanceDB relation
-tests for Relations, Wiki, Knowledge, Task, and Memory, Go lint (including
-gosec), workflow files with actionlint, UI lint, UI tests, and the UI
-typecheck/build. This is the primary gate
-against introducing inconsistent code into local commit history. The
-pre-push gate runs the full native Go suite on Linux through `make test-full`,
-then the pinned govulncheck scan. The Makefile establishes a transient user
-cgroup with CPU, memory, process-count, and time limits before preparing native
-dependencies. The runner forces the local isolation path even if a CI-only
-isolation marker is present in the caller's environment. This can take many
-minutes; install `make`, `systemd-run`, `timeout`, `ionice`, and `nice` through
-`PATH` and keep a user systemd manager available. If isolation cannot be
-established, the push fails with the Makefile's recovery message.
-On macOS and Windows, the same lockfile command runs the race-enabled platform
-semantics tests for watcher, ignore, store, locks, and daemon control before
-govulncheck. The full native Linux suite is still checked by CI for pushes from
-those platforms; their local pre-push coverage is narrower and must not be
-reported as a full-suite pass.
-If a tool, dependency, or check fails, the Git operation fails with its
-output. CI reruns the full native suite independently after a push.
-Run `graphit sync` after changing the lockfile to install its Git events;
-verify that both events are active before relying on them. If Git hook
-installation is unavailable, follow the manual commands printed by `sync`
-and report the missing gate until activation succeeds.
-Hook arguments are `$1`, `$2`, etc. on Unix, or `GRAPHIT_HOOK_ARG_1` and subsequent
-environment variables on every platform. Git-provided stdin is replayed to
-each command for `pre-push`, `pre-receive`, `post-receive`, `post-rewrite`, and
-`reference-transaction`. Other events inherit stdin directly. Interactive/protocol events
-`proc-receive` and `fsmonitor-watchman` permit one command only. See
-[Git hook installation](../specs/git_module.md) for version selection and limitations.
-
-On Git 2.54+, `init` and `sync` print exact manual registration commands for
-each event that failed. Each registration uses `hook.<brand>-<event>.command`
-and `.event=<event>`; the command wraps the executable check in `sh -c` so Git's
-positional arguments reach the runner. Removing an event from the lockfile and
-running `sync` removes its Graphit registration. After a Git upgrade, a
-successful modern registration also removes Graphit's old marked block from
-`.git/hooks/<event>`; a hook file with other content is kept. If cleanup fails,
-`init` or `sync` warns and identifies the block to remove manually.
-
-On older Git, use the shell block printed by `graphit init` or `graphit sync`
-inside `.git/hooks/<event>`. If that file uses a non-shell or unsupported
-shell shebang, adapt the invocation to its language manually. The older path ignores
-`core.hooksPath`, linked-worktree `.git` pointer files, and third-party hook
-managers. An inactive hook prevents these consistency checks from running,
-which substantially reduces the determinism of the commit gate.
-If installation fails on older Git, the warning recommends upgrading to Git
-2.54 or newer and rerunning `graphit sync`; it also prints the exact manual
-integration for each affected event. A Git 2.54+ registration failure prints
-manual registration commands without suggesting an upgrade that cannot fix it.
-
-To stop filesystem watching for one project while keeping the daemon and manual synchronization:
-
-```bash
-cd /path/to/project
-graphit config modules.sync false
-graphit daemon restart
+```sh
+graphit config set modules.sync false
+graphit config --global set modules.agent false
+GRAPHIT_MODULES__DAEMON_UI=true graphit config get modules.daemon_ui
 ```
 
-Use `graphit config --global modules.sync false` to disable watchers for every registered project,
-or start the daemon with `GRAPHIT_MODULES_SYNC=false`. Set the value back to `true` and restart to
-restore watching. The daemon selects the project module set when it constructs a supervisor, so a
-running watcher is not removed immediately when the lockfile changes. `modules.sync` affects only
-the daemon's incremental watcher: `graphit sync`, `graphit ast index`, and `graphit knowledge index`
-remain explicit operations.
+`modules.daemon_ui` is Environment-only: both persisted scopes reject it. Its
+variable is `GRAPHIT_MODULES__DAEMON_UI`. Environment booleans accept JSON
+`true`/`false` with surrounding JSON whitespace. `TRUE`, `1`, `yes`, an empty
+value and a quoted boolean string are invalid for the typed module consumer.
+Inspection reports the captured environment text; typed consumers interpret it.
 
-The five agent-routing modules—Task, Memory, AST, Hub, and Knowledge—also determine which
-semantic mandates are injected at supported lifecycle boundaries. Native hooks reload current
-configuration for the active project rather than baking checkout paths into generated commands.
+Module switches control orchestration. They grant no PROJECT permission and do
+not prove an external CLI is installed. Disabling Agent leaves local retrieval,
+graph and model gates independent. Enabling Daemon UI does not itself start a
+server. Consumers capture or reload their own settings; see
+[daemon operations](daemon_operations.md) and the
+[module contract](../specs/config_module.md#rust-module-settings-contract).
 
-## Daemon, Dream, and retention
+## Authentication, models and agent selection
 
-| Key | Default | Effect |
-|---|---|---|
-| `daemon.activity_window` | `30m` | How recently a registered project must change to stay supervised. `0` disables parking. Invalid/negative values use the default. |
-| `dream.idle_timeout` | `7200` seconds | Idle time before an enabled Dream cycle starts. |
-| `dream.max_duration` | `28800` seconds | Maximum Dream session duration; `0` means unlimited. |
-| `memory.version_retention` | `720h` (30 days) | Minimum retention for old authoritative memory versions. Values below one second use the default. |
+Providers, accounts, Broker topology, AI service selectors, S3 credentials and
+renewable sessions belong to Auth, outside ordinary configuration CRUD. A Broker
+provider permits only `broker` or explicit `disabled` for embedding and rerank.
+It cannot select Local/Direct inference or silently fall back to it. A Local
+provider can select its two services independently. Local execution requires the
+exact model, device, rule and authority admitted by the service credential.
+See [authentication](authentication.md), [Broker](auth-broker.md) and
+[AI models](ai_models.md).
 
-Dream consolidates Memory during idle time but never mutates documentation or consumes the Task backlog.
-Task ownership and completion remain explicit, fenced actions.
+The public `agent` setting selects native artifact/host integration. `ai.cli`
+selects completion independently; neither stores vendor model credentials. Kiro uses the current `kiro-v3`
+binding. See [setup and CLI commands](cli_reference.md) and
+[native installation contracts](../specs/hub_native_installations.md).
 
-## Runtime-only environment controls
+### Rust local model install and select
 
-These variables are operational overrides rather than dot-notation config keys:
+Use the model commands to install and select a verified local model:
 
-| Variable | Effect |
-|---|---|
-| `GRAPHIT_GLOBAL_DIR` | Replaces the default global Graphit data directory. |
-| `GRAPHIT_MODEL_CACHE` | Replaces the global root containing all local model bundles and manifests. |
-| `GRAPHIT_MAX_WORKERS` | Caps the shared CPU budget between 1 and the available CPU count. |
-| `GRAPHIT_HEAVY_SLOTS` | Allows more than one CPU-saturating job per process, capped by the CPU budget. Default `1`; higher values trade peak memory for throughput. |
-| `GRAPHIT_DB_THREADS` | Overrides the LadybugDB worker-thread budget. |
-| `GRAPHIT_DB_BUFFER_MB` | Overrides the LadybugDB buffer pool in MiB. |
-| `GRAPHIT_EMBED_THREADS` | Overrides local ONNX embedding intra-op threads. |
-| `GRAPHIT_ANTLR_HEAP_MB` | Overrides the ANTLR sidecar heap budget in MiB. |
-| `GRAPHIT_ANTLR_RESET_FILES` | Number of parsed files between ANTLR cache-pressure checks. Default `250`; positive integers only. |
-| `GRAPHIT_ANTLR_SLL=1` | Forces the SLL-first parser path, including for grammars normally kept in LL mode. Use only for parser diagnosis or measured tuning. |
-| `GRAPHIT_ANTLR_LL_ONLY=1` | Forces LL parsing and takes precedence when both prediction overrides are `1`. Use only for parser diagnosis or measured tuning. |
-| `GRAPHIT_PROJECT_VERSION` | Pins the [project version](../specs/project_identity.md#project-version) used for the project of the process's starting directory, like `--project-version`. Other projects keep their checkout's version. The daemon sets it for each child it starts. |
-| `GRAPHIT_GIT_BASE_BRANCH` | Version used for a detached HEAD, typically the CI branch. Without it, a detached checkout uses the project's default version. |
-| `GRAPHIT_AGENT_SESSION_ID` | Supplies stable task attribution when a host-specific session ID is unavailable. Graphit otherwise recognizes `CODEX_THREAD_ID`, `CODEX_SESSION_ID`, `CLAUDE_SESSION_ID`, `CURSOR_SESSION_ID`, `GEMINI_SESSION_ID`, `OPENCODE_SESSION_ID`, and `KIRO_SESSION_ID`, in that order. |
+```sh
+graphit models install embeddinggemma2
+graphit models select embeddinggemma2-bfcd298762cc34d0357ece5ebdd31791a3a374d8/model-256.json
+```
 
-The launcher sets `GRAPHIT_LAUNCHER_PATH` for internal process replacement;
-`GRAPHIT_SUBAGENT_PROTOCOL_V1` is a generated protocol marker rather than an input; and
-`GRAPHIT_TEST_HOME_ROOT` belongs only to hermetic test infrastructure. They are intentionally not
-user configuration. Do not persist or override them in normal operation.
+The model consumer stores named slots in `daemon.models`. Use its dedicated
+commands for the manifest, artifact integrity and runtime validation rather than
+hand-building this structured value. An explicit empty slot list is an opt-out;
+model installation preserves an existing embedding selection. See
+[local model installation](ai_models.md#rust-local-model-install-and-select) and
+[the model CLI contract](../specs/rust_cli_models.md).
 
-## Installer and image-build controls
+### Rerank activation and request overrides
 
-These values select what gets installed; they are not read by the installed Graphit runtime and do
-not participate in the configuration precedence chain.
+`search.rerank` defaults to `false`. Selecting a rerank provider or installing
+its model does not activate inference. Set the key explicitly in the scope you
+need; an explicit PROJECT value overrides Global:
 
-| Surface | Control | Default | Effect |
-|---|---|---|---|
-| Linux/macOS `install.sh` | `--dir <path>` | `$HOME/.local/bin` | Launcher destination. |
-| Linux/macOS `install.sh` | `--version <tag>` or `VERSION=<tag>` | latest release | Pins the release archive. The flag wins over the environment. |
-| Windows `install.ps1` | `-Dir <path>` or `GRAPHIT_INSTALL_DIR=<path>` | `%LOCALAPPDATA%\Programs\graphit` | Launcher destination. The parameter wins over the environment. |
-| Root `Dockerfile` | build argument `BASE_IMAGE` | `debian:bookworm-slim` | Selects the image base. The Dockerfile copies the CI-compatible binary from `.build/graphit-linux-amd64`. |
+```sh
+graphit config --global set search.rerank true
+graphit config set search.rerank false
+```
 
-The PowerShell installer currently always selects the latest release; use the release archive
-directly when Windows needs an exact version. See [Getting Started](getting_started.md) and
-[Running Graphit Code as a server in a container](container.md).
+An omitted request option follows the effective configuration. An explicit
+`--rerank=false` (or request `search.rerank: false`) overrides even configured
+`true` and skips rerank RPCs, discovery, automatic preparation/download and model
+loading. It does not suppress embedding requested by a semantic/hybrid query.
+Use lexical mode when embedding inference is not needed:
 
-## Container runtime defaults
+```sh
+graphit knowledge search "parser cancellation" --mode fts --rerank=false
+```
 
-The release workflow strips the Git tag's `v` prefix when publishing to GHCR. For example,
-`v0.1.2` publishes `ghcr.io/graphit-labs/graphit-code` with tags `0.1.2`, `0.1`, `0`, and `latest`.
-The container exposes runtime settings as environment variables, so changing them does not require
-a new image. Its listener defaults are the fixed internal image ports: publish a different host
-port with Docker's `HOST:CONTAINER` mapping instead of changing the container side.
+Embedding and rerank remain independent: `modules.embedding=false` does not turn
+off an explicitly enabled reranker. See [rerank modes and activation](ai_models.md#rerank-modes-and-activation).
 
-| Variable | Default | Effect |
-|---|---|---|
-| `GRAPHIT_GLOBAL_DIR` | `/home/graphit/.graphit` | Persistent global configuration, auth, providers, and daemon runtime files. |
-| `GRAPHIT_MODULES_AGENT` | `false` | Disables features that require an external Agent CLI in the base image. |
-| `GRAPHIT_MODULES_DREAM` | `false` | Keeps autonomous Dream work disabled. |
-| `GRAPHIT_MODULES_DAEMON_UI` | `true` | Starts the UI inside the daemon at startup; `false` leaves it stopped until requested. The image defaults to `true`. |
-| `GRAPHIT_UI_HOST` | `0.0.0.0` | Makes the UI listener reachable through the container network. |
-| `GRAPHIT_UI_PORT` | `8080` | Reserved by the standard image for its fixed UI listener; the entrypoint replaces external overrides and the health check probes port 8080 only while daemon UI is enabled. |
-| `GRAPHIT_UI_ALLOWED_ORIGINS` | empty | Uses the normal same-origin and loopback CORS defaults. |
-| `GRAPHIT_MCP_HOST` | `0.0.0.0` | Makes the MCP listener reachable through the container network. |
-| `GRAPHIT_MCP_PORT` | `8081` | Reserved by the standard image for its fixed MCP listener; the entrypoint replaces external overrides and port 8081 is the mandatory health-check target. |
-| `GRAPHIT_HUB_EVENTS_ANONYMIZE` | `false` | First-start `--anonymize-events` answer and runtime override for Hub event identifier anonymization. |
-| `GRAPHIT_AGENT` | empty | First-start `--agent` answer and runtime override for `agent`; empty selects the documented default. |
-| `GRAPHIT_CLI` | empty | First-start `--cli` answer and runtime override for `cli`; empty selects the documented default. |
-| `GRAPHIT_CLIENT_SECRET` | empty | Leaves the installation salt unoverridden so Graphit can generate and persist it when required. |
+### Local model idle timeout
 
-This table lists the defaults baked into the image; it is not an allowlist. Apart from the two
-listener-port variables reserved by the entrypoint, any supported Graphit
-configuration key may be injected even when its canonical `GRAPHIT_*` name is absent from the
-Dockerfile. The normal mapping replaces dots with underscores and uppercases the key—for example,
-`modules.sync` becomes `GRAPHIT_MODULES_SYNC`. Docker, Compose, and Kubernetes do not require the
-variable to have been declared in the image. A name without a corresponding Graphit configuration
-consumer is ignored; provider and AI credentials instead use the authentication store or their
-documented native environment variables.
+`models.idle_timeout_seconds` defaults to `300` seconds and applies to both local
+embedding and local rerank, with activity tracked separately for each loaded
+model. Configure this installation-wide policy in Global:
 
-Except for `GRAPHIT_GLOBAL_DIR`, which must locate the configuration before it can be read, every
-`GRAPHIT_*` value declared by the image is an ordinary configuration environment variable. The
-entrypoint-only listener variables are the additional image-specific exception. On a
-new global volume, the entrypoint runs setup once before starting the daemon, always in
-non-interactive mode.
-The image declares `USER graphit` with UID/GID `10001`, so the entrypoint, setup, daemon, and
-explicit commands are non-root from process start. Bind mounts and custom global directories must
-be provisioned as readable, writable, and traversable by that UID/GID; the entrypoint validates
-access but cannot change ownership.
-The base image installs no Agent CLI and therefore sets `GRAPHIT_MODULES_AGENT=false`; see the
-[container guide](container.md#extend-the-image-with-an-agent-cli) for deriving an image that
-installs a CLI and overrides `modules.agent`, `agent`, and `cli`.
-See the [container](container.md) guide for the complete environment and lifecycle contract.
+```sh
+graphit config --global set models.idle_timeout_seconds 300
+```
+
+The interval starts when actual inference work completes; active work and native
+cleanup after cancellation finish before unloading. Cache hits do not extend the
+interval. The next uncached operation reloads the selected model. Unloading
+weights preserves installed files, indexed vectors and model identity; it does
+not terminate the model-service process. Zero and unsupported durations are
+invalid. Broker and Direct services control their own residency. See
+[the model service contract](../specs/rust_model_service.md).
+
+## Knowledge indexing
+
+Knowledge consumes its captured documentation settings, including
+`knowledge.docs_dir`, `knowledge.include_readme` and `knowledge.extensions`.
+Changing a setting through Config persists it; indexing and context selection
+remain Knowledge operations. See [Knowledge](../specs/rust_foreground_knowledge.md) and
+[the Rust Knowledge settings contract](../architecture/rust-knowledge-settings.md)
+for defaults, typed validation and update behavior.
+
+## AST indexing and language control
+
+The local native graph uses `ast.query.buffer_pool_bytes` and
+`ast.query.threads` (default `2`) for its shared query and FILE publication
+handle. An absent pool setting, or `0`, uses Ladybug's own default of approximately
+80% of available system memory. This is a maximum for each native database pool;
+data pages use physical memory on demand. Opening a database also allocates the
+SDK's pool metadata, so initialization is not allocation-free. An explicit positive
+value in bytes is preserved and must be at least `4096`. The pool must accommodate
+uncommitted FILE rows together with query workspace; insufficient explicit values
+return an allocation error. This setting is not a limit on the daemon's total
+memory or a shared budget for all projects.
+
+For example, set an explicit 1 GiB pool, or restore native automatic sizing:
+
+```text
+graphit config set ast.query.buffer_pool_bytes 1073741824
+graphit config set ast.query.buffer_pool_bytes 0
+```
+
+The setting is used when the native database handle is opened.
+
+AST profile YAML, grammar actions, linked grammars and index state retain their
+own loaders and stores. Configuration CRUD does not parse source, load a parser
+or fabricate an index. Public AST settings and compiler image routes remain separate. The obsolete `ast.cluster` alias is rejected.
+See [AST grammars and parser extensibility](ast_extensibility.md),
+[AST configuration](../specs/ast_module.md) and
+[ignore files](ignore_files.md).
+
+## Hub, shared state and project versions
+
+Storage and remote identity use the authenticated provider. Public configuration
+cannot grant Hub access. Installed artifacts, maintained project versions and
+instance attribution use their domain stores; Config operates on the physical
+checkout and rejects `--project-version`. It performs no conversion of an old
+configuration or data layout. See [Hub access control](../specs/hub_access_control.md)
+and [project identity and versions](../specs/project_identity.md).
+
+### Git hook commands
+
+`githooks` maps Git events to ordered arrays of complete commands. The
+normal layered Config store owns command bodies; Git stores only a portable dispatcher
+in `hook.<brand>--<event>.(command|event|enabled)` (Git 2.54+). Config CRUD changes command
+bodies immediately for registered events; `graphit git sync` or project-wide `sync`
+reconciles added/removed events. Commands are never CSV. See [Git hooks](git-hooks.md)
+for installation, shell/input/error contracts and Task/Memory integration, and the
+[registry reference](../specs/git_module.md#rust-configured-hook-registry) for local ownership.
+
+## Network listeners and browser authentication
+
+Listener, CORS and browser-session settings are consumed by their HTTP runtimes.
+CORS is separate from authentication; a valid JWT is separate from PROJECT
+authorization. Access-token validation uses trusted local signature and claim
+validation until expiration. UserInfo is only needed for missing profile data,
+not as a required per-request validity check. Account blocks, revocation and
+claim changes can take until access-token expiration to become visible.
+See [authentication](authentication.md), [Broker](auth-broker.md),
+[daemon operations](daemon_operations.md) and the
+[CLI reference](cli_reference.md) for current entrypoints and listener options.
+
+`ui.auth.cookie_encryption_key` is a supported secret and is installation-only.
+`get/list` expose only its configured state. Persisting that key does not enable
+web authentication, register an OAuth client, encrypt current opaque handles or grant browser access.
+The current Browser keeps credential-bearing sessions in memory; see [authentication](authentication.md#web-ui-login).
+
+## Bootstrap, deployment and runtime controls
+
+`--global-dir` and the branded `GLOBAL_DIR` environment variable locate the
+installation before ordinary configuration is loaded. They are not persisted
+runtime keys. The CLI captures CWD, environment and installation once before
+constructing its stores and snapshots. Resolution prefers an explicit
+`--global-dir`, then the captured branded `GLOBAL_DIR`, then the ordinary
+home-based installation directory. It does not infer an installation from the
+executable's parent directory.
+
+Published hooks and MCP configurations use the branded executable through PATH;
+PROJECT hooks select `.` relative to the workspace. A host using a custom
+installation must inherit the installation variable and the correct PATH.
+Codex forwards the variable by name through `mcp_servers.<name>.env_vars`; the
+published document contains no resolved installation path. Graphit's builtin
+allowlist also names the transient Role/Live transport variables needed when
+those authenticated modes launch; credential values are never stored in the
+MCP document. Configure the host
+launch environment rather than storing literal `$HOME` or `~` in JSON/TOML
+arguments. Changing the selector does not import or merge another installation.
+
+Only keys requested by a consumer are read from environment. An arbitrary
+variable does not create a feature. Config inspection captures maintained known
+keys, stored/inline keys and the explicitly requested `get` key. Names with no
+consumer can be stored as public custom settings but have no implicit effect.
+
+For image and platform inputs, use the maintained
+[container guide](container.md), [getting started](getting_started.md) and
+[daemon operations](daemon_operations.md). Use the SDK's double-underscore
+mapping for ordinary layered keys. Bootstrap and tool-native variables retain
+their documented spellings.
 
 ## Verify an effective setup
 
-```bash
-graphit config --list
-graphit config --list --global
-graphit daemon status
-graphit dream status
-graphit ast schema
-graphit knowledge list
-graphit memory mandatory
-graphit task list --ready
+```sh
+graphit config list
+graphit config --global list
+graphit config get modules.sync
+graphit config --help
 ```
 
-For implementation details and invalid-value behavior, continue with the
-[Configuration Module Specification](../specs/config_module.md). For provider internals and
-data-transfer boundaries, see [AI Models, Providers, and Agent CLIs](ai_models.md) and the
-[AI Engine Specification](../specs/ai_engine.md). For lifecycle and monitoring behavior, see
-[Daemon Operations and Monitoring](daemon_operations.md).
+`get` fails if a key is absent from the captured documents. Generic inspection
+does not materialize every domain default or validate every custom key's meaning.
+A successful write proves persistence under the selected scope; its domain
+consumer owns applying or reloading the value.
+
+## Rust configuration library
+
+The Main commands above use `ConfigStore`, `ConfigDocument`, `ConfigSnapshot`
+and SDK inspection. Global configuration remains `<global>/config.json`, with root
+`githooks` and ordinary keys inside `settings`. It never contains project identity.
+
+### The project document
+
+The checkout has one shared `.graphit/project.json` (or `.<brand>/project.json`):
+
+```json
+{
+  "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "name": "payments-api",
+  "description": "Payment service",
+  "cluster": {"domain": ["payments"]},
+  "ephemeral": false,
+  "githooks": {"pre-commit": ["git diff --cached --check"]},
+  "settings": {"knowledge.docs_dir": "docs", "modules.ast": true}
+}
+```
+
+Preserve the initialized ID; never copy an example ID to create a different project.
+The document has these responsibilities:
+
+| Field | Meaning |
+|---|---|
+| `id` | Required canonical, nonzero stable ULID. Owns the same project across checkouts; not a Config key. |
+| `name` | Required validated project name; changing it does not rekey stores or versions. |
+| `description` | Optional descriptive text, preserved literally. |
+| `cluster` | Optional maintained map of labels to string arrays, under existing normalization/validation rules. |
+| `ephemeral` | Boolean, false by default; retains the existing persistent-project eligibility semantics. |
+| `githooks` | Optional event → ordered command-array map at the root. Inherits through normal Config layers; never CSV. |
+| `settings` | Ordinary typed configuration keys; empty or omitted means no ordinary Project overrides. |
+
+Identity and metadata belong to this project, outside inherited settings. Global,
+environment and `-c` values cannot replace them; `config set id`, `name`,
+`description`, `cluster` or `ephemeral` is rejected. Unknown root fields, malformed
+metadata, invalid commands and duplicate representations fail rather than being
+silently dropped. Root `githooks` is the only representation of that setting.
+
+Global documents use the same configuration sections without the project fields:
+
+```json
+{"githooks":{"pre-push":["cargo xtask gate"]},"settings":{"knowledge.docs_dir":"docs"}}
+```
+
+The first present captured layer wins. Stored and command values retain JSON types.
+Environment inspection shows the original string; the hook consumer parses
+`GRAPHIT_GITHOOKS` as a JSON object, never as CSV. A Project
+`githooks: {}` suppresses all lower-layer command hooks; absence inherits. The whole
+map replaces lower maps. `graphit config unset githooks` removes the Project
+field and exposes Global again; `graphit config --global unset githooks` removes
+only the Global field. Changing commands is immediate at the next registered hook;
+adding/removing events needs `graphit git sync` or general project `sync`.
+
+Wrong winning types report errors rather than selecting a lower layer. Secrets are
+redacted throughout inspection and are rejected in the Project document. Reading
+creates nothing; malformed data fails without repair. Both Project writers use
+`.project.json.lock`, reread the complete document and atomically replace it:
+metadata edits preserve settings/hooks, Config edits preserve identity/metadata.
+Global writers keep `.config.json.lock`. Equal changes avoid rewriting the target.
+Project configuration writes require an initialized identity and never generate one.
+
+Version the unified Project document and authored rules/profile overrides. Ignore
+locks, secrets, caches and generated state through the shared `.gitignore`. No
+second Project config file, alias, automatic importer or old-layout discovery exists.
+
+See [Config Module](../specs/config_module.md#rust-configuration-contract) for
+key syntax, strict decoding, per-file limits, cancellation, permissions, errors
+and safe internal secret access. There is one maintained format and no importer.
+
+### Rust adapter selection and layout
+
+The maintained Hub selector consumes a captured snapshot and membership,
+returning `NativeBinding` and origin. Its explicit/ambient selection rules are
+specified in [Config Module](../specs/config_module.md#rust-adapter-selection-and-layout).
+Generic Config precedence remains unchanged. Selection metadata grants no
+authority and does not prove native vendor execution.
+
+### Rust installation identity and event salt
+
+`InstallationSettings::resolve` validates captured `unit.id` and `client.secret`
+without I/O. Loading Global identity creates nothing. Explicit `ensure` generates
+only missing fields and publishes them in one existing Config transaction,
+preserving valid fields and other settings. Invalid present fields require an
+explicit correction. Generated IDs are ULIDs; salts use OS randomness and remain
+secret. Local attribution is separate from remote identity and OAuth cookies.
+See [the identity contract](../specs/config_module.md#rust-installation-identity-and-salt).
+
+### Rust module settings
+
+The twelve switches above are resolved from the same immutable snapshot by
+`ModuleSettings`. Already captured views do not change after a write. Consumers
+choose their own reload boundary and authorization. See
+[the module contract](../specs/config_module.md#rust-module-settings-contract).
+
+## Rust configured-hook registry status
+
+The registry takes an explicit checkout, Brand, canonical events and trusted
+commands. It changes only its owned local Git config fields and coordinates
+cooperating managers with a stable common-dir lock. A partial write is reported
+causally and recovered by explicit reconciliation. Effective activation also
+depends on Git scope precedence and the registered program being available.
+See [the configured-hook contract](../specs/git_module.md#rust-configured-hook-registry).
+
+## Rust TCP listener reservation
+
+`tcp_listener` retains the bound socket and hands that same handle to the server,
+avoiding a probe-and-rebind race. It supports an explicit IP with an ephemeral
+port or inclusive nonzero port range, cancellation and a monotonic deadline.
+Only address-in-use advances to another port; other errors remain causal.
+Dropping the listener closes its handle. DNS, async handoff, readiness and
+shutdown belong to the runtime using it. See
+[daemon operations](daemon_operations.md) for the product listener lifecycle.
+
+## Rust captured CORS policy
+
+The HTTP CORS layer takes explicit origins, methods and headers. Disabled,
+loopback HTTP, any-origin and exact-origin policies remain distinct. Request
+origin validation has concrete input bounds; middleware never replaces
+session/CSRF, token validation or PROJECT access control. Each HTTP surface
+selects its own policy. See [network and UI configuration](s3-and-ui-network.md).
+
+## Rust background startup priority
+
+The maintained startup helper attempts lower CPU priority and, on Linux, idle
+I/O priority. It preserves an already lower priority and reports unavailable or
+unsupported operations without inventing resource reservations. Background
+consumers call it before creating work threads and retain causal diagnostics;
+interactive commands are separate. Scheduling outcomes depend on the OS.
+See [daemon operations](daemon_operations.md).
+
+## Rust caller scopes and Kiro binding
+
+Caller contracts capture project/global/version scopes and retain concrete
+input validation, cancellation and transport admission. Physical files remain
+shared by a checkout even when domain versions differ. Kiro uses only the
+current `kiro-v3` binding. See [the Hub consumer contract](../specs/hub_consumer_contract.md).

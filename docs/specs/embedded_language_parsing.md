@@ -51,7 +51,7 @@ query, it is what the grammar produces.
 
 This distinction is the point, and it is easy to get wrong. Measured on 2026-08-05:
 
-**As text, the body IS searchable.** The `files` table (`internal/ast/search_lance.go`)
+**As text, the body IS searchable.** The source index
 stores the entire file text in `source`, and `file_fts` indexes it. So,
 with `ast.index_source` enabled — the default:
 
@@ -96,37 +96,15 @@ example inside a code block is not a project declaration — indexing it as an e
 
 ## Why not just a query
 
-`CompositeParser` (`internal/ast/composite_parser.go`) dispatches between tree-sitter and ANTLR
-**by file extension**. No language has parsing of a region of the
-file with another grammar. The name "composite" refers to the two backends, not to
-embedded languages.
-
-And `parseWithConfig` (`internal/ast/treesitter_adapter.go`) read the file from disk on its
-first line and assumed a single `src` for everything else: the context resolver
-(`newContextResolver`), the docstring matchers and the positions of all entities were
-derived from that buffer. There was no way to pass a sub-buffer without touching that function — hence
-`parseSource` below.
+Backend selection for a whole file and parsing an embedded region are distinct operations. Extension dispatch alone does not parse a region with another language; each selected region needs its declared grammar, source buffer and position mapping.
 
 ## Design
 
 Four pieces, in the order they were built.
 
-### 1. `parseSource`, extracted from `parseWithConfig`
+### 1. Parse source buffers with explicit offsets
 
-```go
-func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
-    src, err := ReadFileBytes(path)
-    if err != nil {
-        return nil, err
-    }
-    return t.parseSource(path, ext, cfg, src, 0, 0, isDepend, opts)
-}
-
-// lineOffset is added to the lines of everything the parse produces. embedDepth limits
-// the sub-parse: a language whose block names itself would recurse indefinitely.
-func (t *TreeSitterParser) parseSource(path, ext string, cfg *tsLangConfig, src []byte,
-    lineOffset, embedDepth int, isDepend bool, opts ParseOptions) (*ParsedFile, error)
-```
+Parse a selected source buffer with explicit line offsets and bounded embedding depth. File reading, context resolution, docstrings and entity positions must all refer to that same captured buffer; an embedded region must not reopen the complete file as a substitute.
 
 `embedDepth` was not in the original design and was added: the config is declarative and
 nothing prevents a `default: vue` inside `vue.yaml`. `maxEmbedDepth = 1`, which is all that
@@ -297,7 +275,7 @@ The question that matters after all this is "can I change this without recompili
 answer is yes for everything that decides **which grammar parses which block**, and the boundary
 is here intentionally.
 
-### YAML only — no Go line
+### Declarative YAML configuration
 
 | What you want | How |
 |---|---|
@@ -314,12 +292,7 @@ the extension registration comes from, and `tsLangConfigByName` resolves by name
 tables. Every language we ship is eligible — `json`, `css`, `typescript`, `tsx`,
 `javascript`, `yaml`, `toml`, `xml`, `bash`, `python`, …
 
-A language we **do not** ship needs its grammar first, which is the same requirement as
-parsing a file of that language — nothing specific to embedded blocks: native
-grammar (`treesitter_native.go` + Makefile) or `.so` dynamically loaded via Hub.
-`TestEveryShippedEmbeddedBlockNamesRealGrammarNodes` fails if a `languages:` points to a
-language that does not exist, and `TestEveryShippedEmbeddedPatternCompiles` if a pattern does not
-compile — neither passes silently.
+A language not shipped with the product needs an available grammar before an embedded block can use it, just as a whole file does. Validate declared languages against the available grammar registry and compile every shipped embedded pattern; an unknown language or invalid pattern must fail explicitly.
 
 ### It is code
 
@@ -494,8 +467,7 @@ embedded:
     default: plsql
 ```
 
-**The engine knows no escaping scheme.** There is no entity table in Go, no
-"XML mode". How a language escapes its text is a fact of that language, so it lives in its YAML
+**The engine knows no escaping scheme.** There is no built-in entity table or special "XML mode". How a language escapes its text is a fact of that language, so it lives in its YAML
 — same principle as `context_types` and `embedded` itself. A grammar that escapes
 differently, or one nobody has encountered yet, declares its own and a block names it.
 
@@ -608,10 +580,6 @@ gained what it was missing to be useful as an **inner** language — which is wh
   — the table is *used* there, not declared, and creating a `Table` node would make it look like a
   declaration. Without it `select * from xpto` contributed absolutely nothing.
 
-Tests live in `sql_treesitter_test.go` and **all call `parseSource` directly**, which is
-pure tree-sitter. A test written on `parseFixture`/`CompositeParser` would pass with the
-defect in place — exactly how it survived.
-
 #### Decided: tree-sitter is the DEFAULT parser for `.sql`
 
 The question stayed open for a day and was answered: **the tree-sitter grammar is the default**,
@@ -660,11 +628,7 @@ pattern as the Import entity, which was built and thrown away with a `continue`.
 In a schema `.sql`, and in SQL from an embedded block, this is the MAJORITY of DML: a
 `<value>` configuration contains bare statements by nature.
 
-**The fix, and what I estimated wrong.** I said it would require "four writer sites
-plus the `File → Table` pair in the relation-tables group". I was wrong about
-the schema: `ladybug.go` **already emitted** `FROM File TO <target>` unconditionally for each
-DML type. The schema always supported the file as origin — what was missing was someone
-to fill it. There were three small changes:
+**File-origin DML.** A top-level SQL statement has no enclosing entity. Preserve its edge with the file as origin, resolve that origin label consistently and include file-origin edges during graph rebuild. Relation groups must contain each source/target pair once; declaring the same File→Table pair twice is invalid.
 
 - `ConvertToCache`: `sourceUID = relPath` when there is no surrounding entity. The file
   as origin is the form `IMPORTS` already uses (`File -[:IMPORTS]-> Module`).
@@ -707,10 +671,7 @@ processors: `File -[:SELECTS]-> …` for tables read, plus `INSERTS` and
 
 ##### Two traps found while writing DML
 
-**One `data_key` per edge type.** `buildRelationTypeMap` (`internal/ast/helper.go`) maps
-`data_key → relation_type`, so two queries with the same `data_key` and different types
-collide and the **last wins, silently**. With everything under `dml`, every `SELECT`, `INSERT` and
-`UPDATE` became `ALTERS`. Caught by test; there would be no way to notice in production.
+**One `data_key` per edge type.** The mapping from `data_key` to relation type must be unambiguous. Use distinct keys for SELECTS, INSERTS, UPDATES, DELETES and ALTERS so one declaration cannot silently replace another.
 
 **The `from` for DELETE does not have the same shape as the `from` for SELECT.** In both it is a SIBLING of the
 statement, not a child — but SELECT wraps the table in a `relation` and DELETE does not. One

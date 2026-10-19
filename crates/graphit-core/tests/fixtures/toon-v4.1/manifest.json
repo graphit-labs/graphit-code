@@ -1,0 +1,56 @@
+{
+  "revision": "62f16b369408180f1faf1cba7da1b46d1f336f12",
+  "source": "https://github.com/toon-format/spec",
+  "files": [
+    {
+      "path": "arrays-nested.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/arrays-nested.json",
+      "sha256": "e30b3def09d2df11971f15b87c3e6cd8c5b8a375cc9036c7ae0fdf755d07f86b"
+    },
+    {
+      "path": "arrays-objects.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/arrays-objects.json",
+      "sha256": "a4829052e36a365624526816b7d8f9ddae10e7df0e93eaf6b089603e7f302b7a"
+    },
+    {
+      "path": "arrays-primitive.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/arrays-primitive.json",
+      "sha256": "0ab7c14b9d5038ed52f4449680ccda54081867bfef0b383816aeebc069d8054f"
+    },
+    {
+      "path": "arrays-tabular.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/arrays-tabular.json",
+      "sha256": "c6a4079a188533fd3983363c80816e69dbd82cfd3abf4497c7b5bd0c32d8e94d"
+    },
+    {
+      "path": "delimiters.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/delimiters.json",
+      "sha256": "db6b0b8a6695e2194122f3e035dd4d0481d7f90068090f34c96f02fa0c7f0166"
+    },
+    {
+      "path": "objects-keyed.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/objects-keyed.json",
+      "sha256": "b064d9fe983c737d1273c05db4b4f38889e04c341637b0d0d33d681c1f5877d0"
+    },
+    {
+      "path": "objects.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/objects.json",
+      "sha256": "94703db9232df9ea09b3543733fa1cb34379d3cdc8b6d9db56196d9afc2954c5"
+    },
+    {
+      "path": "primitives.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/primitives.json",
+      "sha256": "19c54507f5a08d6d8f6c9907c5ed831097489963f8a33e8847ab94ef857e929e"
+    },
+    {
+      "path": "whitespace.json",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/tests/fixtures/encode/whitespace.json",
+      "sha256": "581d0fdf6c2f433b7a4c48b123a471346245249d1bb15352885f7ce51865dcfe"
+    },
+    {
+      "path": "LICENSE",
+      "source": "https://raw.githubusercontent.com/toon-format/spec/62f16b369408180f1faf1cba7da1b46d1f336f12/LICENSE",
+      "sha256": "2d0d2dd26bee672a2981c6d94ae71506011fdabbc54796a126476556c0b71875"
+    }
+  ]
+}

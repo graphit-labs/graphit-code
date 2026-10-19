@@ -1,0 +1,18 @@
+{
+  "id": "01KSH1CRFFG8Z74B5ZS78WW808",
+  "name": "graphit-code",
+  "ephemeral": false,
+  "githooks": {
+    "pre-commit": [
+      "git diff --cached --check",
+      "actionlint",
+      "cargo xtask check"
+    ],
+    "pre-push": [
+      "cargo xtask check",
+      "cargo xtask cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "cargo test --locked -p xtask --bin xtask"
+    ]
+  },
+  "settings": {}
+}

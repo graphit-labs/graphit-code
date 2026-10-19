@@ -67,62 +67,37 @@ instead of reconstructing it in every session.
   Memory/Task LanceDB tables. S3-enabled Broker providers receive restricted in-memory temporary
   credentials per project/user/Hub scope and physical module while
   deny-by-default ACLs and IAM policy govern the remote prefixes.
-- **One framework, many assistants.** Native adapters support Codex, Claude Code, Cursor, Gemini CLI,
+- **One framework, many assistants.** Native adapters support Codex, Claude Code, Cursor, AGY,
   Kiro, OpenCode, Antigravity, Qwen Code, and Kimi Code; any MCP client can use the server endpoint.
 - **One query, several retrieval modes.** BM25 full-text search, semantic vectors, hybrid reciprocal
   rank fusion, exact graph traversal, and source slicing serve different evidence needs.
 
-## Git hooks turn project checks into a quality gate
+## Repository quality gates
 
-`graphit init` and `graphit sync` install Git hooks for the events configured in the
-project's `graphit.lock.json`. Each event contains an ordered array of commands.
-Graphit runs them from the project root, shows their output in Git, and blocks
-the Git operation if any command fails. Put fast checks that prevent bad code
-entering local history in `pre-commit`; use `pre-push` for longer checks before
-commits reach a remote.
-These are two examples: Graphit installs `pre-commit` by default and supports
-other Git hook events named in the lockfile, such as `commit-msg` and
-`post-checkout`. A failed command can block Git only when that event supports
-rejection.
+This repository declares Git commands in `.graphit/project.json` under root `githooks`, alongside its stable identity and `settings`.
+Use Git 2.54+ and `graphit git install`; project setup also installs the native registrations.
+`graphit git sync` and the project-wide `graphit sync` reconcile added/removed events.
+Git stores one portable dispatcher per event; changing its command array takes effect
+without reinstalling. Task/Memory notifications share that dispatcher. Agent context hooks
+from `graphit coordinator install` / `graphit hooks install` remain a separate integration.
+See [Git hooks](docs/guides/git-hooks.md) for configuration, shell, input and failure semantics.
 
-In an agent-led delivery, the agent may push only when the engineer explicitly
-requests that specific push. It must not initiate or retry a push automatically
-after a commit, delivery, or successful `pre-push` check. A failed hook returns
-its output to the agent that ran the Git operation, which fixes the cause.
-The agent retries a push only when that request still authorizes the retry.
-Graphit provides the checks and their feedback; it does not create commits,
-push, or repair code on its own.
+An agent may push only when the engineer explicitly requests that push. Hook
+success does not authorize a commit or push.
 
-This repository uses the same portable runner for both events (excerpt from
-its lockfile):
-
-```json
-{
-  "hooks": {
-    "pre-commit": ["go run ./cmd/qualitygate pre-commit"],
-    "pre-push": ["go run ./cmd/qualitygate pre-push"]
-  }
-}
+```text
+pre-commit: git diff --cached --check → actionlint → cargo xtask check
+pre-push:   cargo xtask gate
 ```
 
-Here, `pre-commit` runs formatting, lint and SAST, focused Go and UI tests,
-workflow validation, and the UI build. On Linux, `pre-push` runs the full
-native Go suite inside a bounded user cgroup, then a vulnerability scan. It
-fails if local isolation is unavailable. On macOS and Windows, the same runner
-checks race-enabled platform semantics and vulnerabilities; CI still runs the
-full native Linux suite after the push. The local coverage on those platforms
-is narrower.
-
-The executable must be available through `PATH`, or be a project executable
-addressed relative to the project root. Git 2.54+ uses repository-local
-configured hooks; older Git uses `.git/hooks/<event>`. After upgrading Git,
-`graphit sync` removes Graphit's old marked block once the new registration
-succeeds, preserving other hook content. If installation or cleanup fails,
-`init` or `sync` prints recovery steps. Verify that the hook is active:
-an uninstalled hook cannot enforce the gate. The older mechanism does not
-manage `core.hooksPath`, linked worktrees, or third-party hook managers.
-See [Git hook configuration](docs/guides/configuration.md#git-hook-commands-in-the-project-lockfile)
-for command rules, version limits, and recovery.
+`pre-commit` enforces native safety, staged whitespace, workflow lint and Rust formatting.
+`pre-push` runs strict Clippy and the locked Rust workspace tests. The maintained CI
+runs Rust contracts, React build/lint/tests and standalone workflow validation;
+obsolete Go quality jobs have been retired. Release packaging remains separate.
+See the [Rust migration guide](docs/development/rust-migration.md)
+for qualification evidence and remaining product work. The [Rust workspace
+guide](docs/development/rust-workspace.md) explains the sibling Broker checkout
+required by the shared Now wire crate.
 
 ## The Graphit Observatory
 
@@ -150,7 +125,7 @@ shown. See the [code investigation guide](docs/guides/code_investigation.md) and
 
 ## Install
 
-Prebuilt releases support Linux, macOS, and Windows.
+Release targets are Linux AMD64, macOS ARM64, and Windows AMD64.
 
 ### Linux or macOS
 
@@ -164,152 +139,59 @@ curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/inst
 irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 ```
 
-The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. On the next invocation, the launcher extracts a changed Core, the daemon replaces itself, and the stdio MCP proxy asks connected clients to refresh their tool catalog through the protocol's list-change notification. Pin a release with `--version <tag>`. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
+The installers verify the release checksum and install both Rust executables with their runtime assets. Preserve the complete package, including `graphit-runtime` and the app-local DLLs on Windows. Redistributable native libraries are included; operating system libraries and optional GPU drivers remain supplied by the host. Pin a release with `--version <tag>` (`-Version` in PowerShell). See the [getting started guide](docs/guides/getting_started.md) for custom paths, complete release layouts and source builds.
 
 ## First run
 
-For the usual local workflow, run Graphit from the repository it should understand:
+Configure and maintain an existing project with the Rust SDKs. Install local
+EmbeddingGemma2 explicitly when semantic search is needed:
 
-```bash
+```sh
+graphit models install embeddinggemma2
 cd your-project
-graphit setup
-graphit init --agent codex
-graphit sync
-graphit ui
+graphit setup --agent kiro-v3 --project-dir .
+graphit coordinator install
+graphit daemon status
 ```
 
-`graphit setup` prepares installation/runtime defaults and persists a real provider named `local`
-with local embedding/rerank and ONNX `cpu`/`0`. It does not create a profile. With no active
-profile, AI resolution uses that provider, recreating it if it was removed, while identity remains
-anonymous and remote Hub remains unavailable. `init`, AST, Knowledge, Memory, and Task still work.
-Inspect the default provider and log in only when a named identity is needed:
+Setup persists the binding, creates or reuses the project identity and admits its
+checkout to the daemon. The Coordinator command publishes the bundled Kiro V3
+agent, MCP configuration and PROJECT hooks; use the returned profile and complete
+the host's trust/reload steps. Kiro V3 is the supported Kiro engine; ACP consumers
+launch `kiro-cli acp --agent-engine=v3` explicitly.
 
-```bash
-graphit provider show local
-graphit login --profile personal --provider local --username "$USER"
-```
-
-Where a system tray is available, the Graphit icon shows the active login provider and profile.
-If you configured a Broker provider and are signed out, choose **Sign in with Broker** from its
-menu to open the browser login flow. The same menu offers **Open UI**, **Start daemon**,
-**Restart daemon**, and **Quit**. On Linux, the icon requires StatusNotifier/AppIndicator support
-from the desktop; the daemon still runs when the icon is unavailable.
-
-Use `graphit provider update local` to select CPU, CUDA, CoreML, or remote AI services. Local models
-download lazily on first use.
-
-`graphit init`
-ensures the project identity, preserving an ULID already created by an earlier stateful operation,
-installs the selected agent's native MCP/hooks, and performs the first synchronization. `graphit sync`
-is the explicit all-system checkpoint; the daemon keeps incremental indexes current afterwards.
-
-Use the exact agent identifier supported by your environment; `graphit init --help` lists the available values.
-Eligible local commands start the daemon through the current user's OS service. On Linux without
-`systemd --user`, they start it directly instead; that fallback has no automatic crash restart or
-login startup. See [daemon operations](docs/guides/daemon_operations.md) for service, login startup,
-tray controls, and fallback behavior.
+`graphit setup --agent <binding>` configures only the installation when no project
+directory is supplied. Model downloads and named account login are separate,
+explicit operations. A valid identity still needs the applicable PROJECT access.
+See [Getting Started](docs/guides/getting_started.md),
+[authentication](docs/guides/authentication.md) and
+[agent hook activation](docs/guides/agent_hook_activation.md) for the complete
+workflow, configuration and error recovery.
 
 ## Optional deployment: server for teams and enterprise
 
-The local workflow above does not require a server deployment. When external agents (including
-web-based agents) need to connect over MCP, you can run Graphit as a shared service instead.
-Release tags publish a Linux amd64 server image to GHCR. A Git release `v0.1.2` publishes the Docker
-tags `0.1.2`, `0.1`, `0`, and `latest`—Docker tags do not include the `v` prefix. The image runs the
-daemon as PID 1 and publishes an **MCP endpoint** and the optional UI.
+The maintained Linux image runs the Rust daemon as PID 1. MCP and the configured
+browser share its Source listener on port 8081. Remote agents bring their own
+models; project data remains protected by the configured Broker authentication
+and PROJECT authorization.
 
-Any MCP-capable AI agent can connect to it — Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot,
-Kiro, Qwen Code, Kimi Code, or your own client. The agent runs wherever the developer is
-and brings its own model; the server supplies published code graphs, documentation wikis, and memory
-it reasons over. One container can serve a team without requiring each remote client to index
-anything locally.
-
-```bash
-VERSION=latest
-docker pull "ghcr.io/graphit-labs/graphit-code:${VERSION}"
-
+```sh
+docker volume create graphit-global
 docker run -d --name graphit \
-  -p 127.0.0.1:8080:8080 \
   -p 127.0.0.1:8081:8081 \
-  -e GRAPHIT_UI_AUTH_ENABLED=false \
   -v graphit-global:/home/graphit/.graphit \
-  "ghcr.io/graphit-labs/graphit-code:${VERSION}"
+  ghcr.io/graphit-labs/graphit-code:latest
 ```
 
-This loopback example disables browser login for a local trial. The Docker image enables Broker
-browser login by default. Before exposing the UI over HTTPS, configure a `broker` provider and
-Broker dynamic client registration, set `GRAPHIT_UI_AUTH_PUBLIC_URL` to the public origin, and
-**strongly set `GRAPHIT_UI_AUTH_COOKIE_ENCRYPTION_KEY`** to the same cryptographically random secret
-of at least 32 bytes on every Code instance. Without that secret, each instance generates its own
-cookie key at startup, so a restart or a request routed to another instance requires a new login.
-See [Authentication](docs/guides/authentication.md#web-ui-login) and the
-[container guide](docs/guides/container.md) for the complete setup.
+The private volume belongs to UID/GID 10001. Configure trusted Broker providers,
+the browser PROJECT endpoint and the actual public browser origin for a team
+deployment. Each instance owns its installation volume; repositories are mounted
+and registered separately.
 
-To build the image locally, first run `make build-linux VERSION=dev`, then
-`docker build -t graphit-code:dev .`; the Dockerfile copies that CI-compatible binary and performs
-no release download.
-
-On the first container start, the entrypoint runs setup in non-interactive mode in the mounted
-global directory before starting the daemon. Later starts reuse `config.json` from the volume.
-Executable scripts in `/docker-entrypoint.d/pre-setup.d` and `post-setup.d` run on every
-start; `setup.d` runs only after setup actually runs. These scripts live outside the global data
-volume. See [container startup customization](docs/guides/container.md#customize-container-startup)
-for mounting scripts, execution order, permissions, and a provider example.
-The image uses fixed internal ports `8080` for the UI and `8081` for MCP. To publish a different
-port, change only the host side of the mapping, for example `-p 127.0.0.1:9090:8080`; no Graphit
-port setting is required. The entrypoint keeps those internal listener ports fixed, including when
-same-named environment variables are supplied. Other runtime defaults, including
-`GRAPHIT_HUB_EVENTS_ANONYMIZE`, can be
-overridden with `docker run -e ...` without rebuilding the image. Any other supported Graphit
-configuration key can be passed by its canonical `GRAPHIT_*` name even when the Dockerfile does not
-declare it; the declarations in the image provide defaults, not an allowlist. The image declares
-the fixed non-root user `graphit` (UID/GID `10001`), including
-for the entrypoint, setup, daemon, and explicit commands. A bind mount or custom global directory
-must therefore already be writable by UID/GID `10001`; the container does not elevate privileges
-to repair ownership. First-start setup uses the canonical configuration
-environment variables `GRAPHIT_AGENT`, `GRAPHIT_CLI`, and `GRAPHIT_HUB_EVENTS_ANONYMIZE`; empty
-Agent/CLI values keep the documented defaults.
-
-The published base image intentionally installs no coding-agent CLI and sets
-`GRAPHIT_MODULES_AGENT=false`. A derived image may install and authenticate a supported CLI in
-`PATH`, then set `GRAPHIT_MODULES_AGENT=true`, `GRAPHIT_AGENT`, and `GRAPHIT_CLI` either in the
-image or at runtime. These are normal configuration overrides, not Docker-only settings. See the
-[container guide](docs/guides/container.md#extend-the-image-with-an-agent-cli) for an example.
-
-Point a client at `http://your-server:8081/mcp`. With a local provider, the caller can use the
-runtime key shown under **System → Daemon** or a configured static MCP key. With a Broker provider,
-the HTTP MCP endpoint challenges the caller with OAuth protected resource metadata; the client
-obtains a Broker access token for this endpoint's exact resource URI and sends it as
-`Authorization: Bearer <token>`. The server holds no source checkouts and needs none—it answers
-about Hub artifacts addressed reproducibly as `id@version`. See
-[OIDC integration](docs/guides/oidc-integration.md#protect-an-http-mcp-endpoint).
-
-Remote agents can load the server's current routing contract with `graphit_mandates` and fetch the
-complete source of any core module skill with `graphit_module_skill`. Start from the copy-ready
-[remote agent skill](docs/examples/skills/graphit-remote/SKILL.md).
-
-For a broader enterprise or team ecosystem, the optional, separately deployed
-[Graphit Broker](https://github.com/graphit-labs/graphit-broker) complements the MCP server with
-centralized identity, access control, shared storage, and embedding/rerank services. It is not
-required for the local workflow or for a basic MCP server.
-
-The MCP endpoint accepts the fresh runtime key shown in **System → Daemon**. A local provider may
-also define a static MCP key. With a Broker provider, each remote caller presents a Broker-issued
-access JWT whose audience includes this MCP endpoint's configured canonical URI. Graphit verifies
-its signature, issuer, audience, expiry, token purpose and subject against Broker discovery and
-UserInfo, then forwards that same bearer to Broker Hub ACL, S3, embedding and rerank calls. The
-token also carries the Broker API audience so those APIs can accept it. `graphit mcp --stdio`
-bridges to the local daemon with its runtime key or a scoped capability token.
-For a `broker` provider, Graphit is always a standard native OIDC client: the Broker owns the login
-page and may offer local password/MFA, upstream OIDC, or both without exposing those credentials or
-upstream tokens to Graphit.
-Provider/profile secrets live in the
-mode-`0600` global authentication store, while the generated runtime key remains in its restricted
-runtime file. The Observatory header shows the active CLI profile when web login is disabled, or
-**Anônimo** when no profile is active. With `ui.auth.enabled=true`, each browser signs in to a
-configured Broker provider and Code protects UI data APIs with an encrypted `HttpOnly` cookie;
-the CLI profile is separate. Cookies are `Secure` by default. CORS is not authorization, so keep
-the MCP listener and any UI without web login on a trusted network. Read
-[Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
+See the [container guide](docs/guides/container.md) for a local build, current
+environment names, browser configuration, startup scripts, health, shutdown and
+derived images with an assistant CLI. The release workflow publishes semantic
+image tags without the Git tag's v prefix.
 
 ## What agents gain
 
@@ -355,7 +237,16 @@ Project memory captures repository-specific decisions and corrections. User memo
 
 ### Deterministic control that survives the agent
 
-Graphit Task replaces host-native TODO lists and repository Markdown task logs with one local project task database. Agents search prior work, atomically claim a ready task, checkpoint progress and decisions, revise scope through expected-revision fencing, supersede obsolete checks without erasing history, verify active acceptance/test checks with evidence, and release or complete through fenced transitions. Dependencies and nested subtasks gate readiness and completion; flags carry a reason and block completion until resolved. Task IDs are compact hashes that lengthen only on a detected collision, while conditional writes prevent one task from overwriting another. Direction changes deterministically cancel useful history or remove certainly erroneous, unreferenced tasks so no obsolete work is left open. The Observatory discovers work through a lightweight paginated catalogue and loads the same versioned complete JSON export as CLI and MCP only for exact detail or an explicit project download.
+Graphit Task keeps shared work in the project's authorized Task dataset and native version branch,
+locally or directly in S3 according to the selected provider. Agents claim ready Tasks, record
+progress, revise scope with expected-revision fencing, supersede obsolete checks with a reason,
+and verify active checks before completion. IDs are canonical ULIDs. Pending descendants and
+prerequisites retain their real gates; completed or cancelled children are terminal, and cancelling
+a child does not prove the parent's required functionality. Cancellation and removal are explicit
+operations rather than automatic consequences of a change of direction. CLI, MCP and Browser
+read the same Records services. Exact reads return current state; history and comments are
+requested explicitly through snapshot-bound pages. See the [Task contract](docs/specs/task_module.md)
+and [Session workflow](docs/guides/task-sessions.md).
 
 ### Reusable context across systems
 
@@ -378,15 +269,15 @@ bundles; direct AST, Wiki, Memory, and Task tools remain the cheaper path for fo
 | Run without an installed coding-agent CLI | `modules.agent=false` |
 | Keep autonomous Dream work off/on | `modules.dream=false` (default) or `true` |
 | Serve the Observatory from the daemon | `modules.daemon_ui=true` |
-| Disable the daemon filesystem watcher | `modules.sync=false` (manual `graphit sync` still works) |
+| Disable the daemon filesystem watcher | `modules.sync=false` |
 | Disable background embedding work | `modules.embedding=false` |
 | Select a remote embedding backend | use a brokerless provider with `--embedding-mode direct`, or configure a broker with both embedding and rerank modes set to `broker`; then supply account secrets through `graphit login` |
 | Select a remote rerank backend | use native Cohere/Voyage/Jina or embedding-simulated OpenAI/OpenAI-compatible/Google with `--rerank-mode direct`; simulated modes also require `--rerank-dimensions` |
 | Restrict indexed languages | `ast.grammars_whitelist` / `ast.grammars_blacklist` |
 | Move or narrow the documentation tree | `knowledge.docs_dir`, `knowledge.extensions`, `knowledge.include_readme` |
 
-Every normal key can be set per command, environment, project, global installation, or private-build
-default. The [complete configuration reference](docs/guides/configuration.md) documents every key,
+Ordinary keys use captured command, environment, project, global and distribution layers;
+installation-only settings and provider/account topology have their own scope rules. The [complete configuration reference](docs/guides/configuration.md) documents every key,
 default, switch, provider, network boundary, and runtime resource control.
 
 ## Security boundary
@@ -400,11 +291,11 @@ default, switch, provider, network boundary, and runtime resource control.
   as the provider's one ACL authority. `~/.<brand>/hub` is only a bounded, subject-isolated metadata
   cache; it never grants access or replaces remote validation.
 - A project name is mutable discovery metadata. Its immutable ULID owns remote paths, locks, and exact grants.
-- The UI binds according to `ui.host`. With `ui.auth.enabled=true`, Broker browser login is required
-  for data APIs; without it, the UI shows the active CLI profile or **Anônimo**. The Docker image
-  enables web login by default. Use HTTPS and a shared random cookie secret for exposed instances.
-- Remote UI access without web login requires an appropriate firewall, VPN, or authenticated reverse
-  proxy; CORS is not authorization.
+- Source/UI bind according to `mcp.host` and `mcp.port`. The optional trusted `task.browser`
+  configuration enables Broker browser login and verified data APIs; absent configuration is
+  headless, not anonymous access to all project data. Use HTTPS for exposed deployments.
+- Network controls and exact-origin CORS complement authentication and PROJECT authorization;
+  they do not replace either.
 - Local work uses its active profile. HTTP MCP verifies each caller's Broker access token and carries that
   same bearer to Broker APIs; local providers may use a static
   broker key. The Broker maps its current ACL to a short-lived STS session policy; S3 bucket/IAM
@@ -421,7 +312,7 @@ Start with the document that matches your intent:
 
 - [Getting started](docs/guides/getting_started.md) — install and initialize a project.
 - [Authentication](docs/guides/authentication.md) — local and Broker profiles, browser login,
-  encrypted cookies, and HTTP MCP access.
+  opaque Browser sessions, and HTTP MCP access.
 - [OIDC integration](docs/guides/oidc-integration.md) — register native consumer and confidential broker-admin clients, map claims, propagate HTTP MCP identity, configure web-identity STS, and troubleshoot Keycloak, Entra ID, or Auth0.
 - [Graphit Broker](docs/guides/auth-broker.md) — operate the SQL/OIDC/RBAC control plane, centralize transactional consumer ACLs, issue restricted STS sessions, and own embedding/rerank credentials, routes and caches.
 - [User manual](docs/guides/user_manual.md) — daily workflows and operational concepts.
@@ -444,16 +335,24 @@ Task history lives in the authoritative LanceDB tables; changelogs and accepted 
 
 ## Build from source
 
-Source builds require Go 1.26.6+, Node.js 22+, Make, and a C/C++ toolchain. The normal build downloads an immutable, checksum-verified native dependency bundle from [`graphit-labs/graphit-libs`](https://github.com/graphit-labs/graphit-libs). That companion repository owns the LanceDB patch and its explicit Rust source-build target.
+Use the Rust toolchain pinned in `rust-toolchain.toml`, Node.js 22, Make, CMake and
+a C++20 toolchain with `<format>` support (GCC/libstdc++ 13 or newer on Linux).
+Cargo resolves official pinned dependency sources. The maintained Make targets
+prepare Ladybug once through `cargo xtask cargo`, without a separate SDK. See
+[native packaging](docs/development/native-runtime-packaging.md) for native
+prerequisites and optional GGUF accelerator builds.
+Distributed executables use optimized Cargo Release with static symbols removed;
+`make release` packages the exact artifacts reported by that build.
 
-```bash
-git clone https://github.com/graphit-labs/graphit-code.git
-cd graphit-code
-make install
-graphit setup
+```sh
+npm --prefix ui ci
+make ui
+make build
 ```
 
-Platform-specific targets and development checks are documented in [Getting Started](docs/guides/getting_started.md) and [Contributing](https://github.com/graphit-labs/graphit-code/blob/main/CONTRIBUTING.md).
+See [Getting Started](docs/guides/getting_started.md#build-from-source) and
+[native packaging](docs/development/native-runtime-packaging.md) for the complete
+product layout and current build commands.
 
 ## Project status
 

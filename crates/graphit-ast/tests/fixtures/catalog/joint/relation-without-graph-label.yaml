@@ -1,0 +1,2 @@
+language: x
+queries: [{data_key: r, pattern: "(opaque)", type: relation, relation_type: CALLS}]

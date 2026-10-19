@@ -1,0 +1,3 @@
+language: ts_alias
+extensions: [.shared]
+grammar: tree-sitter-shared

@@ -30,6 +30,19 @@ Catalogue and boundary counts describe the **loaded result**, not the entire rep
 
 Use **Find & inspect** for full-index ranked search and **Query lab** for a reproducible read-only Cypher question. Inspect the available schema and persistent identity before traversing. AI drafting produces an editable query; you decide when to run it. Both **Search index** and **Run query** immediately open **Relationship map**, where loading, errors and results appear. Query lab keeps the editable query when you return. Search matches retain their rank and available descriptions, with no invented relationships; select an entity to resolve its indexed identity and load its neighborhood automatically. Scalar rows appear in **Query rows** in the same workspace and are never converted into invented graph relationships. For mixed results, the graph appears first and Query rows can be expanded below it.
 
+The AST and Knowledge search controls offer **Reranking → Use configuration / Off / On**.
+Use configuration is the default and follows `search.rerank`, whose default is false;
+choosing a provider does not enable reranking. Off disables it for that search even
+when configuration enables it. On explicitly requests the configured reranker.
+The choice applies to project and imported searches. Changing the query or reranking
+choice clears the previous result and stops its pending request. Knowledge continuation
+and retry retain that search's choice and exact publication cursor.
+
+Results keep the server's order. **Rerank score** is separate from lexical score,
+semantic distance and combined/RRF score; these values describe different stages
+and are not interchangeable. A reranker failure is displayed as a service error,
+without a silent fallback search.
+
 Potential impact follows incoming calls up to two hops and returns up to 100 distinct indexed candidates. Review their source and relevant tests before concluding that a change affects them. See the [AST query and traversal contract](../specs/ast_module.md) and [supported languages](../specs/ast_module.md#supported-languages) for parser-specific boundaries.
 
 ## Recover from incomplete evidence

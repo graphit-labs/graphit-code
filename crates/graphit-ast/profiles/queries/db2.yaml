@@ -1,0 +1,414 @@
+
+
+language: db2
+parser: antlr4
+grammar: antlr-db2
+start_rule: db2_file
+extensions: [".sql", ".db2"]
+exclusive: true
+
+target_rules:
+  CALLS: { labels: [Function, StoredProcedure, Trigger] }
+  SELECTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  INSERTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  UPDATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  DELETES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  ALTERS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  DROPS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  CREATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  TRUNCATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  REFERENCES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+  - data_key: column_writes_update
+    pattern: "//assignment_clause/assignment_item/column_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+    captures: {"qualifier": [{"nearest_ancestor": "update_statement"}, {"xpath": "/update_statement_searched_update/table_or_view_name/table_name"}]}
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_external_scalar_statement/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_external_table_statement/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_old_db_external_function_statement/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_sourced_or_template_statement/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_sql_scalar_table_or_row_statement/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_aggregate_interface_statement/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//method_signature/method_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//method_specification/method_name"
+    type: entity
+
+  - data_key: procedures
+    graph_label: StoredProcedure
+    pattern: "//create_procedure_external_statement/procedure_name"
+    type: entity
+
+  - data_key: procedures
+    graph_label: StoredProcedure
+    pattern: "//create_procedure_sourced_statement/procedure_name"
+    type: entity
+
+  - data_key: procedures
+    graph_label: StoredProcedure
+    pattern: "//create_procedure_sql_statement/procedure_name"
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_trigger_statement/trigger_name"
+    type: entity
+
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//create_trigger_statement/table_or_view_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//create_table_statement/table_name"
+    type: entity
+
+  - data_key: views
+    graph_label: View
+    pattern: "//create_view_statement/view_name"
+    type: entity
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//create_index_statement"
+    value_label: Value
+    type: entity
+    captures: {"name": [{"xpath": "/index_name"}], "value": [{"xpath": "/UNIQUE"}]}
+
+  - data_key: index_table
+    pattern: "//create_index_statement/table_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//create_index_statement/index_col_opts/index_col_opts_item/column_name"
+    type: entity
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//create_sequence_statement/sequence_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type_statement/create_type_array_statement/type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type_statement/create_type_cursor_statement/type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type_statement/create_type_distinct_statement/distinct_type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type_statement/create_type_row_statement/type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type_statement/create_type_structured_statement/type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//module_type_definition/unqualified_type_name"
+    type: entity
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//module_variable_definition/variable_name"
+    type: entity
+
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//create_schema_statement/schema_name"
+    type: entity
+
+  - data_key: aliases
+    graph_label: Alias
+    pattern: "//create_alias_statement/table_alias/declared_alias_name/alias_name"
+    type: entity
+
+  - data_key: aliases
+    graph_label: Alias
+    pattern: "//create_alias_statement/module_alias/declared_alias_name/alias_name"
+    type: entity
+
+  - data_key: aliases
+    graph_label: Alias
+    pattern: "//create_alias_statement/sequence_alias/declared_alias_name/alias_name"
+    type: entity
+
+  - data_key: tablespaces
+    graph_label: Tablespace
+    pattern: "//create_tablespace_statement/tablespace_name"
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition/column_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//agg_fn_param_decl/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//ext_scalar_param_decl/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//ext_table_param_decl/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//param_decl_3/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//sourced_function_param_decl/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//param_decl_2/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//proc_ext_param/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//proc_parameter_list_item/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//method_signature/method_param_list/method_signature_parameter_decl/parameter_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//method_specification/method_spec_parameter_list_paren/method_spec_parameter_list/method_spec_parameter_decl/parameter_name"
+    type: entity
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//declare_variable_statement/variable_name"
+    type: entity
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//call_statement/procedure_name"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_invocation/function_name"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause//table_reference//table_name"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insert_statement/table_name"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: updates
+    graph_label: ""
+    pattern: "//update_statement//table_name"
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//delete_statement//table_name"
+    type: relation
+    relation_type: DELETES
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_table_statement/table_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//table_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//view_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//index_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//function_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//procedure_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//trigger_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_statement//sequence_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncate_statement/table_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_database_authorities_statement//table_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_index_privileges_statement//table_name"
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+antlr_contexts:
+  - {"pattern": "//alter_module_statement", "label": "Module", "name": [{"xpath": "/module_name"}]}
+  - {"pattern": "//create_function_aggregate_interface_statement", "label": "Function", "name": [{"xpath": "/function_name"}]}
+  - {"pattern": "//method_signature", "label": "Function", "name": [{"xpath": "/method_name"}]}
+  - {"pattern": "//method_specification", "label": "Function", "name": [{"xpath": "/method_name"}]}
+  - {"pattern": "//create_index_statement", "label": "Index", "name": [{"xpath": "/index_name"}]}
+  - {"pattern": "//create_function_statement", "label": "Function", "name": [{"nearest_descendant": "function_name"}]}
+  - {"pattern": "//create_procedure_statement", "label": "StoredProcedure", "name": [{"nearest_descendant": "procedure_name"}]}
+  - {"pattern": "//create_trigger_statement", "label": "Trigger", "name": [{"xpath": "/trigger_name"}]}
+  - {"pattern": "//create_table_statement", "label": "Table", "name": [{"xpath": "/table_name"}]}
+  - {"pattern": "//create_view_statement", "label": "View", "name": [{"xpath": "/view_name"}]}
+  - {"pattern": "//create_type_array_statement", "label": "Type", "name": [{"xpath": "/type_name"}]}
+  - {"pattern": "//create_type_cursor_statement", "label": "Type", "name": [{"xpath": "/type_name"}]}
+  - {"pattern": "//create_type_distinct_statement", "label": "Type", "name": [{"xpath": "/distinct_type_name"}]}
+  - {"pattern": "//create_type_row_statement", "label": "Type", "name": [{"xpath": "/type_name"}]}
+  - {"pattern": "//create_type_structured_statement", "label": "Type", "name": [{"xpath": "/type_name"}]}
+  - {"pattern": "//create_schema_statement", "label": "Schema", "name": [{"xpath": "/schema_name"}]}
+
+comment_types:
+  - LINE_COMMENT
+  - SQL_COMMENT
+
+declaration_types:
+  - module_type_definition
+  - module_variable_definition
+  - create_function_aggregate_interface_statement
+  - method_signature
+  - method_specification
+  - create_function_statement
+  - create_procedure_statement
+  - create_trigger_statement
+  - create_table_statement
+  - create_view_statement
+  - create_index_statement
+  - create_sequence_statement
+  - create_type_array_statement
+  - create_type_cursor_statement
+  - create_type_distinct_statement
+  - create_type_row_statement
+  - create_type_structured_statement
+  - create_schema_statement
+
+complexity:
+  node_types:
+    - if_statement
+    - while_statement
+    - case_statement
+  operators: ["AND", "OR"]
+
+embed_labels:
+  - Table
+  - View
+  - StoredProcedure
+  - Function
+  - Trigger
+  - Type
+  - Schema
+  - Sequence
+  - Column
+  - Index
+  - Comment

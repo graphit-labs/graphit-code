@@ -1,427 +1,426 @@
 ---
 title: AI Models, Providers, and Agent CLIs
 type: guide
-updated: 2026-09-23
+updated: 2026-10-29
 tags: [ai, models, completions, embeddings, rerank, agents, broker]
+references:
+  - target: {type: task, id: 01M5C6B85MCWH5HX932YVEKN3Z}
+    relation: implements
+  - target: {type: task, id: tsk-170b}
+    relation: implements
+  - target: {type: task, id: tsk-28ee}
+    relation: implements
+  - target: {type: task, id: tsk-0af7}
+    relation: implements
+  - target: {type: task, id: tsk-be6e}
+    relation: uses
+  - target: {type: task, id: tsk-9953}
+    relation: implements
+  - target: {type: task, id: tsk-a9c4}
+    relation: supports
+  - target: {type: task, id: tsk-6365}
+    relation: supports
+  - target: {type: task, id: tsk-ec15}
+    relation: implemented_by
+  - target: {type: task, id: tsk-b74a}
+    relation: uses
+  - target: {type: task, id: tsk-247e}
+    relation: implemented_by
+  - target: {type: task, id: tsk-0f32}
+    relation: implemented_by
+  - target:
+      type: session
+      id: ses-c98a
+    relation: relates_to
+  - target:
+      type: task
+      id: tsk-c847
+    relation: supports
+  - target: {type: task, id: tsk-13b9}
+    relation: supports
+  - target: {type: task, id: tsk-61a0}
+    relation: derived_from
+  - target: {type: task, id: tsk-ec10}
+    relation: derived_from
+  - target: {type: task, id: tsk-27c1}
+    relation: implemented_by
+  - target: {type: task, id: tsk-5f7d}
+    relation: relates_to
+  - target: {type: task, id: tsk-9db8}
+    relation: implements
+  - target: {type: task, id: tsk-e6ff}
+    relation: specified_by
+  - target: {type: task, id: tsk-7f7c}
+    relation: specified_by
+  - target: {type: task, id: tsk-625d}
+    relation: implements
 ---
 
 # AI Models, Providers, and Agent CLIs
 
-Graphit uses AI in three independent layers:
+Rust Knowledge Ask and Incoming Conversation target [OpenCode 2 via ACP protocol 1](../specs/rust_opencode_completion.md). OpenCode 1 and Gemini CLI support are removed; use Antigravity through `agy`. Google Gemini API providers and models remain supported. Tests use controlled peers and real Graphit consumers without requiring a vendor binary, account or plan.
 
-| Layer | Purpose | Default | Configuration owner |
+Embedding and rerank resolve through the active Auth provider/profile. A Local
+provider selects each service independently as `local`, `broker`, `direct` or
+`disabled`. A Broker provider defaults both services to `broker` and permits
+only `broker` or explicit `disabled`; `local` and `direct` are rejected before
+persistence and when reading a stored document. Agent completion uses its
+separate CLI selection.
+
+| Layer | Purpose | Local model | Configuration |
 |---|---|---|---|
-| Agent completion | Synthesis and autonomous agent work | First supported CLI on `PATH` | global/project `cli` and `ai.agent_args*` |
-| Embedding | Semantic vectors for code, knowledge, memory | Local `coderankembed` manifest | active provider service plus `models.embedding.id` for the local artifact |
-| Rerank | Optional second-stage relevance | Local `bge-reranker-base` manifest; stage off | active provider service, `models.rerank.id`, and `search.rerank` |
+| Agent completion | Synthesis and agent work | Selected agent CLI | agent/CLI settings |
+| Embedding | Semantic vectors for AST, Knowledge and Memory | EmbeddingGemma 2 GGUF BF16 | provider `embedding` plus `daemon.models` slot `embedding` |
+| Rerank | Optional second-stage relevance | BAAI BGE Reranker V2 M3 GGUF F16 | provider `rerank`, slot `rerank`, and `search.rerank` |
 
-`graphit setup` selects runtime, agent adapter, and agent CLI, ensures the persisted default
-provider `local`, and provisions any selected local bundle whose manifest uses the `setup` fetch
-policy. Custom embedding/rerank topology and local ONNX execution belong to `graphit provider`,
-local manifest selection belongs to global `models.*.id` keys, and account API or broker keys
-belong to `graphit login`.
+Local device selection defaults to CPU/device 0. Embedding and rerank have
+separate device choices, and selecting a rerank provider or installing its model
+does not enable reranking. `search.rerank` defaults to `false`; disabled rerank
+does not discover a rerank endpoint, prepare, download, load or run a reranker.
 
-With no active profile, Graphit uses the real `local` provider from `auth.json`: local embedding and
-rerank backends, ONNX `cpu`/`0`, and no broker. If absent, the AI resolver recreates it before use.
-Identity remains anonymous and reranking stays off until `search.rerank=true`. AST, Knowledge,
-Memory, Task, and `graphit init` remain available. Update `local` for non-default execution; create
-and activate another provider/profile for named identity or remote services.
+The [captured-model binder](../specs/rust_model_bindings.md) validates the GGUF
+manifest, recipe and artifact digest under the original request. Installation,
+Auth service admission and actual inference remain distinct. A valid model file
+or profile does not grant PROJECT access.
 
-Agent completion remains independent from the named provider's AI service topology. Embedding and
-rerank may be selected separately only on a provider without broker configuration. Once a broker
-is configured, provider validation requires both service modes to be `broker`; `local`, `direct`,
-`disabled`, and omitted modes are rejected for either service.
+## Local provider and device selection
 
-## Agent completion
-
-Graphit does not contain a chat-completion HTTP provider or model key. It starts an installed,
-authenticated coding-agent CLI and sends a non-interactive prompt. The CLI owns its provider,
-account, model and rate limits.
-
-Graphit groups related completions in an `ai.Conversation`. A conversation fixes the canonical
-project working directory and the effective CLI, serializes its turns, and reuses the native agent
-session when that CLI exposes a verified create/capture/resume protocol. A failed resume clears the
-native ID. A session is never resumed after the project directory or effective CLI changes.
-Consumers without a multi-turn flow still perform one non-interactive invocation.
+Create and activate a Local profile with explicit CPU choices:
 
 ```bash
-graphit config --global ai.cli claude
-graphit config --global ai.agent_args.claude "--permission-mode acceptEdits"
+graphit provider add workstation --type local \
+  --embedding-mode local --embedding-device cpu --embedding-device-id 0 \
+  --rerank-mode local --rerank-device cpu --rerank-device-id 0
+graphit login --provider workstation --profile workstation --username workstation
 ```
 
-General completion resolution tries the explicit CLI, the agent-mapped CLI, then these supported products and
-executables:
+`login` activates the profile. Select an already stored profile with
+`graphit account use workstation`; inspect its provider with
+`graphit provider show workstation`. Provider updates preserve omitted fields
+and invalidate credentials bound to the old provider revision: log in again
+after an update.
 
-| Product | Executable | Native session continuity |
-|---|---|---|
-| Claude Code | `claude` | yes: Graphit creates/captures the ID and resumes it |
-| Gemini CLI | `gemini` | yes: Graphit creates/captures the ID and resumes it |
-| Antigravity | `agy` | yes: `conversation_id` is captured and resumed |
-| Grok CLI | `grok` | no verified create/capture/resume protocol |
-| Cursor Agent CLI | `cursor-agent` | no verified ID capture in the implemented protocol |
-| Codex CLI | `codex` | yes: `thread.started` is captured and `exec resume` is used |
-| OpenCode | `opencode` | yes: the structured session ID is captured and resumed |
-| Kiro CLI | `kiro-cli` | one-shot only: resume is available upstream, but initial ID capture is not verified |
-| GitHub Copilot CLI | `copilot` | no verified create/capture/resume protocol |
-| Qwen Code | `qwen` | yes: Graphit supplies/captures the session ID and resumes with `--resume` |
-| Kimi Code | `kimi` | yes: the `session.resume_hint` ID is captured and resumed with `--session` |
-
-The matrix contains eleven executable names for eleven products. `deepseek` is not a CLI alias.
-Graphit uses each CLI's non-interactive stdin/argument protocol. `ai.agent_args` is appended to
-ordinary explicitly agentic work and is split on whitespace without shell evaluation. A
-capability-governed Dream run deliberately ignores it so operator-supplied flags cannot widen the
-Dream native tool policy.
-
-Live Search binds execution to the agent selected in the workspace header. Its nine workspace
-adapters are Claude, Gemini, Antigravity, Cursor, Codex, OpenCode, Kiro, Qwen, and Kimi; Grok and
-Copilot are completion integrations without a Live workspace adapter. Live resolves only the
-selected agent's executable, before creating or preparing the investigation. It never substitutes
-the global CLI or another installed agent. If that executable is missing, install it on the
-server's `PATH` and authenticate it before retrying.
-
-Live runs every turn in its prepared temporary workspace, which deliberately has no Git repository.
-For Codex, Graphit supplies `--skip-git-repo-check` to both `exec` and `exec resume` in that workspace.
-This permits a non-Git working directory; it does not change sandbox settings or grant tool
-permissions. Other CLIs retain their own options and trust policies. Authentication, workspace
-trust, approvals, and model access must be configured for the chosen CLI's non-interactive mode;
-Graphit surfaces its diagnostic output when execution fails. Use a CLI version supporting the
-invocation and session flags in its installed help.
-
-The adapter tests cover invocation arguments, prompt delivery, working directory, environment,
-output and failure propagation with local subprocess fixtures. They do not certify authenticated
-inference, account permissions, or every upstream version. A CLI accepting an option in `--help`
-also does not by itself prove its stdin semantics; provider integration testing remains separate.
-
-### Dream capability profile
-
-Dream makes one `CompleteStream` call without a resumable native session and grants an exact
-Graphit MCP profile: contextual reads plus `graphit_memory_insert`, `update`, `delete`, `promote`,
-and `demote`. Existing-memory mutations require an expected revision or content hash. The daemon
-mediates Memory writes; the agent does not edit the raw store.
-
-Dream does **not** put the whole CLI process in a Linux-specific filesystem jail. This lets the
-CLI write its own cache, session and authentication state on Windows, macOS and Linux. It applies
-the CLI's native permissions to model-invoked tools: Claude uses `--restricted --tools
-Read,Glob,Grep`; Gemini uses a per-run default-deny `--policy` that allows read tools and Graphit
-MCP; Codex uses `--sandbox read-only --ask-for-approval never` for model-generated commands; and
-OpenCode gets a per-run default-deny permission configuration allowing reads and Graphit MCP. Kimi
-uses a temporary custom agent file listing only read-only built-in tools, while its MCP tools load
-separately. Antigravity and Qwen run without a native restriction because no compatible per-run
-policy is verified. Grok, Cursor Agent, Kiro, and Copilot likewise run without native restriction
-and without structured tool telemetry. Those six CLIs may write project files through their own
-tools; the Memory-only prompt is guidance, not enforcement. An unknown custom executable is
-rejected. Each CLI still needs authenticated model access and its Graphit MCP setup.
-These launch policies and the no-flag fallback are covered by unit tests; authenticated behavior
-across all installed CLI versions and operating systems is not implied. Successful unstructured
-turns are recorded as `completed_unobserved`: zero tool counters mean unavailable telemetry, not
-zero work.
-
-The launcher derives a bearer cryptographically bound to `dream-memory-v1` and passes that scoped
-credential in a filtered child environment, not the daemon master key. The local proxy fails if a
-Dream profile is active without the bearer. The daemon verifies the bearer and forces its profile
-onto the request; forging `X-Graphit-Capability-Profile` does not widen the Graphit MCP catalog.
-However, native tool permissions do not isolate a process running as the same OS user: that process
-can in principle read the daemon key file outside model-invoked tools. This is an accepted trust
-limit, not an adversarial credential boundary.
-
-Saved Graphit chats keep both `agent_session_id` and `agent_cli`, so a later turn can resume only
-the matching native agent under the same project directory. Live Search, wiki retries, memory
-consolidation batches, and multi-step AST generation use the same conversation within their
-logical flow. Dream is intentionally one-shot with `PersistSession=false`. The Cypher generation API also returns `agent_session_id` and `agent_cli` for
-observability. Native sessions stay in the selected CLI's own storage; for example, inspect a Codex
-execution with:
+For example, use CPU embedding and CUDA rerank independently:
 
 ```bash
-codex resume --include-non-interactive <agent_session_id>
+graphit provider update workstation \
+  --embedding-device cpu --embedding-device-id 0 \
+  --rerank-device cuda --rerank-device-id 0
+graphit login --provider workstation --profile workstation --username workstation
 ```
 
-`modules.agent=false` disables synthesis consumers. It does not disable exact graph queries,
-BM25, vector retrieval, deterministic Task operations or independently configured embedding.
+Use `--embedding-device auto` or `--rerank-device auto` independently when GPU
+selection may fall back to CPU. Explicit `cuda` requires the selected CUDA
+backend/device; it reports an error rather than silently choosing CPU. `auto`
+records the actual device and a fallback reason if no accelerator is available.
+`metal` selects the local Metal backend on macOS. CPU uses device ID 0; the
+accelerator ID selects the device within that backend. Availability depends on
+the native package and driver, not just the CLI flag.
 
-## Embedding modes
-
-Normal callers first try the daemon's Unix socket, then resolve the active provider directly. The
-daemon uses a lazy client and rebuilds it when the active provider/profile revision changes.
-
-| Mode | Behavior | Required provider fields | Login secret |
-|---|---|---|---|
-| `local` | Manifest-selected ONNX embedding model | none | none |
-| `direct` | Graphit calls a remote API | protocol, endpoint, model, dimensions | `--embedding-api-key` |
-| `broker` | Graphit discovers and calls Graphit Broker | `--broker-endpoint` | OIDC access token or `--broker-key` |
-| `disabled` | Embedding construction fails explicitly | none | none |
-
-Local mode defaults to the built-in `coderankembed` manifest. Select another bundle independently
-from provider or broker routing:
-
-```bash
-graphit config --global models.embedding.id my-embedder
-```
-
-The selected manifest lives at `~/.graphit/models/<id>/manifest.json`, or under
-`GRAPHIT_MODEL_CACHE/<id>/manifest.json` when that root is overridden. See
-[Local model manifests](#local-model-manifests).
-
-Direct example:
-
-```bash
-graphit provider add direct-ai --type local \
-  --embedding-mode direct \
-  --embedding-protocol openai-compatible \
-  --embedding-endpoint http://127.0.0.1:11434/v1 \
-  --embedding-model your-embedding-model \
-  --embedding-dimensions 768 \
-  --rerank-mode disabled
-
-graphit login --provider direct-ai --profile workstation \
-  --username alice --embedding-api-key "$EMBEDDING_API_KEY"
-```
-
-Supported direct protocols are OpenAI/OpenAI-compatible (`/embeddings` appended to the configured
-base URL), Cohere, Voyage and Google (Gemini API). Dimensions are explicit provider topology so Graphit never
-guesses a Lance vector schema. A direct key is required even for a local compatible endpoint; use a
-synthetic endpoint-specific credential if that service requires no real authentication.
-
-Google document embeddings use `RETRIEVAL_DOCUMENT`, while query embeddings use
-`RETRIEVAL_QUERY`. For `gemini-embedding-2`, which replaced task types with text instructions,
-Graphit formats the corresponding asymmetric retrieval prefixes instead. The configured dimensions
-are sent as `outputDimensionality`, so the API request and the vector schema cannot silently disagree.
-
-Broker example:
-
-```bash
-graphit provider add managed-ai --type local \
-  --broker-endpoint https://broker.example.com \
-  --embedding-mode broker --rerank-mode broker
-graphit login --provider managed-ai --profile alice \
-  --username alice --broker-key "$BROKER_KEY"
-```
-
-The broker advertises only a public route, revision and dimensions; it chooses upstream provider,
-model, credentials, cache and optimization internally. Client-side protocol, endpoint, model and
-dimensions are rejected in broker mode.
-
-## Vector compatibility
-
-Lance vector columns are fixed-width, but equal width does not prove equal vector semantics.
-Graphit fingerprints:
-
-- local model identity and width;
-- direct protocol, endpoint, model and width;
-- broker endpoint, public route, broker revision and width.
-
-It also validates broker revision/dimensions on every embedding response. After any effective
-model/vector-space change, increment the broker revision (for broker mode) and rebuild:
-
-```bash
-graphit ast embed
-graphit wiki embed
-```
-
-Incompatible cached shards are rejected instead of padded or silently mixed with new vectors.
-
-## Rerank modes and activation
-
-Rerank backend mode is stored beside embedding in the active provider:
-
-| Mode | Implementation | Provider topology | Login secret |
-|---|---|---|---|
-| `local` | Manifest-selected ONNX cross-encoder | none | none |
-| `direct` | Native rerank API or embedding-simulated cosine scorer | protocol, endpoint, model; dimensions for simulated mode | `--rerank-api-key` |
-| `broker` | Graphit rerank v1 | broker endpoint | OIDC token or broker key |
-| `disabled` | Explicitly unavailable | none | none |
-
-These four choices apply independently only when the provider has no broker configuration. A
-broker-configured provider must store `broker` for both embedding and rerank. This routing rule is
-separate from activation: `search.rerank=false` keeps the second stage off and makes no rerank call.
-
-Direct protocols are selected explicitly:
-
-| Protocol | Strategy | Dimensions |
-|---|---|---|
-| `cohere`, `cohere-v2` | Native Cohere rerank | rejected |
-| `voyage`, `voyage-v1` | Native Voyage rerank | rejected |
-| `jina`, `jina-v1` | Native Jina rerank | rejected |
-| `openai`, `openai-compatible`, `openai-embeddings-v1` | Cosine similarity over query/document embeddings | required with `--rerank-dimensions` |
-| `google` | Cosine similarity over Gemini query/document embeddings | required with `--rerank-dimensions` |
-
-The simulated mode exists because OpenAI-compatible and Gemini embedding APIs do not expose the
-same native rerank contract as Cohere, Voyage, or Jina. It embeds the query and all widened
-candidates, validates vector cardinality and width, then uses normalized cosine similarity. Its
-reported model name ends in `@embedding-simulated`, so telemetry and errors do not imply a native
-cross-encoder. Empty candidate sets make no API call; invalid or zero-norm vectors fail explicitly.
-
-For example, the same OpenAI embedding model can power both indexing and simulated rerank. The two
-profile secrets remain separate fields; when they are the same provider key, pass the same value to
-both login flags:
-
-```bash
-graphit provider add openai-search --type local \
-  --embedding-mode direct --embedding-protocol openai \
-  --embedding-endpoint https://api.openai.com/v1 \
-  --embedding-model text-embedding-3-small --embedding-dimensions 1536 \
-  --rerank-mode direct --rerank-protocol openai \
-  --rerank-endpoint https://api.openai.com/v1 \
-  --rerank-model text-embedding-3-small --rerank-dimensions 1536
-
-graphit login --provider openai-search --profile openai-search \
-  --username alice \
-  --embedding-api-key "$OPENAI_API_KEY" \
-  --rerank-api-key "$OPENAI_API_KEY"
-```
-
-For Gemini, use protocol `google`, the Gemini API base URL, an embedding model such as
-`gemini-embedding-001` or `gemini-embedding-2`, and its selected output width.
-
-Choosing a backend does not enable the second stage. Turn it on separately:
-
-```bash
-graphit config --global search.rerank true
-```
-
-When enabled, AST and Knowledge keyword/hybrid searches widen first-stage retrieval to at least 50
-candidates, send readable candidate text to the active reranker, require the same candidate set
-back, then trim to the requested size. Broker revision is validated. Local mode defaults to
-`bge-reranker-base`; select another manifest with `models.rerank.id`. Its fetch policy controls whether
-artifacts are provisioned during setup/startup, downloaded on demand, or required to exist locally.
-
-Disable all calls immediately with:
-
-```bash
-graphit config --global search.rerank false
-```
-
-## Local model manifests
-
-A local bundle is selected by ID and describes its files rather than relying on fixed filenames.
-Every required operator-defined artifact needs a SHA-256 digest. A source URL is optional; HTTPS is
-required except for loopback HTTP used by local development servers. `setup` fetches during
-`graphit setup` and daemon startup, `on_demand` fetches when the capability is first constructed,
-and `never` performs no network access.
+The private Auth service representation is `execution`, for example:
 
 ```json
 {
-  "schema_version": 1,
-  "id": "my-embedder",
-  "name": "My embedding model",
-  "revision": "2026-09-07",
-  "task": "embedding",
-  "runtime": {
-    "engine": "onnx",
-    "entrypoints": { "model": "weights" }
-  },
-  "fetch_policy": "on_demand",
-  "artifacts": [
-    {
-      "role": "weights",
-      "path": "onnx/model.onnx",
-      "sources": [{ "url": "https://models.example/my-embedder.onnx" }],
-      "sha256": "<64 lowercase hex characters>",
-      "min_size": 1000000
-    },
-    {
-      "role": "tokenizer",
-      "path": "tokenizer.json",
-      "format": "huggingface-json",
-      "sources": [{ "url": "https://models.example/tokenizer.json" }],
-      "sha256": "<64 lowercase hex characters>"
-    }
-  ],
-  "tokenizer": { "artifact": "tokenizer", "format": "huggingface-json" },
-  "text": {
-    "max_tokens": 512,
-    "query_prefix": "query: ",
-    "document_prefix": "document: ",
-    "truncation": "longest-first",
-    "padding": "longest"
-  },
-  "inference": {
-    "inputs": { "input_ids": "input_ids", "attention_mask": "attention_mask" },
-    "output": "sentence_embedding",
-    "pooling": "none",
-    "normalize": true,
-    "dimensions": 768
-  }
+  "embedding": {"mode": "local", "execution": {"device": "cpu", "device_id": 0}},
+  "rerank": {"mode": "local", "execution": {"device": "cuda", "device_id": 0}}
 }
 ```
 
-Embedding supports `none`, `mean`, and `cls` pooling. Rerank manifests use the same artifact,
-tokenizer, text, input, and output fields, set `task` to `rerank`, and can declare `max_batch`,
-`score_transform` (`auto`, `none`, `sigmoid`, or `softmax`), and `positive_class`. ONNX input/output
-names and tensor facts are discovered from the model; the manifest supplies semantic choices that
-ONNX does not encode. Unsupported tokenizer formats, tensor signatures, pooling, paths, hashes, or
-missing artifacts fail explicitly, with no fallback to a different model.
+This is a topology fragment, not a complete Auth document. Configure it through
+the CLI. `provider show` returns a redacted view with flattened `device` and
+`device_id`; it is not the persisted document codec. Hardware flags apply only
+to Local services; Broker and Direct services reject local device options.
 
-The manifest describes the portable model contract only. It never contains a device, GPU ID,
-CUDA/CoreML setting, or provider-library path. Execution belongs to each provider AI
-service whose mode is `local` and is independent for embedding and rerank:
+## Agent completion
+
+Completion is separate from embedding/rerank. Graphit captures `ai.cli` if explicitly configured,
+otherwise the selected native agent binding's executable. It does not search unrelated installed
+CLIs as fallback. Missing/unsupported executables remain unavailable. Actual use needs that CLI's
+own model/account configuration; compatibility tests use controlled documented peers without
+requiring a vendor binary, account or paid plan.
+
+```sh
+graphit config --global set ai.cli claude
+# Restart the daemon to reattach Ask with this captured completion binding.
+graphit daemon restart
+```
+
+`ai.agent_args` and `ai.agent_args.*` are rejected configuration namespaces. Configure supported
+host-native options through that host's maintained files and Graphit's explicit request contracts;
+do not add unsupported permission flags to an obsolete configuration key.
+
+| Product | Executable | Current protocol contract |
+|---|---|---|
+| Claude Code | `claude` | [Structured print stream and Incoming continuation](../specs/rust_claude_completion.md) |
+| Antigravity | `agy` | [Current AGY stream/continuation](../specs/rust_antigravity_completion.md) |
+| Grok CLI | `grok` | [Structured Ask/Incoming sessions](../specs/rust_grok_completion.md) |
+| Cursor Agent | `cursor-agent` | [Ask and Incoming continuation](../specs/rust_cursor_completion.md) |
+| Codex | `codex` | [Thread stream and exec resume](../specs/rust_codex_completion.md) |
+| OpenCode 2 | `opencode` | [ACP protocol 1](../specs/rust_opencode_completion.md) |
+| Kiro V3 | `kiro-cli` | [ACP engine V3](../specs/rust_kiro_completion.md) |
+| GitHub Copilot CLI | `copilot` | [Prompt JSONL and Incoming](../specs/rust_copilot_completion.md) |
+| Qwen Code | `qwen` | [Structured stream/continuation](../specs/rust_qwen_completion.md) |
+| Kimi Code | `kimi` | [Native REST/WebSocket execution](../specs/rust_kimi_completion.md) |
+
+Completion executables and installable host bindings are different catalogs: not every completion
+CLI is a native agent-file destination. Kiro V2/preview, OpenCode 1 and Gemini CLI are retired;
+Google Gemini API/model protocols remain supported independently. `deepseek` is not a CLI alias.
+
+Knowledge Ask accepts a literal requested model and either explicit page slugs or ranked retrieval.
+Conversation retains the exact native session identity with its project/user/CLI binding; it
+cannot silently resume under another CLI or invent a session on failure. Native clear/compact
+availability is host-specific, not a generic command every protocol implements. Final delivery
+requires current authority, actual native success/EOF and joined process ownership; partial
+progress is not a successful answer. See [Incoming conversation](../specs/rust_knowledge_conversation_app.md).
+
+Live captures the workspace-selected binding and its own permissions. Dream uses its scoped
+Memory workflow and explicit program/model, not a reusable global completion session or an old
+`ai.Conversation` object. Native tool policy is not an OS sandbox. See
+[Dream](../specs/dream_module.md) and [Live](../architecture/rust-knowledge-ai-live.md).
+
+## Embedding modes
+
+| Mode | Execution | Provider fields | Profile credential |
+|---|---|---|---|
+| `local` | Installed EmbeddingGemma 2 GGUF | local device/device ID | Local profile |
+| `direct` | Selected remote embedding API | protocol, full endpoint, model, model revision, recipe, dimensions | `--embedding-api-key` |
+| `broker` | Discovered Graphit embedding service | Broker endpoint | Broker login token or Local profile `--broker-key` |
+| `disabled` | Explicitly unavailable | none | none |
+
+Direct embedding example; replace the declared model/revision/recipe and width
+with the actual deployment's values:
 
 ```bash
-graphit --non-interactive provider add workstation --type local \
-  --embedding-mode local --embedding-device cuda --embedding-device-id 0 \
-  --rerank-mode local --rerank-device cpu --rerank-device-id 0
-graphit --non-interactive login \
-  --profile workstation --provider workstation --username alice
+graphit provider add direct-ai --type local \
+  --embedding-mode direct --embedding-protocol openai-compatible \
+  --embedding-endpoint https://ai.example/v1/embeddings \
+  --embedding-model your-embedding-model \
+  --embedding-model-revision deployment-2026-10 \
+  --embedding-recipe retrieval-v1 --embedding-dimensions 768 \
+  --rerank-mode disabled
+graphit login --provider direct-ai --profile direct-ai --username alice \
+  --embedding-api-key "$EMBEDDING_API_KEY"
 ```
 
-| `device` | Behavior |
-|---|---|
-| `auto` | macOS tries CoreML then CPU; Linux and Windows try CUDA then CPU. Local embeddings also fall back to CPU after an accelerator resource failure and periodically retry the accelerator with backoff. |
-| `cpu` | Forces CPU even when acceleration is available. |
-| `cuda` | Requires CUDA and prevents daemon startup/client initialization without falling back. `device_id` selects the zero-based GPU. |
-| `coreml` | Requires macOS and prevents daemon startup/client initialization without falling back. `device_id` must be `0`. |
+The endpoint is the complete request URL; Graphit does not append
+`/embeddings` to it. Embedding protocols are `openai`, `openai-compatible`,
+`cohere`, `voyage`, `google-gemini-1` and `google-gemini-2`. Google also requires
+its explicit matching `--embedding-batch-endpoint` and a `models/...` model ID.
+Protocol-specific request dimensions are separate from the declared output
+width and are accepted only when that protocol/model supports them.
 
-Both services default to `cpu` and `device_id=0` on a newly created `local` provider used when no
-profile is active. Existing providers retain their saved device selection, including `auto`; use
-`provider update local` to change it. An invalid device, negative ID, unsupported
-CoreML platform, missing provider, or incompatible model fails with an actionable initialization
-error. In `auto`, failure to register the preferred provider or create its model session retries the
-same manifest on CPU. During local embedding inference, accelerator OOM/resource exhaustion also
-retries the same request on CPU. CPU is a recovery state: later embedding requests periodically
-probe a fresh accelerator session with bounded backoff and return to it only after a successful
-inference. Explicit `cpu`, `cuda`, and `coreml` selections never migrate automatically.
+`model_revision` and `recipe` are explicit, nonempty deployment/model identity
+and reproducible input/output recipe declarations. They are not inferred from
+a URL or replaced with a fabricated model-file hash.
 
-### Device selection on a provider
+## Broker services
 
-When a service mode is `local`, interactive `provider add` or `provider update` shows its effective
-values in brackets:
-
-```text
-Enter embedding ONNX device (auto/cpu/cuda/coreml) [cpu]:
-Enter embedding ONNX device ID [0]:
-Enter rerank ONNX device (auto/cpu/cuda/coreml) [cpu]:
-Enter rerank ONNX device ID [0]:
-```
-
-Pressing Enter keeps the value shown. The provider's current service value is preselected; a new
-local service starts at `cpu` and `0`. Embedding and rerank are stored separately, so selecting
-CUDA for one does not change the other. A service routed to `direct`, `broker`, or `disabled` has no
-ONNX block, its local-device questions are omitted, and local device flags are rejected.
-
-The equivalent unattended invocation is:
+For Broker-managed embedding and rerank, use native Broker login:
 
 ```bash
-graphit --non-interactive provider add workstation --type local \
-  --embedding-mode local \
-  --embedding-device=auto --embedding-device-id=0 \
-  --rerank-mode local \
-  --rerank-device=auto --rerank-device-id=0
+graphit provider add managed-ai --type broker \
+  --broker-endpoint https://broker.example \
+  --embedding-mode broker --rerank-mode broker
+graphit login --provider managed-ai --profile managed-ai
 ```
 
-In non-interactive provider commands, omitted local device values preserve the current value or use
-`cpu`/`0` for a new service. Values are normalized and checked by the same validator used when ONNX
-sessions are created. `auto` is not preflighted because its CPU fallback is resolved when the model
-session opens. Explicit `cuda` and `coreml` are preflighted when the daemon starts and fail closed if
-their provider cannot initialize.
+A provider with `--type broker` uses the Broker exclusively for every enabled
+embedding or rerank service. Missing discovery, authentication, advertised
+service or inference failures are explicit errors; Graphit does not fall back
+to Local or Direct execution and does not prepare or load their local models.
+Rerank remains opt-in (`search.rerank=false` by default), so configuring a
+Broker rerank service alone does not discover or invoke it.
 
-Release launchers embed and extract the provider-capable ONNX Runtime beside the core executable:
+A Local provider can instead carry a Broker endpoint and authenticate its
+services with a Local profile's `--broker-key`. Choose each service mode
+independently. A Local provider may keep one purpose Local or disabled and
+select Broker for the other. A Broker service requires a configured Broker
+endpoint. Ordinary updates preserve omitted settings; explicitly changing a
+provider's type selects compatible service defaults for that type while
+preserving disabled services. Incompatible service flags still produce errors.
 
-| Platform | Embedded libraries |
-|---|---|
-| Linux | `libonnxruntime.so.1.29.0`, `libonnxruntime_providers_shared.so`, `libonnxruntime_providers_cuda.so` |
-| Windows | `onnxruntime.dll`, `onnxruntime_providers_shared.dll`, `onnxruntime_providers_cuda.dll` |
-| macOS | `libonnxruntime.1.29.0.dylib` |
+Discovery supplies the complete service endpoint, protocol, model,
+`model_revision`, recipe and service revision. Embedding additionally advertises
+dimensions and request limits; a native reranker does not advertise vector
+dimensions. Graphit uses `graphit-embeddings-v1` and `graphit-rerank-v1`, with
+query/document input semantics preserved. Service rollout revision is distinct
+from model revision. Do not configure guessed `/v1/embeddings` paths or local
+hardware flags for a Broker service.
 
-CoreML is compiled into the macOS dylib; there is no separate `providers_coreml` library.
+## Vector compatibility
+
+Equal vector width does not establish equal semantics. Local vectors use the
+validated artifact and recipe identity. Direct vectors use the selected
+protocol, declared model revision, recipe and dimensions. Broker vectors use
+the discovered protocol/model/revision/recipe/dimensions, independently of the
+service's endpoint or rollout revision.
+
+Change the declared model revision or recipe when the deployment changes its
+vector space. Incompatible indexed vectors are rejected rather than padded or
+mixed; the authorized indexers must publish the matching space before semantic
+queries can use it.
+
+## Rerank modes and activation
+
+| Mode | Execution | Required configuration |
+|---|---|---|
+| `local` | BGE Reranker V2 M3 GGUF F16, one classifier logit | installed `rerank` slot and independent local device |
+| `direct` | Native Cohere, Voyage or Jina rerank | protocol, full endpoint, model, model revision and recipe |
+| `broker` | Discovered Graphit rerank service | Broker endpoint and profile credential |
+| `disabled` | Explicitly unavailable when requested | none |
+
+The productive AST/Knowledge Direct rerank protocols are `cohere`, `cohere-v2`, `voyage`, `voyage-v1`,
+`jina` and `jina-v1`. There is no implicit embedding/cosine fallback. Direct Auth
+configuration requires `--rerank-dimensions 0` for these native scorers; zero
+denotes no vector output in this configuration field, not an advertised
+dimension of the reranker. Direct Auth rejects embedding protocols and cosine
+similarity as rerank configurations; they do not implement these query/document
+scorers.
+
+For Local embedding with a Direct reranker:
+
+```bash
+graphit provider add remote-rerank --type local \
+  --embedding-mode local --embedding-device cpu --embedding-device-id 0 \
+  --rerank-mode direct --rerank-protocol cohere-v2 \
+  --rerank-endpoint https://rerank.example/v2/rerank \
+  --rerank-model your-reranker --rerank-model-revision deployment-2026-10 \
+  --rerank-recipe native-logit-v1 --rerank-dimensions 0
+graphit login --provider remote-rerank --profile remote-rerank --username alice \
+  --rerank-api-key "$RERANK_API_KEY"
+```
+
+Choosing a backend does not enable the second stage. Enable it globally or for
+the current PROJECT with the maintained configuration command:
+
+```bash
+graphit config --global set search.rerank true
+graphit config set search.rerank true
+```
+
+Use the scope you need; a PROJECT value overrides the global value. To disable
+it in that scope, set the same key to `false`. Per-query flags override either
+configuration, including an explicit `false`:
+
+```bash
+graphit config --global set search.rerank false
+graphit ast search "parser cancellation" --mode hybrid --rerank=true
+graphit knowledge search "parser cancellation" --mode hybrid --rerank=false
+```
+
+Omitting `--rerank` follows configuration, whose default is `false`.
+`--rerank=false` skips reranking even when configuration enables it. Browser
+search uses the same Use configuration/Off/On choice. The backend preserves the
+retrieval scores and returns a separate `rerank_score`; provider failures remain
+visible. Local rerank preparation/loading occurs only when reranking is effectively
+enabled. Broker/Direct rerank do not require local weights.
+
+## Rust local model install and select
+
+Install the pinned embedding model, or provide its already downloaded GGUF:
+
+```bash
+graphit models install embeddinggemma2
+# Offline alternative for the same pinned artifact:
+graphit models install embeddinggemma2 --file prepared/embeddinggemma-2-BF16.gguf
+```
+
+Install the default reranker from its pinned public F16 artifact:
+
+```bash
+graphit models install bge-reranker-v2-m3
+# Offline alternative for the same pinned bytes:
+graphit models install bge-reranker-v2-m3 --file prepared/bge-reranker-v2-m3-F16.gguf
+```
+
+The download uses [the Sinjab distribution on Hugging Face](https://huggingface.co/sinjab/bge-reranker-v2-m3-F16-GGUF),
+fixed at distribution commit `1458e3304258a8a11773000c7d0c192abfe78291`.
+Its model card identifies BAAI's original model, Apache-2.0 licensing and
+conversion with llama.cpp through GGUF-my-repo. The publisher does not record a
+converter revision. This distribution contains the exact F16 bytes already
+pinned and qualified by Graphit; the upstream model revision below remains
+unchanged. Installation verifies the complete SHA-256 and byte count, not the
+publisher's filename alone.
+
+Graphit's reproducible preparation recipe remains in
+`graphit-libs/models/bge-reranker-v2-m3/build.py`, with upstream source digests,
+converter and Python dependency pins, model license and converter notice. It uses
+the official llama.cpp converter at
+`4fbc76dec51d0add466f0210855c0596589b60d4` with `--outtype f16`.
+That is Graphit's preparation recipe, not an assertion about the publisher's
+unrecorded converter version.
+
+| Model | Revision | Artifact | Bytes | SHA-256 |
+|---|---|---|---|---|
+| EmbeddingGemma 2 | `bfcd298762cc34d0357ece5ebdd31791a3a374d8` | `embeddinggemma-2-BF16.gguf` | 557950176 | `68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216` |
+| BAAI BGE Reranker V2 M3 | `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e` | `bge-reranker-v2-m3-F16.gguf` | 1159774912 | `3c2de408d2c0a85a9472dc09f9d5a22c9b73743c6343952c15053299c777c298` |
+
+Installation verifies the captured file, exact digest, size and manifest before
+publishing it to the installation's model store. An installed valid bundle is
+reused; conflicting contents are not overwritten. `--file` resolves relative to
+the command's working directory, and `--global-dir` chooses the installation.
+Installation and selection do not create or change an Auth profile.
+
+Each task has its canonical `daemon.models` slot: `embedding` or `rerank`.
+Install preserves any existing selection for that task and an explicit
+`slots: []` opt-out. To select an installed model explicitly:
+
+```bash
+graphit models select embeddinggemma2-bfcd298762cc34d0357ece5ebdd31791a3a374d8/model-128.json
+graphit models select bge-reranker-v2-m3-953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e/model.json
+```
+
+These paths are relative to the installation's model directory. Selecting one
+task preserves the other task's slot. EmbeddingGemma's `model.json` selects 768
+dimensions; `model-128.json`, `model-256.json` and `model-512.json` select explicit
+MRL recipes. All use the same BF16 weights, embedded tokenizer, 8192-token
+context and F32 L2 normalization. MRL truncates the output and normalizes it
+again; a changed recipe requires the matching indexed vector space.
+
+BGE V2 M3 uses its embedded XLM-RoBERTa query/document pair, noncausal RANK
+pooling and original single-output classifier. Its default score is the raw
+logit. The 8192-token limit includes four special tokens; truncation removes
+from the longer side on the right. Sigmoid requires an explicitly selected
+recipe. The upstream BGE model is licensed under Apache-2.0.
+
+Provisioning a reranker does not enable search reranking. See
+[Rerank activation](#rerank-modes-and-activation) for configuration and request
+overrides. Detailed binding, installation and qualification evidence lives in
+[Rust CLI models](../specs/rust_cli_models.md) and the
+[model service contract](../specs/rust_model_service.md).
+
+## Local model manifests
+
+Local models use the closed [`graphit-model/v1` manifest](../specs/rust_model_manifest.md)
+with `gguf-embeddinggemma2` or `gguf-bge-reranker-v2-m3`. Each has its own task
+and recipe, an embedded tokenizer, required relative artifact paths and SHA-256
+digests. Unknown or cross-backend fields fail. The
+[captured-source binder](../specs/rust_model_bindings.md) validates the artifact;
+there is no local ONNX Runtime backend.
+
+Select installed manifests through `graphit models select`, which updates the
+canonical `daemon.models` slot for the task. Auth holds the independent Local
+execution device; it does not choose a model by an arbitrary first slot.
+The [model service](../specs/rust_model_service.md) consumes only effective Local
+purposes. Remote/disabled purposes do not capture a local bundle or start a
+model process. Native libraries follow the
+[runtime packaging](../development/native-runtime-packaging.md) layout.
+
+Local embedding and rerank weights load on their first effective use and unload
+after five minutes without inference. To change that installation-wide interval:
+
+```bash
+graphit config --global set models.idle_timeout_seconds 300
+```
+
+The value is a positive number of seconds; zero and unsupported durations fail
+validation. The interval starts when actual model work completes. Active work
+finishes before unloading, including native cleanup after a cancelled request.
+Cache hits do not extend residency. The next uncached operation reloads the
+selected model; unloading does not remove installed files, cached results or
+indexed vectors, or change model identity and generation. The model-service
+process stays available while the weights are unloaded. Broker and Direct
+services manage their own residency; this local setting does not control them.
 
 ## Data and network boundaries
 
@@ -435,3 +434,21 @@ CoreML is compiled into the macOS dylib; there is no separate `providers_coreml`
 Provider/account storage and non-interactive examples are in [Authentication](authentication.md).
 Managed AI plus ACL/S3 details are in [Graphit Broker](auth-broker.md). Internal contracts are
 in the [AI Engine specification](../specs/ai_engine.md).
+
+
+## Configuration reload and diagnosis
+
+The daemon observes global configuration/control changes and refreshes local model selection;
+a blanket restart after every `models select` is unnecessary. Already admitted work retains its
+captured binding until its operation finishes. `ai.cli` is different: Ask captures it at attachment,
+so restart to change that completion binding. Provider updates preserve omitted fields but change
+provider revision; obtain a valid profile/session for the new provider generation.
+
+GPU memory is not the process's entire RAM. GGUF mappings, tokenizer, contexts, staging and CPU
+metadata can remain in system memory even with GPU offload. Diagnose actual selected device and
+fallback reason instead of assuming a nonzero RSS proves CPU inference. Explicit GPU needs the
+matching packaged backend plus host driver; `auto` can legitimately choose CPU and must report why.
+There is no local ONNX Runtime dependency to install or repair.
+
+[Configuration](configuration.md) documents default values and capture/reload boundaries;
+[packaging](../development/native-runtime-packaging.md) defines redistribution and platform limits.
