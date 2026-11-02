@@ -37,7 +37,7 @@ pub(crate) async fn execute(
             let current = capture(original, admission, limits)
                 .await?
                 .ok_or(MemoryStoreError::IncompleteCorpus)?;
-            git_records::check_expected(&current.pin, prepared.expected.as_ref())?;
+            git_records::check_expected(&current.pin, &prepared)?;
             current.guard.revalidate(original)?;
         }
         return Ok(report);
@@ -46,7 +46,7 @@ pub(crate) async fn execute(
         .await?
         .ok_or(MemoryStoreError::IncompleteCorpus)?;
     writer.check(original, admission)?;
-    git_records::check_expected(&writer.pin, prepared.expected.as_ref())?;
+    git_records::check_expected(&writer.pin, &prepared)?;
     let mut partial = Vec::new();
     if prepared.expected.is_none() {
         partial.push(GitModuleReport {

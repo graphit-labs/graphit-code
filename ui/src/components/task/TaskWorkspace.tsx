@@ -11,7 +11,7 @@ import { ContextSelect } from '@/components/layout/ContextSelect'
 import { useWorkspaceRefresh } from '@/components/layout/WorkspaceRefresh'
 import { WorkEmpty, WorkNotice } from '@/components/shared/EngineeringUI'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { stopTaskWorkspace, taskContextKey, taskProjectKey, useTaskWorkspace } from './taskWorkspace'
+import { stopTaskWorkspace, taskContextKey, taskProjectKey, useTaskWorkspace } from './taskWorkspaceState'
 
 export function TaskWorkspaceBootstrap({ children, module = 'task' }: { children: React.ReactNode; module?: ProjectReadModule }) {
  const { search } = useLocation()

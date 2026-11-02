@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskSchedule, TaskTimelineItem } from '@/api/task'
-import { calendarAxis, civilDateLabel, parseCivilDate, parseSchedule, timelineRows } from './taskTimeline'
+import { calendarAxis, civilDateLabel, parseCivilDate, parseSchedule, timelineRows } from './taskTimelineDates'
 
 const task = (schedule: TaskSchedule | null): TaskTimelineItem => ({
   id: '00000000000000000000000001', title: 'Calendar task', status: 'open', depends_on: [], schedule,

@@ -10,7 +10,7 @@ import { WorkSection, WorkStatusBadge, WorkNotice, FactList } from '@/components
 import { RecordReferences } from '@/components/shared/RecordReferences'
 import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
 import { useAppStore } from '@/store/appStore'
-import { invalidateTaskWorkspace, taskContextKey, useTaskWorkspace } from './taskWorkspace'
+import { invalidateTaskWorkspace, taskContextKey, useTaskWorkspace } from './taskWorkspaceState'
 import { SessionAuditSections } from './SessionAuditSections'
 import { sessionAuditExport } from './sessionAuditExport'
 const rich = (content: string) => <MarkdownContent content={content} />

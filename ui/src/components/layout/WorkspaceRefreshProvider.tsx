@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
-import { taskContextKey, useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { taskContextKey, useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { importedKnowledgeLocation, installedHubRoute, projectReadModule, requestedRecordSelection, userMemoryRoute } from '@/api/nativeRecordNavigation'
 import { RefreshContext, type Registration } from './WorkspaceRefresh'
 

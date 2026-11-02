@@ -10,7 +10,7 @@ import TaskGanttPage from './TaskGanttPage'
 import TaskExplorerPage from './TaskExplorerPage'
 import SessionExplorerPage from './SessionExplorerPage'
 import { TaskWorkspaceBootstrap } from './TaskWorkspace'
-import { stopTaskWorkspace, useTaskWorkspace } from './taskWorkspace'
+import { stopTaskWorkspace, useTaskWorkspace } from './taskWorkspaceState'
 const fixture = vi.hoisted(() => ({ origin: process.env.GRAPHIT_TASK_BROWSER_ORIGIN, cookie: process.env.GRAPHIT_TASK_BROWSER_COOKIE, project: process.env.GRAPHIT_TASK_BROWSER_PROJECT_ID }))
 vi.mock('@/lib/utils', async original => ({ ...await original<typeof import('@/lib/utils')>(), getApiBase: () => fixture.origin ?? '' }))
 vi.mock('@/components/shared/RecordReferences', () => ({ RecordReferences: () => <span>Record links are qualified separately</span> }))

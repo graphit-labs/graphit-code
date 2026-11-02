@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { taskApi, type CatalogueCursor, type CatalogueFilter, type TaskContext, type TaskStatus, type TaskSummary, type TaskSearchCursor, type TaskSearchMode, type TaskSearchMatches } from '@/api/task'
-import { invalidateTaskWorkspace, taskContextKey, useTaskWorkspace } from './taskWorkspace'
+import { invalidateTaskWorkspace, taskContextKey, useTaskWorkspace } from './taskWorkspaceState'
 
 interface CatalogueState { key: string; selection: TaskContext | null; tasks: TaskSummary[]; cursor: CatalogueCursor | TaskSearchCursor | null; totalHits?: number; matches?: TaskSearchMatches; error: string }
 const empty: CatalogueState = { key: '', selection: null, tasks: [], cursor: null, error: '' }

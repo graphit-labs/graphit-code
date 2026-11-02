@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { hubNative, HubUnpublishError, type HubUnpublishInput, type HubUnpublishOutcome } from '@/api/hubNative'
 import { useAppStore } from '@/store/appStore'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import RegistryPage from './RegistryPage'
 import { catalog, hubContext, projectB, selectHubProject } from './hubTestFixtures'
 vi.mock('@/api/hubNative', async importOriginal => ({ ...await importOriginal<typeof import('@/api/hubNative')>(), hubNative: { projects: vi.fn(), search: vi.fn(), installed: vi.fn(), content: vi.fn(), mutate: vi.fn(), unpublish: vi.fn() } }))

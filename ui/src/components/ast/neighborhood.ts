@@ -1,7 +1,7 @@
 import { nativeAstApi, type AstSchema, type AstSelection, type AstCursor, type AstImportedSource } from '@/api/nativeAst';
 import { nativeNeighborhoodView, nativeQueryView, sameGeneration, isGeneration } from './nativeGraphView';
 import { stringifyNativeJson } from '@/api/nativeJson';
-import { invalidateTaskWorkspace } from '@/components/task/taskWorkspace';
+import { invalidateTaskWorkspace } from '@/components/task/taskWorkspaceState';
 import { type GraphNode, type GraphEdge, type SchemaResponse } from "@/api/ast";
 
 const PAGE_SIZE = 100;

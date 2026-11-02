@@ -9,7 +9,7 @@ import { usePageRefresh, refreshAll } from './WorkspaceRefresh'
 import { WorkspaceRefreshProvider } from './WorkspaceRefreshProvider'
 import { taskApi } from '@/api/task'
 import { TaskWorkspaceSelectors } from '@/components/task/TaskWorkspace'
-import { stopTaskWorkspace, useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { stopTaskWorkspace, useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { context } from '@/components/task/task.test-fixtures'
 
 const deferred = () => {

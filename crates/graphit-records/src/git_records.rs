@@ -535,7 +535,10 @@ impl Prepared {
         }
     }
     pub(crate) fn index_before(&self) -> bool {
-        matches!(&self.action, Action::Tag { .. } | Action::Delta { .. })
+        // Tagging an existing snapshot does not publish derived indexes into
+        // the working head. A new corpus keeps its normal index bootstrap.
+        matches!(&self.action, Action::Delta { .. })
+            || (self.expected.is_none() && matches!(&self.action, Action::Tag { .. }))
     }
     pub(crate) fn index_after(&self) -> bool {
         matches!(&self.action, Action::Branch { .. } | Action::Restore { .. })
@@ -1087,11 +1090,14 @@ async fn make_delta(
 
 pub(crate) fn check_expected(
     current: &BranchSnapshot,
-    expected: Option<&BranchSnapshot>,
+    prepared: &Prepared,
 ) -> Result<(), GitRecordsError> {
-    if let Some(expected) = expected
+    // Native tags refer to the captured immutable snapshot, not the latest
+    // working version. State-changing transitions still require that version.
+    if let Some(expected) = prepared.expected.as_ref()
         && (current.corpus_uri() != expected.corpus_uri()
-            || current.version() != expected.version()
+            || (current.version() != expected.version()
+                && !matches!(&prepared.action, Action::Tag { .. }))
             || current.physical_branch() != expected.physical_branch()
             || current.inherited_target() != expected.inherited_target())
     {
@@ -1217,7 +1223,7 @@ pub(crate) async fn perform(
 ) -> Result<GitModuleReport, GitRecordsError> {
     use futures::StreamExt;
     before()?;
-    check_expected(current, prepared.expected.as_ref())?;
+    check_expected(current, prepared)?;
     let module = prepared.module;
     let mut partial = Vec::new();
     // SDK merge planning has a large concrete future. Keep this operation on
@@ -1376,4 +1382,105 @@ pub(crate) async fn perform(
         error.partial.splice(0..0, partial);
         error
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow_schema::{DataType, Field, Schema};
+    use futures::TryStreamExt;
+    use graphit_core::file_lock::Cancellation;
+    use graphit_data::lance_module_store::LanceModuleStore;
+    use std::time::{Duration, Instant};
+
+    fn image(value: &str) -> RecordBatch {
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)]));
+        RecordBatch::try_new(schema, vec![Arc::new(StringArray::from(vec![value]))]).unwrap()
+    }
+
+    async fn value(snapshot: &BranchSnapshot) -> String {
+        let batches: Vec<RecordBatch> = snapshot
+            .scan()
+            .try_into_stream()
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap();
+        assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+        batches[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap()
+            .value(0)
+            .to_owned()
+    }
+
+    #[tokio::test]
+    async fn captured_git_tags_survive_head_updates_without_replacing_live_rows() {
+        let original = Arc::new(SnapshotContext::new(
+            Instant::now() + Duration::from_secs(30),
+            Cancellation::default(),
+        ));
+        for module in [GitRecordModule::Memory, GitRecordModule::Task] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("records.lance");
+            let uri = path.to_str().unwrap();
+            let initial = image("captured");
+            LanceModuleStore::create(uri, initial.schema(), vec![initial])
+                .await
+                .unwrap();
+            let captured = BranchSnapshot::capture_observed(uri, None, None)
+                .await
+                .unwrap();
+            // A normal writer advances this dataset after Git captured its
+            // snapshot, while the other module can still be publishing its tag.
+            let mut current = captured
+                .prepare_overwrite(vec![image("later write")])
+                .await
+                .unwrap()
+                .commit()
+                .await
+                .unwrap();
+            let live_version = current.version();
+            assert_ne!(captured.version(), live_version);
+            let prepared = Prepared {
+                module,
+                expected: Some(captured.clone()),
+                action: Action::Tag {
+                    commit: "0123456789012345678901234567890123456789".into(),
+                },
+            };
+            let report = perform(&original, &mut current, &prepared, || {
+                original.check().map_err(GitRecordsError::from)
+            })
+            .await
+            .unwrap();
+            assert_eq!(report.effect, GitRecordEffect::Tagged);
+            assert_eq!(report.version, captured.version());
+            let tagged = current
+                .at_git_commit("0123456789012345678901234567890123456789")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(value(&tagged).await, "captured");
+            let live = BranchSnapshot::capture_observed(uri, None, None)
+                .await
+                .unwrap();
+            assert_eq!(live.version(), live_version);
+            assert_eq!(value(&live).await, "later write");
+            // Other actions retain their exact-version guard. Only publishing
+            // an immutable captured tag is independent of the working head.
+            let strict = Prepared {
+                module,
+                expected: Some(captured),
+                action: Action::Noop {
+                    report,
+                    check_working: true,
+                },
+            };
+            assert!(check_expected(&live, &strict).is_err());
+        }
+    }
 }

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionApi } from '@/api/taskSession'
 import { SessionAuditSections } from './SessionAuditSections'
 import { context, sessionDetail, sessionHistoryPage } from './task.test-fixtures'
-import { useTaskWorkspace } from './taskWorkspace'
+import { useTaskWorkspace } from './taskWorkspaceState'
 vi.mock('@/api/taskSession', async original => ({ ...await original<typeof import('@/api/taskSession')>(), sessionApi: { get: vi.fn() } }))
 beforeEach(() => {
  vi.resetAllMocks()

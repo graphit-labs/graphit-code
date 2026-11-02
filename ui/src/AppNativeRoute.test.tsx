@@ -9,7 +9,7 @@ import { catalog, installedPage, projectA, projectB } from '@/components/hub/hub
 import { taskApi } from '@/api/task'
 import * as nativeRead from '@/api/nativeRecordRead'
 import { context } from '@/components/task/task.test-fixtures'
-import { stopTaskWorkspace } from '@/components/task/taskWorkspace'
+import { stopTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { useAppStore } from '@/store/appStore'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'
 import App from './App'

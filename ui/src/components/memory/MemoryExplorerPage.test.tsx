@@ -7,7 +7,7 @@ import { nativeMemoryApi, type NativeMemory, type NativeMemoryHistory, type Nati
 import { nativeMemoryMutationApi, MemoryMutationError, type MemoryMutationResult } from '@/api/nativeMemoryMutation'
 import { projectRecordHref } from '@/api/nativeRecordNavigation'
 import { parseNativeJson } from '@/api/nativeJson'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { useAppStore } from '@/store/appStore'
 import MemoryExplorerPage from './MemoryExplorerPage'
 vi.mock('@/api/nativeMemory', async original => ({ ...await original<typeof import('@/api/nativeMemory')>(), nativeMemoryApi: { list: vi.fn(), history: vi.fn(), get: vi.fn(), search: vi.fn() } }))

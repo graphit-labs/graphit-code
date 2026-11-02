@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { hubNative, HubRequestError, type FileOutcome } from '@/api/hubNative'
 import { projectVersionsApi } from '@/api/projectVersions'
 import { useAppStore } from '@/store/appStore'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import ProjectArtifactsPage from './ProjectArtifactsPage'
 import { completed, hubContext, selectHubProject, installed, installedPage, projectA, projectB } from './hubTestFixtures'
 vi.mock('@/api/hubNative', async importOriginal => ({ ...await importOriginal<typeof import('@/api/hubNative')>(), hubNative: { projects: vi.fn(), search: vi.fn(), installed: vi.fn(), content: vi.fn(), mutate: vi.fn() } }))

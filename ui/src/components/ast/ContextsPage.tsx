@@ -1,4 +1,4 @@
-import { useTaskWorkspace, taskContextKey } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace, taskContextKey } from '@/components/task/taskWorkspaceState'
 import { projectReadModule, requestedRecordSelection, importedAstHref } from '@/api/nativeRecordNavigation'
 import { stringifyNativeJson } from '@/api/nativeJson'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'

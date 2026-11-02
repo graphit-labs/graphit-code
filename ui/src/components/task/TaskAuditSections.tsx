@@ -4,8 +4,8 @@ import { nativeTimestamp as timestamp } from '@/api/nativeJson'
 import { WorkNotice, WorkSection } from '@/components/shared/EngineeringUI'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
-import { invalidateTaskWorkspace } from './taskWorkspace'
-import { scheduleLabel } from './taskTimeline'
+import { invalidateTaskWorkspace } from './taskWorkspaceState'
+import { scheduleLabel } from './taskTimelineDates'
 
 const rich = (content: string) => <MarkdownContent content={content} />
 

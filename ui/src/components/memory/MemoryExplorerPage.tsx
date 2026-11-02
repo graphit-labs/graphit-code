@@ -24,7 +24,7 @@ type MemoryScope = 'project' | 'user';
 import { nativeMemoryApi, type NativeMemory, type NativeMemoryHistory, type NativeMemoryList, type MemoryEnvelope, type MemoryReadScope, type MemoryClassification, type NativeMemorySearch, type MemorySearchMode } from '@/api/nativeMemory'
 import { nativeSelectionKey, projectRecordHref, requestedRecordSelection, userMemoryHref } from '@/api/nativeRecordNavigation'
 import { nativeTimestamp, stringifyNativeJson } from '@/api/nativeJson'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { MemoryMarkdown } from "./MemoryMarkdown";

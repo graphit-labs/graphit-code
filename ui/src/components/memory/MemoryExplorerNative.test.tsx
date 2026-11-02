@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nativeMemoryApi, type MemoryEnvelope, type NativeMemory, type NativeMemoryHistory, type NativeMemoryList } from '@/api/nativeMemory'
 import { projectRecordHref } from '@/api/nativeRecordNavigation'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { useAppStore } from '@/store/appStore'
 import MemoryExplorerPage from './MemoryExplorerPage'
 

@@ -34,6 +34,14 @@ existing data and indexes and protect the snapshot from native cleanup. Capturin
 the same Git commit never moves an existing tag. Empty stores also have a
 snapshot, so later data cannot appear when returning to that empty commit.
 
+A commit tag binds the admitted snapshot captured while preparing that module's
+notification. A later record write or background embedding publication may advance
+the working dataset without invalidating this capture. Tagging preserves the captured
+rows and leaves the newer working head intact; it does not refresh an existing
+corpus's textual index or wait for inference. Task and Memory do not need a shared
+generation. Operations that change working records, such as checkout and merge,
+retain their native revision and optimistic commit checks.
+
 New branches are materialized from that exact snapshot using native shallow
 branches. Ordinary mutable records continue to use the branch selected by
 `VersionContext::lance_branch()`. Detached HEAD selects `git:<object-id>`

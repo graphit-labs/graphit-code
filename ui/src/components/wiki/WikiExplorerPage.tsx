@@ -5,7 +5,7 @@ import { importedKnowledgeHref, importedKnowledgeRoute, importedSourceKey, nativ
 import type { TaskContext } from '@/api/task'
 import { knowledgeReferenceBinding } from '@/api/nativeRecordReferences'
 import { referenceDestinationError } from '@/api/nativeReferenceNavigation'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'
 import { RecordReferences } from '@/components/shared/RecordReferences'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'

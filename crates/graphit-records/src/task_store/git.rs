@@ -39,7 +39,7 @@ pub(crate) async fn execute(
             let current = capture(original, admission, limits)
                 .await?
                 .ok_or(TaskStoreError::MissingSession)?;
-            git_records::check_expected(&current.pin, prepared.expected.as_ref())?;
+            git_records::check_expected(&current.pin, &prepared)?;
             current.guard.revalidate(original)?;
         }
         return Ok(report);
@@ -84,7 +84,7 @@ pub(crate) async fn execute(
             commit: None,
         });
     }
-    git_records::check_expected(&writer.pin, prepared.expected.as_ref())?;
+    git_records::check_expected(&writer.pin, &prepared)?;
     let extension: Result<(), GitRecordsError> = async {
         if prepared.index_before() && writer.pin.inherited_target().is_some() {
             before()?;
@@ -104,7 +104,7 @@ pub(crate) async fn execute(
                 .field_with_name("embedding_vector")
                 .is_err()
         {
-            git_records::check_expected(&writer.pin, prepared.expected.as_ref())?;
+            git_records::check_expected(&writer.pin, &prepared)?;
             if writer.pin.inherited_target().is_some() {
                 before()?;
                 writer.pin = writer.pin.clone().materialize().await?;

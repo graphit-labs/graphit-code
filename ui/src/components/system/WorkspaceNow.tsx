@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Link } from 'react-router-dom';
 import { readNow, NowReadError, type NowUpdate } from '@/api/now';
 import { projectRecordHref, type ProjectRecordKind } from '@/api/nativeRecordNavigation';
-import { useTaskWorkspace, taskContextKey } from '@/components/task/taskWorkspace';
+import { useTaskWorkspace, taskContextKey } from '@/components/task/taskWorkspaceState';
 import { usePageRefresh } from '../layout/WorkspaceRefresh';
 import { SessionTaskProgress, WorkEmpty, WorkNotice, WorkSection } from '../shared/EngineeringUI';
 

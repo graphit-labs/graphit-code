@@ -28,7 +28,7 @@ authenticated browser transport or Main composition.
 The [native Task protocol](rust_task_protocol.md) owns domain and wire semantics.
 The [Graphit design system](design_system.md) owns shared visual and interaction
 patterns. Source is in `ui/src/components/task/TaskTimeline.tsx`, with
-pure date/dependency helpers in `taskTimeline.ts` and local `task-timeline.css`.
+pure date/dependency helpers in `taskTimelineDates.ts` and local `task-timeline.css`.
 
 ## Input and states
 
@@ -145,8 +145,8 @@ to the loading spinner.
 From `ui`, existing tools run the affected checks:
 
 ```text
-npx --no-install vitest run src/components/task/taskTimeline.test.ts src/components/task/TaskTimeline.test.tsx
-npx --no-install eslint src/components/task/TaskTimeline.tsx src/components/task/taskTimeline.ts src/components/task/TaskTimeline.test.tsx src/components/task/taskTimeline.test.ts src/api/task.ts
+npx --no-install vitest run src/components/task/taskTimelineDates.test.ts src/components/task/TaskTimeline.test.tsx
+npx --no-install eslint src/components/task/TaskTimeline.tsx src/components/task/taskTimelineDates.ts src/components/task/TaskTimeline.test.tsx src/components/task/taskTimelineDates.test.ts src/api/task.ts
 npm run build
 ```
 

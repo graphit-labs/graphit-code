@@ -1,4 +1,4 @@
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import type { TaskContext } from '@/api/task'
 import { useAppStore } from '@/store/appStore'
 import { mutationArtifact, type ArtifactPage, type FileOutcome, type InstalledFile, type InstalledFilePage, type MutationSelection } from '@/api/hubNative'

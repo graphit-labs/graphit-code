@@ -6,7 +6,7 @@ import { WorkNotice, WorkSection } from '@/components/shared/EngineeringUI'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
 import { useAppStore } from '@/store/appStore'
-import { invalidateTaskWorkspace, taskContextKey, useTaskWorkspace } from './taskWorkspace'
+import { invalidateTaskWorkspace, taskContextKey, useTaskWorkspace } from './taskWorkspaceState'
 
 const rich = (content: string) => <MarkdownContent content={content} />
 const identity = () => { const state = useAppStore.getState(); return JSON.stringify([state.apiBase, state.webIdentity]) }

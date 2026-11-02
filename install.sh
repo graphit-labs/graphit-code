@@ -9,15 +9,15 @@ fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dir)
-      [ "$#" -ge 2 ] && [ -n "$2" ] || fail "--dir requires a path"
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then fail "--dir requires a path"; fi
       install_dir=$2; shift 2 ;;
     --dir=*) install_dir=${1#--dir=}; shift ;;
     --version)
-      [ "$#" -ge 2 ] && [ -n "$2" ] || fail "--version requires a release tag"
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then fail "--version requires a release tag"; fi
       version=$2; shift 2 ;;
     --version=*) version=${1#--version=}; shift ;;
     --archive)
-      [ "$#" -ge 2 ] && [ -n "$2" ] || fail "--archive requires a path"
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then fail "--archive requires a path"; fi
       archive=$2; shift 2 ;;
     --archive=*) archive=${1#--archive=}; [ -n "$archive" ] || fail "--archive requires a path"; shift ;;
     --help|-h)
@@ -54,7 +54,9 @@ fi
 temp_dir=$(mktemp -d)
 trap 'rm -rf "$temp_dir"' EXIT
 if [ -n "$archive" ]; then
-  [ -s "$archive" ] && [ -s "$archive.sha256" ] || fail "Local archive and adjacent .sha256 are required"
+  if [ ! -s "$archive" ] || [ ! -s "$archive.sha256" ]; then
+    fail "Local archive and adjacent .sha256 are required"
+  fi
   cp "$archive" "$temp_dir/$archive_name"
   cp "$archive.sha256" "$temp_dir/checksum"
 else

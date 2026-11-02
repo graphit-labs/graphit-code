@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { taskApi } from '@/api/task'
 import { TaskComments, TaskHistory } from './TaskAuditSections'
 import { before, commentsPage, context, detail, first, historyPage } from './task.test-fixtures'
-import { useTaskWorkspace } from './taskWorkspace'
+import { useTaskWorkspace } from './taskWorkspaceState'
 
 vi.mock('@/api/task', async original => ({ ...await original<typeof import('@/api/task')>(), taskApi: { get: vi.fn() } }))
 beforeEach(() => {

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { nativeBindings, type HubScope, type NativeBinding } from '@/api/hubNative'
 import { nativeSelectionKey } from '@/api/nativeRecordNavigation'
 import { useAppStore } from '@/store/appStore'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 
 export function useHubContext() {
   const { apiBase, webIdentity, activeAgent } = useAppStore()

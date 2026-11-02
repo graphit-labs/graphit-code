@@ -31,7 +31,7 @@ fi
 # Hooks are separate executable processes; failures stop startup before the exec.
 if [ -d "$hooks_dir" ]; then
   for script in "$hooks_dir"/*; do
-    [ -f "$script" ] && [ -x "$script" ] || continue
+    if [ ! -f "$script" ] || [ ! -x "$script" ]; then continue; fi
     echo "Running $script"
     "$script"
   done

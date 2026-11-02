@@ -7,7 +7,7 @@ import { sessionApi } from '@/api/taskSession'
 import { parseNativeJson } from '@/api/nativeJson'
 import { SessionDossier } from './SessionDossier'
 import { context, sessionDetail, sessionHistoryPage } from './task.test-fixtures'
-import { useTaskWorkspace } from './taskWorkspace'
+import { useTaskWorkspace } from './taskWorkspaceState'
 vi.mock('@/api/taskSession', async original => ({ ...await original<typeof import('@/api/taskSession')>(), sessionApi: { get: vi.fn() } }))
 vi.mock('@/components/shared/RecordReferences', () => ({ RecordReferences: () => <h3>Record links</h3> }))
 let filename = ''

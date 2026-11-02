@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { readNow, NowReadError, type NowUpdate, type NowSnapshot } from '@/api/now';
-import { useTaskWorkspace } from '@/components/task/taskWorkspace';
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState';
 import { projectRecordHref } from '@/api/nativeRecordNavigation';
 import { useWorkspaceRefresh } from '../layout/WorkspaceRefresh';
 import { WorkspaceRefreshProvider } from '../layout/WorkspaceRefreshProvider';

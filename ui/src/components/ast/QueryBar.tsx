@@ -4,7 +4,7 @@ import { useCallback, useState, useRef, useEffect } from "react";
 import { nativeAstApi, astSelection, type AstImportedSource } from '@/api/nativeAst';
 import { nativeSelectionKey } from '@/api/nativeRecordNavigation';
 import type { TaskContext } from '@/api/task';
-import { invalidateTaskWorkspace } from '@/components/task/taskWorkspace';
+import { invalidateTaskWorkspace } from '@/components/task/taskWorkspaceState';
 import { astApi } from "@/api/ast";
 import { useAppStore } from "@/store/appStore";
 import { agentFeaturesEnabled } from "@/lib/utils";

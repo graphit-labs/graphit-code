@@ -1,7 +1,7 @@
 import type { TaskTimelineItem } from '@/api/task'
 import { WorkNotice, WorkEmpty, WorkStatusBadge } from '@/components/shared/EngineeringUI'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { calendarAxis, civilDateLabel, timelineRows, type TimelineRow } from './taskTimeline'
+import { calendarAxis, civilDateLabel, timelineRows, type TimelineRow } from './taskTimelineDates'
 import './task-timeline.css'
 
 function Identity({ row, onOpenTask }: { row: TimelineRow; onOpenTask?: (id: string) => void }) {

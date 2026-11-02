@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { hubNative, HubPublicationError, type ArtifactKind, type PackageUploadMetadata, type PackagePublicationOutcome } from '@/api/hubNative'
 import { useAppStore } from '@/store/appStore'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { hubContext, projectA, projectB, selectHubProject } from './hubTestFixtures'
 import UploadPage from './UploadPage'
 vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({ theme: 'light' }) }))

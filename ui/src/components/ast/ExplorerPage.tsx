@@ -32,7 +32,7 @@ import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 import { nativeAstApi, astSelection, type AstSourceReply, type AstSchema, type AstQuery, type AstSearchMode, type AstSearchMetric, type AstSearchReply } from '@/api/nativeAst';
 import { nativeSelectionKey, projectReadModule, requestedImportedAstSource, requestedAstContext, importedAstHref } from '@/api/nativeRecordNavigation';
 import { stringifyNativeJson, parseNativeJson, type NativeInteger } from '@/api/nativeJson';
-import { useTaskWorkspace, invalidateTaskWorkspace } from '@/components/task/taskWorkspace';
+import { useTaskWorkspace, invalidateTaskWorkspace } from '@/components/task/taskWorkspaceState';
 import { TaskWorkspaceNotice } from '@/components/task/TaskWorkspace';
 import { nativeSchemaView, nativeSampleView, nativeQueryView } from './nativeGraphView';
 

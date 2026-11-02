@@ -225,7 +225,10 @@ CI and release use GCC/libstdc++ 13 with CMake, OpenSSL and Protobuf on Linux.
 macOS uses its native C++20 toolchain and explicit Homebrew OpenSSL prefix.
 Windows uses the native toolchain, Protobuf/unzip and `openssl:x64-windows`
 (import libraries for linking and DLLs on PATH for tests/runtime). They prepare
-current Git for the Core Git contract.
+current Git for the Core Git contract. Windows producers enable
+`git config --global core.longpaths true` before Cargo prepares its Git
+dependencies and upstream submodules. Apply the same Git setting for local
+Windows builds so the standard Cargo cache can contain the upstream filenames.
 Native Windows/macOS execution still needs its own actual runner result; local
 workflow lint is not platform qualification.
 

@@ -1,7 +1,7 @@
 import { nativeAstApi } from '@/api/nativeAst';
 import { TaskWorkspaceSelectors } from "@/components/task/TaskWorkspace";
 import { nativeRecordContexts, NativeRecordReadError } from '@/api/nativeRecordRead';
-import { useTaskWorkspace, stopTaskWorkspace } from '@/components/task/taskWorkspace';
+import { useTaskWorkspace, stopTaskWorkspace } from '@/components/task/taskWorkspaceState';
 import { nativeSchema, nativeSample, nativeQuery, nativeQueryWithRelation, neighborhoodPage, selection, installed, searchReply, resolvedQuery } from './nativeAst.test-fixtures';
 import "@testing-library/jest-dom/vitest";
 import "@/test/contextControls";

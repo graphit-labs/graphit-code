@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nativeKnowledgeApi, type KnowledgeEnvelope, type NativeKnowledgeDocument, type NativeKnowledgePage } from '@/api/nativeKnowledge'
 import { projectRecordHref } from '@/api/nativeRecordNavigation'
 import { parseNativeJson } from '@/api/nativeJson'
-import { useTaskWorkspace } from '@/components/task/taskWorkspace'
+import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import WikiExplorerPage from './WikiExplorerPage'
 
 vi.mock('@/api/nativeKnowledge', async original => ({ ...await original<typeof import('@/api/nativeKnowledge')>(), nativeKnowledgeApi: { heads: vi.fn(), page: vi.fn() } }))
