@@ -87,17 +87,21 @@ official EmbeddingGemma BF16 file pinned in App's `model_provision.rs`, revision
 and the gate runs. This preparation does not add model weights to the release.
 Workflow lint and upstream URL availability do not establish a remote CI run.
 
-To qualify the complete Windows and macOS packages without creating a release,
+To qualify the complete Linux, Windows and macOS packages without creating a release,
 run the **Release** workflow manually on the desired Code ref:
 
 ```sh
 gh workflow run release.yml --repo graphit-labs/graphit-code --ref main
 ```
 
-This dispatch builds, packages and installs on real `windows-2022` (AMD64) and
-`macos-15` (ARM64) runners. It runs the same platform contracts and installation
-smokes as a tagged release, and uploads the packages as workflow artifacts.
-It also points `GRAPHIT_TEST_MODEL_SERVER` at the installed executable for the
+This dispatch uses the same three-platform matrix as tag builds: `ubuntu-22.04`
+(AMD64/CUDA), `windows-2022` (AMD64) and `macos-15` (ARM64). It runs the existing
+platform contracts and installation smokes and uploads complete packages as
+workflow artifacts. The Linux job prepares its own supported CUDA toolchain;
+it can produce a replacement GPU-capable package when local build caches have
+been removed. A successful CUDA build does not prove GPU execution on a hosted
+runner without a GPU.
+On Windows and macOS it also points `GRAPHIT_TEST_MODEL_SERVER` at the installed executable for the
 existing bootstrap/authentication, on-demand error, cancellation and shutdown
 tests. These process tests require no model download and do not qualify model
 inference or the platform's service manager.

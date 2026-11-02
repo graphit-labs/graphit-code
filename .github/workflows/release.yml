@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["darwin-arm64", "windows-amd64"]' || '["linux-amd64", "darwin-arm64", "windows-amd64"]') }}
+        platform: [linux-amd64, darwin-arm64, windows-amd64]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
