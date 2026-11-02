@@ -13,3 +13,6 @@ crates/graphit-ast/tests/fixtures/profiles/schema-cases/exports-null-implicit.ya
 
 # Preserve generated bundle bytes, including whitespace in vendor literals.
 crates/graphit-app/assets/ui/index.html linguist-generated=true -whitespace
+
+# The qualified SDK projection is hashed identically on every checkout.
+crates/graphit-fs/src/macos_private_sdk.rs text eol=lf

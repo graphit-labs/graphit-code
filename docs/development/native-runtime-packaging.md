@@ -95,8 +95,9 @@ gh workflow run release.yml --repo graphit-labs/graphit-code --ref main
 ```
 
 This dispatch uses the same three-platform matrix as tag builds: `ubuntu-22.04`
-(AMD64/CUDA), `windows-2022` (AMD64) and `macos-15` (ARM64). It checks source
-formatting, builds the UI and Release executables, runs package/install smokes,
+(AMD64/CUDA), `windows-2022` (AMD64) and `macos-15` (ARM64). It runs the existing
+source-boundary and formatting checks through `cargo xtask check`, builds the UI
+and Release executables, runs package/install smokes,
 and uploads complete packages as workflow artifacts. The manual dispatch does
 not repeat the complete Debug gate, its Linux Hub fixture, Debug model-server
 or embedding-model download. Main CI and tag releases retain their complete
@@ -249,6 +250,13 @@ workflow lint is not platform qualification.
 graphit-daemon using Cargo's locked dependencies. `make grammars` builds the AST
 crate and its native grammars. `make ui` regenerates the shipped React assets
 after UI changes; normal Rust builds reuse the checked-in assets.
+
+Ladybug's CMake build always receives a positive parallel job count. An explicit
+`CMAKE_BUILD_PARALLEL_LEVEL` takes precedence over `CARGO_BUILD_JOBS`; both must
+be positive integers. Without either setting, Rust's
+`std::thread::available_parallelism()` supplies the available CPU count, including
+applicable affinity/cgroup constraints. The builder never passes an unbounded
+`--parallel` option. These settings control compilation, not runtime memory.
 
 `make run ARGS="--help"` builds both executables before running graphit with the
 supplied arguments. It prepends the selected target's absolute `debug` directory

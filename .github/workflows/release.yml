@@ -157,7 +157,7 @@ jobs:
         run: cargo xtask gate
       - name: Check source formatting for the manual package build
         if: github.event_name == 'workflow_dispatch'
-        run: cargo fmt --all -- --check
+        run: cargo xtask check
       - name: Install CUDA build toolchain for the Cargo backend
         if: runner.os == 'Linux'
         uses: Jimver/cuda-toolkit@21aaab8dcb4e9329ae86f60cf6586a9ef3effbea # v0.2.32

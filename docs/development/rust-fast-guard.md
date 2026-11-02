@@ -78,6 +78,12 @@ Maintainers use the same commands on Linux, macOS and Windows:
 - `cargo xtask test PACKAGE/TARGET ...`: run only selected registered suites, in catalog order. Empty, unknown or repeated selectors are rejected.
 - `graphit git install`: snapshot current records and register the commands declared in `.graphit/project.json`, using Git 2.54+ native configuration. `graphit git sync` reconciles events without a snapshot.
 
+On Windows, the existing `check` and `gate` commands invoke Cargo fmt separately
+for each local package manifest, including path dependencies in Broker. This
+preserves the `fmt --all` coverage without exceeding the Windows process command-line
+limit. Package selection comes from locked Cargo metadata, not a maintained file list.
+Run `cargo fetch --locked` first when preparing dependencies for offline checks.
+
 Pre-commit runs the staged whitespace check, `actionlint` and `cargo xtask check`.
 Pre-push runs `cargo xtask check`, strict all-target workspace Clippy through
 `cargo xtask cargo`, and `cargo test --locked -p xtask --bin xtask`. These checks
@@ -100,7 +106,12 @@ The [CI workflow](../../.github/workflows/ci.yml) keeps four independent jobs:
 - `workflow-lint`: the official actionlint 1.7.12 Linux binary is verified against its pinned SHA-256 before extraction, then runs `actionlint -no-color .github/workflows/*.yml` without bootstrapping Go.
 - `native-packaging`: ShellCheck validates the maintained installer/packaging scripts and Node runs their existing package contracts.
 
-The separate [release workflow](../../.github/workflows/release.yml) runs the same Rust gate before native packaging; its Linux build prepares and exports the same owned Broker fixture first. Native platform qualification remains part of the migration. Static workflow validation does not establish that the Rust/UI suites or hosted platform matrix executed.
+Tagged builds in the separate [release workflow](../../.github/workflows/release.yml)
+run the same Rust gate before native packaging; the Linux build prepares the same
+owned Broker fixture first. Manual package builds run `cargo xtask check`, the
+package/install checks and affected Release consumers described in
+[native packaging](native-runtime-packaging.md), reusing prior functional evidence.
+Static workflow validation does not establish that hosted platform checks executed.
 
 The Linux gate includes the ignored Role FILE Hub journey through the registered
 `graphit-app/role-hub-file` selector. It starts the owned Broker storage fixture

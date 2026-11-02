@@ -1,7 +1,10 @@
 //! Prepare the engine from the exact Cargo source. CMake owns incremental builds.
 use cargo_metadata::{MetadataCommand, Package};
 use std::{
-    env, fs,
+    env,
+    ffi::OsStr,
+    fs,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -49,6 +52,18 @@ fn option(args: &[String], name: &str) -> Result<Option<String>, String> {
         [] => Ok(None),
         [value] if !value.is_empty() => Ok(Some(value.clone())),
         _ => Err(format!("{name} must select exactly one value")),
+    }
+}
+
+fn parallel_jobs(configured: Option<&OsStr>) -> Result<NonZeroUsize, String> {
+    match configured {
+        Some(value) => value
+            .to_str()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(|| {
+                "CMAKE_BUILD_PARALLEL_LEVEL or CARGO_BUILD_JOBS must be a positive integer".into()
+            }),
+        None => std::thread::available_parallelism().map_err(|error| error.to_string()),
     }
 }
 
@@ -294,11 +309,9 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
         "single_file_header",
         "--parallel",
     ]);
-    if let Some(jobs) =
-        env::var_os("CMAKE_BUILD_PARALLEL_LEVEL").or_else(|| env::var_os("CARGO_BUILD_JOBS"))
-    {
-        compile.arg(jobs);
-    }
+    let jobs =
+        env::var_os("CMAKE_BUILD_PARALLEL_LEVEL").or_else(|| env::var_os("CARGO_BUILD_JOBS"));
+    compile.arg(parallel_jobs(jobs.as_deref())?.to_string());
     run(&mut compile)?;
     let cache = fs::read_to_string(cmake.join("CMakeCache.txt")).map_err(|e| e.to_string())?;
     let lib_name = if target.contains("msvc") {
@@ -426,6 +439,17 @@ fn symbol_rules(listing: &str) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn parallel_build_uses_available_cpus_or_an_explicit_positive_count() {
+        assert_eq!(
+            parallel_jobs(None).unwrap(),
+            std::thread::available_parallelism().unwrap()
+        );
+        assert_eq!(parallel_jobs(Some(OsStr::new("7"))).unwrap().get(), 7);
+        for value in ["", "0", "-1", "not-a-number"] {
+            assert!(parallel_jobs(Some(OsStr::new(value))).is_err());
+        }
+    }
     #[test]
     fn target_options_preserve_spaces_and_reject_multiple_targets() {
         assert_eq!(

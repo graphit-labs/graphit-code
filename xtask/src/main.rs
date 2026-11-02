@@ -584,7 +584,33 @@ fn static_checks(root: &Path) -> Result<(), String> {
 
 fn source_checks(root: &Path) -> Result<(), String> {
     safety::run(root)?;
-    execute(root, &["fmt", "--all", "--", "--check"])
+    if cfg!(windows) {
+        // cargo fmt --all passes every target to one rustfmt invocation and
+        // exceeds CreateProcess's command-line size in this workspace. Keep
+        // its local path-dependency coverage, including the Broker producers.
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .manifest_path(root.join("Cargo.toml"))
+            .other_options(vec!["--locked".into()])
+            .exec()
+            .map_err(|error| error.to_string())?;
+        for package in metadata.packages.iter().filter(|p| p.source.is_none()) {
+            execute(
+                root,
+                &[
+                    "fmt",
+                    "--manifest-path",
+                    package.manifest_path.as_str(),
+                    "--package",
+                    package.name.as_ref(),
+                    "--",
+                    "--check",
+                ],
+            )?;
+        }
+        Ok(())
+    } else {
+        execute(root, &["fmt", "--all", "--", "--check"])
+    }
 }
 
 fn tests(root: &Path) -> Result<(), String> {
