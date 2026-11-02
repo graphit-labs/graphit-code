@@ -4,6 +4,12 @@ on:
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Native package to qualify
+        type: choice
+        default: all
+        options: [all, linux-amd64, darwin-arm64, windows-amd64]
 
 permissions:
   contents: read
@@ -23,8 +29,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [linux-amd64, darwin-arm64, windows-amd64]
+        platform: ${{ fromJSON(inputs.platform == 'linux-amd64' && '["linux-amd64"]' || inputs.platform == 'darwin-arm64' && '["darwin-arm64"]' || inputs.platform == 'windows-amd64' && '["windows-amd64"]' || '["linux-amd64", "darwin-arm64", "windows-amd64"]') }}
     steps:
+      - name: Validate requested native platform
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REQUESTED_PLATFORM: ${{ inputs.platform || 'all' }}
+        run: |
+          case "$REQUESTED_PLATFORM" in
+            all|linux-amd64|darwin-arm64|windows-amd64) ;;
+            *) echo "Unsupported native platform." >&2; exit 2 ;;
+          esac
       - name: Checkout Code
         uses: actions/checkout@v4
         with:

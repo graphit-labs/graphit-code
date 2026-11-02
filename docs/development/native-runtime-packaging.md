@@ -94,6 +94,14 @@ run the **Release** workflow manually on the desired Code ref:
 gh workflow run release.yml --repo graphit-labs/graphit-code --ref main
 ```
 
+The default `platform=all` builds the three packages. To repeat only an affected
+native job while preserving valid results for unchanged platforms, select
+`linux-amd64`, `darwin-arm64` or `windows-amd64`:
+
+```sh
+gh workflow run release.yml --repo graphit-labs/graphit-code --ref main -f platform=windows-amd64
+```
+
 This dispatch uses the same three-platform matrix as tag builds: `ubuntu-22.04`
 (AMD64/CUDA), `windows-2022` (AMD64) and `macos-15` (ARM64). It runs the existing
 source-boundary and formatting checks through `cargo xtask check`, builds the UI
@@ -381,7 +389,9 @@ On Windows x64, `dumpbin` selects required release VC143 CRT DLLs from
 `OPENSSL_DIR/bin`. They are installed beside the executables, following
 [Microsoft's application-local deployment](https://learn.microsoft.com/en-us/cpp/windows/choosing-a-deployment-method?view=msvc-170).
 There is no requirement to install Visual Studio or run `vc_redist` on the
-client. Windows 10/11 UCRT and system API DLLs remain operating system components;
+client. Windows 10/11 UCRT and system API DLLs remain operating system components,
+including the COM/WinRT `combase.dll` described in the
+[Windows API requirements](https://learn.microsoft.com/en-us/windows/win32/api/roapi/nf-roapi-roregisteractivationfactories);
 debug CRT and other external dependencies are rejected. The Rust, Ladybug and
 llama.cpp builds retain their consistent MSVC dynamic-CRT selection rather than
 mixing `/MT` and `/MD`. Use the separate default installation directories for

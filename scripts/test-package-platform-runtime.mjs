@@ -78,8 +78,9 @@ test('Windows fails for missing app-local CRT source rather than resolving host 
 });
 test('Windows OS-only Broker needs no OpenSSL or VC redistributable configuration', t => {
   const f = fixture(t);
-  const m = packagePlatformRuntime('windows-amd64', f.stage, ['graphit.exe'], { env: {}, runtimeSubdir: 'graphit-runtime/broker', run: windowsTools({ 'graphit.exe': ['BCRYPT.dll', 'ucrtbase.dll'] }) });
+  const m = packagePlatformRuntime('windows-amd64', f.stage, ['graphit.exe'], { env: {}, runtimeSubdir: 'graphit-runtime/broker', run: windowsTools({ 'graphit.exe': ['BCRYPT.dll', 'ComBase.dll', 'ucrtbase.dll'] }) });
   assert.equal(m.libraries.length, 0);
+  assert.deepEqual(m.host_libraries, ['bcrypt.dll', 'combase.dll', 'ucrtbase.dll']);
   assert.ok(fs.existsSync(path.join(f.stage, 'graphit-runtime/broker/windows-libraries.json')));
 });
 test('Windows rejects wrong machine', t => {
