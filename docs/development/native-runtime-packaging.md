@@ -95,9 +95,12 @@ gh workflow run release.yml --repo graphit-labs/graphit-code --ref main
 ```
 
 This dispatch uses the same three-platform matrix as tag builds: `ubuntu-22.04`
-(AMD64/CUDA), `windows-2022` (AMD64) and `macos-15` (ARM64). It runs the existing
-platform contracts and installation smokes and uploads complete packages as
-workflow artifacts. The Linux job prepares its own supported CUDA toolchain;
+(AMD64/CUDA), `windows-2022` (AMD64) and `macos-15` (ARM64). It checks source
+formatting, builds the UI and Release executables, runs package/install smokes,
+and uploads complete packages as workflow artifacts. The manual dispatch does
+not repeat the complete Debug gate, its Linux Hub fixture, Debug model-server
+or embedding-model download. Main CI and tag releases retain their complete
+formatting, Clippy and functional gates. The Linux job prepares its own supported CUDA toolchain;
 it can produce a replacement GPU-capable package when local build caches have
 been removed. A successful CUDA build does not prove GPU execution on a hosted
 runner without a GPU.
@@ -105,6 +108,12 @@ On Windows and macOS it also points `GRAPHIT_TEST_MODEL_SERVER` at the installed
 existing bootstrap/authentication, on-demand error, cancellation and shutdown
 tests. These process tests require no model download and do not qualify model
 inference or the platform's service manager.
+On all three platforms the manual build also runs the existing
+`graphit-records --lib git_records::tests` filter in Release, exercising native
+Lance commit tags across subsequent head updates. Package production and these
+focused consumers omit `--target` and use the same native Release layout;
+the installed model-child consumers also reuse the Release profile. This scope
+qualifies the affected snapshot/package paths, not the entire product suite.
 The dispatch does not publish a GitHub release or container image. Set repository variable
 `GRAPHIT_BROKER_REF` to the paired published Broker commit first. Record the
 actual workflow results; preparing or dispatching the job is not qualification.

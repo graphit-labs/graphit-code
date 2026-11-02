@@ -122,7 +122,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Build owned Broker Hub storage fixture
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
           cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture --target-dir target
@@ -131,7 +131,7 @@ jobs:
           test -x "$fixture_bin"
           echo "GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN=$fixture_bin" >> "$GITHUB_ENV"
       - name: Build model-server executable for Linux contract tests
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
           cargo xtask cargo build --locked -p graphit-daemon --bin graphit-model-server
@@ -140,7 +140,7 @@ jobs:
           test -x "$model_server"
           echo "GRAPHIT_TEST_MODEL_SERVER=$model_server" >> "$GITHUB_ENV"
       - name: Prepare pinned embedding GGUF for the Linux native NN gate
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'workflow_dispatch'
         shell: bash
         env:
           EMBEDDING_MODEL_URL: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/bfcd298762cc34d0357ece5ebdd31791a3a374d8/embeddinggemma-2-BF16.gguf
@@ -153,7 +153,11 @@ jobs:
           test "$(wc -c < "$model_file")" -eq "$EMBEDDING_MODEL_BYTES"
           echo "GRAPHIT_EMBEDDINGGEMMA2_MODEL=$model_file" >> "$GITHUB_ENV"
       - name: Check Rust contracts and quality
+        if: github.event_name != 'workflow_dispatch'
         run: cargo xtask gate
+      - name: Check source formatting for the manual package build
+        if: github.event_name == 'workflow_dispatch'
+        run: cargo fmt --all -- --check
       - name: Install CUDA build toolchain for the Cargo backend
         if: runner.os == 'Linux'
         uses: Jimver/cuda-toolkit@21aaab8dcb4e9329ae86f60cf6586a9ef3effbea # v0.2.32
@@ -241,6 +245,9 @@ jobs:
             actual_child_completion_is_cancel_safe_and_retains_the_same_exit; do
             cargo xtask cargo test --locked --release -p graphit-daemon --test model_child "$consumer" -- --exact
           done
+      - name: Verify Git record snapshots with the Release build
+        if: github.event_name == 'workflow_dispatch'
+        run: cargo xtask cargo test --locked --release -p graphit-records --lib git_records::tests
       - name: Upload complete release artifact
         uses: actions/upload-artifact@v4
         with:
