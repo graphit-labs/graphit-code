@@ -6,7 +6,7 @@ use std::{fs::File, io, path::Path};
 pub fn create_private_directory(path: &Path) -> io::Result<File> {
     #[cfg(windows)]
     {
-        crate::windows_private_file::new_directory(path)
+        crate::windows_private_file::new_directory(path, false)
     }
     #[cfg(target_os = "macos")]
     {
@@ -25,6 +25,19 @@ pub fn create_private_directory(path: &Path) -> io::Result<File> {
         verify_private_directory(&directory)?;
         Ok(directory)
     }
+}
+
+/// Create a protected Windows directory whose driver-created files inherit
+/// access for the current user only.
+#[cfg(windows)]
+pub fn create_private_database_directory(path: &Path) -> io::Result<File> {
+    crate::windows_private_file::new_directory(path, true)
+}
+
+/// Require private access and file inheritance before a database driver writes.
+#[cfg(windows)]
+pub fn verify_private_database_directory(file: &File) -> io::Result<()> {
+    crate::windows_private_file::verify_database_directory(file)
 }
 
 /// CREATE_NEW/private mode or protected user-only DACL before any content bytes.

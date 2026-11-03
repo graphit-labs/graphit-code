@@ -127,7 +127,10 @@ pub fn open_private_database_file_relative(
         component_capacity,
         before,
     )?;
-    checked(file, false, before)
+    before()?;
+    crate::windows_private_file::verify_database_file(&file)?;
+    before()?;
+    Ok(file)
 }
 
 pub fn inspect_private_directory_current(

@@ -13,7 +13,7 @@ use std::{
 };
 use windows_permissions::{
     LocalBox, SecurityDescriptor,
-    constants::{SeObjectType, SecurityInformation},
+    constants::{AccessRights, AceFlags, AceType, SeObjectType, SecurityInformation},
     wrappers::{ConvertSecurityDescriptorToStringSecurityDescriptor, GetSecurityInfo},
 };
 use windows_sys::Win32::{
@@ -113,6 +113,10 @@ impl WidePath {
 }
 
 pub(super) fn private_descriptor() -> io::Result<LocalBox<SecurityDescriptor>> {
+    private_descriptor_with_flags("")
+}
+
+fn private_descriptor_with_flags(flags: &str) -> io::Result<LocalBox<SecurityDescriptor>> {
     use winsafe::{HPROCESS, TokenInfo, co};
     let token = HPROCESS::GetCurrentProcess()
         .OpenProcessToken(co::TOKEN::QUERY)
@@ -125,7 +129,7 @@ pub(super) fn private_descriptor() -> io::Result<LocalBox<SecurityDescriptor>> {
     };
     let sid = winsafe::ConvertSidToStringSid(user.User.Sid().ok_or(io::ErrorKind::InvalidData)?)
         .map_err(|e| io::Error::from_raw_os_error(e.raw() as i32))?;
-    format!("O:{sid}D:P(A;;FA;;;{sid})").parse()
+    format!("O:{sid}D:P(A;{flags};FA;;;{sid})").parse()
 }
 
 fn attributes(descriptor: &LocalBox<SecurityDescriptor>) -> SECURITY_ATTRIBUTES {
@@ -160,16 +164,20 @@ pub(super) fn new_database_file(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
-pub(super) fn new_directory(path: &Path) -> io::Result<File> {
+pub(super) fn new_directory(path: &Path, database: bool) -> io::Result<File> {
     let wide = WidePath::new(path)?;
-    let descriptor = private_descriptor()?;
+    let descriptor = private_descriptor_with_flags(if database { "OI" } else { "" })?;
     create_directory(&wide, &descriptor)?;
     let directory = OpenOptions::new()
         .access_mode(0x0002_0000)
         .share_mode(FILE_SHARE_READ)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
-    verify(&directory, true)?;
+    if database {
+        verify_database_directory(&directory)?;
+    } else {
+        verify(&directory, true)?;
+    }
     Ok(directory)
 }
 
@@ -180,7 +188,10 @@ pub fn access_snapshot(file: &File) -> io::Result<OsString> {
     ConvertSecurityDescriptorToStringSecurityDescriptor(&descriptor, info)
 }
 
-pub(super) fn verify(file: &File, directory: bool) -> io::Result<()> {
+fn private_object_descriptor(
+    file: &File,
+    directory: bool,
+) -> io::Result<LocalBox<SecurityDescriptor>> {
     let m = file.metadata()?;
     let information = winapi_information(file)?;
     if m.is_dir() != directory
@@ -189,13 +200,78 @@ pub(super) fn verify(file: &File, directory: bool) -> io::Result<()> {
     {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
-    let info = SecurityInformation::Owner | SecurityInformation::Dacl;
-    let descriptor = GetSecurityInfo(file, SeObjectType::SE_FILE_OBJECT, info)?;
-    let actual = ConvertSecurityDescriptorToStringSecurityDescriptor(&descriptor, info)?;
-    let private = private_descriptor()?;
-    let expected = ConvertSecurityDescriptorToStringSecurityDescriptor(&private, info)?;
-    if actual != expected {
+    GetSecurityInfo(
+        file,
+        SeObjectType::SE_FILE_OBJECT,
+        SecurityInformation::Owner | SecurityInformation::Dacl,
+    )
+}
+
+fn owner_dacl(descriptor: &SecurityDescriptor) -> io::Result<OsString> {
+    ConvertSecurityDescriptorToStringSecurityDescriptor(
+        descriptor,
+        SecurityInformation::Owner | SecurityInformation::Dacl,
+    )
+}
+
+pub(super) fn verify(file: &File, directory: bool) -> io::Result<()> {
+    let actual = owner_dacl(private_object_descriptor(file, directory)?.as_ref())?;
+    if actual == owner_dacl(private_descriptor()?.as_ref())?
+        || (directory && actual == owner_dacl(private_descriptor_with_flags("OI")?.as_ref())?)
+    {
+        Ok(())
+    } else {
+        Err(io::ErrorKind::PermissionDenied.into())
+    }
+}
+
+pub(super) fn verify_database_directory(file: &File) -> io::Result<()> {
+    if owner_dacl(private_object_descriptor(file, true)?.as_ref())?
+        != owner_dacl(private_descriptor_with_flags("OI")?.as_ref())?
+    {
         return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(())
+}
+
+pub(super) fn verify_database_file(file: &File) -> io::Result<()> {
+    use winsafe::{HPROCESS, TokenInfo, co};
+    let actual = private_object_descriptor(file, false)?;
+    let private = private_descriptor()?;
+    if owner_dacl(&actual)? == owner_dacl(&private)? {
+        return Ok(());
+    }
+    // SQLite creates sidecars with the directory's inherited ACE and the
+    // creator token's default owner, which need not be its user SID.
+    let user = private.owner().ok_or(io::ErrorKind::InvalidData)?;
+    let ace = actual
+        .dacl()
+        .filter(|dacl| dacl.len() == 1)
+        .and_then(|dacl| dacl.get_ace(0))
+        .ok_or(io::ErrorKind::PermissionDenied)?;
+    if ace.ace_type() != AceType::ACCESS_ALLOWED_ACE_TYPE
+        || ace.flags() != AceFlags::Inherited
+        || ace.mask() != AccessRights::FileAllAccess
+        || ace.sid() != Some(user)
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    if actual.owner() != Some(user) {
+        let token = HPROCESS::GetCurrentProcess()
+            .OpenProcessToken(co::TOKEN::QUERY)
+            .map_err(|e| io::Error::from_raw_os_error(e.raw() as i32))?;
+        let info = token
+            .GetTokenInformation(co::TOKEN_INFORMATION_CLASS::Owner)
+            .map_err(|e| io::Error::from_raw_os_error(e.raw() as i32))?;
+        let TokenInfo::Owner(owner) = info else {
+            return Err(io::ErrorKind::InvalidData.into());
+        };
+        let sid = winsafe::ConvertSidToStringSid(owner.Owner().ok_or(io::ErrorKind::InvalidData)?)
+            .map_err(|e| io::Error::from_raw_os_error(e.raw() as i32))?;
+        let owner: LocalBox<windows_permissions::Sid> = sid.parse()?;
+        if actual.owner() != Some(&*owner) {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
     }
     Ok(())
 }
@@ -280,6 +356,39 @@ mod tests {
     use super::*;
     use std::os::windows::ffi::OsStringExt;
     #[test]
+    fn database_sidecars_inherit_only_the_current_users_access() -> io::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let name = std::ffi::OsStr::new("private α");
+        let path = temp.path().join(name);
+        drop(new_directory(&path, true)?);
+        let root = crate::read_directory::open_root_readonly(temp.path(), &mut || Ok(()))?;
+        let directory = crate::write_relative::open_private_directory_relative(
+            &root,
+            name,
+            name.encode_wide().count() * std::mem::size_of::<u16>(),
+            &mut || Ok(()),
+        )?;
+        verify_database_directory(&directory)?;
+        let sidecar = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(path.join("broker.db-wal"))?;
+        verify_database_file(&sidecar)?;
+        assert!(verify(&sidecar, false).is_err());
+
+        let explicit = owner_dacl(private_descriptor()?.as_ref())?;
+        let broad = format!("{}(A;;FR;;;WD)", explicit.to_str().unwrap()).parse()?;
+        let exposed = create_file(
+            &WidePath::new(&path.join("exposed"))?,
+            &broad,
+            FILE_SHARE_READ,
+        )?;
+        assert!(verify_database_file(&exposed).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn lock_contenders_can_open_readwrite_but_stage_and_delete_sharing_stay_closed() {
         use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
         let temp = tempfile::tempdir().unwrap();
@@ -319,7 +428,7 @@ mod tests {
         use std::io::Write;
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("control");
-        let directory = new_directory(&root).unwrap();
+        let directory = new_directory(&root, false).unwrap();
         verify(&directory, true).unwrap();
         let path = root.join("stage");
         let mut file = new_file(&path).unwrap();

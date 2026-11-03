@@ -30,6 +30,8 @@ mod private_file_metadata;
 pub use private_file_metadata::PrivateFileIdentity;
 
 mod private_file;
+#[cfg(windows)]
+pub use private_file::{create_private_database_directory, verify_private_database_directory};
 pub use private_file::{
     create_private_database_file, create_private_directory, create_private_file,
     create_private_lock_file, verify_private_directory, verify_private_file,
