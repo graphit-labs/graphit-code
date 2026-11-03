@@ -62,7 +62,7 @@ struct ChildReturn {
 enum OwnerState {
     Idle,
     Joining(JoinHandle<ChildReturn>),
-    Retained(ChildReturn),
+    Retained(Box<ChildReturn>),
     #[cfg(windows)]
     BirthUnobserved {
         _permit: OwnedSemaphorePermit,
@@ -108,7 +108,7 @@ impl KiroProcessOwner {
         {
             *state = match result {
                 Ok(result) if result.child.is_none() => OwnerState::Joined(result.observation),
-                Ok(result) => OwnerState::Retained(result),
+                Ok(result) => OwnerState::Retained(Box::new(result)),
                 Err(error) => OwnerState::JoinFailed(error),
             };
         }

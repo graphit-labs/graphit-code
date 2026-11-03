@@ -49,7 +49,7 @@ describe('Version selector', () => {
     expect(screen.getByText('Has code index, branch no longer in Git.')).toBeTruthy()
     await user.click(screen.getByRole('option', { name: /feature\/x/ }))
     expect(useAppStore.getState().activeProjectVersion).toBe('feature/x')
-    expect(useAppStore.getState().projectVersions['workspace:p1:/platform']).toBe('feature/x')
+    expect(useAppStore.getState().projectVersions['workspace:p1']).toBe('feature/x')
     await user.click(trigger)
     await user.click(screen.getByRole('option', { name: /^main/ }))
     expect(useAppStore.getState().activeProjectVersion).toBe('')

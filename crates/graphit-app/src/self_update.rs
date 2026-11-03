@@ -101,7 +101,7 @@ pub struct Failure {
     pub cause: Cause,
     pub package: PackageState,
     pub daemon: DaemonEffect,
-    pub recovery: Option<Recovery>,
+    pub recovery: Option<Box<Recovery>>,
     pub rollback_error: Option<io::Error>,
     pub cleanup_error: Option<io::Error>,
     pub restart_error: Option<Box<daemon_launcher::Failure>>,
@@ -670,7 +670,7 @@ async fn install_prepared(
             restart_error: None,
         };
         if matches!(package, PackageState::Partial | PackageState::Installed) {
-            failure.recovery = Some(backup.retain(RecoveryKind::RestorePackage));
+            failure.recovery = Some(Box::new(backup.retain(RecoveryKind::RestorePackage)));
         } else {
             let directory = backup
                 .container
@@ -680,10 +680,10 @@ async fn install_prepared(
                 .to_owned();
             if let Err(error) = backup.cleanup().await {
                 failure.cleanup_error = Some(error);
-                failure.recovery = Some(Recovery {
+                failure.recovery = Some(Box::new(Recovery {
                     kind: RecoveryKind::CleanupBackup,
                     directory,
-                });
+                }));
             }
         }
         drop(singleton);
@@ -706,7 +706,7 @@ async fn install_prepared(
                     cause: Cause::Launcher(Box::new(error)),
                     package: PackageState::Installed,
                     daemon,
-                    recovery: Some(backup.retain(RecoveryKind::RestorePackage)),
+                    recovery: Some(Box::new(backup.retain(RecoveryKind::RestorePackage))),
                     rollback_error: None,
                     cleanup_error: None,
                     restart_error: None,
@@ -728,10 +728,10 @@ async fn install_prepared(
             },
             package: PackageState::Installed,
             daemon,
-            recovery: Some(Recovery {
+            recovery: Some(Box::new(Recovery {
                 kind: RecoveryKind::CleanupBackup,
                 directory,
-            }),
+            })),
             rollback_error: None,
             cleanup_error: None,
             restart_error: None,

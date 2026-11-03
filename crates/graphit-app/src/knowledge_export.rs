@@ -53,7 +53,7 @@ pub enum KnowledgeTextExportOutcome {
     RegistryAbsent,
     NoCorpus,
     PublishedEmpty(KnowledgeGeneration),
-    Published(KnowledgeTextPublished),
+    Published(Box<KnowledgeTextPublished>),
 }
 
 /// A successfully created output and its actual captured Source observation.
@@ -434,7 +434,7 @@ fn publish_text_plan(
             cleanup,
         });
     }
-    Ok(KnowledgeTextExportOutcome::Published(
+    Ok(KnowledgeTextExportOutcome::Published(Box::new(
         KnowledgeTextPublished {
             output,
             generation,
@@ -442,5 +442,5 @@ fn publish_text_plan(
             fingerprint,
             cleanup: cleanup.map_err(KnowledgeTextExportError::Cleanup),
         },
-    ))
+    )))
 }

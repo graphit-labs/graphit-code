@@ -70,6 +70,7 @@ fn new_fixture() -> crate::source_server::test_fixture::Fixture {
     )
 }
 
+#[cfg(unix)]
 fn observed_terminal(
     fixture: &crate::source_server::test_fixture::Fixture,
     live: &LiveSessionService,

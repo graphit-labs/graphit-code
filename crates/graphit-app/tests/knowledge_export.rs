@@ -435,7 +435,7 @@ fn policy(f: &Fixture) -> KnowledgeTextExportPolicy {
 }
 fn published(result: KnowledgeTextExportOutcome) -> KnowledgeTextPublished {
     match result {
-        KnowledgeTextExportOutcome::Published(value) => value,
+        KnowledgeTextExportOutcome::Published(value) => *value,
         other => panic!("expected published, got {other:?}"),
     }
 }

@@ -43,6 +43,12 @@ jobs:
           df -h .
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
           df -h .
+      - name: Free macOS runner space for Rust test artifacts
+        if: runner.os == 'macOS'
+        run: |
+          df -h .
+          sudo xcrun simctl runtime delete all
+          df -h .
       - name: Require explicit Broker source ref
         shell: bash
         run: |
@@ -134,6 +140,8 @@ jobs:
         run: |
           tools="$RUNNER_TEMP/broker-s3-test-tools"
           GOBIN="$tools" sh ../graphit-broker/scripts/prepare-s3-test-tools.sh
+          go clean -cache -modcache
+          df -h .
           echo "$tools" >> "$GITHUB_PATH"
       - name: Build owned Broker Hub storage fixture
         if: runner.os == 'Linux'

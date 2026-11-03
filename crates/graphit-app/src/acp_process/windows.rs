@@ -199,8 +199,12 @@ impl Run {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .closed();
-                if result.is_some() && sdk_dropped && closed && stderr.is_none() {
-                    break result.expect("completed native wait");
+                if sdk_dropped
+                    && closed
+                    && stderr.is_none()
+                    && let Some(observed) = result.take()
+                {
+                    break observed;
                 }
                 tokio::select! {
                     observed=&mut native_wait,if result.is_none()=>result=Some(observed),
