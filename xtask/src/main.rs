@@ -575,6 +575,7 @@ fn static_checks(root: &Path) -> Result<(), String> {
             "--workspace",
             "--all-targets",
             "--locked",
+            "--keep-going",
             "--",
             "-D",
             "warnings",

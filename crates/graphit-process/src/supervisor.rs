@@ -2250,6 +2250,7 @@ mod tests {
             f.write_str("Companion")
         }
     }
+    #[cfg(unix)]
     fn fixture_unknown() {
         panic!("process fixture did not complete cleanup");
     }
