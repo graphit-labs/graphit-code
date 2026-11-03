@@ -216,7 +216,9 @@ pub(crate) fn test_snapshot_parent()
         sync::Arc,
         time::{Duration, Instant},
     };
-    let mut builder = tempfile::Builder::new();
+    let builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    let mut builder = builder;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
