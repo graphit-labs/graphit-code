@@ -18,25 +18,25 @@ use graphit_core::artifact_store::CapturedSourceReader;
 use serde_json::{Value, json};
 use std::path::Path;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) struct QueryJoin {
     /// CXX returned a successful real query before the blocking closure is held.
     pub(crate) started: tokio::sync::oneshot::Receiver<bool>,
     pub(crate) release: std::sync::mpsc::Sender<()>,
     pub(crate) finished: tokio::sync::oneshot::Receiver<()>,
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 struct QueryJoinGate {
     original: Arc<SnapshotContext>,
     started: tokio::sync::oneshot::Sender<bool>,
     release: std::sync::mpsc::Receiver<()>,
     finished: tokio::sync::oneshot::Sender<()>,
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 static QUERY_JOIN: std::sync::Mutex<Option<QueryJoinGate>> = std::sync::Mutex::new(None);
 
 /// One targeted barrier in the real query closure. It adds no production state.
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn test_query_join(original: &Arc<SnapshotContext>) -> io::Result<QueryJoin> {
     let mut installed = QUERY_JOIN.lock().expect("AST query test gate");
     if installed.is_some() {
@@ -57,7 +57,7 @@ pub(crate) fn test_query_join(original: &Arc<SnapshotContext>) -> io::Result<Que
         finished: done,
     })
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 fn take_query_join(original: &Arc<SnapshotContext>) -> Option<QueryJoinGate> {
     let mut installed = QUERY_JOIN.lock().expect("AST query test gate");
     if installed
@@ -69,7 +69,7 @@ fn take_query_join(original: &Arc<SnapshotContext>) -> Option<QueryJoinGate> {
         None
     }
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 impl QueryJoinGate {
     fn after_execute(self, executed: bool) -> io::Result<()> {
         let _ = self.started.send(executed);
@@ -144,7 +144,7 @@ impl CapturedAstContext<'_> {
         let original = Arc::clone(&self.original);
         let runtime = tokio::runtime::Handle::current();
         let options = self.source.policy().graph_query;
-        #[cfg(test)]
+        #[cfg(all(test, target_os = "linux"))]
         let join_gate = take_query_join(&original);
         let result = match &self.graph {
             GraphPin::Project => {
@@ -156,7 +156,7 @@ impl CapturedAstContext<'_> {
                         index
                             .graph
                             .query(&input.query, &input.parameters, options, &original);
-                    #[cfg(test)]
+                    #[cfg(all(test, target_os = "linux"))]
                     if let Some(gate) = join_gate {
                         gate.after_execute(result.is_ok())?;
                     }
@@ -176,7 +176,7 @@ impl CapturedAstContext<'_> {
                         &input.parameters,
                         options,
                     );
-                    #[cfg(test)]
+                    #[cfg(all(test, target_os = "linux"))]
                     if let Some(gate) = join_gate {
                         gate.after_execute(result.is_ok())?;
                     }
@@ -196,7 +196,7 @@ impl CapturedAstContext<'_> {
                         &input.parameters,
                         options,
                     );
-                    #[cfg(test)]
+                    #[cfg(all(test, target_os = "linux"))]
                     if let Some(gate) = join_gate {
                         gate.after_execute(result.is_ok())?;
                     }

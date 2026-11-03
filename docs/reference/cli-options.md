@@ -362,6 +362,10 @@ Subcommands:
 
 Read and mutate native Task/Session records through the active Source service
 
+Windows and macOS expose `get-task`, `catalogue`, `query`, `schema`,
+`get-session` and `session-heads`. Task search and mutations are available
+through this CLI on Linux.
+
 ```text
 graphit task [OPTIONS] <COMMAND>
 ```

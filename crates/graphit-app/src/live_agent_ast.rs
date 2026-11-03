@@ -1,7 +1,7 @@
 //! Explicitly selected AST readers for Live. Persisted stamps are data, never grants.
 #![cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 mod read;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) use read::test_query_join;
 
 use crate::{

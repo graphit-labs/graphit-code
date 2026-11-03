@@ -338,10 +338,11 @@ pub(super) fn directory_record(
         .checked_add(length)
         .ok_or(io::ErrorKind::InvalidData)?;
     let name = bytes.get(start..end).ok_or(io::ErrorKind::InvalidData)?;
+    let (units, _) = name.as_chunks::<2>();
     // A native entry is still one component. Reject aliases/NUL before owned
     // wide/name allocation; unpaired surrogate code units are preserved.
-    if name.chunks_exact(2).any(|pair| {
-        let unit = u16::from_ne_bytes([pair[0], pair[1]]);
+    if units.iter().any(|pair| {
+        let unit = u16::from_ne_bytes(*pair);
         unit == 0 || unit == 47 || unit == 92 || unit == 58
     }) {
         return Err(io::ErrorKind::InvalidData.into());
@@ -370,8 +371,8 @@ pub(super) fn directory_record(
     let mut wide = Vec::new();
     wide.try_reserve_exact(length / 2)
         .map_err(|_| io::ErrorKind::OutOfMemory)?;
-    for value in name.chunks_exact(2) {
-        wide.push(u16::from_ne_bytes([value[0], value[1]]));
+    for value in units {
+        wide.push(u16::from_ne_bytes(*value));
     }
     Ok((
         std::ffi::OsString::from_wide(&wide),
@@ -397,8 +398,11 @@ mod tests {
             bytes[at..at + 2].copy_from_slice(&unit.to_ne_bytes());
         }
         bytes
-            .chunks_exact(8)
-            .map(|word| u64::from_ne_bytes(word.try_into().unwrap()))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .copied()
+            .map(u64::from_ne_bytes)
             .collect()
     }
     #[test]

@@ -308,6 +308,7 @@ pub struct SearchArguments {
     pub cursor: CursorArguments,
 }
 impl SearchArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, max: usize) -> io::Result<Value> {
         let mut v = json!({"mode":self.mode,"text":self.text,"filter":self.filter.value(),"page_size":self.page_size,"top_k":self.top_k});
         put(&mut v, "cursor", &self.cursor.value(max, true)?);
@@ -390,6 +391,7 @@ pub struct ReferenceArguments {
     pub clear_references: bool,
 }
 impl ReferenceArguments {
+    #[cfg(target_os = "linux")]
     fn apply(&self, v: &mut Value) -> io::Result<()> {
         let n = self.reference_types.len();
         if self.reference_ids.len() != n || self.reference_relations.len() != n {
@@ -464,6 +466,7 @@ pub struct OwnedArguments {
     pub expected_revision: u64,
 }
 impl OwnedArguments {
+    #[cfg(target_os = "linux")]
     fn value(&self) -> Value {
         json!({"id":self.id,"claim":{"token":self.claim_token,"expected_revision":self.expected_revision}})
     }
@@ -477,6 +480,7 @@ pub struct OptionalClaimArguments {
     pub claim_revision: Option<u64>,
 }
 impl OptionalClaimArguments {
+    #[cfg(target_os = "linux")]
     fn apply(&self, v: &mut Value) {
         if let Some(token) = &self.claim_token {
             v["claim"] = json!({"token":token,"expected_revision":self.claim_revision});
@@ -496,6 +500,7 @@ pub struct ScheduleArguments {
     pub due_date: Option<graphit_records::task_schedule::CalendarDate>,
 }
 impl ScheduleArguments {
+    #[cfg(target_os = "linux")]
     fn value(&self) -> Option<Value> {
         if self.start_date.is_none() && self.end_date.is_none() && self.due_date.is_none() {
             None
@@ -518,6 +523,7 @@ pub struct CheckListArguments {
     pub check_texts: Vec<String>,
 }
 impl CheckListArguments {
+    #[cfg(target_os = "linux")]
     fn value(&self) -> io::Result<Value> {
         if self.check_kinds.len() != self.check_texts.len() {
             return Err(invalid("check kind and text counts must match"));
@@ -552,6 +558,7 @@ pub struct CreateSessionArguments {
     pub references: ReferenceArguments,
 }
 impl CreateSessionArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"idempotency_key":self.idempotency_key,"title":self.title,"description":self.description,"strategy":self.strategy});
         self.references.apply(&mut v)?;
@@ -597,6 +604,7 @@ pub struct CreateTaskArguments {
     pub references: ReferenceArguments,
 }
 impl CreateTaskArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"idempotency_key":self.idempotency_key,"session_id":self.session_id,"title":self.title,"description":self.description,"task_type":self.task_type,"priority":self.priority,"depends_on":self.depends_on,"checks":self.checks.value()?});
         put(&mut v, "parent_id", &self.parent_id);
@@ -618,6 +626,7 @@ pub struct ClaimArguments {
     pub lease_ms: NonZeroU64,
 }
 impl ClaimArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         Ok(json!({"id":self.id,"lease_ms":self.lease_ms}))
     }
@@ -634,6 +643,7 @@ pub struct HeartbeatArguments {
     pub lease_ms: NonZeroU64,
 }
 impl HeartbeatArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         Ok(json!({"target":self.owned.value(),"lease_ms":self.lease_ms}))
     }
@@ -661,6 +671,7 @@ pub struct CommentArguments {
     pub references: ReferenceArguments,
 }
 impl CommentArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"idempotency_key":self.idempotency_key,"kind":self.kind,"body":self.body});
         self.references.apply(&mut v)?;
@@ -687,6 +698,7 @@ pub struct ProgressArguments {
     pub references: ReferenceArguments,
 }
 impl ProgressArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"summary":self.summary,"next_step":self.next_step});
         self.references.apply(&mut v)?;
@@ -710,6 +722,7 @@ pub struct ReleaseArguments {
     pub references: ReferenceArguments,
 }
 impl ReleaseArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v =
             json!({"target":self.owned.value(),"summary":self.summary,"next_step":self.next_step});
@@ -753,6 +766,7 @@ pub struct ReviseTaskArguments {
     pub references: ReferenceArguments,
 }
 impl ReviseTaskArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"reason":self.reason,"add_checks":self.checks.value()?});
         put(&mut v, "title", &self.title);
@@ -793,6 +807,7 @@ pub struct ReviseSessionArguments {
     pub references: ReferenceArguments,
 }
 impl ReviseSessionArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v =
             json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"reason":self.reason});
@@ -826,6 +841,7 @@ pub struct CheckArguments {
     pub references: ReferenceArguments,
 }
 impl CheckArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"check_id":self.check_id,"passed":self.passed,"evidence":self.evidence});
         self.references.apply(&mut v)?;
@@ -858,6 +874,7 @@ pub struct SupersedeArguments {
     pub references: ReferenceArguments,
 }
 impl SupersedeArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"check_id":self.check_id,"reason":self.reason});
         if let Some(text) = &self.replacement_text {
@@ -898,6 +915,7 @@ pub struct LinksArguments {
     pub references: ReferenceArguments,
 }
 impl LinksArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v =
             json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"reason":self.reason});
@@ -932,6 +950,7 @@ pub struct FlagArguments {
     pub references: ReferenceArguments,
 }
 impl FlagArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"target":self.owned.value(),"lease_ms":self.lease_ms,"flagged":self.flagged,"reason":self.reason});
         self.references.apply(&mut v)?;
@@ -960,6 +979,7 @@ pub struct CommitArguments {
     pub reason: String,
 }
 impl CommitArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"id":self.id,"expected_revision":self.expected_revision,"commit":self.commit,"reason":self.reason});
         self.claim.apply(&mut v);
@@ -977,6 +997,7 @@ pub struct CompleteArguments {
     pub references: ReferenceArguments,
 }
 impl CompleteArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = self.owned.value();
         self.references.apply(&mut v)?;
@@ -999,6 +1020,7 @@ pub struct CancelArguments {
     pub references: ReferenceArguments,
 }
 impl CancelArguments {
+    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, _max: usize) -> io::Result<Value> {
         let mut v = json!({"id":self.id,"reason":self.reason});
         self.claim.apply(&mut v);

@@ -1319,9 +1319,9 @@ pub(crate) fn browser_selection(server: &TaskServer) -> Value {
 }
 
 mod workspace;
-pub(crate) use workspace::{
-    browser_workspace_fixture, knowledge_workspace_fixture, memory_workspace_fixture,
-};
+pub(crate) use workspace::browser_workspace_fixture;
+#[cfg(target_os = "linux")]
+pub(crate) use workspace::{knowledge_workspace_fixture, memory_workspace_fixture};
 
 #[test]
 fn reference_failure_mapping_preserves_request_status_and_confirmed_cause() {
