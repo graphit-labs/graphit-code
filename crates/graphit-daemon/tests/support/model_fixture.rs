@@ -34,12 +34,14 @@ pub fn snapshot_parent() -> (
     tempfile::TempDir,
     Arc<graphit_core::native_document_file::CapturedDocumentDirectory>,
 ) {
-    let mut builder = tempfile::Builder::new();
+    let builder = tempfile::Builder::new();
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::PermissionsExt;
+        let mut builder = builder;
         builder.permissions(std::fs::Permissions::from_mode(0o700));
-    }
+        builder
+    };
     let root = builder.tempdir().unwrap();
     let original = SnapshotContext::new(
         Instant::now() + Duration::from_secs(30),
