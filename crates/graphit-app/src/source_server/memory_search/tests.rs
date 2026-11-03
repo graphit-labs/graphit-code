@@ -637,9 +637,10 @@ fn params(value: Value) -> CallToolRequestParams {
 }
 async fn query(
     client: &rmcp::service::RunningService<RoleClient, ()>,
-    value: Value,
+    mut value: Value,
     error: bool,
 ) -> Value {
+    value["ai_optimized"] = json!(false);
     let result = client.call_tool(params(value)).await.unwrap();
     assert_eq!(result.is_error.unwrap_or(false), error, "{result:?}");
     result

@@ -70,7 +70,8 @@ impl Connection {
             serving,
         }
     }
-    async fn tool(&self, name: &str, input: Value) -> CallToolResult {
+    async fn tool(&self, name: &str, mut input: Value) -> CallToolResult {
+        input["ai_optimized"] = json!(false);
         self.client
             .peer()
             .call_tool(

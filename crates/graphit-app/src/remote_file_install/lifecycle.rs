@@ -461,7 +461,7 @@ mod tests {
                 .collect();
             assert_eq!(
                 examples.len(),
-                11,
+                12,
                 "every maintained Hub JSON example needs a typed consumer"
             );
             let projects: ProjectsArguments = serde_json::from_value(examples[0].clone()).unwrap();
@@ -473,10 +473,13 @@ mod tests {
             let native: crate::native_hub_install::Selection =
                 serde_json::from_value(examples[3]["installation"].clone()).unwrap();
             native.validate(&policy).unwrap();
-            let install: InstallArguments = serde_json::from_value(examples[4].clone()).unwrap();
+            let unpublish: crate::hub_unpublish::Arguments =
+                serde_json::from_value(examples[4].clone()).unwrap();
+            unpublish.validate(&policy).unwrap();
+            let install: InstallArguments = serde_json::from_value(examples[5].clone()).unwrap();
             prepare_install(&install, false, None, &policy, &request).unwrap();
             let installed: InstalledContentArguments =
-                serde_json::from_value(examples[5]["installed"].clone()).unwrap();
+                serde_json::from_value(examples[6]["installed"].clone()).unwrap();
             prepare_content(
                 &ContentArguments {
                     command: ContentCommand::Installed(installed),
@@ -486,7 +489,7 @@ mod tests {
                 &request,
             )
             .unwrap();
-            for (example, operation) in examples[6..9].iter().zip([
+            for (example, operation) in examples[7..10].iter().zip([
                 Operation::Remove,
                 Operation::Recover,
                 Operation::Forget,
@@ -499,7 +502,7 @@ mod tests {
                     operation.tool()
                 );
             }
-            for example in &examples[9..] {
+            for example in &examples[10..] {
                 let input: Arguments = serde_json::from_value(example.clone()).unwrap();
                 prepare(&input, Operation::Remove, None, &policy, &request).unwrap();
             }

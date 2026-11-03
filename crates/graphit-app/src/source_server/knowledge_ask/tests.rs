@@ -231,7 +231,7 @@ async fn client<H: ClientHandler>(
     (client, served)
 }
 fn arguments(query: &str) -> serde_json::Map<String, Value> {
-    json!({"query":query,"selected_slugs":["Paris"],"model":"literal model;$(native)"})
+    json!({"ai_optimized":false,"query":query,"selected_slugs":["Paris"],"model":"literal model;$(native)"})
         .as_object()
         .unwrap()
         .clone()

@@ -108,7 +108,8 @@ async fn connect(f: &Fixture) -> (Client, tokio::task::JoinHandle<io::Result<()>
         .unwrap();
     (client, serving)
 }
-fn params(input: Value) -> CallToolRequestParams {
+fn params(mut input: Value) -> CallToolRequestParams {
+    input["ai_optimized"] = json!(false);
     CallToolRequestParams::new(TOOL).with_arguments(input.as_object().unwrap().clone())
 }
 async fn read(client: &Client, input: Value, error: bool) -> Value {
@@ -139,7 +140,7 @@ async fn actual_native_project_and_imported_source_full_markdown_slices_and_name
     let announced = client.list_tools(Default::default()).await.unwrap();
     assert_eq!(announced.tools.iter().filter(|t| t.name == TOOL).count(), 1);
     let guide = client.call_tool(CallToolRequestParams::new("graphit_module_skill").with_arguments(
-        json!({"module":"knowledge","project_dir":NativePath::new(f.projects[0].0.root().to_owned()).unwrap()}).as_object().unwrap().clone(),
+        json!({"ai_optimized":false,"module":"knowledge","project_dir":NativePath::new(f.projects[0].0.root().to_owned()).unwrap()}).as_object().unwrap().clone(),
     )).await.unwrap();
     assert_ne!(guide.is_error, Some(true), "{guide:?}");
     let guide: Value = serde_json::from_str(&guide.content[0].as_text().unwrap().text).unwrap();

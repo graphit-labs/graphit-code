@@ -299,12 +299,14 @@ mod tests {
                 .unwrap()
                 .validate(&policy)
                 .unwrap();
+            let mut link = global.clone();
+            link["mode"] = json!("link");
+            assert!(Query::decode(&serde_json::to_vec(&link).unwrap(), operation).is_err());
             for (field, value) in [
                 ("binding", json!(NativeBinding::KiroV3)),
                 ("alias", json!("alias")),
                 ("entry_name", json!("SKILL.md")),
                 ("mode", json!("copy")),
-                ("mode", json!("link")),
             ] {
                 let mut value_with_option = global.clone();
                 value_with_option[field] = value;
