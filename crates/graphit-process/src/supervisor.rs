@@ -980,11 +980,9 @@ pub(crate) async fn supervise(
     observations.send_replace(observation);
     // The SDK owns the process-group or job control independently of leader exit.
     #[cfg(unix)]
-    match owner
-        .guard
-        .child
-        .signal(nix::sys::signal::Signal::SIGTERM as i32)
-    {
+    match control_tree(owner.guard.child.as_mut(), |child| {
+        child.signal(nix::sys::signal::Signal::SIGTERM as i32)
+    }) {
         Ok(()) => {
             let end = Instant::now()
                 .checked_add(limits.termination_grace)
@@ -994,7 +992,9 @@ pub(crate) async fn supervise(
         Err(error) if already_gone(&error) => (),
         Err(error) => observation.control.terminate = Some(error.into()),
     }
-    if let Err(error) = kill_tree(&mut owner.guard.child) {
+    if let Err(error) = control_tree(owner.guard.child.as_mut(), |child| child.start_kill())
+        && !already_gone(&error)
+    {
         observation.control.kill = Some(error.into());
     }
     observations.send_replace(observation);
@@ -1433,11 +1433,26 @@ fn native_wait_target(
     }
     native_wait_target(child.inner_mut(), remaining - 1)
 }
-fn kill_tree(child: &mut Box<dyn ChildWrapper>) -> io::Result<()> {
-    match child.start_kill() {
-        Err(error) if already_gone(&error) => Ok(()),
-        result => result,
-    }
+fn control_tree(
+    child: &mut dyn ChildWrapper,
+    operation: impl Fn(&mut dyn ChildWrapper) -> io::Result<()>,
+) -> io::Result<()> {
+    let result = operation(child);
+    // Darwin can report EPERM for a group containing only its exited leader.
+    // Reap the direct child without waiting for the tree, then retry the group
+    // operation. A remaining permission error still means unconfirmed cleanup.
+    #[cfg(target_os = "macos")]
+    let result = if result
+        .as_ref()
+        .is_err_and(|error| error.raw_os_error() == Some(nix::errno::Errno::EPERM as i32))
+        && native_wait_target(child, 3)
+            .is_some_and(|leader| matches!(leader.try_wait(), Ok(Some(_))))
+    {
+        operation(child)
+    } else {
+        result
+    };
+    result
 }
 
 #[cfg(test)]
