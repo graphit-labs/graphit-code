@@ -28,7 +28,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) use tests::auth as auth_fixture;
 use tokio::{
     runtime::Handle,

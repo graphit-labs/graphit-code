@@ -245,7 +245,7 @@ pub(super) async fn apply(
             (Ok(()), Ok(())) => {}
         }
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     if global {
         super::cache_commit_pause::observed(&source, request)?;
     }

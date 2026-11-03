@@ -6,7 +6,7 @@ use crate::knowledge_live::{
 use std::io;
 
 pub(crate) enum Input {
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     Seed(Box<crate::knowledge_live::CreateRequest>),
     History(HistoryOperation),
     Stream {
@@ -77,7 +77,7 @@ pub(crate) fn response(error: &LiveError) -> (StatusCode, &'static str) {
 }
 impl TaskServer {
     /// Drives real USER history for the HTTP stream fixture; this does not simulate native execution.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn record_live_browser_test_turn<'a>(
         &'a self,
         identity: (&'a AuthenticatedWebCaller<'a>, &'a BrokerVerifier, &'a str),
@@ -175,7 +175,7 @@ impl TaskServer {
         let mutates = match &input {
             Input::History(operation) => operation.mutates(),
             Input::Stream { .. } => false,
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "linux"))]
             Input::Seed(_) => true,
         };
         let write = if mutates {
@@ -190,7 +190,7 @@ impl TaskServer {
         let access = Access::user(&read, write.as_ref())?;
         let mut effect = graphit_core::native_document_file::NativeDocumentJournalEffect::Unchanged;
         let output = match input {
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "linux"))]
             Input::Seed(request) => {
                 access.write()?;
                 let store = graphit_core::artifact_store::ArtifactStore::new(

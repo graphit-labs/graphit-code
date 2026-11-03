@@ -7,6 +7,7 @@ pub(crate) fn browser_workspace_fixture(
 ) -> (tempfile::TempDir, TaskServer, String) {
     workspace_fixture(&[Permission::ManageAuthProfiles], content, timeout)
 }
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn memory_workspace_fixture(
     content: Option<ContentLimits>,
     timeout: Duration,
@@ -21,6 +22,7 @@ pub(crate) fn memory_workspace_fixture(
         timeout,
     )
 }
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn knowledge_workspace_fixture(
     content: Option<ContentLimits>,
     timeout: Duration,

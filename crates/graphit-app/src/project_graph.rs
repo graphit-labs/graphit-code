@@ -91,7 +91,7 @@ pub(crate) struct ReadInput<'a> {
 
 /// Exercise the same explicit portable export used by CLI/Hub while retaining
 /// its staging owner and the caller's PROJECT admission through the assertion.
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn with_exported_graph<T>(
     server: &crate::graph_server::GraphServer,
     input: ReadInput<'_>,

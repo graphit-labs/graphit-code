@@ -153,11 +153,11 @@ impl ForegroundUserDream {
         }
         Ok(())
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn retained_application(&self) -> Option<&UserApplication> {
         self.exit.as_ref()?.owner.application.as_ref()
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn iteration_completion(&self) -> Arc<tokio::sync::Notify> {
         Arc::clone(&self.plan.iteration_completed)
     }

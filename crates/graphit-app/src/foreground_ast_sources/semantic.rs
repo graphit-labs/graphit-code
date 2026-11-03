@@ -54,7 +54,7 @@ impl std::error::Error for InferenceFailure {
         Some(&self.error)
     }
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn only_inference_failed(error: &io::Error) -> bool {
     error
         .get_ref()
@@ -83,7 +83,7 @@ pub(crate) struct AstSemanticProgress {
 }
 
 impl ForegroundAstSources {
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) async fn index_semantic(
         self: &Arc<Self>,
         project: ProjectPaths,

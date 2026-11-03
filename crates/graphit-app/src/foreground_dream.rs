@@ -320,11 +320,11 @@ impl ForegroundDream {
     pub fn cancel(&self) {
         self.stop.cancel();
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn iteration_completion(&self) -> Arc<tokio::sync::Notify> {
         Arc::clone(&self.plan.iteration_completed)
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn retained_application(
         &self,
     ) -> Option<(

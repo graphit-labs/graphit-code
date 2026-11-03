@@ -146,7 +146,7 @@ pub(crate) fn location(
 }
 
 impl LiveAstRegistry {
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn hold_native_close_for_test(&self, root: &Path) -> tokio::sync::watch::Sender<()> {
         let slot = {
             let registry = self.0.lock().unwrap();

@@ -40,6 +40,7 @@ use std::{fs, path::Path, time::Duration};
 
 use crate::source_server::test_fixture as source_fixture;
 
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn gate_next_native_job(
     graph: &GraphServer,
 ) -> (

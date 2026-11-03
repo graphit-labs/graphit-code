@@ -78,7 +78,7 @@ fn model_server_executable(
 
 /// Resolve precisely the global configuration the ordinary child will read.
 /// Missing/disabled selection preserves the foreground's other services.
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(super) fn expected_model(
     installation: &InstallationPaths,
     provider: Option<&ProviderRecord>,

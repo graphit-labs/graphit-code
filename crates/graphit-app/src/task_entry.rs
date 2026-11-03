@@ -508,6 +508,7 @@ pub(crate) mod tests {
         parse(flags).wire(policy.content()).unwrap().1
     }
     const ID: &str = "00000000000000000000000003";
+    #[cfg(all(test, target_os = "linux"))]
     const TOKEN: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
 
     #[test]
@@ -1077,6 +1078,7 @@ pub(crate) mod tests {
     }
 
     // Reuses the actual authenticated Task publication in the Role consumer fixture.
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn assert_known_result_delivery(result: &CallToolResult) {
         let config = ConfigSnapshot::new(&Brand::default(), []).unwrap();
         let policy = HubResourcePolicy::resolve(&config).unwrap();

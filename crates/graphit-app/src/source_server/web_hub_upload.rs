@@ -21,7 +21,7 @@ use graphit_hub::policy::{HubResourcePolicy, RequestContext};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{self, Write};
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) mod stream_observer;
 
 #[derive(Deserialize)]
@@ -136,7 +136,7 @@ async fn spool(
     maximum: u64,
     original: &RequestContext<'_>,
     check: &impl Fn() -> io::Result<()>,
-    #[cfg(test)] identity: Option<&Query>,
+    #[cfg(test)] _identity: Option<&Query>,
 ) -> io::Result<tempfile::TempDir> {
     let mut field: Field<'_> = guarded(original, check, async {
         multipart
@@ -153,8 +153,8 @@ async fn spool(
         .prefix("hub-received-package-")
         .tempdir()?;
     let mut file = graphit_fs::create_private_file(&owner.path().join("payload.zip"))?;
-    #[cfg(test)]
-    if let Some(identity) = identity {
+    #[cfg(all(test, target_os = "linux"))]
+    if let Some(identity) = _identity {
         stream_observer::observe(identity, owner.path());
     }
     let mut length = 0u64;

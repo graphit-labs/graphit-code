@@ -19,7 +19,7 @@ use std::{
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 pub mod client;
 pub(crate) mod inputs;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) mod pause;
 use inputs::Query;
 
@@ -214,7 +214,7 @@ fn capture(
         original.snapshot(),
     )
     .map_err(|e| missing(e, true))?;
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pause::observed(producer, original)?;
     Ok(reader)
 }

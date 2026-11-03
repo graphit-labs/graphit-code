@@ -32,6 +32,10 @@ use tokio_util::sync::CancellationToken;
 pub struct Fixture {
     pub temp: tempfile::TempDir,
     pub server: SourceServer,
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "used by Linux Source shutdown fixtures")
+    )]
     pub stop: CancellationToken,
     pub raw: String,
     pub auth: Arc<DaemonAuth>,

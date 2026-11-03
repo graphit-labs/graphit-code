@@ -17,7 +17,7 @@ use graphit_core::{
 use graphit_hub::{policy::RequestContext, registry::HubScope};
 use serde_json::{Value, json};
 use std::io;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) mod cache_commit_pause;
 pub(crate) mod inputs;
 mod install;

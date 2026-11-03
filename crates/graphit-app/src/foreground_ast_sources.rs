@@ -320,7 +320,7 @@ impl ForegroundAstSources {
         skip_all,
         fields(project_id = %selected.id, project_version = selected.version.version())
     )]
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub async fn index(
         self: &Arc<Self>,
         project: &ProjectPaths,
