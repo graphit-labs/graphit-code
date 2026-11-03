@@ -479,15 +479,15 @@ fn role_context_denies_root_before_credential_access() -> TestResult {
         assert!(!paths.root().exists());
         return Ok(());
     }
-    let mut cases = keys
-        .iter()
-        .map(|key| (*key, std::ffi::OsString::from("")))
-        .collect::<Vec<_>>();
+    let cases = keys.iter().map(|key| (*key, std::ffi::OsString::new()));
     #[cfg(unix)]
-    {
+    let cases = {
         use std::os::unix::ffi::OsStringExt;
-        cases.push((keys[0], std::ffi::OsString::from_vec(vec![0xff])));
-    }
+        cases.chain(std::iter::once((
+            keys[0],
+            std::ffi::OsString::from_vec(vec![0xff]),
+        )))
+    };
     for (key, value) in cases {
         let mut child = std::process::Command::new(std::env::current_exe()?);
         child
