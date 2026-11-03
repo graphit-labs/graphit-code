@@ -177,7 +177,7 @@ impl std::error::Error for IndexFailure {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) mod tests {
     use super::*;
     use graphit_core::{brand::Brand, config::ConfigSnapshot, file_lock::Cancellation};
@@ -188,7 +188,6 @@ pub(crate) mod tests {
     };
 
     // Called by the existing PROJECT consumer after its actual SDK Refresh.
-    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn assert_publication_delivery(result: &CallToolResult) {
         let expected = serde_json::to_value(result).unwrap();
         let config = ConfigSnapshot::new(&Brand::default(), []).unwrap();

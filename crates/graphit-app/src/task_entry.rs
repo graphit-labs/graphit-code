@@ -488,8 +488,11 @@ impl std::error::Error for TaskDeliveryFailure {
 pub(crate) mod tests {
     use super::*;
     use clap::{CommandFactory, Parser};
-    use graphit_core::{brand::Brand, config::ConfigSnapshot, file_lock::Cancellation};
+    #[cfg(target_os = "linux")]
+    use graphit_core::file_lock::Cancellation;
+    use graphit_core::{brand::Brand, config::ConfigSnapshot};
     use graphit_hub::policy::HubResourcePolicy;
+    #[cfg(target_os = "linux")]
     use std::time::Duration;
 
     #[derive(Parser)]

@@ -15,7 +15,7 @@ use graphit_core::{
 };
 use graphit_daemon::auth_startup::DaemonAuth;
 use graphit_data::DataReadError;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 use graphit_data::{CapturedLocalGraph, LocalGraphPolicy};
 use graphit_hub::policy::RequestContext;
 use std::sync::Arc;
