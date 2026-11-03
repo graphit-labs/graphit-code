@@ -181,7 +181,7 @@ protected:
 
 struct Observe {
     QuerySignal& signal;
-    std::jthread thread;
+    std::thread thread;
     Observe(QuerySignal& signal, Connection& connection) : signal(signal), thread([&signal,&connection] {
         if (signal.wait_interrupt()) connection.interrupt();
     }) {}
