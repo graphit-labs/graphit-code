@@ -116,22 +116,22 @@ public:
   }
 };
 
-template<class Lexer> class PollingLexer final : public Lexer {
+template<class NativeLexer> class PollingLexer final : public NativeLexer {
   OperationControl &control;
 public:
-  PollingLexer(antlr4::CharStream *input, OperationControl &control) : Lexer(input), control(control) {}
+  PollingLexer(antlr4::CharStream *input, OperationControl &control) : NativeLexer(input), control(control) {}
   std::unique_ptr<antlr4::Token> nextToken() override {
     poll(control);
-    auto token = Lexer::nextToken();
+    auto token = NativeLexer::nextToken();
     poll(control);
     return token;
   }
 };
-template<class Parser> class PollingParser final : public Parser {
+template<class NativeParser> class PollingParser final : public NativeParser {
   OperationControl &control;
 public:
   PollingParser(antlr4::TokenStream *stream, OperationControl &control)
-      : Parser(stream), control(control) {}
+      : NativeParser(stream), control(control) {}
   // SDK caches are static but their mutex belongs to each recognizer instance.
   // Resolve immutable SDK vocabulary locally for concurrent query operations.
   std::map<std::string, std::size_t> getRuleIndexMap() override {
@@ -160,13 +160,13 @@ public:
   }
   antlr4::Token *consume() override {
     poll(control);
-    auto *token = Parser::consume();
+    auto *token = NativeParser::consume();
     poll(control);
     return token;
   }
   void enterRule(antlr4::ParserRuleContext *context, std::size_t state, std::size_t rule) override {
     poll(control);
-    Parser::enterRule(context, state, rule);
+    NativeParser::enterRule(context, state, rule);
   }
 };
 std::uint64_t token_kind(antlr4::Token *token, std::size_t max_type) {

@@ -238,18 +238,7 @@ fn make_stage_removable(root: &Path, entries: &[Entry]) {
     ordered.sort_by_key(|entry| entry.path.components().count());
     for entry in ordered {
         let path = root.join(&entry.path);
-        #[cfg(unix)]
-        {
-            let _ = set_mode(&path, if entry.directory { 0o700 } else { 0o600 });
-        }
-        #[cfg(windows)]
-        {
-            if let Ok(metadata) = fs::metadata(&path) {
-                let mut permissions = metadata.permissions();
-                permissions.set_readonly(false);
-                let _ = fs::set_permissions(path, permissions);
-            }
-        }
+        let _ = set_mode(&path, if entry.directory { 0o700 } else { 0o600 });
     }
 }
 /// Validate all member metadata and bodies, including SDK CRC checks, without installation.

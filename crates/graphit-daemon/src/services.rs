@@ -314,8 +314,11 @@ pub fn installation_lock(control_root: &Path) -> io::Result<FileLock> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
     use graphit_core::file_lock::Cancellation;
+    #[cfg(target_os = "linux")]
     use graphit_process::{HostLimits, HostReadiness, HostShutdown};
+    #[cfg(target_os = "linux")]
     use std::time::Instant;
 
     fn definition(executable: PathBuf) -> ServiceDefinition {
@@ -570,6 +573,7 @@ mod tests {
         assert!(root.path().join("service-install.lock").exists());
     }
 
+    #[cfg(target_os = "linux")]
     async fn host() -> ProcessHost {
         let service = Cancellation::default();
         let host = ProcessHost::install(&service, HostLimits::new(1, 1).unwrap()).unwrap();
@@ -579,6 +583,7 @@ mod tests {
         ));
         host
     }
+    #[cfg(target_os = "linux")]
     fn context() -> Arc<SnapshotContext> {
         Arc::new(SnapshotContext::new(
             Instant::now() + Duration::from_secs(60),

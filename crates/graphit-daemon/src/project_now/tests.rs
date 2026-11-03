@@ -1818,6 +1818,7 @@ async fn native_role_now_expiry_and_deadline_never_emit_head_data() {
 
 /// Genuine allowlisted observations for publisher coordination tests. The test
 /// controls completion separately; this does not simulate a blocked Lance read.
+#[cfg(target_os = "linux")]
 pub(crate) async fn publisher_observations() -> (NowLocal, NowLocal) {
     let cancel = Cancellation::default();
     let ctx = request(&cancel);
