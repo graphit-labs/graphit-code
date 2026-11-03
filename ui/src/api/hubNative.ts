@@ -39,7 +39,7 @@ export interface InstalledFile {
 }
 export interface InstalledFilePage { status: 'ok'; scope: HubScope; entries: InstalledFile[]; next_offset: number | null }
 export interface RemoteSelection { transport: 'broker' | 'standalone'; provider: string; profile?: string; producer: string; artifact_type: FileKind; id: string; version: string; exact: boolean }
-export type PhysicalMode = 'copy' | 'link'
+export type PhysicalMode = 'copy'
 export interface InstallSelection { selection: RemoteSelection; scope: HubScope; binding?: NativeBinding; alias?: string; entry_name?: string; mode?: PhysicalMode }
 export interface LocalInstallSelection { source: AuthoredSelection & { artifact_type: LocalInstallKind }; scope: Extract<HubScope, { kind: 'project' }>; binding: NativeBinding; alias?: string; entry_name?: string; mode?: PhysicalMode }
 export interface LifecycleSelection { scope: HubScope; artifact_type: FileKind; id: string; version?: string; binding?: NativeBinding }

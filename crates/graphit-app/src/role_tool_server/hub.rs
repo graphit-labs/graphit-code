@@ -145,6 +145,15 @@ pub(super) async fn read<'a>(
             .map_err(|_| error("authentication_or_permission_denied"))
     };
     before()?;
+    let slot = match query.scope {
+        Scope::Project => admission
+            .project()
+            .map_err(|_| error("authentication_or_permission_denied"))?
+            .scope
+            .live
+            .publication_slot(),
+        Scope::GlobalInstallation => graphit_core::artifact_store::PublicationSlot::Scope,
+    };
     let registry = registry(state, selected, query.scope)?;
     let document = registry.load().map_err(io_failure)?;
     let mut entries = Vec::new();
@@ -152,7 +161,8 @@ pub(super) async fn read<'a>(
     let mut matched = 0usize;
     let mut next_offset = None;
     for (kind, id, artifact) in document.entries() {
-        if query.artifact_type.is_some_and(|wanted| wanted != kind)
+        if artifact.consumer != graphit_hub::registry::consumer_for_artifact(slot, kind)
+            || query.artifact_type.is_some_and(|wanted| wanted != kind)
             || query.id.as_deref().is_some_and(|wanted| wanted != id)
         {
             continue;

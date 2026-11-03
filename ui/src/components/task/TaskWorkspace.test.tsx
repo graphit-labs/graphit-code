@@ -14,6 +14,8 @@ import { context } from './task.test-fixtures'
 import { projectRecordHref, requestedRecordSelection } from '@/api/nativeRecordNavigation'
 import { TaskModeToggle } from './TaskModeToggle'
 const mirror = { ...context, project_dir: "/q" }
+const locator = { project_id: context.project_id, project_version: context.project_version }
+const otherVersion = { ...mirror, project_version: 'feature/other' }
 vi.mock('@/api/task', async original => ({ ...await original<typeof import('@/api/task')>(), taskApi: { contexts: vi.fn() } }))
 vi.mock('@/api/nativeRecordRead', async original => ({ ...await original<typeof import('@/api/nativeRecordRead')>(), nativeRecordContexts: vi.fn() }))
 beforeEach(() => {
@@ -97,6 +99,17 @@ describe('native retained working contexts', () => {
    await expect(useTaskWorkspace.getState().refresh(mirror)).rejects.toThrow('selected working context is unavailable')
    expect(useTaskWorkspace.getState()).toMatchObject({ selection: null, contexts: [], phase: 'error' })
   })
+ it('opens the same link against the authorized checkout on another machine', async () => {
+  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [mirror], current: mirror })
+  const uri = new URL(projectRecordHref('task', 'literal task', context), 'https://fixture.invalid')
+  await useTaskWorkspace.getState().refresh(requestedRecordSelection(uri.search))
+  expect(useTaskWorkspace.getState().selection).toEqual(mirror)
+ })
+ it('rejects an ambiguous locator without a current or preferred working copy', async () => {
+  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, mirror], current: null })
+  await expect(useTaskWorkspace.getState().refresh(locator)).rejects.toThrow('multiple working copies')
+  expect(useTaskWorkspace.getState().selection).toBeNull()
+ })
  it('keeps exact NativePath and current, distinguishes the same project/version and selects by keyboard', async () => {
   vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, mirror], current: context, projects: [{ project_id: context.project_id, name: 'Graphit Code' }] })
   await useTaskWorkspace.getState().refresh()
@@ -108,17 +121,17 @@ describe('native retained working contexts', () => {
   expect(screen.getByRole('combobox', { name: 'Project' }).textContent).toContain('Graphit Code')
   expect(taskContextKey(context)).not.toBe(taskContextKey(mirror))
   const uri = new URL(screen.getByLabelText('Current record URI').textContent!, window.location.origin)
-  expect(requestedRecordSelection(uri.search)).toEqual(mirror)
-  expect(Object.keys(requestedRecordSelection(uri.search)!)).toEqual(['project_dir', 'project_id', 'project_version'])
+  expect(requestedRecordSelection(uri.search)).toEqual(locator)
+  expect(Object.keys(requestedRecordSelection(uri.search)!)).toEqual(['project_id', 'project_version'])
   expect(uri.pathname).toBe('/task/explorer/literal%20task')
  })
- it('preserves the complete selection while switching Task, Gantt and Session routes', async () => {
+ it('preserves the portable locator while switching Task, Gantt and Session routes', async () => {
   render(<MemoryRouter initialEntries={[projectRecordHref('task', 'literal task', mirror)]}><TaskModeToggle mode="tasks" /><CurrentURI /></MemoryRouter>)
   const user = userEvent.setup()
   for (const [label, pathname] of [['Sessions', '/task/sessions'], ['Gantt', '/task/gantt'], ['Tasks', '/task/explorer']]) {
    await user.click(screen.getByText(label))
    const uri = new URL(screen.getByLabelText('Current record URI').textContent!, window.location.origin)
-   expect(uri.pathname).toBe(pathname); expect(requestedRecordSelection(uri.search)).toEqual(mirror)
+   expect(uri.pathname).toBe(pathname); expect(requestedRecordSelection(uri.search)).toEqual(locator)
   }
  })
  it.each([[401, 'anonymous'], [403, 'forbidden'], [503, 'error']] as const)('clears prior rows on HTTP %s and retries the actual inventory', async (status, phase) => {
@@ -169,7 +182,7 @@ function BootstrapFixture({ module = 'task', entry = '/task/explorer' }: { modul
  return <MemoryRouter initialEntries={[entry]}>
   <Link to="/task/explorer?page=second">Another page</Link>
   <Link to={projectRecordHref('session', 'session1', context)}>Original context</Link>
-  <Link to={projectRecordHref('session', 'session1', mirror)}>Other known context</Link>
+  <Link to={projectRecordHref('session', 'session1', otherVersion)}>Other known context</Link>
   <Link to="/task/sessions">Sessions without a selection parameter</Link>
   <TaskWorkspaceSelectors module={module} />
   <TaskWorkspaceBootstrap module={module}><input aria-label="Retained reader draft" defaultValue="Keep this draft" /></TaskWorkspaceBootstrap>
@@ -178,7 +191,7 @@ function BootstrapFixture({ module = 'task', entry = '/task/explorer' }: { modul
 
 describe('working-context bootstrap lifecycle', () => {
  it('revalidates the global preference with each module without carrying its admitted inventory', async () => {
-  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, mirror], current: context })
+  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, otherVersion], current: context })
   const view = render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   await userEvent.setup().click(screen.getByText('Other known context'))
   await userEvent.setup().click(screen.getByText('Sessions without a selection parameter'))
@@ -186,33 +199,33 @@ describe('working-context bootstrap lifecycle', () => {
    let finish!: (value: { contexts: typeof context[]; current: typeof context }) => void
    vi.mocked(nativeRecordContexts).mockImplementationOnce(() => new Promise(done => { finish = done }))
    view.rerender(<BootstrapFixture module={module} />)
-   expect(useTaskWorkspace.getState()).toMatchObject({ module, contexts: [], selection: null, preferredSelection: mirror, phase: 'loading' })
+   expect(useTaskWorkspace.getState()).toMatchObject({ module, contexts: [], selection: null, preferredSelection: otherVersion, phase: 'loading' })
    expect(screen.queryByLabelText('Retained reader draft')).toBeNull()
    expect(nativeRecordContexts).toHaveBeenLastCalledWith(module, expect.any(AbortSignal))
-   await act(async () => finish({ contexts: [context, mirror], current: context }))
+   await act(async () => finish({ contexts: [context, otherVersion], current: context }))
    await screen.findByLabelText('Retained reader draft')
-   expect(useTaskWorkspace.getState().selection).toEqual(mirror)
+   expect(useTaskWorkspace.getState().selection).toEqual(otherVersion)
   }
   view.rerender(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
-  expect(useTaskWorkspace.getState().selection).toEqual(mirror)
+  expect(useTaskWorkspace.getState().selection).toEqual(otherVersion)
   expect(taskApi.contexts).toHaveBeenCalledTimes(2); expect(nativeRecordContexts).toHaveBeenCalledTimes(5)
  })
 
  it('keeps an unavailable preference explicit instead of selecting another module current', async () => {
-  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [mirror], current: mirror })
+  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [otherVersion], current: otherVersion })
   const view = render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   vi.mocked(nativeRecordContexts).mockResolvedValue({ contexts: [context], current: context })
   view.rerender(<BootstrapFixture module="knowledge" />)
   await screen.findByText('Unable to read working contexts')
-  expect(useTaskWorkspace.getState()).toMatchObject({ module: 'knowledge', contexts: [], selection: null, preferredSelection: mirror, phase: 'error' })
+  expect(useTaskWorkspace.getState()).toMatchObject({ module: 'knowledge', contexts: [], selection: null, preferredSelection: otherVersion, phase: 'error' })
   expect(nativeRecordContexts).toHaveBeenCalledTimes(1)
  })
 
  it('lets an explicit URL override the preference after remount and validates it in the new module', async () => {
-  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [mirror], current: mirror })
+  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [otherVersion], current: otherVersion })
   const view = render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   view.unmount()
-  vi.mocked(nativeRecordContexts).mockResolvedValue({ contexts: [context, mirror], current: mirror })
+  vi.mocked(nativeRecordContexts).mockResolvedValue({ contexts: [context, otherVersion], current: otherVersion })
   render(<BootstrapFixture module="ast" entry={projectRecordHref('session', 'session1', context)} />)
   await screen.findByLabelText('Retained reader draft')
   expect(useTaskWorkspace.getState()).toMatchObject({ module: 'ast', selection: context, preferredSelection: context, phase: 'ready' })
@@ -220,7 +233,7 @@ describe('working-context bootstrap lifecycle', () => {
  })
 
  it.each(['identity', 'apiBase'] as const)('discards the global preference when %s changes after discovery', async change => {
-  vi.mocked(taskApi.contexts).mockResolvedValueOnce({ contexts: [mirror], current: mirror }).mockResolvedValueOnce({ contexts: [context], current: context })
+  vi.mocked(taskApi.contexts).mockResolvedValueOnce({ contexts: [otherVersion], current: otherVersion }).mockResolvedValueOnce({ contexts: [context], current: context })
   render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   act(() => useAppStore.setState(change === 'identity' ? { webIdentity: { state: 'authenticated', provider: 'fixture', subject: 'another-reader' } } : { apiBase: '/another-api' }))
   await waitFor(() => expect(useTaskWorkspace.getState().selection).toEqual(context))
@@ -236,20 +249,20 @@ describe('working-context bootstrap lifecycle', () => {
   const user = userEvent.setup()
   await user.click(screen.getByText('Another page'))
   expect(taskApi.contexts).toHaveBeenCalledTimes(1); expect(signal.aborted).toBe(false)
-  await act(async () => finish({ contexts: [context, mirror], current: context }))
+  await act(async () => finish({ contexts: [context, otherVersion], current: context }))
   const draft = await screen.findByLabelText('Retained reader draft')
   await user.type(draft, ' literal')
   await user.click(screen.getByText('Other known context'))
-  await waitFor(() => expect(useTaskWorkspace.getState().selection).toEqual(mirror))
+  await waitFor(() => expect(useTaskWorkspace.getState().selection).toEqual(otherVersion))
   expect(screen.getByLabelText('Retained reader draft')).toBe(draft)
   await user.click(screen.getByText('Sessions without a selection parameter'))
-  expect(useTaskWorkspace.getState().selection).toEqual(mirror)
+  expect(useTaskWorkspace.getState().selection).toEqual(otherVersion)
   expect(screen.getByLabelText('Retained reader draft')).toHaveProperty('value', 'Keep this draft literal')
   expect(taskApi.contexts).toHaveBeenCalledTimes(1)
  })
 
  it('cancels an explicit inventory refresh when a known selection replaces it and ignores its late result', async () => {
-  vi.mocked(taskApi.contexts).mockResolvedValueOnce({ contexts: [context, mirror], current: context })
+  vi.mocked(taskApi.contexts).mockResolvedValueOnce({ contexts: [context, otherVersion], current: context })
   render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   let finish!: (value: TaskContexts) => void
   vi.mocked(taskApi.contexts).mockImplementationOnce(() => new Promise(done => { finish = done }))
@@ -259,18 +272,18 @@ describe('working-context bootstrap lifecycle', () => {
   await userEvent.setup().click(screen.getByText('Other known context'))
   expect(signal.aborted).toBe(true)
   await act(async () => { finish({ contexts: [context], current: context }); await pending })
-  expect(useTaskWorkspace.getState()).toMatchObject({ contexts: [context, mirror], selection: mirror, phase: 'ready', refreshing: false })
+  expect(useTaskWorkspace.getState()).toMatchObject({ contexts: [context, otherVersion], selection: otherVersion, phase: 'ready', refreshing: false })
   expect(taskApi.contexts).toHaveBeenCalledTimes(2)
  })
 
  it.each([true, false])('revalidates an unknown URL selection once and accepts it only when discovered: %s', async available => {
   vi.mocked(taskApi.contexts).mockResolvedValueOnce({ contexts: [context], current: context })
-   .mockResolvedValueOnce({ contexts: available ? [context, mirror] : [context], current: context })
+   .mockResolvedValueOnce({ contexts: available ? [context, otherVersion] : [context], current: context })
   render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   await userEvent.setup().click(screen.getByText('Other known context'))
   if (available) {
    await screen.findByLabelText('Retained reader draft')
-   expect(useTaskWorkspace.getState().selection).toEqual(mirror)
+   expect(useTaskWorkspace.getState().selection).toEqual(otherVersion)
   } else {
    await screen.findByText('Unable to read working contexts')
    expect(useTaskWorkspace.getState()).toMatchObject({ contexts: [], selection: null, phase: 'error' })
@@ -289,7 +302,7 @@ describe('working-context bootstrap lifecycle', () => {
   await user.click(screen.getByText('Original context'))
   expect(signal.aborted).toBe(true)
   await screen.findByLabelText('Retained reader draft')
-  await act(async () => finish({ contexts: [context, mirror], current: mirror }))
+  await act(async () => finish({ contexts: [context, otherVersion], current: otherVersion }))
   expect(useTaskWorkspace.getState()).toMatchObject({ contexts: [context], selection: context, phase: 'ready', refreshing: false })
   expect(taskApi.contexts).toHaveBeenCalledTimes(2)
  })
@@ -304,8 +317,8 @@ describe('working-context bootstrap lifecycle', () => {
  it.each(['identity', 'apiBase', 'module'] as const)('aborts prior discovery and refuses its late snapshot after a %s change', async change => {
   let finish!: (value: TaskContexts) => void
   vi.mocked(taskApi.contexts).mockImplementationOnce(() => new Promise(done => { finish = done }))
-   .mockResolvedValue({ contexts: [mirror], current: mirror })
-  vi.mocked(nativeRecordContexts).mockResolvedValue({ contexts: [mirror], current: mirror })
+   .mockResolvedValue({ contexts: [otherVersion], current: otherVersion })
+  vi.mocked(nativeRecordContexts).mockResolvedValue({ contexts: [otherVersion], current: otherVersion })
   const view = render(<BootstrapFixture />)
   const signal = vi.mocked(taskApi.contexts).mock.calls[0][0]!
   if (change === 'module') view.rerender(<BootstrapFixture module="memory" />)
@@ -313,13 +326,13 @@ describe('working-context bootstrap lifecycle', () => {
   await screen.findByLabelText('Retained reader draft')
   expect(signal.aborted).toBe(true)
   await act(async () => finish({ contexts: [context], current: context }))
-  expect(useTaskWorkspace.getState()).toMatchObject({ module: change === 'module' ? 'memory' : 'task', selection: mirror, contexts: [mirror], phase: 'ready' })
+  expect(useTaskWorkspace.getState()).toMatchObject({ module: change === 'module' ? 'memory' : 'task', selection: otherVersion, contexts: [otherVersion], phase: 'ready' })
   expect(taskApi.contexts).toHaveBeenCalledTimes(change === 'module' ? 1 : 2)
   expect(nativeRecordContexts).toHaveBeenCalledTimes(change === 'module' ? 1 : 0)
  })
 
  it.each([401, 403])('keeps reader HTTP %s fail-closed instead of reusing the ready snapshot', async status => {
-  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, mirror], current: context })
+  vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, otherVersion], current: context })
   render(<BootstrapFixture />); await screen.findByLabelText('Retained reader draft')
   act(() => invalidateTaskWorkspace(new TaskReadError(status)))
   expect(screen.queryByLabelText('Retained reader draft')).toBeNull()

@@ -17,13 +17,13 @@ use graphit_hub::{
 pub(super) fn definition() -> Tool {
     let text = json!({"type":["string","null"]});
     Tool::new(crate::local_file_install::TOOL,
-        "Install or reapply canonical local agent/skill/command/workflow instructions into an authorized PROJECT. Source provenance is separate from the physical copy/link mode; removal preserves the original directory.",
+        "Install or reapply canonical local agent/skill/command/workflow instructions into an authorized PROJECT. The checkout receives a copy. Removal preserves the original directory.",
         json!({"type":"object","properties":{
             "source_dir":{"type":"string"},"producer":{"type":"string"},
             "artifact_type":{"type":"string","enum":["agent","skill","command","workflow","rule","mcp","language","power"]},
             "id":{"type":"string"},"version":{"type":"string"},"project_dir":{"type":"string"},
             "project_version":text,"binding":text,"alias":text,"entry_name":text,
-            "mode":{"type":"string","enum":["copy","link"],"description":"Rendered agents, skills, commands and workflows require copy; original sources may use link. Omission preserves an existing mode or defaults to copy."}
+            "mode":{"type":"string","enum":["copy"],"description":"PROJECT installations use a checkout-owned copy."}
         },"required":["source_dir","producer","artifact_type","id","version","project_dir"],"additionalProperties":false}).as_object().expect("static local schema").clone())
 }
 fn denied(error: impl std::error::Error + Send + Sync + 'static) -> io::Error {

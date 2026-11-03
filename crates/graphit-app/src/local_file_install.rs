@@ -69,7 +69,7 @@ pub struct Arguments {
     pub alias: Option<String>,
     #[arg(long)]
     pub entry_name: Option<String>,
-    /// Omit for Copy on a new installation or to retain the current physical mode.
+    /// PROJECT installation mode. The checkout receives a copy.
     #[arg(long, value_enum)]
     #[serde(
         default,

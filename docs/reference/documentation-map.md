@@ -57,10 +57,10 @@ to guides and the module contracts they link. Dated evidence retains its origina
 - [Rust agent instruction templates](../architecture/rust-agent-instruction-templates.md)
 - [Rust AI Plain with the native ProcessHost](../architecture/rust-ai-plain-native-process-host.md)
 - [Rust Dream consolidation instructions](../architecture/rust-dream-instructions.md)
-- [Consulta documental e LiveSearch na migração Rust](../architecture/rust-knowledge-ai-live.md)
+- [Consulta documental e LiveSearch](../architecture/rust-knowledge-ai-live.md)
 - [Referências authored de documentos Knowledge em Rust](../architecture/rust-knowledge-authored-references.md) — Adapter puro e limitado entre metadata documental admitida e referências lógicas Records.
 - [Fingerprint de compilação documental em Rust](../architecture/rust-knowledge-compilation-fingerprint.md) — Receita JSON compacta limitada sobre metadados admitidos e corpo capturado, com SHA-256 incremental e requisição original.
-- [Fronteiras Knowledge, Data e Records na migração Rust](../architecture/rust-knowledge-data-boundaries.md)
+- [Fronteiras entre Knowledge, Data e Records](../architecture/rust-knowledge-data-boundaries.md)
 - [Parser documental Knowledge em Rust](../architecture/rust-knowledge-document-parser.md) — Sintaxe YAML e Markdown com fonte original, limites explícitos e contexto Core.
 - [Projeção documental Knowledge pura em Data Rust](../architecture/rust-knowledge-document-projection.md) — Valores authored emprestados, member rows limitadas e contexto fornecido para consumidores Knowledge.
 - [Fonte virtual nativa de documentos Knowledge](../architecture/rust-knowledge-document-source.md)
@@ -85,7 +85,7 @@ to guides and the module contracts they link. Dated evidence retains its origina
 - [Configuração tipada Knowledge em Rust](../architecture/rust-knowledge-settings.md) — Resolução pura de docs_dir, README e extensões com origem, limites e contexto Core.
 - [Leitura autenticada de fonte Knowledge no App](../architecture/rust-knowledge-source-admission.md)
 - [Avaliação documental Knowledge com referências e staleness em Rust](../architecture/rust-knowledge-staleness-projection.md) — Composição de rows documentais com kernels reais e clock explícito.
-- [Knowledge e Wiki na migração Rust](../architecture/rust-knowledge-wiki.md) — Contratos documentais ativos, produtores Rust e fronteiras de integração.
+- [Knowledge e Wiki](../architecture/rust-knowledge-wiki.md) — Contratos documentais ativos, produtores Rust e fronteiras de integração.
 - [Rust policy instructions](../architecture/rust-policy-instructions.md)
 - [Rust skill instructions](../architecture/rust-skill-instructions.md)
 - [Storage Layout](../architecture/storage_layout.md)
@@ -191,7 +191,7 @@ to guides and the module contracts they link. Dated evidence retains its origina
 - [Local AST graph by FILE](../specs/rust_ast_live_graph.md) — Icebug Parquet FILE updates and lazy native queries without waiting for embeddings.
 - [Local progressive AST search](../specs/rust_ast_live_search.md)
 - [Rust AST parser resources](../specs/rust_ast_parser_resources.md) — Linked syntax grammar owners, prepared profile factories and custom Docker SCIP producers.
-- [Rust AST and Parser Contracts](../specs/rust_ast_parsers.md) — Source ranges and the producer boundaries for the Rust AST migration.
+- [Rust AST and Parser Contracts](../specs/rust_ast_parsers.md) — Source ranges and the AST producer boundaries.
 - [Rust AST Profile Catalog](../specs/rust_ast_profile_catalog.md) — Declarative catalog, overlays, provenance, routing and input limits.
 - [Rust AST Profile Decoder](../specs/rust_ast_profiles.md) — Typed YAML profile schema, original locations, input limits and decoder API.
 - [Rust AST Raw foreground Source](../specs/rust_ast_raw_foreground.md) — Native profile selection and per-file streaming of Raw Source in the project supervisor.
@@ -356,7 +356,7 @@ to guides and the module contracts they link. Dated evidence retains its origina
 - [Publicação de índice FTS JSON no snapshot Data capturado](../development/native_json_fts_index.md)
 - [Rust checks and Git hooks](../development/rust-fast-guard.md)
 - [Forks Rust e origem dos consumidores](../development/rust-forks.md)
-- [Rust product architecture and delivery](../development/rust-migration.md) — Maintained boundaries, product contracts and validation commands for Graphit Rust.
+- [Rust product architecture and delivery](../development/product-architecture.md) — Maintained boundaries, product contracts and validation commands for Graphit Rust.
 - [Rust Storage Contracts](../development/rust-storage-contracts.md) — Current Rust storage APIs, historical native evidence, and remaining consumer integration.
 - [Rust workspace checkout](../development/rust-workspace.md)
 - [Web FILE publication from captured PROJECT source](../development/web-file-source-publication.md)

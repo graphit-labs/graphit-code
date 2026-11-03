@@ -38,9 +38,9 @@ module permissions remain independent of discovery and presence.
 [project identity](../specs/project_identity.md),
 [configuration](../specs/config_module.md) and
 [ignore rules](../guides/ignore_files.md) define immutable contexts, native
-paths, private writes and captured selection. Identity is distinct from a
-project version. Reads do not repair missing or corrupt state. There are no
-importers or data migrations for retired development structures.
+paths, private writes and captured selection. Identity and version identify
+project data across checkouts. Each installation resolves local roots at runtime.
+Reads fail on missing or corrupt state when the contract requires that state.
 
 [Git](../specs/git_module.md) uses the system Git executable for checkout facts
 and configured hooks. [Output](../specs/output_module.md) separates structured
@@ -54,11 +54,10 @@ Domain operations do not write protocol stdout directly.
 query profiles are under `crates/graphit-ast/profiles/queries/`. The native
 storage/query boundary is specified in [Icebug](../specs/rust_icebug_storage.md).
 
-Lance and Ladybug forks are maintained in graphit-libs and selected by the
-selected immutable Cargo revision. Source preparation and SDK publication may still be pending;
-the manifests and [fork reference](rust-forks.md) record the actual state. Their patches, versions,
-builders, licenses and rationale remain in Graphit Libs, which produces Cargo sources and native SDKs. See [fork consumption](rust-forks.md)
-and [runtime packaging](native-runtime-packaging.md).
+Cargo resolves the official Lance and Ladybug crates. The build prepares Ladybug
+from the crate's sources and shares that build between the binding and the C++
+adapter. See [native dependencies](rust-forks.md) and
+[runtime packaging](native-runtime-packaging.md).
 
 [Knowledge](../architecture/rust-knowledge-semantic-data.md) processes documents
 incrementally and releases file bodies after their consumer finishes. Search
@@ -100,8 +99,9 @@ cargo xtask gate
 ```
 
 The selector arguments must be actual entries in the maintained catalog.
-Pre-commit runs staged whitespace, native safety and formatting checks;
-pre-push runs the workspace integration gate. The
+Pre-commit checks staged whitespace, workflow syntax, native safety and
+formatting. Pre-push adds strict workspace Clippy and the locked `xtask` tests.
+CI runs the full integration gate. The
 [hook/CI contract](rust-fast-guard.md) defines their executable commands.
 A successful local check does not establish native execution on another OS or
 hosted CI. Artifact generation, installation and real consumers are separate

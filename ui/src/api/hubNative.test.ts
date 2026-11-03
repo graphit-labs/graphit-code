@@ -137,13 +137,13 @@ it('requires a confirmed installed cache for install/update while lifecycle reta
   expect(mutationCompleted({ ...receipt(), operation: 'remove', cache: 'not_attempted', publication: { change: 'MetadataRemoved', committed: true } })).toBe(true)
 })
 
-it.each(['install','update'] as const)('physical mode %s captures copy/link or actual omission without ambient defaults',async operation=>{
-  for(const mode of [undefined,'copy','link'] as const){
+it.each(['install','update'] as const)('physical mode %s captures copy or actual omission without ambient defaults',async operation=>{
+  for(const mode of [undefined,'copy'] as const){
     let finish!:(value:Response)=>void
     const fetcher=vi.fn(()=>new Promise<Response>(resolve=>{finish=resolve}));vi.stubGlobal('fetch',fetcher)
     const request={...input(),...(mode?{mode}:{}),entry_name:'review.md'},captured=structuredClone(request)
     const pending=hubNative.mutate(operation,request)
-    request.mode=mode==='copy'?'link':'copy';request.scope={kind:'global_cache'};request.alias='other'
+    request.mode=mode==='copy'?undefined:'copy';request.scope={kind:'global_cache'};request.alias='other'
     finish(respond({...receipt(captured),operation}))
     await expect(pending).resolves.toMatchObject({operation,scope:captured.scope})
     const [,init]=fetcher.mock.calls[0] as unknown as [string,RequestInit]
@@ -153,7 +153,7 @@ it.each(['install','update'] as const)('physical mode %s captures copy/link or a
   }
 })
 it('physical mode preserves explicit Link and not-attempted Unsupported without fallback or retry',async()=>{
-  const request={...input(),mode:'link' as const},outcome={status:'error',operation:'install',scope:request.scope,cache:'not_attempted',publication:'not_attempted'}
+  const request={...input(),mode:'copy' as const},outcome={status:'error',operation:'install',scope:request.scope,cache:'not_attempted',publication:'not_attempted'}
   const fetcher=vi.fn(async()=>respond({error:{code:'unsupported'},outcome},501));vi.stubGlobal('fetch',fetcher)
   await expect(hubNative.mutate('install',request)).rejects.toMatchObject({status:501,code:'unsupported',outcome,request})
   expect(fetcher).toHaveBeenCalledTimes(1)

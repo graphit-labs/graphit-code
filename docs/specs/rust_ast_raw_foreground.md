@@ -163,7 +163,7 @@ rejects malformed paths or a stopped owner. It adds no independent lifecycle;
 the existing supervisor cancels callbacks and joins its watcher. Disabled Ast
 still observes configuration and retargets controls, while publishing no Raw.
 ReadAst continues to govern reads of an existing Raw image. NN freshness,
-inference, entity graph publication and the full migration remain separate work.
+inference, entity graph publication and end-to-end product validation remain separate work.
 The semantic endpoint resolves current Ast/Embedding settings for the one
 authenticated and admitted PROJECT selection. It preserves command, environment
 and distribution layers while rereading global and PROJECT configuration. Ast

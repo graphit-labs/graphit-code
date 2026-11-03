@@ -85,7 +85,7 @@ integral continua integral. Kind custom e vazio permanecem strings. Summary usa
 o resultado exato do parser, incluindo espaço final preservado por um corte.
 
 Whole source inclui BOM, frontmatter, CRLF/LF e espaços capturados. Não há
-normalização YAML/Markdown, canonicalização própria, JCS, dados Go ou fallback
+normalização YAML/Markdown, canonicalização própria, JCS ou fallback
 de framing. Escapes JSON seguem a biblioteca madura. `sha2@0.11.0` calcula
 SHA-256 incremental sobre os bytes efetivamente emitidos, incluindo o prefixo.
 
@@ -180,7 +180,7 @@ da receita/SDK exigem contrato e oráculos versionados, sem importador ou fallba
 Indexação e metadata de freshness do Wiki continuam um lifecycle separado.
 Documentação/source com hash correspondente e um guard aprovado não removem
 `stale`, `stale_since` ou dispensam validação documental autorizada. Esta folha
-não realiza reset/sync manual nem declara a migração global concluída.
+não realiza reset/sync manual nem declara a validação ponta a ponta concluída.
 
 ## Adaptação privada Core65
 

@@ -257,6 +257,17 @@ This page tells users which files belong in a project and which are private gene
 filesystem contracts specify publication, ownership and recovery. All persisted/transmitted paths
 are Unicode strings. There is no `os/units` codec or silent lossy path conversion.
 
+## Moving a project between machines
+
+Keep the same `.graphit/project.json` in the project. The project ID and
+selected version identify the project independently of its checkout directory.
+Store project paths relative to the checkout and use portable file names.
+Pass the local checkout directory only when selecting a project at runtime.
+Share Browser links by project ID and version. Each Browser resolves the
+checkout from its own authorized contexts. Configure installation paths,
+executables and credentials on each machine.
+Remote storage requires the destination installation to obtain its own access.
+
 ## Project-owned files
 
 | File or directory | Owner and effect | Share in Git? |
@@ -279,13 +290,15 @@ By default `<global>` is `~/.graphit`. `--global-dir` and the branded `GLOBAL_DI
 variable select another installation. Their value is not ordinary `config` state. Private roots
 and credentials must retain their required OS access policy.
 
-- `config.json`, `auth.json` and the global project inventory retain installation choices and
-  identities; Auth is not a place for arbitrary ordinary settings.
+- `config.json`, `auth.json` and the global project inventory retain installation
+  choices and identities. Checkout paths in the inventory are private local
+  observations. They do not identify a project or travel with it.
 - `projects/<project-id>/{ast,knowledge,memory,task}/` contains authoritative local corpora and
   derived graph publications. Versions use native Lance branches, not copied stores by checkout.
 - `projects/<project-id>/artifact-store.json` and `hub.json` retain concrete installation origin,
-  version, hash/ownership, pending publication and selected artifact state. A field is not a
-  second content payload or a new authorization grant.
+  version, hash/ownership, pending publication and selected artifact state. Physical paths and
+  filesystem observations in those receipts belong to this installation. Resolve and install
+  the same artifact version again on the destination host.
 - `models/` holds canonical installed model artifacts. `tmp/` may contain private active model
   snapshots; a file named temporary is not by itself proven unowned.
 - `daemon/`, private logs and platform service records belong to the installation, not a project.

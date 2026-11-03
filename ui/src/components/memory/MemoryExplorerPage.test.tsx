@@ -9,6 +9,7 @@ import { projectRecordHref } from '@/api/nativeRecordNavigation'
 import { parseNativeJson } from '@/api/nativeJson'
 import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { useAppStore } from '@/store/appStore'
+import { RefreshContext, type Registration } from '@/components/layout/WorkspaceRefresh'
 import MemoryExplorerPage from './MemoryExplorerPage'
 vi.mock('@/api/nativeMemory', async original => ({ ...await original<typeof import('@/api/nativeMemory')>(), nativeMemoryApi: { list: vi.fn(), history: vi.fn(), get: vi.fn(), search: vi.fn() } }))
 vi.mock('@/api/nativeMemoryMutation', async original => ({ ...await original<typeof import('@/api/nativeMemoryMutation')>(), nativeMemoryMutationApi: { create: vi.fn(), update: vi.fn(), remove: vi.fn() } }))
@@ -19,9 +20,9 @@ const history: NativeMemoryHistory = { creation: { actor: 'fixture creator', pro
 const published = { state: 'published' as const, generation, memories: [memory] }
 const headerReceipt: MemoryMutationResult = { delivery: 'headers', http_status: 500, receipt: { state: 'confirmed', id: memory.id, revision: memory.revision, sdk_version: generation.sdk_version, response_error: 'response_limit', completion_error: null, delivery_error: 'cancelled' } }
 function page(path = projectRecordHref('memory', memory.id, selection)) { return render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/memory/explorer/:scopeId/:memoryId?" element={<MemoryExplorerPage />} /></Routes></MemoryRouter>) }
-function routedPage() {
+function routedPage(register: (entry: Registration) => () => void = () => () => {}) {
  const router = createMemoryRouter([{ path: '/memory/explorer/:scopeId/:memoryId?', element: <MemoryExplorerPage /> }], { initialEntries: [projectRecordHref('memory', memory.id, selection)] })
- render(<RouterProvider router={router} />)
+ render(<RefreshContext.Provider value={{ register, scope: 'memory', refresh: async () => {}, refreshing: false, error: '' }}><RouterProvider router={router} /></RefreshContext.Provider>)
  return router
 }
 beforeEach(() => {
@@ -182,13 +183,15 @@ describe('native Memory product journeys', () => {
    expect((screen.getByLabelText('Memory removal reason') as HTMLInputElement).value).toBe('')
   })
   it('invalidates confirmation when refreshed history has a newer revision', async () => {
-   const router = routedPage(); await screen.findByRole('button', { name: 'Remove' })
+   const refreshers = new Set<Registration>()
+   routedPage(entry => { refreshers.add(entry); return () => { refreshers.delete(entry) } })
+   await screen.findByRole('button', { name: 'Remove' })
    const user = userEvent.setup(); await user.click(screen.getByRole('button', { name: 'Remove' }))
    const current = { ...memory, revision: 9007199254740994n }
    vi.mocked(nativeMemoryApi.history).mockResolvedValue({ selection, native: { ...history, current,
     revisions: [{ actor: 'fixture updater', project_id: 'project1', operation_version: selection.project_version,
      operation: { update: { expected_revision: memory.revision, reason: 'External revision' } }, before: memory, after: current }] } })
-   await act(async () => router.navigate(projectRecordHref('memory', memory.id, selection) + '&refresh=1'))
+   await act(async () => { await Promise.all([...refreshers].map(entry => entry.run())) })
    await screen.findByRole('button', { name: 'Revision 9007199254740994' })
    expect(screen.queryByRole('dialog')).toBeNull(); expect(nativeMemoryMutationApi.remove).not.toHaveBeenCalled()
   })

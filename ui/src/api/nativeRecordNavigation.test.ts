@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { projectRecordHref, requestedRecordSelection, userMemoryHref, importedKnowledgeHref, requestedImportedKnowledgeSource, importedSourceKey, projectReadModule, requestedAstContext, importedAstHref, requestedImportedAstSource } from './nativeRecordNavigation'
 
-const selection = { project_dir: "/ÿp", project_id: 'project1', project_version: 'literal / version' }
+const locator = { project_id: 'project1', project_version: 'literal / version' }
+const selection = { ...locator, project_dir: '/ÿp' }
 
 describe('native record navigation', () => {
   it('retains the exact imported tuple, alias and literal slug without PROJECT selection or id@version parsing', () => {
@@ -20,23 +21,23 @@ describe('native record navigation', () => {
     expect(projectReadModule('/memory/explorer/project', '')).toBe('memory')
     expect(projectReadModule('/knowledge/explorer', '')).toBe('knowledge')
   })
-  it('preserves exact physical selection and literal IDs in all PROJECT reader links', () => {
+  it('preserves portable project locators and literal IDs in all PROJECT reader links', () => {
     const id = 'literal /?#é'
     for (const kind of ['task', 'session', 'memory', 'knowledge'] as const) {
       const url = new URL(projectRecordHref(kind, id, selection), 'https://fixture.invalid')
-      expect(requestedRecordSelection(url.search)).toEqual(selection)
+      expect(requestedRecordSelection(url.search)).toEqual(locator)
       if (kind === 'knowledge') expect(url.searchParams.get('page')).toBe(id)
       else expect(decodeURIComponent(url.pathname.split('/').at(-1)!)).toBe(id)
     }
     const mirror = { ...selection, project_dir: "/m" }
-    expect(projectRecordHref('task', 'sameID', selection)).not.toBe(projectRecordHref('task', 'sameID', mirror))
+    expect(projectRecordHref('task', 'sameID', selection)).toBe(projectRecordHref('task', 'sameID', mirror))
   })
 
-  it('preserves literal Windows Unicode paths and validates a closed selection without normalizing versions', () => {
+  it('drops Windows checkout paths and validates a closed locator without normalizing versions', () => {
     const windows = { ...selection, project_dir: 'C:\\projeto com espaço\\ação Ω', project_version: '  exact  ' }
-    expect(requestedRecordSelection(new URL(projectRecordHref('memory', 'id', windows), 'https://fixture.invalid').search)).toEqual(windows)
+    expect(requestedRecordSelection(new URL(projectRecordHref('memory', 'id', windows), 'https://fixture.invalid').search)).toEqual({ ...locator, project_version: windows.project_version })
     expect(requestedRecordSelection('')).toBeNull()
-    for (const value of [{ ...selection, other: true }, { ...selection, project_dir: { os: 'Unix', units: [256] } }, { ...selection, project_dir: '\ud800' }, { ...selection, project_dir: '/bad\0path' }]) {
+    for (const value of [selection, { ...locator, other: true }, { ...locator, project_version: '\ud800' }, { ...locator, project_id: 'bad\0id' }]) {
       expect(() => requestedRecordSelection('?' + new URLSearchParams({ selection: JSON.stringify(value) }))).toThrow('invalid')
     }
     expect(() => requestedRecordSelection('?selection=%7B&selection=%7B')).toThrow('ambiguous')

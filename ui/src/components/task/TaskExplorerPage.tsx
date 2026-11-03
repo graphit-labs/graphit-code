@@ -5,7 +5,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Download, Circle, CheckCircle2, XCircle } from 'lucide-react'
 import { taskApi, type TaskContext, type TaskDetail, type TaskStatus, type TaskSearchMode } from '@/api/task'
 import { nativeTimestamp as timestamp, stringifyNativeJson } from '@/api/nativeJson'
-import { projectRecordHref } from '@/api/nativeRecordNavigation'
+import { encodeProjectLocator, projectRecordHref } from '@/api/nativeRecordNavigation'
 import { WorkPage, WorkHeader, WorkSection, WorkNotice, WorkEmpty, WorkStatusBadge, WorkBadge, FactList } from '@/components/shared/EngineeringUI'
 import { RecordReferences } from '@/components/shared/RecordReferences'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -91,7 +91,7 @@ export default function TaskExplorerPage() {
  const detailError = currentResult?.error ?? ''
  const detailLoading = Boolean(selected && catalogue.selection && !currentResult)
  const exporting = exportingKey === catalogue.targetKey
- const catalogueHref = catalogue.selection ? '/task/explorer?' + new URLSearchParams({ selection: stringifyNativeJson(catalogue.selection) }).toString() : null
+ const catalogueHref = catalogue.selection ? '/task/explorer?' + new URLSearchParams({ selection: encodeProjectLocator(catalogue.selection) }).toString() : null
  const previousSelection = useRef(catalogue.targetKey)
  useEffect(() => {
   if (catalogueHref && previousSelection.current !== catalogue.targetKey) { const previous = previousSelection.current; previousSelection.current = catalogue.targetKey; if (previous !== 'null') navigate(catalogueHref, { replace: true }) }
@@ -124,7 +124,7 @@ export default function TaskExplorerPage() {
   if (!catalogue.selection) return
   exporter.current?.abort(); const controller = new AbortController(); exporter.current = controller; setExportingKey(catalogue.targetKey); setExportError('')
   try {
-   const parts: BlobPart[] = ['{"selection":', stringifyNativeJson(catalogue.selection), ',"tasks":[']
+   const parts: BlobPart[] = ['{"selection":', encodeProjectLocator(catalogue.selection), ',"tasks":[']
    let hasRecords = false
    let cursor: import('@/api/task').CatalogueCursor | null = null
    do {

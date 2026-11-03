@@ -123,7 +123,7 @@ com este documento em
 docs/architecture/rust-knowledge-project-preview.md. Os quatro testes antigos
 Linux/três Windows e a fixture de 35 B permanecem; só a fixture privada de
 teste foi parametrizada para o literal de 24 B. Não há helper de produção,
-novo target, decoder concorrente, Go fallback ou alteração de Core/Auth/FS/Data.
+novo target, decoder concorrente ou alteração de Core/Auth/FS/Data.
 
 A qualificação privada executou o target inteiro, sem filtro, na janela
 combinada com o principal. A qualificação conjunta LIVE manteve a mesma Source;
@@ -148,7 +148,7 @@ O guard histórico de quatro casos não qualifica os novos sete.
 
 A qualificação Linux e o guard Git correspondente passaram; a prova do alvo
 atual e a reconciliação dos recibos estão registradas abaixo.
-Runtime Linux não prova Windows/macOS ou migração global. Ver contratos dos
+A execução no Linux qualifica o runtime dessa plataforma. Ver contratos dos
 [parser](rust-knowledge-document-parser.md),
 [preview](rust-knowledge-markdown-preview.md) e
 [Knowledge/Wiki](rust-knowledge-wiki.md).
@@ -183,7 +183,7 @@ repetir a compilação. lib.rs Knowledge atual é
 9c570f0e64e83c640a63081a94c3cf044e5c951c6bfea922b5f467af47434c30;
 Main40/Lockee8c e a Source deste target permaneceram iguais. O await comprova
 os filhos diretos do executor, não quiescência de toda a família de processos.
-Windows/macOS, desempenho e migração global não são provados. Na execução
+Windows/macOS, desempenho e validação ponta a ponta não são provados. Na execução
 conjunta acima, o guard Git ainda era UNRUN; a execução posterior abaixo
 qualifica o alvo atual preservando esses recibos históricos.
 
@@ -214,7 +214,7 @@ o trace real tem SHA256 9038bbd303233870d799cece23db0e6ddf444e7a2b68a9c5e66f9a9e
 Esta prova qualifica o guard dos novos sete casos Linux, além da qualificação
 privada e da conjunta descritas acima. Preserva o limite da prova: nenhum
 runtime Windows/macOS, desempenho, publicação Data, quiescência da família
-inteira ou migração global foi certificado. O guard também não limpa metadata
+inteira ou validação ponta a ponta foi certificado. O guard também não limpa metadata
 de freshness do Wiki; hash da fonte não substitui avaliação autorizada da
 geração documental.
 

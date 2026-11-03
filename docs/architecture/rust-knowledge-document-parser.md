@@ -35,7 +35,7 @@ falhos ou ignorados. A Source atual e os outros catorze arquivos monitorados
 permaneceram íntegros durante os três comandos, todos os processos terminaram
 e a CPU foi devolvida ao principal. O guard Git Integration específico foi
 qualificado com bloqueio e restauração reais; essa entrega não encerra a
-migração Knowledge/Wiki.
+integração Knowledge/Wiki.
 
 qualification-run-4.json (`../evidence/knowledge-cdb6/qualification-run-4.json`; historical local artifact unavailable)
 registra comandos, ambiente real, contagens, logs, tempo/RSS e quinze hashes
@@ -257,7 +257,7 @@ separadas; o teste negativo público não é uma nova execução dos 16 unitári
 Nenhum novo Cargo ou alteração de Source foi feito nesta atualização documental.
 A revisão de consistência confronta os mesmos contratos e fixtures nos dois
 sentidos. A prova Linux não qualifica Windows/macOS, preempção de SDKs,
-quiescência interna, desempenho de produto ou a migração global.
+quiescência interna, desempenho de produto ou a validação ponta a ponta.
 
 Para manutenção do guard, na janela combinada com o principal:
 

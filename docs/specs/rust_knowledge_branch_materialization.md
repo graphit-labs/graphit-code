@@ -161,6 +161,6 @@ Os targets --test não executam os units privados; o --lib focal é obrigatório
 Receipt local `.build/rust-knowledge-branch-materialization/validation.json`
 registra comandos, falhas, contagens distintas e limites da qualificação.
 Esta folha não qualifica App/HTTP/CLI, Runtime/CoreInventory, C5, imported readonly,
-retirement de versão, global migration, outros sistemas operacionais ou desempenho.
+retirada de versão, validação ponta a ponta, outros sistemas operacionais ou desempenho.
 A [persistência C8](../architecture/rust-knowledge-reference-storage.md)
 e as receipts anteriores conservam seus contratos.

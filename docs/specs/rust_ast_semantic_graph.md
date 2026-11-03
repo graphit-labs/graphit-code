@@ -146,7 +146,7 @@ integrity and Source failures remain typed errors and are not converted to this
 observation. It does not construct a ParsedDocument or a zero-row
 batch that could imply an executed semantic model. Root can move this one
 record into the writer and continue supported files while retaining required
-model gaps in the migration backlog.
+model gaps in the implementation backlog.
 
 The Source is borrowed from the actual Raw SDK record or retained physical
 capture. Raw missing/NULL through Indexed is rejected; physical Source requires
@@ -507,7 +507,7 @@ Evidence is retained in
 `validation/scip-default-pipeline-20261020/final-clippy-repair.log`.
 Runtime installation and registry publication are qualified separately from
 these fixture receipts. These results do not qualify the
-other eight images or additional platforms, or complete the global migration.
+other eight images or additional platforms, or complete the end-to-end validation.
 
 ## Oracle native application groups
 

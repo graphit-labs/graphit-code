@@ -73,7 +73,7 @@ A primeira falha e a segunda execução bem-sucedida ficam separadas abaixo. As 
 | `competing_dimension_overwrites_keep_the_winner_and_its_transaction_uuid` | UUIDs distintos, loser CommitConflict, schema/rows/geração do vencedor intactos. | PASS na segunda execução; FAIL histórico por schema. |
 | `a_foreign_append_prevents_old_overwrite_from_rebasing_or_adopting_rows` | Append estrangeiro vence; Overwrite antigo falha sem adotar ou remover rows. | PASS na segunda execução; FAIL histórico por schema. |
 
-O probe não entrega domínio/API/ABI de embeddings Knowledge, matching ConfigId, receita de projeção produtiva, ModelService, política Unchanged/no-op, identidade de corpus ou reset físico/ABA. Também não prova Auth/Core, caller admission/write lease, captura Core, atomicidade multitable, branch-domain, USER ou outros sistemas operacionais. Metadados do fixture não resolvem esses contratos pendentes de `tsk-446e`. Nenhum nonce, ledger de quota, benchmark, formato Go ou geração fictícia é introduzido.
+O probe não entrega domínio/API/ABI de embeddings Knowledge, matching ConfigId, receita de projeção produtiva, ModelService, política Unchanged/no-op, identidade de corpus ou reset físico/ABA. Também não prova Auth/Core, caller admission/write lease, captura Core, atomicidade multitable, branch-domain, USER ou outros sistemas operacionais. Metadados do fixture não resolvem esses contratos pendentes de `tsk-446e`. Nenhum nonce, ledger de quota, benchmark ou geração fictícia é introduzido.
 
 ## Execução Linux e receipt consolidado
 

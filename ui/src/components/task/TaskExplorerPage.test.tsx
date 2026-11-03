@@ -217,7 +217,7 @@ describe('native Task Explorer', () => {
     expect(taskApi.catalogue).toHaveBeenLastCalledWith(expect.objectContaining({ selection: mirror }))
     const uri = new URL(screen.getByTestId('selection-location').textContent!, 'http://fixture.invalid')
     expect(uri.pathname).toBe('/task/explorer')
-    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual(mirror)
+    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual({ project_id: mirror.project_id, project_version: mirror.project_version })
    })
    expect(screen.queryByRole('article', { name: 'Task dossier' })).toBeNull()
    expect(screen.queryByRole('heading', { name: 'Record links' })).toBeNull()
@@ -233,7 +233,7 @@ describe('native Task Explorer', () => {
    await waitFor(() => {
     const uri = new URL(screen.getByTestId('selection-location').textContent!, 'http://fixture.invalid')
     expect(uri.pathname).toBe('/task/explorer')
-    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual(selected)
+    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual({ project_id: selected.project_id, project_version: selected.project_version })
    })
    expect(screen.queryByRole('article', { name: 'Task dossier' })).toBeNull()
    expect(useTaskWorkspace.getState().selection).toEqual(selected)

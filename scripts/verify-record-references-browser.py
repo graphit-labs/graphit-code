@@ -24,6 +24,10 @@ READS = {
 }
 
 
+def project_locator(selection):
+    return {key: selection[key] for key in ("project_id", "project_version")}
+
+
 def compact(value):
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
@@ -38,13 +42,13 @@ def project_url(origin, probe, kind, identifier):
     paths = {"task": "/task/explorer/", "memory": "/memory/explorer/project/"}
     from urllib.parse import quote
     return origin + paths[kind] + quote(identifier, safe="") + "?" + urlencode(
-        {"selection": compact(probe["selection"])}
+        {"selection": compact(project_locator(probe["selection"]))}
     )
 
 
 def require_selection(url, expected):
     values = parse_qs(urlsplit(url).query).get("selection", [])
-    assert len(values) == 1 and json.loads(values[0]) == expected, "literal selection retained"
+    assert len(values) == 1 and json.loads(values[0]) == project_locator(expected), "portable selection retained"
 
 
 def run(args):
@@ -175,7 +179,7 @@ def run(args):
                 passed()
 
                 if args.only_narrow:
-                    page.goto(origin + "/knowledge/explorer?" + urlencode({"selection": compact(probe["selection"]), "page": probe["wiki_slug"]}), timeout=30000)
+                    page.goto(origin + "/knowledge/explorer?" + urlencode({"selection": compact(project_locator(probe["selection"])), "page": probe["wiki_slug"]}), timeout=30000)
                     expect(page.get_by_role("heading", name=probe["wiki_slug"], exact=True)).to_be_visible()
                     narrow_keyboard(page)
                     logout_denial(page, project_url(origin, probe, "memory", probe["memory_id"])[len(origin):])
@@ -262,7 +266,7 @@ def run(args):
                     expect(page.get_by_text("Reference destination unavailable", exact=True)).to_be_visible()
                     expect(page.get_by_role("article", name="Memory record", exact=True)).to_have_count(0)
                     passed()
-                    duplicate = memory_url + "&" + urlencode({"selection": compact(probe["selection"])})
+                    duplicate = memory_url + "&" + urlencode({"selection": compact(project_locator(probe["selection"]))})
                     step("duplicate_selection_denial")
                     page.goto(duplicate, timeout=30000)
                     notice = page.get_by_role("alert").filter(has_text="The record selection is ambiguous")
@@ -304,7 +308,7 @@ def run(args):
 
                     step("zero_edge_observed_namespace")
                     empty_url = origin + "/knowledge/explorer?" + urlencode({
-                        "selection": compact(probe["selection"]), "page": probe["empty_slug"]})
+                        "selection": compact(project_locator(probe["selection"])), "page": probe["empty_slug"]})
                     page.goto(empty_url, timeout=30000)
                     expect(page.get_by_role("heading", name=probe["empty_slug"], exact=True)).to_be_visible()
                     expect(widget(page).get_by_role("button", name="Reload links", exact=True)).to_be_enabled()
@@ -442,7 +446,9 @@ def run(args):
                     require_selection(page.url, mirror)
                     expect(page.get_by_text("Task to native Memory and Knowledge", exact=True)).to_have_count(0)
                     expect(page.get_by_role("heading", name="Record links", exact=True)).to_have_count(0)
-                    page.goto(project_url(origin, {"selection": mirror}, "memory", probe["mirror_memory_id"]), timeout=30000)
+                    page.goto(origin + "/memory/explorer/project/" + probe["mirror_memory_id"], timeout=30000)
+                    page.get_by_role("group", name="Working context", exact=True).get_by_role("combobox", name="Project", exact=True).click()
+                    page.get_by_role("option").filter(has_text=mirror_label).click()
                     expect(page.get_by_role("heading", name="Mirror memory", exact=True)).to_be_visible()
                     require_selection(page.url, mirror)
                     expect(page.get_by_role("heading", name="Revised foreground memory", exact=True)).to_have_count(0)
@@ -452,9 +458,10 @@ def run(args):
                     passed()
 
                     step("missing_projection_no_invented_navigation")
-                    missing_url = origin + "/knowledge/explorer?" + urlencode({
-                        "selection": compact(mirror), "page": probe["missing_slug"]})
+                    missing_url = origin + "/knowledge/explorer?" + urlencode({"page": probe["missing_slug"]})
                     page.goto(missing_url, timeout=30000)
+                    page.get_by_role("group", name="Working context", exact=True).get_by_role("combobox", name="Project", exact=True).click()
+                    page.get_by_role("option").filter(has_text=mirror_label).click()
                     expect(page.get_by_role("heading", name=probe["missing_slug"], exact=True)).to_be_visible()
                     require_selection(page.url, mirror)
                     expect(widget(page).get_by_text("References unavailable", exact=True)).to_be_visible()

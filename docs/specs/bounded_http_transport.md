@@ -256,6 +256,6 @@ tree without features contains no Tokio; the lock audit found no advisories.
 The evidence records exact commands, log hashes and the dependency delta.
 
 No endpoint, Broker OP, native agent, Windows/macOS runtime, performance gain or
-full migration pass follows from this library qualification. Full compiled
+end-to-end product validation pass follows from this library qualification. Full compiled
 isolation and final ecosystem gates remain integration work; their runners and
 policies were unchanged by this delivery.

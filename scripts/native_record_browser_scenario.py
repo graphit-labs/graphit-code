@@ -11,6 +11,10 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from playwright.sync_api import Error as PlaywrightError, expect, sync_playwright
 
 
+def project_locator(selection):
+    return {key: selection[key] for key in ("project_id", "project_version")}
+
+
 def run_records(args):
     probe_path, output = Path(args.probe), Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
@@ -85,7 +89,7 @@ def run_records(args):
         return matches[-1]
 
     def project_url(path, selection=None, **params):
-        params['selection'] = json.dumps(selection or probe['selection'], separators=(',', ':'))
+        params['selection'] = json.dumps(project_locator(selection or probe['selection']), separators=(',', ':'))
         return origin + path + '?' + urlencode(params)
 
     def imported_url(source=None, slug=None):
@@ -284,10 +288,18 @@ def run_records(args):
             passed()
 
             step('same_identity_different_native_path_exact_selection')
-            page.goto(project_url('/memory/explorer/project/' + probe['mirror_memory_id'], selection=probe['mirror_selection']))
+            mirror = probe['mirror_selection']
+            page.goto(origin + '/memory/explorer/project/' + probe['mirror_memory_id'])
+            def choose_mirror():
+                page.get_by_role('group', name='Working context', exact=True).get_by_role('combobox', name='Project', exact=True).click()
+                page.get_by_role('option').filter(has_text=mirror['project_dir']).click()
+            choose_mirror()
             expect(page.get_by_role('heading', name='Mirror memory', exact=True)).to_be_visible()
-            assert latest('/api/memory/history')[1]['selection'] == probe['mirror_selection']
+            assert latest('/api/memory/history')[1]['selection'] == mirror
+            selection = parse_qs(urlsplit(page.url).query)['selection'][0]
+            assert json.loads(selection) == project_locator(mirror)
             page.reload()
+            choose_mirror()
             expect(page.get_by_role('heading', name='Mirror memory', exact=True)).to_be_visible()
             expect(page.get_by_role('heading', name='Revised foreground memory', exact=True)).to_have_count(0)
             passed()

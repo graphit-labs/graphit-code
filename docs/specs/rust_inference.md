@@ -148,7 +148,7 @@ new exports/dependencies.
 `measure_direct_loopback_fixture` is an ignored precompiled Linux fixture with
 128 calls of eight texts and two dimensions. Its wall/p95 and process CPU/RSS
 measure the local debug transport/JSON/harness, not authenticated inference,
-provider latency, product throughput or improvement over Go. On 2026-10-09 the coordinated Linux x86_64 run passed nine functional tests;
+provider latency or product throughput. On 2026-10-09 the coordinated Linux x86_64 run passed nine functional tests;
 the one measurement fixture was ignored in that suite. Strict Clippy over all
 crate targets also passed. The first compile failed with E0502 in the writer's
 reservation call; computing the additional capacity before borrowing the buffer

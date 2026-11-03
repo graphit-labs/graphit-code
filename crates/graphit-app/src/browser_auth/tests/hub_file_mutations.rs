@@ -226,6 +226,26 @@ fn project_registry(fixture: &crate::source_server::test_fixture::Fixture) -> Hu
     )
 }
 
+fn project_slot(
+    fixture: &crate::source_server::test_fixture::Fixture,
+) -> graphit_core::artifact_store::PublicationSlot {
+    let policy = fixture.server.policy();
+    let cancel = Cancellation::default();
+    let request = checked(
+        policy
+            .native_install
+            .hub
+            .request_context(Instant::now(), &cancel),
+        "project receipt request",
+    );
+    let (paths, id, _) = &fixture.projects[0];
+    checked(
+        CapturedPublicationScope::project(paths, *id, policy.scope, request.snapshot()),
+        "project receipt scope",
+    )
+    .publication_slot()
+}
+
 fn assert_project_mode(
     fixture: &crate::source_server::test_fixture::Fixture,
     expected: ArtifactMode,
@@ -233,7 +253,7 @@ fn assert_project_mode(
 ) {
     let registry = checked(project_registry(fixture).load(), "physical mode registry");
     let entry = registry
-        .get(ArtifactType::Skill, FILE_ID)
+        .get_for_consumer(&project_slot(fixture), ArtifactType::Skill, FILE_ID)
         .expect("actual FILE tuple")
         .installations
         .iter()
@@ -251,7 +271,7 @@ fn assert_project_mode(
     assert_eq!(entry.original_source.version().as_str(), version);
     assert!(
         entry.original_source.remote_file_origin().is_some(),
-        "physical Link retains remote provenance"
+        "physical Copy retains remote provenance"
     );
     assert_eq!(entry.alias.as_deref(), Some("web-file-mutable"));
     assert_eq!(entry.entry_name.as_deref(), Some("web-file-entry"));
@@ -304,15 +324,18 @@ async fn project_physical_mode_journey(
         page(host, cookie, INSTALL, input.clone()).await["cache"] == "Unchanged",
         "receipt-based cache fast path"
     );
-    input["mode"] = json!("link");
-    page(host, cookie, UPDATE, input.clone()).await;
-    assert_project_mode(fixture, ArtifactMode::Link, "release/one");
-    assert!(
-        checked(
-            std::fs::read_to_string(destination.join("SKILL.md")),
-            "linked FILE"
-        )
-        .contains("First mutable release")
+    let mut nonportable = input.clone();
+    nonportable["mode"] = json!("link");
+    let before_link = hub_file_reads::registry_bytes(&project_registry(fixture).path());
+    failure(host, cookie, UPDATE, &nonportable, StatusCode::BAD_REQUEST).await;
+    assert_eq!(
+        hub_file_reads::registry_bytes(&project_registry(fixture).path()),
+        before_link
+    );
+    assert_project_mode(
+        fixture,
+        ArtifactMode::Copy(CopyPolicy::RejectFileLinks),
+        "release/one",
     );
     input
         .as_object_mut()
@@ -329,13 +352,17 @@ async fn project_physical_mode_journey(
         updated["version"] == "release/two",
         "actual concrete update"
     );
-    assert_project_mode(fixture, ArtifactMode::Link, "release/two");
+    assert_project_mode(
+        fixture,
+        ArtifactMode::Copy(CopyPolicy::RejectFileLinks),
+        "release/two",
+    );
     let registry = checked(
         project_registry(fixture).load(),
         "Web-updated project registry",
     );
     let selected = registry
-        .get(ArtifactType::Skill, FILE_ID)
+        .get_for_consumer(&project_slot(fixture), ArtifactType::Skill, FILE_ID)
         .expect("actual FILE registry entry")
         .installations
         .iter()
@@ -382,7 +409,7 @@ async fn project_physical_mode_journey(
     let mut unsupported = input.clone();
     unsupported["selection"]["artifact_type"] = json!("command");
     unsupported["selection"]["version"] = json!("release/unsupported");
-    unsupported["mode"] = json!("link");
+    unsupported["mode"] = json!("copy");
     let before_unsupported = hub_file_reads::registry_bytes(&project_registry(fixture).path());
     let unsupported_result = failure(
         host,
@@ -709,7 +736,7 @@ async fn run_file_mutation_fixture(
         let limited = limited_host.as_ref().expect("owned limited-response host");
         let limited_cookie = limited.login(&broker.ready).await;
         limited_response(limited, &limited_cookie, INSTALL, &input, limits.max_output_bytes).await;
-        assert!(checked(project_registry(&fixture).load(), "publication after limited success").get(ArtifactType::Skill, FILE_ID).is_some(), "response quota never rolls back a confirmed publication");
+        assert!(checked(project_registry(&fixture).load(), "publication after limited success").get_for_consumer(&project_slot(&fixture), ArtifactType::Skill, FILE_ID).is_some(), "response quota never rolls back a confirmed publication");
 
         let destination = project_destination(&fixture);
         let foreign = destination.join("foreign.txt");

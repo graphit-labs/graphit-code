@@ -280,7 +280,7 @@ exist; host integrations with a stale catalog must reconnect before assuming it 
 `graphit_sync` reconciles existing artifact versions and agent files with administrative Runtime
 admission; it does not upgrade remote releases, force index completion or grant Role writes.
 `graphit_instances` and `graphit_now` describe actual instance/project/version activity rather than
-a task-count estimate of migration progress. The [CLI](cli_reference.md) exposes the supported
+a task-count estimate of delivery progress. The [CLI](cli_reference.md) exposes the supported
 component operations; [capability matrix](capability_matrix.md) distinguishes HTTP/Browser and CLI.
 
 ## Implementation and validation

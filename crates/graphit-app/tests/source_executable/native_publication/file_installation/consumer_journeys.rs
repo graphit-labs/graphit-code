@@ -52,10 +52,7 @@ async fn mcp(
             if tool == "graphit_hub_sync" {
                 assert_eq!(schema["properties"]["global"]["type"], "boolean");
             } else {
-                assert_eq!(
-                    schema["properties"]["mode"]["enum"],
-                    json!(["copy", "link"])
-                );
+                assert_eq!(schema["properties"]["mode"]["enum"], json!(["copy"]));
             }
             Ok(sdk
                 .peer()
@@ -1020,8 +1017,8 @@ async fn compiled_files_preserve_updates_retarget_forget_and_reject_generated_li
         };
         let mut update = json!({"selection":{"transport":"broker","provider":PROVIDER,"producer":producer,"artifact_type":"skill","id":ID,"version":ONE,"exact":true},
             "global":false,"project_dir":consumer.root(),"project_version":"main","binding":"codex","mode":"link"});
-        for mode in ["copy", "link"] {
-            let rejected = mcp(&fixture, consumer, "graphit_hub_install", json!({"selection":update["selection"],"global":true,"mode":mode})).await?;
+        {
+            let rejected = mcp(&fixture, consumer, "graphit_hub_install", json!({"selection":update["selection"],"global":true,"mode":"copy"})).await?;
             assert_eq!(rejected.is_error, Some(true));
             assert_eq!(rejected.structured_content.ok_or("missing global mode refusal")?["outcome"]["cache"], "not_attempted");
         }

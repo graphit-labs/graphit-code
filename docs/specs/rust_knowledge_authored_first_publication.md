@@ -174,7 +174,7 @@ cargo test --offline --locked -p graphit-data --lib knowledge_first_publication:
 
 Os dois targets --test não executam os units privados. Receipt local:
 `.build/rust-knowledge-authored-first-publication/validation.json`. App, HTTP,
-imported readonly, global migration, outros sistemas operacionais e desempenho
+leitura importada, validação ponta a ponta, outros sistemas operacionais e desempenho
 não são qualificados por esta folha. O [schema de persistência](../architecture/rust-knowledge-reference-storage.md)
 e a [publicação ordinary](../architecture/rust-knowledge-native-publication.md)
 conservam seus contratos e receipts históricos.

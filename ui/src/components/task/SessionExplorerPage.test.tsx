@@ -105,9 +105,9 @@ describe('native Session Explorer', () => {
   await user.click(screen.getByRole('button', { name: 'Retry' }))
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Request' })).toBeTruthy())
  })
-  it('retains the exact NativePath when returning to Sessions, reloading and changing physical scope', async () => {
+  it('resolves the Session link through authorized inventory and preserves checkout scope in requests', async () => {
    const mirror = { ...context, project_dir: "/mÿr" }
-   vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, mirror], current: context })
+   vi.mocked(taskApi.contexts).mockResolvedValue({ contexts: [context, mirror], current: mirror })
    useTaskWorkspace.setState({ module: 'task', selection: null, contexts: [], phase: 'loading', error: '' })
    function SelectionLocation() { const location = useLocation(); return <output data-testid="selection-location">{location.pathname + location.search}</output> }
    const mount = (entry: string) => render(<MemoryRouter initialEntries={[entry]}><SelectionLocation /><TaskWorkspaceBootstrap><Routes><Route path="/task/sessions/:sessionId?" element={<SessionExplorerPage />} /></Routes></TaskWorkspaceBootstrap></MemoryRouter>)
@@ -119,7 +119,7 @@ describe('native Session Explorer', () => {
    await waitFor(() => {
     const uri = new URL(screen.getByTestId('selection-location').textContent!, 'http://fixture.invalid')
     expect(uri.pathname).toBe('/task/sessions')
-    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual(mirror)
+    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual({ project_id: mirror.project_id, project_version: mirror.project_version })
     expect(useTaskWorkspace.getState().selection).toEqual(mirror)
    })
    const reload = screen.getByTestId('selection-location').textContent!
@@ -136,7 +136,7 @@ describe('native Session Explorer', () => {
    await waitFor(() => {
     const uri = new URL(screen.getByTestId('selection-location').textContent!, 'http://fixture.invalid')
     expect(uri.pathname).toBe('/task/sessions')
-    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual(context)
+    expect(parseNativeJson(uri.searchParams.get('selection') ?? 'null')).toEqual({ project_id: context.project_id, project_version: context.project_version })
     expect(sessionApi.heads).toHaveBeenLastCalledWith(context, expect.any(AbortSignal))
    })
   })

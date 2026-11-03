@@ -2016,7 +2016,7 @@ async fn fragmented_memory_streams_preserve_all_revisions_and_release_readers_be
     expected.insert(updated.id, updated.revision);
     revisions.insert((updated.id, updated.revision));
     // Split only this private fixture's valid public-CRUD records into many
-    // physical files. Product data and migration/import code are not involved.
+    // physical files created by the test fixture.
     let pin = sdk::pin(&f).await;
     let batch = sdk::all(&pin).await;
     let rows = batch.num_rows();

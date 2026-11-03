@@ -116,7 +116,7 @@ A language artifact/profile alone cannot register another native recognizer. Cus
 routes are configured with `ast.scip.parsers`; native grammars are contributor build inputs.
 Complete descriptors, validation, templates and required entries are in
 [native installations](hub_native_installations.md). Do not invent a universal descriptor from
-an old Go example when its current kind has a strict schema.
+an example that fails its current schema.
 
 ## Discover, review and publish authored sources
 

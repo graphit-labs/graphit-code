@@ -1,6 +1,6 @@
 ---
 title: "Rust AST and Parser Contracts"
-description: "Source ranges and the producer boundaries for the Rust AST migration."
+description: "Source ranges and the AST producer boundaries."
 content-type: reference
 audience: developers
 references:
@@ -71,7 +71,7 @@ references:
 This page describes AST producer APIs and their current integration boundaries
 in `graphit-code`, session `ses-c98a`, delivery `tsk-7858`. Rust owns the migrated
 product APIs. Parser libraries, grammars and bindings are reused directly;
-functional language coverage is preserved without a Go fallback.
+Each supported language has a selected parser.
 
 See the [AST specification](ast_module.md),
 [grammar guide](../guides/ast_extensibility.md),
@@ -125,8 +125,7 @@ validation error and its cause.
 license/notice bytes. Tree-sitter Rust 0.24.2 and JSON 0.24.8 use their pinned
 SDK crates, avoiding duplicate C exports. The helper derives Rust dispatch,
 extern declarations, literal keys and native ABI fixture expectations from
-that same list. Build inputs are repository sources, not Go or a user machine's
-module cache. Their provenance and explicit local patches are documented in
+that same list. Build inputs are repository sources and pinned Cargo packages. Their provenance and explicit local patches are documented in
 [grammar provenance](rust_ast_grammar_provenance.md).
 
 The distributed runtime artifact is the Graphit executable with all 41
@@ -560,10 +559,6 @@ CPU model server and EmbeddingGemma2 model. It checks exact Source associations,
 semantic/hybrid results, incremental projection/vector reuse, model identity
 changes and empty-file publication.
 
-The private overlay used `--manifest-path .build/ast-sdk-workspace/Cargo.toml`
-before workspace integration. The workspace runs now pass as well; evidence is
-recorded in `.build/rust-migration/main-tree-sitter-integration.log` and
-`.build/rust-migration/main-tree-sitter-clippy.log`.
 Use focused functional checks for the changed leaf and reuse build caches.
-Do not claim product cutover, other platforms or unfinished parser/indexing
+Do not infer coverage for other platforms or unfinished parser/indexing
 integration from low-level library tests.

@@ -184,7 +184,7 @@ links, código e HTML permanecem byte a byte, sem trim nem reflow.
 A navegação precede o corpo, que é a última seção; nada é anexado depois dele.
 Isso impede que um fence ou HTML autoral aberto engula a navegação gerada.
 O parser permanece estrito: YAML malformado e quotas P1 não acionam fallback de
-strip-frontmatter ou interpretação Go.
+strip-frontmatter.
 
 ## Limites e falhas
 
@@ -291,7 +291,7 @@ Os testes protegem namespace, fingerprint/geração, corpo literal, roundtrip de
 metadata, escaping reparsado, referências reais, limites exatos e um abaixo,
 erros/cancelamento e Data nativo com admissão real. Testes anteriores de export
 foram revisados pelo propósito páginas/índice/nav/backlinks/YAML hostil; helpers,
-aliases e trim de Go não foram portados. A fonte virtual mantém suas regressões.
+A fonte virtual mantém suas regressões.
 
 Comandos portáveis, executados com o target/cache combinado com Main:
 
@@ -301,7 +301,7 @@ cargo clippy --offline --locked -p graphit-knowledge --lib --test markdown_expor
 ```
 
 A evidência executada e seus resultados ficam em `tsk-cd46`. Inspeção de contratos
-não é execução; sucesso Linux não qualifica Windows/macOS nem a migração global.
+não é execução; o teste Linux cobre apenas a plataforma em que foi executado.
 
 Qualificação desta folha em Linux: 26 testes afetados passaram — seis privados
 do exportador, seis públicos, seis da fonte virtual, dois privados da fonte e

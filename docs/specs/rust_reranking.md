@@ -114,7 +114,7 @@ debug test binary: 128 samples took 126.371005 ms in total, with a sample p95 of
 1.339133 ms. The fixture process used 0.12 s user CPU and 0.00 s system CPU at the
 measurement tool's resolution, with 3,072 KiB peak RSS including its harness.
 These observations describe this fixture and build only; they are not a hard
-memory bound, a production latency target or a comparison with Go. Strict Clippy
+memory bound or a production latency target. Strict Clippy
 passed. The library and documentation harnesses contained no additional tests.
 
 Direct embedding adapters consume this same context and the existing bounded HTTP

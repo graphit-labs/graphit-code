@@ -141,8 +141,7 @@ CLI/login/runtime consumers and role integration remain required migration
 work. Runtime agent filesystem views must exclude Core's shared
 `publication::AUTH_PRIVATE_NAMES`; consumers must not maintain a second list.
 
-There is no Go-format reader, importer, fallback login or backward compatibility
-layer. The current Rust product consumes this store; this leaf's historical validation is limited to its storage boundary.
+The product consumes this store. Its library validation covers the storage boundary.
 
 ## Fixtures and qualification boundaries
 

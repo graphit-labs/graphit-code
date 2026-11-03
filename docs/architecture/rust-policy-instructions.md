@@ -26,9 +26,8 @@ A caller can select generic normative Markdown for Task, Memory, AST, Hub and Kn
 
 The Rust catalog does not select a per-tool unit-completion reminder. Bootstrap
 mandates and lifecycle routing remain selected by their actual consumers. Its
-unused Markdown source was removed with the unused variant. The generic Go
-emitter supplies its own literal text; Kiro/Codex no longer install the default
-per-tool/task reminders, while custom hooks and Stop remain supported.
+Kiro and Codex support custom hooks and Stop without default per-tool or Task
+reminders.
 
 ## Typed selection
 
@@ -113,7 +112,7 @@ Combine the selected candidates with captured project/global/Hub overrides and c
 
 The original SnapshotContext and its cancellation/deadline are preserved. The caller budgets the entire capture/composition/publication request, including intermediate bodies and repeated render stages; individual positive engine limits do not reset that outer budget. Engine byte limits, fuel and recursion are logical controls, not a hard RSS cap or preemptive cancellation guarantee. No partial body is returned on failure. Provenance CompiledDefault is not SourceRef validation or authorization.
 
-The coordinator owns acceptance, checkpoints, Task/session claims, revisions, completion, cancellation and release. Delegates do not acquire a claim, including their own Task, and return a draft when a write requires that claim. Progress/comment tool names are catalog metadata and do not grant write authority. Bootstrap's old Go own-Task claim wording is reconciled with [managed-role context](../specs/managed_role_context.md). Shared project persistence permits only necessary non-sensitive project facts, decisions and evidence; durable user-only preferences belong only in private user memory.
+The coordinator owns acceptance, checkpoints, Task/session claims, revisions, completion, cancellation and release. Delegates do not acquire a claim, including their own Task, and return a draft when a write requires that claim. Progress/comment tool names are catalog metadata and do not grant write authority.Shared project persistence permits only necessary non-sensitive project facts, decisions and evidence; durable user-only preferences belong only in private user memory.
 
 ## Validation and remaining integration
 
@@ -127,4 +126,4 @@ cargo clippy -p graphit-runtime --lib --test policy_instructions --test kiro_hoo
 rustfmt --edition 2024 --config skip_children=true --check crates/graphit-runtime/src/policy_instructions.rs crates/graphit-runtime/tests/policy_instructions.rs crates/graphit-runtime/tests/kiro_hook_plans.rs
 ```
 
-Record actual platform/results in Task 289f and the Dream extension in edf3. W CLI/registered MCP supply captured inputs and effective catalog values; 9bd4 supplies runtime lifecycle and live context; HK supplies native hook invocation/publication. See [native bindings](../development/native-host-bindings.md). None of those integrations is certified by pure content tests. Skills/references are supplied by Source 2e3f, the Dream consolidation prompt by Source edf3, and each other instruction consumer retains its own documented producer. The migration and parent deliveries remain open.
+Record actual platform/results in Task 289f and the Dream extension in edf3. W CLI/registered MCP supply captured inputs and effective catalog values; 9bd4 supplies runtime lifecycle and live context; HK supplies native hook invocation/publication. See [native bindings](../development/native-host-bindings.md). None of those integrations is certified by pure content tests. Skills/references are supplied by Source 2e3f, the Dream consolidation prompt by Source edf3, and each other instruction consumer retains its own documented producer.

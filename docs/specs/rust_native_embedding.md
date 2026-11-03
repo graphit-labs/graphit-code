@@ -235,7 +235,7 @@ checked finite, normalized with F32 L2 and rejected for nonfinite/zero
 norm. For 128/256/512 dimensions, Rust takes that prefix and renormalizes
 in F32. Token truncation and Matryoshka vector reduction are distinct.
 Corpus/query consumers must preserve model revision, precision, recipe
-and dimensions; this library does not convert an existing Go corpus.
+and dimensions.
 
 Load requires architecture `gemma-embedding2`, output width 768 and the
 explicit native ftype: Bf16 requires LLAMA_FTYPE_MOSTLY_BF16; F32 requires

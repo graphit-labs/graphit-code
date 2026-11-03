@@ -115,7 +115,7 @@ flag de truncamento é true, enquanto description conserva os nove bytes.
 
 Type authored textual vira kind integral: vazio e texto custom como
 `domain/a 🍀` são preservados. Type ausente/null usa somente kind_on_absent
-explícito. Não classificar por path nem transformar kind em enum Go. Data
+explícito. O valor de kind é explícito e independente do caminho. Data
 consome o resultado; não preenche esse valor novamente.
 
 A projeção privada usa no_schema=true e strict_booleans=true. Known

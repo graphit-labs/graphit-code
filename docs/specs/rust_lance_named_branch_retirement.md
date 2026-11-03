@@ -38,6 +38,6 @@ Only `index.lance` is covered by the existing index wrapper. `embeddings.lance` 
 
 ## Validation
 
-The affected command is `cargo test --locked --offline -p graphit-data --test lance_branch_store named_branch_retirement -j1 -- --nocapture`, using the current workspace and warm SDK target. Formatting and strict lint apply to changed Data targets. No cold harness, CPU window, resource reservation, comparison with Go, broad supplier replay, or cross-platform runtime qualification is required or claimed.
+The affected command is `cargo test --locked --offline -p graphit-data --test lance_branch_store named_branch_retirement -j1 -- --nocapture`, using the current workspace and warm SDK target. Formatting and strict lint apply to changed Data targets. No cold harness, CPU window, resource reservation, broad supplier replay, or cross-platform runtime qualification is required or claimed.
 
 Primary SDK documentation: [Lance 13 Dataset::delete_branch](https://docs.rs/lance/14.0.2/lance/dataset/struct.Dataset.html#method.delete_branch). The effect ordering is verified against the installed pinned SDK's `dataset/refs.rs`, not inferred from an acknowledgement alone.

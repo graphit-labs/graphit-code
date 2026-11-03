@@ -870,7 +870,7 @@ types. Full CAST coverage and characteristic uniqueness/exclusivity remain requi
 CREATE METHOD signature return remains optional. New native Context, rule name,
 return parents and ordinals are exposed directly; no compatibility alias or
 normalization hides the tree change. Source uses the mature ANTLR grammar/runtime,
-with no keyword-counting parser, Go fallback or shared ABI edit.
+with no keyword-counting parser or shared ABI edit.
 
 The full CREATE TYPE/ALTER TYPE fixture exercises ordinary/OVERRIDING clauses,
 option order, named/empty/C unnamed parameters, two Methodspecs each with its own
@@ -1462,7 +1462,7 @@ is preserved with a SELECT control and a missing-AS negative.
 Qualification uses only the new focal, affected existing function/procedure/
 Original operations, current QName and general fullselect regressions, scoped
 strict Clippy and local format/generation/document checks. No full-suite
-campaign, compatibility, quota/resource wrapper or Go comparison is required.
+campaign, compatibility, quota or resource wrapper is required.
 Source inspection's finite Original fixture belongs to the previous delivery
 and is not rewritten here. See
 [queries](rust_ast_antlr_queries.md#db2-direct-return-and-values-selectors)

@@ -27,7 +27,6 @@ async function selectResource(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole('button', { name: 'Read SKILL.md' })
 }
 async function open(user: ReturnType<typeof userEvent.setup>) { await selectResource(user); await user.click(screen.getByRole('button', { name: 'Install local resource' })); return screen.getByRole('dialog') }
-async function mode(user: ReturnType<typeof userEvent.setup>, label: string) { await user.click(within(screen.getByRole('dialog')).getByRole('combobox', { name: 'Installation mode' })); await user.click(screen.getByRole('option', { name: label })) }
 
 it.each(['agent', 'skill', 'command', 'workflow'] as const)('local install consumer captures selected %s source and current PROJECT/binding, omitting optional intent', async artifact_type => {
   vi.mocked(hubNative.authoredList).mockImplementation(async query => ({ status: 'ok', project_id: query.project_id, project_version: query.project_version, entries: [{ ...resource, artifact_type }], next_cursor: null }))
@@ -35,15 +34,13 @@ it.each(['agent', 'skill', 'command', 'workflow'] as const)('local install consu
   expect(dialog).toHaveTextContent('Local Resources'); expect(dialog).toHaveTextContent(projectA + ' @ feature/a')
   expect(within(dialog).queryByRole('textbox', { name: /Version/ })).not.toBeInTheDocument()
   expect(dialog).not.toHaveTextContent('managed Hub cache')
-  await user.click(within(dialog).getByRole('combobox', { name: 'Installation mode' }))
-  expect(screen.queryByRole('option', { name: /Link/ })).not.toBeInTheDocument()
-  await user.keyboard('{Escape}')
-  expect(within(dialog).getByRole('combobox', { name: 'Installation mode' })).toHaveFocus()
+  expect(within(dialog).queryByRole('combobox', { name: 'Installation mode' })).not.toBeInTheDocument()
+  expect(dialog).toHaveTextContent('copies it into the checkout')
   await user.click(within(dialog).getByRole('button', { name: 'Install local resource' }))
   await screen.findByText('Operation completed')
   expect(hubNative.mutate).toHaveBeenCalledOnce()
   expect(hubNative.mutate).toHaveBeenCalledWith('install_local', { ...request(), source: { ...source, artifact_type } }, expect.any(AbortSignal))
-  expect(screen.getByRole('region', { name: 'Operation outcome' })).toHaveTextContent('Default Copy (omitted)')
+  expect(screen.getByRole('region', { name: 'Operation outcome' })).toHaveTextContent('Copy')
   expect(hubNative.publish).not.toHaveBeenCalled(); expect(hubNative.content).not.toHaveBeenCalled()
 })
 
@@ -55,15 +52,14 @@ it.each(['rule', 'mcp', 'language', 'power', 'ast', 'knowledge'] as const)('loca
   expect(hubNative.mutate).not.toHaveBeenCalled()
 })
 
-it.each([['Copy', 'copy']] as const)('local install consumer sends %s and explicit names without fabricating observed mode', async (label, value) => {
+it('local install consumer sends explicit names without fabricating observed mode', async () => {
   const user = userEvent.setup(); render(<ProjectArtifactsPage />); const dialog = await open(user)
-  await mode(user, label)
   await user.type(within(dialog).getByRole('textbox', { name: 'Local alias (optional)' }), 'local-alias')
   await user.type(within(dialog).getByRole('textbox', { name: 'Entry name (optional)' }), 'LOCAL.md')
   await user.click(within(dialog).getByRole('button', { name: 'Install local resource' })); await screen.findByText('Operation completed')
-  expect(hubNative.mutate).toHaveBeenCalledWith('install_local', { ...request(), mode: value, alias: 'local-alias', entry_name: 'LOCAL.md' }, expect.any(AbortSignal))
+  expect(hubNative.mutate).toHaveBeenCalledWith('install_local', { ...request(), alias: 'local-alias', entry_name: 'LOCAL.md' }, expect.any(AbortSignal))
   const outcome = screen.getByRole('region', { name: 'Operation outcome' })
-  expect(outcome).toHaveTextContent('Requested installation mode'); expect(outcome).toHaveTextContent(label)
+  expect(outcome).toHaveTextContent('Requested installation mode'); expect(outcome).toHaveTextContent('Copy')
   expect(outcome).toHaveTextContent('Requested alias'); expect(outcome).toHaveTextContent('local-alias')
   expect(outcome).not.toHaveTextContent('Link to Hub cache')
 })
@@ -71,19 +67,18 @@ it.each([['Copy', 'copy']] as const)('local install consumer sends %s and explic
 it('local install consumer preserves literal invalid names and Unsupported choice for explicit correction without fallback', async () => {
   vi.mocked(hubNative.mutate).mockImplementationOnce(async (_operation, input) => { throw new HubRequestError(400, 'invalid_arguments', null, false, null, input) }).mockImplementationOnce(async (_operation, input) => { throw new HubRequestError(501, 'native_operation_failed', null, false, null, input) })
   const user = userEvent.setup(); render(<ProjectArtifactsPage />); const dialog = await open(user)
-  await mode(user, 'Copy')
   const alias = within(dialog).getByRole('textbox', { name: 'Local alias (optional)' })
   await user.type(alias, ' bad/name ')
   await user.click(within(dialog).getByRole('button', { name: 'Install local resource' })); await within(dialog).findByText('Check the supplied selection')
-  expect(hubNative.mutate).toHaveBeenLastCalledWith('install_local', { ...request(), mode: 'copy', alias: ' bad/name ' }, expect.any(AbortSignal))
+  expect(hubNative.mutate).toHaveBeenLastCalledWith('install_local', { ...request(), alias: ' bad/name ' }, expect.any(AbortSignal))
   expect(alias).toHaveValue(' bad/name ')
   await user.clear(alias); await user.type(alias, 'retained-alias')
   await user.click(within(dialog).getByRole('button', { name: 'Install local resource' })); await within(dialog).findByText('Operation unavailable')
-  expect(alias).toHaveValue('retained-alias'); expect(within(dialog).getByRole('combobox', { name: 'Installation mode' })).toHaveTextContent('Copy')
+  expect(alias).toHaveValue('retained-alias')
   expect(hubNative.mutate).toHaveBeenCalledTimes(2)
-  await mode(user, 'Copy'); await user.click(within(dialog).getByRole('button', { name: 'Install local resource' })); await screen.findByText('Operation completed')
+  await user.click(within(dialog).getByRole('button', { name: 'Install local resource' })); await screen.findByText('Operation completed')
   expect(hubNative.mutate).toHaveBeenCalledTimes(3)
-  expect(hubNative.mutate).toHaveBeenLastCalledWith('install_local', { ...request(), mode: 'copy', alias: 'retained-alias' }, expect.any(AbortSignal))
+  expect(hubNative.mutate).toHaveBeenLastCalledWith('install_local', { ...request(), alias: 'retained-alias' }, expect.any(AbortSignal))
 })
 
 it('local install consumer retains the original source and target after a deferred PROJECT/binding transition', async () => {
@@ -127,9 +122,7 @@ it('local install consumer inspects the captured destination after413 without re
 
 it('local install consumer never sends a GlobalCache target and preserves shared modal keyboard/focus', async () => {
   const user = userEvent.setup(); render(<ProjectArtifactsPage />); const dialog = await open(user)
-  const select = within(dialog).getByRole('combobox', { name: 'Installation mode' })
-  select.focus(); await user.keyboard('{Enter}{ArrowDown}{End}{Enter}')
-  expect(select).toHaveTextContent('Copy')
+  within(dialog).getByRole('textbox', { name: 'Local alias (optional)' }).focus()
   await user.keyboard('{Escape}')
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Install local resource' })).toHaveFocus()

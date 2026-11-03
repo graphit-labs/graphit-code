@@ -143,7 +143,7 @@ macOS/Windows and remote CI were not qualified by that library gate. Those
 historical results do not qualify the current product or a private deployment.
 The build inputs above describe the maintained App consumer. Bucket, region and
 endpoint are never client branding. See
-[Rust Migration](../development/rust-migration.md).
+[product architecture](../development/product-architecture.md).
 
 ### Rust configuration names and captured inputs
 
@@ -171,7 +171,7 @@ The current Linux config gate passed 109 entries and Windows GNU locked
 all-targets compilation passed; macOS/Windows runtime and remote CI remain
 unexecuted. See [Config Module](../specs/config_module.md#rust-configuration-contract)
 for scope/secret/type rules and
-[Rust Migration](../development/rust-migration.md)
+[product architecture](../development/product-architecture.md)
 for measured costs and remaining consumers.
 
 ## Setting up private collaboration ecosystems

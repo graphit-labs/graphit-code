@@ -160,7 +160,7 @@ CARGO_INCREMENTAL=0 cargo clippy --locked -p graphit-auth --all-targets -- -D wa
 The coordinator runs the exact configured fast gate after shared files are
 stable. Executed results/hashes belong in new delta evidence; Linux library
 fixtures do not prove full OAuth lifecycle, runtime authorization, three OS
-qualification or a Go/Rust performance comparison.
+qualification.
 
 Shared engine references: [jsonwebtoken Validation](https://docs.rs/jsonwebtoken/latest/jsonwebtoken/struct.Validation.html)
 and [subtle ConstantTimeEq](https://docs.rs/subtle/latest/subtle/trait.ConstantTimeEq.html).

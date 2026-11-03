@@ -312,7 +312,7 @@ scoped formatting/whitespace and their distinct runtime/build costs.
 This qualifies publication to a known producer's artifact catalog. The fixture's
 configured producer identity and grants do not prove a `project.json` metadata
 writer or project discovery catalog. Those remain separate deliveries, as do
-other platforms and migration-wide integration.
+other platforms and end-to-end integration.
 
 Subsequent shared project-metadata publication hooks have their own delivery and
 qualification. They are not covered by this earlier FILE snapshot receipt; their
@@ -375,7 +375,7 @@ App and Source strict checks pass (36j, 34.41s); affected Broker strict passes
 (36k, 6.49s). Broader application/CLI
 journeys (tsk-0257), shared MCP/HTTP adapters (tsk-d75f), and React/browser journeys
 (tsk-b788) remain separate open deliveries. The three functional passes do not
-close those scopes or the whole migration; no CPU/NN replay or vendor account
+close those scopes or the complete product integration; no CPU/NN replay or vendor account
 was required.
 
 ### Available manifest search

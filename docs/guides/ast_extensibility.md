@@ -841,8 +841,7 @@ levels:
    cargo xtask test graphit-ast/source_ranges graphit-ast/postgresql_semantic
    ```
 
-   Choose targets by the behavior changed rather than porting the retired Go
-   package tests one for one. See [Rust checks and Git hooks](../development/rust-fast-guard.md)
+   Choose targets that exercise the changed behavior. See [Rust checks and Git hooks](../development/rust-fast-guard.md)
    for the registered selectors and native fixture prerequisites.
 
 Useful invariants for tests include:

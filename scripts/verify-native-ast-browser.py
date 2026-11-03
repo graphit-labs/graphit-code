@@ -19,6 +19,10 @@ READS = {"/api/ast/" + name for name in (
 )}
 
 
+def project_locator(selection):
+    return {key: selection[key] for key in ("project_id", "project_version")}
+
+
 def compact(value):
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
 
@@ -81,7 +85,7 @@ def run(args):
         receipt["screenshots"].append(filename)
 
     def project_url(selection):
-        return origin + "/ast/explorer/project?" + urlencode({"selection": compact(selection)})
+        return origin + "/ast/explorer/project?" + urlencode({"selection": compact(project_locator(selection))})
 
     def mode_search(page, mode, term, imported=False):
         page.get_by_role("tab", name="Find & inspect", exact=True).click()
@@ -226,7 +230,7 @@ def run(args):
             "project_dir": other["project_dir"], "project_version": other["project_version"]}
         page.reload()
         expect(page.get_by_role("heading", name="Code investigation", exact=True)).to_be_visible()
-        assert json.loads(parse_qs(urlsplit(page.url).query)["selection"][0]) == other
+        assert json.loads(parse_qs(urlsplit(page.url).query)["selection"][0]) == project_locator(other)
         passed()
 
         step("readonly_installed_catalogue_exact_uri")

@@ -1,6 +1,6 @@
 ---
 type: architecture
-title: Knowledge e Wiki na migração Rust
+title: Knowledge e Wiki
 description: Contratos documentais ativos, produtores Rust e fronteiras de integração.
 references:
   - target: {type: task, id: tsk-ab72}
@@ -47,7 +47,7 @@ references:
     relation: refined_by
 ---
 
-# Knowledge e Wiki na migração Rust
+# Knowledge e Wiki
 
 Referência para implementadores de Knowledge/Wiki e seus consumidores. A entrega
 `tsk-69f2`, na sessão `ses-c98a`, mantém dependências Data e AI pendentes. Este

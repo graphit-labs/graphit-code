@@ -169,4 +169,4 @@ The codec performs no filesystem I/O, lock acquisition, ownership adoption,
 whole-file journal, conditional file replacement or native-client protocol.
 Shared writers still need their own cooperative concurrency, staging,
 reconciliation, permission and recovery contracts. No benchmark gain, product
-integration or Go retirement follows from this pure library delivery.
+integration follows from this library validation.

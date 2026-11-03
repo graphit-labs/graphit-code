@@ -19,8 +19,7 @@ references:
 
 `graphit_core::project_inventory` records locally maintained projects and versions.
 The installation file is `project-inventory.json`; its stable coordination file is
-`.project-inventory.lock`. This is a new Rust format. No Go lockfile, old layout,
-import, converter or compatibility alias is read.
+`.project-inventory.lock`.
 
 The document also records its captured brand; reading it through another brand
 bound to the same installation path fails.
@@ -32,6 +31,8 @@ preserve the ID. A rename does not rekey it or rebuild inventory/stores.
 Ephemeral projects cannot be registered. Checkouts use captured canonical paths
 and the `NativePath` JSON string representation. Non-Unicode native paths are
 rejected; selectors retain exact Unicode spelling and grant no authority.
+A checkout path is a private observation for this installation. Shared links
+and references identify the project and its version independently of that path.
 
 Each checkout records both its physical Git state and its selected version.
 `GitCheckout` is produced by the existing system-git inspection; the registry

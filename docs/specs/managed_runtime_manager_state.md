@@ -40,10 +40,6 @@ references:
     relation: relates_to
   - target: {type: task, id: tsk-b96c}
     relation: relates_to
-  - target: {type: knowledge, id: Consulta_documental_e_LiveSearch_na_migração_Rust}
-    relation: derived_from
-  - target: {type: knowledge, id: Native_host_bindings_during_the_Rust_rewrite}
-    relation: derived_from
   - target: {type: memory, id: 01M4GMYQ6H5SEFTA86F5B5D7DT}
     relation: supports
 ---
@@ -71,9 +67,7 @@ replay or subscription contract. Native hook correlation and drain in
 `tsk-be6e` revision 11 are a separate seam from this Live manager. Runtime's
 [current exports](../../crates/graphit-runtime/src/lib.rs) contain only output
 and roles; no existing independently consumed pure manager kernel was found.
-The retired Go Live session informed intent during refinement. The requirements
-below retain that intent without depending on a Go implementation; the required
-Rust Auth/Data/fence APIs still need their own qualification.
+The Auth, Data and fencing APIs each have their own qualification scope.
 
 ## MM-R1: identities, operations and authority
 
@@ -299,5 +293,4 @@ qualified APIs and fixtures, then independent readiness before editing source.
 An existing independently consumed pure kernel was not found; an unused state
 enum or transition table would not constitute delivery. This future contract
 does not change frozen role/output source, shared documents, personal profiles,
-credentials, trust, manifests or lockfiles, and supplies no compatibility or Go
-fallback.
+credentials, trust, manifests or lockfiles.

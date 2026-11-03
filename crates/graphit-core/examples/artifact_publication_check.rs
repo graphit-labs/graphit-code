@@ -192,7 +192,7 @@ fn main() -> Result<()> {
             "source_nodes": if kind == NodeKind::File { 1 } else { 21 },
 
             "manifest_bytes": manifest.len(), "expected": format!("{expected:?}"),
-            "scope": "existing writer; setup excluded from timings, included in process RSS/CPU; no Go baseline or product SLO"
+            "scope": "existing writer; setup excluded from timings, included in process RSS/CPU"
         })
     );
     Ok(())

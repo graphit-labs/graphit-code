@@ -4,7 +4,7 @@ import { stringifyNativeJson } from '@/api/nativeJson'
 
 /** Explicitly serialize pinned pages for a download without retaining audit snapshots. */
 export async function sessionAuditExport(detail: SessionDetail, selection: TaskContext, signal: AbortSignal): Promise<BlobPart[]> {
- const current = { session: detail.session, creation: detail.creation, last_event: detail.last_event, generation: detail.generation, history_start_cursor: detail.history_start_cursor }
+ const current = { session: detail.session, creation: detail.creation, last_event: detail.last_event, generation: detail.generation }
  const parts: BlobPart[] = [stringifyNativeJson(current).slice(0, -1), ',"history":']
  let cursor: string | null = detail.history_start_cursor
  let first = true

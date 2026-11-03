@@ -193,5 +193,5 @@ cargo test --offline --locked -p graphit-knowledge --lib document_communities -j
 cargo clippy --offline --locked -p graphit-knowledge --lib --test document_communities --test references -j4 --no-deps -- -D warnings
 ```
 
-Kernel, integração App, plataformas e migração global têm provas distintas.
-Esta página não declara a entrega App ou a migração global concluída.
+Kernel, integração App, plataformas e validação ponta a ponta têm provas distintas.
+Esta página não declara a entrega App ou a validação ponta a ponta concluída.

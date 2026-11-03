@@ -24,7 +24,7 @@ documental. A API foi ativada no módulo compilado pelo principal e qualificada
 em Linux: 12 testes passaram, sem falhas, ignorados ou filtrados, e Clippy
 estrito passou. O guard de integração também foi qualificado individualmente
 em Linux, com falha sentinela bloqueada pelo hook Git e restauração positiva.
-Esta unidade `tsk-2ccd` não declara migração global, integração de busca ou
+Esta unidade `tsk-2ccd` não declara validação ponta a ponta, integração de busca ou
 autoridade física entregues.
 
 ## Jornada e prioridade do resumo

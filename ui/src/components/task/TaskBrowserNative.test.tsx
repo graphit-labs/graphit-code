@@ -101,13 +101,15 @@ it.skipIf(!fixture.origin || !fixture.cookie || !fixture.project)('reads live Ru
   reader.onerror = () => reject(reader.error)
   reader.readAsText(downloaded!)
  })
- const exported = JSON.parse(json) as { selection: TaskContext; tasks: TaskDetail[] }
- expect(exported.selection).toEqual(actualContexts!.current)
+ const exported = JSON.parse(json) as { selection: Pick<TaskContext, 'project_id' | 'project_version'>; tasks: Omit<TaskDetail, 'history_start_cursor' | 'comments_start_cursor'>[] }
+ expect(exported.selection).toEqual({ project_id: actualContexts!.current!.project_id, project_version: actualContexts!.current!.project_version })
  expect(exported.tasks).toHaveLength(2)
  for (const record of exported.tasks) {
   const current = actualDetails.get(record.task.specification.id)!
   expect(record.task).toEqual(current.task)
   expect(record.generation).toEqual(current.generation)
+  expect(record).not.toHaveProperty('history_start_cursor')
+  expect(record).not.toHaveProperty('comments_start_cursor')
   expect(record.creation).toEqual(current.creation)
   expect(record.history?.next_cursor).toBeNull()
   expect(record.comments?.next_cursor).toBeNull()

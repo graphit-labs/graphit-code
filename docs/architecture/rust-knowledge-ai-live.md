@@ -1,5 +1,5 @@
 ---
-title: Consulta documental e LiveSearch na migração Rust
+title: Consulta documental e LiveSearch
 doc_type: architecture
 references:
   - target: {type: task, id: tsk-2436}
@@ -36,7 +36,7 @@ references:
     relation: supports
 ---
 
-# Consulta documental e LiveSearch na migração Rust
+# Consulta documental e LiveSearch
 
 Esta página orienta os donos de Knowledge, AI e Runtime em `graphit-code`.
 O responder documental e a sessão Live têm composições Rust específicas no App.

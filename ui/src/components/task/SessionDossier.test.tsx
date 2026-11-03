@@ -31,7 +31,9 @@ it('does not load audit on mount and downloads complete native JSON only on expl
  await user.click(screen.getByRole('button', { name: 'Export complete JSON' }))
  expect(filename).toBe('session1.json')
  const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as unknown as { parts: BlobPart[] }
- expect(parseNativeJson(blob.parts.join(''))).toEqual({ ...sessionDetail, history: sessionHistoryPage })
+ const { history_start_cursor, ...current } = sessionDetail
+ expect(blob.parts.join('')).not.toContain(history_start_cursor)
+ expect(parseNativeJson(blob.parts.join(''))).toEqual({ ...current, history: sessionHistoryPage })
  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:session')
  expect(sessionApi.get).toHaveBeenCalledWith(context, 'session1', { signal: expect.any(AbortSignal), history: { page_size: 20, cursor: sessionDetail.history_start_cursor } })
 })

@@ -54,7 +54,7 @@ JSON null literal é rejeitado pelo Core ao construir o documento, antes da poli
 
 O lockfile da raiz é diferente de `<brand-directory>/.project.json.lock`.
 A recipe Rust deriva o nome da marca capturada; não pressupõe um getter Core
-de rootlock nem chama implementação Go.
+de rootlock.
 
 ## Paths e nomes literais
 

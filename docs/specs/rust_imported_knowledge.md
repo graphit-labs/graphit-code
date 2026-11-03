@@ -241,4 +241,4 @@ cargo clippy --offline --locked -p graphit-knowledge --lib --test imported_knowl
 O `receipt` `.build/rust-imported-knowledge/validation.json` registra
 resultados reais e limites. As suítes Data afetadas são verificadas por propósito.
 Esta folha não qualifica query FullReferences, FullNoLoss, Browser/IAB, wire App,
-todas as plataformas ou migração global.
+todas as plataformas ou validação ponta a ponta.

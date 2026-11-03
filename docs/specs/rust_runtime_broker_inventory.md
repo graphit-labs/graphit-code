@@ -43,7 +43,7 @@ The `tsk-e6e4` Code SDK → signed-token HTTP/PostgreSQL TLS journey passed
 independently with the public `tsk-84fd` fixture (`native-tcp-01.log`, one test,
 25.08 seconds). The affected App/lint/documentation qualification remains in
 progress; the fixture producer's pass is not the consumer's evidence. Temporary SDK fixtures do not qualify
-installed hosts, Windows/macOS or the migration as a whole. Agent integration targets Kiro V3, OpenCode 2 and AGY through their documented
+installed hosts, Windows/macOS or the overall integration. Agent integration targets Kiro V3, OpenCode 2 and AGY through their documented
 contracts; its tests do not require vendor binaries, accounts or active plans.
 
 ## Captured ownership and historical facts
@@ -186,7 +186,7 @@ denial still blocks output and preserves MayHaveApplied.
 A lost or invalid response does not prove rollback, authorize replay, or establish
 SQL COMMIT uncertainty. The caller may start a new ownGET under actual current
 authority to observe persisted inventory before choosing a consequential attempt.
-No mode retries, changes credentials, refreshes tokens, or falls back to Go.
+No mode retries, changes credentials or refreshes tokens.
 
 ## Foreground composition
 

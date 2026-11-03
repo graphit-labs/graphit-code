@@ -41,7 +41,7 @@ FILE/P1/H/ReferenceGraph reais e o teste unitário do acumulador de overflow.
 Esse acumulador e seu teste foram removidos junto com o ledger; o recibo
 histórico permanece intacto.
 Os dois doctests delimitados passaram: composição do exemplo e rejeição de fields que sobrevivam a views locais. Clippy estrito e rustfmt dos dois arquivos Rust passaram. Isso não qualifica
-publicação M1b, outras plataformas ou a migração global de Knowledge/Wiki.
+publicação M1b, outras plataformas ou a validação ponta a ponta de Knowledge/Wiki.
 
 ## Integrar um plano documental
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { nativeKnowledgeApi, type NativeKnowledgeHeads, type NativeKnowledgePage, type KnowledgeEnvelope } from '@/api/nativeKnowledge'
-import { importedKnowledgeHref, importedKnowledgeRoute, importedSourceKey, nativeSelectionKey, projectRecordHref, requestedImportedKnowledgeSource, requestedRecordSelection } from '@/api/nativeRecordNavigation'
+import { importedKnowledgeHref, importedKnowledgeRoute, importedSourceKey, nativeSelectionKey, projectRecordHref, requestedImportedKnowledgeSource, requestedRecordSelection, sameProjectVersion } from '@/api/nativeRecordNavigation'
 import type { TaskContext } from '@/api/task'
 import { knowledgeReferenceBinding } from '@/api/nativeRecordReferences'
 import { referenceDestinationError } from '@/api/nativeReferenceNavigation'
@@ -28,7 +28,10 @@ export default function WikiExplorerPage() {
     return <ImportedKnowledge key={importedSourceKey(source)} source={source} slug={requestedPages[0] ?? null} />;
   }
   let selection: TaskContext | null;
-  try { selection = requestedRecordSelection(location.search) ?? observedSelection; }
+  try {
+    const requested = requestedRecordSelection(location.search);
+    selection = !requested || sameProjectVersion(observedSelection, requested) ? observedSelection : null;
+  }
   catch (cause) { return <WorkNotice title="Invalid Knowledge selection" tone="error">{cause instanceof Error ? cause.message : String(cause)}</WorkNotice>; }
   if (selection) return <NativeProjectKnowledge key={nativeSelectionKey(selection)} selection={selection} slug={requestedPages[0] ?? null} />;
   return <WorkPage><WorkHeader title="Knowledge library" description="Read maintained guidance in a project or installed artifact." actions={<a className="work-button" href={importedKnowledgeHref(null)}>Imported Knowledge</a>} /><WorkEmpty title="Select a working context">Choose a project and version with Knowledge access.</WorkEmpty></WorkPage>;

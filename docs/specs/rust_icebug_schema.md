@@ -16,7 +16,7 @@ The current local native package contract is SourceRef.directory() as payload ro
 
 This SDK metadata producer does not qualify HTTP/UI/query/search or remote mounts. The local imported_graph/graph_server consumer tsk-868f must reuse exact installed Ast/id/version selection, current ReadAst and the same Original. Full Cypher/query-editor functionality remains a separate required mature-engine integration tsk-30db; remote installed mounts remain tsk-5651 with actual STS/admission.
 
-Current Main qualification: four affected native fixtures PASS, two compile-fail borrow/privacy doctests PASS, strict Data --no-deps lib/tests PASS0. Receipts are in .build/rust-local-icebug-schema-9706/qualification.json. No Go comparison, resource ledger, baseline benchmark or OS campaign is required.
+Current Main qualification: four affected native fixtures PASS, two compile-fail borrow/privacy doctests PASS, strict Data --no-deps lib/tests PASS0. Receipts are in .build/rust-local-icebug-schema-9706/qualification.json.
 
 ## Live PROJECT schema
 

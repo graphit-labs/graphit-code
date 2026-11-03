@@ -13,11 +13,13 @@ vi.mock('@/api/nativeAst',async original=>({...await original<typeof import('@/a
 afterEach(cleanup)
 beforeEach(()=>{vi.resetAllMocks();stopTaskWorkspace();vi.mocked(nativeAstApi.imports).mockResolvedValue({imports:[installed]});})
 function URI(){const location=useLocation();return <output aria-label='Current URI'>{location.pathname+location.search}</output>}
-it('renders own AST PROJECT selections and preserves the literal physical tuple',async()=>{
- useTaskWorkspace.setState({module:'ast',contexts:[selection],selection,phase:'ready'});
+it('opens the selected AST working copy using a portable PROJECT link',async()=>{
+ const mirror = { ...selection, project_dir: '/mirror/ação' };
+ useTaskWorkspace.setState({module:'ast',contexts:[selection,mirror],selection,phase:'ready'});
  render(<MemoryRouter initialEntries={['/ast/contexts']}><ContextsPage/><URI/></MemoryRouter>);const user=userEvent.setup();
- await user.click(await screen.findByRole('button',{name:/observed-project · literal\/version/}));await user.click(screen.getByRole('button',{name:'Investigate this context'}));
- const url=new URL(screen.getByLabelText('Current URI').textContent!,window.location.origin);expect(url.pathname).toBe('/ast/explorer/project');expect(requestedRecordSelection(url.search)).toEqual(selection);
+ await user.click((await screen.findAllByRole('button',{name:/observed-project · literal\/version/}))[1]);await user.click(screen.getByRole('button',{name:'Investigate this context'}));
+ const url=new URL(screen.getByLabelText('Current URI').textContent!,window.location.origin);expect(url.pathname).toBe('/ast/explorer/project');expect(requestedRecordSelection(url.search)).toEqual({project_id:selection.project_id,project_version:selection.project_version});
+ expect(useTaskWorkspace.getState().selection).toEqual(mirror);
 });
 it('opens an observed installed source without PROJECT binding or a fabricated count',async()=>{
  useTaskWorkspace.setState({module:'ast',contexts:[selection],selection,phase:'ready'});

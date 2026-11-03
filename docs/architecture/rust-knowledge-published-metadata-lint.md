@@ -158,7 +158,7 @@ O bridge de publicação possui cfg Linux; Windows/macOS seguem UNRUN. Não
 foi forçada uma falha de allocator nem executado routing App; o relatório
 conserva TryReserveError quando a reserva real falha. O gate amplo e seu runner
 pertencem ao principal, sem repetição por folha. Não houve dependência ou
-lockfile novo. Esta qualificação não conclui a migração global.
+lockfile novo. Esta qualificação não conclui a validação ponta a ponta.
 
 Veja [publicação nativa](rust-knowledge-native-publication.md) e
 [fronteiras Knowledge/Wiki](rust-knowledge-wiki.md).

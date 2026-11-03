@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
-import { requestedRecordSelection } from '@/api/nativeRecordNavigation'
-import { stringifyNativeJson } from '@/api/nativeJson'
+import { encodeProjectLocator, requestedRecordSelection } from '@/api/nativeRecordNavigation'
 import { nativeBindings } from '@/api/hubNative'
 import { useAppStore } from '@/store/appStore'
 import { bindingLabel } from '@/components/hub/hubContext'
@@ -11,7 +10,7 @@ import { ContextSelect } from '@/components/layout/ContextSelect'
 import { useWorkspaceRefresh } from '@/components/layout/WorkspaceRefresh'
 import { WorkEmpty, WorkNotice } from '@/components/shared/EngineeringUI'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { stopTaskWorkspace, taskContextKey, taskProjectKey, useTaskWorkspace } from './taskWorkspaceState'
+import { resolveProjectLocator, stopTaskWorkspace, taskContextKey, taskProjectKey, useTaskWorkspace } from './taskWorkspaceState'
 
 export function TaskWorkspaceBootstrap({ children, module = 'task' }: { children: React.ReactNode; module?: ProjectReadModule }) {
  const { search } = useLocation()
@@ -45,14 +44,10 @@ export function TaskWorkspaceBootstrap({ children, module = 'task' }: { children
      void state.refresh(requested.context, module).catch(() => {})
     }
    } else if (state.phase === 'ready' && requested.context) {
-    const key = taskContextKey(requested.context)
-    if (state.contexts.some(context => taskContextKey(context) === key)) {
-     handledSelection.current = requested
-     state.select(key)
-    } else {
-     handledSelection.current = requested
-     void state.refresh(requested.context, module).catch(() => {})
-    }
+    handledSelection.current = requested
+    const match = resolveProjectLocator(requested.context, state.contexts, state.selection)
+    if (match) state.select(taskContextKey(match))
+    else void state.refresh(requested.context, module).catch(() => {})
    }
   } catch (cause) {
    stopTaskWorkspace(module, identity)
@@ -60,7 +55,7 @@ export function TaskWorkspaceBootstrap({ children, module = 'task' }: { children
   }
  }, [requested, module, boundary, identity, workspace.phase])
  const pendingSelection = workspace.phase === 'ready' && requested.context &&
-  !workspace.contexts.some(context => taskContextKey(context) === taskContextKey(requested.context))
+  !resolveProjectLocator(requested.context, workspace.contexts, workspace.selection)
  if (workspace.module !== module || workspace.phase === 'loading' || readyBoundary !== boundary || pendingSelection) return <LoadingSpinner label="Loading working contexts…" />
  if (workspace.phase !== 'ready') return <TaskWorkspaceNotice module={module} />
  return children
@@ -79,7 +74,7 @@ export function TaskWorkspaceSelectors({ module = 'task' }: { module?: ProjectRe
   if (!next) return
   select(key)
   const parameters = new URLSearchParams(location.search)
-  parameters.set('selection', stringifyNativeJson(next))
+  parameters.set('selection', encodeProjectLocator(next))
   navigate(location.pathname + '?' + parameters, { replace: true })
  }
  const refresh = useWorkspaceRefresh()

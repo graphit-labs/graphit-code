@@ -86,7 +86,7 @@ __pycache__/
 /.claude/settings.local.json
 
 # Native host publication state.
-/.codex/.graphit-shared-documents/
+**/.graphit-shared-documents/
 /.codex/agents/graphit-coordinator.toml
 /.codex/config.toml
 /.codex/hooks.json

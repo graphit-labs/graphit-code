@@ -4,6 +4,7 @@ import { getAppMode, getApiBase } from '@/lib/utils'
 import { hubApi, type GlobalProject, type HubProject } from '@/api/hub'
 
 export type ProjectOrigin = 'workspace' | 'hub'
+const projectPreferenceKey = (origin: ProjectOrigin, id: string) => `${origin}:${id}`
 export type WebIdentity = { state: 'loading' | 'anonymous' | 'unavailable' } | { state: 'authenticated'; provider: string; subject: string }
 
 export interface ProjectTarget {
@@ -86,7 +87,7 @@ interface AppState {
   activeProjectDir: string
   /** The selected version of the active project; "" is the checkout's version (Hub: the default). */
   activeProjectVersion: string
-  /** The version selected for each project target, by target key. */
+  /** Preferred version by origin and logical project identity. */
   projectVersions: Record<string, string>
   projectName: string
   projectsLoaded: boolean
@@ -159,11 +160,15 @@ export const useAppStore = create<AppState>()(
 
         let selected = targets.find((target) => target.key === state.activeProjectKey)
         if (!selected && state.activeProjectDir) selected = targets.find((target) => target.origin === 'workspace' && target.dir === state.activeProjectDir)
-        if (!selected && local?.current_project_dir) selected = targets.find((target) => target.origin === 'workspace' && target.dir === local.current_project_dir)
-        if (!selected && state.activeProjectKey.startsWith('hub:') && state.activeProjectId) {
-          selected = { key: state.activeProjectKey, origin: 'hub', id: state.activeProjectId, name: state.projectName || state.activeProjectId, availability: 'stale' }
+        if (!selected && state.activeProjectId && state.activeProjectOrigin) {
+          const matches = targets.filter(target => target.id === state.activeProjectId && target.origin === state.activeProjectOrigin)
+          selected = matches.find(target => target.dir === local?.current_project_dir) ?? (matches.length === 1 ? matches[0] : undefined)
+        }
+        if (!selected && state.activeProjectOrigin === 'hub' && state.activeProjectId && hubError) {
+          selected = { key: projectPreferenceKey('hub', state.activeProjectId), origin: 'hub', id: state.activeProjectId, name: state.projectName || state.activeProjectId, availability: 'stale' }
           targets.push(selected)
         }
+        if (!selected && local?.current_project_dir) selected = targets.find((target) => target.origin === 'workspace' && target.dir === local.current_project_dir)
 
         let agent = state.activeAgent
         if (!agent) agent = local?.current_agent || 'claude'
@@ -172,7 +177,7 @@ export const useAppStore = create<AppState>()(
           activeProjectKey: selected?.key ?? '', activeProjectOrigin: selected?.origin ?? '',
           activeProjectDir: selected?.origin === 'workspace' ? selected.dir ?? '' : '',
           activeProjectId: selected?.id ?? '', projectName: selected?.name ?? '', activeAgent: agent,
-          activeProjectVersion: selected ? state.projectVersions[selected.key] ?? '' : '',
+          activeProjectVersion: selected ? state.projectVersions[projectPreferenceKey(selected.origin, selected.id)] ?? '' : '',
           supportedAgents: local?.supported_agents ?? state.supportedAgents, projectsLoaded: true,
           workspaceProjectsError: workspaceError, hubProjectsError: hubError,
           projectsError: workspaceError && hubError ? 'Workspace and Hub project sources are unavailable.' : '',
@@ -186,17 +191,18 @@ export const useAppStore = create<AppState>()(
           activeProjectKey: target.key, activeProjectOrigin: target.origin,
           activeProjectDir: target.origin === 'workspace' ? target.dir ?? '' : '',
           activeProjectId: target.id, projectName: target.name, activeContextId: null,
-          activeProjectVersion: get().projectVersions[target.key] ?? '',
+          activeProjectVersion: get().projectVersions[projectPreferenceKey(target.origin, target.id)] ?? '',
         })
       },
 
       setProjectVersion: (version: string) => {
-        const key = get().activeProjectKey
         set((state) => {
+          if (!state.activeProjectOrigin || !state.activeProjectId) return { activeProjectVersion: version }
+          const key = projectPreferenceKey(state.activeProjectOrigin, state.activeProjectId)
           const projectVersions = { ...state.projectVersions }
           if (version) projectVersions[key] = version
           else delete projectVersions[key]
-          return { activeProjectVersion: version, projectVersions: key ? projectVersions : state.projectVersions }
+          return { activeProjectVersion: version, projectVersions }
         })
       },
 
@@ -215,12 +221,11 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'graphit-app-state',
+      version: 1,
       partialize: (s) => ({
         typeFilter: s.typeFilter, projectFilter: s.projectFilter, activeAgent: s.activeAgent,
-        activeContextId: s.activeContextId, activeProjectKey: s.activeProjectKey,
-        activeProjectOrigin: s.activeProjectOrigin, activeProjectDir: s.activeProjectDir,
-        activeProjectId: s.activeProjectId, projectName: s.projectName,
-        activeProjectVersion: s.activeProjectVersion, projectVersions: s.projectVersions,
+        activeContextId: s.activeContextId, activeProjectOrigin: s.activeProjectOrigin,
+        activeProjectId: s.activeProjectId, projectVersions: s.projectVersions,
       }),
     },
   ),

@@ -53,7 +53,9 @@ describe('Global working context', () => {
     await user.click(screen.getByRole('link', { name: 'Return to operations' }))
     expect(screen.getAllByRole('combobox', { name: 'Project' })).toHaveLength(1)
     const persisted = JSON.parse(localStorage.getItem('graphit-app-state')!).state
-    expect(persisted.activeProjectDir).toBe('/service')
+    expect(persisted.activeProjectId).toBe('p2')
+    expect(persisted).not.toHaveProperty('activeProjectDir')
+    expect(persisted).not.toHaveProperty('activeProjectKey')
     expect(persisted.activeAgent).toBe('claude-code')
   })
 

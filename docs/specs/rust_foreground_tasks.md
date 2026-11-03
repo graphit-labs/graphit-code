@@ -352,7 +352,7 @@ da correção Session; não declara uma nova execução HTTP, um binário Rust
 recompilado com esses assets ou um novo Browser. A mecânica de hospedagem
 já qualificada é reutilizada. O index db07 de 2.612.921 bytes/SHA9678 permanece
 antecedente histórico. A Task17a7 mantém a autoridade sobre seus 13 checks
-e lifecycle; esta qualificação por camadas não conclui a migração global,
+e lifecycle; esta qualificação por camadas não conclui a validação ponta a ponta,
 ses-c98a ou outras agrupadoras.
 
 Os novos testes focados estão em `src/foreground_tasks/tests.rs` e `tests/foreground_tasks.rs`. Exercitam config global/Environment, startup ausente/inválido, signed OAuth/PROJECT TCP, Records persistido e reaberto, Source sibling e CLI compilado com SIGINT/SIGTERM. Receipts e falhas ficam em `.build/rust-foreground-tasks/`. A folha 0a1a registrou 4 testes de configuração e 4 integrações reais, todos PASS, incluindo EOF/deadline, SIGINT/SIGTERM, corpo413, negações Origin/cookie/PROJECT e preservação de AuthDocument/chave/discovery durante serviço. A preparação Records usa admissão Write real, claims com fence sensível e corpus reaberto; resultados browser não expõem esse fence.
@@ -363,7 +363,7 @@ cargo xtask cargo test --offline --locked -p graphit-app --test foreground_tasks
 cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test foreground_tasks -j1 --no-deps -- -D warnings
 ```
 
-As regressões SDK focais de B2 (rotating refresh, EOF com Original finito e drain) e Source (cancelamento, sibling e interrupção/reentrada do waiter) passaram, uma por filtro. O clippy estrito de lib/integração também passou. O waiter interrompido foi exercitado no componente Source; isso não é prova de cancelamento arbitrário do host consumidor. Prova Linux não certifica Windows/macOS, frontend React, nove hosts ou migração global. Veja também [sessões browser](rust_browser_auth.md), [Task nativo](rust_task_mcp.md), [Gantt](rust_task_gantt.md) e [Foreground](rust_source_foreground.md).
+As regressões SDK focais de B2 (rotating refresh, EOF com Original finito e drain) e Source (cancelamento, sibling e interrupção/reentrada do waiter) passaram, uma por filtro. O clippy estrito de lib/integração também passou. O waiter interrompido foi exercitado no componente Source; isso não é prova de cancelamento arbitrário do host consumidor. Prova Linux não certifica Windows/macOS, frontend React, nove hosts ou validação ponta a ponta. Veja também [sessões browser](rust_browser_auth.md), [Task nativo](rust_task_mcp.md), [Gantt](rust_task_gantt.md) e [Foreground](rust_source_foreground.md).
 
 ## Leituras Memory PROJECT
 

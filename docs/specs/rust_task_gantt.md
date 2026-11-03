@@ -215,4 +215,4 @@ execution, a Rust binary recompiled with these assets or a new Browser run.
 The qualified hosting mechanism is reused. The previous db07 index of
 2,612,921 bytes/SHA9678 remains historical. Task17a7 maintains authority over
 its 13 checks and lifecycle; this layered qualification does not complete the
-global migration, ses-c98a or other grouping tasks.
+end-to-end validation, ses-c98a or other grouping tasks.

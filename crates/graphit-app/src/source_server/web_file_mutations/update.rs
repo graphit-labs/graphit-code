@@ -34,14 +34,15 @@ pub(super) async fn apply(
         ctx.state.policy.registry.clone()
     };
     let document = registry.load()?;
+    let slot = project_scope.map_or(
+        graphit_core::artifact_store::PublicationSlot::Scope,
+        CapturedPublicationScope::publication_slot,
+    );
     let candidates: Vec<_> = super::super::file_installation::update::remote_installations(
         &document,
         global,
         input.binding.unwrap_or(ctx.state.policy.binding),
-        project_scope.map_or(
-            graphit_core::artifact_store::PublicationSlot::Scope,
-            |scope| scope.publication_slot(),
-        ),
+        slot,
     )
     .filter(|(_, _, installed)| {
         installed.original_source.remote_file_origin().is_some()
@@ -64,7 +65,12 @@ pub(super) async fn apply(
             (ctx.current)()?;
             let observed = registry.load()?;
             if !observed
-                .get_version(kind, id, installed.original_source.version())
+                .get_version_for_consumer(
+                    &graphit_hub::registry::consumer_for_artifact(slot, kind),
+                    kind,
+                    id,
+                    installed.original_source.version(),
+                )
                 .is_some_and(|artifact| {
                     artifact
                         .installations

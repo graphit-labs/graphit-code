@@ -188,7 +188,7 @@ publicação nativa afetada passaram; Clippy com `-D warnings`, formatação foc
 e diff também passaram. A revisão estática não encontrou falha material.
 Cancelamento/deadline iniciais e word scan cancelado foram exercitados; não há
 prova de cancelamento in-flight determinístico em SDK síncrono. Não implica
-qualificação Windows/macOS, routing App ou conclusão da migração global.
+qualificação Windows/macOS, routing App ou conclusão da validação ponta a ponta.
 O gate amplo e os manifests/lockfiles permanecem sob coordenação principal.
 
 Comandos de regressão focal, a partir da raiz do projeto:

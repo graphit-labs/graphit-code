@@ -103,7 +103,7 @@ The [CI workflow](../../.github/workflows/ci.yml) keeps four independent jobs:
 
 - `rust-contracts`: Code and Broker are checked out as siblings; Linux, macOS and Windows run `cargo xtask gate` from Code. On Linux, the job first builds Broker's `broker-presence` example `hub_storage_fixture`, checks that its emitted executable exists and exports its absolute path as `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` through `GITHUB_ENV` for the existing gate.
 - `ui-build`: Node.js 22 installs the UI dependencies, runs `node scripts/build-rust-ui.mjs` and checks that the three shipped assets have no diff. `make ui-lint` and `make ui-test` run the maintained lint and test scripts.
-- `workflow-lint`: the official actionlint 1.7.12 Linux binary is verified against its pinned SHA-256 before extraction, then runs `actionlint -no-color .github/workflows/*.yml` without bootstrapping Go.
+- `workflow-lint`: the official actionlint 1.7.12 Linux binary is verified against its pinned SHA-256 before extraction, then runs `actionlint -no-color .github/workflows/*.yml`.
 - `native-packaging`: ShellCheck validates the maintained installer/packaging scripts and Node runs their existing package contracts.
 
 Tagged builds in the separate [release workflow](../../.github/workflows/release.yml)

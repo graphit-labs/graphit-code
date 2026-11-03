@@ -274,6 +274,6 @@ cargo clippy --offline --locked -p graphit-knowledge --lib --test native_referen
 ```
 
 Esta folha não qualifica consulta ROOT/USER/importada, OwnRead de destinos,
-FullNoLoss, Browser/IAB, wire App, plataformas não executadas ou migração global.
+FullNoLoss, Browser/IAB, wire App, plataformas não executadas ou validação ponta a ponta.
 
 O armazenamento preserva schema físico FULL18, leitura até EOF, witnesses, namespace/estado, CAS, causas reais e limites individuais de identificadores, sem contabilidade agregada do corpus.

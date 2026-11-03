@@ -15,7 +15,7 @@ prerequisites:
   - "docs/guides/getting_started.md"
 related:
   - "docs/guides/configuration.md"
-  - "docs/development/rust-migration.md"
+  - "docs/development/product-architecture.md"
 ---
 
 # CLI Reference
@@ -147,18 +147,13 @@ cancellation/deadline and joined connection cleanup. Native platform compilation
 and host execution remain separate qualifications; existing Linux receipts retain
 their recorded scope.
 
-`graphit hub install` and `graphit hub update` accept `--mode copy|link` for a
-physical PROJECT publication. Select the provider, producer, artifact, version and
-native binding through the existing FILE options. The selected origin must pass
-its current authorization and verified-cache checks.
-
-Omit mode on install to publish a Copy. Omit it on update to preserve the stored
-physical mode, including Link; an explicit mode changes the publication through
-the same owned Core/Hub transaction. Alias changes retain the selected mode.
-Rendered Agent/Skill/Command/Workflow outputs require Copy; eligible original sources may use Link.
-There is no retained rendered payload cache to use as a link target. Foreign files,
-pending ownership and cancellation retain their existing guards; Link failure is
-returned to the caller.
+`graphit hub install` and `graphit hub update` copy FILE artifacts into the
+authorized PROJECT checkout. Omit `--mode` or pass `--mode copy`. Select the
+provider, producer, artifact, version and native binding through the FILE
+options. The selected origin must pass authorization and verified-cache
+checks. Project copies can move with the checkout independently of the
+installation cache. Updates preserve omitted names and use the same owned
+Core/Hub transaction.
 
 `--global` selects GlobalCache and rejects any supplied mode, including `copy`,
 before cache or publication effects. This option belongs to CLI and MCP FILE
@@ -166,7 +161,7 @@ publication; the Web API retains its current request shape. See the
 [Hub caller contract](../specs/hub_consumer_contract.md#scope-and-selection) for
 selection and lifecycle details.
 
-`graphit hub install-local` selects an absolute canonical local source, explicit producer and literal artifact version, plus an authorized consumer PROJECT. It supports FILE artifacts (agent, skill, command, workflow, rule, MCP, language and power) through the existing renderer and writer. Repeat it after source edits to reapply; omitted alias/entry/mode preserve the current selection. Copy is the initial default. SourceRef LocalLink provenance is independent of physical `--mode link`; removal preserves the source. No provider/profile/global fields or vendor login are used. See [local Hub installation](../development/local-hub-installation.md) for the strict CLI/MCP contract and qualification status.
+`graphit hub install-local` selects an absolute canonical local source, explicit producer and literal artifact version, plus an authorized consumer PROJECT. It supports FILE artifacts (agent, skill, command, workflow, rule, MCP, language and power) through the existing renderer and writer. Repeat it after source edits to reapply; omitted alias and entry name preserve the current selection. The checkout receives a copy. SourceRef LocalLink records source provenance, and removal preserves the source. No provider/profile/global fields or vendor login are used. See [local Hub installation](../development/local-hub-installation.md) for the strict CLI/MCP contract and qualification status.
 
 ## Update installed Hub artifacts
 
@@ -443,15 +438,15 @@ stored profiles. `login`, `refresh` and `logout` use those configured providers.
 captured native SDK artifacts to an authorized Hub provider. Consult command help
 for explicit source, provider and scope selection.
 
-## Migration status
+## Command availability and release validation
 
 The compiled command catalogue above is the available public interface.
 `graphit self-update` uses the verified package preparer and installed updater;
 development builds return without changing files or starting a daemon. The
 [installed updater contract](../specs/rust_self_update.md) describes restart,
-recovery and the platforms actually verified. Remaining launcher and packaging
-obligations stay in the Rust migration work.
-See [Rust migration](../development/rust-migration.md) for outstanding obligations.
+recovery and platform coverage. See
+[native packaging](../development/native-runtime-packaging.md) for release layout
+and installation checks.
 
 `hooks remove --binding <binding>` removes owned hook tuples and MCP configuration. Kiro external profiles require --profile; use `coordinator remove --binding <binding>` for the complete product profile and its inline hooks. Kimi keeps global hooks/MCP until the selected project was the last reference, preserving foreign fields. These operations do not retire project data or grant/revoke authorization.
 

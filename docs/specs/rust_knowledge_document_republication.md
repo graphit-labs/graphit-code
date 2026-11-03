@@ -233,7 +233,7 @@ A integração C5 de perguntas documentais usa este adapter público para altera
 uma página não selecionada e observar nova geração; ou mudar whole source/
 recipe de uma página selecionada e obter novos digests/parâmetros. O binding
 da pergunta, child/model e comportamento HTTP pertencem ao consumidor da
-tsk-8fe2; estas fixtures não qualificam App, transporte ou migração global.
+tsk-8fe2; estas fixtures não qualificam App, transporte ou validação ponta a ponta.
 
 O armazenamento preserva schema físico FULL18, leitura até EOF, witnesses, namespace/estado, CAS, causas reais e limites individuais de identificadores, sem contabilidade agregada do corpus.
 

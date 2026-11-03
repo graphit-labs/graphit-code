@@ -58,7 +58,7 @@ proof is recorded below. Historical failures remain preserved.
 Earlier qualified manager, OAuth, JWT, profile rotation and physical-store
 results remain historical prerequisites; they do not prove this integration.
 CLI startup, initial login, browser/listener and incoming Broker integration
-remain separate migration work.
+remain separate integration work.
 
 ## Caller contract
 

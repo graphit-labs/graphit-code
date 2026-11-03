@@ -1,5 +1,5 @@
 import { useTaskWorkspace, taskContextKey } from '@/components/task/taskWorkspaceState'
-import { projectReadModule, requestedRecordSelection, importedAstHref } from '@/api/nativeRecordNavigation'
+import { encodeProjectLocator, projectReadModule, requestedRecordSelection, importedAstHref } from '@/api/nativeRecordNavigation'
 import { stringifyNativeJson } from '@/api/nativeJson'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'
 import { useMemo, useState } from 'react'
@@ -29,7 +29,11 @@ export default function ContextsPage() {
   const current = available.find(entry => entry.key === selected)
   usePageRefresh(installed.refresh)
   if (routeBinding.error) return <WorkNotice tone="error" title="Working context unavailable">{routeBinding.error}</WorkNotice>
-  const investigate = (entry: CatalogueEntry) => navigate(entry.kind === 'project' ? '/ast/explorer/project?' + new URLSearchParams({ selection: stringifyNativeJson(entry.project) }) : importedAstHref(entry.source))
+  const investigate = (entry: CatalogueEntry) => {
+    if (entry.kind === 'import') return navigate(importedAstHref(entry.source))
+    workspace.select(taskContextKey(entry.project))
+    navigate('/ast/explorer/project?' + new URLSearchParams({ selection: encodeProjectLocator(entry.project) }))
+  }
   return <WorkPage>
     <WorkHeader title="Indexed code contexts" description="Choose the source boundary for an investigation. Project and imported indexes remain distinct." />
     <div className="work-toolbar"><WorkSearch label="Find an AST context" value={query} onChange={setQuery} /><span className="text-xs text-muted-foreground">{available.length} available contexts</span></div>

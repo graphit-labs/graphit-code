@@ -9,8 +9,8 @@ updated: 2026-10-29
 # System Architecture Overview
 
 Graphit is a Rust application with a React/TypeScript Browser. It maintains code intelligence,
-project documentation, durable records and installed agent capabilities. This page describes the
-current product, not the former Go process tree. Start with [Getting started](../guides/getting_started.md)
+project documentation, durable records and installed agent capabilities.
+Start with [Getting started](../guides/getting_started.md)
 for installation and [the system contracts](system_contracts.md) for implementation boundaries.
 
 ## Topology
@@ -40,8 +40,7 @@ flowchart LR
 ## Runtime layers
 
 The release contains `graphit`, `graphit-model-server` and their runtime assets. `graphit` implements
-the CLI, daemon, MCP stdio proxy, tray and hook entrypoints. There is no separately distributed Go
-core or automatic extraction of `graphit-mcp`, `graphit-store`, `graphit-hook` or `graphit-tray`.
+the CLI, daemon, MCP stdio proxy, tray and hook entrypoints.
 The [complete release layout](../development/native-runtime-packaging.md) is the unit of installation;
 copying one executable does not preserve the native library closure or model support.
 

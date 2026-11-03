@@ -20,6 +20,7 @@ describe('appStore', () => {
     useAppStore.setState({
       projects: [], activeProjectDir: '', activeProjectId: '', projectName: '',
       projectTargets: [], projectCatalog: [], activeProjectKey: '', activeProjectOrigin: '',
+      projectVersions: {}, activeProjectVersion: '',
       projectsLoaded: false, projectsError: '', workspaceProjectsError: '', hubProjectsError: '', supportedAgents: [],
     })
     vi.mocked(hubApi.getProjectCatalog).mockResolvedValue({ workspace_projects: [], hub_projects: [] })
@@ -211,6 +212,27 @@ describe('appStore', () => {
     expect(state.activeProjectDir).toBe('/dir/three')
     expect(state.projectName).toBe('three')
     expect(state.activeProjectId).toBe('')
+  })
+
+  test('restores a project version after the checkout moves to another machine', async () => {
+    const id = 'project1'
+    const dir = '/old/work/project'
+    useAppStore.setState({ projects: [{ id, name: 'Project', dir }] })
+    useAppStore.getState().switchProject(dir)
+    useAppStore.getState().setProjectVersion('feature/ação')
+    const persisted = localStorage.getItem('graphit-app-state')!
+    expect(JSON.parse(persisted).state.projectVersions).toEqual({ 'workspace:project1': 'feature/ação' })
+    expect(persisted).not.toContain(dir)
+    useAppStore.setState({ activeProjectKey: '', activeProjectDir: '', activeProjectOrigin: '', activeProjectId: '', projectVersions: {} })
+    localStorage.setItem('graphit-app-state', persisted)
+    await useAppStore.persist.rehydrate()
+    const moved = String.raw`D:\\workspace\\project`
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: [{ id, name: 'Project', dir: moved }, { id, name: 'Project', dir: '/another/checkout' }],
+      current_project_dir: moved, current_agent: 'codex', supported_agents: ['codex'],
+    })
+    await useAppStore.getState().loadProjects()
+    expect(useAppStore.getState()).toMatchObject({ activeProjectId: id, activeProjectDir: moved, activeProjectVersion: 'feature/ação' })
   })
 
   test('keeps a Hub target selected without fabricating a workspace directory', async () => {

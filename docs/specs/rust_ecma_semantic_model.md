@@ -21,7 +21,7 @@ references:
 
 # JavaScript, TypeScript and TSX model
 
-Audience: AST maintainers and App consumers in graphit-code's Rust migration,
+Audience: AST maintainers and App consumers in Graphit,
 session ses-c98a. This is the executable contract for tsk-75af. The native
 backends and profile/context producers already exist; the family-specific
 semantic model now consumes those producers. Its executed qualification and
@@ -126,9 +126,8 @@ one, ambiguous, unresolved or observed-only. A resolved edge requires proven
 source closure, declaration target kind and scope; spelling alone is insufficient.
 Dynamic/computed/private receivers, external imports, cross-file targets,
 unsupported scope shapes and ambiguous type contexts remain evidence with an
-explicit unresolved/observed outcome. No Go resolver or inferred structural
-TypeScript type is applied. App's cross-file catalogue and SCIP integration remain
-required downstream migration work.
+explicit unresolved/observed outcome. The resolver requires evidence for structural TypeScript types. App composes the
+cross-file catalogue with SCIP.
 
 ## Consumers and failures
 
@@ -204,7 +203,7 @@ do not enter stock NN selection. Under the previous codec, a custom policy embed
 whole stream. The explicit representation protocol distinguishes Identifier and LiteralSource explicitly and keeps
 exact names/ranges, allowing mixed rows without a silent skip. The genuine
 ECMA mixed-name batch also passed SDK publication/query with all columns
-compared by UID/data_key. A Go codec proof alone is not family qualification.
+compared by UID/data_key. Family qualification requires parser and consumer tests.
 
 The active Pair query with a string_fragment key and configured value_label
 also requires a real literal declaration owner. The Go-scoped producer qualification in tsk-77c6 covered identifier owners.

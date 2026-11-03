@@ -223,8 +223,7 @@ A biblioteca apresenta somente os heads reais — slug, title e updated_at —,
 sem inventar WikiModule, contagens, tags ou source para esse resultado. O
 documento conserva os 16 campos canônicos, body literal, metadata, digests,
 recipe, staleness e a ordem/repetições de `resolved_wiki_targets`. O renderer
-genérico `MarkdownContent` recebe o body completo, sem preprocessing do body
-Go. Targets registrados navegam literalmente para páginas da mesma seleção;
+genérico `MarkdownContent` recebe o body completo, com o Markdown original. Targets registrados navegam literalmente para páginas da mesma seleção;
 isso não qualifica a projeção completa de referências.
 Copy Markdown copia o body literal completo. O controle Raw usa `aria-pressed`
 para observar o modo de apresentação, sem modificar o documento.
@@ -246,7 +245,7 @@ ou bigint, sem arredondamento nem conversão para string.
 O discovery PROJECT agora usa o módulo `knowledge` no store e
 `POST /api/knowledge/contexts` com `{input:{}}`, dispensando Task e o projeto
 global no App/header/Refresh. `current:null` é válido, sem primeira seleção
-automática ou fallback Go na raiz. A troca limpa/aborta o estado anterior e
+automática na raiz. A troca limpa/aborta o estado anterior e
 bloqueia respostas e negações tardias; Retry mantém a seleção explícita da URI.
 
 Knowledge importado usa SourceKeyImported completo: `{kind:"imported_knowledge",artifact:{id,version,context_alias?}}`. A URI conserva `library=imported`, `source` como JSON e `page` como slug literal. Seleção importada inválida ou conflitante com PROJECT é rejeitada antes de IO. Os POSTs /api/knowledge/imported/contexts, /heads e /page não enviam seleção PROJECT. importedHeads envia o input fechado `{input:{source}}` e compara SourceKeyImported completo no retorno. A biblioteca importada navega pelos heads reais e abre o slug literal, preservando datas Native, geração/u64, registry_absent, publicação vazia, loading, erro causal, Retry e AbortSignal.
@@ -321,11 +320,7 @@ As rodadas se sobrepõem e não se somam ao baseline histórico.
 
 WikiContextsPage é somente importado e reutiliza ImportedKnowledge.
 importedKnowledgeLocation unifica a decisão de catálogo/explorer no App,
-chrome e refresh sem PROJECT. ContextKnowledgeExplorer, preprocessContent,
-WikiTree sem callers e api/wiki.ts com GET Go/AISearchResponse foram removidos.
-As rotas antigas de App moduleId/wiki também foram retiradas; não há
-compatibilidade ou fallback Go. O packet R10 foi revisado antes desse Source,
-após duas respostas schedulerbusy e a terceira tentativa bem-sucedida.
+chrome e refresh sem PROJECT.
 
 O preview de imagem usa MarkdownImagePreview e estado local de MarkdownContent,
 com interação por teclado; handlers globais do lightbox foram retirados.
@@ -627,7 +622,7 @@ Runner futuro usa PublishedEmpty+slugAbsent, sem expectativa transitória
 NoCorpus, e coverage_by_layer declara NoCorpus não-Browser/heads unit.
 A qualificação é somente escopo db07 por camadas. Main ainda registra
 checks/unflag/completion. Não se concluem FullNoLoss/compositor/17a7/69f2/e738
-nem migração global; nenhum owner será repetido para fabricar prova.
+nem validação ponta a ponta; nenhum owner será repetido para fabricar prova.
 
 ## Implementação e qualificação
 
@@ -649,7 +644,7 @@ Os resultados e as falhas anteriores estão em
 conservam seus parsers, tuples e outputs e não tiveram suas suites repetidas.
 A unidade cobre o browser PROJECT e suas fronteiras afetadas; USER/imports,
 projeções de referências do produtor, UI React, outros sistemas operacionais e a
-migração global têm suas próprias entregas.
+validação ponta a ponta têm suas próprias entregas.
 
 ## Decoder fechado em uma passagem
 

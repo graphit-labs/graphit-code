@@ -91,11 +91,11 @@ pre-push:   cargo xtask gate
 ```
 
 `pre-commit` enforces native safety, staged whitespace, workflow lint and Rust formatting.
-`pre-push` runs strict Clippy and the locked Rust workspace tests. The maintained CI
-runs Rust contracts, React build/lint/tests and standalone workflow validation;
-obsolete Go quality jobs have been retired. Release packaging remains separate.
-See the [Rust migration guide](docs/development/rust-migration.md)
-for qualification evidence and remaining product work. The [Rust workspace
+`pre-push` runs strict workspace Clippy and the locked `xtask` tests. CI runs
+the Rust contracts, React checks and workflow validation. Release packaging
+runs in its own workflow.
+See the [product architecture guide](docs/development/product-architecture.md)
+for component boundaries and validation commands. The [Rust workspace
 guide](docs/development/rust-workspace.md) explains the sibling Broker checkout
 required by the shared Now wire crate.
 

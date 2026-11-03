@@ -138,7 +138,7 @@ failures and their bounded native SDK diagnostics remain under
 results. Windows/macOS remain UNRUN. Existing producers
 are reused, without replaying broad engine/catalog/ANTLR suites. The current
 stock catalog has 40 Tree-sitter and five ANTLR profiles; that inventory does not
-reduce the migration obligation of 41 Tree-sitter grammars and five ANTLR families.
+reduce the integration scope of 41 Tree-sitter grammars and five ANTLR families.
 This collector supplies observations for subsequent semantic work, without a
 claim of complete language indexing, inference, Auth or App/Main integration.
 

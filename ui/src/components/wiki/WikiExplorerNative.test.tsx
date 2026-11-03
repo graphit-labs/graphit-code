@@ -1,7 +1,7 @@
 import '@/test/contextControls'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, useNavigate } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nativeKnowledgeApi, type KnowledgeEnvelope, type NativeKnowledgeDocument, type NativeKnowledgePage } from '@/api/nativeKnowledge'
 import { projectRecordHref } from '@/api/nativeRecordNavigation'
@@ -15,12 +15,12 @@ const generation = { corpus_uri: 'fixture-corpus', version: 18446744073709551615
 const document: NativeKnowledgeDocument = { slug: 'literal /slug.md', title: 'Literal document', body: '---\nrecorded: true\n---\n\n# Original heading\n\n## Content\n\nNative **guidance**.', kind: 'guide', summary: 'Original summary', description: null, summary_truncated: false, source_path: 'docs/literal.md', physical_digest: null, compilation_digest: Array(32).fill(7), recipe: 'literal recipe', recipe_parameters: { fallback_title: 'fallback', kind_on_absent: 'guide', max_summary_bytes: 9007199254740993n }, updated_at: '-9223372036854775808', stale_since: null, stale_after: { seconds: 18446744073709551615n, nanoseconds: 999999999 }, resolved_wiki_targets: ['literal target.md', 'literal target.md'] }
 const found: NativeKnowledgePage = { state: 'published', generation, page: { state: 'found', document } }
 const mirror = { ...selection, project_dir: "/m" }
-function SwitchSelection() { const navigate = useNavigate(); return <button onClick={() => navigate(projectRecordHref('knowledge', document.slug, mirror))}>Switch physical selection</button> }
+function SwitchSelection() { return <button onClick={() => useTaskWorkspace.setState({ selection: mirror })}>Switch physical selection</button> }
 function page(path = projectRecordHref('knowledge', document.slug, selection)) { return render(<MemoryRouter initialEntries={[path]}><SwitchSelection /><WikiExplorerPage /></MemoryRouter>) }
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })))
-  useTaskWorkspace.setState({ selection: null, contexts: [], phase: 'ready', error: '' })
+  useTaskWorkspace.setState({ module: 'knowledge', selection, contexts: [selection, mirror], phase: 'ready', error: '' })
   vi.mocked(nativeKnowledgeApi.heads).mockResolvedValue({ selection, source: { kind: 'project_knowledge' }, focused_source: null, native: { state: 'published', generation, heads: [{ slug: document.slug, title: document.title, updated_at: document.updated_at }] } })
   vi.mocked(nativeKnowledgeApi.page).mockResolvedValue({ selection, source: { kind: 'project_knowledge' }, focused_source: null, native: found })
 })

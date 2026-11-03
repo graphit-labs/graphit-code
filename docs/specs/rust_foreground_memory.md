@@ -100,7 +100,7 @@ versão literais; a navegação USER não fabrica uma seleção PROJECT.
 A página mostra `Memory.attributes`, body, tags, metadata, geração e histórico
 SDK completo: creation e cada revision com operation, before e after. Conserva
 a ordem entregue pelo SDK, sem ordenação frontend por Date nem reconstrução de
-campos Go como hash, previous, next ou revision_id. História excluída difere de
+campos como hash, previous, next ou revision_id. História excluída difere de
 registro ausente; NoCorpus, corpus publicado vazio e falha causal têm estados
 próprios. Retry mantém o escopo; mudança de seleção limpa o payload anterior,
 e AbortSignal e a chave do escopo impedem publicação de respostas antigas.
@@ -470,8 +470,8 @@ escopo descartam respostas tardias. Scores, distances, hits, modelo e geração
 são dados nativos, disponíveis no JSON completo com inteiros exatos. Modelo
 indisponível, cobertura ausente e identidade incompatível são estados próprios,
 distintos de erro HTTP ou resultado vazio saudável. Não há filtro local
-substituindo a busca. O cliente Go anterior foi retirado; a página conserva
-ordem SDK e body completo, sem sort de prioridade ou remoção de headings Go.
+substituindo a busca. A página conserva
+ordem SDK e body completo, sem reordenação por prioridade.
 
 Mutation passou seis testes e Search três. A rodada de clientes, incluindo
 readers afetados, passou 25 casos (harness 3,63 s); não se somam subconjuntos

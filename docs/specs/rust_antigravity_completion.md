@@ -84,7 +84,7 @@ The [AI cases](../../crates/graphit-ai/tests/cli_antigravity.rs) use the existin
 
 These fixtures do not authenticate a commercial account or certify Windows,
 macOS, Conversation/resume, Live or Dream. Those active capabilities remain
-separate migration obligations in e6ff. No earlier Cursor/Qwen/Kimi result is
+separate integration requirements in e6ff. No earlier Cursor/Qwen/Kimi result is
 claimed as Antigravity runtime proof, and their unchanged suites are not repeated.
 
 ## Incoming Conversation continuation

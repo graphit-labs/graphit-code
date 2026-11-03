@@ -59,8 +59,7 @@ existing copy policy.
 
 Edit the canonical source and repeat the same command to recapture and render it.
 There is no implicit source watcher. Reapplication preserves the current alias,
-entry selection and physical mode when omitted; an explicit value requests a
-change through the same writer. Reusing a target owned by another origin,
+and entry selection when omitted. The destination remains a copy. Reusing a target owned by another origin,
 producer or canonical source is a conflict. Destination foreign files are preserved.
 
 To remove the owned projection, use the existing exact PROJECT lifecycle:
@@ -122,10 +121,9 @@ local types `agent`, `skill`, `command` and `workflow` are accepted.
 
 The IDs above are illustrative; use selections returned by the authorized live
 PROJECT consumers. `binding` is required. Optional `alias`, `entry_name` and
-`mode` follows the existing physical installer. These rendered instructions
-require `"copy"`; `"link"` is rejected before publication. Omitted mode uses
-Copy on first installation and preserves the current mode on reapplication;
-omitted alias and entry name preserve their current values on reapplication.
+`mode` follow the existing physical installer. The checkout receives a copy.
+Use `"copy"` to request the mode explicitly. Omitted alias and entry name
+preserve their current values on reapplication.
 Explicit null, unknown/duplicate fields, unsupported kinds, `latest` and a Global
 consumer fail validation. The body contains no host path, producer override,
 provider, storage credential or Runtime grant. The producer comes from the
@@ -144,8 +142,8 @@ the existing Web mutation ingress controls.
 The selected Resources tree is captured by Core and retained/rechecked during
 installation. `SourceRef::LocalLink` records that canonical source, its real
 producer and literal artifact version. The maintained renderer and Core/Hub writer
-apply Copy/Link, alias and entry intent; a rendered physical Link points at the
-owned rendered payload. Reapplication recaptures source edits. Changing an
+apply the alias and entry intent and copy the rendered content into the
+checkout. Reapplication recaptures source edits. Changing an
 existing target's origin, producer or canonical source is a conflict. Removal and
 recovery use the destination's existing exact lifecycle; removal preserves the
 original source and can proceed when that source is unavailable.

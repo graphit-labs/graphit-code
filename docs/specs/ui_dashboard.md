@@ -75,15 +75,14 @@ Persistent navigation groups Engineering (workspace, sessions, tasks and evidenc
 ## Workspace identity
 
 The app store combines machine-local projects from `GET /api/global-projects` with the
-ACL-filtered `GET /api/project-catalog` result. It deduplicates both presences by immutable project
-ID and persists a typed target under the `graphit-app-state` browser key: `workspace:<id>:<dir>` or
-`hub:<id>`. A Hub target has no fabricated checkout directory.
+ACL-filtered `GET /api/project-catalog` result. It persists the selected origin,
+immutable project ID and preferred versions under the `graphit-app-state`
+browser key. Checkout paths are obtained from current results and held in memory.
 
-Every project-scoped request must use the selected target: `project_dir` for Workspace and
-`project_id` or an exact remote context for Hub. Because the selection survives browser sessions,
-the common header displays the origin clearly enough for a user to verify it before interpreting
-data. A temporarily unavailable Hub catalogue retains the selected Hub target as stale; it never
-falls back to a previous local directory.
+A Workspace request can send the exact `project_dir` resolved from the active
+local context. Hub requests use `project_id` or an exact remote context. The
+header shows the origin so the user can verify the target. A temporarily
+unavailable Hub catalogue keeps its selected Hub target marked stale.
 
 `AppShell` mounts one `WorkspaceSelectors` group in the right side of its header on every route, including all explorers. It is the only place that changes global project, project version and agent selection. Sidebar, mobile navigation and page toolbars do not repeat these controls or a separate selected-project badge. Each themed dropdown has a persistent label, selected checkmark and keyboard/type-ahead support; switching one leaves the other unchanged. The selectors write the existing app store and retain its browser persistence.
 
@@ -317,9 +316,11 @@ checks do not establish qualified HTTP or browser behavior.
 
 Native context inventories for Task, Memory, Knowledge, AST, Hub and Now return
 `projects: [{project_id, name}]` as display metadata for their own authorized
-contexts. The shared Project trigger and options show this name. Selection
-objects and URLs still carry only `project_dir`, `project_id` and
-`project_version`; names do not grant access or become request selectors.
+contexts. The shared Project trigger and options show this name. Record URLs
+carry only `project_id` and `project_version`. The Browser resolves that locator
+against the current module's authorized contexts before sending the physical
+selection to the API. When multiple checkouts match, the selected or current
+checkout can disambiguate. Otherwise the user chooses a checkout.
 Missing names retain the exact ID, and duplicate names remain distinguishable
 by the existing checkout or remote-origin details. Metadata is cleared with its
 module, identity and API scope, including failed inventory loads.
@@ -334,11 +335,13 @@ binding; GlobalCache does not invent a PROJECT. Supported wire bindings include
 `kiro-v3`, `opencode` and `antigravity`, alongside the other current native
 bindings. No `main` version or grant is inferred.
 
-PROJECT install/update exposes Installation mode with optional values supported by the resource. Agent, Skill, Command and Workflow are rendered for the selected agent and offer only Copy or Default (Copy), including updates. Omitting mode uses Copy for these rendered resources. Original-source resources such as Rule retain Copy and Link; their updates can omit mode to preserve the previous physical mode. Blank alias/entry name on update remain omitted and preserve their previous values. GlobalCache exposes none of these PROJECT-only fields and sends no mode, binding, alias or entry_name.
+PROJECT install and update show the captured destination and explain that the
+checkout receives copies. Agent, Skill, Command and Workflow content is
+rendered for the selected agent before installation. Blank alias and entry name
+on update preserve their previous values. GlobalCache sends no PROJECT
+projection options.
 
-Copy installs the selected content; for rendered agent resources, the installed files are the rendered result. For original-source resources, Link projects the captured published version from the managed Hub cache with its publisher/version provenance. Rendered resources cannot link to an additional managed copy. This choice selects no free local source path and adds no LocalLink discovery or unlink action. Explicit modes require a compatible Physical target; Unsupported keeps the chosen mode and drafts and never falls back or claims success. Captured feedback labels the requested/default/preserved mode; the current installed inventory and install/update receipt DTO do not provide an observed physical mode. The field reuses the shared select, dialog keyboard/focus and owner lifecycle. The focused API/Registry/Project cases, NativePath regressions and corrected production bundle are complemented by the real Linux browser journey: Link installation, omitted update preserving the symlink, explicit Copy and Global form exclusion passed with cleanup complete. The current real M1 diagnostic8 and complete mode child in runs7/8 qualify the mode-specific HTTP slice. The earlier run7 later security case returned500 instead of403; its cause is unknown, and the unchanged-product diagnostic pass does not prove a fix. Auth owns the final causal security test; the broader migration remains open.
-
-FILE operation feedback receives literal Unicode path strings, including possible parent residues and every owned/pending Forget preview source, destination, staging, old destination, payload and backup. It renders that text directly, preserving spaces, accents and escapes. Invalid Unicode is rejected by the service; there is no byte-array decoder or hexadecimal fallback. Parent residues deduplicate by their exact path string. Preview modes are Rust ArtifactMode Link or Copy with its policy, separate from the requested HTTP copy/link value. These observations retain captured identity, effect/pending flags and explicit inspection; Forget changes logical ownership and never grants deletion of the displayed paths.
+FILE operation feedback receives literal Unicode path strings, including possible parent residues and every owned/pending Forget preview source, destination, staging, old destination, payload and backup. It renders that text directly, preserving spaces, accents and escapes. Invalid Unicode is rejected by the service; there is no byte-array decoder or hexadecimal fallback. Parent residues deduplicate by their exact path string. Preview modes report stored ArtifactMode observations. PROJECT publication requests Copy. These observations retain captured identity, effect/pending flags and explicit inspection; Forget changes logical ownership and never grants deletion of the displayed paths.
 
 Every installed FILE entry supplies an explicit source_origin: HubCache, Resources or LocalLink. Inventory rows and the inspector display that provenance, independently of physical Copy/Link. The separate origin field carries only the remote Broker/Standalone transport or null; null never classifies the source as local. HubCache with null remote origin remains HubCache and has no remote Update/content controls. Resources and LocalLink require null remote origin; contradictory or missing/unknown source origins fail the inventory response rather than gaining a default. Remote Update and installed content require both HubCache provenance and a concrete remote origin. Existing PROJECT Remove, Recover and Forget remain available independently of remote eligibility and submit only the captured PROJECT/data version, artifact type/ID/concrete artifact version and binding. They reuse the existing lifecycle endpoints; Remove preserves the source and Forget retains physical files and residues. Provenance participates in selection identity, so a refreshed entry with a changed source origin closes its previous inspector. These fields do not grant source reading or accept a free host path. The Root browser observed LocalLink provenance with null remote transport after real local installation, and Auth confirmed owned cleanup. Focused tests cover the other source-origin and rejection branches; separate M1 security and Global obligations remain open.
 
@@ -369,7 +372,7 @@ Project resources uses the authorized PROJECT and data version from the shared h
 
 The local installation consumer starts from the selected authored Resources entry and supports agents, skills, commands and workflows. Install local resource captures that source PROJECT/data version/type/ID/artifact version separately from the current PROJECT installation scope and literal Agent binding; no extra project picker or host path is accepted. Other resource types remain readable and retain their existing FILE publication eligibility. Global installation cache is not a local-install destination. These local Agent, Skill, Command and Workflow installations render the source for the selected agent and offer Copy or Default (Copy), with no Link option. LocalLink records source provenance; it does not imply physical Link. Omitting mode uses Copy; omitted alias/entry name preserve existing options. Empty form fields omit those names, while nonempty local names are sent literally and invalid values remain visible for explicit correction. Explicit null is never treated as omission. Local installation reads the source and mutates the captured destination under separate Web admissions; it does not publish, request storage credentials or require a remote Hub/write grant.
 
-Local installation reuses the existing mutation owner, confirmation modal, optional fields, requested-mode feedback and captured-target inventory inspection. Success must correlate operation install_local/source local/producer and both destination representations before completion. The response does not echo alias, entry name or mode: feedback labels requested intent, and refreshed inventory supplies its observed facts. Confirmed publication can survive a later error; named reconciliation/cleanup/observation flags and bounded-response inspection remain intact. No generic pending field, rollback, silent fallback or observed mode is invented. The source consumer has 40 focused new cases and 16 affected shared cases passing. Its single production build and exact three-asset promotion passed; the previous a68 authored bundle remains historical evidence. The actual selected-resource Root browser Copy/Link and publication journey passed with Auth-confirmed owned cleanup; separate M1 security and Global obligations remain open.
+Local installation reuses the existing mutation owner, confirmation modal, optional fields, requested-mode feedback and captured-target inventory inspection. Success must correlate operation install_local/source local/producer and both destination representations before completion. The response does not echo alias, entry name or mode: feedback labels requested intent, and refreshed inventory supplies its observed facts. Confirmed publication can survive a later error; named reconciliation/cleanup/observation flags and bounded-response inspection remain intact. No generic pending field, rollback, silent fallback or observed mode is invented. The source consumer has 40 focused new cases and 16 affected shared cases passing. Its single production build and exact three-asset promotion passed; the previous a68 authored bundle remains historical evidence. The selected-resource workflow includes explicit confirmation and owned cleanup.
 
 SourcePROJECT FILE publication starts from a selected, reviewed FILE resource in Project artifacts. Its FILE type/full ID/concrete artifact version are captured source facts, distinct from the header PROJECT data version; the form no longer accepts a manually entered source tuple. Enter the publication name and optional metadata/dependencies, review the captured source and draft, then explicitly Publish artifact. Omitted dependencies preserve them; replacing with an empty list clears them. The latest pointer changes only when selected, and replacing different destination bytes at the same version requires the expected archive SHA256. That catalogue precondition is not a source snapshot digest. Publication captures the current selected Resources tree independently and can fail if it disappeared or changed. No path, package upload, binding or GlobalCache destination selects this source. Read admission does not grant publication authority.
 
@@ -435,7 +438,7 @@ in the agent's PATH:
 }
 ```
 
-## Go server boundary
+## Browser and Source server boundary
 
 `graphit-app` Browser/Source composition:
 

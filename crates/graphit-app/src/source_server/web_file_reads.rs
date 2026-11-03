@@ -169,6 +169,10 @@ impl SourceServer {
             })
         };
         before()?;
+        let slot = project.as_ref().map_or(
+            graphit_core::artifact_store::PublicationSlot::Scope,
+            CapturedPublicationScope::publication_slot,
+        );
         let result = match query {
             Query::Remote(input) => remote(state, &read, input, &before).await?,
             Query::Installed(input) => {
@@ -185,7 +189,7 @@ impl SourceServer {
                     &read,
                     registry.as_ref().ok_or(io::ErrorKind::InvalidInput)?,
                     &cache,
-                    input,
+                    (slot, input),
                     &before,
                 )
                 .await?
@@ -195,7 +199,7 @@ impl SourceServer {
                     state,
                     &read,
                     registry.as_ref().ok_or(io::ErrorKind::InvalidInput)?,
-                    input,
+                    (slot, input),
                     &before,
                 )
                 .await?

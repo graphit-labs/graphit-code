@@ -7,7 +7,7 @@ it('maps an available reader with null server href to a known native route and p
  const url = new URL(href, 'http://test.invalid')
  expect(url.pathname).toBe('/knowledge/explorer')
  expect(url.searchParams.get('page')).toBe('literal/%2F page')
- expect(JSON.parse(url.searchParams.get('selection')!)).toEqual(referenceSelection)
+ expect(JSON.parse(url.searchParams.get('selection')!)).toEqual({ project_id: referenceSelection.project_id, project_version: referenceSelection.project_version })
  expect(requestedReference(url.search)?.focus.id).toBe('literal/%2F page')
 })
 it('keeps an imported producer separate from its observed namespace in the reload URI', () => {
@@ -36,7 +36,7 @@ it('maps Task, Session and PROJECT/USER Memory through their own native reader r
   const url = new URL(href!, 'http://test.invalid')
   expect(url.pathname).toBe(route + '/' + encodeURIComponent(reader.focus.id))
   expect(requestedReference(url.search)).toEqual({ focus: reader.focus, source: reader.source })
-  if (reader.selection) expect(JSON.parse(url.searchParams.get('selection')!)).toEqual(referenceSelection)
+  if (reader.selection) expect(JSON.parse(url.searchParams.get('selection')!)).toEqual({ project_id: referenceSelection.project_id, project_version: referenceSelection.project_version })
   else {
    expect(url.searchParams.has('selection')).toBe(false)
    expect(url.searchParams.get('scope_id')).toBe(' observed own scope ')

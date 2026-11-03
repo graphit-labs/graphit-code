@@ -63,7 +63,7 @@ Current reads do not load every lifecycle event or all linked Task dossiers.
 Session heads derive completed/total counts from linked Tasks. Cancelled Tasks remain retained and
 authorized in the inventory but are excluded from the denominator; only completed Tasks increment
 the completed count. With no non-cancelled Tasks, counts are 0/0. These counts are workflow state,
-not a delivery percentage or migration estimate.
+not a delivery percentage.
 
 ## Closure, interruption and recovery
 

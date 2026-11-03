@@ -11,7 +11,7 @@ export async function taskAuditExport(detail: TaskDetail, selection: TaskContext
   if (!value[section]) throw new Error('The requested ' + section + ' page was not returned.')
   return value
  }
- const current = { task: detail.task, creation: detail.creation, last_event: detail.last_event, generation: detail.generation, history_start_cursor: detail.history_start_cursor, comments_start_cursor: detail.comments_start_cursor }
+ const current = { task: detail.task, creation: detail.creation, last_event: detail.last_event, generation: detail.generation }
  const parts: BlobPart[] = [stringifyNativeJson(current).slice(0, -1), ',"history":']
  let historyCursor: string | null = detail.history_start_cursor
  let first = true

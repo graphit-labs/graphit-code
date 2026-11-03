@@ -114,4 +114,4 @@ pass on Linux. Strict Clippy for the daemon library and these two test targets
 also passes; the qualification receipt preserves the commands and results.
 This component's native execution qualification is Linux. It does not establish
 full daemon/MCP/CLI integration, other operating systems, GPU execution or RSS
-improvement. No Go migration or compatibility path is retained.
+improvement.

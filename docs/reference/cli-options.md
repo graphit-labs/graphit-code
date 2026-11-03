@@ -1061,7 +1061,7 @@ graphit hub install [OPTIONS] --provider <PROVIDER> --producer <PRODUCER> --kind
 | `--binding <BINDING>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
 | `--alias <ALIAS>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
 | `--entry-name <ENTRY_NAME>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
-| `--mode <MODE>` | PROJECT mode. Rendered agents, skills, commands and workflows require Copy. Original sources may use Link. Omit on update to retain its physical mode [possible values: copy, link] |
+| `--mode <MODE>` | Copy FILE content into the PROJECT checkout [possible values: copy] |
 
 ## graphit hub install-local
 
@@ -1080,7 +1080,7 @@ graphit hub install-local [OPTIONS] --source-dir <SOURCE_DIR> --producer <PRODUC
 | `--binding <BINDING>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
 | `--alias <ALIAS>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
 | `--entry-name <ENTRY_NAME>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
-| `--mode <MODE>` | Omit for Copy on a new installation or to retain the current physical mode [possible values: copy, link] |
+| `--mode <MODE>` | Copy FILE content into the PROJECT checkout [possible values: copy] |
 
 ## graphit hub update
 
@@ -1106,7 +1106,7 @@ graphit hub update [OPTIONS]
 | `--exact` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
 | `--alias <ALIAS>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
 | `--entry-name <ENTRY_NAME>` | Named argument shown in the usage above; see the domain guide for its authorization and state contract. |
-| `--mode <MODE>` | [possible values: copy, link] |
+| `--mode <MODE>` | Copy FILE content into the PROJECT checkout [possible values: copy] |
 
 ## graphit hub sync
 

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { sessionApi, type SessionDetail, type SessionHead } from '@/api/taskSession'
 import { taskApi, type CatalogueCursor, type TaskContext, type TaskStatus, type TaskSummary } from '@/api/task'
 import { nativeTimestamp as timestamp, stringifyNativeJson } from '@/api/nativeJson'
-import { projectRecordHref } from '@/api/nativeRecordNavigation'
+import { encodeProjectLocator, projectRecordHref } from '@/api/nativeRecordNavigation'
 import { WorkPage, WorkHeader, WorkSection, WorkStatusBadge, WorkNotice, WorkEmpty, WorkSearch, SessionTaskProgress } from '@/components/shared/EngineeringUI'
 import { StyledSelect } from '@/components/shared/StyledSelect'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -68,7 +68,7 @@ export default function SessionExplorerPage() {
  const detailLoading = Boolean(current && selected && !currentResult)
  const currentLinked = linked?.key === key && linked.id === selected ? linked : null
  const currentSelection = current?.selection
- const catalogueHref = currentSelection ? '/task/sessions?' + new URLSearchParams({ selection: stringifyNativeJson(currentSelection) }).toString() : null
+ const catalogueHref = currentSelection ? '/task/sessions?' + new URLSearchParams({ selection: encodeProjectLocator(currentSelection) }).toString() : null
  useEffect(() => {
   if (catalogueHref && previousScope.current !== scopeKey) { const previous = previousScope.current; previousScope.current = scopeKey; if (previous !== 'null') navigate(catalogueHref, { replace: true }) }
  }, [scopeKey, catalogueHref, navigate])

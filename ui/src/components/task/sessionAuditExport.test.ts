@@ -6,6 +6,7 @@ import { sessionAuditExport } from './sessionAuditExport'
 import { context, sessionDetail, sessionHistoryPage } from './task.test-fixtures'
 vi.mock('@/api/taskSession', async original => ({ ...await original<typeof import('@/api/taskSession')>(), sessionApi: { get: vi.fn() } }))
 beforeEach(() => vi.resetAllMocks())
+const { history_start_cursor: startCursor, ...current } = sessionDetail
 describe('complete explicit Session audit export', () => {
  it('walks every pinned page to EOF and serializes native integers without keeping snapshots', async () => {
   const last = { ...sessionHistoryPage.events[0], record: { ...sessionDetail.session, revision: 18446744073709551615n } }
@@ -13,7 +14,8 @@ describe('complete explicit Session audit export', () => {
   const signal = new AbortController().signal
   const parts = await sessionAuditExport(sessionDetail, context, signal)
   const json = parts.join('')
-  expect(parseNativeJson(json)).toEqual({ ...sessionDetail, history: { before: sessionHistoryPage.before, events: [...sessionHistoryPage.events, last], next_cursor: null } })
+  expect(json).not.toContain(startCursor)
+  expect(parseNativeJson(json)).toEqual({ ...current, history: { before: sessionHistoryPage.before, events: [...sessionHistoryPage.events, last], next_cursor: null } })
   expect(json).toContain('18446744073709551615')
   expect(vi.mocked(sessionApi.get).mock.calls).toEqual([
    [context, 'session1', { signal, history: { page_size: 20, cursor: sessionDetail.history_start_cursor } }],
@@ -24,7 +26,7 @@ describe('complete explicit Session audit export', () => {
  it('exports a completed empty page distinctly from an unloaded section', async () => {
   vi.mocked(sessionApi.get).mockResolvedValueOnce({ ...sessionDetail, history: { before: sessionHistoryPage.before, events: [], next_cursor: null } })
   const exported = parseNativeJson((await sessionAuditExport(sessionDetail, context, new AbortController().signal)).join(''))
-  expect(exported).toEqual({ ...sessionDetail, history: { before: sessionHistoryPage.before, events: [], next_cursor: null } })
+  expect(exported).toEqual({ ...current, history: { before: sessionHistoryPage.before, events: [], next_cursor: null } })
  })
  it('rejects a denied later page instead of returning a partial download', async () => {
   vi.mocked(sessionApi.get).mockResolvedValueOnce({ ...sessionDetail, history: { ...sessionHistoryPage, next_cursor: 'denied-page' } }).mockRejectedValueOnce(new TaskReadError(403))

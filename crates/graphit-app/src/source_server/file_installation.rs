@@ -124,7 +124,7 @@ fn selection_schema() -> Value {
 }
 fn install_schema() -> Value {
     let text = json!({"type":["string","null"]});
-    json!({"type":"object","properties":{"selection":selection_schema(),"global":{"type":"boolean"},"project_dir":text,"project_version":text,"binding":text,"alias":text,"entry_name":text,"mode":{"type":"string","enum":["copy","link"],"description":"Rendered agents, skills, commands and workflows require copy; original sources may use link. Omission preserves an existing mode or defaults to copy."}},"required":["selection","global"],"additionalProperties":false})
+    json!({"type":"object","properties":{"selection":selection_schema(),"global":{"type":"boolean"},"project_dir":text,"project_version":text,"binding":text,"alias":text,"entry_name":text,"mode":{"type":"string","enum":["copy"],"description":"PROJECT installations use a checkout-owned copy."}},"required":["selection","global"],"additionalProperties":false})
 }
 fn content_schema() -> Value {
     let text = json!({"type":["string","null"]});
@@ -923,16 +923,20 @@ pub(super) fn publish(
         alias: input.alias,
         entry_name: input.entry_name,
     };
+    let copy = ArtifactMode::Copy(CopyPolicy::RejectFileLinks);
     let mode = input
         .mode
-        .map(|mode| mode.artifact_mode())
+        .map(|_| copy)
         .or_else(|| {
             expected.and_then(|installation| match &installation.backend {
                 InstalledBackend::Physical { mode, .. } => Some(*mode),
                 _ => None,
             })
         })
-        .unwrap_or(ArtifactMode::Copy(CopyPolicy::RejectFileLinks));
+        .unwrap_or(copy);
+    if mode == ArtifactMode::Link {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
     let writer = || -> io::Result<graphit_hub::publication::PublicationWriter> {
         check()?;
         let writer = coordinator.writer(request).map_err(io::Error::other)?;

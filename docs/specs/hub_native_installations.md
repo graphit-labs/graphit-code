@@ -184,7 +184,7 @@ raw-Agent/schema/batch regressions protect pre-effect failures.
 
 The maintained invocations are `cargo xtask check` and `cargo xtask gate`;
 [Git hook integration](../guides/git-hooks.md) is covered by its real executable tests. Actual execution evidence is recorded in
-[Rust migration](../development/rust-migration.md).
+[product architecture](../development/product-architecture.md).
 Linux library tests, codec tests and GNU cross-compilation do not prove native
 Windows/macOS execution, model context, tool permissions or performance gains.
 The [caller contract](hub_consumer_contract.md) retains those product gates.

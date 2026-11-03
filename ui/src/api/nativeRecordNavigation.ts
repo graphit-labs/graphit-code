@@ -5,6 +5,13 @@ import type { ProjectReadModule } from './nativeRecordRead'
 import { parseNativeJson, stringifyNativeJson } from './nativeJson'
 
 export type ProjectRecordKind = 'task' | 'session' | 'memory' | 'knowledge'
+export type ProjectLocator = Pick<TaskContext, 'project_id' | 'project_version'>
+
+export const sameProjectVersion = (left: ProjectLocator | null, right: ProjectLocator) =>
+  left?.project_id === right.project_id && left.project_version === right.project_version
+
+export const encodeProjectLocator = ({ project_id, project_version }: ProjectLocator) =>
+  stringifyNativeJson({ project_id, project_version })
 
 export const nativeSelectionKey = (selection: TaskContext | null) => stringifyNativeJson(selection && [selection.project_dir, selection.project_id, selection.project_version])
 export const importedSourceKey = (source: ImportedKnowledgeSource | null) => stringifyNativeJson(source && [source.artifact.id, source.artifact.version, source.artifact.context_alias ?? null])
@@ -71,12 +78,12 @@ export function requestedImportedKnowledgeSource(search: string): ImportedKnowle
   return source as ImportedKnowledgeSource
 }
 
-export function projectRecordHref(kind: ProjectRecordKind, id: string, selection: TaskContext): string {
+export function projectRecordHref(kind: ProjectRecordKind, id: string, selection: ProjectLocator): string {
   const path = kind === 'task' ? '/task/explorer/' + encodeURIComponent(id)
     : kind === 'session' ? '/task/sessions/' + encodeURIComponent(id)
     : kind === 'memory' ? '/memory/explorer/project/' + encodeURIComponent(id)
     : '/knowledge/explorer'
-  const params = new URLSearchParams({ selection: stringifyNativeJson(selection) })
+  const params = new URLSearchParams({ selection: encodeProjectLocator(selection) })
   if (kind === 'knowledge') params.set('page', id)
   return path + '?' + params.toString()
 }
@@ -85,17 +92,18 @@ export function userMemoryHref(id: string, observedScope: string): string {
   return '/memory/explorer/user/' + encodeURIComponent(id) + '?' + new URLSearchParams({ scope_id: observedScope }).toString()
 }
 
-export function requestedRecordSelection(search: string): TaskContext | null {
+export function requestedRecordSelection(search: string): ProjectLocator | null {
   const params = new URLSearchParams(search)
   if (!params.has('selection')) return null
   if (params.getAll('selection').length !== 1) throw new Error('The record selection is ambiguous')
   const value = parseNativeJson<unknown>(params.get('selection')!)
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The record selection is invalid')
   const fields = value as Record<string, unknown>
-  if (Object.keys(fields).some(key => !['project_dir', 'project_id', 'project_version'].includes(key)) ||
-    typeof fields.project_id !== 'string' || typeof fields.project_version !== 'string' ||
-    typeof fields.project_dir !== 'string' || !fields.project_dir || fields.project_dir.includes('\0')) throw new Error('The record selection is invalid')
-  // URI encoding rejects lone UTF-16 surrogates without normalizing the path.
-  try { encodeURIComponent(fields.project_dir) } catch { throw new Error('The record selection is invalid') }
-  return value as TaskContext
+  if (Object.keys(fields).some(key => !['project_id', 'project_version'].includes(key)) ||
+    typeof fields.project_id !== 'string' || !fields.project_id || fields.project_id.includes('\0') ||
+    typeof fields.project_version !== 'string' || !fields.project_version || fields.project_version.includes('\0')) throw new Error('The record selection is invalid')
+  // URI encoding rejects lone UTF-16 surrogates without normalizing the locator.
+  try { encodeURIComponent(fields.project_id); encodeURIComponent(fields.project_version) }
+  catch { throw new Error('The record selection is invalid') }
+  return { project_id: fields.project_id, project_version: fields.project_version }
 }

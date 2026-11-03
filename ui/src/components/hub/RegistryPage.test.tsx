@@ -26,7 +26,6 @@ it('native path install renders Rust parent residues through the real Registry c
   }))
   const user = userEvent.setup(); render(<RegistryPage />)
   const dialog = await openInstall(user)
-  await chooseInstallMode(user, 'Copy')
   await user.type(within(dialog).getByRole('textbox', { name: 'Local alias (optional)' }), 'ui-mode-copy')
   await user.click(within(dialog).getByRole('button', { name: 'Install artifact' }))
   await screen.findByText('Operation completed')
@@ -35,7 +34,7 @@ it('native path install renders Rust parent residues through the real Registry c
   expect(screen.getByText('Copy')).toBeInTheDocument()
   expect(hubNative.mutate).toHaveBeenCalledOnce()
   expect(hubNative.mutate).toHaveBeenCalledWith('install', expect.objectContaining({
-    mode: 'copy', alias: 'ui-mode-copy', binding: 'kiro-v3',
+    alias: 'ui-mode-copy', binding: 'kiro-v3',
     selection: expect.objectContaining({ producer: projectB, id: 'vendor/reviewer', version: 'release-1' }),
   }), expect.any(AbortSignal))
   expect(screen.getByRole('button', { name: 'Inspect captured target' })).toBeEnabled()
@@ -198,25 +197,9 @@ it.each(['resolve', 'reject'] as const)('discards a deferred publisher %s after 
   expect(hubNative.projects).toHaveBeenCalledTimes(1)
 })
 
-async function chooseInstallMode(user:ReturnType<typeof userEvent.setup>,name:string){
-  await user.click(within(screen.getByRole('dialog')).getByRole('combobox',{name:'Installation mode'}))
-  await user.click(screen.getByRole('option',{name}))
-}
-it.each([['Copy','copy'],['Link to Hub cache','link']] as const)('physical mode install sends %s literally and labels only its captured request',async(label,mode)=>{
-  if (mode === 'link') vi.mocked(hubNative.search).mockResolvedValue({ ...catalog, artifacts: [{ ...catalog.artifacts[0], artifact_type: 'rule' }] })
-  const user=userEvent.setup();render(<RegistryPage/>);const dialog=await openInstall(user)
-  await chooseInstallMode(user,label)
-  await user.click(within(dialog).getByRole('button',{name:'Install artifact'}))
-  await screen.findByText('Operation completed')
-  expect(hubNative.mutate).toHaveBeenCalledWith('install',expect.objectContaining({mode,selection:expect.objectContaining({producer:projectB,version:'release-1'})}),expect.any(AbortSignal))
-  const outcome=screen.getByRole('region',{name:'Operation outcome'})
-  expect(within(outcome).getByText('Requested installation mode')).toBeInTheDocument()
-  expect(within(outcome).getByText(label)).toBeInTheDocument()
-  expect(within(outcome).queryByText('Observed installation mode')).not.toBeInTheDocument()
-})
 it('physical mode default install omits mode and GlobalCache never exposes or sends PROJECT-only fields',async()=>{
   const user=userEvent.setup();render(<RegistryPage/>);const first=await openInstall(user)
-  expect(within(first).getByRole('combobox',{name:'Installation mode'})).toHaveTextContent('Default (Copy)')
+  expect(first).toHaveTextContent('copies it into the checkout')
   await user.click(within(first).getByRole('button',{name:'Install artifact'}));await screen.findByText('Operation completed')
   expect(vi.mocked(hubNative.mutate).mock.calls[0][1]).not.toHaveProperty('mode')
   await user.click(screen.getByRole('combobox',{name:'Installation destination'}));await user.click(screen.getByRole('option',{name:'Installation cache'}))
@@ -229,31 +212,23 @@ it('physical mode default install omits mode and GlobalCache never exposes or se
   expect(request.scope).toEqual({kind:'global_cache'})
   for(const field of ['mode','binding','alias','entry_name'])expect(request).not.toHaveProperty(field)
 })
-it('physical mode Unsupported retains Rule Link and alias drafts and retries only with an explicit new choice',async()=>{
+it('unsupported installation retains the alias draft for explicit retry',async()=>{
   vi.mocked(hubNative.search).mockResolvedValue({ ...catalog, artifacts: [{ ...catalog.artifacts[0], artifact_type: 'rule' }] })
   vi.mocked(hubNative.mutate).mockImplementationOnce(async(operation,request)=>{throw new HubRequestError(501,'unsupported',{status:'error',operation,scope:request.scope,cache:'not_attempted',publication:'not_attempted'},false,null,request)})
   const user=userEvent.setup();render(<RegistryPage/>);const dialog=await openInstall(user)
-  await chooseInstallMode(user,'Link to Hub cache')
   await user.type(within(dialog).getByRole('textbox',{name:'Local alias (optional)'}),'team-copy')
   await user.click(within(dialog).getByRole('button',{name:'Install artifact'}))
-  await within(dialog).findByText(/does not support the requested installation mode/)
-  expect(within(dialog).getByRole('combobox',{name:'Installation mode'})).toHaveTextContent('Link to Hub cache')
+  await within(dialog).findByText('Operation unavailable')
   expect(within(dialog).getByRole('textbox',{name:'Local alias (optional)'})).toHaveValue('team-copy')
   expect(screen.queryByText('Operation completed')).not.toBeInTheDocument()
   expect(hubNative.mutate).toHaveBeenCalledTimes(1)
-  await chooseInstallMode(user,'Copy')
   await user.click(within(dialog).getByRole('button',{name:'Install artifact'}));await screen.findByText('Operation completed')
-  expect(hubNative.mutate).toHaveBeenLastCalledWith('install',expect.objectContaining({mode:'copy',alias:'team-copy'}),expect.any(AbortSignal))
+  expect(hubNative.mutate).toHaveBeenLastCalledWith('install',expect.objectContaining({alias:'team-copy'}),expect.any(AbortSignal))
 })
 
-it('physical mode keyboard selection and Escape keep the dialog and restore the correct focus',async()=>{
+it('Escape closes the project install dialog and restores focus',async()=>{
   const user=userEvent.setup();render(<RegistryPage/>);const dialog=await openInstall(user)
-  const selector=within(dialog).getByRole('combobox',{name:'Installation mode'});selector.focus()
-  await user.keyboard('{Enter}{End}{Enter}')
-  expect(selector).toHaveTextContent('Copy')
-  await user.keyboard('{Enter}{Escape}')
-  expect(screen.getByRole('dialog')).toBe(dialog)
-  expect(selector).toHaveFocus()
+  within(dialog).getByRole('textbox',{name:'Local alias (optional)'}).focus()
   await user.keyboard('{Escape}')
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(screen.getByRole('button',{name:'Install artifact'})).toHaveFocus()
@@ -263,11 +238,7 @@ it('physical mode keyboard selection and Escape keep the dialog and restore the 
 it.each(['agent', 'skill', 'command', 'workflow'] as const)('rendered %s installation offers Copy without Link', async artifact_type => {
   vi.mocked(hubNative.search).mockResolvedValue({ ...catalog, artifacts: [{ ...catalog.artifacts[0], artifact_type }] })
   const user = userEvent.setup(); render(<RegistryPage />); const dialog = await openInstall(user)
-  expect(dialog).toHaveTextContent('Graphit renders this resource for the selected agent and installs a copy.')
-  await user.click(within(dialog).getByRole('combobox', { name: 'Installation mode' }))
-  expect(screen.getByRole('option', { name: 'Copy' })).toBeInTheDocument()
-  expect(screen.queryByRole('option', { name: /Link/ })).not.toBeInTheDocument()
-  await user.keyboard('{Escape}')
-  expect(within(dialog).getByRole('combobox', { name: 'Installation mode' })).toHaveFocus()
+  expect(dialog).toHaveTextContent('Graphit renders this resource for the selected agent and copies it into the checkout.')
+  expect(within(dialog).queryByRole('combobox', { name: 'Installation mode' })).not.toBeInTheDocument()
   expect(hubNative.mutate).not.toHaveBeenCalled()
 })

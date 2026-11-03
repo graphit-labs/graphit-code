@@ -107,4 +107,4 @@ cargo test --offline --locked -p graphit-knowledge --test desired_corpus -j4
 cargo clippy --offline --locked -p graphit-knowledge --lib --test desired_corpus --no-deps -j4 -- -D warnings
 ```
 
-Ver também a [policy de ignore](../architecture/rust-knowledge-ignore-policy.md), [metadata de publicação](../architecture/rust-knowledge-publication-metadata.md) e [fronteiras Knowledge/Data/Records](../architecture/rust-knowledge-data-boundaries.md). A existência desta API não conclui a migração global ou suas entregas lifecycle/domínio pendentes.
+Ver também a [policy de ignore](../architecture/rust-knowledge-ignore-policy.md), [metadata de publicação](../architecture/rust-knowledge-publication-metadata.md) e [fronteiras Knowledge/Data/Records](../architecture/rust-knowledge-data-boundaries.md). A existência desta API não conclui a validação ponta a ponta ou suas entregas lifecycle/domínio pendentes.

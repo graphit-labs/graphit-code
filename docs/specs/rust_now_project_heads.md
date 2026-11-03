@@ -196,4 +196,4 @@ abort/ignore after navigation or context change. Broker owns real authorized
 two-instance HTTP/socket/reconnect fixtures. CLI owns its mature TTY/NDJSON/
 pipe behavior and original cancellation contract under `tsk-0137`. No UI was
 changed by this domain contract, and the producer tests cannot qualify those journeys,
-Kiro, Windows/macOS or full migration completion.
+Kiro, Windows/macOS or end-to-end product validation.

@@ -20,7 +20,7 @@ pub(super) async fn read(
     state: &State,
     read: &InstalledHubReadAdmission<'_>,
     registry: &HubRegistry,
-    input: inputs::List,
+    (slot, input): (graphit_core::artifact_store::PublicationSlot, inputs::List),
     before: &(dyn Fn() -> io::Result<()> + Sync),
 ) -> io::Result<Value> {
     before()?;
@@ -36,7 +36,8 @@ pub(super) async fn read(
     let mut matched = 0usize;
     let mut next_offset = None;
     for (kind, id, artifact) in document.entries() {
-        if !file_kind(kind)
+        if artifact.consumer != graphit_hub::registry::consumer_for_artifact(slot, kind)
+            || !file_kind(kind)
             || input
                 .kind
                 .is_some_and(|requested| requested.artifact_type() != kind)

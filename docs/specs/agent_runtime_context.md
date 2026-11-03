@@ -188,8 +188,7 @@ The historical Root snapshot matched 176 frozen hashes before that documentation
 update. Its evidence did not cover the full 31-case guard campaign, the Hub
 residual `tsk-7424`, Windows/macOS execution or product performance. Those are
 limits of the recorded evidence, not current requirements to replay that campaign,
-compare Go or measure product performance. These focused passes do not complete
-Runtime integration or the migration. Workspace
+measure product performance. These focused passes cover the context contract. Workspace
 membership, lockfiles and shared hooks remain Root-owned; the role leaf
 `tsk-5a55` retains its own baseline and export acceptance.
 
@@ -200,7 +199,7 @@ the original request's cancellation/deadline. Source doctests describe forbidden
 cloning, debugging, deserialization and direct payload construction.
 The executed checks prove codecs, limits, the original request and the opaque
 API on Linux. They do not prove native-host receipt, installation, authority or
-Windows/macOS behavior. No Go tests are retired by this leaf, and no performance
+Windows/macOS behavior. No performance
 gain is claimed.
 
 The historical platform records `tsk-6b5f`, `tsk-9a3d` and `tsk-c3c2` are not a
@@ -212,7 +211,7 @@ remote catalogue; remaining platforms retain their actual functional scope. The 
 native installation `tsk-bc28`, MCP dispatch `tsk-47fd` and startup/profile
 authority `tsk-e849` retain their integration requirements.
 
-The App [PROJECT hook assembler](rust_project_hook_context.md) now consumes actual PROJECT Memory and same-issuer Auth admissions with captured settings/version, compiled policy only and the existing Original. It loads no USER context or Task session/claim state. The Root caller in 1c5c composes actual Source/MCP/CLI transport and ordinary ReadMemory access. Controlled channel consumption and delivery are qualified under be6e/aa20 without a vendor installation or account prerequisite. Shared documents and daemon lifecycle retain their own owners. Other-vendor routing, tool mutation classification, async stop sync, ownership release and actual callbacks remain outside this codec; absent producers cannot be replaced by invented grants, boolean authority callbacks, mocks or Go fallback.
+The App [PROJECT hook assembler](rust_project_hook_context.md) now consumes actual PROJECT Memory and same-issuer Auth admissions with captured settings/version, compiled policy only and the existing Original. It loads no USER context or Task session/claim state. The Root caller in 1c5c composes actual Source/MCP/CLI transport and ordinary ReadMemory access. Controlled channel consumption and delivery are qualified under be6e/aa20 without a vendor installation or account prerequisite. Shared documents and daemon lifecycle retain their own owners. Other-vendor routing, tool mutation classification, async stop sync, ownership release and actual callbacks remain outside this codec; absent producers cannot be replaced by invented grants, boolean authority callbacks, or mocks.
 
 Static role artifacts contain generic policy only: they must never persist
 `Standing context`, mandatory-memory titles or bodies. Live context belongs only

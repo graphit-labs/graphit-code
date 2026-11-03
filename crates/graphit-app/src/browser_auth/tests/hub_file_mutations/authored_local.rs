@@ -48,7 +48,7 @@ fn installed(fixture: &crate::source_server::test_fixture::Fixture) -> Installat
         project_registry(fixture).load(),
         "LocalLink registry observation",
     )
-    .get(ArtifactType::Skill, LOCAL_ID)
+    .get_for_consumer(&project_slot(fixture), ArtifactType::Skill, LOCAL_ID)
     .expect("actual installed authored identity")
     .installations
     .iter()
@@ -268,13 +268,20 @@ pub(super) async fn journey(
             }),
         "HTTP inventory reports actual provenance"
     );
-    input["mode"] = json!("link");
-    page(host, cookie, LOCAL_INSTALL, input.clone()).await;
-    assert_source(fixture, &root, ArtifactMode::Link);
-    assert_ne!(
-        checked(std::fs::canonicalize(&projected), "rendered physical Link"),
-        checked(std::fs::canonicalize(&root), "authored original path"),
-        "rendered instruction Link retains its original provenance"
+    let mut nonportable = input.clone();
+    nonportable["mode"] = json!("link");
+    failure(
+        host,
+        cookie,
+        LOCAL_INSTALL,
+        &nonportable,
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_source(
+        fixture,
+        &root,
+        ArtifactMode::Copy(CopyPolicy::RejectFileLinks),
     );
     checked(
         std::fs::write(root.join("SKILL.md"), SECOND),
@@ -291,7 +298,11 @@ pub(super) async fn journey(
             .remove(field);
     }
     page(host, cookie, LOCAL_INSTALL, input.clone()).await;
-    assert_source(fixture, &root, ArtifactMode::Link);
+    assert_source(
+        fixture,
+        &root,
+        ArtifactMode::Copy(CopyPolicy::RejectFileLinks),
+    );
     assert_eq!(destination(fixture), projected);
     assert!(
         checked(
@@ -337,6 +348,13 @@ pub(super) async fn journey(
         std::fs::rename(&root, &held),
         "temporarily unavailable authored source",
     );
+    assert!(
+        checked(
+            std::fs::read_to_string(projected.join("SKILL.md")),
+            "installed copy remains readable without its source",
+        )
+        .contains("Updated authored body")
+    );
     let removed = page(
         host,
         cookie,
@@ -366,7 +384,7 @@ pub(super) async fn journey(
             project_registry(fixture).load(),
             "registry after authored remove"
         )
-        .get(ArtifactType::Skill, LOCAL_ID)
+        .get_for_consumer(&project_slot(fixture), ArtifactType::Skill, LOCAL_ID)
         .is_none()
     );
 }

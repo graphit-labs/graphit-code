@@ -150,7 +150,7 @@ and triggers a second native iteration after idle. Runtime was 25.62 seconds,
 using the already compiled binary. Retry/activity-during-native also passed,
 including success/new-activity and exhausted-old-attempt rearm. The detailed
 composition provenance and earlier failures are recorded below. This is not
-commercial-host authentication or full migration qualification.
+commercial-host authentication or end-to-end product validation.
 
 The job waits until the selected activity instant plus `idle_timeout`. It runs
 serially, with an initial attempt and at most `retries` additional iterations,
@@ -375,7 +375,7 @@ This source boundary is Linux-only through the actual Native SDK/cache.
 No vendor account, model access or commercial credential is a prerequisite for
 its Graphit qualification; no Windows/macOS runtime qualification follows.
 No personal profile, credential, trust or configuration change is part of this
-consumer. Global migration, host and LC obligations remain separate.
+consumer. End-to-end validation, host and LC obligations remain separate.
 
 ## Source and qualification boundary
 

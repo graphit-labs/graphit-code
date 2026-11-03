@@ -1,5 +1,5 @@
 ---
-title: Fronteiras Knowledge, Data e Records na migração Rust
+title: Fronteiras entre Knowledge, Data e Records
 doc_type: architecture
 references:
   - target: {type: task, id: tsk-c8e9}
@@ -42,7 +42,7 @@ references:
     relation: refined_by
 ---
 
-# Fronteiras Knowledge, Data e Records na migração Rust
+# Fronteiras entre Knowledge, Data e Records
 
 ## Produtor Data de primeira publicação e leitura nativa
 
@@ -183,7 +183,7 @@ reabre o SDK e compara os 16 campos documentais. A evolução física para 18 ca
 Encoder ou schema isolado não qualifica esse roundtrip. Comandos e limites da qualificação ficam na
 [referência de storage](../development/rust-storage-contracts.md#native-knowledge-first-publication).
 
-Esta página orienta os produtores e consumidores da migração de Knowledge/Wiki
+Esta página orienta os produtores e consumidores da integração de Knowledge/Wiki
 em `graphit-code`. **Os packets abaixo são requisitos em refinamento, não APIs
 Rust disponíveis.** `tsk-84d5` mantém contratos, fixtures e lacunas; `tsk-a59d`
 refina a publicação compartilhada de Records. O refinamento Lance readonly em
@@ -532,7 +532,7 @@ produtores reais de captura, admissão, snapshot e publicação.
 | C7 lifecycle | Fixar g0; reset/remove/recreate g1 antes do commit. Fence/incarnation Data recusa o plano antigo, inclusive recriação idêntica. Lost ack póscommit segue uncertain/reobserve de P-D. |
 | C8 hash e símbolos | Rawhash atual não prova autolinks/symbols ou avaliação atual completa. Manter fatos publicados e avaliação autorizada atual separados, sem fabricar marcador stale e sem alterar a recipe pura de compilação authored. |
 
-C1/C5/C6 cobrem J1/G2 e o recorte Source lifecycle da migração. C2/C4 cobrem
+C1/C5/C6 cobrem J1/G2 e o ciclo de vida do Source. C2/C4 cobrem
 admissão/contexto/caps; C7 cobre G3/G6/lifecycle; C8 preserva no-op e staleness
 observacional. A adição de documento protegida pelo teste antigo permanece uma
 fixture distinta de read failure e remoção.

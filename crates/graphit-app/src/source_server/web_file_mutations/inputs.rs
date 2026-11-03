@@ -237,11 +237,7 @@ mod tests {
     fn project_mode_uses_the_native_enum_and_distinguishes_omission() {
         let policy = policy();
         for operation in [Operation::Install, Operation::Update] {
-            for (wire, expected) in [
-                (None, None),
-                (Some("copy"), Some(PhysicalMode::Copy)),
-                (Some("link"), Some(PhysicalMode::Link)),
-            ] {
+            for (wire, expected) in [(None, None), (Some("copy"), Some(PhysicalMode::Copy))] {
                 let mut value = input();
                 if let Some(wire) = wire {
                     value["mode"] = json!(wire);
@@ -262,6 +258,7 @@ mod tests {
             for mode in [
                 Value::Null,
                 json!("unknown"),
+                json!("link"),
                 json!("Copy"),
                 json!(true),
                 json!(1),

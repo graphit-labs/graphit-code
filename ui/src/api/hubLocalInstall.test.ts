@@ -23,7 +23,7 @@ it.each(['agent', 'skill', 'command', 'workflow'] as const)('local install API c
   expect(mutationCompleted(success(captured))).toBe(true)
 })
 
-it.each([undefined, 'copy', 'link'] as const)('local install API preserves mode %s and optional naming intent without echoing observed values', async mode => {
+it.each([undefined, 'copy'] as const)('local install API preserves mode %s and optional naming intent without echoing observed values', async mode => {
   const request = { ...input(), ...(mode ? { mode, alias: 'kept-alias', entry_name: 'entry.md' } : {}) }
   const fetcher = vi.fn(async () => respond(success(request))); vi.stubGlobal('fetch', fetcher)
   const result = await hubNative.mutate('install_local', request)

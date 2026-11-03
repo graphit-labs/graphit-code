@@ -267,11 +267,8 @@ Windows GNU all-target compilation/Clippy and actual negative Git hooks passed.
 The cases cover modes/variants, blocks/concurrency, short/partial I/O/flush
 failures, limits, Unicode/control/raw channels, concurrent finish, retained
 finished-handle payload release and Drop/retry behavior. Release measurements
-used a counting/discard sink, not a terminal device; the detailed sample and
-limits are recorded in Rust Migration. macOS/Windows runtime and production
-adapters remain unexecuted/pending.
-See [Rust Migration](../development/rust-migration.md)
-for coverage/classification and pending product owners.
+used a counting/discard sink. Terminal-device performance and native platform
+behavior require their own measurements.
 
 ## Runtime tracing
 

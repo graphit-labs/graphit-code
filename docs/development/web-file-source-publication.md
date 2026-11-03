@@ -140,11 +140,9 @@ PROJECT installation scope/header. There is no host path, provider, STS, remote
 Hub/write requirement or free source grant. The source needs its own Web PROJECT
 Hub/read admission and the consumer its existing Web mutation admission.
 
-Mode uses copy|link; Copy uses the existing RejectFileLinks policy. An omitted
-mode preserves the prior physical mode and a new installation uses Copy.
-Omitted alias/entry_name preserve existing options on reapply. Null is invalid,
-not omission. LocalLink is the persisted source provenance independently of
-whether its physical projection uses Copy or Link. Existing protections reject
+PROJECT installation uses Copy with the RejectFileLinks policy. An explicit
+mode must be `"copy"`. Omitted alias and entry_name preserve existing options
+on reapplication. LocalLink records where the source was captured. Existing protections reject
 foreign source/producer/directory state rather than adopting it.
 
 Successful responses echo operation install_local, source local, scope,
@@ -252,7 +250,7 @@ in the captured scope to their resolved latest releases. PROJECT requires its
 authorized project_id, project_version and literal binding; global_cache omits
 binding. Page filters and pagination do not restrict this operation. Sources and
 publishers come from the installed records; the client sends no provider, ID,
-alias, entry name or physical mode. Names and mode are preserved by the producer.
+alias or entry name. The producer preserves those names.
 Resources and LocalLink are excluded. Native Global remains read only in Web.
 
 The user confirms the scope before sending. The response has operation update_all,

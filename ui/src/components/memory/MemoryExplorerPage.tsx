@@ -22,7 +22,7 @@ import { Flag, ShieldCheck } from "lucide-react";
 import { nativeMemoryMutationApi, type MemoryDraft, type MemoryMutationResult } from '@/api/nativeMemoryMutation';
 type MemoryScope = 'project' | 'user';
 import { nativeMemoryApi, type NativeMemory, type NativeMemoryHistory, type NativeMemoryList, type MemoryEnvelope, type MemoryReadScope, type MemoryClassification, type NativeMemorySearch, type MemorySearchMode } from '@/api/nativeMemory'
-import { nativeSelectionKey, projectRecordHref, requestedRecordSelection, userMemoryHref } from '@/api/nativeRecordNavigation'
+import { encodeProjectLocator, nativeSelectionKey, projectRecordHref, requestedRecordSelection, sameProjectVersion, userMemoryHref } from '@/api/nativeRecordNavigation'
 import { nativeTimestamp, stringifyNativeJson } from '@/api/nativeJson'
 import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { MarkdownContent } from '@/components/wiki/WikiMarkdown'
@@ -273,7 +273,7 @@ export default function MemoryExplorerPage() {
   const [requested, setRequested] = useState(parseRoute)
   if (requested.search !== location.search || requested.scope !== scope) setRequested(parseRoute())
   const selectionError = requested.error
-  const selection = scope === 'project' ? requested.selection ?? observedSelection : null
+  const selection = scope === 'project' && (!requested.selection || sameProjectVersion(observedSelection, requested.selection)) ? observedSelection : null
   const requestedUserScope = requested.userScope
   const scopeKey = scope === 'project' ? nativeSelectionKey(selection) : stringifyNativeJson(['user', requestedUserScope])
   const [catalog, setCatalog] = useState<{ key: string; value: MemoryEnvelope<NativeMemoryList | NativeMemorySearch> } | null>(null)
@@ -317,7 +317,7 @@ export default function MemoryExplorerPage() {
       return id && observed ? userMemoryHref(id, observed) : '/memory/explorer/user'
     }
     if (!selection) return '/memory/explorer/project'
-    return id ? projectRecordHref('memory', id, selection) : '/memory/explorer/project?' + new URLSearchParams({ selection: stringifyNativeJson(selection) })
+    return id ? projectRecordHref('memory', id, selection) : '/memory/explorer/project?' + new URLSearchParams({ selection: encodeProjectLocator(selection) })
   }
   const loadCatalog = useCallback(async () => {
     catalogReader.current?.abort()

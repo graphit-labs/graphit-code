@@ -101,16 +101,6 @@ impl RemoteArguments {
 #[serde(rename_all = "lowercase")]
 pub enum PhysicalMode {
     Copy,
-    Link,
-}
-impl PhysicalMode {
-    pub(crate) fn artifact_mode(self) -> graphit_core::artifact_store::ArtifactMode {
-        use graphit_core::artifact_store::{ArtifactMode, CopyPolicy};
-        match self {
-            Self::Copy => ArtifactMode::Copy(CopyPolicy::RejectFileLinks),
-            Self::Link => ArtifactMode::Link,
-        }
-    }
 }
 fn present_mode<'de, D: serde::Deserializer<'de>>(
     value: D,
@@ -135,8 +125,7 @@ pub struct InstallArguments {
     pub alias: Option<String>,
     #[arg(long)]
     pub entry_name: Option<String>,
-    /// PROJECT mode. Rendered agents, skills, commands and workflows require Copy.
-    /// Original sources may use Link. Omit on update to retain its physical mode.
+    /// PROJECT installation mode. The checkout receives a copy.
     #[arg(long, value_enum)]
     #[serde(
         default,
@@ -542,15 +531,15 @@ mod tests {
             let wire = prepare_install(&input, update, None, &policy, &request).unwrap();
             assert!(!wire.arguments.unwrap().contains_key("mode"));
         }
-        for (mode, wire_mode) in [(PhysicalMode::Copy, "copy"), (PhysicalMode::Link, "link")] {
-            input.mode = Some(mode);
+        {
+            input.mode = Some(PhysicalMode::Copy);
             for update in [false, true] {
                 assert_eq!(
                     prepare_install(&input, update, None, &policy, &request)
                         .unwrap()
                         .arguments
                         .unwrap()["mode"],
-                    wire_mode
+                    "copy"
                 );
                 input.global = true;
                 assert!(prepare_install(&input, update, None, &policy, &request).is_err());
@@ -561,6 +550,7 @@ mod tests {
             serde_json::Value::Null,
             serde_json::json!("Copy"),
             serde_json::json!("native"),
+            serde_json::json!("link"),
             serde_json::json!(false),
         ] {
             let mut bad = value.clone();

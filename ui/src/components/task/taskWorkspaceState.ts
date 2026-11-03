@@ -1,16 +1,22 @@
 import { create } from 'zustand'
 import { taskApi, TaskReadError, type TaskContext, type TaskProjectMetadata } from '@/api/task'
-import { nativeSelectionKey } from '@/api/nativeRecordNavigation'
+import { nativeSelectionKey, sameProjectVersion, type ProjectLocator } from '@/api/nativeRecordNavigation'
 import { nativeRecordContexts, NativeRecordReadError, type ProjectReadModule } from '@/api/nativeRecordRead'
 
 export const taskContextKey = nativeSelectionKey
+export function resolveProjectLocator(locator: ProjectLocator, contexts: readonly TaskContext[], preferred: TaskContext | null, current: TaskContext | null = null) {
+ const candidates = contexts.filter(context => sameProjectVersion(context, locator))
+ return candidates.find(context => taskContextKey(context) === taskContextKey(preferred))
+  ?? candidates.find(context => taskContextKey(context) === taskContextKey(current))
+  ?? (candidates.length === 1 ? candidates[0] : null)
+}
 export const taskProjectKey = (context: TaskContext) => JSON.stringify([context.project_dir, context.project_id])
 export type WorkspacePhase = 'loading' | 'ready' | 'anonymous' | 'forbidden' | 'error'
 interface TaskWorkspace {
  module: ProjectReadModule; contexts: TaskContext[]; projects: TaskProjectMetadata[]; selection: TaskContext | null; phase: WorkspacePhase; error: string; refreshing: boolean
  preferenceIdentity: string | null; preferredSelection: TaskContext | null
  select: (key: string) => void
- refresh: (requested?: TaskContext | null, module?: ProjectReadModule) => Promise<void>
+ refresh: (requested?: ProjectLocator | TaskContext | null, module?: ProjectReadModule) => Promise<void>
 }
 let request: AbortController | null = null
 let generation = 0
@@ -37,8 +43,15 @@ export const useTaskWorkspace = create<TaskWorkspace>((set, get) => ({
    const previous = get().selection
    const preferred = requested ?? previous ?? get().preferredSelection
    const selectedKey = taskContextKey(previous)
-   const wanted = taskContextKey(preferred)
-   const match = result.contexts.find(context => taskContextKey(context) === wanted)
+   let match: TaskContext | undefined
+   if (preferred && 'project_dir' in preferred) {
+    match = result.contexts.find(context => sameProjectVersion(context, preferred) && context.project_dir === preferred.project_dir)
+   } else if (preferred) {
+    match = resolveProjectLocator(preferred, result.contexts, previous ?? get().preferredSelection, result.current) ?? undefined
+    if (!match && result.contexts.some(context => sameProjectVersion(context, preferred))) {
+     throw new Error('The selected project version has multiple working copies. Open the workspace without a record link and select a working copy.')
+    }
+   }
    if (preferred && !match) throw new Error('The selected working context is unavailable. Retry.')
    const next = match ?? result.current
    const selection = previous && taskContextKey(next) === selectedKey ? previous : next

@@ -36,7 +36,7 @@ Clippy estrito, sem falhas ou testes ignorados. O guard proporcional Settings
 foi qualificado em `tsk-c775` r14, com falha runtime e bloqueio Git reais,
 restauração positiva e fontes íntegras. A referência de configuração
 ativa está em [Configuration Reference](../guides/configuration.md#knowledge-indexing);
-as regras estritas abaixo são o contrato Rust aprovado, ainda sem cutover.
+as regras estritas abaixo são o contrato de configuração.
 
 ## Resolução e origem
 
@@ -131,7 +131,7 @@ outra camada nem faz conversão permissiva.
 O Core captura variáveis solicitadas pela Brand real. Por exemplo,
 `Brand::new("acme-code")` produz `ACME_CODE_KNOWLEDGE__DOCS_DIR`,
 `ACME_CODE_KNOWLEDGE__INCLUDE_README` e `ACME_CODE_KNOWLEDGE__EXTENSIONS`.
-As variáveis usam `__` entre partes da chave; não há alias para nomes Go.
+As variáveis usam `__` entre partes da chave.
 Valores solicitados não UTF-8 falham em `capture_environment` antes de Knowledge.
 Nomes nativos Unix bytes e Windows UTF-16, incluindo matching de extensão de
 filename observado, pertencem ao produtor físico. Esta view não os converte

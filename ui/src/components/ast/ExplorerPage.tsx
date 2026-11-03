@@ -30,7 +30,7 @@ import {
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 
 import { nativeAstApi, astSelection, type AstSourceReply, type AstSchema, type AstQuery, type AstSearchMode, type AstSearchMetric, type AstSearchReply } from '@/api/nativeAst';
-import { nativeSelectionKey, projectReadModule, requestedImportedAstSource, requestedAstContext, importedAstHref } from '@/api/nativeRecordNavigation';
+import { encodeProjectLocator, nativeSelectionKey, projectReadModule, requestedImportedAstSource, requestedAstContext, importedAstHref } from '@/api/nativeRecordNavigation';
 import { stringifyNativeJson, parseNativeJson, type NativeInteger } from '@/api/nativeJson';
 import { useTaskWorkspace, invalidateTaskWorkspace } from '@/components/task/taskWorkspaceState';
 import { TaskWorkspaceNotice } from '@/components/task/TaskWorkspace';
@@ -525,7 +525,7 @@ export default function ExplorerPage() {
         actions={
           <button
             className="work-button"
-            onClick={() => navigate("/ast/contexts?" + new URLSearchParams(physicalBinding ? { selection: stringifyNativeJson(physicalBinding), ...(!nativeProject ? { library: "imported" } : {}) } : { library: "imported" }))}
+            onClick={() => navigate("/ast/contexts?" + new URLSearchParams(physicalBinding ? { selection: encodeProjectLocator(physicalBinding), ...(!nativeProject ? { library: "imported" } : {}) } : { library: "imported" }))}
           >
             Indexed contexts
           </button>

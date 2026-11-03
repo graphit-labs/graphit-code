@@ -37,6 +37,16 @@ pub(super) async fn read<'a>(
             .map_err(|_| error("authentication_or_permission_denied"))
     };
     before()?;
+    let slot = match input.scope {
+        Scope::Project => read
+            .project()
+            .map_err(|_| error("authentication_or_permission_denied"))?
+            .scope
+            .live
+            .publication_slot(),
+        Scope::GlobalInstallation => graphit_core::artifact_store::PublicationSlot::Scope,
+    };
+    let consumer = graphit_hub::registry::consumer_for_artifact(slot, input.artifact_type);
     let registry = registry(state, selected, input.scope)?;
     let document = registry.load().map_err(io_failure)?;
     let target = match input.scope {
@@ -44,7 +54,7 @@ pub(super) async fn read<'a>(
         Scope::GlobalInstallation => InstallationTarget::GlobalCache,
     };
     let installed = document
-        .get_version(input.artifact_type, id.as_str(), &version)
+        .get_version_for_consumer(&consumer, input.artifact_type, id.as_str(), &version)
         .and_then(|artifact| {
             artifact
                 .installations
@@ -138,7 +148,7 @@ pub(super) async fn read<'a>(
     };
     let current = registry.load().map_err(io_failure)?;
     let current = current
-        .get_version(input.artifact_type, id.as_str(), &version)
+        .get_version_for_consumer(&consumer, input.artifact_type, id.as_str(), &version)
         .and_then(|artifact| {
             artifact
                 .installations

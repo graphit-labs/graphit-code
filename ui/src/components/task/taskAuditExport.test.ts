@@ -25,7 +25,10 @@ describe('explicit Task audit export', () => {
   const parts = await taskAuditExport(detail, context, signal)
   const json = parts.join('')
   const exported = parseNativeJson(json)
-  expect(exported).toEqual({ ...detail, history: { before, events: [...historyPage.events, lastEvent], next_cursor: null }, comments: { comments: [...commentsPage.comments, comment], next_cursor: null } })
+  const { history_start_cursor, comments_start_cursor, ...current } = detail
+  expect(json).not.toContain(history_start_cursor)
+  expect(json).not.toContain(comments_start_cursor)
+  expect(exported).toEqual({ ...current, history: { before, events: [...historyPage.events, lastEvent], next_cursor: null }, comments: { comments: [...commentsPage.comments, comment], next_cursor: null } })
   expect(json).toContain('18446744073709551615')
   expect(json).toContain('9007199254740993')
   expect(vi.mocked(taskApi.get).mock.calls).toEqual([

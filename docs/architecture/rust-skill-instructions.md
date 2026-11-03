@@ -38,7 +38,7 @@ Descriptions are normative Markdown assets alongside each entrypoint, using the 
 | memory | `skills/memory/entry.md` | `references/durable-context.md` |
 | task | `skills/task/entry.md` | `references/execution.md`, `references/planning.md`, `references/session.md`, `references/worked-feature.md`, `references/worked-system.md` |
 
-The 20 maintained sources under `templates/agent-instructions/skills/` comprise five bodies, ten references and five descriptions. All sets reuse the six shared reference/persistence sources from [policy instructions](rust-policy-instructions.md). Task additionally reuses the existing protocol.md for its body and standalone references, reconciling legacy own-Task claims/releases with current coordinator-only lifecycle. No Go generator, replacer, installer or resolver runs in the Rust API.
+The 20 maintained sources under `templates/agent-instructions/skills/` comprise five bodies, ten references and five descriptions. All sets reuse the six shared reference/persistence sources from [policy instructions](rust-policy-instructions.md). Task additionally reuses the existing protocol.md for its body and standalone references, reconciling legacy own-Task claims/releases with current coordinator-only lifecycle.
 
 ## Effective values
 

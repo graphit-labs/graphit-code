@@ -9,7 +9,7 @@ references:
 # Rust workspace integration — 2026-10-09
 
 This configuration checkpoint lets maintainers validate five new Rust libraries.
-It is part of the [Rust migration](rust-migration.md), not product cutover.
+See the [product architecture](product-architecture.md) for component boundaries.
 
 The workspace now has thirteen members. The five additions inherit edition 2024,
 Rust 1.98, MIT licensing and workspace lints. Their manifests remain unchanged.
@@ -46,5 +46,4 @@ formatting and workspace Clippy. The subsequent [fast runner correction](rust-fa
 adds the short behavior tests; its real failure proof is tracked separately.
 `cargo xtask gate` also runs workspace tests, including documentation tests;
 it remains the broad integration barrier. The guard verifier copies the entire
-`crates` directory, so these additions require no copying exception. No Go test
-retirement, native Windows/macOS runtime validation, commit or push is implied.
+`crates` directory, so these additions require no copying exception. Native Windows and macOS runtime validation is tracked separately.

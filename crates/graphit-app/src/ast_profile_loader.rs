@@ -53,17 +53,53 @@ pub(super) fn queries_directory(
     let configured = config
         .get::<String>(&ConfigKey::new("ast.queries_dir")?)?
         .unwrap_or_else(|| format!("{}/ast/queries", project.brand().directory()));
-    let path = PathBuf::from(configured);
-    if path.as_os_str().is_empty()
-        || !path
-            .components()
-            .all(|p| matches!(p, std::path::Component::Normal(_)))
-        || path.as_os_str().as_encoded_bytes().contains(&0)
-        || path.as_os_str().as_encoded_bytes().len() > graphit_core::native_path::MAX_PATH_BYTES
+    queries_relative_path(&configured)
+}
+
+fn queries_relative_path(configured: &str) -> io::Result<PathBuf> {
+    if configured.len() > graphit_core::native_path::MAX_PATH_BYTES
+        || configured.split('/').any(|part| {
+            part.is_empty()
+                || part == "."
+                || part == ".."
+                || part.contains(['\\', ':'])
+                || part.chars().any(char::is_control)
+        })
     {
-        return Err(io::ErrorKind::InvalidInput.into());
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ast.queries_dir must be a project-relative path with '/' separators",
+        ));
     }
-    Ok(path)
+    Ok(PathBuf::from(configured))
+}
+
+#[cfg(test)]
+#[test]
+fn query_override_paths_are_portable() {
+    assert_eq!(
+        queries_relative_path(".graphit/ast/ação").unwrap(),
+        Path::new(".graphit/ast/ação")
+    );
+    for path in [
+        "",
+        "/",
+        "/tmp/queries",
+        "../queries",
+        "ast//queries",
+        "ast/./queries",
+        "ast/../queries",
+        "C:/queries",
+        r"C:\queries",
+        r"ast\queries",
+        "ast/\0queries",
+    ] {
+        assert_eq!(
+            queries_relative_path(path).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput,
+            "{path:?}"
+        );
+    }
 }
 pub(super) struct AstProfileLoader {
     stock: Vec<DecodedProfile>,

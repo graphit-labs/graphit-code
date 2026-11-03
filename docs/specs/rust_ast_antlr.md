@@ -142,11 +142,11 @@ shared `data_type_list`, cursor parameters and restricted ARRAY index
 `data_type_2` retain their existing rules. Precision/catalog validation remains
 outside the parser.
 
-The DB2-only regeneration for this change uses the qualified ANTLR 4.13.2 Tool:
+Set `ANTLR_JAR` to your local ANTLR 4.13.2 complete JAR before running the regeneration commands.
 
 ```text
-java -cp .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar org.antlr.v4.Tool -Dlanguage=Cpp -encoding UTF-8 -Xexact-output-dir -no-listener -no-visitor -package graphit::antlr::db2 -o .build/ast-db2-types-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Lexer.g4
-java -cp .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar org.antlr.v4.Tool -Dlanguage=Cpp -encoding UTF-8 -Xexact-output-dir -no-listener -no-visitor -package graphit::antlr::db2 -lib .build/ast-db2-types-generated -o .build/ast-db2-types-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -cp "$ANTLR_JAR" org.antlr.v4.Tool -Dlanguage=Cpp -encoding UTF-8 -Xexact-output-dir -no-listener -no-visitor -package graphit::antlr::db2 -o .build/ast-db2-types-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Lexer.g4
+java -cp "$ANTLR_JAR" org.antlr.v4.Tool -Dlanguage=Cpp -encoding UTF-8 -Xexact-output-dir -no-listener -no-visitor -package graphit::antlr::db2 -lib .build/ast-db2-types-generated -o .build/ast-db2-types-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 Publish the complete eight `Db2{Lexer,Parser}.{cpp,h,interp,tokens}` files from
@@ -325,8 +325,8 @@ Regenerate the main recognizers after later DB2 edits with:
 
 ```text
 cmake -E make_directory .build/ast-db2-method-parameters-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-method-parameters-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Lexer.g4
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-method-parameters-generated -lib .build/ast-db2-method-parameters-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-method-parameters-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Lexer.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-method-parameters-generated -lib .build/ast-db2-method-parameters-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 Publish each main recognizer's `.h`, `.cpp`, `.interp` and `.tokens` from that
@@ -363,7 +363,7 @@ These exact commands passed on Linux; Windows/macOS remain unrun:
 ```text
 cmake -E make_directory .build/ast-db2-alter-type-method-wrapper-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-alter-type-method-wrapper-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-alter-type-method-wrapper-generated -lib .build/ast-db2-alter-type-method-wrapper-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-alter-type-method-wrapper-generated -lib .build/ast-db2-alter-type-method-wrapper-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 The Methodspec return product `tsk-231a` places one mandatory native
@@ -397,7 +397,7 @@ passed on Linux; Windows/macOS remain unrun:
 ```text
 cmake -E make_directory .build/ast-db2-method-spec-returns-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-method-spec-returns-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-method-spec-returns-generated -lib .build/ast-db2-method-spec-returns-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-method-spec-returns-generated -lib .build/ast-db2-method-spec-returns-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 The PROCEDURE list product `tsk-eb87` permits empty external parameter lists
@@ -424,7 +424,7 @@ lexer. Lexer and Unicode auxiliary outputs remain byte-identical. Regenerate:
 ```text
 cmake -E make_directory .build/ast-db2-procedure-parameter-lists-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-procedure-parameter-lists-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-procedure-parameter-lists-generated -lib .build/ast-db2-procedure-parameter-lists-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-procedure-parameter-lists-generated -lib .build/ast-db2-procedure-parameter-lists-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 Windows/macOS qualification remains unrun.
@@ -447,7 +447,7 @@ no output diagnostics. Regenerate this parser using the published lexer:
 ```text
 cmake -E make_directory .build/ast-db2-routine-defaults-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-routine-defaults-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-routine-defaults-generated -lib .build/ast-db2-routine-defaults-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-routine-defaults-generated -lib .build/ast-db2-routine-defaults-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 The Linux fixture `db2_routine_defaults_native` passed (one test, 0.36 seconds),
@@ -499,7 +499,7 @@ outputs remain unchanged. These commands passed on Linux; Windows/macOS are unru
 ```text
 cmake -E make_directory .build/ast-db2-function-defaults-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-function-defaults-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-function-defaults-generated -lib .build/ast-db2-function-defaults-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-function-defaults-generated -lib .build/ast-db2-function-defaults-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 The PROCEDURE-default composition `tsk-4537` replaces only the two value
@@ -534,7 +534,7 @@ byte-identical. The exact commands passed on Linux; Windows/macOS remain unrun:
 ```text
 cmake -E make_directory .build/ast-db2-procedure-defaults-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-procedure-defaults-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-procedure-defaults-generated -lib .build/ast-db2-procedure-defaults-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-procedure-defaults-generated -lib .build/ast-db2-procedure-defaults-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 The Unicode Source product `tsk-4192` implements the closed contract from
@@ -562,10 +562,10 @@ The main generation script remains unchanged; supplementary commands are:
 
 ```text
 cmake -E make_directory .build/ast-db2-unicode-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Lexer.g4
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated -lib .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2UnicodeLexer.g4
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated -lib .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2UnicodeParser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Lexer.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated -lib .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2UnicodeLexer.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-unicode-generated -lib .build/ast-db2-unicode-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2UnicodeParser.g4
 ```
 
 All four calls must succeed before publication. For each recognizer, copy the
@@ -736,7 +736,7 @@ distinct origins; joined literals can be Compound. Unknown indicators/incomplete
 prefixes are errors. COPY/REPLACE stage 5 and invented FREE format are excluded.
 Detection examines up to 50 lines: Fixed if more than 30% have numeric sequence
 fields or no eligible lines exist, otherwise Variable. Tandem is explicit.
-This is functional format selection, not a Go compatibility detector.
+The selected format determines the parser.
 
 ## Generation, build and publication
 
@@ -763,7 +763,7 @@ escape-string continuation modes. Those transitions are maintained grammar
 behavior; their existing nullable-mode lexical cases remain functional fixtures.
 Warnings are retained, not suppressed or reported as zero warnings.
 Captured official artifacts and useful PostgreSQL lexer evidence are reused.
-Historical custody/hash matrices, universal quotas and Go differential tests are
+Historical custody/hash matrices and universal quotas are
 not new requirements.
 
 | Input family | Private C++ semantics | Functional consumers |
@@ -890,7 +890,7 @@ linking on Linux under `tsk-fb73`; MAIN functional execution passed all eighteen
 fixtures under `tsk-b197`. The affected MAIN rustfmt and strict Clippy checks
 passed after the focused assertion for SDK-inserted recovery tokens was added.
 Windows/macOS and cross compilation remain unrun. These leaves introduce no broad workspace gate,
-Go fallback or old-format conversion.
+format conversion.
 
 Main publication qualification uses the actual workspace sources and resolved lock:
 
@@ -923,7 +923,7 @@ with a missing COBOL `DIVISION`: the inserted SDK node retains
 `Unindexed(InsertedRecoveryToken)` and no source span. All eighteen cases passed
 again after that assertion; the initial log and fixture-development failures are
 retained separately. This qualification
-does not establish whole-indexer/query/symbol dispatch or MCP/CLI cutover.
+does not establish whole-indexer/query/symbol dispatch or MCP/CLI behavior.
 
 ## DB2 shared FUNCTION parameter names
 
@@ -957,7 +957,7 @@ outputs are unchanged. These invocations passed on Linux; Windows/macOS are unru
 ```text
 cmake -E make_directory .build/ast-db2-shared-function-parameter-names-generated
 cmake -E copy_if_different crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.h crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.cpp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.interp crates/graphit-ast/src/antlr_engine/cpp/generated/db2/Db2Lexer.tokens .build/ast-db2-shared-function-parameter-names-generated
-java -jar .build/rust-migration/ast-antlr-refinement/tool-artifacts-22/antlr-4.13.2-complete.jar -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-shared-function-parameter-names-generated -lib .build/ast-db2-shared-function-parameter-names-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
+java -jar "$ANTLR_JAR" -Dlanguage=Cpp -encoding UTF-8 -package graphit::antlr::db2 -Xexact-output-dir -no-listener -no-visitor -o .build/ast-db2-shared-function-parameter-names-generated -lib .build/ast-db2-shared-function-parameter-names-generated crates/graphit-ast/src/antlr_engine/grammars/db2/Db2Parser.g4
 ```
 
 ## DB2 Method ordinary return types

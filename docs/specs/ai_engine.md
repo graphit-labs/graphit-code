@@ -103,8 +103,8 @@ skip a configured service. [Rerank consumer](rust_search_rerank_consumer.md) def
 ## Completion and sessions
 
 `ai.cli` explicitly selects a completion executable; otherwise use the effective native binding.
-A missing selection/program is unavailable, not a reason to probe unrelated CLIs. No general
-`ai.Conversation` Go implementation remains. Each Rust adapter uses its documented protocol and
+A missing selection or program returns an unavailable result.
+Each adapter uses its documented protocol and
 owned Process lifecycle; native session identities stay bound to their actual project/user/CLI.
 
 Knowledge Ask, Incoming Conversation, Live and Dream retain their own admission and final-answer

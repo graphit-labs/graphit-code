@@ -65,7 +65,11 @@ pub(super) async fn journey(
     let registry = project_registry(fixture);
     let before = checked(registry.load(), "collective local baseline");
     let local_before = before
-        .get(ArtifactType::Skill, "fixture/update-local")
+        .get_for_consumer(
+            &project_slot(fixture),
+            ArtifactType::Skill,
+            "fixture/update-local",
+        )
         .expect("actual local installation");
     for (id, alias) in [
         ("fixture/update-a", "collective-a"),
@@ -85,7 +89,11 @@ pub(super) async fn journey(
     }
     let after = checked(registry.load(), "collective Web publication");
     assert_eq!(
-        after.get(ArtifactType::Skill, "fixture/update-local"),
+        after.get_for_consumer(
+            &project_slot(fixture),
+            ArtifactType::Skill,
+            "fixture/update-local"
+        ),
         Some(local_before)
     );
     for (id, alias) in [
@@ -93,7 +101,7 @@ pub(super) async fn journey(
         ("fixture/update-b", "collective-b"),
     ] {
         let installed = &after
-            .get(ArtifactType::Skill, id)
+            .get_for_consumer(&project_slot(fixture), ArtifactType::Skill, id)
             .expect("updated remote")
             .installations[0];
         assert_eq!(installed.alias.as_deref(), Some(alias));

@@ -95,8 +95,7 @@ read-back specification and static readiness review.
 
 Preserve all active parser/profile/language families. Reuse the qualified
 Tree-sitter and official ANTLR engines and actual origins. Semantic interpretation
-of their nodes/captures is distinct from implementing another parser. No Go
-fallback, compatibility adapter, source normalization or guessed span is allowed.
+of their nodes/captures is distinct from implementing another parser. Source spans come from the selected parser and remain in original coordinates.
 
 ## Delivered inputs
 
@@ -383,7 +382,7 @@ NativeNN consumers. The consumer cutover is qualified by `tsk-4840`: 54 affected
 scoped Clippy passed. This does not qualify the complete daemon indexing flow.
 See [Tree-sitter NativeNN](rust_tree_sitter_native_nn.md) for the borrowed input
 and Source association contract. Actual loader/callback publication, generation
-retargeting and all-language integration remain required migration work.
+retargeting and all-language integration remain required integration work.
 
 ## Arrow codec for native parser entities
 
@@ -660,7 +659,7 @@ capture producer remain byte exact, and Q changes only its private test builder.
 The concurrent foreign App crossterm lock entries are outside the AST dependency
 closure and were preserved. Windows/macOS remain UNRUN. Actual full-language
 semantic publication, ModelService inference and authorized CLI/MCP/Main caller
-integration remain required migration deliveries.
+integration remain required integration deliveries.
 
 ## Local AST corpus acquisition and retained branches
 

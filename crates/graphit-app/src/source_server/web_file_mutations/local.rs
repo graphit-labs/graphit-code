@@ -154,7 +154,11 @@ pub(super) async fn apply(
     let target = InstallationTarget::for_artifact(input.binding, kind);
     let previous = registry
         .load()?
-        .get(kind, source.id().as_str())
+        .get_for_consumer(
+            &graphit_hub::registry::consumer_for_artifact(consumer_scope.publication_slot(), kind),
+            kind,
+            source.id().as_str(),
+        )
         .and_then(|artifact| {
             artifact
                 .installations

@@ -163,7 +163,16 @@ pub(super) async fn apply(
         let exact = if global {
             document.get_version(kind, source.id().as_str(), source.version())
         } else {
-            document.get(kind, source.id().as_str())
+            document.get_for_consumer(
+                &graphit_hub::registry::consumer_for_artifact(
+                    project_scope
+                        .ok_or(io::ErrorKind::InvalidInput)?
+                        .publication_slot(),
+                    kind,
+                ),
+                kind,
+                source.id().as_str(),
+            )
         }
         .and_then(|artifact| {
             artifact

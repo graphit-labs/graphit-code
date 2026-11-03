@@ -142,7 +142,7 @@ Every request borrows the same Core cancellation signal and absolute Instant
 from the original context. Checks cover input/encoding, chunks, decode rows and
 components and final return. The real HTTP client observes that context while
 waiting for headers/body. There is no replacement cancellation token, per-chunk
-timeout extension, retry, redirect, decompression, extra pool or Go fallback.
+timeout extension, retry, redirect, decompression or extra pool.
 
 Empty input checks context/policy and returns an empty existing `EmbeddingBatch`
 without HTTP. Pre-cancel or expiry remains an error. Success exposes the captured
@@ -215,7 +215,7 @@ Receipts are in
 `proof-summary.json`, `grouped-six-receipt.json` and `grouped-six.log` (SHA256
 `4378f7a7404b64451fe76498422f7cb27d15be400b7fc1bec8432c864351429c`).
 The matching Google profile qualifies this suite; the previous direct guard,
-native reranking, Process, future plain CLI consumers and full migration have
+native reranking, Process, future plain CLI consumers and end-to-end product validation have
 separate evidence. Windows/macOS and authenticated inference remain unverified.
 The focused suite and precompiled measurements above are retained; no provider
 measurement or Cargo command was rerun for this documentation update.

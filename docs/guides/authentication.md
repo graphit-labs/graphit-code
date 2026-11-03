@@ -156,5 +156,5 @@ not the project's identity or a display username. [S3](s3-and-ui-network.md) spe
 `graphit-auth` owns provider/profile validation, JWT/OIDC and service credentials. App's
 `auth_cli`, `auth_active`, `admin_auth` and record-storage adapters compose those APIs. Browser
 `browser_auth.rs` / `browser_auth/session.rs` owns opaque cookies and server sessions;
-`foreground_tasks.rs` owns Browser topology. Historical token-cookie/Go descriptions do not
-describe this implementation. Platform/library tests retain their own execution scope.
+`foreground_tasks.rs` owns Browser topology. Platform and library tests retain
+their own execution scope.

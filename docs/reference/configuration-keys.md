@@ -108,7 +108,7 @@ MRL dimensions come from the selected embedding manifest, not a nonexistent `mod
 |---|---|---|
 | `ast.index_docs` | Boolean; false | Include the configured documentation directory in AST path selection; does not add a Markdown grammar |
 | `ast.index_source` | Boolean; true | Persist selected file Source for exact readers |
-| `ast.queries_dir` | Relative string; `.<brand>/ast/queries` | PROJECT extraction overrides |
+| `ast.queries_dir` | Project-relative string using `/`; `.<brand>/ast/queries` | PROJECT extraction overrides |
 | `ast.grammar` | CSV string; empty | Explicit extension/grammar selections, with backend selection validation |
 | `ast.grammars_whitelist` | CSV string; empty | Restrict eligible grammars under profile selection rules |
 | `ast.grammars_blacklist` | CSV string; empty | Exclude grammars under profile selection rules |

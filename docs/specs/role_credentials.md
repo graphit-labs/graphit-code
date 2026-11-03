@@ -58,7 +58,7 @@ administrative registration. The native installer, raw override capture,
 managed launchers and host execution remain the independent consumer delivery
 tsk-bdf5; a definition or codec roundtrip does not install or execute a role.
 Delivery status belongs in
-[Rust migration](../development/rust-migration.md).
+[product architecture](../development/product-architecture.md).
 The independent [bounded HTTP transport](bounded_http_transport.md) is the
 network prerequisite for Broker verification; it carries no authority itself.
 
@@ -386,8 +386,7 @@ create profiles, publish auth.json or grant filesystem access by itself. The
 NativeProfileManager consumer below implements the profile operations and its
 actual pending-cleanup denial/retry fixtures. Broker incoming sources,
 startup policy selection, CLI/MCP/HTTP permission consumers, native platforms
-and whole-product performance remain separate necessary migration work. No Go
-fallback or compatibility factory is retained.
+and whole-product performance have separate validation scopes.
 
 ## Native profile administration
 

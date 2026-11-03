@@ -31,7 +31,7 @@ App permanece separada.
 A seleção capturada de `ai.cli`, programa, ambiente, cwd e modelo pertence ao
 consumidor. O runner recebe `CopilotRequest { command, session, model, prompt }`
 e usa o `ProcessHost` existente. Programa ausente mantém o erro real. Não há
-shell, download, descoberta de outra família ou fallback Go.
+shell, download, ou descoberta de outra família.
 
 O runner acrescenta argumentos separados:
 

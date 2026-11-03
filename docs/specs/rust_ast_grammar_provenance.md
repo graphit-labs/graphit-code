@@ -170,11 +170,7 @@ remain the base; the local patch remains explicit.
 
 The current auxiliary receipt is
 `.build/ast-grammar-provenance-0260/plpgsql-generation/generation-result.json`;
-`inputs.json` records the recovered recipe and keyword inputs. Earlier source
-comparisons were stored in `.build/rust-migration/ast-grammar-sourceproof/`,
-which is absent from this checkout. Their verified identities and comparisons
-remain in this document and the Task records; the current work reuses that
-specific evidence without claiming that the missing auxiliary files exist.
+`inputs.json` records the recovered recipe and keyword inputs. Verified source identities and comparisons are recorded here and in Task.
 Neither complete ZIP/H1/SumDB proofs nor an exact historical tool environment
 are universal provenance requirements. Registry metadata and source comparisons
 confer no native loading, runtime qualification or publication authority.

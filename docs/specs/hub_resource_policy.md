@@ -28,7 +28,7 @@ The policy implements the finite profile in the
 [Hub consumer contract](hub_consumer_contract.md).
 It uses the captured [Rust configuration contract](config_module.md)
 and the content producers from `tsk-1833` and `tsk-84f3`. See
-[Rust migration](../development/rust-migration.md) for the delivery boundary.
+[product architecture](../development/product-architecture.md) for the delivery boundary.
 
 ## Resolution and provenance
 

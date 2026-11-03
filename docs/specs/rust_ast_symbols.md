@@ -225,14 +225,6 @@ cargo xtask cargo test -p graphit-ast --doc symbols --jobs 1
 cargo xtask cargo clippy -p graphit-ast --lib --test profiles --test catalog --test symbols --jobs 1 -- -D warnings
 ```
 
-Receipts are `.build/rust-migration/ast-cleanup-a-tests-03.log`,
-`ast-cleanup-a-{profiles,catalog,symbols}-unit.log` and
-`ast-cleanup-a-symbols-doc.log` and `ast-cleanup-a-clippy.log` in the same directory. Initial compile failures
-are retained in tests-01/tests-02; stale Display/import and a byte literal in
-mechanical call adaptation were corrected before the passing run.
-The six owned Rust files use scoped `rustfmt --edition 2024 --check`.
-Cache reuse and one Cargo job were used; no broader suite qualifies this leaf.
-
 After the Core composition, `tsk-2cd3` checked the current symbols producer:
 nine public tests, five private tests and six symbols doctests passed on Linux.
 The doctests include five compile-fail ownership cases and one positive example.

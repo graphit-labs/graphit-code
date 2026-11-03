@@ -275,36 +275,29 @@ it('refreshes the current inventory filters when an earlier mutation completes',
   expect(screen.getByText('Operation completed')).toBeInTheDocument()
 })
 
-async function chooseUpdateMode(user:ReturnType<typeof userEvent.setup>,name:string){
-  await user.click(within(screen.getByRole('dialog')).getByRole('combobox',{name:'Installation mode'}))
-  await user.click(screen.getByRole('option',{name}))
-}
 it('physical mode update preserves mode and existing names by actual omission',async()=>{
   const user=userEvent.setup();render(<ProjectArtifactsPage/>);await inspect(user)
   await user.click(screen.getByRole('button',{name:'Update artifact'}));const dialog=screen.getByRole('dialog')
-  expect(within(dialog).getByRole('combobox',{name:'Installation mode'})).toHaveTextContent('Default (Copy)')
+  expect(dialog).toHaveTextContent('copies it into the checkout')
   await user.click(within(dialog).getByRole('button',{name:'Update artifact'}));await screen.findByText('Operation completed')
   const request=vi.mocked(hubNative.mutate).mock.calls[0][1]
   for(const field of ['mode','alias','entry_name'])expect(request).not.toHaveProperty(field)
-  expect(within(screen.getByRole('region',{name:'Operation outcome'})).getByText('Default Copy (omitted)')).toBeInTheDocument()
+  expect(within(screen.getByRole('region',{name:'Operation outcome'})).getByText('Copy')).toBeInTheDocument()
 })
-it.each([['Copy','copy'],['Link to Hub cache','link']] as const)('physical mode update sends explicit %s with typed alias and entry name',async(label,mode)=>{
-  if (mode === 'link') vi.mocked(hubNative.installed).mockImplementation(async query => ({ ...installedPage([{ ...installed, artifact_type: 'rule' }]), scope: query.scope }))
+it('project copy update sends typed alias and entry name',async()=>{
   const user=userEvent.setup();render(<ProjectArtifactsPage/>);await inspect(user)
   await user.click(screen.getByRole('button',{name:'Update artifact'}));const dialog=screen.getByRole('dialog')
-  await chooseUpdateMode(user,label)
   await user.type(within(dialog).getByRole('textbox',{name:'Local alias (optional)'}),'team-review')
   await user.type(within(dialog).getByRole('textbox',{name:'Entry name (optional)'}),'review.md')
   await user.click(within(dialog).getByRole('button',{name:'Update artifact'}));await screen.findByText('Operation completed')
-  expect(hubNative.mutate).toHaveBeenCalledWith('update',expect.objectContaining({mode,alias:'team-review',entry_name:'review.md',selection:expect.objectContaining({transport:'broker',producer:projectB,version:'release-1'})}),expect.any(AbortSignal))
+  expect(hubNative.mutate).toHaveBeenCalledWith('update',expect.objectContaining({alias:'team-review',entry_name:'review.md',selection:expect.objectContaining({transport:'broker',producer:projectB,version:'release-1'})}),expect.any(AbortSignal))
 })
-it('physical mode Rule Link stays attached to its original owner across PROJECT changes',async()=>{
+it('Rule copy stays attached to its original owner across PROJECT changes',async()=>{
   vi.mocked(hubNative.installed).mockImplementation(async query => ({ ...installedPage([{ ...installed, artifact_type: 'rule' }]), scope: query.scope }))
   let finish!:(value:FileOutcome)=>void
   vi.mocked(hubNative.mutate).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}))
   const user=userEvent.setup();render(<ProjectArtifactsPage/>);await inspect(user)
   await user.click(screen.getByRole('button',{name:'Update artifact'}));const dialog=screen.getByRole('dialog')
-  await chooseUpdateMode(user,'Link to Hub cache')
   await user.click(within(dialog).getByRole('button',{name:'Update artifact'}))
   const [,captured,signal]=vi.mocked(hubNative.mutate).mock.calls[0]
   act(()=>{selectHubProject(projectB,'feature/b','/b');useAppStore.setState({activeAgent:'kimi'})})
@@ -312,9 +305,9 @@ it('physical mode Rule Link stays attached to its original owner across PROJECT 
   const reads=vi.mocked(hubNative.installed).mock.calls.length
   await act(async()=>finish(completed('update',captured)))
   await screen.findByText('Operation completed')
-  expect(captured).toMatchObject({mode:'link',scope:{kind:'project',project_id:projectA,project_version:'feature/a'}})
+  expect(captured).toMatchObject({scope:{kind:'project',project_id:projectA,project_version:'feature/a'}})
   expect(signal?.aborted).toBe(false)
   expect(hubNative.installed).toHaveBeenCalledTimes(reads)
-  expect(within(screen.getByRole('region',{name:'Operation outcome'})).getByText('Link to Hub cache')).toBeInTheDocument()
+  expect(within(screen.getByRole('region',{name:'Operation outcome'})).getByText('Copy')).toBeInTheDocument()
   expect(hubNative.mutate).toHaveBeenCalledTimes(1)
 })

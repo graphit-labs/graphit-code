@@ -40,7 +40,7 @@ Project instructions before the default.
 Project instructions after the default.
 ```
 
-Only explicitly supplied compiled defaults exist. This is the new Rust template contract; it does not interpret old brand-specific Go placeholders.
+Only explicitly supplied compiled defaults exist. Templates resolve declared variables against the effective brand.
 
 ## Variables and native literals
 

@@ -94,7 +94,7 @@ observações de staleness armazenadas; não avalia a atualidade dos arquivos.
 O serializer é `serde-saphyr = 1.3.0`, com `serialize` ativado explicitamente.
 Todas as strings são quoted, block scalars e diretivas YAML estão desativados.
 Títulos com dois pontos, aspas, quebras de linha e texto parecido com delimitador
-continuam strings válidas ao roundtrip. Não há exigência de bytes YAML Go.
+continuam strings válidas ao roundtrip.
 
 O framing é `---\n` + YAML terminado em LF + `---\n\n` + body. O corpo conserva
 seus bytes UTF-8, inclusive BOM, CRLF, Markdown e um eventual frontmatter
@@ -180,7 +180,7 @@ registrada em Task identifica os comandos efetivos. O Clippy estrito focal,
 com `-D warnings`, a formatação dos arquivos próprios e o diffcheck também
 passaram. Outras plataformas não foram executadas nesta qualificação.
 A API de leitura Source não encerra geração por domínio, busca, lint, exportação
-ou lifecycle e não declara a migração global concluída.
+ou lifecycle e não declara a validação ponta a ponta concluída.
 
 ## Exportação Markdown nativa
 

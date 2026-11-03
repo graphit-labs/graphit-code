@@ -6,7 +6,10 @@ pub(super) async fn content(
     read: &InstalledHubReadAdmission<'_>,
     registry: &HubRegistry,
     cache: &ArtifactStore,
-    input: inputs::Installed,
+    (slot, input): (
+        graphit_core::artifact_store::PublicationSlot,
+        inputs::Installed,
+    ),
     before: &(dyn Fn() -> io::Result<()> + Sync),
 ) -> io::Result<Value> {
     before()?;
@@ -21,9 +24,10 @@ pub(super) async fn content(
             kind,
         ),
     };
+    let consumer = graphit_hub::registry::consumer_for_artifact(slot, kind);
     let document = registry.load()?;
     let previous = document
-        .get_version(kind, &input.id, &version)
+        .get_version_for_consumer(&consumer, kind, &input.id, &version)
         .and_then(|artifact| {
             artifact
                 .installations
@@ -81,7 +85,7 @@ pub(super) async fn content(
     before()?;
     let current = registry.load()?;
     if current
-        .get_version(kind, &input.id, &version)
+        .get_version_for_consumer(&consumer, kind, &input.id, &version)
         .and_then(|artifact| {
             artifact
                 .installations
