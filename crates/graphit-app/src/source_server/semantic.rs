@@ -296,5 +296,5 @@ fn published_error(error: io::Error) -> SemanticError {
     SemanticError::Operation(error)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;

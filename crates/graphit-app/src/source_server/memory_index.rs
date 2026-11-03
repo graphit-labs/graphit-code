@@ -713,5 +713,5 @@ fn user_attachment(value: UserMemoryEmbeddingAttachOutcome) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;

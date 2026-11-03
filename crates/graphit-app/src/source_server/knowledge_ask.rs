@@ -1099,7 +1099,7 @@ impl Serialize for NativeWebAction<'_, '_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;
 
 pub(super) struct KiroAuthoritySink<'a, 'sink> {

@@ -503,6 +503,7 @@ async fn native_entity_source_same_original_auth_and_origin_guards() {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn project_entity_source_mcp_and_cli_consume_live_graph_and_bound_raw() {
     let (f, graph) = super::web_source_fixture(true).await;

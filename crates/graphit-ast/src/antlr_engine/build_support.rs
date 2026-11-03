@@ -139,6 +139,9 @@ pub fn build_runtime() -> Result<RuntimeInstall, BuildError> {
             .define("ANTLR4_INSTALL", "ON")
             .define("WITH_DEMO", "OFF")
             .define("WITH_STATIC_CRT", if static_crt { "ON" } else { "OFF" });
+        if target.ends_with("-msvc") {
+            config.cxxflag("/EHsc");
+        }
         if let Some(path) = &toolchain {
             config.define("CMAKE_TOOLCHAIN_FILE", path);
         }

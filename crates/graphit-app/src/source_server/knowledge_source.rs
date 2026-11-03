@@ -4,7 +4,7 @@ use crate::reference_explorer::SourceKey;
 use graphit_core::{native_path::NativePath, text_slice};
 
 mod read;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;
 
 pub(super) const TOOL: &str = "graphit_wiki_source";

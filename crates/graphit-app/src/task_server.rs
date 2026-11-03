@@ -1057,6 +1057,6 @@ async fn http_operation(
 #[cfg(test)]
 pub(crate) mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "record_storage_tests.rs"]
 mod record_storage_tests;

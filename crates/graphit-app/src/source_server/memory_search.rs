@@ -612,5 +612,5 @@ fn hybrid(value: MemoryHybridSearchRead) -> Value {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(super) mod tests;

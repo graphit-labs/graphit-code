@@ -1460,14 +1460,13 @@ mod tests {
         );
         #[cfg(unix)]
         {
-            rustix::fs::mknodat(
-                rustix::fs::CWD,
-                temp.path().join("pipe.rs"),
-                rustix::fs::FileType::Fifo,
-                rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
-                0,
-            )
-            .unwrap();
+            assert!(
+                std::process::Command::new("mkfifo")
+                    .arg(temp.path().join("pipe.rs"))
+                    .status()
+                    .unwrap()
+                    .success()
+            );
             assert_eq!(
                 observe(temp.path(), "pipe.rs", &original)
                     .err()

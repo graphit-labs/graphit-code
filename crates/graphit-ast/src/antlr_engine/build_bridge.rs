@@ -36,17 +36,24 @@ pub fn build_recognizers(
         build.file(path);
     }
     let target_os = std::env::var("CARGO_CFG_TARGET_OS");
-    if target_os.as_deref() == Ok("macos") {
-        let header = "src/antlr_engine/cpp/apple_math_tokens.hpp";
-        println!("cargo:rerun-if-changed={header}");
-        build.flag("-include").flag(header);
-    }
-    if target_os.as_deref() == Ok("windows") {
+    let windows = target_os.as_deref() == Ok("windows");
+    if windows {
         build.define("ANTLR4CPP_STATIC", None);
-        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu")
-            && build.get_compiler().is_like_gnu()
-        {
-            build.flag("-Wa,-mbig-obj");
+    }
+    if windows || target_os.as_deref() == Ok("macos") {
+        let header = "src/antlr_engine/cpp/platform_math_tokens.hpp";
+        println!("cargo:rerun-if-changed={header}");
+        let compiler = build.get_compiler();
+        if compiler.is_like_msvc() {
+            build
+                .flag(format!("/FI{header}"))
+                .flag("/bigobj")
+                .flag("/EHsc");
+        } else {
+            build.flag("-include").flag(header);
+            if windows && compiler.is_like_gnu() {
+                build.flag("-Wa,-mbig-obj");
+            }
         }
     }
     println!("cargo:rerun-if-changed=src/antlr_engine/bridge.rs");
