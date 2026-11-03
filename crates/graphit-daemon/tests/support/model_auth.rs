@@ -87,8 +87,9 @@ impl AuthFixture {
         activate: bool,
     ) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let home = directory.path().join("home");
-        let root = directory.path().join("project");
+        let base = std::fs::canonicalize(directory.path()).unwrap();
+        let home = base.join("home");
+        let root = base.join("project");
         std::fs::create_dir(&home).unwrap();
         std::fs::create_dir(&root).unwrap();
         let paths = InstallationPaths::resolve(Brand::default(), &root, Some(&home), None).unwrap();
