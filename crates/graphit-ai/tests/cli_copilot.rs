@@ -41,8 +41,9 @@ struct Fixture {
 impl Fixture {
     fn new(request: &RequestContext<'_>) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
-        let root = dir.path().join("project");
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let home = base.join("home");
+        let root = base.join("project");
         std::fs::create_dir(&home).unwrap();
         std::fs::create_dir(&root).unwrap();
         let paths = InstallationPaths::resolve(Brand::default(), &root, Some(&home), None).unwrap();
