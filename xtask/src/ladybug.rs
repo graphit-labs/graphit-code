@@ -221,6 +221,13 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
     // Keep it through the consumer build: another wrapper must not reconfigure
     // the shared engine while the binding/adapter are compiling against it.
     lock.lock().map_err(|e| e.to_string())?;
+    // Visual Studio generators record the selected compiler outside CMakeCache.
+    let compiler_script = build.join("record-compiler.cmake");
+    fs::write(
+        &compiler_script,
+        "file(WRITE \"${CMAKE_BINARY_DIR}/graphit-cxx.txt\" \"${CMAKE_CXX_COMPILER}\")\n",
+    )
+    .map_err(|e| e.to_string())?;
     let mut configure = Command::new("cmake");
     configure
         .current_dir(root)
@@ -242,6 +249,9 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
             "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
             "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         ]);
+    let mut compiler_include = std::ffi::OsString::from("-DCMAKE_PROJECT_INCLUDE=");
+    compiler_include.push(&compiler_script);
+    configure.arg(compiler_include);
     if target.contains("linux") {
         // Upstream's MRI script contains unquoted paths. LLVM ar supports
         // spaces there; GNU ar silently truncates those paths.
@@ -301,6 +311,15 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
         ]);
     }
     run(&mut configure)?;
+    let compiler = PathBuf::from(
+        fs::read_to_string(cmake.join("graphit-cxx.txt")).map_err(|e| e.to_string())?,
+    );
+    if !compiler.is_file() {
+        return Err(format!(
+            "CMake selected an invalid C++ compiler: {}",
+            compiler.display()
+        ));
+    }
     let mut compile = Command::new("cmake");
     compile.arg("--build").arg(&cmake).args([
         "--config",
@@ -353,7 +372,6 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
         source.display(),
         build.display()
     );
-    let compiler = tool(&cache, "CMAKE_CXX_COMPILER")?;
     Ok(Prepared {
         source,
         generated,

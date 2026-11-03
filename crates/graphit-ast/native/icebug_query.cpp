@@ -24,7 +24,6 @@
 #include "storage/table/ice_disk_node_table.h"
 #include "storage/table/ice_disk_rel_table.h"
 #include <charconv>
-#include <openssl/sha.h>
 #include <array>
 #include <algorithm>
 #include <cmath>
