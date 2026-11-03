@@ -126,7 +126,7 @@ impl<'i> ProjectRecordAuthority<'i> {
         proof.check(self.issuer)?;
         Ok(ProjectReadAdmission {
             issuer: self.issuer,
-            proof: RecordProof::Broker(proof),
+            proof: RecordProof::Broker(Box::new(proof)),
             module,
         })
     }
@@ -173,7 +173,7 @@ impl<'i> ProjectRecordAuthority<'i> {
         proof.check(self.issuer)?;
         Ok(ProjectWriteAdmission {
             issuer: self.issuer,
-            proof: RecordProof::Broker(proof),
+            proof: RecordProof::Broker(Box::new(proof)),
             operation,
         })
     }
@@ -347,14 +347,10 @@ impl<'a> ProjectReadAdmission<'a> {
             return Err(AuthError::Denied);
         }
         match &self.proof {
-            RecordProof::Broker(BrokerRecordProof {
-                caller: BrokerProjectCaller::Web(observed),
-                verifier: observed_verifier,
-                provider: observed_provider,
-                ..
-            }) if std::ptr::eq(*observed, caller)
-                && std::ptr::eq(*observed_verifier, verifier)
-                && *observed_provider == provider =>
+            RecordProof::Broker(proof)
+                if matches!(proof.caller, BrokerProjectCaller::Web(observed) if std::ptr::eq(observed, caller))
+                    && std::ptr::eq(proof.verifier, verifier)
+                    && proof.provider == provider =>
             {
                 self.recheck()
             }
@@ -378,10 +374,9 @@ impl<'a> ProjectReadAdmission<'a> {
             return Err(AuthError::Denied);
         }
         match &self.proof {
-            RecordProof::Broker(BrokerRecordProof {
-                caller: BrokerProjectCaller::Web(observed),
-                ..
-            }) if std::ptr::eq(*observed, caller) => self.recheck(),
+            RecordProof::Broker(proof) if matches!(proof.caller, BrokerProjectCaller::Web(observed) if std::ptr::eq(observed, caller)) => {
+                self.recheck()
+            }
             _ => Err(AuthError::Denied),
         }
     }
@@ -391,12 +386,10 @@ impl<'a> ProjectReadAdmission<'a> {
         &self,
     ) -> Option<(&'a AuthenticatedWebCaller<'a>, &'a BrokerVerifier, &'a str)> {
         match &self.proof {
-            RecordProof::Broker(BrokerRecordProof {
-                caller: BrokerProjectCaller::Web(caller),
-                verifier,
-                provider,
-                ..
-            }) => Some((*caller, *verifier, *provider)),
+            RecordProof::Broker(proof) => match proof.caller {
+                BrokerProjectCaller::Web(caller) => Some((caller, proof.verifier, proof.provider)),
+                BrokerProjectCaller::Incoming(_) => None,
+            },
             _ => None,
         }
     }
@@ -536,7 +529,7 @@ enum RecordProof<'a> {
         caller: &'a AuthenticatedCaller<'a>,
         scope: ScopeInput<'a>,
     },
-    Broker(BrokerRecordProof<'a>),
+    Broker(Box<BrokerRecordProof<'a>>),
 }
 struct BrokerRecordProof<'a> {
     caller: BrokerProjectCaller<'a>,
