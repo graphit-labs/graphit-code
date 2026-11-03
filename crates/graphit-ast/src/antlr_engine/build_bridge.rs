@@ -35,7 +35,13 @@ pub fn build_recognizers(
         println!("cargo:rerun-if-changed={path}");
         build.file(path);
     }
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS");
+    if target_os.as_deref() == Ok("macos") {
+        let header = "src/antlr_engine/cpp/apple_math_tokens.hpp";
+        println!("cargo:rerun-if-changed={header}");
+        build.flag("-include").flag(header);
+    }
+    if target_os.as_deref() == Ok("windows") {
         build.define("ANTLR4CPP_STATIC", None);
         if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu")
             && build.get_compiler().is_like_gnu()

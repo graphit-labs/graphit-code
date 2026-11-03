@@ -419,15 +419,19 @@ fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn:
             "std::slice::from_raw_parts",
             &["buffer.as_ptr().cast()", "length"],
         ),
-        (Some("graphit-core/native_file_identity.rs"), "query_file_id128", 1) => (
-            "GetFileInformationByHandleEx",
-            &[
-                "file.as_raw_handle()",
-                "FileIdInfo",
-                "(&mut information as *mut FILE_ID_INFO).cast()",
-                "bytes",
-            ],
-        ),
+        (_, "query_file_id128", 1)
+            if source == Path::new("graphit-core/native_file_identity.rs") =>
+        {
+            (
+                "GetFileInformationByHandleEx",
+                &[
+                    "file.as_raw_handle()",
+                    "FileIdInfo",
+                    "(&mut information as *mut FILE_ID_INFO).cast()",
+                    "bytes",
+                ],
+            )
+        }
         (Some("macos_private_file.rs"), "allocate_acl", 1) => ("sdk::acl_init", &["0"]),
         (Some("macos_private_file.rs"), "configure_acl", 1) => (
             "sdk::acl_get_flagset_np",
@@ -584,7 +588,7 @@ mod tests {
     fn audit_in(source: &str, code: &str) -> Audit {
         let mut audit = Audit {
             source: source.into(),
-            domain: if source.starts_with("graphit-core/") {
+            domain: if Path::new(source).starts_with("graphit-core") {
                 SourceDomain::Core
             } else {
                 SourceDomain::Filesystem
@@ -883,8 +887,9 @@ mod tests {
         );
         assert!(relative.errors.is_empty(), "{:?}", relative.errors);
         assert_eq!((relative.exceptions, relative.blocks), (3, 5));
+        let identity_path = Path::new("graphit-core").join("native_file_identity.rs");
         let identity = audit_in(
-            "graphit-core/native_file_identity.rs",
+            identity_path.to_str().unwrap(),
             include_str!("../../crates/graphit-core/src/native_file_identity.rs"),
         );
         assert!(identity.errors.is_empty(), "{:?}", identity.errors);
