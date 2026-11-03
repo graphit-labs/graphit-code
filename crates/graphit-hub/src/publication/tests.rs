@@ -319,6 +319,7 @@ fn derived_preflight_rejects_changed_origin_and_policy_without_operation_writes(
     );
     assert!(w.snapshot().intent().is_none());
 }
+#[cfg(unix)]
 fn derived_scope(root: &Path, global: bool) -> ScopedCoordinator {
     use graphit_core::{artifact_store::*, installation_identity::InstallationId};
     let installation = InstallationPaths::resolve(

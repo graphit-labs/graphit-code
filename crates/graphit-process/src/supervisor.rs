@@ -1447,8 +1447,9 @@ async fn control_tree(
     let _ = endpoint;
     let result = operation(child);
     // Darwin can report EPERM while an exited process is leaving its group.
-    // Only retry after observing leader exit. A persistent permission error
-    // remains an unconfirmed cleanup, including for live descendants.
+    // Poll and reap the owned leader during the retry window. An initial
+    // nonterminal wait does not rule out a concurrent exit. A persistent
+    // permission error remains an unconfirmed cleanup.
     #[cfg(target_os = "macos")]
     let result = {
         let mut result = result;
@@ -1456,10 +1457,14 @@ async fn control_tree(
         while result
             .as_ref()
             .is_err_and(|error| error.raw_os_error() == Some(nix::errno::Errno::EPERM as i32))
-            && native_wait_target(child, 3)
-                .is_some_and(|leader| matches!(leader.try_wait(), Ok(Some(_))))
             && Instant::now() < retry_until
         {
+            let Some(leader) = native_wait_target(child, 3) else {
+                break;
+            };
+            if leader.try_wait().is_err() {
+                break;
+            }
             sleep_until(retry_until.min(Instant::now() + Duration::from_millis(1))).await;
             result = operation(child);
         }
