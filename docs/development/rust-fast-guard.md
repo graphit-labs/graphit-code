@@ -120,7 +120,11 @@ external Broker account or agent binary. The fixture build is preparation for
 the explicit `cargo xtask gate`, not the fast pre-push checks. macOS and Windows retain the existing
 Linux-only test exclusion.
 
-For a local Linux gate or selected run, build the same example from Code with
+For a local Linux gate or selected run, put the pinned external MinIO and
+`mc` test tools on `PATH` using Broker's `scripts/prepare-s3-test-tools.sh`
+with Go 1.25.9 and an absolute `GOBIN` test directory. These tools are only
+needed by the loopback fixture and are not part of the Rust packages.
+Then build the same example from Code with
 `cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture`,
 then set `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` to the emitted example's absolute
 executable path before `cargo xtask test graphit-app/role-hub-file` or the existing
