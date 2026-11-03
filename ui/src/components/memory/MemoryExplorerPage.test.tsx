@@ -130,7 +130,9 @@ describe('native Memory product journeys', () => {
   for (let attempt = 0; attempt < 2; attempt++) {
    await user.click(screen.getByRole('button', { name: 'Create memory' }))
    const form = screen.getByRole('dialog'); await user.type(within(form).getByLabelText('Memory title'), 'Identical title'); await user.type(within(form).getByLabelText('Memory content'), 'Identical body')
-   await user.click(within(form).getByRole('button', { name: 'Create memory' })); await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+   await user.click(within(form).getByRole('button', { name: 'Create memory' }))
+   await screen.findByText('Memory write effect confirmed')
+   await screen.findByRole('article', { name: 'Memory record' })
   }
   expect(nativeMemoryMutationApi.create).toHaveBeenCalledTimes(2)
   expect(vi.mocked(nativeMemoryMutationApi.create).mock.calls[0][1].idempotency_key).not.toBe(vi.mocked(nativeMemoryMutationApi.create).mock.calls[1][1].idempotency_key)
