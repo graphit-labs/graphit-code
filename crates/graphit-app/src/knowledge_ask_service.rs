@@ -19,7 +19,7 @@ use graphit_process::{
     Cleanup, HostLimits, HostReadiness, HostReport, HostShutdown, HostShutdownObservation, Limits,
     PendingHost, ProcessHost, RemainingProcess, RepairObservation, Request,
 };
-#[cfg(test)]
+#[cfg(all(test, unix))]
 use std::time::Duration;
 use std::{
     ffi::{OsStr, OsString},

@@ -114,27 +114,19 @@ pub async fn capture_input(
 }
 
 fn exit_status(status: ExitStatus) -> ExitCode {
-    #[cfg(windows)]
+    #[cfg(unix)]
     {
-        use std::os::windows::process::ExitCodeExt;
-        ExitCode::from_raw(status.code().unwrap_or(1) as u32)
-    }
-    #[cfg(not(windows))]
-    {
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::ExitStatusExt;
-            if let Some(signal) = status.signal() {
-                return ExitCode::from(u8::try_from(128 + signal).unwrap_or(1));
-            }
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return ExitCode::from(u8::try_from(128 + signal).unwrap_or(1));
         }
-        ExitCode::from(
-            status
-                .code()
-                .and_then(|code| u8::try_from(code).ok())
-                .unwrap_or(1),
-        )
     }
+    ExitCode::from(
+        status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .unwrap_or(1),
+    )
 }
 
 #[allow(clippy::too_many_arguments)] // Original Git context and process custody remain explicit.

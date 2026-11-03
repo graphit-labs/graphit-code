@@ -252,6 +252,10 @@ impl Fixture {
         )
         .unwrap()
     }
+    #[allow(
+        dead_code,
+        reason = "shared fixture; exercised by task_store integration tests"
+    )]
     pub fn issue(
         &self,
         issuer: &RoleIssuer,
@@ -289,6 +293,10 @@ impl Fixture {
             .unwrap();
         (bearer, run)
     }
+    #[allow(
+        dead_code,
+        reason = "shared fixture; exercised by task_store integration tests"
+    )]
     pub fn issue_for(
         &self,
         issuer: &RoleIssuer,
