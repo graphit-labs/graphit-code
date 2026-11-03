@@ -1,6 +1,7 @@
 use super::super::tests::{fixture, read_limits, request};
 use super::*;
 use crate::artifact_store::{CapturedSourceReader, SourceReadLimits};
+#[cfg(unix)]
 use std::sync::Mutex;
 
 fn limits() -> ProjectSelectionLimits {

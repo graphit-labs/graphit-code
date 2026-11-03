@@ -46,7 +46,8 @@ pub fn build_recognizers(
         let compiler = build.get_compiler();
         if compiler.is_like_msvc() {
             build
-                .flag(format!("/FI{header}"))
+                .include("src/antlr_engine/cpp")
+                .flag("/FIplatform_math_tokens.hpp")
                 .flag("/bigobj")
                 .flag("/EHsc");
         } else {

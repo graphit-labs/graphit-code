@@ -145,7 +145,7 @@ fn query_file_id128(
     };
     let bytes = u32::try_from(std::mem::size_of::<FILE_ID_INFO>())
         .map_err(|_| io::ErrorKind::Unsupported)?;
-    // The generated SDK writes exactly the initialized, aligned local struct.
+    // SAFETY: The generated SDK writes exactly the initialized, aligned local struct.
     // The File owns the borrowed HANDLE through this synchronous metadata call.
     let success = unsafe {
         GetFileInformationByHandleEx(
