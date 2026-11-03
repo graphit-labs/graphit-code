@@ -199,11 +199,7 @@ async fn raw_ignored_build_churn_publishes_and_selected_change_preserves_previou
         &cancel,
     )
     .await?;
-    let uri = installation
-        .root()
-        .join("ast")
-        .join(selected.id.to_string())
-        .join("source.lance");
+    let uri = project.project_runtime(selected.id, &["ast", "source.lance"])?;
     let store = LanceBranchStore::open(uri.to_str().unwrap(), source_schema(), None).await?;
     let initial = store.capture_target(None).await?;
     std::fs::write(project.root().join("ui/main.rs"), "pub fn published() {}\n")?;
@@ -393,11 +389,7 @@ async fn unchanged_inherited_raw_is_materialized_before_first_projection()
     )
     .await?;
     let mut selected = owner.supervisors.supervised().next().unwrap().clone();
-    let uri = installation
-        .root()
-        .join("ast")
-        .join(selected.id.to_string())
-        .join("source.lance");
+    let uri = project.project_runtime(selected.id, &["ast", "source.lance"])?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while !observed_text(&uri, "a.rs", original.snapshot())
             .await
@@ -500,11 +492,7 @@ async fn ast_only_real_foreground_initial_raw_and_source_http()
     assert!(owner.ast_jobs.is_some());
     assert_eq!(owner.supervisors.supervised().count(), 1);
     let id = ProjectIdentityStore::at(&project).load()?.unwrap().id();
-    let uri = installation
-        .root()
-        .join("ast")
-        .join(id.to_string())
-        .join("source.lance");
+    let uri = project.project_runtime(id, &["ast", "source.lance"])?;
     let request_cancel = Cancellation::default();
     let original = policy.request_context(Instant::now(), &request_cancel)?;
     let expires = Instant::now() + Duration::from_secs(10);
@@ -808,11 +796,7 @@ async fn raw_named_branch_custom_layers_empty_ignore_and_late_error()
     .await?;
     let selected = owner.supervisors.supervised().next().unwrap().clone();
     let branch = selected.version.lance_branch();
-    let uri = installation
-        .root()
-        .join("ast")
-        .join(selected.id.to_string())
-        .join("source.lance");
+    let uri = project.project_runtime(selected.id, &["ast", "source.lance"])?;
     let expires = Instant::now() + Duration::from_secs(10);
     loop {
         if observed_branch_text(&uri, Some(&branch), "a.custom", startup.snapshot())
@@ -937,11 +921,7 @@ async fn raw_direct_existing_job_noop_null_cancel_and_project_switches()
         rescan: true,
         ..Default::default()
     };
-    let uri = installation
-        .root()
-        .join("ast")
-        .join(selected.id.to_string())
-        .join("source.lance");
+    let uri = project.project_runtime(selected.id, &["ast", "source.lance"])?;
     // An actual failed full scan leaves no published Main. The next event only
     // mentions A, but first publication still needs unchanged B's complete image.
     let failed = job
@@ -1052,13 +1032,7 @@ async fn raw_direct_existing_job_noop_null_cancel_and_project_switches()
             .await
             .is_err()
     );
-    assert!(
-        !installation
-            .root()
-            .join("ast")
-            .join(other_id.to_string())
-            .exists()
-    );
+    assert!(!project.project_runtime(other_id, &["ast"])?.exists());
     let cfg = ConfigStore::project(&project)?;
     cfg.set(
         ConfigKey::new("modules.ast")?,
@@ -1234,13 +1208,9 @@ fn observed_antlr_publication(
                         let path = text("path").value(row);
                         let raw = runtime
                             .block_on(observed_branch_text(
-                                &source
-                                    .policy()
-                                    .installation
-                                    .root()
-                                    .join("ast")
-                                    .join(selected.1.to_string())
-                                    .join("source.lance"),
+                                &selected
+                                    .0
+                                    .project_runtime(selected.1, &["ast", "source.lance"])?,
                                 raw_branch,
                                 path,
                                 original.snapshot(),
@@ -1379,13 +1349,9 @@ async fn foreground_antlr_db2_oracle_graph_search_nn_incremental_and_reuse()
             .await?
             .is_some()
     );
-    let raw_uri = source
-        .policy()
-        .installation
-        .root()
-        .join("ast")
-        .join(selected.1.to_string())
-        .join("source.lance");
+    let raw_uri = selected
+        .0
+        .project_runtime(selected.1, &["ast", "source.lance"])?;
     let branch_name = selected.2.lance_branch();
     let raw_branch = (!branch_name.is_empty()).then_some(branch_name.as_str());
     for (path, expected) in [

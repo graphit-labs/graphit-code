@@ -34,7 +34,7 @@ impl Peer {
                 .append(true)
                 .open(path)
                 .unwrap();
-            writeln!(output, "{value}").unwrap();
+            output.write_all(format!("{value}\n").as_bytes()).unwrap();
         }
     }
 }

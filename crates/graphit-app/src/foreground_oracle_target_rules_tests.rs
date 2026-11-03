@@ -181,13 +181,9 @@ async fn foreground_oracle_target_rules_cross_file_and_ambiguous()
                 );
             }
         }
-        let raw_uri = source
-            .policy()
-            .installation
-            .root()
-            .join("ast")
-            .join(selected.1.to_string())
-            .join("source.lance");
+        let raw_uri = selected
+            .0
+            .project_runtime(selected.1, &["ast", "source.lance"])?;
         let branch = selected.2.lance_branch();
         assert_eq!(
             observed_branch_text(
