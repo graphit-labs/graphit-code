@@ -142,7 +142,10 @@ the retained FILE shards. A changed FILE tag requests a retry; divergence under
 the same tag reports a broken projection.
 
 Cypher and FTS become available after the FILE's structural and lexical
-publication, independently of embeddings. Source, text/projections and nullable
+publication, independently of embeddings. The native parser owner and the
+asynchronous embedding task are scheduled separately. The job joins both on
+completion, and a pending model RPC leaves the structural producer runnable.
+Source, text/projections and nullable
 vectors keep their existing datasets, pins and incremental publication/reuse
 contracts. See [native publication](rust_native_publication.md#local-progressive-readers).
 Neither producer source tests nor this format change establish which binary is

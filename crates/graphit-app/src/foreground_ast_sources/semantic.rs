@@ -140,7 +140,7 @@ impl ForegroundAstSources {
         let auth_error = |error| super::request_auth_error(error, &request);
         let publication_started = std::cell::Cell::new(false);
         let pending_files = std::cell::RefCell::new(BTreeSet::new());
-        let model_reconciled = std::cell::Cell::new(!model_refresh);
+        let model_reconciled = AtomicBool::new(!model_refresh);
         let result = Box::pin(async {
             if project.root() != selected.root() {
                 return Err(io::ErrorKind::InvalidInput.into());
@@ -672,7 +672,7 @@ impl ForegroundAstSources {
                 inference
                     .map(|version| version.or(structural))
                     .map_err(|error| io::Error::new(error.kind(), InferenceFailure {
-                        error, pending_files: pending_files.borrow().clone(), model_reconciled: model_reconciled.get(),
+                        error, pending_files: pending_files.borrow().clone(), model_reconciled: model_reconciled.load(Ordering::Relaxed),
                     }))
             }).await
         }).await;
@@ -684,7 +684,7 @@ impl ForegroundAstSources {
         result.map(|version| AstSemanticProgress {
             version,
             pending_files: pending_files.into_inner(),
-            model_reconciled: model_reconciled.get(),
+            model_reconciled: model_reconciled.load(Ordering::Relaxed),
         })
     }
 }

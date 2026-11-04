@@ -73,13 +73,14 @@ jobs:
         run: |
           sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install --yes build-essential gcc-13 g++-13 cmake clang llvm libclang-dev pkg-config protobuf-compiler libprotobuf-dev patchelf
+          sudo apt-get install --yes build-essential gcc-13 g++-13 cmake clang llvm libclang-dev libssl-dev pkg-config protobuf-compiler libprotobuf-dev patchelf
           echo "CC=gcc-13" >> "$GITHUB_ENV"
           echo "CXX=g++-13" >> "$GITHUB_ENV"
       - name: Install macOS native build dependencies
         if: runner.os == 'macOS'
         run: |
-          brew install cmake protobuf pkg-config llvm
+          brew install cmake openssl@3 protobuf pkg-config llvm
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
       - name: Install Windows native build dependencies
         if: runner.os == 'Windows'
@@ -94,6 +95,16 @@ jobs:
         with:
           arch: x64
           vsversion: '2022'
+      - name: Prepare OpenSSL for the native Windows build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT
+          & "$vcpkg/vcpkg.exe" install openssl:x64-windows pkgconf:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OPENSSL_DIR=$vcpkg/installed/x64-windows" >> $env:GITHUB_ENV
+          "$vcpkg/installed/x64-windows/bin" >> $env:GITHUB_PATH
+          "PKG_CONFIG=$vcpkg/installed/x64-windows/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

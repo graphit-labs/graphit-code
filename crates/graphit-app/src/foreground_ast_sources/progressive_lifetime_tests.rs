@@ -14,7 +14,8 @@ use graphit_daemon::{supervisor::ProjectContext, watcher::ChangeBatch};
 use graphit_data::lance_branch_store::{BranchSnapshot, col, lit};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::{cell::Cell, collections::BTreeSet};
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
@@ -166,7 +167,7 @@ async fn full_and_nn_backlog_release_native_owner_between_files() -> TestResult 
         // FILE is already known while the first operation's owners are gone.
         let (first_nn, release_nn) = ast.hold_after_nn_file("a.lua");
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let reconciled = Cell::new(false);
+        let reconciled = AtomicBool::new(false);
         let mut consumer = Box::pin(ast.embed_pending_loop(
             &selected.0, &context, Some(&resources), receiver, false,
             BTreeSet::from(["a.lua".into()]), &reconciled, &cancellation,
@@ -178,7 +179,7 @@ async fn full_and_nn_backlog_release_native_owner_between_files() -> TestResult 
             }
         }).await??;
         assert!(remaining > 0, "the second FILE must still be in ready");
-        assert!(reconciled.get());
+        assert!(reconciled.load(Ordering::Relaxed));
         let (index, directory) = open().await?;
         assert_eq!(index.graph.file_observation("a.lua", original.snapshot())?, Some(first_source.clone()));
         let pending = pending_snapshot(&graph_root).await?;

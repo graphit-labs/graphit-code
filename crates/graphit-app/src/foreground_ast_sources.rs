@@ -2,6 +2,7 @@
 //! Opt-in tracing reports static publication boundaries and error kinds.
 use crate::ast_parser_resources::AstParserResources;
 use crate::ast_profile_loader::{AstProfileLoader, LoadedProfiles, project_config};
+use std::sync::atomic::{AtomicBool, Ordering};
 mod graph;
 pub(crate) mod progressive;
 pub(super) mod scip;
@@ -380,7 +381,7 @@ impl ForegroundAstSources {
                 &project,
                 &selected,
                 batch,
-                resources.as_deref(),
+                resources,
                 selection,
                 model_refresh,
                 &source_preemption,
@@ -393,11 +394,11 @@ impl ForegroundAstSources {
     }
 
     async fn productive_job(
-        &self,
+        self: &Arc<Self>,
         project: &ProjectPaths,
         selected: &ProjectContext,
         batch: ChangeBatch,
-        resources: Option<&crate::foreground_memory_jobs::MemoryJobResources>,
+        resources: Option<Arc<crate::foreground_memory_jobs::MemoryJobResources>>,
         mut selection: Option<BTreeSet<String>>,
         model_refresh: bool,
         source_preemption: &Cancellation,
@@ -422,12 +423,12 @@ impl ForegroundAstSources {
             // the record notification; no file discovery, parser or compiler.
             let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
             drop(sender);
-            let reconciled = std::cell::Cell::new(!model_refresh);
+            let reconciled = AtomicBool::new(!model_refresh);
             let version = self
                 .embed_pending_loop(
                     project,
                     selected,
-                    resources,
+                    resources.as_deref(),
                     receiver,
                     model_refresh,
                     BTreeSet::new(),
@@ -438,7 +439,7 @@ impl ForegroundAstSources {
             return Ok(semantic::AstSemanticProgress {
                 version,
                 pending_files: BTreeSet::new(),
-                model_reconciled: reconciled.get(),
+                model_reconciled: reconciled.into_inner(),
             });
         }
         let priority_paths = batch
@@ -452,7 +453,6 @@ impl ForegroundAstSources {
         // NN selection. An empty ingress is a resume of durable pending work.
         let compiler_restore_scope =
             (!full_raw && !batch.paths.is_empty()).then(|| priority_paths.clone());
-        let model_reconciled = std::cell::Cell::new(!model_refresh);
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let (started, ready) = tokio::sync::oneshot::channel();
         let inference_priority = priority_paths.clone();
@@ -494,27 +494,36 @@ impl ForegroundAstSources {
                 model_reconciled: false,
             })
         });
-        let inference = Box::pin(async {
+        // The native parser owner and the asynchronous model consumer are
+        // scheduled independently, and both are joined before returning.
+        let inference_owner = Arc::clone(self);
+        let inference_project = project.clone();
+        let inference_context = selected.clone();
+        let inference_stop = background.clone();
+        let inference = tokio::spawn(async move {
+            let model_reconciled = AtomicBool::new(!model_refresh);
             // Readiness follows opening the real LiveIndex. An empty or disabled
             // producer closes this signal without discovery or model loading.
             if ready.await.is_err() {
-                return Ok(None);
+                return (Ok(None), model_reconciled.into_inner());
             }
-            Box::pin(self.embed_pending_loop(
-                project,
-                selected,
-                resources,
+            let result = Box::pin(inference_owner.embed_pending_loop(
+                &inference_project,
+                &inference_context,
+                resources.as_deref(),
                 receiver,
                 model_refresh,
                 inference_priority,
                 &model_reconciled,
-                background,
+                &inference_stop,
             ))
-            .await
+            .await;
+            (result, model_reconciled.into_inner())
         });
         let (publication, inference) = tokio::join!(publication, inference);
         let mut publication = publication?;
-        publication.model_reconciled = model_reconciled.get();
+        let (inference, model_reconciled) = inference.map_err(err)?;
+        publication.model_reconciled = model_reconciled;
         match inference {
             Ok(_) => Ok(publication),
             Err(error)

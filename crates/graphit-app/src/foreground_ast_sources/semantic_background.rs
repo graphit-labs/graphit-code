@@ -15,7 +15,7 @@ impl ForegroundAstSources {
         mut pending: tokio::sync::mpsc::UnboundedReceiver<String>,
         model_refresh: bool,
         priority_paths: BTreeSet<String>,
-        model_reconciled: &std::cell::Cell<bool>,
+        model_reconciled: &AtomicBool,
         cancellation: &Cancellation,
     ) -> io::Result<Option<u64>> {
         let Some(resources) = resources else {
@@ -143,7 +143,7 @@ impl ForegroundAstSources {
                     ready = pending_paths(&corpus, None, model_refresh, None, original).await?;
                     inspect_existing = false;
                     if ready.is_empty() {
-                        model_reconciled.set(true);
+                        model_reconciled.store(true, Ordering::Relaxed);
                         continue;
                     }
                 }
@@ -211,7 +211,7 @@ impl ForegroundAstSources {
                     ready
                         .extend(pending_paths(&corpus, Some(&model), false, None, original).await?);
                     ready.remove(&path);
-                    model_reconciled.set(true);
+                    model_reconciled.store(true, Ordering::Relaxed);
                     initialized = true;
                 }
                 let captured = {

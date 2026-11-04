@@ -829,6 +829,32 @@ async fn productive_native_only_is_queryable_while_model_rpc_is_unanswered() -> 
 }
 
 async fn native_only_journey(hold_model: bool) -> TestResult {
+    async fn release_compiler(path: &Path, line: &[u8]) -> std::io::Result<()> {
+        use rustix::fs::{CWD, Mode, OFlags, openat};
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match openat(
+                    CWD,
+                    path,
+                    OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+                    Mode::empty(),
+                ) {
+                    Ok(fd) => return std::io::Write::write_all(&mut fs::File::from(fd), line),
+                    Err(rustix::io::Errno::NXIO) => {
+                        tokio::time::sleep(Duration::from_millis(20)).await
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })
+        .await
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "compiler did not open its release FIFO",
+            )
+        })?
+    }
     let (fixture, owner, tasks, credential, _) = if hold_model {
         support::browser_search_fixture().await
     } else {
@@ -854,6 +880,7 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
     let mut model_endpoint = None;
     let mut held_resources = None;
     let background = Cancellation::default();
+    let source_preemption = Cancellation::default();
     if hold_model {
         let resources = owner.memory_job_resources.upgrade().unwrap();
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
@@ -1010,6 +1037,7 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
         assert_ne!(response.is_error, Some(true), "{response:?}");
         Ok::<_, Box<dyn std::error::Error>>(response.structured_content.unwrap())
     };
+    let mut job = None;
     let result=std::panic::AssertUnwindSafe(async {
         let context=ProjectContext { id:selected.1,version:selected.2.clone() };
         if !hold_model {
@@ -1019,21 +1047,30 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
         let producer=Arc::clone(&ast);let project=selected.0.clone();let lifetime=cancellation.clone();
         let execution = held_resources.take();
         let job_background = background.clone();
-        let mut job=tokio::spawn(async move {
+        let job_source_preemption = source_preemption.clone();
+        let raw_error = ast.observe_next_raw_error();
+        job = Some(tokio::spawn(async move {
             if let Some(execution) = execution {
                 producer.index_productive(&project, &context, ChangeBatch {
                     rescan: true, paths: BTreeSet::from([project.root().join("z.vb")]), ..Default::default()
-                }, Some(execution), Some(BTreeSet::new()), false, &job_background, &job_background, &lifetime).await
+                }, Some(execution), Some(BTreeSet::new()), false, &job_source_preemption, &job_background, &lifetime).await
             } else {
                 producer.index_semantic(project,context,None,None,
-                    BTreeSet::from(["z.vb".into()]),false,job_background,lifetime).await
+                    BTreeSet::from(["z.vb".into()]),false,job_source_preemption,lifetime).await
             }
-        });
-        tokio::time::timeout(Duration::from_secs(30),async {
-            while !docker.path().join("dotnet-started").exists() {tokio::time::sleep(Duration::from_millis(20)).await;}
-        }).await?;
-        let fifo=docker.path().join("release-compiler");
-        tokio::task::spawn_blocking(move||fs::write(fifo,b"ready\n")).await??;
+        }));
+        tokio::select! {
+            biased;
+            kind = raw_error => return Err(std::io::Error::new(kind?, "Raw producer failed before SCIP started").into()),
+            ended = job.as_mut().unwrap() => {
+                job.take();
+                return Err(std::io::Error::other(format!("producer ended before SCIP started: {ended:?}")).into());
+            }
+            started = tokio::time::timeout(Duration::from_secs(30), async {
+                while !docker.path().join("dotnet-started").exists() { tokio::time::sleep(Duration::from_millis(20)).await; }
+            }) => started.map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "native-only compiler did not reach its release gate"))?,
+        }
+        release_compiler(&docker.path().join("release-compiler"), b"ready\n").await?;
         tokio::time::timeout(Duration::from_secs(30), published).await
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "native-only FILE was not published after compiler release"))??;
         // The compiler publishes and queues the native-only FILE before NN
@@ -1054,7 +1091,7 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
         assert!(!found.structured_content.unwrap()["results"].as_array().unwrap().is_empty());
         if hold_model {
             assert!(!model_endpoint.as_ref().unwrap().is_finished(), "model metadata/inference has never replied");
-            assert!(!job.is_finished(), "compiler/native-only publication must proceed independently of NN");
+            assert!(!job.as_ref().unwrap().is_finished(), "compiler/native-only publication must proceed independently of NN");
         }
         release.send(()).map_err(|_|std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
         tokio::time::timeout(Duration::from_secs(30),async {
@@ -1065,9 +1102,8 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
             Ok::<_,Box<dyn std::error::Error>>(())
         }).await??;
         assert_eq!(query("MATCH(n:Function) WHERE n.name='beta' OR n.name='gamma' RETURN count(n)").await?["rows"][0][0]["value"],"2");
-        assert!(!job.is_finished(),"the unrelated compiler is still blocked, while syntax tail and native delta are queryable");
-        let fifo=docker.path().join("release-rust");
-        tokio::task::spawn_blocking(move||fs::write(fifo,b"finish\n")).await??;
+        assert!(!job.as_ref().unwrap().is_finished(),"the unrelated compiler is still blocked, while syntax tail and native delta are queryable");
+        release_compiler(&docker.path().join("release-rust"), b"finish\n").await?;
         if hold_model {
             tokio::time::timeout(Duration::from_secs(30), async {
                 while !docker.path().join("rust-finished").exists() { tokio::time::sleep(Duration::from_millis(20)).await; }
@@ -1095,8 +1131,11 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
             tokio::time::timeout(Duration::from_secs(30), async {
                 tokio::select! {
                     biased;
-                    ended = &mut job => Err(std::io::Error::other(format!(
-                        "Source ended before Native closed during blocked inference: {ended:?}"))),
+                    ended = job.as_mut().unwrap() => {
+                        job.take();
+                        Err(std::io::Error::other(format!(
+                            "Source ended before Native closed during blocked inference: {ended:?}")))
+                    }
                     result = closed.changed() => {
                         assert!(result.is_err(), "Native close notification must terminate");
                         Ok(())
@@ -1104,7 +1143,7 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
                 }
             }).await??;
             tokio::task::yield_now().await;
-            assert!(!job.is_finished(), "closing Native must not depend on the inference ending");
+            assert!(!job.as_ref().unwrap().is_finished(), "closing Native must not depend on the inference ending");
             assert!(weak.upgrade().is_none(), "NN must not retain the Native database during inference");
             assert!(!model_endpoint.as_ref().unwrap().is_finished(),
                 "Native must close while the inference RPC is still unanswered");
@@ -1112,7 +1151,9 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
             // already completed FILEs and their pending embedding projections.
             background.cancel();
         }
-        let progress=tokio::time::timeout(Duration::from_secs(30),job).await???;
+        let joined = tokio::time::timeout(Duration::from_secs(30), job.as_mut().unwrap()).await?;
+        job.take();
+        let progress = joined??;
         assert!(progress.pending_files.is_empty());
         if !hold_model {
             // Failed Rust enrichment left real, durable compiler work behind.
@@ -1168,6 +1209,8 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
         }
         Ok::<(),Box<dyn std::error::Error>>(())
     }).catch_unwind().await;
+    // Cancel a compiler held at its FIFO before taking its service lock.
+    source_preemption.cancel();
     cancellation.cancel();
     background.cancel();
     if let Some(release) = model_release.take() {
@@ -1176,10 +1219,24 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
     if let Some(endpoint) = model_endpoint.take() {
         endpoint.await??;
     }
+    let producer_cleanup = if let Some(task) = job.as_mut() {
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "SCIP producer did not join after cancellation",
+                )
+            })
+            .and_then(|joined| joined.map(|_| ()).map_err(std::io::Error::other))
+    } else {
+        Ok(())
+    };
     let compiler_cleanup = ast.shutdown().await;
     tasks.shutdown().await?;
     owner.shutdown().await.map_err(|failure| failure.error)?;
     compiler_cleanup?;
+    producer_cleanup?;
     drop(fixture);
     match result {
         Ok(result) => result,

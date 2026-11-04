@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
@@ -600,7 +601,7 @@ async fn incremental_scopes_preserve_unchanged_files_and_repair_missing_native_f
         fs::rename(&graph_path, &retained_graph)?;
         let stop = Cancellation::default();
         let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let reconciled = std::cell::Cell::new(false);
+        let reconciled = AtomicBool::new(false);
         let waiting = ast.embed_pending_loop(
             &selected.0,
             &context,
@@ -1116,7 +1117,7 @@ async fn idle_nn_releases_live_database_and_reopens_the_same_source_and_vectors(
         };
         let idle_directories = captured_directories();
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        let reconciled = std::cell::Cell::new(false);
+        let reconciled = AtomicBool::new(false);
         let mut consumer = Box::pin(ast.embed_pending_loop(
             &selected.0,
             &context,
@@ -1133,7 +1134,7 @@ async fn idle_nn_releases_live_database_and_reopens_the_same_source_and_vectors(
                     consumer.as_mut().poll(cx).is_pending(),
                     "the open command stream must remain live"
                 );
-                if reconciled.get() {
+                if reconciled.load(Ordering::Relaxed) {
                     Poll::Ready(())
                 } else {
                     Poll::Pending
@@ -1165,7 +1166,7 @@ async fn idle_nn_releases_live_database_and_reopens_the_same_source_and_vectors(
         // Close this finite command stream after queuing its acknowledged FILE:
         // natural EOF proves that the receiver drained the event before the
         // same Source/vector owners are reopened and compared below.
-        assert!(reconciled.get());
+        assert!(reconciled.load(Ordering::Relaxed));
         sender.send("idle.lua".to_owned())?;
         drop(sender);
         tokio::time::timeout(Duration::from_secs(30), consumer)
