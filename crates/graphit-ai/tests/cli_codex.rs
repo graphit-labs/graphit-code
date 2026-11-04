@@ -1091,8 +1091,23 @@ async fn original_stops_pending_eof_callback(cancel: bool) {
         e.receipt().completion(),
         Some(CompletionOutcome::Answer(_))
     ));
-    assert!(
-        matches!(e.receipt().process(),Some(Ok(o)) if o.status.success() && o.pipes.stdout==PipeEnd::Eof && o.pipes.stderr==PipeEnd::Eof && o.cleanup==Cleanup::Complete)
+    let Some(Ok(process)) = e.receipt().process() else {
+        panic!("the native process must report its terminal result");
+    };
+    assert!(process.status.success());
+    assert_eq!(
+        (process.pipes.stdout, process.pipes.stderr),
+        (PipeEnd::Eof, PipeEnd::Eof)
+    );
+    #[cfg(unix)]
+    assert_eq!(process.cleanup, Cleanup::Complete);
+    #[cfg(windows)]
+    assert_eq!(
+        process.cleanup,
+        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
+            leader: graphit_process::LeaderCleanup::Reaped,
+            control: graphit_process::ControlFailures::default(),
+        })
     );
     assert_eq!(run.totals().observed_input_tokens, 8);
     assert_eq!(run.totals().observed_cached_input_tokens, 2);
@@ -1126,12 +1141,11 @@ async fn observed_usage_is_returned_for_actual_nonzero_and_late_wire_failure() {
         if malformed {
             bytes.extend_from_slice(b"{invalid-json\n");
         }
-        let request = sequence(
-            dir.path(),
-            &l,
-            if malformed { 0 } else { 7 },
-            &[(true, &bytes)],
-        );
+        let request = if malformed {
+            raw(dir.path(), &l, true, &bytes)
+        } else {
+            sequence(dir.path(), &l, 7, &[(true, &bytes)])
+        };
         let (mut result, ()) = tokio::join!(
             run_codex(
                 &mut run,
@@ -1142,7 +1156,11 @@ async fn observed_usage_is_returned_for_actual_nonzero_and_late_wire_failure() {
                 stream(),
                 &mut sink
             ),
-            drive(&l, &c, 1)
+            async {
+                if !malformed {
+                    drive(&l, &c, 1).await;
+                }
+            }
         );
         let error = result.as_ref().err().unwrap();
         let receipt = error.receipt();
