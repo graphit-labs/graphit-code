@@ -51,8 +51,7 @@ If the record merge was also confirmed, its `Confirmed` result remains outermost
 Uncertain commits keep the actual SDK recovery key. No rollback, retry or model
 inference is implied.
 
-On Linux, `graphit task search` and Source `graphit_task_search` expose this
-same reader. For example:
+`graphit task search` and Source `graphit_task_search` expose the same reader. For example:
 
 ```sh
 graphit task search --text nebula --page-size 1 --top-k 10

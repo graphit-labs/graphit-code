@@ -809,6 +809,7 @@ async fn closed_wire_types_and_actual_input_output_byte_boundaries() {
     served.await.unwrap().unwrap();
     let mut policy = s.0.policy.clone();
     policy.content.max_output_bytes = 16;
+    policy.graph_query.max_bytes = 16;
     let server = GraphServer::new(Arc::clone(&f.auth), policy, CancellationToken::new()).unwrap();
     let (url, served) = socket(&server).await;
     let response = client

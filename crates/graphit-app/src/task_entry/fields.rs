@@ -308,7 +308,6 @@ pub struct SearchArguments {
     pub cursor: CursorArguments,
 }
 impl SearchArguments {
-    #[cfg(target_os = "linux")]
     pub(super) fn input(&self, max: usize) -> io::Result<Value> {
         let mut v = json!({"mode":self.mode,"text":self.text,"filter":self.filter.value(),"page_size":self.page_size,"top_k":self.top_k});
         put(&mut v, "cursor", &self.cursor.value(max, true)?);

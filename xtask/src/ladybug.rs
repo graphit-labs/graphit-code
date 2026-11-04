@@ -358,6 +358,11 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
             &cache,
         )?;
         isolated
+    } else if target.contains("msvc") {
+        let isolated = build.join("link-coff");
+        fs::create_dir_all(&isolated).map_err(|e| e.to_string())?;
+        isolate_coff_zstd(&native.join(lib_name), &isolated, lib_name)?;
+        isolated
     } else {
         native
     };
@@ -385,6 +390,58 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
         target,
         _lock: lock,
     })
+}
+
+// Keep the official archive's Zstd symbols private to Ladybug on MSVC,
+// where the binding's whole-archive link also pulls in otherwise unused symbols.
+fn isolate_coff_zstd(source: &Path, directory: &Path, name: &str) -> Result<(), String> {
+    let destination = directory.join(name);
+    let input = fs::metadata(source)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|e| e.to_string())?;
+    if fs::metadata(&destination)
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|modified| modified >= input)
+    {
+        return Ok(());
+    }
+    let llvm = |tool: &str| {
+        env::var_os("LIBCLANG_PATH")
+            .map(PathBuf::from)
+            .map(|path| path.join(format!("{tool}.exe")))
+            .filter(|path| path.is_file())
+            .unwrap_or_else(|| PathBuf::from(tool))
+    };
+    let output = Command::new(llvm("llvm-nm"))
+        .args(["--extern-only", "--defined-only", "--format=posix"])
+        .arg(source)
+        .output()
+        .map_err(|error| format!("run llvm-nm on Ladybug archive: {error}"))?;
+    if !output.status.success() {
+        return Err("llvm-nm Ladybug archive failed".into());
+    }
+    let listing = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+    let symbols: std::collections::BTreeSet<_> = listing
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| name.starts_with("ZSTD_"))
+        .collect();
+    if symbols.is_empty() {
+        return Err("Ladybug COFF archive contains no expected Zstd symbols".into());
+    }
+    let rules: String = symbols
+        .into_iter()
+        .map(|name| format!("{name} graphit_lbug_{name}\n"))
+        .collect();
+    let rules_file = directory.join("private-zstd-symbols.txt");
+    fs::write(&rules_file, rules).map_err(|e| e.to_string())?;
+    let temporary = directory.join("lbug.pending.lib");
+    run(Command::new(llvm("llvm-objcopy"))
+        .arg("--redefine-syms")
+        .arg(rules_file)
+        .arg(source)
+        .arg(&temporary))?;
+    fs::rename(temporary, destination).map_err(|e| e.to_string())
 }
 
 // Required only when linking Ladybug's bundled ANTLR/C libraries together with

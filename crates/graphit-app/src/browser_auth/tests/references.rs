@@ -333,14 +333,20 @@ async fn strict_shapes_methods_auth_and_exact_context_cursors_reject_without_pro
             .status(),
         StatusCode::BAD_REQUEST
     );
-    let empty: Value = fixture
+    let shared: Value = fixture
         .task_read(&cookie, "references", request(mirror, "task", &focus))
         .await
         .json()
         .await
         .unwrap();
-    assert_eq!(empty["native"], "no_corpus");
-    assert_eq!(empty["navigation"], json!({"outgoing":[],"incoming":[]}));
+    assert_eq!(
+        published(&shared)["focus_revision"],
+        published(&first)["focus_revision"]
+    );
+    assert_eq!(
+        published(&shared)["outgoing"]["results"][0],
+        published(&first)["outgoing"]["results"][0]
+    );
     let mut swapped = request(&selection, "task", &focus);
     swapped["input"]["incoming_cursor"] = cursor;
     assert_eq!(

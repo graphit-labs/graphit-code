@@ -36,7 +36,6 @@ pub enum Command {
     /// Read a cursor-pinned Task catalogue, including explicit dates and dependencies.
     Catalogue(CatalogueArguments),
     /// Search current Task specifications and comments using textual, semantic or hybrid retrieval.
-    #[cfg(target_os = "linux")]
     Search(SearchArguments),
     /// Read a finite projected Task or Session page from one native pin.
     Query(QueryArguments),
@@ -115,7 +114,6 @@ impl Command {
         match self {
             Self::GetTask(arguments) => &mut arguments.selection,
             Self::Catalogue(arguments) => &mut arguments.selection,
-            #[cfg(target_os = "linux")]
             Self::Search(arguments) => &mut arguments.selection,
             Self::Query(arguments) => &mut arguments.selection,
             Self::Schema(arguments) => arguments,
@@ -169,7 +167,6 @@ impl Command {
         match self {
             Self::GetTask(arguments) => ("get_task", false, &arguments.selection),
             Self::Catalogue(arguments) => ("catalogue", false, &arguments.selection),
-            #[cfg(target_os = "linux")]
             Self::Search(arguments) => ("search", false, &arguments.selection),
             Self::Query(arguments) => ("query", false, &arguments.selection),
             Self::Schema(arguments) => ("schema", false, arguments),
@@ -228,7 +225,6 @@ impl Command {
             Self::Schema(_) | Self::SessionHeads(_) => return Ok(None),
             Self::GetTask(arguments) => arguments.input(max_bytes)?,
             Self::Catalogue(arguments) => arguments.input(max_bytes)?,
-            #[cfg(target_os = "linux")]
             Self::Search(arguments) => arguments.input(max_bytes)?,
             Self::Query(arguments) => arguments.input(max_bytes)?,
             Self::GetSession(arguments) => arguments.input(max_bytes)?,

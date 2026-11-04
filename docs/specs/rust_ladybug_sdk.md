@@ -33,7 +33,9 @@ directory whose path is ASCII (spaces are supported), for example
 Unicode content or paths in the indexed graph. Native Windows/macOS execution
 remains unqualified.
 Windows builds use Ninja in the MSVC developer environment with the dynamic CRT
-(`/MD`). Ninja lets the official CMake bundler add each dependency archive once.
+(`/MD`). Ninja lets the official CMake bundler add each dependency archive once. LLVM
+`llvm-nm` and `llvm-objcopy` isolate the bundled Zstd symbols in the resulting
+COFF archive so they can coexist with Cargo’s Zstd dependency.
 `+crt-static` is rejected because the official Rust binding uses `/MD`.
 
 ```sh

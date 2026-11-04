@@ -614,16 +614,24 @@ fn consumer_rejected_member_names_fail_before_storage() {
     let policy = policy();
     let cancel = Cancellation::default();
     let original = policy.request_context(Instant::now(), &cancel).unwrap();
-    let root = tempfile::tempdir().unwrap();
-    seed(root.path(), "names");
     let metadata = metadata();
-    std::fs::write(root.path().join("assets/UPPER"), "one").unwrap();
-    std::fs::write(root.path().join("assets/upper"), "two").unwrap();
-    let reader = capture(root.path(), &policy, &original);
-    let result = prepare(&metadata, producer(), &reader, &policy, &original, &|| {
+    // Construct both entries directly so the collision also exists when the
+    // host filesystem folds their names to the same path.
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("SKILL.md", options).unwrap();
+    zip.write_all(b"---\nname: names\ndescription: collision\n---\nbody")
+        .unwrap();
+    zip.add_directory("assets/", options).unwrap();
+    for path in ["assets/UPPER", "assets/upper"] {
+        zip.start_file(path, options).unwrap();
+        zip.write_all(b"body").unwrap();
+    }
+    let owner = received_owner(&zip.finish().unwrap().into_inner());
+    let result = prepare_received(&metadata, producer(), owner, &policy, &original, &|| {
         original.check()
     });
-    assert!(matches!(result,Err(error) if error.kind()==io::ErrorKind::InvalidData));
+    assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidData));
 }
 
 fn received_zip() -> Vec<u8> {

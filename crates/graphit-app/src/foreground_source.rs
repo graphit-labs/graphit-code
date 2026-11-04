@@ -1661,6 +1661,23 @@ impl ForegroundSource {
         {
             return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
         }
+        // Validate listener selection before touching the installation.
+        let address = config
+            .get::<String>(&ConfigKey::new("mcp.host")?)?
+            .unwrap_or_else(|| "127.0.0.1".into())
+            .parse::<IpAddr>()
+            .map_err(io_error)?;
+        if !address.is_loopback() && !address.is_unspecified() {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
+        }
+        let port = config
+            .get::<u16>(&ConfigKey::new("mcp.port")?)?
+            .unwrap_or(0);
+        let ports =
+            NonZeroU16::new(port).map_or(PortSelection::Ephemeral, |port| PortSelection::Range {
+                first: port,
+                last: port,
+            });
         let mut trusted = Vec::with_capacity(inputs.len());
         let mut identities = Vec::with_capacity(inputs.len());
         for input in inputs {
@@ -2154,23 +2171,6 @@ impl ForegroundSource {
                 refresh_margin: Duration::from_secs(60),
             },
         };
-        // Validate listener selection before creating a runtime credential.
-        let address = config
-            .get::<String>(&ConfigKey::new("mcp.host")?)?
-            .unwrap_or_else(|| "127.0.0.1".into())
-            .parse::<IpAddr>()
-            .map_err(io_error)?;
-        if !address.is_loopback() && !address.is_unspecified() {
-            return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
-        }
-        let port = config
-            .get::<u16>(&ConfigKey::new("mcp.port")?)?
-            .unwrap_or(0);
-        let ports =
-            NonZeroU16::new(port).map_or(PortSelection::Ephemeral, |port| PortSelection::Range {
-                first: port,
-                last: port,
-            });
         // Configuration may gain an active Native profile after startup. The
         // shared owner is lazy: construction performs no discovery or JWT I/O.
         let broker_verifiers = Some(Arc::new(BrokerVerifierCache::new(
