@@ -32,7 +32,8 @@ directory whose path is ASCII (spaces are supported), for example
 `--target-dir 'target/Ladybug space'`. This build-path limitation does not alter
 Unicode content or paths in the indexed graph. Native Windows/macOS execution
 remains unqualified.
-Windows builds use the MSVC developer environment and dynamic CRT (`/MD`);
+Windows builds use Ninja in the MSVC developer environment with the dynamic CRT
+(`/MD`). Ninja lets the official CMake bundler add each dependency archive once.
 `+crt-static` is rejected because the official Rust binding uses `/MD`.
 
 ```sh

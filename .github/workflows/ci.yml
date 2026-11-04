@@ -49,6 +49,7 @@ jobs:
           df -h .
           sudo xcrun simctl runtime delete all
           df -h .
+          echo "TMPDIR=$(cd "$RUNNER_TEMP" && pwd -P)" >> "$GITHUB_ENV"
       - name: Require explicit Broker source ref
         shell: bash
         run: |
@@ -108,7 +109,7 @@ jobs:
       - name: Install Windows native build dependencies
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install protoc unzip llvm --yes --no-progress
+        run: choco install protoc unzip llvm ninja --yes --no-progress
       - name: Select Windows compiler
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1

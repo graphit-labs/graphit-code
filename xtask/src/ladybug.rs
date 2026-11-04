@@ -209,7 +209,11 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
         .join("native/ladybug")
         .join(&target)
         .join("release");
-    let cmake = build.join("build");
+    let cmake = build.join(if target.contains("msvc") {
+        "build-ninja"
+    } else {
+        "build"
+    });
     fs::create_dir_all(&build).map_err(|e| e.to_string())?;
     let lock = fs::File::options()
         .create(true)
@@ -275,7 +279,12 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
             configure.arg(argument);
         }
     }
-    if let Some(generator) = env::var_os("CMAKE_GENERATOR") {
+    if target.contains("msvc") {
+        // MSBuild adds static dependencies to lbug.lib before upstream's
+        // bundling step appends those same archives. Ninja archives only
+        // lbug's objects, leaving bundling to the upstream step.
+        configure.args(["-G", "Ninja"]);
+    } else if let Some(generator) = env::var_os("CMAKE_GENERATOR") {
         configure.arg("-G").arg(generator);
     }
     for (variable, definition) in [("CC", "CMAKE_C_COMPILER"), ("CXX", "CMAKE_CXX_COMPILER")] {
@@ -338,11 +347,7 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
     } else {
         "liblbug.a"
     };
-    let native = if target.contains("msvc") && cmake.join("src/Release").is_dir() {
-        cmake.join("src/Release")
-    } else {
-        cmake.join("src")
-    };
+    let native = cmake.join("src");
     let library = if target.contains("linux") {
         let isolated = build.join("link");
         fs::create_dir_all(&isolated).map_err(|e| e.to_string())?;

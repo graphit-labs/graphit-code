@@ -163,8 +163,9 @@ impl AuthFixture {
         let request_dimensions = embedding.and_then(|config| config.request_dimensions);
         let batch_endpoint = embedding.and_then(|config| config.batch_endpoint);
         let directory = tempfile::tempdir().unwrap();
-        let home = directory.path().join("home");
-        let root = directory.path().join("project");
+        let base = std::fs::canonicalize(directory.path()).unwrap();
+        let home = base.join("home");
+        let root = base.join("project");
         std::fs::create_dir(&home).unwrap();
         std::fs::create_dir(&root).unwrap();
         let paths = InstallationPaths::resolve(Brand::default(), &root, Some(&home), None).unwrap();

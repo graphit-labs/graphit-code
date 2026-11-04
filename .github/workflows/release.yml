@@ -113,7 +113,7 @@ jobs:
       - name: Install Windows native build dependencies
         if: runner.os == 'Windows'
         shell: pwsh
-        run: choco install protoc unzip llvm --yes --no-progress
+        run: choco install protoc unzip llvm ninja --yes --no-progress
       - name: Capture Windows compiler and redistributable runtime
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
