@@ -293,11 +293,11 @@ The final Linux consumer run passed both tests in 256.35 seconds. Current
 Clippy with warnings as errors passed in 34.60 seconds, and three Source
 configuration regressions passed. The Local journey was isolated after an
 earlier observer upgrade returned HTTP 504; isolation does not establish the
-cause of that deadline. Reproducible qualification commands:
+cause of that deadline. Prepare the [PostgreSQL Now fixture](../development/rust-fast-guard.md#native-qualification) before running these commands.
 
 ~~~text
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test foreground_now native_foreground_now_two_projects_and_owned_shutdown -- --ignored --exact --test-threads=1
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test foreground_now native_foreground_now_local_owned_shutdown -- --ignored --exact --test-threads=1
+cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test foreground_now native_foreground_now_two_projects_and_owned_shutdown -- --ignored --exact
+cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test foreground_now native_foreground_now_local_owned_shutdown -- --ignored --exact
 ~~~
 
 This consumer qualification is separate from the completed primitive
@@ -334,10 +334,10 @@ The final current-source publisher journey passed on Linux: one native test in
 AuthStore, Core PROJECT captures, Native JWT/JWKS and explicit Local credentials,
 Lance Task/Memory/Knowledge corpora and the compositor through TCP WebSocket
 Broker backed by PostgreSQL TLS VerifyFull with a NOSUPERUSER application role.
-The command and final log are:
+Prepare the [PostgreSQL Now fixture](../development/rust-fast-guard.md#native-qualification) before running the test. The block also identifies the recorded log.
 
 ~~~text
-cargo test --locked --offline -j4 -p graphit-daemon --test now_publisher now_publisher_broker_postgres -- --ignored --exact --test-threads=1
+cargo xtask cargo test --locked --offline -p graphit-daemon --features postgres-qualification --test now_publisher now_publisher_broker_postgres -- --ignored --exact
 .build/rust-runtime-now-publisher-8923/native13-final.log
 ~~~
 

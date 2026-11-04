@@ -4,8 +4,12 @@
     dead_code,
     reason = "Mature PostgreSQL support also serves other native Broker control journeys"
 )]
-#[path = "../../../../graphit-broker/crates/broker-control/tests/support/mod.rs"]
-mod pg;
+mod pg {
+    include!(concat!(
+        env!("GRAPHIT_BROKER_CONTROL_SOURCE"),
+        "/tests/support/mod.rs"
+    ));
+}
 
 use aws_lc_rs::{
     rand::SystemRandom,

@@ -134,6 +134,21 @@ Use `cargo xtask qualify` to run both journeys or select
 `graphit-app/ast-generic-main-native-nn` or `graphit-app/role-hub-file`
 through `cargo xtask test`. Missing fixture paths fail the selected check.
 
+The PostgreSQL Now qualification uses the locked Broker control fixture and
+its pinned PostgreSQL image on Linux. After `cargo fetch --locked`, export the
+Broker package directory reported by Cargo, then select the qualification targets.
+
+```sh
+export GRAPHIT_BROKER_CONTROL_SOURCE="$(cargo metadata --locked --offline --format-version 1 |
+  python3 -c 'import json, pathlib, sys; print(next(pathlib.Path(p["manifest_path"]).parent for p in json.load(sys.stdin)["packages"] if p["name"] == "broker-control"))')"
+cargo xtask cargo test --locked --offline -p graphit-daemon --features postgres-qualification --test now_publisher --test now_subscription -- --ignored
+cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test foreground_now native_foreground_now_two_projects_and_owned_shutdown -- --exact --ignored
+```
+
+The combined Foreground Now and Memory cases also use the verified model and
+model-server paths above. Ordinary tests cover the Now protocol and lifecycle
+using their own loopback fixtures.
+
 The launcher tests exercise the captured service command through a private
 executable and check its arguments, working directory and result. The native
 Linux desktop checks additionally use a private D-Bus instance. Run these
@@ -162,8 +177,8 @@ cargo xtask cargo test --locked --offline -p graphit-app --lib real_docker_custo
 cargo xtask cargo test --locked --offline -p graphit-app --lib foreground_rust_scip_calls_and_physical_change_rejection -- --ignored
 ```
 
-UI tests use up to two isolated Vitest workers by default. Override the worker
-count on a different machine with Vitest's existing options, for example
+UI tests use isolated Vitest workers, up to four according to the CPUs
+available to Node. Override the worker count with Vitest's options, for example
 `npm --prefix ui test -- --minWorkers=1 --maxWorkers=1`.
 To generate the optional coverage report, run `npm --prefix ui test -- --coverage`.
 
@@ -252,9 +267,10 @@ The native test installs, starts, restarts and removes its own temporary unit. A
 
 The selector names and Cargo arguments live in `xtask/src/main.rs`. The runner does not copy the product workspace, build additional runners or inject test code into product modules. Child command failures stop the selection and reach the caller; hook failures stop subsequent configured commands. Commands wait for their direct children. This does not claim supervision of independent descendant process groups.
 
-Build and test parallelism follow Cargo and Rust defaults or the caller's
-environment. The runner does not override `CARGO_BUILD_JOBS` or
-`RUST_TEST_THREADS`.
+Rust runs cases within each test target concurrently according to the machine's
+available CPUs. Set `RUST_TEST_THREADS` to override that for a local run. CI uses
+independent Linux, macOS, and Windows jobs. Its Cargo build job setting controls
+compilation separately from test execution.
 
 The SDK audit keeps private module, signature and unsafe-call boundaries. Its unit tests exercise structural violations; adding a legitimate SDK function does not fail an unrelated aggregate count assertion.
 

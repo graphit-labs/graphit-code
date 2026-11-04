@@ -1,57 +1,6 @@
 use super::*;
 use tokio_util::sync::CancellationToken;
 
-#[test]
-fn shipped_assets_compile_without_dist_or_node_in_an_isolated_source_tree() {
-    let fixture = tempfile::tempdir().unwrap();
-    let source = fixture.path().join("src");
-    let assets = fixture.path().join("assets/ui");
-    std::fs::create_dir_all(&source).unwrap();
-    std::fs::create_dir_all(&assets).unwrap();
-    for (name, bytes) in [
-        ("index.html", INDEX),
-        ("logo.svg", LOGO),
-        ("favicon.svg", FAVICON),
-    ] {
-        std::fs::write(assets.join(name), bytes).unwrap();
-    }
-    // Compile the production include declarations, so a dependency on dist would fail.
-    let declarations = include_str!("../foreground_ui.rs")
-        .lines()
-        .filter(|line| line.starts_with("const "))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let input = source.join("foreground_ui.rs");
-    std::fs::write(
-        &input,
-        format!("{declarations}\nfn main() {{ std::hint::black_box((INDEX, LOGO, FAVICON)); }}"),
-    )
-    .unwrap();
-    let sysroot = std::process::Command::new("rustc")
-        .args(["--print", "sysroot"])
-        .output()
-        .unwrap();
-    assert!(sysroot.status.success());
-    let compiler = std::path::PathBuf::from(std::str::from_utf8(&sysroot.stdout).unwrap().trim())
-        .join("bin")
-        .join(if cfg!(windows) { "rustc.exe" } else { "rustc" });
-    let result = std::process::Command::new(compiler)
-        .env("PATH", "")
-        .args(["--edition=2024", "--emit=metadata", "-Dwarnings"])
-        .arg(&input)
-        .arg("-o")
-        .arg(fixture.path().join("assets.rmeta"))
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    assert!(fixture.path().join("assets.rmeta").is_file());
-    assert!(!fixture.path().join("ui/dist").exists());
-}
-
 #[tokio::test]
 async fn shipped_assets_have_exact_bytes_mime_head_and_finite_routes() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

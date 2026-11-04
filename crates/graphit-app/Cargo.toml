@@ -21,8 +21,13 @@ path = "tests/support/opencode_knowledge_fixture.rs"
 test = false
 bench = false
 
+[[test]]
+name = "foreground_now"
+required-features = ["postgres-qualification"]
+
 [features]
 cuda = ["graphit-ai/cuda"]
+postgres-qualification = []
 
 [dependencies]
 uuid = { version = "=1.28.0", features = ["v4"] }

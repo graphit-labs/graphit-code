@@ -6,8 +6,17 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[[test]]
+name = "now_publisher"
+required-features = ["postgres-qualification"]
+
+[[test]]
+name = "now_subscription"
+required-features = ["postgres-qualification"]
+
 [features]
 cuda = ["graphit-ai/cuda"]
+postgres-qualification = []
 
 [dependencies]
 shell-escape = "=0.1.5"

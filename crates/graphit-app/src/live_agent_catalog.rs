@@ -616,8 +616,17 @@ mod tests {
     #[test]
     fn capability_requires_the_current_configured_kiro_engine() {
         let directory = tempfile::tempdir().unwrap();
-        // Only program discovery is exercised; no vendor CLI is executed.
-        let program = std::env::current_exe().unwrap();
+        // Discovery only checks the file and execute permissions. Keep that
+        // fixture independent of the running test executable and vendor CLI.
+        let program = directory
+            .path()
+            .join(format!("kiro-cli{}", std::env::consts::EXE_SUFFIX));
+        std::fs::File::create(&program).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
         let native = NativeDocumentFileLimits::new(
             1024 * 1024,
             graphit_core::native_path::MAX_PATH_BYTES,
@@ -627,8 +636,8 @@ mod tests {
         .unwrap();
         let ask = AskAvailability::capture(
             graphit_ai::cli_provider::CliCompletionProvider::KiroV3,
-            program.as_os_str(),
-            Vec::new(),
+            program.file_name().unwrap(),
+            vec![("PATH".into(), directory.path().as_os_str().to_owned())],
             directory.path(),
             native,
         )

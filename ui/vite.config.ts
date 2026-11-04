@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteSingleFile } from 'vite-plugin-singlefile'
+import { availableParallelism } from 'node:os'
 import path from 'path'
 
 export default defineConfig({
@@ -15,10 +16,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    // Each fork owns a DOM. Keep the default pool small enough for component
-    // interactions to finish reliably alongside native builds.
     minWorkers: 1,
-    maxWorkers: 2,
+    maxWorkers: Math.min(4, availableParallelism()),
   },
   build: {
     outDir: 'dist',

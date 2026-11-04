@@ -564,11 +564,11 @@ com dois testes em 256,35 segundos; Clippy com warnings como erros passou em
 34,60 segundos após a jornada combinada, e as três regressões de configuração do Source passaram. A
 jornada Local foi isolada após HTTP 504 no upgrade do observador em uma
 tentativa anterior; o isolamento não estabelece a causa daquele deadline.
-Os comandos reproduzíveis de qualificação são:
+Prepare a [fixture PostgreSQL do Now](../development/rust-fast-guard.md#native-qualification) antes de executar os testes.
 
 ~~~text
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test foreground_now native_foreground_now_two_projects_and_owned_shutdown -- --ignored --exact --test-threads=1
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test foreground_now native_foreground_now_local_owned_shutdown -- --ignored --exact --test-threads=1
+cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test foreground_now native_foreground_now_two_projects_and_owned_shutdown -- --ignored --exact
+cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test foreground_now native_foreground_now_local_owned_shutdown -- --ignored --exact
 ~~~
 
 O caso sem modelo/configuração global exercita o encerramento sem jobs M

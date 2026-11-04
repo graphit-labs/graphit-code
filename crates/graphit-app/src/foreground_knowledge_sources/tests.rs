@@ -985,15 +985,18 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
         }));
     }
     let first_inference = Arc::new(tokio::sync::Semaphore::new(0));
-    let http_fixture = if local_rerank {
-        embedding_http::fixture_with_deadline(
-            replies,
-            startup.snapshot().required_deadline().unwrap(),
-        )
-        .await
+    let releases = if local_rerank {
+        Vec::new()
     } else {
-        embedding_http::fixture_with_barriers(replies, vec![Arc::clone(&first_inference)]).await
+        vec![Arc::clone(&first_inference)]
     };
+    // Native commits and deliberate no-op reads can precede the next request.
+    let http_fixture = embedding_http::fixture_with_origin_and_barriers(
+        |_| (replies, Vec::new()),
+        releases,
+        Some(startup.snapshot().required_deadline().unwrap()),
+    )
+    .await;
     std::fs::create_dir(project.root().join("docs")).unwrap();
     let document = project.root().join("docs/a.md");
 
@@ -1266,6 +1269,7 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
         }, native: native_limits, batch_rows: NonZeroU32::new(1).unwrap() };
         let live = Cancellation::default();
         let paths = BTreeSet::new();
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
         let indexing = helper.index(&project, &selected, true, false, &paths, &live, &live, &live, Some(&resources));
         let first = if local_rerank {
             indexing.await.unwrap().unwrap()
@@ -1275,7 +1279,6 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
                 // The genuine provider request is held before its response:
                 // Source/FTS must already be available through the real MCP.
                 let address = crate::source_entry::address(&installation, native_limits, &observe).await.unwrap();
-                let http = reqwest::Client::new();
                 let connection = crate::ast_source::connect_source(&installation, address, &http, native_limits, &observe, ()).await.unwrap();
                 let input = crate::knowledge_search_entry::Arguments {
                     query: "orbital".into(), mode: crate::knowledge_search_entry::Mode::Fts,
@@ -1371,7 +1374,6 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
         // Exercise the actual CLI codec and one Source MCP session so the opaque
         // cursor binding is identical across all six precedence combinations.
         let address = crate::source_entry::address(&installation, native_limits, &observe).await.unwrap();
-        let http = reqwest::Client::new();
         let connection = crate::ast_source::connect_source(&installation, address, &http, native_limits, &observe, ()).await.unwrap();
         let arguments = |rerank| crate::knowledge_search_entry::Arguments {
             query:"orbital".into(), mode:crate::knowledge_search_entry::Mode::Fts,

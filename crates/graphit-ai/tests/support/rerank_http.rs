@@ -120,7 +120,7 @@ pub(super) async fn fixture_with_origin(
 pub(super) async fn fixture_with_deadline(replies: Vec<Reply>, deadline: Instant) -> Fixture {
     fixture_with_origin_and_barriers(|_| (replies, Vec::new()), Vec::new(), Some(deadline)).await
 }
-async fn fixture_with_origin_and_barriers(
+pub(super) async fn fixture_with_origin_and_barriers(
     prepare: impl FnOnce(&str) -> (Vec<Reply>, Vec<Vec<(String, String)>>),
     releases: Vec<Arc<Semaphore>>,
     deadline: Option<Instant>,

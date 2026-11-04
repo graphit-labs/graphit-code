@@ -5,10 +5,15 @@ use graphit_records::memory_store::{
 };
 use std::{num::NonZeroUsize, path::Path};
 
-fn git(root: &Path, arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
+fn git_command(root: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new("git");
+    for (key, _) in std::env::vars_os() {
+        if key.as_encoded_bytes().starts_with(b"GIT_") {
+            command.env_remove(key);
+        }
+    }
+    command
+        .current_dir(root)
         .args([
             "-c",
             "user.name=Graphit fixture",
@@ -16,13 +21,12 @@ fn git(root: &Path, arguments: &[&str]) -> String {
             "user.email=fixture@example.invalid",
         ])
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env(
-            "GIT_CONFIG_GLOBAL",
-            if cfg!(windows) { "NUL" } else { "/dev/null" },
-        )
-        .args(arguments)
-        .output()
-        .unwrap();
+        .env("GIT_CONFIG_GLOBAL", root.join(".git/absent-global-config"));
+    command
+}
+
+fn git(root: &Path, arguments: &[&str]) -> String {
+    let output = git_command(root).args(arguments).output().unwrap();
     assert!(
         output.status.success(),
         "git {:?}: {}",
@@ -441,6 +445,11 @@ struct RewriteHooks {
 impl RewriteHooks {
     fn install(root: &Path, base: String, raw: String) -> Self {
         use std::os::unix::fs::PermissionsExt;
+        // The running Linux test process owns the executable even if another
+        // build replaces its directory entry while Git is running.
+        #[cfg(target_os = "linux")]
+        let executable = std::path::PathBuf::from(format!("/proc/{}/exe", std::process::id()));
+        #[cfg(not(target_os = "linux"))]
         let executable = std::env::current_exe().unwrap();
         let child = shlex::try_join([
             executable.to_str().unwrap(),
@@ -474,17 +483,7 @@ impl RewriteHooks {
 
     fn run(&self, arguments: &[&str]) -> Vec<graphit_core::git_record_event::GitRecordEvent> {
         let previous = std::fs::read_to_string(&self.receipt).unwrap();
-        let output = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&self.root)
-            .args([
-                "-c",
-                "user.name=Graphit fixture",
-                "-c",
-                "user.email=fixture@example.invalid",
-            ])
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        let output = git_command(&self.root)
             .env("GIT_EDITOR", "true")
             .env("GRAPHIT_TEST_HOOK_ROOT", &self.root)
             .env("GRAPHIT_TEST_HOOK_BASE", &self.base)

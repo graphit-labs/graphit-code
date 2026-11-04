@@ -297,40 +297,40 @@ fn snapshots_own_their_inputs_and_do_not_share_later_configuration() {
     );
 }
 
+const CHILD_ROOT: &str = "GRAPHIT_PATHS_TEST_ROOT";
+
+#[test]
+#[ignore = "private entry point started by the working-directory test"]
+fn bootstrap_working_directory_child() {
+    let root = std::path::PathBuf::from(std::env::var_os(CHILD_ROOT).unwrap());
+    std::env::set_current_dir(&root).unwrap();
+    let paths = InstallationPaths::resolve(
+        Brand::new("acme-code").unwrap(),
+        Path::new("."),
+        None,
+        Some(Path::new("relative-global")),
+    )
+    .unwrap();
+    let project = ProjectPaths::at(&root, &paths).unwrap();
+    std::env::set_current_dir(root.join("later")).unwrap();
+    assert_eq!(
+        paths.root(),
+        root.canonicalize().unwrap().join("relative-global")
+    );
+    assert_eq!(
+        paths.config_file(),
+        root.join("relative-global/config.json")
+    );
+    assert_eq!(project.root(), root.canonicalize().unwrap());
+    assert!(!paths.root().exists());
+}
+
 #[test]
 fn captured_bootstrap_paths_do_not_drift_after_a_process_changes_directory() {
-    const CHILD_ROOT: &str = "GRAPHIT_PATHS_TEST_ROOT";
-    if let Some(root) = std::env::var_os(CHILD_ROOT) {
-        let root = std::path::PathBuf::from(root);
-        std::env::set_current_dir(&root).unwrap();
-        let paths = InstallationPaths::resolve(
-            Brand::new("acme-code").unwrap(),
-            Path::new("."),
-            None,
-            Some(Path::new("relative-global")),
-        )
-        .unwrap();
-        let project = ProjectPaths::at(&root, &paths).unwrap();
-        std::env::set_current_dir(root.join("later")).unwrap();
-        assert_eq!(
-            paths.root(),
-            root.canonicalize().unwrap().join("relative-global")
-        );
-        assert_eq!(
-            paths.config_file(),
-            root.join("relative-global/config.json")
-        );
-        assert_eq!(project.root(), root.canonicalize().unwrap());
-        assert!(!paths.root().exists());
-        return;
-    }
     let fixture = Fixture::new();
     fs::create_dir(fixture.path("later")).unwrap();
     let child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "captured_bootstrap_paths_do_not_drift_after_a_process_changes_directory",
-        ])
+        .args(["--ignored", "--exact", "bootstrap_working_directory_child"])
         .env(CHILD_ROOT, fixture.root().canonicalize().unwrap())
         .output()
         .unwrap();

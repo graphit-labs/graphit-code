@@ -90,11 +90,11 @@ make test TEST=graphit-ast/source_ranges
 make fmt-check
 ```
 
-Select the suite appropriate to the change; the AST selector above is an example. `make test`
-requires `TEST` and does not silently run the workspace. Use `cargo xtask test PACKAGE/TARGET ...`
-for multiple selectors. Direct package tests and focused Clippy runs are appropriate when the
-changed behavior has no registered selector. The maintained selector catalog and hook commands
-are documented in [Rust checks and Git hooks](docs/development/rust-fast-guard.md).
+With `TEST` set, `make test` runs the named selector. With no selector, it runs
+the standard Rust workspace tests offline. Use `cargo xtask test PACKAGE/TARGET ...`
+for multiple selectors. Direct package tests and focused Clippy runs are appropriate
+when the changed behavior has no registered selector. See the maintained selector
+catalog in [Rust checks and Git hooks](docs/development/rust-fast-guard.md).
 
 For Observatory changes:
 

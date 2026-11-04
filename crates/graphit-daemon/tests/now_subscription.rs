@@ -4,8 +4,12 @@
     dead_code,
     reason = "Shared Broker PostgreSQL test support also exposes control-specific helpers unused by this native subscriber journey"
 )]
-#[path = "../../../../graphit-broker/crates/broker-control/tests/support/mod.rs"]
-mod pg;
+mod pg {
+    include!(concat!(
+        env!("GRAPHIT_BROKER_CONTROL_SOURCE"),
+        "/tests/support/mod.rs"
+    ));
+}
 
 use aws_lc_rs::{
     rand::SystemRandom,
