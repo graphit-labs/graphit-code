@@ -89,9 +89,12 @@ são requisitos de conclusão do CLI.
 
 O callback privado `session_bound` pode ocorrer ao observar `result`: ele não
 é um ACK anterior ao prompt nem autoriza commit. A resposta só fica elegível após
-status físico zero, stdout/stderr em EOF, cleanup completo, ausência de Remaining,
-join e revalidação da autoridade e do Original. Um resultado válido seguido de
-falha no save/processo não entrega sucesso.
+status físico zero, stdout/stderr em EOF, ausência de Remaining, join e
+revalidação da autoridade e do Original. Em Unix, exige cleanup completo do
+grupo. Em Windows, o recibo deve registrar o líder recolhido e nenhum erro de
+controle. A confirmação de toda a árvore continua indisponível no recibo
+Windows. Um resultado válido seguido de falha no save/processo não entrega
+sucesso.
 
 ## Cancelamento, autorização, limites e custódia
 

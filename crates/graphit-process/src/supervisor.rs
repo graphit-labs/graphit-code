@@ -980,7 +980,7 @@ pub(crate) async fn supervise(
     observations.send_replace(observation);
     // The SDK owns the process-group or job control independently of leader exit.
     #[cfg(unix)]
-    match control_tree(owner.guard.child.as_mut(), endpoint, |child| {
+    match control_tree(owner.guard.child.as_mut(), |child| {
         child.signal(nix::sys::signal::Signal::SIGTERM as i32)
     })
     .await
@@ -994,10 +994,7 @@ pub(crate) async fn supervise(
         Err(error) if already_gone(&error) => (),
         Err(error) => observation.control.terminate = Some(error.into()),
     }
-    if let Err(error) = control_tree(owner.guard.child.as_mut(), endpoint, |child| {
-        child.start_kill()
-    })
-    .await
+    if let Err(error) = control_tree(owner.guard.child.as_mut(), |child| child.start_kill()).await
         && !already_gone(&error)
     {
         observation.control.kill = Some(error.into());
@@ -1440,11 +1437,8 @@ fn native_wait_target(
 }
 async fn control_tree(
     child: &mut dyn ChildWrapper,
-    endpoint: Instant,
     operation: impl Fn(&mut dyn ChildWrapper) -> io::Result<()>,
 ) -> io::Result<()> {
-    #[cfg(not(target_os = "macos"))]
-    let _ = endpoint;
     let result = operation(child);
     // Darwin can report EPERM while an exited process is leaving its group.
     // Poll and reap the owned leader during the retry window. An initial
@@ -1453,7 +1447,9 @@ async fn control_tree(
     #[cfg(target_os = "macos")]
     let result = {
         let mut result = result;
-        let retry_until = endpoint.min(Instant::now() + Duration::from_millis(25));
+        // The observer may already have timed out. The owner still reaps the
+        // child and resolves transient group errors before reporting cleanup.
+        let retry_until = Instant::now() + Duration::from_millis(25);
         while result
             .as_ref()
             .is_err_and(|error| error.raw_os_error() == Some(nix::errno::Errno::EPERM as i32))
