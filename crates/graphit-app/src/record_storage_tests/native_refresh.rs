@@ -548,15 +548,21 @@ async fn native_refresh_observes_the_task_original_deadline() {
         .hold
         .store(true, Ordering::SeqCst);
     let mut client = Client::new(&broker, None);
-    client.timeout(Duration::from_millis(300));
+    // Original covers cold discovery and Task admission before the held OAuth POST.
+    let original = Duration::from_secs(3);
+    client.timeout(original);
     let before = seed_native(&client, &broker, true);
     let operation = client.task("session_create", session_input("deadline-refresh"), true);
     tokio::pin!(operation);
     tokio::select! {
+        biased;
         () = broker.state.native_refresh.entered.notified() => (),
-        _ = &mut operation => panic!("real OAuth request is held before the original deadline"),
+        result = &mut operation => panic!(
+            "Task finished before reaching the held OAuth endpoint: {}",
+            result.err().map_or("unexpected success", |failure| failure.code)
+        ),
     }
-    let failure = tokio::time::timeout(Duration::from_secs(5), operation)
+    let failure = tokio::time::timeout(original + Duration::from_secs(1), operation)
         .await
         .unwrap()
         .expect_err("expired OAuth consumer fails explicitly");
@@ -569,7 +575,7 @@ async fn native_refresh_observes_the_task_original_deadline() {
         .native_refresh
         .hold
         .store(false, Ordering::SeqCst);
-    broker.state.native_refresh.released.notify_waiters();
+    broker.state.native_refresh.released.notify_one();
     assert_eq!(broker.state.native_refresh.calls.load(Ordering::SeqCst), 1);
     assert_eq!(profile_identity(&client), (before, "shared-user".into()));
     client.assert_no_local_tables();
