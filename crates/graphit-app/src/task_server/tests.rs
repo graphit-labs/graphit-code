@@ -213,33 +213,32 @@ pub(crate) fn fixture_with_user_permissions(
 ) -> (tempfile::TempDir, TaskServer, String) {
     fixture_with_reference_permissions(extra, additional_names, user_permissions, false)
 }
+/// Select local persistence in signed-identity fixtures that do not exercise STS.
+pub(crate) struct LocalRecordStorage;
+impl graphit_auth::RecordStorageResolver for LocalRecordStorage {
+    fn resolve<'a>(
+        &'a self,
+        admission: graphit_auth::RecordStorageAdmission<'a>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::io::Result<Option<graphit_auth::RemoteRecordStorage>>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            admission.recheck().map_err(std::io::Error::other)?;
+            Ok(None)
+        })
+    }
+}
 pub(crate) fn fixture_with_reference_permissions(
     extra: &[Permission],
     additional_names: &[&str],
     user_permissions: Option<&[Permission]>,
     imports: bool,
 ) -> (tempfile::TempDir, TaskServer, String) {
-    // This bare TaskServer fixture tests local persistence with signed identity
-    // providers. Source fixtures and S3 product fixtures construct their own Auth.
-    struct LocalRecordStorage;
-    impl graphit_auth::RecordStorageResolver for LocalRecordStorage {
-        fn resolve<'a>(
-            &'a self,
-            admission: graphit_auth::RecordStorageAdmission<'a>,
-        ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<
-                        Output = std::io::Result<Option<graphit_auth::RemoteRecordStorage>>,
-                    > + Send
-                    + 'a,
-            >,
-        > {
-            Box::pin(async move {
-                admission.recheck().map_err(std::io::Error::other)?;
-                Ok(None)
-            })
-        }
-    }
     let temp = tempfile::tempdir().unwrap();
     let paths = InstallationPaths::resolve(
         Brand::default(),

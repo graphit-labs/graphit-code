@@ -41,6 +41,13 @@ impl Connection {
         )
         .unwrap();
         let address = listener.address();
+        graphit_daemon::source_discovery::publish_discovery(
+            &source.auth,
+            &listener,
+            source.server.0.policy.index,
+            request.snapshot(),
+        )
+        .unwrap();
         let server = source.server.clone();
         let serving = tokio::spawn(async move { SourceServer::serve(&server, listener).await });
         let (paths, _, version) = &source.projects[0];
@@ -338,21 +345,43 @@ fn cache(source: &SourceFixture) -> Arc<BrokerVerifierCache> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn verified_user_index_through_project_selected_proxy_preserves_subject_and_warm_jwks() {
+    use graphit_auth::{
+        CredentialSource, RemoteServiceBindingInput, ServiceOrigin, ServiceRuleInput,
+    };
+
     let broker = native_support::Broker::start().await;
-    let mut source = super::super::test_fixture::fixture(
+    let mut source = super::super::test_fixture::fixture_with_projects_and_rules(
         &[
             Permission::Read(Module::Memory),
             Permission::WriteMemory,
             Permission::ReadUser,
             Permission::MutateUser,
+            Permission::External(graphit_auth::ExternalEffect::RemoteRequest),
         ],
         Brand::default(),
         NativeBinding::Codex,
+        &["project"],
+        &[ServiceRuleInput::Remote {
+            origin: ServiceOrigin::Runtime,
+            binding: RemoteServiceBindingInput::Broker {
+                provider: "service",
+                purpose: ServicePurpose::RecordStorage,
+                endpoint: &broker.origin,
+                resource: None,
+            },
+            credential: CredentialSource::NativeAccess,
+            incoming: None,
+        }],
     );
     let cancel = Cancellation::default();
     let request = request(&cancel);
     let store = native_store(&source, &request);
     native_profile(&store, &broker, "broker-api", &request);
+    source
+        .auth
+        .issuer()
+        .set_record_storage_resolver(Arc::new(crate::task_server::tests::LocalRecordStorage))
+        .unwrap();
     let cache = cache(&source);
     source
         .server
