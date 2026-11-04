@@ -829,7 +829,11 @@ async fn productive_native_only_is_queryable_while_model_rpc_is_unanswered() -> 
 }
 
 async fn native_only_journey(hold_model: bool) -> TestResult {
-    let (fixture, owner, tasks, credential, _) = support::browser_search_fixture().await;
+    let (fixture, owner, tasks, credential, _) = if hold_model {
+        support::browser_search_fixture().await
+    } else {
+        support::browser_syntax_fixture().await
+    };
     let selected = owner.projects.as_ref().unwrap()[0].clone();
     let source = owner.server.as_ref().unwrap().clone();
     let cancellation = Cancellation::default();
@@ -1025,15 +1029,20 @@ async fn native_only_journey(hold_model: bool) -> TestResult {
                     BTreeSet::from(["z.vb".into()]),false,job_background,lifetime).await
             }
         });
-        if let Some(observed) = request_seen.take() {
-            tokio::time::timeout(Duration::from_secs(30), observed).await??;
-        }
         tokio::time::timeout(Duration::from_secs(30),async {
             while !docker.path().join("dotnet-started").exists() {tokio::time::sleep(Duration::from_millis(20)).await;}
         }).await?;
         let fifo=docker.path().join("release-compiler");
         tokio::task::spawn_blocking(move||fs::write(fifo,b"ready\n")).await??;
-        tokio::time::timeout(Duration::from_secs(30),published).await??;
+        tokio::time::timeout(Duration::from_secs(30), published).await
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "native-only FILE was not published after compiler release"))??;
+        // The compiler publishes and queues the native-only FILE before NN
+        // may request its first vector. Waiting for the RPC sooner can deadlock
+        // this fixture against its own compiler gate.
+        if let Some(observed) = request_seen.take() {
+            tokio::time::timeout(Duration::from_secs(30), observed).await
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "model RPC did not reach the fixture after FILE publication"))??;
+        }
         assert!(!docker.path().join("rust-started").exists(),"the unrelated compiler has not delayed the native-only delta");
         assert_eq!(query("MATCH(n) WHERE n.name='NativeWitness' RETURN count(n)").await?["rows"][0][0]["value"],"1");
         assert_eq!(query("MATCH(n:AstFileObservation) WHERE n.path='b.rs' OR n.path='c.rs' RETURN count(DISTINCT n.path)").await?["rows"][0][0]["value"],if hold_model { "2" } else { "0" });

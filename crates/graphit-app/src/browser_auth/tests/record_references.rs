@@ -844,20 +844,11 @@ async fn record_references_import_http_uses_same_realm_registered_native_source_
     let body: Value = response.json().await.unwrap();
     assert_eq!(body["native"]["state"], "published");
     assert_eq!(body["native"]["page"]["state"], "found");
-    assert_eq!(body["focused_source"]["slug"], "Imported page");
-    assert_eq!(body["focused_source"]["title"], "Imported title");
-    assert_eq!(body["focused_source"]["namespace"], Value::Null);
-    assert_eq!(body["focused_source"]["witness"], Value::Null);
+    assert_eq!(body["focused_source"], Value::Null);
     let document = &body["native"]["page"]["document"];
-    assert_eq!(
-        body["focused_source"]["source_path"],
-        document["source_path"]
-    );
-    assert_eq!(
-        body["focused_source"]["compilation_digest"],
-        document["compilation_digest"]
-    );
     assert_eq!(document.as_object().unwrap().len(), 16);
+    assert_eq!(document["slug"], "Imported page");
+    assert_eq!(document["source_path"], "docs/records.md");
     assert_eq!(document["title"], "Imported title");
     assert_eq!(document["body"], "# Complete native body é\n");
     assert_eq!(document["updated_at"], "-1");

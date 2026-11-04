@@ -16,6 +16,9 @@ use graphit_records::{
 };
 fn config(f: &Fixture, enabled: bool) -> Result<ConfigSnapshot> {
     let mut entries = vec![
+        (ConfigKey::new("modules.ast")?, json!(false)),
+        (ConfigKey::new("modules.knowledge")?, json!(false)),
+        (ConfigKey::new("modules.embedding")?, json!(false)),
         (ConfigKey::new("modules.task")?, json!(false)),
         (ConfigKey::new("modules.hooks")?, json!(true)),
         (ConfigKey::new("modules.memory")?, json!(true)),
@@ -260,6 +263,28 @@ fn bootstrap(f: &Fixture) -> Result<ForegroundSource> {
         &original,
     )?)
 }
+async fn bootstrap_with_profiles(
+    f: &Fixture,
+    profiles: &[(&str, &native_support::Broker)],
+) -> Result<ForegroundSource> {
+    let owner = bootstrap(f)?;
+    let cancel = Cancellation::default();
+    let request = f.policy.request_context(Instant::now(), &cancel)?;
+    let store = auth_store(f, &owner, &request)?;
+    for &(name, broker) in profiles.iter().rev() {
+        native_profile(
+            &store,
+            broker,
+            name,
+            "broker-api",
+            native_support::now() + 600,
+            &request,
+        );
+    }
+    // Foreground captures service permissions from the configured providers at startup.
+    owner.shutdown().await?;
+    bootstrap(f)
+}
 struct Ready {
     _directory: tempfile::TempDir,
     listener: tokio::net::UnixListener,
@@ -404,7 +429,7 @@ fn native_profile(
                 access_token: Secret::new(broker.token(expiry, audience).into()),
                 refresh_token: None,
                 id_token: Secret::new("historical-fixture-id-token".into()),
-                expires_at: expiry.try_into().unwrap(),
+                expires_at: i64::try_from(Duration::from_secs(expiry).as_micros()).unwrap(),
             },
         },
     };
@@ -451,18 +476,7 @@ async fn user_startup_without_project_applies_native_fold_delete_and_preserves_m
     let f = Fixture::new()?;
     prepare_peer(&f)?;
     let broker = native_support::Broker::start().await;
-    let seeded = bootstrap(&f)?;
-    let cancel = Cancellation::default();
-    let request = f.policy.request_context(Instant::now(), &cancel)?;
-    let store = auth_store(&f, &seeded, &request)?;
-    native_profile(
-        &store,
-        &broker,
-        "user-a",
-        "broker-api",
-        native_support::now() + 600,
-        &request,
-    );
+    let seeded = bootstrap_with_profiles(&f, &[("user-a", &broker)]).await?;
     let records = seed_user(&f, &seeded, 4, 0).await?;
     assert!(seeded.projects.as_ref().unwrap().is_empty());
     seeded.shutdown().await?;
@@ -530,17 +544,7 @@ async fn user_no_native_and_no_corpus_startup_never_resolve_or_launch_a_program(
     iteration(&mut absent).await?;
     assert!(attempts(&f)?.is_empty());
     absent.shutdown().await?;
-    let seed = bootstrap(&f)?;
-    let cancel = Cancellation::default();
-    let request = f.policy.request_context(Instant::now(), &cancel)?;
-    native_profile(
-        &auth_store(&f, &seed, &request)?,
-        &broker,
-        "user",
-        "broker-api",
-        native_support::now() + 600,
-        &request,
-    );
+    let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
     let (list, _) = snapshot(&f, &seed, &[]).await?;
     assert!(matches!(list, UserMemoryListRead::NoCorpus));
     seed.shutdown().await?;
@@ -560,18 +564,9 @@ async fn user_native_failure_and_escaped_bound_never_launch_or_apply() -> Result
         let variable_limit = f.policy.content().max_scalar_bytes;
         prepare_peer(&f)?;
         let broker = native_support::Broker::start().await;
-        let seed = bootstrap(&f)?;
+        let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
         let cancel = Cancellation::default();
         let request = f.policy.request_context(Instant::now(), &cancel)?;
-        let store = auth_store(&f, &seed, &request)?;
-        native_profile(
-            &store,
-            &broker,
-            "user",
-            "broker-api",
-            native_support::now() + 600,
-            &request,
-        );
         let seeded_records = if invalid {
             None
         } else {
@@ -613,11 +608,21 @@ async fn user_native_failure_and_escaped_bound_never_launch_or_apply() -> Result
         )
         .await?
         .unwrap_err();
-        assert!(error.to_string().contains(if invalid {
-            "Native authentication"
+        if invalid {
+            assert!(
+                matches!(
+                    error
+                        .get_ref()
+                        .and_then(|cause| cause.downcast_ref::<graphit_auth::ServiceUseError>()),
+                    Some(graphit_auth::ServiceUseError::Broker(
+                        graphit_auth::broker::BrokerError::InvalidToken
+                    ))
+                ),
+                "{error:?}"
+            );
         } else {
-            "corpus encoding or bound"
-        }));
+            assert!(error.to_string().contains("corpus encoding or bound"));
+        }
         assert!(attempts(&f)?.is_empty());
         native_profile(
             &auth_store(&f, &owner, &request)?,
@@ -643,17 +648,7 @@ async fn user_malformed_partial_and_unsuccessful_native_proposals_are_data_not_e
         let f = Fixture::new()?;
         prepare_peer(&f)?;
         let broker = native_support::Broker::start().await;
-        let seed = bootstrap(&f)?;
-        let cancel = Cancellation::default();
-        let request = f.policy.request_context(Instant::now(), &cancel)?;
-        native_profile(
-            &auth_store(&f, &seed, &request)?,
-            &broker,
-            "user",
-            "broker-api",
-            native_support::now() + 600,
-            &request,
-        );
+        let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
         let records = seed_user(&f, &seed, 4, 0).await?;
         seed.shutdown().await?;
         let (mut owner, _ready) = start(&f, mode).await?;
@@ -685,17 +680,9 @@ async fn user_native_profile_switch_and_stop_join_without_adopting_another_user(
         prepare_peer(&f)?;
         let first = native_support::Broker::start().await;
         let second = native_support::Broker::start().await;
-        let seed = bootstrap(&f)?;
+        let seed = bootstrap_with_profiles(&f, &[("first", &first), ("second", &second)]).await?;
         let cancel = Cancellation::default();
         let request = f.policy.request_context(Instant::now(), &cancel)?;
-        native_profile(
-            &auth_store(&f, &seed, &request)?,
-            &first,
-            "first",
-            "broker-api",
-            native_support::now() + 600,
-            &request,
-        );
         let records = seed_user(&f, &seed, 4, 0).await?;
         seed.shutdown().await?;
         let (mut owner, ready) = start(&f, if stop_native { "hold" } else { "slow" }).await?;
@@ -827,17 +814,7 @@ async fn delete_all_user(f: &Fixture, owner: &ForegroundSource, records: &[Memor
 async fn user_published_empty_never_resolves_or_launches_a_program() -> Result {
     let mut f = Fixture::new()?;
     let broker = native_support::Broker::start().await;
-    let seeded = bootstrap(&f)?;
-    let cancel = Cancellation::default();
-    let request = f.policy.request_context(Instant::now(), &cancel)?;
-    native_profile(
-        &auth_store(&f, &seeded, &request)?,
-        &broker,
-        "user",
-        "broker-api",
-        native_support::now() + 600,
-        &request,
-    );
+    let seeded = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
     let records = seed_user(&f, &seeded, 1, 0).await?;
     delete_all_user(&f, &seeded, &records).await?;
     let (empty, _) = snapshot(&f, &seeded, &[]).await?;
@@ -999,17 +976,9 @@ async fn user_application_reobserves_same_keys_and_refuses_partial_recipe_retarg
     prepare_peer(&f)?;
     let first = native_support::Broker::start().await;
     let second = native_support::Broker::start().await;
-    let seed = bootstrap(&f)?;
+    let seed = bootstrap_with_profiles(&f, &[("first", &first), ("second", &second)]).await?;
     let cancel = Cancellation::default();
     let request = f.policy.request_context(Instant::now(), &cancel)?;
-    native_profile(
-        &auth_store(&f, &seed, &request)?,
-        &first,
-        "first",
-        "broker-api",
-        native_support::now() + 600,
-        &request,
-    );
     let records = seed_user(&f, &seed, 4, 0).await?;
     seed.shutdown().await?;
     let (mut owner, _ready) = start(&f, "noop").await?;
@@ -1086,19 +1055,7 @@ async fn user_application_reobserves_same_keys_and_refuses_partial_recipe_retarg
 
     let other_fixture = Fixture::new()?;
     prepare_peer(&other_fixture)?;
-    let other_seed = bootstrap(&other_fixture)?;
-    let other_cancel = Cancellation::default();
-    let other_request = other_fixture
-        .policy
-        .request_context(Instant::now(), &other_cancel)?;
-    native_profile(
-        &auth_store(&other_fixture, &other_seed, &other_request)?,
-        &first,
-        "same-native",
-        "broker-api",
-        native_support::now() + 600,
-        &other_request,
-    );
+    let other_seed = bootstrap_with_profiles(&other_fixture, &[("same-native", &first)]).await?;
     let other_records = seed_user(&other_fixture, &other_seed, 2, 0).await?;
     other_seed.shutdown().await?;
     let (mut other_owner, _other_ready) = start(&other_fixture, "noop").await?;
@@ -1126,17 +1083,7 @@ async fn user_application_respects_protected_and_last_record_refusals() -> Resul
         let f = Fixture::new()?;
         prepare_peer(&f)?;
         let broker = native_support::Broker::start().await;
-        let seed = bootstrap(&f)?;
-        let cancel = Cancellation::default();
-        let request = f.policy.request_context(Instant::now(), &cancel)?;
-        native_profile(
-            &auth_store(&f, &seed, &request)?,
-            &broker,
-            "user",
-            "broker-api",
-            native_support::now() + 600,
-            &request,
-        );
+        let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
         let records = seed_user(&f, &seed, count, 0).await?;
         seed.shutdown().await?;
         let (mut owner, _ready) = start(&f, "noop").await?;
@@ -1166,17 +1113,7 @@ async fn user_controller_retains_partial_application_keys_through_retry_and_queu
     f.retries = 1;
     prepare_peer(&f)?;
     let broker = native_support::Broker::start().await;
-    let seed = bootstrap(&f)?;
-    let cancel = Cancellation::default();
-    let request = f.policy.request_context(Instant::now(), &cancel)?;
-    native_profile(
-        &auth_store(&f, &seed, &request)?,
-        &broker,
-        "user",
-        "broker-api",
-        native_support::now() + 600,
-        &request,
-    );
+    let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
     let records = seed_user(&f, &seed, 4, 0).await?;
     seed.shutdown().await?;
     let (mut owner, ready) = start(&f, "gated_stale").await?;

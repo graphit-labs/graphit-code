@@ -826,10 +826,9 @@ fn cancellation_and_thread_contention_do_not_mutate_registry() {
     );
 }
 #[test]
+#[ignore = "private entry point started by the registry process-death test"]
 fn process_writer_child() {
-    let Some(root) = std::env::var_os("GRAPHIT_TEST_REGISTRY_ROOT") else {
-        return;
-    };
+    let root = std::env::var_os("GRAPHIT_TEST_REGISTRY_ROOT").expect("private fixture root");
     let root = Path::new(&root);
     let installation = InstallationPaths::resolve(
         Brand::default(),
@@ -857,6 +856,7 @@ fn process_death_releases_real_lock_and_complete_document_reopens() {
     let registry = f.global();
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
+            "--ignored",
             "--exact",
             "registry::tests::process_writer_child",
             "--nocapture",
@@ -871,20 +871,17 @@ fn process_death_releases_real_lock_and_complete_document_reopens() {
     while !f.temp.path().join("ready").exists() {
         if child.try_wait().unwrap().is_some() || Instant::now() > deadline {
             child.kill().ok();
+            child.wait().ok();
             panic!("child did not hold lock");
         }
         thread::sleep(Duration::from_millis(5));
     }
-    assert_eq!(
-        registry
-            .writer(Duration::from_millis(30), &Cancellation::default())
-            .err()
-            .unwrap()
-            .kind(),
-        io::ErrorKind::TimedOut
-    );
+    let blocked = registry
+        .writer(Duration::from_millis(30), &Cancellation::default())
+        .err();
     child.kill().unwrap();
     child.wait().unwrap();
+    assert_eq!(blocked.unwrap().kind(), io::ErrorKind::TimedOut);
     let mut w = writer(&registry);
     assert_eq!(w.snapshot().agents(), &[NativeBinding::KiroV3]);
     w.set_agents(&[NativeBinding::Codex]).unwrap();

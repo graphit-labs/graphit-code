@@ -539,7 +539,7 @@ async fn exact_utf8_request_and_response_caps_then_plus_one() {
     );
 }
 #[tokio::test]
-#[ignore = "loopback measurement; run precompiled in coordinated CPU window"]
+#[ignore = "optional loopback throughput measurement"]
 async fn measure_cohere_rerank_loopback_fixture() {
     let fixture = fixture((0..128).map(|_| reply(rows(8))).collect()).await;
     let client = client(&fixture.origin);

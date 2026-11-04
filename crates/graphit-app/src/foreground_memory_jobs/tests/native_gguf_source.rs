@@ -892,6 +892,7 @@ async fn native_gguf_source_two_projects_and_long_document() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for real child recovery"]
 async fn model_child_exit_retires_local_resources_keeps_task_and_allows_normal_refresh() {
     use graphit_auth::profile::DirectProtocol;
     for local_embedding in [true, false] {

@@ -2,7 +2,8 @@
 use super::*;
 use crate::native_install_http::auth_fixture as native_support;
 use graphit_auth::{
-    Permission, ProjectWriteOperation, UserMemoryWriteOperation,
+    CredentialSource, ExternalEffect, Permission, ProjectWriteOperation, RemoteServiceBindingInput,
+    ServiceOrigin, ServicePurpose, ServiceRuleInput, UserMemoryWriteOperation,
     profile::*,
     store::{AuthStore, AuthStoreError},
 };
@@ -22,6 +23,42 @@ use graphit_records::{
 use std::num::NonZeroUsize;
 
 type SourceFixture = super::super::super::test_fixture::Fixture;
+
+fn configured_native(
+    permissions: &[Permission],
+    providers: &[(&str, &native_support::Broker)],
+) -> SourceFixture {
+    let mut permissions = permissions.to_vec();
+    permissions.push(Permission::External(ExternalEffect::RemoteRequest));
+    let rules: Vec<_> = providers
+        .iter()
+        .map(|&(provider, broker)| ServiceRuleInput::Remote {
+            origin: ServiceOrigin::Runtime,
+            binding: RemoteServiceBindingInput::Broker {
+                provider,
+                purpose: ServicePurpose::RecordStorage,
+                endpoint: &broker.origin,
+                resource: None,
+            },
+            credential: CredentialSource::NativeAccess,
+            incoming: None,
+        })
+        .collect();
+    let source = super::super::super::test_fixture::fixture_with_projects_and_rules(
+        &permissions,
+        Brand::default(),
+        NativeBinding::KiroV3,
+        &["project"],
+        &rules,
+    );
+    source
+        .auth
+        .issuer()
+        .set_record_storage_resolver(Arc::new(crate::task_server::tests::LocalRecordStorage))
+        .unwrap();
+    configured_fixture(source, json!({"memory":true,"task":false}))
+}
+
 fn request_context<'a>(source: &SourceFixture, cancel: &'a Cancellation) -> RequestContext<'a> {
     RequestContext::new(
         source.server.0.policy.content,
@@ -440,14 +477,14 @@ fn cache(source: &SourceFixture) -> Arc<BrokerVerifierCache> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_user_mandatory_context_is_current_complete_and_readonly_over_mcp_cli() {
     let broker = native_support::Broker::start().await;
-    let mut source = configured(
+    let mut source = configured_native(
         &[
             Permission::Read(Module::Memory),
             Permission::WriteMemory,
             Permission::ReadUser,
             Permission::MutateUser,
         ],
-        json!({"memory":true,"task":false}),
+        &[("native", &broker)],
     );
     let cancel = Cancellation::default();
     let original = request_context(&source, &cancel);
@@ -607,7 +644,7 @@ async fn native_user_permissions_and_signed_tokens_fail_whole_context() {
         if mode != "no_read_memory" {
             permissions.push(Permission::Read(Module::Memory));
         }
-        let mut source = configured(&permissions, json!({"memory":true,"task":false}));
+        let mut source = configured_native(&permissions, &[("native", &broker)]);
         let cancel = Cancellation::default();
         let original = request_context(&source, &cancel);
         let store = native_store(&source, &original);
@@ -741,7 +778,10 @@ async fn native_user_identity_and_installation_changes_never_forward_previous_co
         Permission::ReadUser,
         Permission::MutateUser,
     ];
-    let mut source = configured(&permissions, json!({"memory":true,"task":false}));
+    let mut source = configured_native(
+        &permissions,
+        &[("identity-a", &first), ("identity-b", &second)],
+    );
     let cancel = Cancellation::default();
     let original = request_context(&source, &cancel);
     let store = native_store(&source, &original);
@@ -807,7 +847,7 @@ async fn native_user_identity_and_installation_changes_never_forward_previous_co
     connection.cancel().await.unwrap();
     source.server.shutdown().await.unwrap();
     serving.await.unwrap().unwrap();
-    let mut other = configured(&permissions, json!({"memory":true,"task":false}));
+    let mut other = configured_native(&permissions, &[("identity-a", &first)]);
     let other_original = request_context(&other, &cancel);
     let other_store = native_store(&other, &other_original);
     native_profile(
@@ -896,14 +936,14 @@ fn local_profile(store: &AuthStore, request: &RequestContext<'_>) {
 async fn native_user_local_origin_and_local_mode_never_load_previous_native_user() {
     let broker = native_support::Broker::start().await;
     for local_origin in [false, true] {
-        let mut source = configured(
+        let mut source = configured_native(
             &[
                 Permission::Read(Module::Memory),
                 Permission::WriteMemory,
                 Permission::ReadUser,
                 Permission::MutateUser,
             ],
-            json!({"memory":true,"task":false}),
+            &[("native", &broker)],
         );
         let cancel = Cancellation::default();
         let original = request_context(&source, &cancel);
@@ -979,14 +1019,14 @@ async fn execute_start(source: &SourceFixture, cancel: &Cancellation) -> Result<
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_user_escaped_cap_and_incomplete_corpus_fail_without_partial_context() {
     let broker = native_support::Broker::start().await;
-    let mut source = configured(
+    let mut source = configured_native(
         &[
             Permission::Read(Module::Memory),
             Permission::WriteMemory,
             Permission::ReadUser,
             Permission::MutateUser,
         ],
-        json!({"memory":true,"task":false}),
+        &[("native", &broker)],
     );
     let cancel = Cancellation::default();
     let original = request_context(&source, &cancel);

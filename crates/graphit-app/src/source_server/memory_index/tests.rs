@@ -513,10 +513,8 @@ async fn verified_user_index_through_project_selected_proxy_preserves_subject_an
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires GRAPHIT_TEST_MODEL_SERVER and the existing real model fixture"]
 async fn configured_index_uses_existing_model_and_preserves_lexical_publication_on_model_failure() {
     let mut fixture = search_fixture::Fixture::new(true).await;
-    search_fixture::local_profile(&fixture.source);
     search_fixture::create(&fixture.source, 0, "model-index", "model index first text").await;
     let cancel = Cancellation::default();
     let request = request(&cancel);

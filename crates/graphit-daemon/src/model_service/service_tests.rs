@@ -739,13 +739,18 @@ async fn cancelled_owned_worker_remains_joined_before_shutdown_returns() {
         assert!(worker.cancellation.is_cancelled());
         assert!(!worker.done.is_cancelled());
         let shutdown_cancel = Cancellation::default();
+        let shutdown_budget = if cancel_shutdown {
+            Duration::from_secs(30)
+        } else {
+            Duration::from_millis(20)
+        };
         let drain = service.shutdown(InferenceContext::new(
             &shutdown_cancel,
-            Instant::now() + Duration::from_millis(20),
+            Instant::now() + shutdown_budget,
         ));
         tokio::pin!(drain);
-        tokio::select! {out=&mut drain=>panic!("drain returned before join: {out:?}"),_=tokio::time::sleep(Duration::from_millis(5))=>{}}
         if cancel_shutdown {
+            assert!(futures::poll!(&mut drain).is_pending());
             shutdown_cancel.cancel();
         }
         assert_eq!(
@@ -758,7 +763,7 @@ async fn cancelled_owned_worker_remains_joined_before_shutdown_returns() {
         );
         let joined = service.join_shutdown();
         tokio::pin!(joined);
-        tokio::select! {out=&mut joined=>panic!("native join ended before release: {out:?}"),_=tokio::time::sleep(Duration::from_millis(5))=>{}}
+        assert!(futures::poll!(&mut joined).is_pending());
         assert!(weak.upgrade().is_some());
         release.send(()).unwrap();
         joined.await.unwrap();

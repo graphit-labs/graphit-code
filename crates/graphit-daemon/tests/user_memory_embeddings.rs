@@ -1192,6 +1192,7 @@ async fn actual_user_admissions_original_and_live_guards_prevent_rpc() {
 }
 
 #[tokio::test]
+#[ignore = "requires the pinned BF16 GGUF in GRAPHIT_EMBEDDINGGEMMA2_MODEL"]
 async fn actual_gguf_user_memory_hybrid_rpc() {
     let (_snapshot_root, snapshot_parent) = model_fixture::snapshot_parent();
     let cancel = Cancellation::default();

@@ -7,17 +7,23 @@ use std::{fs, io, path::Path, process::Command, time::Duration};
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn git(root: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root).args(args);
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("GIT_")
+        {
+            command.env_remove(key);
+        }
+    }
+    let output = command
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env(
             "GIT_CONFIG_GLOBAL",
             if cfg!(windows) { "NUL" } else { "/dev/null" },
         )
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
         .output()
         .unwrap();
     assert!(

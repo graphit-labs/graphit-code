@@ -92,7 +92,81 @@ async fn admitted<F: Future>(
     }).await.expect("real RPC must acquire the existing service permit");
 }
 
+#[tokio::test]
+async fn configuration_change_preserves_admitted_owner_and_unchanged_sibling() {
+    let (_snapshot_root, snapshot_parent) = fixture::snapshot_parent();
+    let cancel = Cancellation::default();
+    let context = fixture::context(&cancel);
+    let fixture = fixture::Fixture::metadata(model_api::TaskKind::Embedding);
+    let initial = fixture.config(&["a", "b"]);
+    let a_id = initial.config_id("a").unwrap();
+    let b_id = initial.config_id("b").unwrap();
+    let service = fixture::service(snapshot_parent);
+    assert_eq!(service.install(initial, context).unwrap(), 1);
+    let (old_a, generation) = service
+        .admit("a", a_id, ModelTask::Embedding, context)
+        .unwrap();
+    let (old_b, _) = service
+        .admit("b", b_id, ModelTask::Embedding, context)
+        .unwrap();
+    assert_eq!(generation, 1);
+
+    let (entered, mut phase) = tokio::sync::oneshot::channel();
+    let (release, wait) = tokio::sync::oneshot::channel();
+    let work = service.execute_owned(
+        old_a.clone(),
+        context,
+        std::io::sink(),
+        move |owner, native, _, cancellation, deadline| async move {
+            let _native = native;
+            entered.send(()).unwrap();
+            wait.await.unwrap();
+            graphit_ai::context::InferenceContext::new(&cancellation, deadline).check()?;
+            Ok(owner.config.id)
+        },
+    );
+    tokio::pin!(work);
+    tokio::select! {
+        outcome = &mut work => panic!("operation completed before release: {outcome:?}"),
+        phase = &mut phase => phase.unwrap(),
+    }
+
+    let mut settings = fixture.settings(&["a", "b"]);
+    let model_api::RuntimeSettings::EmbeddingGemma2 { threads, .. } =
+        &mut settings.slots[0].runtime
+    else {
+        panic!("embedding fixture")
+    };
+    *threads = std::num::NonZeroU32::new(3).unwrap();
+    let next = fixture.resolve(settings).unwrap();
+    let next_id = next.config_id("a").unwrap();
+    assert_ne!(next_id, a_id);
+    assert_eq!(next.config_id("b"), Some(b_id));
+    assert_eq!(service.install(next, context).unwrap(), 2);
+    let (new_a, generation) = service
+        .admit("a", next_id, ModelTask::Embedding, context)
+        .unwrap();
+    let (same_b, _) = service
+        .admit("b", b_id, ModelTask::Embedding, context)
+        .unwrap();
+    assert_eq!(generation, 2);
+    assert!(!Arc::ptr_eq(&old_a, &new_a));
+    assert!(Arc::ptr_eq(&old_b, &same_b));
+    assert_eq!(
+        service
+            .admit("a", a_id, ModelTask::Embedding, context)
+            .err()
+            .unwrap()
+            .kind(),
+        ModelErrorKind::ConfigChanged
+    );
+    release.send(()).unwrap();
+    assert_eq!(work.await.unwrap(), a_id);
+    service.shutdown(context).await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the pinned BF16 GGUF in GRAPHIT_EMBEDDINGGEMMA2_MODEL"]
 async fn project_profile_change_keeps_borrowed_generation_and_sibling_independent() {
     let (_snapshot_root, snapshot_parent) = fixture::snapshot_parent();
     let setup_cancel = Cancellation::default();

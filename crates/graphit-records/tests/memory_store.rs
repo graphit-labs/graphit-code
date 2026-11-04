@@ -526,7 +526,7 @@ async fn foreign_request_wrong_module_fenced_revoke_cancel_deadline_and_project_
     let read = ad
         .admit_read(&gd, &deadline, ProjectReadModule::Memory)
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(220)).await;
+    tokio::time::sleep_until(deadline.snapshot().deadline().unwrap().into()).await;
     assert!(
         NativeMemoryStore::observe_heads(deadline.snapshot(), &read, head_limits())
             .await

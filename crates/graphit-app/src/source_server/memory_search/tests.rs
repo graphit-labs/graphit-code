@@ -1,6 +1,8 @@
 use super::*;
-use crate::foreground_memory_jobs::{ForegroundMemoryJobs, MemoryJobResources};
-use crate::foreground_source::foreground_memory_jobs_tests::model_fixture;
+use crate::foreground_memory_jobs::MemoryJobResources;
+use crate::foreground_source::foreground_memory_jobs_tests::{
+    model_fixture, model_peer::ModelPeer,
+};
 use graphit_auth::{
     Permission, ProjectWriteOperation, ServiceOrigin, ServiceRuleInput,
     profile::{LocalDevice, LocalExecution},
@@ -20,7 +22,7 @@ use rmcp::{
         StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
-use std::{collections::HashMap, num::NonZeroU64, path::PathBuf};
+use std::{collections::HashMap, num::NonZeroU64};
 use tokio::net::TcpStream;
 
 #[test]
@@ -81,7 +83,7 @@ fn configure(source: &mut SourceFixture, embedding: bool) -> ConfigSnapshot {
 
 pub(in crate::source_server) struct Fixture {
     pub(in crate::source_server) source: SourceFixture,
-    pub(in crate::source_server) model: ForegroundMemoryJobs,
+    pub(in crate::source_server) model: ModelPeer,
     resources: Arc<MemoryJobResources>,
     _bundle: model_fixture::Fixture,
 }
@@ -109,7 +111,7 @@ impl Fixture {
             &rules,
         );
         local_profile(&source);
-        let mut bundle = model_fixture::Fixture::actual(model_api::TaskKind::Embedding);
+        let mut bundle = model_fixture::Fixture::metadata(model_api::TaskKind::Embedding);
         bundle.body["recipe"]["dimensions"] = serde_json::json!(128);
         std::fs::write(
             bundle.directory.path().join("model.json"),
@@ -145,39 +147,18 @@ impl Fixture {
         let config = configure(&mut source, true);
         let policy = graphit_hub::policy::HubResourcePolicy::resolve(&config).unwrap();
         let expected = ExpectedModel::new(&resolved, crate::models::DEFAULT_SLOT, "cpu").unwrap();
-        let mut model = ForegroundMemoryJobs::new(
+        let mut resources = MemoryJobResources::remote(
             Arc::clone(&source.auth),
-            (policy).clone(),
-            Some(expected),
-            true,
             None,
-            crate::foreground_memory_jobs::test_broker_cache(&(policy)),
+            crate::foreground_memory_jobs::test_broker_cache(&policy),
+            policy,
+            source.server.0.policy.scope,
+            source.server.0.policy.index,
+            NativeBinding::KiroV3,
         )
         .unwrap();
-        let request = RequestContext::new(
-            source.server.0.policy.content,
-            &cancel,
-            Instant::now() + Duration::from_secs(30),
-        )
-        .unwrap();
-        let executable = PathBuf::from(
-            std::env::var_os("GRAPHIT_TEST_MODEL_SERVER").expect("actual model server"),
-        );
-        let resources = model
-            .start(
-                &source.paths,
-                vec![(
-                    "PATH".into(),
-                    executable.parent().unwrap().as_os_str().to_owned(),
-                )],
-                source.server.0.policy.scope,
-                source.server.0.policy.index,
-                NativeBinding::KiroV3,
-                &request,
-            )
-            .await
-            .unwrap()
-            .expect("configured embedding resources");
+        let model = ModelPeer::bind(&mut resources, expected).await;
+        let resources = Arc::new(resources);
         source
             .server
             .attach_semantic_model(Some(Arc::clone(&resources)))
@@ -199,7 +180,7 @@ impl Fixture {
     }
 }
 
-pub(in crate::source_server) fn local_profile(source: &SourceFixture) {
+fn local_profile(source: &SourceFixture) {
     use graphit_auth::{
         profile::{
             AiService, LocalCredentials, ProfileCredentials, ProfileData, ProfileExpectation,
@@ -709,8 +690,8 @@ async fn actual_memory_modes_http_rpc_preserve_archive_channels_filters_and_unav
     assert_eq!(hit["current"]["id"], json!(first.id));
     assert_eq!(hit["current"]["revision"], 2);
     assert_eq!(hit["lexical"]["matched_revision"], 1);
-    // A real model may prefer the archived text. Fusion must preserve the
-    // semantic reader's chosen association, independently from lexical rank.
+    // Fusion must preserve the semantic reader's chosen revision, independently
+    // of the lexical match.
     assert_eq!(
         hit["semantic"]["matched_revision"],
         semantic_hit["matched_revision"]

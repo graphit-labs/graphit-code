@@ -368,7 +368,7 @@ async fn catalogue_original_module_project_cancel_revoke_and_deadline() {
     let dr = authority
         .admit_read(&dg, &deadline, ProjectReadModule::Memory)
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(550)).await;
+    tokio::time::sleep_until(deadline.snapshot().deadline().unwrap().into()).await;
     assert!(
         NativeMemoryStore::list(deadline.snapshot(), &dr, Default::default(), read_limits())
             .await

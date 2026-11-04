@@ -1216,6 +1216,7 @@ async fn actual_memory_rpc_partition_boundaries() {
 }
 
 #[tokio::test]
+#[ignore = "requires the pinned BF16 GGUF in GRAPHIT_EMBEDDINGGEMMA2_MODEL"]
 async fn actual_gguf_memory_hybrid_rpc_uses_borrowed_owners_and_queries_fully_covered_corpus() {
     let (_snapshot_root, snapshot_parent) = model_fixture::snapshot_parent();
     let cancel = Cancellation::default();

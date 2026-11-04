@@ -1163,7 +1163,7 @@ fn knowledge_lexical_search_retains_previous_worker_panic_in_service_shutdown() 
 #[test]
 fn knowledge_vector_search_native_mcp_uses_existing_cpu_query_and_selected_module_gate() {
     run(async {
-        let (_storage,mut foreground,tasks,server,raw,selected) = crate::foreground_source::foreground_memory_jobs_tests::browser_knowledge_search_fixture().await;
+        let (mut storage,mut foreground,tasks,server,raw,selected) = crate::foreground_source::foreground_memory_jobs_tests::browser_knowledge_search_fixture().await;
         let (client, served) = client(&server, &raw, ()).await;
         for mode in ["semantic", "hybrid"] {
             let result = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(json!({"ai_optimized":false,"search":{"query":"Knowledge CPU search","mode":mode,"preview":true}}).as_object().unwrap().clone())).await.unwrap();
@@ -1180,8 +1180,11 @@ fn knowledge_vector_search_native_mcp_uses_existing_cpu_query_and_selected_modul
                     .is_some_and(f64::is_finite)
             );
         }
-        crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(&mut foreground)
-            .await;
+        crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(
+            &mut storage,
+            &mut foreground,
+        )
+        .await;
         graphit_core::config::ConfigStore::project(&selected.0)
             .unwrap()
             .set(
@@ -1211,7 +1214,7 @@ fn knowledge_vector_search_native_mcp_uses_existing_cpu_query_and_selected_modul
 #[test]
 fn imported_knowledge_cpu_native_mcp_preserves_corpus_cursor_and_cancels_query() {
     run(async {
-        let (_storage, mut foreground, tasks, server, raw, pair) =
+        let (mut storage, mut foreground, tasks, server, raw, pair) =
             crate::foreground_source::foreground_memory_jobs_tests::imported_knowledge_cpu_search_fixture(None).await;
         let source = json!({"kind":"imported_knowledge","artifact":{"id":"vendor/mount-a","version":"exact-release"}});
         let params = |mode: &str, cursor: Option<Value>| {
@@ -1314,8 +1317,11 @@ fn imported_knowledge_cpu_native_mcp_preserves_corpus_cursor_and_cancels_query()
         assert_eq!(changed.is_error, Some(true));
         assert!(changed.structured_content.unwrap().get("native").is_none());
         let model = server.0.semantic_model().unwrap().unwrap();
-        crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(&mut foreground)
-            .await;
+        crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(
+            &mut storage,
+            &mut foreground,
+        )
+        .await;
         *server.0.semantic.write().unwrap() = None;
         for (mode, state) in [("semantic", "unavailable"), ("hybrid", "partial")] {
             let result = client.call_tool(params(mode, None)).await.unwrap();

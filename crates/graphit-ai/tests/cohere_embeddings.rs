@@ -15,7 +15,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::Notify,
+    sync::{Notify, oneshot},
     task::JoinHandle,
 };
 
@@ -111,6 +111,12 @@ struct Fixture {
     server: JoinHandle<Vec<Request>>,
 }
 async fn fixture(replies: Vec<Reply>) -> Fixture {
+    fixture_with_first_body_gate(replies, None).await
+}
+async fn fixture_with_first_body_gate(
+    replies: Vec<Reply>,
+    mut release: Option<oneshot::Receiver<()>>,
+) -> Fixture {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let observed = Arc::new(Notify::new());
@@ -130,6 +136,11 @@ async fn fixture(replies: Vec<Reply>) -> Fixture {
             );
             socket.write_all(header.as_bytes()).await.unwrap();
             signal.notify_one();
+            if let Some(gate) = release.take() {
+                // Hold the first body until the client reports its terminal error.
+                // Dropping the sender on a test failure also releases the peer.
+                let _ = gate.await;
+            }
             if !reply.delay.is_zero() {
                 tokio::time::sleep(reply.delay).await;
             }
@@ -569,12 +580,8 @@ async fn later_batch_failure_exposes_no_partial_result_and_stops_requests() {
 #[tokio::test]
 async fn stalled_body_observes_shared_cancellation_and_original_deadline() {
     for cancelled in [true, false] {
-        let fixture = fixture(vec![Reply {
-            status: 200,
-            body: rows(1).to_string(),
-            delay: Duration::from_millis(120),
-        }])
-        .await;
+        let (release, gate) = oneshot::channel();
+        let fixture = fixture_with_first_body_gate(vec![reply(rows(1))], Some(gate)).await;
         let client = client(&fixture.origin);
         let endpoint = format!("{}/v2/embed", fixture.origin);
         let cancel = Cancellation::default();
@@ -586,8 +593,12 @@ async fn stalled_body_observes_shared_cancellation_and_original_deadline() {
                 signal.cancel();
             }
         });
-        let context = InferenceContext::new(&cancel, Instant::now() + Duration::from_millis(70));
-        let started = Instant::now();
+        let budget = if cancelled {
+            Duration::from_secs(5)
+        } else {
+            Duration::from_millis(250)
+        };
+        let context = InferenceContext::new(&cancel, Instant::now() + budget);
         let e = error(
             adapter(&client, &endpoint, limits())
                 .embed(&["x"], CohereInput::Document, &key(), context)
@@ -601,10 +612,10 @@ async fn stalled_body_observes_shared_cancellation_and_original_deadline() {
                 NetworkError::Deadline
             })
         );
-        assert!(started.elapsed() < Duration::from_millis(120));
         redacted(e);
+        release.send(()).unwrap();
+        assert_eq!(fixture.server.await.unwrap().len(), 1);
         trigger.await.unwrap();
-        fixture.server.await.unwrap();
     }
     // The second request inherits the original deadline; no per-batch extension.
     let mut first = reply(rows(1));
@@ -725,7 +736,7 @@ fn invalid_policies_reject_zero_and_unrepresentable_caps() {
     );
 }
 #[tokio::test]
-#[ignore = "loopback measurement; run precompiled in the coordinated CPU window"]
+#[ignore = "optional loopback throughput measurement"]
 async fn measure_cohere_loopback_fixture() {
     let fixture = fixture((0..128).map(|_| reply(rows(8))).collect()).await;
     let client = client(&fixture.origin);

@@ -722,6 +722,15 @@ remains recorded. Repeating with `--skip` for only that case passed 34 tests,
 with zero failures and seven ignored tests, in 1.059 seconds. This is an explicit
 test selection, not a passing result for the complete suite.
 
+The real GGUF case is now opt-in with `--ignored --exact` and
+`GRAPHIT_EMBEDDINGGEMMA2_MODEL`. The default
+`configuration_change_preserves_admitted_owner_and_unchanged_sibling` case
+uses the existing metadata fixture and real ModelService admission to check
+that a blocked operation keeps its owner across a configuration change, that
+new admissions reject the stale config, and that the unchanged sibling keeps
+its owner. It does not qualify native inference or the paired PROJECT RPC
+journey.
+
 The remaining case was then run individually with `--exact --nocapture` in the
 same library ELF, without rebuilding. `GRAPHIT_EMBEDDINGGEMMA2_MODEL` and
 `GRAPHIT_BGE_RERANKER_V2_M3_MODEL` selected the already provisioned pinned real

@@ -1057,7 +1057,10 @@ fn fallback_non_unicode_names_are_rejected() {
 #[cfg(target_os = "linux")]
 #[test]
 fn real_permission_error_does_not_become_canonical_absence() {
-    use std::{os::unix::fs::PermissionsExt, process::Command};
+    use std::{
+        os::unix::{fs::PermissionsExt, process::CommandExt},
+        process::Command,
+    };
     const CHILD: &str = "GRAPHIT_PROJECTION_PERMISSION_CHILD";
     if let Some(root) = std::env::var_os(CHILD) {
         let directory = PathBuf::from(root);
@@ -1081,16 +1084,20 @@ fn real_permission_error_does_not_become_canonical_absence() {
     fs::write(root.join("fallback.md"), "fallback").unwrap();
     fs::set_permissions(fixture.temp.path(), fs::Permissions::from_mode(0o755)).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o000)).unwrap();
-    let uid = Command::new("id").arg("-u").output().unwrap();
-    assert!(uid.status.success());
-    let mut command = if uid.stdout == b"0\n" {
-        let mut command = Command::new("setpriv");
-        command
-            .args(["--reuid=65534", "--regid=65534", "--clear-groups"])
-            .arg(std::env::current_exe().unwrap());
-        command
-    } else {
-        Command::new(std::env::current_exe().unwrap())
+    let executable = std::env::current_exe().unwrap();
+    let mut command = match fs::read_dir(&root) {
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Command::new(executable),
+        Ok(_) => {
+            // A privileged runner can bypass mode bits. Run the same test as an
+            // unprivileged UID, with an executable reachable outside its checkout.
+            let child = fixture.temp.path().join("projection-permission-child");
+            fs::copy(executable, &child).unwrap();
+            fs::set_permissions(&child, fs::Permissions::from_mode(0o755)).unwrap();
+            let mut command = Command::new(child);
+            command.uid(65534).gid(65534);
+            command
+        }
+        Err(error) => panic!("could not inspect permission fixture: {error}"),
     };
     let result = command
         .args([

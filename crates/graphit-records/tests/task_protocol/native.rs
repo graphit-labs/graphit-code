@@ -347,7 +347,11 @@ async fn actual_authenticated_admission_and_original_cancellation_remain_require
     let WriteResponse::TaskClaim(claimed) = claimed else {
         panic!("claim")
     };
-    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let expires = std::time::UNIX_EPOCH
+        + std::time::Duration::from_millis(claimed.record.ownership.lease_expires_at.unwrap());
+    if let Ok(remaining) = expires.duration_since(std::time::SystemTime::now()) {
+        tokio::time::sleep(remaining).await;
+    }
     let expired: WriteRequest = serde_json::from_value(json!({"operation":"heartbeat_task","input":{"target":target(&claimed.record,&claimed.token),"lease_ms":30000}})).unwrap();
     assert!(matches!(
         execute_write(expired, ctx.snapshot(), &owned, write_limits()).await,

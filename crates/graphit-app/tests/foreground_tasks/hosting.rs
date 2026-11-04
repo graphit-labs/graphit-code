@@ -1,13 +1,11 @@
 use super::*;
 use axum::{extract::RawQuery, response::Redirect};
 use graphit_auth::{
-    ProjectWriteOperation, UserMemoryWriteOperation,
+    ProjectWriteOperation, RecordStorageAdmission, RecordStorageResolver, RemoteRecordStorage,
+    UserMemoryWriteOperation,
     broker::{BrokerPolicy, BrokerRequestContext, BrokerVerifier, JsonLimits, VerifierLimits},
 };
-use graphit_core::artifact_store::{
-    ArtifactKey, ArtifactMode, ArtifactStore, CopyPolicy, PhysicalSource,
-};
-use graphit_core::artifact_store::{StoreOwner, UserIdentity};
+use graphit_core::artifact_store::{CopyPolicy, StoreOwner, UserIdentity};
 use graphit_data::graph_writer::{GraphEdge, GraphNode, GraphValue, IcebugWriter};
 use graphit_data::{
     knowledge_document_projection as projection, knowledge_index as index,
@@ -268,6 +266,22 @@ async fn write_user_memory(
     NativeUserMemoryStore::create(original.snapshot(), &admission, input, memory_limits(seed))
         .await
         .unwrap()
+}
+
+struct LocalSeedStorage;
+
+impl RecordStorageResolver for LocalSeedStorage {
+    fn resolve<'a>(
+        &'a self,
+        admission: RecordStorageAdmission<'a>,
+    ) -> std::pin::Pin<
+        Box<dyn Future<Output = std::io::Result<Option<RemoteRecordStorage>>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            admission.recheck().map_err(std::io::Error::other)?;
+            Ok(None)
+        })
+    }
 }
 
 fn authored_page<'a>(slug: &'a str, title: &'a str) -> projection::AuthoredPageFields<'a> {
@@ -537,22 +551,7 @@ async fn publish_knowledge_with_mode(
     .unwrap()
 }
 
-fn copy_published_tree(source: &std::path::Path, destination: &std::path::Path) {
-    fs::create_dir(destination).unwrap();
-    for entry in fs::read_dir(source).unwrap() {
-        let entry = entry.unwrap();
-        let target = destination.join(entry.file_name());
-        let kind = entry.file_type().unwrap();
-        assert!(!kind.is_symlink(), "published fixture contains no symlinks");
-        if kind.is_dir() {
-            copy_published_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).unwrap();
-        }
-    }
-}
-
-fn register_knowledge(seed: &Seed, published: &index::KnowledgeFirstPublication) -> Value {
+async fn register_knowledge(seed: &Seed, published: &index::KnowledgeFirstPublication) -> Value {
     let cancel = Cancellation::default();
     let original = RequestContext::new(
         seed.policy.content,
@@ -599,13 +598,18 @@ fn register_knowledge(seed: &Seed, published: &index::KnowledgeFirstPublication)
         policy.role_reference,
     )
     .unwrap();
-    let corpus = url::Url::parse(&published.default.corpus_uri)
-        .unwrap()
-        .to_file_path()
-        .unwrap();
+    let generation = &published.default;
+    let builder = lance::dataset::builder::DatasetBuilder::from_uri(&generation.corpus_uri);
+    let builder = match generation.physical_branch.as_deref() {
+        Some(branch) => builder.with_branch(branch, Some(generation.version)),
+        None => builder.with_version(generation.version),
+    };
+    let mut corpus = Box::pin(builder.load()).await.unwrap();
     let target = source.directory().as_path().join("index.lance");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
-    copy_published_tree(&corpus, &target);
+    Box::pin(corpus.deep_clone(target.to_str().unwrap(), generation.version, None))
+        .await
+        .unwrap();
     registry
         .writer(
             original.remaining().unwrap().unwrap(),
@@ -649,7 +653,7 @@ async fn record_read(
         .unwrap()
 }
 
-fn publish_ast(fixture: &Prepared, project: &ProjectPaths, name: &str) {
+fn install_ast_probe_context(fixture: &Prepared, project: &ProjectPaths) {
     use arrow_array::{RecordBatch, StringArray};
     use graphit_ast::{
         catalog::{
@@ -693,28 +697,11 @@ fn publish_ast(fixture: &Prepared, project: &ProjectPaths, name: &str) {
                 .unwrap()
                 .unwrap()
                 .id();
-            let scope = CapturedPublicationScope::project(
-                project,
-                id,
-                ScopeLimits::new(16, 4096, 256).unwrap(),
-                &original,
-            )
-            .unwrap();
-            let store =
-                ArtifactStore::new(scope, policy.artifacts());
-            let ast_root = fixture.paths.root().join("ast");
-            if !ast_root.try_exists().unwrap() {
-                graphit_fs::create_private_directory(&ast_root).unwrap();
-            }
-            let ast_project = ast_root.join(id.to_string());
-            if !ast_project.try_exists().unwrap() {
-                graphit_fs::create_private_directory(&ast_project).unwrap();
-            }
-            let corpus = ast_project.join("source.lance");
+            let source_fixture = tempfile::tempdir_in(fixture.temp.path()).unwrap();
+            let corpus = source_fixture.path().join("source.lance");
             let text = fs::read_to_string(project.root().join("main.rs")).unwrap();
-            let linked = "package fixture\nfunc LinkedAlpha() {}\nfunc LinkedBeta() { LinkedAlpha() }\n";
+            let linked = fs::read_to_string(project.root().join("relationships.go")).unwrap();
             original.check().unwrap();
-            fs::write(project.root().join("relationships.go"), linked).unwrap();
             let raw_store = LanceModuleStore::create(
                 corpus.to_str().unwrap(),
                 source_schema(),
@@ -723,7 +710,7 @@ fn publish_ast(fixture: &Prepared, project: &ProjectPaths, name: &str) {
                         source_schema(),
                         vec![
                             Arc::new(StringArray::from(vec!["main.rs", "relationships.go"])),
-                            Arc::new(StringArray::from(vec![text.as_str(), linked])),
+                            Arc::new(StringArray::from(vec![text.as_str(), linked.as_str()])),
                         ],
                     )
                     .unwrap(),
@@ -836,7 +823,7 @@ fn publish_ast(fixture: &Prepared, project: &ProjectPaths, name: &str) {
             )
             .unwrap()
             .into_parts();
-            let expected = if path == "main.rs" { name } else { "LinkedAlpha" };
+            let expected = if path == "main.rs" { "Alpha" } else { "LinkedAlpha" };
             assert!(parts.nodes.iter().any(|node| {
                 node.label() == "Function"
                     && matches!(node.properties().get("name"), Some(AstGraphValue::String(found)) if found == expected)
@@ -899,37 +886,13 @@ fn publish_ast(fixture: &Prepared, project: &ProjectPaths, name: &str) {
                 .unwrap();
             fs::rename(clone.directory(), output.directory().join("source.lance")).unwrap();
             original.check().unwrap();
-            let key = ArtifactKey::new("ast", "graph", "main").unwrap();
-            const HEX: &[u8; 16] = b"0123456789abcdef";
-            let segment: String = Sha256::digest(b"main")
-                .into_iter()
-                .flat_map(|byte| {
-                    [
-                        char::from(HEX[usize::from(byte >> 4)]),
-                        char::from(HEX[usize::from(byte & 15)]),
-                    ]
-                })
-                .collect();
-            let destination = project.brand_directory().join("ast-graphs").join(segment);
-            let mut writer = store.writer_with_context(&original).unwrap();
-            writer.ensure_publication_parent(&destination).unwrap();
-            writer
-                .publish(
-                    &key,
-                    PhysicalSource::ExternalSource(&output.directory()),
-                    &destination,
-                    graphit_fs::NodeKind::Directory,
-                    ArtifactMode::Copy(CopyPolicy::RejectFileLinks),
-                )
-                .unwrap();
-            drop(writer);
-            if project.root() == fixture.project.root() {
+            {
                 let files = policy
                     .snapshot_policy(CopyPolicy::RejectFileLinks, std::iter::empty())
                     .unwrap();
                 let read = SourceReadLimits::new(65536, 4096, 1 << 20).unwrap();
                 let graph = CapturedSourceReader::capture(
-                    &destination,
+                    &output.directory(),
                     graphit_fs::NodeKind::Directory,
                     &files,
                     read,
@@ -1023,7 +986,23 @@ pub(super) async fn authorize(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hosted_task_routes_signed_oauth() {
+    verify_hosted_task_routes(None).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "native browser qualification requires a browser observer and GRAPHIT_UI_BROWSER_PROBE_FILE"]
 async fn hosted_task_routes_signed_oauth_and_browser_probe() {
+    verify_hosted_task_routes(Some(browser_probe_path())).await;
+}
+
+fn browser_probe_path() -> std::path::PathBuf {
+    std::env::var_os("GRAPHIT_UI_BROWSER_PROBE_FILE")
+        .map(std::path::PathBuf::from)
+        .expect("set GRAPHIT_UI_BROWSER_PROBE_FILE to a private probe path")
+}
+
+async fn verify_hosted_task_routes(probe: Option<std::path::PathBuf>) {
     let broker = Broker::new().await;
     let fixture = prepared(&broker).await;
     let root = fixture.temp.path().join("other-project");
@@ -1050,14 +1029,42 @@ async fn hosted_task_routes_signed_oauth_and_browser_probe() {
         "fn OtherAlpha() {}\nfn Beta() { OtherAlpha(); }\n",
     )
     .unwrap();
-    publish_ast(&fixture, &fixture.project, "Alpha");
-    publish_ast(&fixture, &other, "OtherAlpha");
+    if probe.is_some() {
+        fs::write(
+            fixture.project.root().join("relationships.go"),
+            "package fixture\nfunc LinkedAlpha() {}\nfunc LinkedBeta() { LinkedAlpha() }\n",
+        )
+        .unwrap();
+        install_ast_probe_context(&fixture, &fixture.project);
+    }
     let physical_path = "raw.unknown";
     let physical_text = "physical source outside the selected grammars\n";
     fs::write(fixture.project.root().join(physical_path), physical_text).unwrap();
     broker.issuer.ast_allowed.store(true, Ordering::SeqCst);
+    let global = ConfigStore::global(&fixture.paths).unwrap();
+    for (key, enabled) in [
+        ("modules.ast", true),
+        ("modules.knowledge", false),
+        ("modules.embedding", false),
+        ("modules.dream", false),
+    ] {
+        global
+            .set(
+                ConfigKey::new(key).unwrap(),
+                json!(enabled),
+                Duration::from_secs(5),
+                &cancel,
+            )
+            .unwrap();
+    }
+    let environment = vec![("PATH".into(), fixture.temp.path().as_os_str().to_owned())];
     let owner = fixture
-        .start_projects(Some(config(&broker.issuer)), &[&fixture.project, &other])
+        .start_browser_records(
+            config(&broker.issuer),
+            &[&fixture.project, &other],
+            environment,
+        )
+        .await
         .unwrap();
     let origin = format!("http://{}", owner.address().unwrap());
     let cancellation = Cancellation::default();
@@ -1122,7 +1129,12 @@ async fn hosted_task_routes_signed_oauth_and_browser_probe() {
         json!({"selection":contexts["current"],"input":{"filter":{},"page_size":20}}),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "hosted task catalogue: {}",
+        response.text().await.unwrap()
+    );
     assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     let page = response.json::<Value>().await.unwrap();
     let results = page["results"].as_array().unwrap();
@@ -1176,6 +1188,35 @@ async fn hosted_task_routes_signed_oauth_and_browser_probe() {
     let context = &ast_contexts["current"];
     let selection =
         json!({"project_dir":context["project_dir"],"project_version":context["project_version"]});
+    let sample = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let response = client
+                .post(format!("{origin}/api/ast/sample"))
+                .header(header::ORIGIN, &origin)
+                .header(header::COOKIE, &cookie)
+                .json(&json!({"selection":selection}))
+                .send()
+                .await
+                .unwrap();
+            let status = response.status();
+            let body = response.text().await.unwrap();
+            match status {
+                StatusCode::OK if body.contains("Alpha") => break body,
+                StatusCode::OK | StatusCode::NOT_FOUND => tokio::task::yield_now().await,
+                _ => panic!("unexpected AST sample response {status}: {body}"),
+            }
+        }
+    })
+    .await
+    .expect("local AST producer did not publish Alpha");
+    let sample: Value = serde_json::from_str(&sample).unwrap();
+    assert!(
+        sample["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|node| node["name"] == "Alpha")
+    );
     let schema = client
         .post(format!("{origin}/api/ast/schema"))
         .header(header::ORIGIN, &origin)
@@ -1185,21 +1226,8 @@ async fn hosted_task_routes_signed_oauth_and_browser_probe() {
         .await
         .unwrap();
     assert_eq!(schema.status(), StatusCode::OK);
-    let sample = client
-        .post(format!("{origin}/api/ast/sample"))
-        .header(header::ORIGIN, &origin)
-        .header(header::COOKIE, &cookie)
-        .json(&json!({"selection":selection}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(sample.status(), StatusCode::OK);
-    let sample = sample.json::<Value>().await.unwrap();
-    assert!(sample.to_string().contains("Alpha"));
 
-    // A finite interactive run uses the same compiled host and genuine local signed issuer.
-    // Without this input the test still executes all HTTP/native checks; nothing is ignored.
-    let probe = std::env::var_os("GRAPHIT_UI_BROWSER_PROBE_FILE").map(std::path::PathBuf::from);
+    // The interactive qualification reuses the compiled host and local signed issuer.
     let mut finished = true;
     if let Some(path) = &probe {
         fs::write(path, serde_json::to_vec(&json!({"origin":origin,"task_id":fixture.task,"session_id":fixture.session,"other_project_id":other_id.to_string(),"ast_physical_path":physical_path,"ast_physical_text":physical_text,"ast_selection":selection,"ast_contexts":ast_contexts,"ast_path":"/ast/explorer/project","task_read_allowed":false})).unwrap()).unwrap();
@@ -1232,8 +1260,19 @@ async fn hosted_task_routes_signed_oauth_and_browser_probe() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hosted_record_references_signed_oauth() {
+    verify_hosted_record_references(None).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "native browser qualification requires a browser observer and GRAPHIT_UI_BROWSER_PROBE_FILE"]
 async fn hosted_record_references_signed_oauth_and_browser_probe() {
-    let records_browser = std::env::var("GRAPHIT_UI_BROWSER_SCENARIO").as_deref() == Ok("db07");
+    verify_hosted_record_references(Some(browser_probe_path())).await;
+}
+
+async fn verify_hosted_record_references(probe: Option<std::path::PathBuf>) {
+    let records_browser =
+        probe.is_some() && std::env::var("GRAPHIT_UI_BROWSER_SCENARIO").as_deref() == Ok("db07");
     let broker = Broker::with_record_sources(true).await;
     broker
         .issuer
@@ -1243,12 +1282,18 @@ async fn hosted_record_references_signed_oauth_and_browser_probe() {
     seed.provider("broker", broker_kind(&broker.issuer.origin));
     let other = seed.reference_project.as_ref().unwrap().clone();
     let mirror = seed.reference_mirror.as_ref().unwrap().clone();
+    let unprojected = seed.unprojected_knowledge.as_ref().unwrap().clone();
     let project = ProjectIdentityStore::at(&seed.project)
         .load()
         .unwrap()
         .unwrap()
         .id();
     let other_id = ProjectIdentityStore::at(&other)
+        .load()
+        .unwrap()
+        .unwrap()
+        .id();
+    let unprojected_id = ProjectIdentityStore::at(&unprojected)
         .load()
         .unwrap()
         .unwrap()
@@ -1312,7 +1357,10 @@ async fn hosted_record_references_signed_oauth_and_browser_probe() {
     )
     .await;
     assert!(updated.revision > created.revision);
-    for index in 1..=21 {
+    // The HTTP contract requests one row per page. Only the interactive
+    // Browser probe needs enough rows to cross its default page size.
+    let additional_memories = if probe.is_some() { 21 } else { 1 };
+    for index in 1..=additional_memories {
         let name = format!("Additional memory {index}");
         let input = memory_input(&name, vec![memory_reference(&seed, "task", task_id)]);
         write_memory(&seed, MemorySeed::Create(input)).await;
@@ -1349,11 +1397,15 @@ async fn hosted_record_references_signed_oauth_and_browser_probe() {
         true,
     )
     .await;
-    let import_source = register_knowledge(&seed, &imported_publication);
+    let import_source = register_knowledge(&seed, &imported_publication).await;
     let verifier = incoming_user(&seed, &broker);
     let user_id: Option<MemoryId> = if records_browser {
         None
     } else {
+        seed.auth
+            .issuer()
+            .set_record_storage_resolver(Arc::new(LocalSeedStorage))
+            .unwrap();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1403,7 +1455,7 @@ async fn hosted_record_references_signed_oauth_and_browser_probe() {
     .await;
     publish_knowledge_with_projection(
         &seed,
-        &mirror,
+        &unprojected,
         task_id,
         session_id,
         &mirror_memory.id.to_string(),
@@ -1425,7 +1477,7 @@ async fn hosted_record_references_signed_oauth_and_browser_probe() {
         .await;
     }
     let fixture = seed.prepare().await;
-    let mut project_inputs = vec![&fixture.project, &other, &mirror];
+    let mut project_inputs = vec![&fixture.project, &other, &mirror, &unprojected];
     project_inputs.extend(additional_projects.iter());
     let owner = if records_browser {
         use std::os::unix::fs::PermissionsExt;
@@ -1450,10 +1502,7 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
             .unwrap()
     } else {
         fixture
-            .start_projects(
-                Some(config(&broker.issuer)),
-                &[&fixture.project, &other, &mirror],
-            )
+            .start_projects(Some(config(&broker.issuer)), &project_inputs)
             .unwrap()
     };
     let origin = format!("http://{}", owner.address().unwrap());
@@ -1474,7 +1523,7 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
     let contexts: Value = contexts.json().await.unwrap();
     assert_eq!(
         contexts["contexts"].as_array().unwrap().len(),
-        if records_browser { 5 } else { 3 }
+        if records_browser { 6 } else { 4 }
     );
     let additional_selections: Vec<_> = additional_projects
         .iter()
@@ -1511,6 +1560,28 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
         "mirror discovery retains exact NativePath"
     );
     let mirror_selection = (*matching[0]).clone();
+    let unprojected_selection = contexts["contexts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["project_id"] == json!(unprojected_id))
+        .unwrap();
+    let mirror_task = record_read(
+        &client,
+        &origin,
+        &cookie,
+        "/api/tasks/get",
+        json!({"selection":mirror_selection,"input":{"id":refs_task}}),
+    )
+    .await;
+    assert_eq!(mirror_task.status(), StatusCode::OK);
+    assert!(
+        mirror_task
+            .text()
+            .await
+            .unwrap()
+            .contains("References journey")
+    );
     let mirror_read = record_read(
         &client,
         &origin,
@@ -1532,7 +1603,7 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
         &origin,
         &cookie,
         "/api/knowledge/page",
-        json!({"selection":mirror_selection,"input":{"slug":"Projection absent"}}),
+        json!({"selection":unprojected_selection,"input":{"slug":"Projection absent"}}),
     )
     .await;
     assert_eq!(missing_page.status(), StatusCode::OK);
@@ -1546,8 +1617,8 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
         &cookie,
         "/api/records/references",
         json!({
-            "selection":mirror_selection, "input":{
-                "focus":{"kind":"knowledge","scope":{"project":project},"id":"Projection absent"},
+            "selection":unprojected_selection, "input":{
+                "focus":{"kind":"knowledge","scope":{"project":unprojected_id},"id":"Projection absent"},
                 "outgoing_source":{"kind":"project_knowledge"}, "page_size":20,
                 "pages":[
                     {"source":{"kind":"project_knowledge"},"direction":"outgoing"},
@@ -1768,14 +1839,13 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
         assert!(denied.get("sources").is_none());
         broker.issuer.memory_allowed.store(true, Ordering::SeqCst);
     }
-    let probe = std::env::var_os("GRAPHIT_UI_BROWSER_PROBE_FILE").map(std::path::PathBuf::from);
     let mut finished = true;
     if let Some(path) = &probe {
         fs::write(path, serde_json::to_vec(&json!({
             "origin":origin, "task_id":refs_task, "session_id":refs_session,
             "memory_id":memory_id, "user_memory_id":user_id, "selection":selection,
             "contexts":contexts, "additional_selections":additional_selections, "mirror_selection":mirror_selection, "mirror_memory_id":mirror_memory.id.to_string(),
-            "missing_slug":"Projection absent", "import_source":import_source, "import_slug":"Imported namespace",
+            "missing_selection":unprojected_selection, "missing_slug":"Projection absent", "import_source":import_source, "import_slug":"Imported namespace",
             "wiki_slug":"Foreground wiki", "empty_slug":"No outgoing",
             "user_scope_id":user_scope, "task_read_allowed":true,
             "scenario":if records_browser {"db07"} else {"references"}, "http_preflight":if records_browser {"signed_oauth_user_no_corpus"} else {"all_corpora_signed_oauth"}, "control":"issuer_hold_entered_release", "fixture_contract":if records_browser {"first_memory_publication_v2"} else {"mirror_issuer_wait_registered_v1"}, "iab_qualified":false,
@@ -1854,7 +1924,17 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_inpu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hosted_record_session_expiry_preflight() {
+    verify_hosted_record_session_expiry(None).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "native browser qualification requires a browser observer and GRAPHIT_UI_BROWSER_PROBE_FILE"]
 async fn hosted_record_session_expiry_and_browser_probe() {
+    verify_hosted_record_session_expiry(Some(browser_probe_path())).await;
+}
+
+async fn verify_hosted_record_session_expiry(probe: Option<std::path::PathBuf>) {
     let broker = Broker::new().await;
     let fixture = prepared(&broker).await;
     let mut settings = config(&broker.issuer);
@@ -1886,8 +1966,12 @@ async fn hosted_record_session_expiry_and_browser_probe() {
         json!({"selection":selection,"input":{"id":fixture.task}}),
     )
     .await;
-    assert_eq!(task.status(), StatusCode::OK);
-    let probe = std::env::var_os("GRAPHIT_UI_BROWSER_PROBE_FILE").map(std::path::PathBuf::from);
+    assert_eq!(
+        task.status(),
+        StatusCode::OK,
+        "task before session expiry: {}",
+        task.text().await.unwrap()
+    );
     let mut finished = true;
     if let Some(path) = &probe {
         fs::write(path, serde_json::to_vec(&json!({

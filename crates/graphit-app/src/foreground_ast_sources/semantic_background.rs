@@ -264,6 +264,7 @@ impl ForegroundAstSources {
                         path: path.clone(),
                         batches: receiver,
                         completed,
+                        checkpoint_interval: super::semantic::checkpoint::CHECKPOINT_INTERVAL,
                     };
                     let mut seen =
                         |saved: &graphit_ast::native_nn_publication::NativeNnPublication| {

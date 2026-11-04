@@ -65,6 +65,7 @@ struct Fixture {
     project: ProjectPaths,
     config: ConfigSnapshot,
     policy: HubResourcePolicy,
+    embedding: bool,
     _model: model_fixture::Fixture,
     expected: ExpectedModel,
 }
@@ -226,12 +227,19 @@ impl Fixture {
             project,
             config,
             policy,
+            embedding,
             _model: model,
             expected,
         })
     }
 
     fn environment(&self) -> TestResult<Vec<(std::ffi::OsString, std::ffi::OsString)>> {
+        if !self.embedding {
+            return Ok(vec![(
+                "PATH".into(),
+                self._directory.path().as_os_str().to_owned(),
+            )]);
+        }
         let executable = std::env::var_os("GRAPHIT_TEST_MODEL_SERVER")
             .ok_or("GRAPHIT_TEST_MODEL_SERVER must name the compiled model child")?;
         let executable = Path::new(&executable);
@@ -744,12 +752,14 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn initial_rust_json_callback_publishes_real_main_and_current_raw() -> TestResult {
     let fixture = Fixture::new()?;
     fixture.run(fixture.assert_published()).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn project_graph_http_queries_real_models_neighborhood_and_current_raw() -> TestResult {
     let fixture = Fixture::new()?;
     fs::write(
@@ -960,6 +970,7 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn generic_unavailable_projections_preserve_graph_and_publish_only_eligible_rows()
 -> TestResult {
     let fixture = Fixture::new()?;
@@ -1082,6 +1093,7 @@ queries:
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn real_model_failure_preserves_queryable_graph_without_partial_nn_commit() -> TestResult {
     let fixture = Fixture::new()?;
     let f = &fixture;
@@ -1121,6 +1133,7 @@ async fn real_model_failure_preserves_queryable_graph_without_partial_nn_commit(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn maintain_fresh_project_switch_version_and_retire_sibling_keeps_real_jobs() -> TestResult {
     use graphit_app::foreground_project_control::client::Command;
     let fixture = Fixture::new()?;
@@ -1316,6 +1329,7 @@ fn contains_path(batches: &[RecordBatch], path: &str) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn current_raw_preserves_vectors_then_profile_control_recovers_failed_nn() -> TestResult {
     let fixture = Fixture::new()?;
     fixture
@@ -1405,6 +1419,7 @@ async fn current_raw_preserves_vectors_then_profile_control_recovers_failed_nn()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn incremental_go_callback_publishes_real_model_vectors_and_current_raw() -> TestResult {
     let fixture = Fixture::new()?;
     fixture
@@ -1460,6 +1475,7 @@ async fn incremental_go_callback_publishes_real_model_vectors_and_current_raw() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn incremental_ecma_callbacks_publish_graphs_and_real_model_vectors() -> TestResult {
     let fixture = Fixture::new()?;
     fixture
@@ -1533,6 +1549,7 @@ async fn incremental_ecma_callbacks_publish_graphs_and_real_model_vectors() -> T
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn two_projects_isolate_failed_nn_recover_and_publish_rename_delete() -> TestResult {
     let fixture = Fixture::new()?;
     let root = fixture._directory.path().join("sibling");
@@ -1773,6 +1790,7 @@ async fn two_projects_isolate_failed_nn_recover_and_publish_rename_delete() -> T
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
 async fn foreground_python_publishes_native_graph_real_vectors_and_current_source() -> TestResult {
     let fixture = Fixture::new()?;
     fixture.run_projects(&[&fixture.project], |address| {

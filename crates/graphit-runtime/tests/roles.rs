@@ -83,11 +83,12 @@ fn all_bodies_reserve_coordination_to_the_coordinator() {
             "the coordinator performs it directly under its own ordinary Task ownership",
             "that exception gives delegates no claim or lifecycle powers",
             "never substitute the Graphit CLI",
-            "ai_optimized: true",
+            "Structured MCP tools accept top-level `ai_optimized`",
+            "`false` selects JSON for machine consumers",
         ] {
             assert!(
                 value.body().contains(required),
-                "missing generic protocol for {role:?}"
+                "missing generic protocol for {role:?}: {required}"
             );
         }
         assert!(!value.body().contains("claim their Tasks"));
@@ -128,20 +129,14 @@ fn cancellation_before_and_after_composition_uses_the_original_request() {
 }
 
 #[test]
-fn expiration_after_composition_is_not_reset() {
-    let req = SnapshotContext::new(
-        Instant::now() + Duration::from_millis(50),
-        Cancellation::default(),
-    );
-    let value = compose_role(ManagedRole::Scout, &Brand::default(), &req).unwrap();
-    std::thread::sleep(Duration::from_millis(60));
+fn an_expired_original_is_not_replaced_during_composition() {
+    let req = SnapshotContext::new(Instant::now(), Cancellation::default());
     for role in ROLES {
         assert!(matches!(
             compose_role(role, &Brand::default(), &req),
             Err(RoleError::DeadlineExceeded)
         ));
     }
-    assert_eq!(value.role(), ManagedRole::Scout);
 }
 
 #[test]

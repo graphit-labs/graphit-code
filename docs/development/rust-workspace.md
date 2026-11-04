@@ -19,45 +19,31 @@ references:
 
 # Rust workspace checkout
 
-Keep `graphit-code` and `graphit-broker` in the same parent directory. Cargo loads
-the `broker-now-wire` 0.1.0 crate from the Broker checkout. It contains the shared,
-validated Now data format, with Serde and ULID dependencies; it does not depend on
-Broker SQL, authorization or transport services.
+Graphit Code builds from its own checkout. Cargo resolves `broker-now-wire` and
+the Broker crates used by joint protocol tests from a single pinned Git revision.
+The shared Now crate validates the Serde payload and has no SQL, authorization or
+transport dependency. A sibling checkout is unnecessary.
 
-From a directory where neither checkout exists:
-
-```text
-git clone https://github.com/graphit-labs/graphit-code.git graphit-code
-git clone https://github.com/graphit-labs/graphit-broker.git graphit-broker
+```sh
+git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
+cargo fetch --locked
 cargo metadata --locked --offline --format-version 1
+cargo --offline xtask gate
 ```
 
-The Code checkout selects Rust 1.98.0 with Clippy and rustfmt. Native SDK builds
-also need a C/C++ toolchain. Offline Cargo commands require their registry
-dependencies to have been downloaded already; the peer crate itself is local.
-If Cargo reports that `broker-now-wire/Cargo.toml` is missing, check the sibling
-layout and that the Broker checkout contains the maintained crate.
+The Code checkout selects Rust 1.98.0 with Clippy and rustfmt. Native builds also
+use the toolchain described in [native runtime packaging](native-runtime-packaging.md).
+Cargo prepares registry and Git dependencies before the offline run. The
+[workspace manifest](../../Cargo.toml) and lockfile identify the reviewed Broker
+source revision, including the codec consumed by the daemon.
 
-The edge is declared in the [workspace manifest](../../Cargo.toml) and consumed by
-the [daemon manifest](../../crates/graphit-daemon/Cargo.toml). Cargo resolves and
-locks it normally. Native dependency bundles are a separate build input.
-
-The [CI workflow](../../.github/workflows/ci.yml) and
-[release workflow](../../.github/workflows/release.yml) check out Code at its
-tested revision and Broker from `graphit-labs/graphit-broker` into these sibling
-directories. Both require the repository variable `GRAPHIT_BROKER_REF` to name the
-Broker commit or tag qualified with that Code revision; an absent value fails
-before checkout. Rust steps run from `graphit-code`. The declared ref must contain
-the reviewed producer source and be readable by the checkout credential. Neither
-workflow selects `main` implicitly or substitutes an unpublished local commit.
-
-Local source and build qualification do not prove that changes are published on
-the CI refs or that the hosted Linux, macOS and Windows jobs have executed.
-The shared codec does not qualify the websocket service or its Runtime/CLI/MCP
-consumers; their authentication, project access and lifecycle remain separate.
-
-Run the [affected checks and Git hooks](rust-fast-guard.md) for each work unit.
+The [standard CI](../../.github/workflows/ci.yml) fetches the same locked sources
+then runs offline on Linux, macOS and Windows. The tagged Linux
+[release workflow](../../.github/workflows/release.yml) checks out the Broker
+revision in the lockfile when it needs the explicit Broker/S3 qualification
+fixture. See [Rust checks and Git hooks](rust-fast-guard.md) for the distinction
+between local protocol checks and native qualification.
 
 The Task browser uses the three versioned files in
 [the shipped UI directory](../../crates/graphit-app/assets/ui/index.html). After

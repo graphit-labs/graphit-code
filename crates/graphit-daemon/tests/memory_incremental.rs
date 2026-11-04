@@ -11,7 +11,7 @@ use graphit_auth::{
     broker::BrokerRequestContext,
 };
 use graphit_core::file_lock::Cancellation;
-use graphit_daemon::model_service::{MemoryEmbeddingModel, RpcLimits};
+use graphit_daemon::model_service::{EmbedInput, MemoryEmbeddingModel, RpcLimits};
 use graphit_records::{memory_store as memory_api, memory_store::*, user_memory_store::*};
 use std::{
     io,
@@ -34,6 +34,13 @@ fn options() -> MemorySemanticSearchOptions {
         top_k: NonZeroUsize::new(8).unwrap(),
     }
 }
+fn hybrid_options() -> MemoryHybridSearchOptions {
+    MemoryHybridSearchOptions {
+        filter: MemoryListFilter::default(),
+        include_deleted_history: false,
+        top_k: NonZeroUsize::new(2).unwrap(),
+    }
+}
 
 #[tokio::test]
 async fn project_batches_are_searchable_before_completion_and_resume_without_reinference() {
@@ -52,6 +59,23 @@ async fn project_batches_are_searchable_before_completion_and_resume_without_rei
     let write = authority
         .admit_write(&grant, &ctx, ProjectWriteOperation::Memory)
         .unwrap();
+    let model =
+        MemoryEmbeddingModel::new(ctx.snapshot(), identity(), Duration::from_secs(30)).unwrap();
+    assert_eq!(
+        model
+            .query_hybrid(
+                &read,
+                "incremental".into(),
+                hybrid_options(),
+                project::read_limits(),
+                |_| async {
+                    Err::<Vec<Vec<f32>>, _>(io::Error::other("absent corpus must not infer"))
+                },
+            )
+            .await
+            .unwrap(),
+        MemoryHybridSearchRead::NoCorpus
+    );
     let input = |key: &str| CreateMemory {
         idempotency_key: key.into(),
         title: key.into(),
@@ -70,8 +94,6 @@ async fn project_batches_are_searchable_before_completion_and_resume_without_rei
     NativeMemoryStore::create(ctx.snapshot(), &write, input("b"), project::write_limits())
         .await
         .unwrap();
-    let model =
-        MemoryEmbeddingModel::new(ctx.snapshot(), identity(), Duration::from_secs(30)).unwrap();
     let batch = RpcLimits::new(131072, 1, 65536, 2).unwrap();
     let mut calls = 0;
     let failed = model
@@ -86,6 +108,7 @@ async fn project_batches_are_searchable_before_completion_and_resume_without_rei
                 let n = calls;
                 let read = &read;
                 let ctx = &ctx;
+                let model = &model;
                 async move {
                     assert_eq!(operation.texts.len(), 1);
                     if n == 2 {
@@ -103,6 +126,29 @@ async fn project_batches_are_searchable_before_completion_and_resume_without_rei
                             result,
                             MemorySemanticSearchRead::Published { total_hits: 1, .. }
                         ));
+                        let MemoryHybridSearchRead::Published {
+                            total_hits, hits, ..
+                        } = model
+                            .query_hybrid(
+                                read,
+                                "incremental".into(),
+                                hybrid_options(),
+                                project::read_limits(),
+                                |query| async move {
+                                    assert!(matches!(query.input, EmbedInput::Query));
+                                    assert_eq!(query.texts, ["incremental"]);
+                                    Ok::<_, io::Error>(vec![vec![1., 0.]])
+                                },
+                            )
+                            .await
+                            .unwrap()
+                        else {
+                            panic!("published hybrid results during partial indexing")
+                        };
+                        assert_eq!(total_hits, 2);
+                        assert_eq!(hits.len(), 2);
+                        assert!(hits.iter().all(|hit| hit.lexical.is_some()));
+                        assert_eq!(hits.iter().filter(|hit| hit.semantic.is_some()).count(), 1);
                         Err(io::Error::other("second batch interrupted"))
                     } else {
                         Ok(vec![vec![1., 0.]])
@@ -243,6 +289,23 @@ async fn user_incremental_skips_covered_revisions_and_reuses_metadata_only_updat
             UserMemoryWriteOperation::Memory,
         )
         .unwrap();
+    let model =
+        MemoryEmbeddingModel::new(ctx.snapshot(), identity(), Duration::from_secs(30)).unwrap();
+    assert_eq!(
+        model
+            .query_user_hybrid(
+                &read,
+                "quartz".into(),
+                hybrid_options(),
+                user::read_limits(),
+                |_| async {
+                    Err::<Vec<Vec<f32>>, _>(io::Error::other("absent corpus must not infer"))
+                },
+            )
+            .await
+            .unwrap(),
+        UserMemoryHybridSearchRead::NoCorpus
+    );
     let a = NativeUserMemoryStore::create(
         ctx.snapshot(),
         &write,
@@ -251,8 +314,6 @@ async fn user_incremental_skips_covered_revisions_and_reuses_metadata_only_updat
     )
     .await
     .unwrap();
-    let model =
-        MemoryEmbeddingModel::new(ctx.snapshot(), identity(), Duration::from_secs(30)).unwrap();
     let batch = RpcLimits::new(131072, 1, 65536, 2).unwrap();
     let mut inferred = 0;
     model
@@ -313,6 +374,29 @@ async fn user_incremental_skips_covered_revisions_and_reuses_metadata_only_updat
     };
     assert_eq!(total_hits, 1);
     assert_eq!(hits[0].matched_revision.get(), updated.revision);
+    let UserMemoryHybridSearchRead::Published {
+        total_hits, hits, ..
+    } = model
+        .query_user_hybrid(
+            &read,
+            "quartz".into(),
+            hybrid_options(),
+            user::read_limits(),
+            |query| async move {
+                assert!(matches!(query.input, EmbedInput::Query));
+                assert_eq!(query.texts, ["quartz"]);
+                Ok::<_, io::Error>(vec![vec![1., 0.]])
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("published USER hybrid result")
+    };
+    assert_eq!(total_hits, 1);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].current, updated);
+    assert!(hits[0].lexical.is_some() && hits[0].semantic.is_some());
 }
 
 #[tokio::test]

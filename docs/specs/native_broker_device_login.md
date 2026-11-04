@@ -13,7 +13,7 @@ references:
 
 # Native Broker Device login
 
-This contract covers the Rust CLI and Auth library Device consumer. The implementation and fixtures are applied under tsk-5fb0. Current Device and active Code focals, productive Broker HTTP/CLI T10, strict production Auth/App/CLI and strict Broker integration-test checks have passed. The active Device transport case has also passed, and final Broker T10 producer review reported NoFault. Strict checks of the affected Auth/App test targets have also passed. The existing [Code login](native_broker_interactive_login.md) retains its PKCE, state, nonce, ID token and rotating-refresh contract.
+This contract covers Device login in the Graphit CLI and its shared Auth library. The separate [authorization-code login](native_broker_interactive_login.md) uses PKCE, state, nonce, an ID token and rotating refresh tokens.
 
 ## Authorize from another browser
 
@@ -70,3 +70,7 @@ Every phase retains the same manager, authority, issuer/provider revision, Origi
 ## Evidence and remaining qualification
 
 Protocol: broker/oauth/device.rs and broker/oauth/device/tests.rs cover forms, signed identity, optional attributes, SDK cadence, terminal errors/transport, cancellation and input bounds. Managed: profile_manager/broker_login/device_login.rs and tests/broker_login/device_login.rs cover publication, physical CAS and cancellation. profile/tests.rs covers the closed Device codec and presence rules. issuer/tests/service_credentials.rs covers zero refresh margin and relogin expiry. auth_cli/device_tests.rs exercises the CLI SDK consumer, account/logout, public events and no-publication errors.
+
+The Broker suite runs the shared Auth Device consumer against a real Broker process, with loopback HTTP and a temporary SQLite database. This verifies discovery, LOCAL sign-in, explicit consent, redemption and signed identity. The Broker job builds its own workspace only.
+
+The Code tests in `crates/graphit-app/tests/auth_entry.rs` and `auth_active.rs` run the actual CLI against a loopback OAuth fixture. They verify pending and successful polling, rejection and expiration, JWT audience validation, local profile persistence and logout, and cancellation through the active daemon.

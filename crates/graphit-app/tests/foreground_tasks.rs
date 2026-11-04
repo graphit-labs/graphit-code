@@ -79,6 +79,7 @@ struct Seed {
     project: ProjectPaths,
     reference_project: Option<ProjectPaths>,
     reference_mirror: Option<ProjectPaths>,
+    unprojected_knowledge: Option<ProjectPaths>,
     browser_projects: Vec<ProjectPaths>,
     auth: Arc<DaemonAuth>,
     raw: String,
@@ -102,6 +103,15 @@ impl Seed {
         )
         .unwrap();
         let cancel = Cancellation::default();
+        ConfigStore::global(&paths)
+            .unwrap()
+            .set(
+                ConfigKey::new("broker.allow_loopback_http").unwrap(),
+                json!(true),
+                Duration::from_secs(5),
+                &cancel,
+            )
+            .unwrap();
         let content = ContentLimits {
             max_input_bytes: 65536,
             max_output_bytes: 65536,
@@ -245,6 +255,20 @@ impl Seed {
         } else {
             None
         };
+        let unprojected_knowledge = if records {
+            let name = "unprojected-knowledge";
+            let root = temp.path().join(name);
+            fs::create_dir(&root).unwrap();
+            let project = ProjectPaths::at(&root, &paths).unwrap();
+            ProjectIdentityStore::at(&project)
+                .writer(Duration::from_secs(5), &cancel)
+                .unwrap()
+                .ensure(&ProjectMetadata::new(name).unwrap())
+                .unwrap();
+            Some(project)
+        } else {
+            None
+        };
         let browser_projects = if browser_writes {
             let mut projects = Vec::new();
             for name in ["empty-knowledge", "no-knowledge"] {
@@ -265,6 +289,7 @@ impl Seed {
         let mut trusted_projects = vec![project.clone()];
         trusted_projects.extend(reference_project.iter().cloned());
         trusted_projects.extend(reference_mirror.iter().cloned());
+        trusted_projects.extend(unprojected_knowledge.iter().cloned());
         trusted_projects.extend(browser_projects.iter().cloned());
         let config = ConfigSnapshot::new(paths.brand(), []).unwrap();
         let hub = HubResourcePolicy::resolve(&config).unwrap();
@@ -325,6 +350,7 @@ impl Seed {
             project,
             reference_project,
             reference_mirror,
+            unprojected_knowledge,
             browser_projects,
             auth,
             raw,
@@ -778,15 +804,16 @@ async fn read(
 
 impl Prepared {
     fn snapshot(&self, value: Option<Value>) -> ConfigSnapshot {
-        let documents = value.map(|v| {
-            ConfigDocument::new(
-                self.paths.brand(),
-                ConfigSource::Global,
-                [(ConfigKey::new("task.browser").unwrap(), v)],
-            )
-            .unwrap()
-        });
-        ConfigSnapshot::new(self.paths.brand(), documents).unwrap()
+        let mut settings = vec![(
+            ConfigKey::new("broker.allow_loopback_http").unwrap(),
+            json!(true),
+        )];
+        if let Some(value) = value {
+            settings.push((ConfigKey::new("task.browser").unwrap(), value));
+        }
+        let document =
+            ConfigDocument::new(self.paths.brand(), ConfigSource::Global, settings).unwrap();
+        ConfigSnapshot::new(self.paths.brand(), [document]).unwrap()
     }
     fn start(
         &self,
@@ -1139,11 +1166,15 @@ async fn compiled_foreground_signed_cookie_reads_schedule_dependencies_and_sourc
             && task_text.contains("2028-03-02")
     );
     assert!(!task_text.contains(&fixture.fence));
+    {
+        let issued_access_token = broker.issuer.issued.lock().unwrap();
+        assert!(!issued_access_token.is_empty());
+        assert!(!task_text.contains(issued_access_token.as_str()));
+    }
     assert!(
-        !task_text.contains("access_token")
+        !task_text.contains("\"access_token\"")
             && !task_text.contains("refresh-private")
-            && !task_text.contains("eyJ")
-            && !task_text.contains("claim_token")
+            && !task_text.contains("\"claim_token\"")
     );
     let dependent = read(
         &client,
@@ -1290,6 +1321,10 @@ async fn foreground_deadline_cancels_project_read_and_leaves_native_data_intact(
         ConfigSource::Global,
         [
             (ConfigKey::new("task.browser").unwrap(), value),
+            (
+                ConfigKey::new("broker.allow_loopback_http").unwrap(),
+                json!(true),
+            ),
             (
                 ConfigKey::new("hub.limits.request.deadline_ms").unwrap(),
                 json!(1000),

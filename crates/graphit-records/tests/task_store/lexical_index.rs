@@ -1033,7 +1033,7 @@ async fn task_lexical_index_fresh_original_recovery_revoke_and_deadline() {
     let short_write = authority
         .admit_write(&short_grant, &short, ProjectWriteOperation::Task)
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    tokio::time::sleep_until(short.snapshot().deadline().unwrap().into()).await;
     assert!(matches!(
         NativeTaskStore::create_lexical_index(short.snapshot(), &short_write, write_limits()).await,
         Err(TaskStoreError::Request(_))

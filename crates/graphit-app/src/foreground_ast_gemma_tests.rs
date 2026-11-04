@@ -802,6 +802,7 @@ async fn phase(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native inference"]
 async fn productive_gemma_ast_incremental_query_and_model_change()
 -> Result<(), Box<dyn std::error::Error>> {
     let asset = std::env::var_os("GRAPHIT_EMBEDDINGGEMMA2_MODEL")

@@ -836,18 +836,19 @@ async fn native_paths_selectors_original_cancellation_and_deadline_stay_errors()
         ));
     }
     let other_cancel = Cancellation::default();
-    let expired = request_until(&other_cancel, Instant::now() + Duration::from_millis(1));
-    std::thread::sleep(Duration::from_millis(2));
+    let deadline = Instant::now() + Duration::from_millis(50);
+    let expired = request_until(&other_cancel, deadline);
+    tokio::time::sleep_until(deadline.into()).await;
     assert!(matches!(
         f.runtime(&expired, 0, false, Path::new("same"), &Request::default())
             .await,
-        Err(SourceHandlerError::Authentication(_))
+        Err(SourceHandlerError::Authentication(AuthError::Request))
     ));
     cancel.cancel();
     assert!(matches!(
         f.runtime(&ctx, 0, false, Path::new("same"), &Request::default())
             .await,
-        Err(SourceHandlerError::Authentication(_))
+        Err(SourceHandlerError::Authentication(AuthError::Request))
     ));
     Ok(())
 }

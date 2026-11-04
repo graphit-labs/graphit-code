@@ -69,27 +69,31 @@ references:
 # Rust checks and Git hooks
 
 Use the [Rust workspace layout](rust-workspace.md) before running Cargo commands.
-The shared Now wire crate comes from the sibling Broker checkout.
+Cargo fetches the shared Now wire crate from the locked Broker revision.
 
 Maintainers use the same commands on Linux, macOS and Windows:
 
 - `cargo xtask check`: native SDK boundary audit and formatting. The pre-commit hook runs this command and stops at the first failure.
-- `cargo xtask gate`: native SDK boundary audit, formatting, strict workspace Clippy and workspace tests, including documentation tests. CI and explicit full qualification run this integration gate.
+- `cargo xtask gate`: native SDK boundary audit, formatting, strict workspace Clippy and workspace tests, including documentation tests. The CI matrix runs this offline gate after dependency preparation.
+- `cargo xtask qualify`: run the Linux native GGUF and Broker/S3 journeys with explicit fixtures.
 - `cargo xtask test PACKAGE/TARGET ...`: run only selected registered suites, in catalog order. Empty, unknown or repeated selectors are rejected.
 - `graphit git install`: snapshot current records and register the commands declared in `.graphit/project.json`, using Git 2.54+ native configuration. `graphit git sync` reconciles events without a snapshot.
 
 On Windows, the existing `check` and `gate` commands invoke Cargo fmt separately
-for each local package manifest, including path dependencies in Broker. This
+for each local package manifest. This
 preserves the `fmt --all` coverage without exceeding the Windows process command-line
 limit. Package selection comes from locked Cargo metadata, not a maintained file list.
-Run `cargo fetch --locked` first when preparing dependencies for offline checks.
+Prepare dependencies with `cargo fetch --locked`. Run the standard suite with
+`cargo --offline xtask gate`. Its tests create temporary resources and use loopback
+for network contracts. Real provider inference and externally provisioned services
+are selected explicitly.
 
 Pre-commit runs the staged whitespace check, `actionlint` and `cargo xtask check`.
 Pre-push runs `cargo xtask check`, strict all-target workspace Clippy through
 `cargo xtask cargo`, and `cargo test --locked -p xtask --bin xtask`. These checks
 validate source boundaries, formatting, compilation and the build/test runner itself.
 Functional suites run through explicit affected selectors during development;
-the complete `cargo xtask gate` stays in CI and is available for explicit qualification.
+the complete `cargo xtask gate` stays in CI.
 Neither hook repeats the complete integration matrix. Reuse valid evidence for
 unchanged code instead of rerunning it after each failed push.
 
@@ -101,50 +105,86 @@ The Hub publication positive-flow fixtures use a 30-second request captured once
 
 The [CI workflow](../../.github/workflows/ci.yml) keeps four independent jobs:
 
-- `rust-contracts`: Code and Broker are checked out as siblings; Linux, macOS and Windows run `cargo xtask gate` from Code. On Linux, the job first builds Broker's `broker-presence` example `hub_storage_fixture`, checks that its emitted executable exists and exports its absolute path as `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` through `GITHUB_ENV` for the existing gate.
+- `rust-contracts`: Linux, macOS and Windows fetch the locked dependencies, then
+  run `cargo xtask gate` with Cargo offline. The standard job has no model
+  download, model-server provisioning or external storage service setup.
 - `ui-build`: Node.js 22 installs the UI dependencies, runs `node scripts/build-rust-ui.mjs` and checks that the three shipped assets have no diff. `make ui-lint` and `make ui-test` run the maintained lint and test scripts.
 - `workflow-lint`: the official actionlint 1.7.12 Linux binary is verified against its pinned SHA-256 before extraction, then runs `actionlint -no-color .github/workflows/*.yml`.
 - `native-packaging`: ShellCheck validates the maintained installer/packaging scripts and Node runs their existing package contracts.
 
-Tagged builds in the separate [release workflow](../../.github/workflows/release.yml)
-run the same Rust gate before native packaging; the Linux build prepares the same
-owned Broker fixture first. Manual package builds run `cargo xtask check`, the
-package/install checks and affected Release consumers described in
-[native packaging](native-runtime-packaging.md), reusing prior functional evidence.
-Static workflow validation does not establish that hosted platform checks executed.
+## Native qualification
 
-The Linux gate includes the ignored Role FILE Hub journey through the registered
-`graphit-app/role-hub-file` selector. It starts the owned Broker storage fixture
-and verifies genuine Role service credentials and PROJECT grants; it needs no
-external Broker account or agent binary. The fixture build is preparation for
-the explicit `cargo xtask gate`, not the fast pre-push checks. macOS and Windows retain the existing
-Linux-only test exclusion.
+The separate [release workflow](../../.github/workflows/release.yml) builds and
+checks the distributed packages. Its tagged Linux job also prepares the pinned
+EmbeddingGemma2 BF16 and BGE F16 GGUF files, the model server and the owned
+Broker/S3 fixture before running `cargo xtask qualify`. For a manual Linux
+run, set the `native_integrations` input to select these checks. See
+[native packaging](native-runtime-packaging.md).
 
-For a local Linux gate or selected run, put the pinned external MinIO and
-`mc` test tools on `PATH` using Broker's `scripts/prepare-s3-test-tools.sh`
-with Go 1.25.9 and an absolute `GOBIN` test directory. These tools are only
-needed by the loopback fixture and are not part of the Rust packages.
-Then build the same example from Code with
-`cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture`,
-then set `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` to the emitted example's absolute
-executable path before `cargo xtask test graphit-app/role-hub-file` or the existing
-explicit full gate. Missing or invalid fixture paths fail the runner; they do not skip
-the test. These instructions do not supply other suites' independent resources.
+For the Linux qualification, build the model server in Code and set
+`GRAPHIT_TEST_MODEL_SERVER`, `GRAPHIT_EMBEDDINGGEMMA2_MODEL` and
+`GRAPHIT_BGE_RERANKER_V2_M3_MODEL` to the absolute paths of the executable
+and verified models. In the explicitly selected Broker
+checkout, prepare the loopback MinIO and `mc` tools using
+`scripts/prepare-s3-test-tools.sh`, then build the fixture with
+`cargo build --locked -p broker-presence --example hub_storage_fixture`.
+Add the prepared tools to `PATH` and set
+`GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` to the absolute executable path.
+Use `cargo xtask qualify` to run both journeys or select
+`graphit-app/ast-generic-main-native-nn` or `graphit-app/role-hub-file`
+through `cargo xtask test`. Missing fixture paths fail the selected check.
 
-The Linux gate also runs the registered
-`graphit-app/ast-generic-main-native-nn` selector. Before that gate, both CI and
-release build the normal `graphit-model-server` executable and prepare the pinned
-EmbeddingGemma2 BF16 GGUF. They verify the model's SHA-256 and byte length, then
-export the executable and model paths as `GRAPHIT_TEST_MODEL_SERVER` and
-`GRAPHIT_EMBEDDINGGEMMA2_MODEL` through `GITHUB_ENV`. The revision, hash and size
-are declared in those workflows; release packaging happens after the gate.
+The launcher tests exercise the captured service command through a private
+executable and check its arguments, working directory and result. The native
+Linux desktop checks additionally use a private D-Bus instance. Run these
+checks explicitly on a host with `dbus-daemon` and `dbus-run-session`.
 
-The test uses that GGUF through the daemon model fixture with explicit CPU
-execution. Local invocations must provide the same two absolute resource paths;
-the model must already be available, while CI downloads its pinned artifact.
-No agent executable, provider account or paid plan is required. Preparing those
-resources does not execute or requalify the native NN journey; hosted CI and
-the existing platform obligations remain separate from workflow lint.
+```sh
+cargo xtask cargo test --locked --offline -p graphit-app --test daemon_launcher native_private_bus_without_a_manager_is_unavailable -- --ignored --exact
+cargo xtask cargo test --locked --offline -p graphit-app --test foreground_tasks tray:: -- --ignored
+```
+
+The artifact relocation test across filesystems uses `/dev/shm`, `unshare`,
+`mount`, and `umount` on Linux. Run it explicitly where the host permits user
+and mount namespaces.
+
+```sh
+cargo test --locked --offline -p graphit-core --lib artifact_store::tests::publication_between_devices_uses_local_wrappers_and_recovers_relocations -- --exact --ignored
+```
+
+Standard SCIP integration tests use a private Docker command fixture that
+emits real SCIP data. The native image checks require Linux, Docker and the
+compatible `ghcr.io/graphit-labs/graphit-scip-rust:v1` image. Prepare the image
+before running these checks.
+
+```sh
+cargo xtask cargo test --locked --offline -p graphit-app --lib real_docker_custom_image_full_delta_source_and_mount_contract -- --ignored
+cargo xtask cargo test --locked --offline -p graphit-app --lib foreground_rust_scip_calls_and_physical_change_rejection -- --ignored
+```
+
+UI tests use up to two isolated Vitest workers by default. Override the worker
+count on a different machine with Vitest's existing options, for example
+`npm --prefix ui test -- --minWorkers=1 --maxWorkers=1`.
+To generate the optional coverage report, run `npm --prefix ui test -- --coverage`.
+
+The Task Browser qualification starts a Rust fixture on an ephemeral port,
+seeds the authorized records and passes its session cookie to the selected UI
+test. Prepare the UI dependencies, then run the qualification from the workspace
+root. The standard Rust and UI suites exercise their respective Task contracts
+with their own fixtures.
+
+```sh
+GRAPHIT_TASK_BROWSER_UI_DIR="$PWD/ui" cargo xtask cargo test --locked --offline -p graphit-app --lib task_browser_ui_reads_authorized_native_records -- --ignored
+```
+
+For an interactive browser inspection, run one ignored `hosting` test at a
+time. Point `GRAPHIT_UI_BROWSER_PROBE_FILE` to a new file in a private temporary
+directory. The fixture writes its origin and selection there. The observer
+signals completion with a sibling `.done` file.
+
+```sh
+GRAPHIT_UI_BROWSER_PROBE_FILE="$probe" cargo xtask cargo test --locked --offline -p graphit-app --test foreground_tasks hosting::hosted_record_references_signed_oauth_and_browser_probe -- --exact --ignored
+```
 
 ## Validate hook execution
 
@@ -171,23 +211,21 @@ For example:
 The Source stream target checks real SDK creation, replacement and deletion,
 including late errors, schema and key validation, stale CAS, recovery and named
 branches. It is registered in the explicit test selector catalog and covered by the
-workspace tests in the pre-push gate. The five affected cases passed on Linux;
-the test runtime was 0.06 seconds with the existing build cache. This guard
-does not qualify the foreground App consumer or other platforms.
+workspace tests in the CI gate.
 
 `cargo xtask test graphit-app/git_inspection_`
 
 The Git selector exercises the real SDK inspection path, scoped authorization,
 staged and unstaged changes, conflicted indexes, and cancellation with owned
 worker cleanup. Its library filter is available through the test selector catalog and covered by
-the pre-push workspace gate.
+the CI workspace gate.
 The runner's existing failure propagation applies to this filter; it does not
 create a separate hook harness or run all App tests.
 
 `cargo xtask test graphit-ast/postgresql_semantic graphit-core/project_source_publication_order`
 
 These selectors check [retained PostgreSQL body trees and their real scopes](../specs/rust_ast_antlr_semantics.md), and [writer preparation before the first Source capture](../specs/project_source_capture.md). The Source tests preserve rejection of a late directory change; they do not waive revalidation. Both targets are available through explicit selectors and covered by the
-pre-push workspace gate. Their current native qualification is Linux; Windows and macOS remain unqualified.
+CI workspace gate.
 
 `cargo xtask test graphit-knowledge/markdown_export graphit-knowledge/published_lint`
 
@@ -220,15 +258,8 @@ environment. The runner does not override `CARGO_BUILD_JOBS` or
 
 The SDK audit keeps private module, signature and unsafe-call boundaries. Its unit tests exercise structural violations; adding a legitimate SDK function does not fail an unrelated aggregate count assertion.
 
-Focused hook verification and selected suites do not substitute for the final integration gate or native platform tests. Linux execution is qualified by the current delivery; Windows and macOS require their own execution before claiming platform coverage.
+Focused hook verification and selected suites complement the workspace gate. Read platform coverage from the CI run for the revision under test.
 
-The CI and release Rust jobs prepare their native build dependencies and current
-Git before compiling. `GRAPHIT_BROKER_REF` remains an explicit paired source selection;
-use `GRAPHIT_BROKER_READ_TOKEN` when the Broker repository is private. The checkout
-does not persist that credential and records the actual Broker commit used. These
-settings must refer to available sources; local-only revisions are not remote CI proof.
-
-The Rust jobs disable incremental/debug-symbol output for development/test builds
-and share Code's target directory with the owned Broker fixture. Release-profile
-product binaries retain their existing optimization settings. This reuses the
-common dependencies without a second native target tree.
+The CI and release Rust jobs prepare the native build tools and current Git
+before compilation. Cargo fetches the locked sources. Only the Linux S3
+qualification uses a separate Broker checkout, pinned to the same revision.

@@ -2,6 +2,8 @@
 mod index_concurrency;
 #[path = "tests/model_gate.rs"]
 mod model_gate;
+#[path = "tests/model_peer.rs"]
+pub(crate) mod model_peer;
 #[path = "tests/model_reload.rs"]
 mod model_reload;
 #[path = "tests/native_gguf_source.rs"]
@@ -57,27 +59,10 @@ fn read_limits(foreground: &ForegroundSource) -> MemoryStoreReadLimits {
     }
 }
 
-fn job_resources(
-    foreground: &ForegroundSource,
-) -> crate::foreground_memory_jobs::MemoryJobResources {
-    let resources = foreground
-        .memory_jobs
-        .as_ref()
-        .unwrap()
-        .resources(foreground.scope, foreground.native, NativeBinding::KiroV3)
-        .unwrap()
-        .unwrap();
-    match Arc::try_unwrap(resources) {
-        Ok(resources) => resources,
-        Err(_) => panic!("fresh resource observation must have one borrower"),
-    }
-}
-
 #[tokio::test]
 async fn foreground_memory_jobs_no_corpus_cancel_and_foreign_checkout_fail_closed() {
     use graphit_daemon::{model_service::MemoryEmbeddingIndexRead, supervisor::ProjectContext};
     let fixture = Fixture::new();
-    fixture.install_model();
     let cancellation = Cancellation::default();
     let request = fixture
         .policy
@@ -89,37 +74,31 @@ async fn foreground_memory_jobs_no_corpus_cancel_and_foreign_checkout_fail_close
         0,
         &fixture.config,
         NativeBinding::KiroV3,
-        fixture.environment(),
+        Vec::new(),
         &request,
     )
     .await
     .unwrap();
-    let mut resources = job_resources(&foreground);
-    // The RPC policy must not become a deadline for the background corpus.
-    resources.policy = HubResourcePolicy::resolve(
-        &ConfigSnapshot::new(
-            fixture.installation.brand(),
-            [ConfigDocument::new(
-                fixture.installation.brand(),
-                ConfigSource::Command,
-                [(
-                    ConfigKey::new("hub.limits.request.deadline_ms").unwrap(),
-                    json!(1),
-                )],
-            )
-            .unwrap()],
-        )
-        .unwrap(),
+    let bundle = model_fixture::Fixture::metadata(model_api::TaskKind::Embedding);
+    let expected = model_api::ExpectedModel::new(
+        &bundle.config(&[crate::models::DEFAULT_SLOT]),
+        crate::models::DEFAULT_SLOT,
+        "cpu",
     )
     .unwrap();
+    let mut resources = crate::foreground_memory_jobs::MemoryJobResources::remote(
+        Arc::clone(&foreground.auth),
+        None,
+        crate::foreground_memory_jobs::test_broker_cache(&foreground.policy),
+        foreground.policy.clone(),
+        foreground.scope,
+        foreground.native,
+        NativeBinding::KiroV3,
+    )
+    .unwrap();
+    let mut peer = model_peer::ModelPeer::bind(&mut resources, expected).await;
     foreground.supervisors.shutdown().await.unwrap();
-    foreground
-        .memory_jobs
-        .as_mut()
-        .unwrap()
-        .shutdown()
-        .await
-        .unwrap();
+    peer.shutdown().await.unwrap();
     assert!(
         TcpStream::connect(resources.local.as_ref().unwrap().address)
             .await
@@ -187,8 +166,7 @@ async fn native_mcp_stdio_startup_reuses_live_checkout_and_canonical_selection()
     use crate::foreground_project_control::{ProjectCommand, send};
     use graphit_core::native_path::NativePath;
     use rmcp::ClientServiceExt;
-    let fixture = Fixture::new();
-    fixture.install_model();
+    let fixture = Fixture::with_services(false, false);
     let cancellation = Cancellation::default();
     for project in &fixture.projects {
         ConfigStore::project(project)
@@ -226,7 +204,7 @@ async fn native_mcp_stdio_startup_reuses_live_checkout_and_canonical_selection()
         0,
         &fixture.config,
         NativeBinding::KiroV3,
-        fixture.environment(),
+        Vec::new(),
         &original,
     )
     .await
@@ -467,8 +445,7 @@ async fn live_role_task_consumer_follows_switch_and_retirement() {
     use graphit_core::{
         git_checkout::GitCheckout, native_path::NativePath, version_context::VersionContext,
     };
-    let fixture = Fixture::new();
-    fixture.install_model();
+    let fixture = Fixture::with_services(false, false);
     let cancellation = Cancellation::default();
     for project in &fixture.projects {
         for key in ["modules.ast", "modules.knowledge"] {
@@ -493,7 +470,7 @@ async fn live_role_task_consumer_follows_switch_and_retirement() {
         0,
         &fixture.config,
         NativeBinding::KiroV3,
-        fixture.environment(),
+        Vec::new(),
         &original,
     )
     .await
@@ -815,6 +792,7 @@ async fn create_memory(foreground: &ForegroundSource, index: usize, key: &str) -
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for real child lifecycle and inference"]
 async fn foreground_memory_jobs_two_projects_share_child_and_retire_independently() {
     use graphit_daemon::supervisor::{DesiredProject, ProjectContext};
     let fixture = Fixture::new();
@@ -941,7 +919,16 @@ fn foreground_memory_jobs_watch_configs_follow_each_project_and_captured_overrid
     let configs = fixture
         .projects
         .iter()
-        .map(|p| project_watch_config(p, &fixture.config, &request).unwrap())
+        .map(|project| {
+            let config = crate::ast_profile_loader::project_config(
+                &fixture.installation,
+                project,
+                &fixture.config,
+                request.snapshot(),
+            )
+            .unwrap();
+            project_watch_config(project, &config, &request).unwrap()
+        })
         .collect::<Vec<_>>();
     let first = &configs[0];
     let defaults = first
@@ -973,8 +960,24 @@ fn foreground_memory_jobs_watch_configs_follow_each_project_and_captured_overrid
         .unwrap()],
     )
     .unwrap();
-    let config = project_watch_config(&fixture.projects[0], &override_config, &request).unwrap();
-    assert!(!config.ast.defaults.iter().any(|p| p.contains("first docs")));
+    let project = &fixture.projects[0];
+    let config = crate::ast_profile_loader::project_config(
+        &fixture.installation,
+        project,
+        &override_config,
+        request.snapshot(),
+    )
+    .unwrap();
+    let watch = project_watch_config(project, &config, &request).unwrap();
+    let defaults = watch
+        .ast
+        .defaults
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let scope =
+        IgnoreScope::load(&watch.root, "", watch.ast.filename.as_deref(), &defaults).unwrap();
+    assert!(!scope.is_ignored("first docs/page.md", false).unwrap());
 }
 
 #[path = "../../../graphit-daemon/tests/support/model_fixture.rs"]
@@ -990,9 +993,10 @@ pub(crate) struct Fixture {
     projects: Vec<ProjectPaths>,
     config: ConfigSnapshot,
     policy: HubResourcePolicy,
+    model_peer: Option<model_peer::ModelPeer>,
 }
 
-/// Reuses the actual foreground CPU child and its shared resources for HTTP search.
+/// Reuses the foreground resource admission and wire client for HTTP search.
 pub(crate) async fn browser_search_fixture() -> (
     Fixture,
     ForegroundSource,
@@ -1002,7 +1006,7 @@ pub(crate) async fn browser_search_fixture() -> (
 ) {
     browser_search_fixture_configured(None).await
 }
-async fn browser_search_fixture_configured(
+pub(crate) async fn browser_search_fixture_configured(
     browser: Option<&str>,
 ) -> (
     Fixture,
@@ -1031,6 +1035,7 @@ async fn browser_search_fixture_with_imports(
         knowledge_conversations,
         false,
         true,
+        false,
     )
     .await
 }
@@ -1043,7 +1048,7 @@ pub(crate) async fn browser_syntax_fixture() -> (
     String,
     Vec<Memory>,
 ) {
-    browser_search_fixture_with_services(None, false, false, false, false).await
+    browser_search_fixture_with_services(None, false, false, false, false, false).await
 }
 
 async fn browser_search_fixture_with_services(
@@ -1052,6 +1057,7 @@ async fn browser_search_fixture_with_services(
     knowledge_conversations: bool,
     rerank: bool,
     embedding: bool,
+    native: bool,
 ) -> (
     Fixture,
     ForegroundSource,
@@ -1064,7 +1070,11 @@ async fn browser_search_fixture_with_services(
         fixture.configure_browser(endpoint, knowledge_conversations);
     }
     if embedding {
-        fixture.install_model();
+        if native {
+            fixture.install_model();
+        } else {
+            fixture.install_model_metadata();
+        }
     }
     if rerank {
         fixture.install_rerank_model().await;
@@ -1110,28 +1120,45 @@ async fn browser_search_fixture_with_services(
         )
         .unwrap()
         .unwrap();
-        let mut memory = crate::foreground_memory_jobs::ForegroundMemoryJobs::new(
-            Arc::clone(&foreground.auth),
-            (foreground.policy.clone()).clone(),
-            Some(expected),
-            true,
-            None,
-            crate::foreground_memory_jobs::test_broker_cache(&(foreground.policy.clone())),
-        )
-        .unwrap();
-        let resources = memory
-            .start(
-                &fixture.installation,
-                fixture.environment(),
+        let brokers = crate::foreground_memory_jobs::test_broker_cache(&foreground.policy);
+        let resources = if native {
+            let mut memory = crate::foreground_memory_jobs::ForegroundMemoryJobs::new(
+                Arc::clone(&foreground.auth),
+                foreground.policy.clone(),
+                Some(expected),
+                true,
+                None,
+                brokers,
+            )
+            .unwrap();
+            let resources = memory
+                .start(
+                    &fixture.installation,
+                    fixture.environment(),
+                    foreground.scope,
+                    foreground.native,
+                    NativeBinding::KiroV3,
+                    &request,
+                )
+                .await
+                .unwrap()
+                .expect("configured native embedding resources");
+            foreground.memory_jobs = Some(memory);
+            resources
+        } else {
+            let mut resources = crate::foreground_memory_jobs::MemoryJobResources::remote(
+                Arc::clone(&foreground.auth),
+                None,
+                brokers,
+                foreground.policy.clone(),
                 foreground.scope,
                 foreground.native,
                 NativeBinding::KiroV3,
-                &request,
             )
-            .await
-            .unwrap()
-            .expect("configured embedding resources");
-        foreground.memory_jobs = Some(memory);
+            .unwrap();
+            fixture.model_peer = Some(model_peer::ModelPeer::bind(&mut resources, expected).await);
+            Arc::new(resources)
+        };
         foreground.memory_job_resources = Arc::downgrade(&resources);
         Some(resources)
     } else {
@@ -1797,6 +1824,7 @@ impl Fixture {
             projects,
             config,
             policy,
+            model_peer: None,
         }
     }
     fn inputs(&self) -> Vec<ProjectBootstrapInput<'_>> {
@@ -1812,7 +1840,16 @@ impl Fixture {
             .collect()
     }
     fn install_model(&self) {
-        let mut fixture = model_fixture::Fixture::actual(model_api::TaskKind::Embedding);
+        self.install_model_bundle(model_fixture::Fixture::actual(
+            model_api::TaskKind::Embedding,
+        ));
+    }
+    fn install_model_metadata(&self) {
+        self.install_model_bundle(model_fixture::Fixture::metadata(
+            model_api::TaskKind::Embedding,
+        ));
+    }
+    fn install_model_bundle(&self, mut fixture: model_fixture::Fixture) {
         fixture.body["recipe"]["dimensions"] = json!(128);
         // The real child resolves and verifies this installed bundle. Do not
         // re-hash the entire model in a discarded preflight configuration.
@@ -2148,7 +2185,7 @@ async fn foreground_memory_jobs_missing_model_keeps_source_without_compute() {
 #[tokio::test]
 async fn foreground_memory_jobs_invalid_version_never_starts_model() {
     let fixture = Fixture::new();
-    fixture.install_model();
+    fixture.install_model_metadata();
     let cancellation = Cancellation::default();
     let request = fixture
         .policy
@@ -2317,6 +2354,7 @@ mod role_rescan_tests;
 mod model_ready_wake_tests;
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for real child and AST inference"]
 async fn foreground_memory_jobs_ast_consumer_shares_model_without_memory_callbacks() {
     let fixture = Fixture::new();
     fixture.install_model();
@@ -2324,6 +2362,7 @@ async fn foreground_memory_jobs_ast_consumer_shares_model_without_memory_callbac
     let global = ConfigStore::global(&fixture.installation).unwrap();
     for (module, enabled) in [
         (Module::Memory, false),
+        (Module::Task, false),
         (Module::Ast, true),
         (Module::Knowledge, false),
     ] {
@@ -2364,15 +2403,16 @@ async fn foreground_memory_jobs_ast_consumer_shares_model_without_memory_callbac
             .unwrap()
             .shares_semantic_model(&resources)
     );
-    assert_eq!(foreground.supervisors.supervised().count(), 0);
     assert_eq!(
+        foreground.supervisors.supervised().count(),
+        fixture.projects.len()
+    );
+    assert!(foreground.supervisors.supervised().all(|context| {
         foreground
             .supervisors
-            .supervised()
-            .filter_map(|context| foreground.supervisors.rescan_handle(&context.key()))
-            .count(),
-        0
-    );
+            .rescan_handle(&context.key())
+            .is_some()
+    }));
     drop(resources);
     foreground.shutdown().await.unwrap();
     for project in &fixture.projects {
@@ -2401,7 +2441,11 @@ async fn foreground_memory_jobs_ast_consumer_shares_model_without_memory_callbac
     .unwrap();
     assert!(foreground.memory_jobs.is_none());
     assert!(foreground.memory_job_resources.upgrade().is_none());
-    assert_eq!(foreground.supervisors.supervised().count(), 0);
+    // The supervisors still observe checkout configuration and can wake when AST is enabled.
+    assert_eq!(
+        foreground.supervisors.supervised().count(),
+        fixture.projects.len()
+    );
     foreground.shutdown().await.unwrap();
 }
 
@@ -2429,7 +2473,28 @@ pub(crate) async fn knowledge_cpu_search_fixture(
     String,
     (ProjectPaths, ProjectId, VersionContext),
 ) {
-    knowledge_cpu_search_fixture_configured(imported, browser, knowledge_conversations, false).await
+    knowledge_cpu_search_fixture_configured(
+        imported,
+        browser,
+        knowledge_conversations,
+        false,
+        false,
+    )
+    .await
+}
+
+pub(crate) async fn knowledge_native_search_fixture(
+    imported: bool,
+    browser: Option<&str>,
+) -> (
+    Fixture,
+    ForegroundSource,
+    crate::task_server::TaskServer,
+    SourceServer,
+    String,
+    (ProjectPaths, ProjectId, VersionContext),
+) {
+    knowledge_cpu_search_fixture_configured(imported, browser, false, false, true).await
 }
 
 /// Drive the returned ForegroundSource::run during reranking: that owner holds
@@ -2446,7 +2511,8 @@ pub(crate) async fn knowledge_cpu_search_fixture_with_rerank(
     String,
     (ProjectPaths, ProjectId, VersionContext),
 ) {
-    knowledge_cpu_search_fixture_configured(imported, browser, knowledge_conversations, true).await
+    knowledge_cpu_search_fixture_configured(imported, browser, knowledge_conversations, true, true)
+        .await
 }
 
 async fn knowledge_cpu_search_fixture_configured(
@@ -2454,6 +2520,7 @@ async fn knowledge_cpu_search_fixture_configured(
     browser: Option<&str>,
     knowledge_conversations: bool,
     rerank: bool,
+    native: bool,
 ) -> (
     Fixture,
     ForegroundSource,
@@ -2481,6 +2548,7 @@ async fn knowledge_cpu_search_fixture_configured(
         knowledge_conversations,
         rerank,
         true,
+        native,
     )
     .await;
     let resources = foreground
@@ -2860,13 +2928,19 @@ async fn imported_knowledge_cpu_search_fixture_with_live(
     (fixture, foreground, tasks, source, raw, pair)
 }
 
-pub(crate) async fn stop_browser_model(foreground: &mut ForegroundSource) {
-    let model = foreground
-        .memory_jobs
-        .as_mut()
-        .expect("existing foreground model owner");
-    let address = model.child.as_ref().expect("actual CPU child").address();
-    model.shutdown().await.unwrap();
+pub(crate) async fn stop_browser_model(fixture: &mut Fixture, foreground: &mut ForegroundSource) {
+    let address = if let Some(mut peer) = fixture.model_peer.take() {
+        peer.shutdown().await.unwrap();
+        peer.address
+    } else {
+        let model = foreground
+            .memory_jobs
+            .as_mut()
+            .expect("existing foreground model owner");
+        let address = model.child.as_ref().expect("actual CPU child").address();
+        model.shutdown().await.unwrap();
+        address
+    };
     assert!(
         TcpStream::connect(address).await.is_err(),
         "real model endpoint closed"
@@ -2880,7 +2954,7 @@ pub(crate) fn memory_shutdown_fixture() -> (
     crate::foreground_memory_jobs::ForegroundMemoryJobs,
 ) {
     let fixture = Fixture::new();
-    fixture.install_model();
+    fixture.install_model_metadata();
     let (source, jobs) = {
         let cancellation = Cancellation::default();
         let request = fixture

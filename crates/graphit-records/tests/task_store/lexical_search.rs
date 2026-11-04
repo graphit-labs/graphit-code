@@ -1348,7 +1348,7 @@ async fn task_lexical_search_current_admission_revoke_deadline_cancel_and_partia
     let short_read = authority
         .admit_read(&short_grant, &short, ProjectReadModule::Task)
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    tokio::time::sleep_until(short.snapshot().deadline().unwrap().into()).await;
     assert!(matches!(
         NativeTaskStore::search_lexical(
             short.snapshot(),

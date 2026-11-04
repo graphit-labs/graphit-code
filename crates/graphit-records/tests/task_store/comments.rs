@@ -897,7 +897,7 @@ async fn comments_expired_claim_and_deadline_deny_without_publication() {
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    wait_for_task_lease_expiry(&claim.record).await;
     let before = generation(ctx.snapshot(), &read).await;
     assert!(matches!(
         NativeTaskStore::add_task_comment(
@@ -935,7 +935,7 @@ async fn comments_expired_claim_and_deadline_deny_without_publication() {
             ProjectWriteOperation::OwnTask,
         )
         .unwrap();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep_until(expired.snapshot().deadline().unwrap().into()).await;
     assert!(
         NativeTaskStore::add_task_comment(
             expired.snapshot(),

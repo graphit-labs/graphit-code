@@ -1170,10 +1170,9 @@ fn ordered_dual_writer_locks_timeout_without_recursive_acquisition() {
 }
 
 #[test]
+#[ignore = "private entry point started by the publication process tests"]
 fn process_coordinator_child() {
-    let Some(root) = std::env::var_os("GRAPHIT_TEST_COORDINATOR_ROOT") else {
-        return;
-    };
+    let root = std::env::var_os("GRAPHIT_TEST_COORDINATOR_ROOT").expect("private fixture root");
     let root = std::path::PathBuf::from(root);
     let installation = InstallationPaths::resolve(
         Brand::default(),
@@ -1210,7 +1209,9 @@ fn process_coordinator_child() {
         .unwrap()
         .as_str()
     {
-        "hold" => std::thread::sleep(Duration::from_secs(45)),
+        "hold" => loop {
+            std::thread::park();
+        },
         "publish" => {
             let source = SourceRef::local_link(
                 NativePath::new(root.join("producer")).unwrap(),
@@ -1352,6 +1353,7 @@ fn child(f: &Fixture, mode: &str) -> ChildGuard {
     ChildGuard(
         std::process::Command::new(std::env::current_exe().unwrap())
             .args([
+                "--ignored",
                 "--exact",
                 "publication::tests::process_coordinator_child",
                 "--nocapture",

@@ -636,7 +636,13 @@ fn kiro_builder_rejects_foreign_original_program_cwd_and_expired_context() {
     let live = original(Duration::from_secs(2));
     let timed_store = f.store("B", &live, limits());
     let timed = timed_store.begin_create("new", metadata, &live).unwrap();
-    std::thread::sleep(Duration::from_millis(2100));
+    // The same live request must expire after acquiring its writer. Wait only
+    // until that request's actual deadline, without padding for the fixture.
+    std::thread::sleep(
+        live.deadline()
+            .unwrap()
+            .saturating_duration_since(Instant::now()),
+    );
     let error = timed
         .configure_kiro_session(&binding().program, cwd, &live)
         .err()

@@ -1,5 +1,5 @@
 use super::*;
-use crate::foreground_memory_jobs::{ForegroundMemoryJobs, MemoryJobResources};
+use crate::foreground_memory_jobs::MemoryJobResources;
 use arrow_array::{RecordBatch, StringArray};
 use graphit_ast::{
     catalog::{CatalogDraft, CatalogLimits, CatalogLimitsInput, ProfileLayer, ProfileLayerKind},
@@ -49,13 +49,15 @@ use std::collections::HashMap;
 use std::{fs, path::PathBuf};
 use tokio::net::TcpStream;
 
-use crate::foreground_source::foreground_memory_jobs_tests::model_fixture;
+use crate::foreground_source::foreground_memory_jobs_tests::{
+    model_fixture, model_peer::ModelPeer,
+};
 
 const BODY: &str = "mod answer { pub fn first() -> i32 { 1 } pub fn second() -> i32 { 2 } }";
 
 struct Fixture {
     source: super::super::test_fixture::Fixture,
-    model: ForegroundMemoryJobs,
+    model: ModelPeer,
     resources: Arc<MemoryJobResources>,
     _bundle: model_fixture::Fixture,
 }
@@ -195,9 +197,13 @@ impl Fixture {
         for (_, id, _) in source.projects.iter() {
             drop(graphit_fs::create_private_directory(&ast.join(id.to_string())).unwrap());
         }
-        let mut bundle = model_fixture::Fixture::actual(model_api::TaskKind::Embedding);
+        let mut bundle = model_fixture::Fixture::metadata(model_api::TaskKind::Embedding);
         bundle.body["recipe"]["dimensions"] = serde_json::json!(128);
-        bundle.config(&[crate::models::DEFAULT_SLOT]);
+        fs::write(
+            bundle.directory.path().join("model.json"),
+            serde_json::to_vec(&bundle.body).unwrap(),
+        )
+        .unwrap();
         let settings = bundle.settings(&[crate::models::DEFAULT_SLOT]);
         let cancel = Cancellation::default();
         let global = ConfigStore::global(&source.paths).unwrap();
@@ -222,46 +228,18 @@ impl Fixture {
         let resolved = bundle.config(&[crate::models::DEFAULT_SLOT]);
         let expected = ExpectedModel::new(&resolved, crate::models::DEFAULT_SLOT, "cpu").unwrap();
         let policy = graphit_hub::policy::HubResourcePolicy::resolve(&config).unwrap();
-        let mut model = ForegroundMemoryJobs::new(
+        let mut resources = MemoryJobResources::remote(
             Arc::clone(&source.auth),
-            (policy).clone(),
-            Some(expected),
-            true,
             None,
-            crate::foreground_memory_jobs::test_broker_cache(&(policy)),
+            crate::foreground_memory_jobs::test_broker_cache(&policy),
+            policy,
+            source.server.0.policy.scope,
+            source.server.0.policy.index,
+            NativeBinding::KiroV3,
         )
         .unwrap();
-        let request = RequestContext::new(
-            source.server.0.policy.content,
-            &cancel,
-            Instant::now() + Duration::from_secs(30),
-        )
-        .unwrap();
-        let executable = PathBuf::from(
-            std::env::var_os("GRAPHIT_TEST_MODEL_SERVER").expect("actual graphit-model-server"),
-        );
-        let mut environment = vec![(
-            "PATH".into(),
-            executable.parent().unwrap().as_os_str().to_owned(),
-        )];
-        // The real child uses the same private staging directory as its caller.
-        for name in ["TMPDIR", "TMP", "TEMP"] {
-            if let Some(value) = std::env::var_os(name) {
-                environment.push((name.into(), value));
-            }
-        }
-        let resources = model
-            .start(
-                &source.paths,
-                environment,
-                source.server.0.policy.scope,
-                source.server.0.policy.index,
-                NativeBinding::KiroV3,
-                &request,
-            )
-            .await
-            .unwrap()
-            .expect("configured embedding resources");
+        let model = ModelPeer::bind(&mut resources, expected).await;
+        let resources = Arc::new(resources);
         source
             .server
             .attach_semantic_model(Some(Arc::clone(&resources)))

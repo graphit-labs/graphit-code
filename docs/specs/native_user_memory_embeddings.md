@@ -141,5 +141,9 @@ quando o transporte S3 precisa de credenciais renovadas. Falhas conservam causa 
 A regressão atual `actual_gguf_user_memory_hybrid_rpc` no target
 [user_memory_embeddings](../../crates/graphit-daemon/tests/user_memory_embeddings.rs)
 usa o GGUF BF16 fixado com MRL128, NativeSdkRoot, TCP e ModelServiceClient reais.
-A execução GGUF passou na qualificação acima. Sua antiga execução com ONNX
-é evidência histórica; nenhum desses casos qualifica o serviço remoto USER.
+A execução GGUF passou na qualificação acima. É opt-in com `--ignored --exact`
+e `GRAPHIT_EMBEDDINGGEMMA2_MODEL`. A suíte padrão `memory_incremental` verifica
+o resultado híbrido e o reaproveitamento em USER com Auth e Records reais e um
+vetor determinístico no limite de inferência. Essa prova não qualifica o
+transporte Models, a inferência GGUF ou o serviço remoto USER. A antiga
+execução com ONNX é evidência histórica.

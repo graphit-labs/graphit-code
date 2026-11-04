@@ -157,8 +157,6 @@ const COPILOT_INTEGRATION_TEST: FastTest = FastTest::Integration {
     target: "cli_copilot",
 };
 
-const LINUX_GATE_TESTS: &[FastTest] = &[FastTest::AstGenericMainNativeNn, FastTest::RoleHubFile];
-
 const REGISTERED_TESTS: &[FastTest] = &[
     FastTest::Integration {
         package: "graphit-app",
@@ -466,7 +464,7 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let mode = env::args().nth(1).ok_or(
-        "usage: cargo xtask <check|test SELECTOR...|gate|native [OPTIONS]|cargo COMMAND...>",
+        "usage: cargo xtask <check|test SELECTOR...|gate|qualify|native [OPTIONS]|cargo COMMAND...>",
     )?;
     let workspace = workspace_root()?;
     let root = workspace.as_path();
@@ -492,6 +490,7 @@ fn run() -> Result<(), String> {
             static_checks(root)?;
             tests(root)
         }
+        "qualify" => qualify(root),
         _ => Err(format!("unknown guardrail {mode:?}")),
     }
 }
@@ -575,6 +574,7 @@ fn static_checks(root: &Path) -> Result<(), String> {
             "--workspace",
             "--all-targets",
             "--locked",
+            "--offline",
             "--keep-going",
             "--",
             "-D",
@@ -588,10 +588,10 @@ fn source_checks(root: &Path) -> Result<(), String> {
     if cfg!(windows) {
         // cargo fmt --all passes every target to one rustfmt invocation and
         // exceeds CreateProcess's command-line size in this workspace. Keep
-        // its local path-dependency coverage, including the Broker producers.
+        // its local path-dependency coverage.
         let metadata = cargo_metadata::MetadataCommand::new()
             .manifest_path(root.join("Cargo.toml"))
-            .other_options(vec!["--locked".into()])
+            .other_options(vec!["--locked".into(), "--offline".into()])
             .exec()
             .map_err(|error| error.to_string())?;
         for package in metadata.packages.iter().filter(|p| p.source.is_none()) {
@@ -615,18 +615,42 @@ fn source_checks(root: &Path) -> Result<(), String> {
 }
 
 fn tests(root: &Path) -> Result<(), String> {
-    execute(root, &["test", "--workspace", "--locked", "--no-fail-fast"])?;
-    for &test in LINUX_GATE_TESTS {
-        if cfg!(target_os = "linux") {
-            execute_test(root, test)?;
-        } else {
-            eprintln!(
-                "Rust guardrail: {} UNRUN (Linux-only native fixture)",
-                test.label()
-            );
-        }
+    execute(
+        root,
+        &[
+            "test",
+            "--workspace",
+            "--locked",
+            "--offline",
+            "--no-fail-fast",
+        ],
+    )
+}
+
+fn qualify(root: &Path) -> Result<(), String> {
+    if !cfg!(target_os = "linux") {
+        return Err("native model and S3 qualification requires Linux".into());
     }
-    Ok(())
+    let reranker = "GRAPHIT_BGE_RERANKER_V2_M3_MODEL";
+    native_nn_resource(reranker, env::var_os(reranker))?;
+    execute_test(root, FastTest::AstGenericMainNativeNn)?;
+    execute(
+        root,
+        &[
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "graphit-app",
+            "--lib",
+            "--",
+            "--ignored",
+            "--test-threads=1",
+            "native_ast_fts_local_bge_rerank_without_embedding_preserves_the_published_page",
+            "knowledge_foreground_actual_local_bge_rerank_uses_control_without_local_embedding",
+        ],
+    )?;
+    execute_test(root, FastTest::RoleHubFile)
 }
 
 fn native_nn_resource(name: &str, value: Option<std::ffi::OsString>) -> Result<(), String> {
@@ -661,5 +685,7 @@ fn execute_test(root: &Path, test: FastTest) -> Result<(), String> {
             return Err("GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN must name an existing absolute Broker storage fixture".into());
         }
     }
-    execute(root, &test.arguments())
+    let mut arguments = test.arguments();
+    arguments.insert(1, "--offline");
+    execute(root, &arguments)
 }

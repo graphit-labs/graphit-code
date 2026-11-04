@@ -78,18 +78,14 @@ installed-child fixture uses `GRAPHIT_TEST_GEMMA2_MODEL`. These real-model tests
 are explicitly selected with `--ignored`. Ordinary contracts, build, workflow
 lint or archive assembly do not qualify model inference.
 
-The Linux CI also supplies the checksum-verified BGE F16 artifact to the
-standard model lifecycle tests that exercise switching and retiring the local
-rerank slot.
-
-The Code CI/release workflows build the model-server executable and explicitly
-prepare the Linux native NN gate's embedding GGUF. They download the same
-official EmbeddingGemma BF16 file pinned in App's `model_provision.rs`, revision
-`bfcd298762cc34d0357ece5ebdd31791a3a374d8`, into `RUNNER_TEMP`. SHA-256
-`68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216` and
-557,950,176 bytes must match before `GRAPHIT_EMBEDDINGGEMMA2_MODEL` is exported
-and the gate runs. This preparation does not add model weights to the release.
-Workflow lint and upstream URL availability do not establish a remote CI run.
+The standard Rust CI prepares locked Cargo dependencies and runs offline.
+The tagged Linux release qualification builds the model-server executable and
+checks the pinned EmbeddingGemma BF16 and BGE F16 files by size and SHA-256.
+The models stay in the runner's temporary directory. `cargo xtask qualify`
+selects the native NN, rerank and Broker/S3 journeys. For an explicit Linux run
+without publishing, select `platform=linux-amd64` and `native_integrations=true`
+in the Release workflow.
+See [Rust checks and Git hooks](rust-fast-guard.md) for the local equivalent.
 
 To qualify the complete Linux, Windows and macOS packages without creating a release,
 run the **Release** workflow manually on the desired Code ref:
@@ -127,9 +123,9 @@ Lance commit tags across subsequent head updates. Package production and these
 focused consumers omit `--target` and use the same native Release layout;
 the installed model-child consumers also reuse the Release profile. This scope
 qualifies the affected snapshot/package paths, not the entire product suite.
-The dispatch does not publish a GitHub release or container image. Set repository variable
-`GRAPHIT_BROKER_REF` to the paired published Broker commit first. Record the
-actual workflow results; preparing or dispatching the job is not qualification.
+The dispatch does not publish a GitHub release or container image. Cargo
+resolves the Broker revision recorded in the lockfile. Record the workflow's
+completed checks as qualification evidence.
 Tag pushes retain the Linux, Windows and macOS release matrix and publication.
 
 BGE F16 still requires an explicitly supplied qualified local artifact; its
@@ -233,19 +229,10 @@ was not reproduced or attributed to a leak. No allocator setting was changed.
 
 ## Build and package
 
-The source workspace requires the matching graphit-broker checkout beside
-graphit-code: the daemon uses broker-now-wire as a production dependency, and
-App integration tests use the Broker fixture crates as development dependencies.
-CI and release obtain that checkout from graphit-labs/graphit-broker using the
-repository variable `GRAPHIT_BROKER_REF`. Set it to the Broker commit or tag
-qualified with the Code revision being built. An absent value fails before
-Broker checkout; neither workflow selects `main` implicitly. This setting does
-not publish a source revision or qualify an untested Code/Broker pair.
-If Broker is private, provide the repository secret `GRAPHIT_BROKER_READ_TOKEN`
-with read access. The workflows use it only for checkout without persisting it
-in Git configuration; public repositories may use the normal workflow token.
-Both jobs record the resolved Broker commit. No default `main` or local checkout
-is substituted when the explicit paired reference is absent.
+Cargo fetches the shared Broker dependencies from the Git revision recorded
+in `Cargo.lock`. Development and standard CI build from a Code checkout alone.
+The tagged Linux release workflow selects the same revision when it checks out
+the explicit Broker/S3 fixture.
 
 CI and release use GCC/libstdc++ 13 with CMake, OpenSSL and Protobuf on Linux.
 macOS uses its native C++20 toolchain and explicit Homebrew OpenSSL prefix.

@@ -683,12 +683,11 @@ async fn lexical_search_read_roles_original_cancellation_revoke_and_path() {
     let er = authority
         .admit_read(&eg, &exp, ProjectReadModule::Memory)
         .unwrap();
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    assert!(
-        NativeMemoryStore::search_lexical(exp.snapshot(), &er, query("Literal"), read_limits())
-            .await
-            .is_err()
-    );
+    tokio::time::sleep_until(exp.snapshot().deadline().unwrap().into()).await;
+    assert!(matches!(
+        NativeMemoryStore::search_lexical(exp.snapshot(), &er, query("Literal"), read_limits()).await,
+        Err(MemoryStoreError::Request(error)) if error.kind() == std::io::ErrorKind::TimedOut
+    ));
     let path = f.project.runtime_root().join("memory");
     let saved = f.project.runtime_root().join("memory-saved");
     std::fs::rename(&path, &saved).unwrap();

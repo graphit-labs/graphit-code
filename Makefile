@@ -25,8 +25,7 @@ run: build
 	  PATH="$$bin_dir:$$PATH" exec "$$bin_dir/graphit$(if $(filter windows-amd64,$(PLATFORM)),.exe,)" $(ARGS)
 
 test:
-	@test -n "$(TEST)" || { echo "Select affected tests: make test TEST=graphit-ast/source_ranges" >&2; exit 1; }
-	$(CARGO) xtask test $(TEST)
+	$(CARGO) --offline xtask $(if $(strip $(TEST)),test $(TEST),cargo test --locked --offline --workspace --no-fail-fast)
 
 check:
 	$(CARGO) xtask cargo check --locked --workspace

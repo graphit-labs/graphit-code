@@ -1,8 +1,10 @@
-//! Durable FILE progress and retry through the actual small-model App producer.
+//! Durable FILE progress and retry through the App producer and a deterministic model peer.
 use super::*;
-use crate::foreground_ast_sources::semantic::checkpoint::{FileInput, publish_file};
+use crate::foreground_ast_sources::semantic::checkpoint::{
+    CHECKPOINT_INTERVAL, FileInput, publish_file,
+};
 use crate::foreground_ast_sources::{ForegroundAstSourceConfig, ForegroundAstSources};
-use crate::foreground_memory_jobs::{ForegroundMemoryJobs, MemoryJobResources};
+use crate::foreground_memory_jobs::MemoryJobResources;
 use arrow_array::{
     Array, FixedSizeBinaryArray, FixedSizeListArray, Float32Array, RecordBatch, StringArray,
     UInt64Array,
@@ -435,31 +437,21 @@ async fn final_mcp(
         &owner.server.as_ref().unwrap().project_modules(&request)?,
     )?
     .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-    let mut jobs = ForegroundMemoryJobs::new(
+    let mut resources = MemoryJobResources::remote(
         Arc::clone(&owner.auth),
-        (owner.policy.clone()).clone(),
-        Some(expected),
-        true,
         None,
-        crate::foreground_memory_jobs::test_broker_cache(&(owner.policy.clone())),
+        crate::foreground_memory_jobs::test_broker_cache(&owner.policy),
+        owner.policy.clone(),
+        owner.scope,
+        owner.native,
+        NativeBinding::KiroV3,
     )?;
-    let executable =
-        std::path::PathBuf::from(std::env::var_os("GRAPHIT_TEST_MODEL_SERVER").unwrap());
-    let resources = jobs
-        .start(
-            &installation,
-            vec![(
-                "PATH".into(),
-                executable.parent().unwrap().as_os_str().to_owned(),
-            )],
-            owner.scope,
-            owner.native,
-            NativeBinding::KiroV3,
-            &request,
-        )
-        .await?
-        .expect("configured embedding resources");
-    owner.memory_jobs = Some(jobs);
+    let mut peer = super::super::foreground_memory_jobs_tests::model_peer::ModelPeer::bind(
+        &mut resources,
+        expected,
+    )
+    .await;
+    let resources = Arc::new(resources);
     owner.memory_job_resources = Arc::downgrade(&resources);
     owner
         .server
@@ -518,6 +510,7 @@ async fn final_mcp(
     client.cancel().await?;
     source.shutdown().await?;
     serving.await??;
+    peer.shutdown().await?;
     Ok(())
 }
 
@@ -575,7 +568,7 @@ async fn refresh_paths(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reuses_on_retry()
 -> TestResult {
-    let (_storage, mut owner, tasks, credential, selected, ast, resources) = fixture(65).await?;
+    let (mut storage, mut owner, tasks, credential, selected, ast, resources) = fixture(65).await?;
     let source = owner.server.as_ref().unwrap().clone();
     let cancel = Cancellation::default();
     let request = owner.policy.request_context(Instant::now(), &cancel)?;
@@ -653,6 +646,7 @@ async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reu
                 path: "a.checkpoint".into(),
                 batches: rx,
                 completed: complete_rx,
+                checkpoint_interval: CHECKPOINT_INTERVAL,
             },
             &model,
             original,
@@ -675,7 +669,7 @@ async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reu
             "partial upsert preserves the other identities/profile and other FILE"
         );
     }
-    owner.memory_jobs.as_mut().unwrap().shutdown().await?;
+    super::super::foreground_memory_jobs_tests::stop_browser_model(&mut storage, &mut owner).await;
     assert!(
         tokio::net::TcpStream::connect(resources.local.as_ref().unwrap().address)
             .await
@@ -709,14 +703,14 @@ async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reu
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_failure_preserves_intact_file_pins_and_deleted_pending_does_not_load_model()
 -> TestResult {
-    let (_storage, mut owner, tasks, credential, selected, ast, resources) = fixture(1).await?;
+    let (mut storage, mut owner, tasks, credential, selected, ast, resources) = fixture(1).await?;
     let source = owner.server.as_ref().unwrap().clone();
     let cancel = Cancellation::default();
     let request = owner.policy.request_context(Instant::now(), &cancel)?;
     let original = request.snapshot();
     let (_, batches) = live(&source, &selected, &resources, original).await?;
     let before = rows(&batches);
-    owner.memory_jobs.as_mut().unwrap().shutdown().await?;
+    super::super::foreground_memory_jobs_tests::stop_browser_model(&mut storage, &mut owner).await;
     assert!(
         tokio::net::TcpStream::connect(resources.local.as_ref().unwrap().address)
             .await
@@ -791,7 +785,8 @@ async fn model_failure_preserves_intact_file_pins_and_deleted_pending_does_not_l
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pending_rows_flush_at_interval_and_idle_never_commits() -> TestResult {
-    let (_storage, mut owner, tasks, _credential, selected, _ast, resources) = fixture(1).await?;
+    let (mut storage, mut owner, tasks, _credential, selected, _ast, resources) =
+        fixture(1).await?;
     let source = owner.server.as_ref().unwrap().clone();
     let cancel = Cancellation::default();
     let request = owner.policy.request_context(Instant::now(), &cancel)?;
@@ -801,16 +796,14 @@ async fn pending_rows_flush_at_interval_and_idle_never_commits() -> TestResult {
         .into_iter()
         .next()
         .unwrap();
-    owner.memory_jobs.as_mut().unwrap().shutdown().await?;
+    super::super::foreground_memory_jobs_tests::stop_browser_model(&mut storage, &mut owner).await;
     assert!(
         tokio::net::TcpStream::connect(resources.local.as_ref().unwrap().address)
             .await
             .is_err()
     );
-    let original = Arc::new(graphit_core::file_io::SnapshotContext::new(
-        Instant::now() + Duration::from_secs(3600),
-        Cancellation::default(),
-    ));
+    let original = Arc::clone(request.snapshot());
+    let checkpoint_interval = Duration::from_millis(50);
     let initial = withdraw_vectors(
         &initial,
         "a.checkpoint",
@@ -841,6 +834,7 @@ async fn pending_rows_flush_at_interval_and_idle_never_commits() -> TestResult {
                 path: "a.checkpoint".into(),
                 batches: rx,
                 completed: complete_rx,
+                checkpoint_interval,
             },
             &model,
             &original,
@@ -854,19 +848,14 @@ async fn pending_rows_flush_at_interval_and_idle_never_commits() -> TestResult {
     tx.send(Ok(batch)).await?;
     // Reserving the single slot proves the writer has consumed the pending row.
     drop(tx.reserve().await?);
-    tokio::select! {
-        commit = committed_rx.recv() => panic!("checkpoint arrived before its interval: {commit:?}"),
-        () = tokio::time::sleep_until(sent_at + Duration::from_secs(59)) => {}
-    }
-    // This timeout bounds this fixture's wait, not the production commit's latency.
-    let first = tokio::time::timeout(Duration::from_secs(60), committed_rx.recv())
+    let first = tokio::time::timeout(Duration::from_secs(10), committed_rx.recv())
         .await?
         .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?;
-    assert!(sent_at.elapsed() >= Duration::from_secs(60));
+    assert!(sent_at.elapsed() >= checkpoint_interval);
     assert!(first > version);
     tokio::select! {
         commit = committed_rx.recv() => panic!("flushed FILE without new rows committed again: {commit:?}"),
-        () = tokio::time::sleep(Duration::from_secs(61)) => {}
+        () = tokio::time::sleep(checkpoint_interval * 2) => {}
     }
     complete_tx.send(()).unwrap();
     drop(tx);
@@ -883,8 +872,6 @@ async fn pending_rows_flush_at_interval_and_idle_never_commits() -> TestResult {
         committed_rx.try_recv(),
         Err(mpsc::error::TryRecvError::Disconnected)
     ));
-    // The timed observation outlives the initial read request; capture a fresh read.
-    let request = owner.policy.request_context(Instant::now(), &cancel)?;
     let (_, final_batches) = live(&source, &selected, &resources, request.snapshot()).await?;
     let final_rows = rows(&final_batches);
     assert_reused(&before, &final_rows, "a.checkpoint");

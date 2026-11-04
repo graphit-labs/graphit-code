@@ -175,7 +175,7 @@ async fn mutation_apis_deny_foreign_original_module_fence_and_revoke() {
     let rd = authority
         .admit_read(&gd, &deadline, ProjectReadModule::Memory)
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(220)).await;
+    tokio::time::sleep_until(deadline.snapshot().deadline().unwrap().into()).await;
     assert!(
         NativeMemoryStore::update(
             deadline.snapshot(),

@@ -790,27 +790,39 @@ async fn original_cancellation_and_deadline_and_invalid_selection_are_errors() -
             SourceInspectionError::Selection(_)
         ))
     ));
-    let expired = request_until(&cancel, Instant::now() + Duration::from_millis(1));
-    std::thread::sleep(Duration::from_millis(3));
-    assert!(
+    let valid = Request::default();
+    assert_eq!(
         inspect_imported_source_runtime(
             &f.issuer,
             &f.raw,
-            f.input(&expired, &source, &invalid, &policy, None)
+            f.input(&ctx, &source, &valid, &policy, None)
         )
-        .await
-        .is_err()
+        .await?
+        .origin,
+        SourceOrigin::Indexed,
     );
+    let deadline = Instant::now() + Duration::from_millis(50);
+    let expired = request_until(&cancel, deadline);
+    tokio::time::sleep_until(deadline.into()).await;
+    assert!(matches!(
+        inspect_imported_source_runtime(
+            &f.issuer,
+            &f.raw,
+            f.input(&expired, &source, &valid, &policy, None)
+        )
+        .await,
+        Err(ImportedSourceError::Authentication(AuthError::Request))
+    ));
     cancel.cancel();
-    assert!(
+    assert!(matches!(
         inspect_imported_source_runtime(
             &f.issuer,
             &f.raw,
-            f.input(&ctx, &source, &invalid, &policy, None)
+            f.input(&ctx, &source, &valid, &policy, None)
         )
-        .await
-        .is_err()
-    );
+        .await,
+        Err(ImportedSourceError::Authentication(AuthError::Request))
+    ));
     Ok(())
 }
 

@@ -167,7 +167,7 @@ async fn drive(l: &TcpListener, c: &SnapshotContext, n: usize) {
     let mut p = peer(l, c).await;
     for _ in 0..n {
         assert_eq!(read_byte(&mut p, c).await, Some(b'L'));
-        sleep(Duration::from_millis(5)).await;
+        // The child completes this pipe write before consuming the ACK.
         ack(&mut p, c).await;
     }
 }
@@ -260,7 +260,7 @@ impl CursorSink for Sink<'_> {
             let p = self.peer.as_mut().unwrap();
             assert_eq!(read_byte(p, original).await, Some(b'L'));
             if self.seen.len() == 1 {
-                sleep(Duration::from_millis(30)).await;
+                // The child cannot start its next write until this ACK.
                 let mut b = [0];
                 assert!(matches!(p.read(&mut b),Err(e)if e.kind()==io::ErrorKind::WouldBlock));
                 self.backpressure = true;

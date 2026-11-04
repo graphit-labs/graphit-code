@@ -1,5 +1,6 @@
 //! Test-only initial publication through native Knowledge Auth and Lance.
 use super::*;
+use arrow_array::{Array, ArrayRef, RecordBatch, StringArray, UInt8Array};
 use graphit_auth::{ProjectWriteOperation, ScopeInput};
 use graphit_data::{
     knowledge_document_projection::{self, AuthoredPageFields, KnowledgeDocumentProjectionLimits},
@@ -100,19 +101,44 @@ pub(crate) fn corpus_path(server: &TaskServer) -> std::path::PathBuf {
         .join("knowledge/index.lance")
 }
 pub(crate) fn corrupt_manifest(server: &TaskServer) {
-    let mut count = 0;
-    for file in std::fs::read_dir(corpus_path(server).join("_versions")).unwrap() {
-        let path = file.unwrap().path();
-        if path.extension().is_some_and(|s| s == "manifest") {
-            std::fs::write(path, b"invalid actual SDK manifest").unwrap();
-            count += 1;
-        }
-    }
-    assert!(count > 0);
+    super::memory_fixture::corrupt_lance_manifests(&corpus_path(server).join("_versions"));
 }
 
 pub(crate) async fn corrupt_unselected_source_path(server: &TaskServer) {
-    use arrow_array::{RecordBatch, StringArray};
+    corrupt_tail_column(server, "source_path", |slugs, column| {
+        let old = column.as_any().downcast_ref::<StringArray>().unwrap();
+        Arc::new(StringArray::from_iter_values((0..slugs.len()).map(|i| {
+            if slugs.value(i) == "z-tail" {
+                "../outside.md"
+            } else {
+                old.value(i)
+            }
+        })))
+    })
+    .await;
+}
+
+/// Both the page and heads readers validate this projected state, even without
+/// a reference projection. Return the actual commit pin for deep-clone fixtures.
+pub(crate) async fn corrupt_tail_document_state(server: &TaskServer) -> u64 {
+    corrupt_tail_column(server, "document_state", |slugs, column| {
+        let old = column.as_any().downcast_ref::<UInt8Array>().unwrap();
+        Arc::new(UInt8Array::from_iter_values((0..slugs.len()).map(|i| {
+            if slugs.value(i) == "z-tail" {
+                0
+            } else {
+                old.value(i)
+            }
+        })))
+    })
+    .await
+}
+
+async fn corrupt_tail_column(
+    server: &TaskServer,
+    name: &str,
+    replace: impl Fn(&StringArray, &ArrayRef) -> ArrayRef,
+) -> u64 {
     use tokio_stream::StreamExt;
     let path = corpus_path(server);
     let store = graphit_data::lance_module_store::LanceModuleStore::open(
@@ -124,6 +150,7 @@ pub(crate) async fn corrupt_unselected_source_path(server: &TaskServer) {
     let snapshot = store.snapshot();
     let mut stream = snapshot.scan().try_into_stream().await.unwrap();
     let mut batches = Vec::new();
+    let mut tails = 0;
     while let Some(batch) = stream.next().await {
         let batch = batch.unwrap();
         let mut columns = batch.columns().to_vec();
@@ -133,31 +160,22 @@ pub(crate) async fn corrupt_unselected_source_path(server: &TaskServer) {
             .as_any()
             .downcast_ref::<StringArray>()
             .unwrap();
-        let old = batch
-            .column_by_name("source_path")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let replaced = StringArray::from_iter_values((0..batch.num_rows()).map(|i| {
-            if slugs.value(i) == "z-tail" {
-                "../outside.md"
-            } else {
-                old.value(i)
-            }
-        }));
-        let index = batch.schema().index_of("source_path").unwrap();
-        columns[index] = Arc::new(replaced);
+        tails += slugs.iter().filter(|slug| *slug == Some("z-tail")).count();
+        let index = batch.schema().index_of(name).unwrap();
+        columns[index] = replace(slugs, &columns[index]);
         batches.push(RecordBatch::try_new(batch.schema(), columns).unwrap());
     }
     drop(stream);
+    assert_eq!(tails, 1);
     snapshot
         .prepare_replace(batches)
         .await
         .unwrap()
         .commit()
         .await
-        .unwrap();
+        .unwrap()
+        .snapshot()
+        .version()
 }
 
 pub(crate) fn swap_project_root(server: &TaskServer) {

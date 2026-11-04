@@ -2182,7 +2182,7 @@ async fn cpu_read_degraded(web: &WebHost, cookie: &str, generations: (Value, Val
 async fn real_broker_web_reads_ast_published_pins_and_knowledge_corpus_with_cpu_and_degraded_search()
  {
     use crate::foreground_source::foreground_memory_jobs_tests::{
-        browser_knowledge_search_fixture, knowledge_cpu_search_fixture, stop_browser_model,
+        knowledge_native_search_fixture, stop_browser_model,
     };
     use futures_util::FutureExt;
     let binary = std::env::var_os("GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN")
@@ -2196,7 +2196,7 @@ async fn real_broker_web_reads_ast_published_pins_and_knowledge_corpus_with_cpu_
     let observed = Box::pin(
         std::panic::AssertUnwindSafe(async {
             eprintln!("WebCPU phase: producer fixture");
-            producer_owner = Some(Box::pin(browser_knowledge_search_fixture()).await);
+            producer_owner = Some(Box::pin(knowledge_native_search_fixture(false, None)).await);
             let producer = producer_owner.as_ref().unwrap();
             eprintln!("WebCPU phase: Broker fixture");
             broker_owner = Some(
@@ -2206,10 +2206,9 @@ async fn real_broker_web_reads_ast_published_pins_and_knowledge_corpus_with_cpu_
             let broker = broker_owner.as_ref().unwrap();
             eprintln!("WebCPU phase: consumer fixture");
             consumer_owner = Some(
-                Box::pin(knowledge_cpu_search_fixture(
+                Box::pin(knowledge_native_search_fixture(
                     true,
                     Some(wire(&broker.ready, "endpoint")),
-                    false,
                 ))
                 .await,
             );
@@ -2290,9 +2289,9 @@ async fn real_broker_web_reads_ast_published_pins_and_knowledge_corpus_with_cpu_
             Box::pin(cpu_read_ast(web, &cookie)).await;
             eprintln!("WebCPU phase: Knowledge HTTP");
             let generations = Box::pin(cpu_read_knowledge(web, &cookie, &pair)).await;
-            let (_, consumer_foreground, consumer_tasks, _, _, _) =
+            let (consumer_storage, consumer_foreground, consumer_tasks, _, _, _) =
                 consumer_owner.as_mut().unwrap();
-            stop_browser_model(consumer_foreground).await;
+            stop_browser_model(consumer_storage, consumer_foreground).await;
             checked(
                 consumer_tasks.attach_memory_model(None),
                 "detach stopped consumer model",
@@ -2330,7 +2329,7 @@ fn knowledge_phase<F: std::future::Future>(create: impl FnOnce() -> F) -> std::p
 #[ignore = "requires genuine Broker storage fixture, pinned Gemma/BGE and model server"]
 async fn real_broker_web_imported_knowledge_local_bge_rerank_preserves_candidates_and_cursor() {
     use crate::foreground_source::foreground_memory_jobs_tests::{
-        knowledge_cpu_search_fixture, knowledge_cpu_search_fixture_with_rerank,
+        knowledge_cpu_search_fixture_with_rerank, knowledge_native_search_fixture,
     };
     use futures_util::FutureExt;
     use graphit_core::file_lock::Cancellation;
@@ -2348,7 +2347,7 @@ async fn real_broker_web_imported_knowledge_local_bge_rerank_preserves_candidate
     let mut consumer_running = None;
     let consumer_stop = Cancellation::default();
     let observed = Box::pin(std::panic::AssertUnwindSafe(async {
-        producer_owner = Some(knowledge_phase(|| knowledge_cpu_search_fixture(true, None, false)).await);
+        producer_owner = Some(knowledge_phase(|| knowledge_native_search_fixture(true, None)).await);
         let producer = producer_owner.as_ref().unwrap();
         broker_owner = Some(BrokerProcess::start(std::path::Path::new(&binary), &producer.5.1.to_string()).await);
         let broker = broker_owner.as_ref().unwrap();

@@ -78,15 +78,15 @@ fn configure(root: &Path, value: serde_json::Value, cancel: &Cancellation) {
         .unwrap();
 }
 fn model_server_executable() -> PathBuf {
-    std::env::var_os("GRAPHIT_TEST_MODEL_SERVER")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_graphit-model-server")))
+    PathBuf::from(env!("CARGO_BIN_EXE_graphit-model-server"))
 }
 fn executable_with_spaces(directory: &Path) -> PathBuf {
     let executable = directory.join("model server α with spaces");
     // CUDA Release tests consume the qualified complete package. Raw Cargo
     // executables do not carry the package's relative loader paths/runtime.
-    let source = model_server_executable();
+    let source = std::env::var_os("GRAPHIT_TEST_MODEL_SERVER")
+        .map(PathBuf::from)
+        .unwrap_or_else(model_server_executable);
     std::fs::copy(&source, &executable).unwrap();
     let runtime = source.parent().unwrap().join("graphit-runtime/lib");
     if runtime.is_dir() {
@@ -109,14 +109,27 @@ fn executable_with_spaces(directory: &Path) -> PathBuf {
 fn assert_finished(process: ChildProcessResult) {
     match process.unwrap() {
         Ok(outcome) => {
-            assert_eq!(outcome.cleanup, Cleanup::Complete);
+            assert_native_cleanup(outcome.cleanup);
             assert!(outcome.remaining.is_none());
         }
         Err(failure) => {
-            assert_eq!(failure.cleanup, Cleanup::Complete);
+            assert_native_cleanup(failure.cleanup);
             assert!(failure.remaining.is_none());
         }
     }
+}
+
+fn assert_native_cleanup(cleanup: Cleanup) {
+    #[cfg(unix)]
+    assert_eq!(cleanup, Cleanup::Complete);
+    #[cfg(windows)]
+    assert_eq!(
+        cleanup,
+        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
+            leader: graphit_process::LeaderCleanup::Reaped,
+            control: graphit_process::ControlFailures::default(),
+        })
+    );
 }
 
 #[tokio::test]
@@ -342,6 +355,10 @@ impl ServiceSink for Discard {
 }
 #[tokio::test]
 async fn native_bootstrap_and_missing_auth_fail_without_ready_or_secret_output() {
+    assert_bootstrap_rejects_invalid_input(&model_server_executable()).await;
+}
+
+async fn assert_bootstrap_rejects_invalid_input(executable: &Path) {
     let cancel = Cancellation::default();
     let original = Arc::new(SnapshotContext::new(
         Instant::now() + Duration::from_secs(30),
@@ -357,7 +374,7 @@ async fn native_bootstrap_and_missing_auth_fail_without_ready_or_secret_output()
     ] {
         let process = spawn_service(
             Request {
-                program: model_server_executable(),
+                program: executable.to_owned(),
                 args: vec![directory.path().as_os_str().to_owned()],
                 cwd: directory.path().to_owned(),
                 environment: vec![],
@@ -375,7 +392,7 @@ async fn native_bootstrap_and_missing_auth_fail_without_ready_or_secret_output()
             Err(err) => (err.status, err.transcript.unwrap(), err.cleanup),
         };
         assert!(!status.unwrap().success());
-        assert_eq!(cleanup, Cleanup::Complete);
+        assert_native_cleanup(cleanup);
         assert!(transcript.stdout().is_empty());
         assert!(
             !transcript
@@ -392,6 +409,10 @@ async fn native_bootstrap_and_missing_auth_fail_without_ready_or_secret_output()
 
 #[tokio::test]
 async fn cold_child_reports_model_errors_on_demand_and_pre_cancelled_start_has_no_child() {
+    assert_cold_child_reports_model_errors(&model_server_executable()).await;
+}
+
+async fn assert_cold_child_reports_model_errors(executable: &Path) {
     let cancel = Cancellation::default();
     let ctx = auth::request(&cancel, Instant::now() + Duration::from_secs(30));
     let auth = auth::AuthFixture::new(
@@ -402,7 +423,7 @@ async fn cold_child_reports_model_errors_on_demand_and_pre_cancelled_start_has_n
     );
     let host = host(&cancel).await;
     let launch = || ChildLaunch {
-        executable: model_server_executable(),
+        executable: executable.to_owned(),
         installation_root: auth.installation_root().to_owned(),
         environment: vec![],
         limits: process_limits(),
@@ -736,6 +757,10 @@ fn assert_normalized(vectors: &[Vec<f32>], count: usize, dimensions: usize) {
 
 #[tokio::test]
 async fn actual_child_completion_is_cancel_safe_and_retains_the_same_exit() {
+    assert_child_completion_is_cancel_safe(&model_server_executable()).await;
+}
+
+async fn assert_child_completion_is_cancel_safe(executable: &Path) {
     let cancel = Cancellation::default();
     let ctx = auth::request(&cancel, Instant::now() + Duration::from_secs(30));
     let auth = auth::AuthFixture::new(
@@ -752,7 +777,7 @@ async fn actual_child_completion_is_cancel_safe_and_retains_the_same_exit() {
     let host = host(&cancel).await;
     let mut child = ModelChild::start(
         ChildLaunch {
-            executable: model_server_executable(),
+            executable: executable.to_owned(),
             installation_root: auth.installation_root().to_owned(),
             environment: vec![],
             limits: process_limits(),
@@ -787,7 +812,7 @@ async fn actual_child_completion_is_cancel_safe_and_retains_the_same_exit() {
             Err(error) => panic!("actual child runner failed: {error}"),
         };
         assert!(status.expect("real child status").success());
-        assert_eq!(cleanup, Cleanup::Complete);
+        assert_native_cleanup(cleanup);
         assert!(remaining.is_none());
     }
     assert_finished(child.join().await);
@@ -796,6 +821,18 @@ async fn actual_child_completion_is_cancel_safe_and_retains_the_same_exit() {
         host.shutdown(Instant::now() + Duration::from_secs(5)).await,
         HostShutdown::Joined(_)
     ));
+}
+
+#[tokio::test]
+#[ignore = "requires GRAPHIT_TEST_MODEL_SERVER from the installed package"]
+async fn packaged_model_child_preserves_bootstrap_errors_and_shutdown() {
+    let executable = PathBuf::from(
+        std::env::var_os("GRAPHIT_TEST_MODEL_SERVER").expect("installed model-server executable"),
+    );
+    assert!(executable.is_absolute() && executable.is_file());
+    assert_bootstrap_rejects_invalid_input(&executable).await;
+    assert_cold_child_reports_model_errors(&executable).await;
+    assert_child_completion_is_cancel_safe(&executable).await;
 }
 
 #[cfg(unix)]

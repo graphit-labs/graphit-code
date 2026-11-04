@@ -182,7 +182,7 @@ async fn imported_knowledge_heads_reject_corrupt_tail_without_a_healthy_prefix()
         true,
     );
     let tasks = native::with_import_registry(&tasks);
-    let published = native::publish(
+    let mut published = native::publish(
         &tasks,
         &raw,
         0,
@@ -193,7 +193,10 @@ async fn imported_knowledge_heads_reject_corrupt_tail_without_a_healthy_prefix()
         None,
     )
     .await;
-    knowledge_fixture::corrupt_unselected_source_path(&tasks).await;
+    let corrupt_version = knowledge_fixture::corrupt_tail_document_state(&tasks).await;
+    assert!(corrupt_version > published.default.version);
+    // register_copy clones the supplied revision, not the current head.
+    published.default.version = corrupt_version;
     let source = native::register_copy(
         &tasks,
         &published,

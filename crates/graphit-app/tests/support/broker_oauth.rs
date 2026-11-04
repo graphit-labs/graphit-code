@@ -18,9 +18,19 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Notify;
+
+pub(super) fn loopback_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap()
+}
+
 pub(super) struct State {
     pub(super) origin: String,
     pub(super) key: Ed25519KeyPair,
@@ -29,6 +39,7 @@ pub(super) struct State {
     pub(super) rotation: AtomicUsize,
     pub(super) pause: AtomicBool,
     pub(super) device: AtomicBool,
+    pub(super) device_polls: AtomicUsize,
     pub(super) started: Notify,
     pub(super) release: Notify,
 }
@@ -109,6 +120,21 @@ async fn token(AxumState(s): AxumState<Arc<State>>, body: String) -> Response {
             )
                 .into_response();
         }
+        let attempt = s.device_polls.fetch_add(1, Ordering::SeqCst);
+        let invalid = *s.invalid.lock().unwrap();
+        let error = match invalid {
+            Some("pending") if attempt == 0 => Some("authorization_pending"),
+            Some("denied") => Some("access_denied"),
+            Some("expired") => Some("expired_token"),
+            _ => None,
+        };
+        if let Some(error) = error {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({"error":error})),
+            )
+                .into_response();
+        }
         s.started.notify_one();
         if s.pause.load(Ordering::SeqCst) {
             s.release.notified().await;
@@ -118,7 +144,12 @@ async fn token(AxumState(s): AxumState<Arc<State>>, body: String) -> Response {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let access = json!({"iss":s.origin,"sub":"native-subject","aud":["native-api"],"client_id":"native-client","token_use":"access","jti":format!("device-token-{serial}"),"iat":now,"exp":now+3600});
+        let audience = if invalid == Some("aud") {
+            "foreign-api"
+        } else {
+            "native-api"
+        };
+        let access = json!({"iss":s.origin,"sub":"native-subject","aud":[audience],"client_id":"native-client","token_use":"access","jti":format!("device-token-{serial}"),"iat":now,"exp":now+3600});
         return Json(json!({"access_token":signed(&s.key,access),"token_type":"Bearer","expires_in":300,"scope":""})).into_response();
     }
     let flow = s.flow.lock().unwrap().clone().unwrap();
@@ -178,6 +209,7 @@ impl Broker {
             rotation: AtomicUsize::new(0),
             pause: AtomicBool::new(false),
             device: AtomicBool::new(false),
+            device_polls: AtomicUsize::new(0),
             started: Notify::new(),
             release: Notify::new(),
         });

@@ -480,12 +480,7 @@ fn original_request_cancel_and_expiration_are_not_reset() {
         .kind(),
         InstructionErrorKind::Request(std::io::ErrorKind::Interrupted)
     );
-    let deadline = Instant::now() + Duration::from_millis(30);
-    let original = SnapshotContext::new(deadline, Cancellation::default());
-    assert!(render_instruction("agent.md", &source, &[], limits(), &original).is_ok());
-    while Instant::now() <= deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
+    let original = SnapshotContext::new(Instant::now(), Cancellation::default());
     assert_eq!(
         error(render_instruction(
             "agent.md",

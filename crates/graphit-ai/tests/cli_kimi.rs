@@ -14,8 +14,10 @@ use std::{
 #[path = "support/kimi_peer.rs"]
 mod peer;
 
+// This is the child entry point, not a qualification test. The ordinary tests
+// below launch this test binary again with --ignored --exact native_kimi_peer.
 #[test]
-#[ignore = "native subprocess peer; explicitly invoked by the focused suites"]
+#[ignore = "subprocess entry point launched by the default Kimi tests"]
 fn native_kimi_peer() {
     peer::run();
 }

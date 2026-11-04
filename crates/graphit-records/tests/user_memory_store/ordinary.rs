@@ -279,7 +279,7 @@ async fn actual_incoming_config_cancel_deadline_expiry_and_physical_replacement_
                     .issuer
                     .admit_incoming_user_memory_read(&p, &verifier, &timed, "service", f.scope())
                     .unwrap();
-                tokio::time::sleep(Duration::from_millis(120)).await;
+                tokio::time::sleep_until(deadline.into()).await;
                 assert!(
                     NativeUserMemoryStore::get(timed.snapshot(), &r, memory.id, read_limits())
                         .await

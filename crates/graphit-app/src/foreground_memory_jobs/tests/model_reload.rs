@@ -13,7 +13,7 @@ use tokio::{
 #[test]
 fn startup_selection_does_not_capture_an_unselected_bundle() {
     let fixture = Fixture::new();
-    fixture.install_model();
+    fixture.install_model_metadata();
     let cancellation = Cancellation::default();
     let original = fixture
         .policy
@@ -141,16 +141,19 @@ async fn changed_model(
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native model refresh"]
 async fn global_model_refresh_keeps_inflight_delivery_and_two_projects() {
     run_global_model_refresh(&["modules.ast", "modules.knowledge"]).await;
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native model refresh"]
 async fn global_model_refresh_with_all_module_jobs() {
     run_global_model_refresh(&[]).await;
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for concurrent native inference"]
 async fn supervisor_knowledge_publishes_while_ast_models_response_is_pending() {
     use futures_util::TryStreamExt;
     use graphit_ast::native_nn_index_locator::{NativeNnIndexPresence, open_local_native_nn_index};
@@ -719,6 +722,7 @@ async fn run_global_model_refresh(disabled_modules: &[&str]) {
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native model refresh"]
 async fn browser_owner_without_projects_refreshes_model_and_joins_last_owner() {
     let mut fixture = Fixture::new();
     fixture.configure_browser("https://broker.example", false);

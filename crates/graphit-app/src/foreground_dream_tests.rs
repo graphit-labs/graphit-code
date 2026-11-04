@@ -105,6 +105,9 @@ impl Fixture {
     }
     fn dream_config(&self) -> Result<ConfigSnapshot> {
         let mut entries = vec![
+            (ConfigKey::new("modules.ast")?, json!(false)),
+            (ConfigKey::new("modules.knowledge")?, json!(false)),
+            (ConfigKey::new("modules.embedding")?, json!(false)),
             (ConfigKey::new("modules.hooks")?, json!(true)),
             (ConfigKey::new("modules.task")?, json!(false)),
             (ConfigKey::new("dream.enabled")?, json!(true)),
@@ -446,7 +449,7 @@ async fn seed_project(
                         important: index == 2,
                     },
                     tags: if large_metadata && index == 3 {
-                        vec!["x".repeat(32768)]
+                        vec!["x".repeat(64 * 1024)]
                     } else {
                         vec![]
                     },
@@ -771,7 +774,9 @@ async fn foreground_dream_cancel_joins_native_without_memory_effects() -> Result
 async fn foreground_dream_partial_receipt_reissues_same_actor_under_real_limits() -> Result {
     let mut f = Fixture::new()?;
     f.large_metadata = true;
-    f.input_limit = Some(16384);
+    // The foreground watcher also loads the shipped parser profiles. Keep
+    // those within the limit and make only the deliberately large record exceed it.
+    f.input_limit = Some(48 * 1024);
     f.duration = 30;
     f.retries = 1;
     f.prepare().await?;

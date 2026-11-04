@@ -354,13 +354,5 @@ pub(crate) fn user_runtime(server: &TaskServer, issuer: &str, subject: &str) -> 
 }
 pub(crate) fn corrupt(server: &TaskServer, issuer: &str, subject: &str) {
     let versions = user_runtime(server, issuer, subject).join("memory/index.lance/_versions");
-    let manifests = std::fs::read_dir(versions)
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "manifest"))
-        .collect::<Vec<_>>();
-    assert!(!manifests.is_empty());
-    for manifest in manifests {
-        std::fs::write(manifest, b"invalid actual SDK manifest").unwrap();
-    }
+    super::memory_fixture::corrupt_lance_manifests(&versions);
 }

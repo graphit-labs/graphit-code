@@ -1063,8 +1063,8 @@ impl TextSink for ExitBeforeAccept<'_> {
         assert_eq!(byte(&mut connection, context).await?, Some(b'L'));
         assert_eq!(byte(&mut connection, context).await?, None);
         self.observed_control_eof = true;
-        // A real native terminal is still required after this cooperative wait.
-        sleep(Duration::from_millis(25)).await;
+        // Control EOF is the fixture's exit signal. The receipt below still
+        // requires the real native terminal after the callback accepts.
         self.accepted = true;
         Ok(())
     }

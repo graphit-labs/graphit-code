@@ -118,8 +118,17 @@ async fn watcher_admits_file_delta_while_previous_nn_request_is_unanswered() -> 
         let after = query(&source, &selected, &credential,
             "MATCH(n:Function) WHERE n.name='alpha' RETURN n.uid,n.data_key,n.raw_version,n.source_sha256").await;
         assert_eq!(before["rows"], after["rows"], "queued delta must preserve the intact FILE");
-        assert_eq!(count(&query(&source,&selected,&credential,
-            "MATCH(n:Function) WHERE n.name='delta_beta' RETURN count(n)").await), "1");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let result = query(&source, &selected, &credential,
+                    "MATCH(n:Function) WHERE n.name='delta_beta' RETURN count(n)").await;
+                if count(&result) == "1" {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }).await?;
+        assert!(!endpoint.is_finished(), "graph publication must not wait for NN");
         Ok::<(), Box<dyn std::error::Error>>(())
     }).catch_unwind().await;
     supervisor.take().unwrap().stop().await?;

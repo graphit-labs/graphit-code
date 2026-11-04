@@ -183,10 +183,11 @@ async fn interrupted_startup_retains_join_without_blocking_control_executor() {
     signal.cancel();
     let mut startup = Box::pin(worker.finish_start(started, context(&signal)));
     let before = Instant::now();
-    tokio::select! {
-        result = &mut startup => panic!("startup returned before actual join: {:?}", error(result)),
-        _ = tokio::time::sleep(Duration::from_millis(10)) => {},
-    }
+    std::future::poll_fn(|context| {
+        assert!(std::future::Future::poll(startup.as_mut(), context).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
     assert!(
         before.elapsed() < Duration::from_secs(1),
         "control executor was blocked by native join"
@@ -254,10 +255,11 @@ async fn retained_shutdown_joins_before_return_and_keeps_first_interruption() {
     let signal = Cancellation::default();
     let mut shutdown =
         Box::pin(worker.shutdown_retained(InferenceContext::new(&signal, Instant::now())));
-    tokio::select! {
-        result = &mut shutdown => panic!("cleanup returned without native join: {:?}", error(result)),
-        _ = tokio::time::sleep(Duration::from_millis(10)) => {},
-    }
+    std::future::poll_fn(|context| {
+        assert!(std::future::Future::poll(shutdown.as_mut(), context).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
     assert_eq!(*join.completion.borrow(), None);
     signal.cancel();
     release.send(()).unwrap();

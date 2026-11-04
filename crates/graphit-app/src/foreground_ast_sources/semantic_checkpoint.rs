@@ -14,11 +14,12 @@ use tokio::{
 };
 
 const CHECKPOINT_ROWS: usize = 64;
-const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(60);
+pub(crate) const CHECKPOINT_INTERVAL: Duration = Duration::from_secs(60);
 pub(crate) struct FileInput {
     pub(crate) path: String,
     pub(crate) batches: mpsc::Receiver<Result<RecordBatch, DataFusionError>>,
     pub(crate) completed: oneshot::Receiver<()>,
+    pub(crate) checkpoint_interval: Duration,
 }
 async fn control_failure(original: &SnapshotContext) -> io::Error {
     match original.deadline() {
@@ -59,6 +60,7 @@ where
         path,
         mut batches,
         completed,
+        checkpoint_interval,
     } = file;
     let schema = native_nn_schema(model).map_err(io::Error::other)?;
     let mut pending = Vec::new();
@@ -90,7 +92,7 @@ where
                 }
                 rows += batch.num_rows();
                 pending.push(batch);
-                flush_at.get_or_insert_with(|| Instant::now() + CHECKPOINT_INTERVAL);
+                flush_at.get_or_insert_with(|| Instant::now() + checkpoint_interval);
                 if rows < CHECKPOINT_ROWS {
                     continue;
                 }

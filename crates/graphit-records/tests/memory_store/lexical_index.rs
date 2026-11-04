@@ -639,17 +639,17 @@ async fn lexical_index_read_only_revoke_cancel_and_deadline_gate_without_publica
     let expiredwrite = authority
         .admit_write(&expiredgrant, &expired, ProjectWriteOperation::Memory)
         .unwrap();
-    std::thread::sleep(Duration::from_secs(5));
-    assert!(
+    tokio::time::sleep_until(expired.snapshot().deadline().unwrap().into()).await;
+    assert!(matches!(
         NativeMemoryStore::maintain_lexical_index(
             expired.snapshot(),
             &expiredwrite,
             MemoryLexicalIndexOperation::Refresh,
             write_limits()
         )
-        .await
-        .is_err()
-    );
+        .await,
+        Err(MemoryStoreError::Request(error)) if error.kind() == std::io::ErrorKind::TimedOut
+    ));
     let secret =
         std::fs::read_to_string(f.installation.owner_root().join("daemon/mcp.key")).unwrap();
     let caller = issuer.authenticate_runtime(&secret, &ctx).unwrap();

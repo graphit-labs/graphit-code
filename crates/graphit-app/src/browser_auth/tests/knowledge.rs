@@ -70,7 +70,7 @@ async fn knowledge_lexical_search_pages_preview_and_own_read_work_without_model_
     third.resolved_wiki_targets = &[];
     let published = knowledge_fixture::seed(&tasks, &raw, 0, &[first, second, third]).await;
     let selection = memory_fixture::selection(&tasks, 0);
-    let mirror = memory_fixture::selection(&tasks, 2);
+    let other = memory_fixture::selection(&tasks, 1);
     let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
     let cookie = f.login().await;
     *f.issuer.user_status.lock().unwrap() = StatusCode::SERVICE_UNAVAILABLE;
@@ -155,7 +155,7 @@ async fn knowledge_lexical_search_pages_preview_and_own_read_work_without_model_
         "no_hits"
     );
     assert_eq!(
-        value(&f, &cookie, "search", &mirror, query.clone()).await["native"]["state"],
+        value(&f, &cookie, "search", &other, query.clone()).await["native"]["state"],
         "no_corpus"
     );
     assert_eq!(f.issuer.userinfo.load(Ordering::SeqCst), 0);
@@ -195,7 +195,9 @@ async fn reopened_heads_full16_dates_and_exact_native_paths_are_preserved_withou
     tasks.shutdown().await.unwrap();
     let tasks = reopen_browser(&tasks);
     let selection = memory_fixture::selection(&tasks, 0);
+    let other = memory_fixture::selection(&tasks, 1);
     let mirror = memory_fixture::selection(&tasks, 2);
+    assert_ne!(selection["project_id"], other["project_id"]);
     assert_eq!(selection["project_id"], mirror["project_id"]);
     assert_ne!(selection["project_dir"], mirror["project_dir"]);
     let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
@@ -216,14 +218,8 @@ async fn reopened_heads_full16_dates_and_exact_native_paths_are_preserved_withou
     let found = value(&f, &cookie, "page", &selection, json!({"slug":"a-first"})).await;
     assert_eq!(found["native"]["generation"], heads["native"]["generation"]);
     assert_eq!(found["source"], heads["source"]);
-    assert_eq!(found["focused_source"]["slug"], "a-first");
-    assert_eq!(found["focused_source"]["namespace"], Value::Null);
-    assert_eq!(found["focused_source"]["witness"], Value::Null);
-    assert_eq!(found["focused_source"]["source_path"], "docs/guide.md");
-    assert_eq!(
-        found["focused_source"]["compilation_digest"],
-        json!(vec![9; 32])
-    );
+    assert_eq!(found["native"]["page"]["state"], "found");
+    assert_eq!(found["focused_source"], Value::Null);
     assert_eq!(
         found["native"]["page"]["document"],
         json!({
@@ -255,9 +251,13 @@ async fn reopened_heads_full16_dates_and_exact_native_paths_are_preserved_withou
             json!({})
         };
         assert_eq!(
-            value(&f, &cookie, op, &mirror, input).await["native"]["state"],
+            value(&f, &cookie, op, &other, input.clone()).await["native"]["state"],
             "no_corpus"
         );
+        let from_mirror = value(&f, &cookie, op, &mirror, input).await;
+        assert_eq!(from_mirror["selection"], mirror);
+        let expected = if op == "heads" { &heads } else { &found };
+        assert_eq!(from_mirror["native"], expected["native"]);
     }
     assert_eq!(f.issuer.userinfo.load(Ordering::SeqCst), 0);
 }
@@ -561,7 +561,7 @@ async fn output_limit_rejects_a_full_document_without_a_healthy_prefix() {
 }
 
 #[tokio::test]
-async fn corrupt_unselected_tail_cannot_return_found_or_page_absent() {
+async fn corrupt_tail_fails_catalogue_and_selected_page_without_poisoning_other_slugs() {
     let (_temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
     knowledge_fixture::seed(
         &tasks,
@@ -570,19 +570,19 @@ async fn corrupt_unselected_tail_cannot_return_found_or_page_absent() {
         &[page("a-first", "valid"), page("z-tail", "invalid tail")],
     )
     .await;
-    knowledge_fixture::corrupt_unselected_source_path(&tasks).await;
+    let corrupt_version = knowledge_fixture::corrupt_tail_document_state(&tasks).await;
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
     let cookie = f.login().await;
-    assert_eq!(
-        value(&f, &cookie, "heads", &selection, json!({})).await["native"]["heads"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    for slug in ["a-first", "missing"] {
-        let r = read(&f, &cookie, "page", body(&selection, json!({"slug":slug}))).await;
+    let healthy = value(&f, &cookie, "page", &selection, json!({"slug":"a-first"})).await;
+    assert_eq!(healthy["native"]["generation"]["version"], corrupt_version);
+    assert_eq!(healthy["native"]["page"]["state"], "found");
+    assert_eq!(healthy["native"]["page"]["document"]["body"], "valid");
+    let missing = value(&f, &cookie, "page", &selection, json!({"slug":"missing"})).await;
+    assert_eq!(missing["native"]["generation"]["version"], corrupt_version);
+    assert_eq!(missing["native"]["page"]["state"], "page_absent");
+    for (op, input) in [("heads", json!({})), ("page", json!({"slug":"z-tail"}))] {
+        let r = read(&f, &cookie, op, body(&selection, input)).await;
         assert_eq!(r.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let v: Value = r.json().await.unwrap();
         assert_eq!(v["error"]["code"], "invalid_knowledge_corpus");
@@ -591,7 +591,7 @@ async fn corrupt_unselected_tail_cannot_return_found_or_page_absent() {
 }
 
 #[tokio::test]
-async fn short_native_manifest_is_causal_error_and_both_owners_shutdown_without_panic() {
+async fn malformed_native_manifest_is_causal_error_and_both_owners_shutdown() {
     let (_temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
     knowledge_fixture::seed(&tasks, &raw, 0, &[page("a-first", "body")]).await;
     knowledge_fixture::corrupt_manifest(&tasks);
@@ -980,7 +980,7 @@ time.sleep(60)
 #[tokio::test]
 async fn imported_knowledge_cpu_web_preserves_corpus_cursor_and_independent_authority() {
     let (issuer, issuer_service) = Fixture::start_issuer().await;
-    let (_storage, mut foreground, tasks, sources, raw, pair) =
+    let (mut storage, mut foreground, tasks, sources, raw, pair) =
         crate::foreground_source::foreground_memory_jobs_tests::imported_knowledge_cpu_search_fixture(Some(&issuer.origin)).await;
     // The shared Browser fixture installs the provider through the real Native manager.
     // Remove the startup record first so that installation remains a genuine add.
@@ -1095,8 +1095,11 @@ async fn imported_knowledge_cpu_web_preserves_corpus_cursor_and_independent_auth
     );
     let response = read(&f, "invalid-cookie", "imported/search", json!({"input":{"source":source,"search":{"query":"Knowledge CPU search","mode":"semantic","top_k":2,"page_size":1}}})).await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(&mut foreground)
-        .await;
+    crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(
+        &mut storage,
+        &mut foreground,
+    )
+    .await;
     tasks.attach_memory_model(None).unwrap();
     let (generation, semantic_generation) = generations.unwrap();
     for (mode, state) in [("semantic", "unavailable"), ("hybrid", "partial")] {
@@ -1154,7 +1157,7 @@ async fn imported_knowledge_cpu_web_preserves_corpus_cursor_and_independent_auth
 
 #[tokio::test]
 async fn knowledge_vector_search_uses_shared_cpu_and_preserves_same_pin_lexical_without_model() {
-    let (_storage, mut foreground, tasks, sources, raw, selected) =
+    let (mut storage, mut foreground, tasks, sources, raw, selected) =
         crate::foreground_source::foreground_memory_jobs_tests::browser_knowledge_search_fixture()
             .await;
     let selection = memory_fixture::selection(&tasks, 0);
@@ -1191,8 +1194,11 @@ async fn knowledge_vector_search_uses_shared_cpu_and_preserves_same_pin_lexical_
     assert!(hh["rrf_score"].as_f64().is_some_and(f64::is_finite));
     assert_eq!(hh["preview"]["source"], "summary");
     assert!(hh.get("document").is_none());
-    crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(&mut foreground)
-        .await;
+    crate::foreground_source::foreground_memory_jobs_tests::stop_browser_model(
+        &mut storage,
+        &mut foreground,
+    )
+    .await;
     // Missing NN readiness succeeds with an actually closed model endpoint: no Query RPC.
     let missing = value(&f, &cookie, "search", &unindexed, query("semantic")).await;
     assert_eq!(missing["native"]["state"], "unavailable");

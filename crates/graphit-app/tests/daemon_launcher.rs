@@ -24,6 +24,13 @@ async fn absent_private_bus_is_unavailable() -> io::Result<()> {
         manager_availability(&environment, &original()).await?,
         ManagerAvailability::Unavailable
     );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "native D-Bus qualification requires the dbus-daemon executable"]
+async fn native_private_bus_without_a_manager_is_unavailable() -> io::Result<()> {
+    let temp = tempfile::tempdir()?;
     // Connect to a real private broker: it has no systemd manager owner.
     use tokio::io::{AsyncBufReadExt, BufReader};
     let mut bus =
@@ -113,6 +120,7 @@ async fn service_composition_is_per_installation_and_survives_removed_checkout()
     use graphit_app::daemon_launcher::compose_service;
     use graphit_core::{brand::Brand, project_paths::InstallationPaths};
     use graphit_process::{HostLimits, HostReadiness, HostShutdown, ProcessHost};
+    use std::os::unix::fs::PermissionsExt;
     use zbus::address::{
         Address, Transport,
         transport::{Unix, UnixSocket},
@@ -132,11 +140,16 @@ async fn service_composition_is_per_installation_and_survives_removed_checkout()
     let address = Address::new(Transport::Unix(Unix::new(UnixSocket::File(
         runtime.join("bus"),
     ))));
+    let path = temp.path().join("bin");
+    std::fs::create_dir(&path)?;
+    let manager = path.join("systemctl");
+    std::fs::write(
+        &manager,
+        "#!/bin/sh\nprintf '%s\\0' \"$PWD\" \"$DBUS_SESSION_BUS_ADDRESS\" \"$@\"\nexit 69\n",
+    )?;
+    std::fs::set_permissions(&manager, std::fs::Permissions::from_mode(0o700))?;
     let environment = vec![
-        (
-            "PATH".into(),
-            std::env::var_os("PATH").ok_or("PATH absent")?,
-        ),
+        ("PATH".into(), path.into_os_string()),
         ("HOME".into(), temp.path().as_os_str().to_owned()),
         ("XDG_CONFIG_HOME".into(), config.as_os_str().to_owned()),
         ("XDG_RUNTIME_DIR".into(), runtime.into_os_string()),
@@ -172,10 +185,32 @@ async fn service_composition_is_per_installation_and_survives_removed_checkout()
             Some(config.join("systemd/user").as_path())
         );
         first_request.cancellation().cancel();
-        // A real manager utility must run from the installation, even after its
-        // selecting checkout disappeared and the composing request was cancelled.
+        // Status uses the captured installation after the checkout disappears
+        // and the original composition request is cancelled.
         let status = service.status(&original()).await?;
-        assert!(!status.status.success());
+        assert_eq!(status.status.code(), Some(69));
+        let receipt = status
+            .transcript
+            .ok_or("manager fixture emitted no receipt")?;
+        let address = address.to_string();
+        let unit = format!("{}.service", service.definition.name);
+        let expected: [&[u8]; 7] = [
+            root.as_os_str().as_encoded_bytes(),
+            address.as_bytes(),
+            b"--user",
+            b"show",
+            b"--property=LoadState,ActiveState,UnitFileState,MainPID",
+            unit.as_bytes(),
+            b"",
+        ];
+        assert_eq!(
+            receipt
+                .stdout()
+                .split(|byte| *byte == 0)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(receipt.stderr().is_empty());
     }
     match host.shutdown(Instant::now() + Duration::from_secs(5)).await {
         HostShutdown::Joined(report) => assert!(report.failure().is_none()),

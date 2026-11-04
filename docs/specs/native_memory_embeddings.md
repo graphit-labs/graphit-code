@@ -485,7 +485,14 @@ O caso histórico Linux actual_tiny_memory_hybrid_rpc usava CPU ORT1.27.1 e ONNX
 embedding_rank2 mantido, RPC autenticado e índice SDK reais: NoRPC para ausente
 ou vazio físico e Query RPC para fully-covered nonempty, com ambos metadados e
 score `2/61`, passou em 6,399s. A fixture fornece observação funcional do caller,
-sem alegação de qualidade de embeddings, Gemma, shared M ou MCP. O caso atual `actual_gguf_memory_hybrid_rpc_uses_borrowed_owners_and_queries_fully_covered_corpus` passou com o GGUF BF16 fixado em MRL128 na qualificação acima; a execução histórica ONNX não qualifica esse backend. O antigo caso ignored Gemma conserva sua evidência histórica separada.
+sem alegação de qualidade de embeddings, Gemma, shared M ou MCP. O caso
+`actual_gguf_memory_hybrid_rpc_uses_borrowed_owners_and_queries_fully_covered_corpus`
+passou com o GGUF BF16 fixado em MRL128 na qualificação acima e é opt-in:
+selecione-o com `--ignored --exact` no target `memory_embeddings`, fornecendo
+`GRAPHIT_EMBEDDINGGEMMA2_MODEL`. A suíte padrão `memory_incremental` usa Auth e
+Records reais e um vetor determinístico no limite de inferência para verificar
+a fusão híbrida enquanto ainda há documentos pendentes. Essa prova não
+qualifica o transporte Models nem a inferência GGUF.
 
 ### Consumer Source MCP
 

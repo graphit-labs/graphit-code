@@ -941,7 +941,7 @@ async fn live_query_config_signed_expiry_deadline_and_physical_swap_recheck_befo
                     .issuer
                     .admit_incoming_user_memory_read(&p, &verifier, &timed, "service", f.scope())
                     .unwrap();
-                tokio::time::sleep(Duration::from_millis(170)).await;
+                tokio::time::sleep_until(deadline.into()).await;
                 assert!(
                     NativeUserMemoryStore::references(
                         timed.snapshot(),

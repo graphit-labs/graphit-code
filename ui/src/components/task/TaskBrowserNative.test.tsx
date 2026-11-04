@@ -11,11 +11,14 @@ import TaskExplorerPage from './TaskExplorerPage'
 import SessionExplorerPage from './SessionExplorerPage'
 import { TaskWorkspaceBootstrap } from './TaskWorkspace'
 import { stopTaskWorkspace, useTaskWorkspace } from './taskWorkspaceState'
-const fixture = vi.hoisted(() => ({ origin: process.env.GRAPHIT_TASK_BROWSER_ORIGIN, cookie: process.env.GRAPHIT_TASK_BROWSER_COOKIE, project: process.env.GRAPHIT_TASK_BROWSER_PROJECT_ID }))
+const fixture = vi.hoisted(() => ({ enabled: process.env.GRAPHIT_QUALIFY_TASK_BROWSER === '1', origin: process.env.GRAPHIT_TASK_BROWSER_ORIGIN, cookie: process.env.GRAPHIT_TASK_BROWSER_COOKIE, project: process.env.GRAPHIT_TASK_BROWSER_PROJECT_ID }))
 vi.mock('@/lib/utils', async original => ({ ...await original<typeof import('@/lib/utils')>(), getApiBase: () => fixture.origin ?? '' }))
 vi.mock('@/components/shared/RecordReferences', () => ({ RecordReferences: () => <span>Record links are qualified separately</span> }))
 afterEach(() => { cleanup(); stopTaskWorkspace(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
-it.skipIf(!fixture.origin || !fixture.cookie || !fixture.project)('reads live Rust cookie/PROJECT sockets into Gantt, native Task detail and Session', async () => {
+it.skipIf(!fixture.enabled)('reads live Rust cookie/PROJECT sockets into Gantt, native Task detail and Session', async () => {
+ if (!fixture.origin || !fixture.cookie || !fixture.project) {
+  throw new Error('Task Browser qualification requires GRAPHIT_TASK_BROWSER_ORIGIN, GRAPHIT_TASK_BROWSER_COOKIE and GRAPHIT_TASK_BROWSER_PROJECT_ID')
+ }
  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })))
  let actualTask: TaskDetail | undefined
  let actualSession: SessionDetail | undefined

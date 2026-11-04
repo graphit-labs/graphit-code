@@ -4,21 +4,13 @@ use graphit_core::artifact_store::ArtifactStore;
 
 #[tokio::test]
 async fn project_writer_contention_does_not_serialize_another_project_index() {
-    let (fixture, mut foreground, tasks, source, raw, selected) =
+    let (mut fixture, mut foreground, tasks, source, raw, selected) =
         browser_ast_search_fixture().await;
     let cancellation = Cancellation::default();
     let original = fixture
         .policy
         .request_context(Instant::now(), &cancellation)
         .unwrap();
-    let address = foreground
-        .memory_jobs
-        .as_ref()
-        .unwrap()
-        .child
-        .as_ref()
-        .unwrap()
-        .address();
     let exercise = std::panic::AssertUnwindSafe(async {
         foreground.supervisors.shutdown().await.unwrap();
         create_memory(&foreground, 0, "writer-contention-a").await;
@@ -45,7 +37,7 @@ async fn project_writer_contention_does_not_serialize_another_project_index() {
         assert!(matches!(completed, model_api::MemoryEmbeddingIndexRead::Complete { last_attachment: Some(_), .. }));
 
         // The same PROJECT already has a real published Raw/Graph package. Keep
-        // Knowledge's actual input pending on native Models response bytes while
+        // Knowledge's actual input pending on model RPC response bytes while
         // a fresh HTTP Graph request captures that publication.
         use graphit_data::{
             knowledge_document_projection::{
@@ -272,10 +264,10 @@ async fn project_writer_contention_does_not_serialize_another_project_index() {
         assert!(matches!(publication.unwrap(), KnowledgeEmbeddingPublication::Committed { .. }));
         assert_eq!(capture.source_generation(), &source_generation);
     }).catch_unwind().await;
+    stop_browser_model(&mut fixture, &mut foreground).await;
     let stopped = foreground.shutdown().await;
     if let Err(panic) = exercise {
         std::panic::resume_unwind(panic);
     }
     stopped.unwrap();
-    assert!(TcpStream::connect(address).await.is_err());
 }

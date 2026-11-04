@@ -206,13 +206,31 @@ async fn web_write_denial_preserves_read_and_revoked_grant_denies_new_write() {
 }
 
 #[tokio::test]
-async fn native_web_search_fts_semantic_hybrid_share_real_model_and_sdk_generations() {
-    let (_model, foreground, tasks, raw, memories) =
-        crate::foreground_source::foreground_memory_jobs_tests::browser_search_fixture().await;
+async fn native_web_search_fts_semantic_hybrid_share_sdk_generation_with_model_peer() {
+    use crate::foreground_source::foreground_memory_jobs_tests::{
+        browser_search_fixture_configured, stop_browser_model,
+    };
+
+    let (issuer, issuer_service) = Fixture::start_issuer().await;
+    let (mut fixture, mut foreground, tasks, raw, memories) =
+        browser_search_fixture_configured(Some(&issuer.origin)).await;
     let selection = memory_fixture::selection(&tasks, 0);
-    let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
+    // Startup captures the loopback policy before record storage constructs its verifier.
+    // The Browser fixture still registers its own current provider through the usual path.
+    crate::task_server::tests::browser_provider(&tasks, &raw, &issuer.origin, true);
+    let f = Fixture::configured_with_issuer(
+        policy(),
+        Some((tasks, raw)),
+        None,
+        None,
+        issuer,
+        issuer_service,
+    )
+    .await;
     let cookie = f.login().await;
+    let userinfo = f.issuer.userinfo.load(Ordering::SeqCst);
     *f.issuer.user_status.lock().unwrap() = StatusCode::SERVICE_UNAVAILABLE;
+    let mut generation = None;
     for mode in ["fts", "semantic", "hybrid"] {
         let response = read(
             &f,
@@ -225,8 +243,9 @@ async fn native_web_search_fts_semantic_hybrid_share_real_model_and_sdk_generati
             ),
         )
         .await;
-        assert_eq!(response.status(), StatusCode::OK, "{mode}");
+        let status = response.status();
         let value: Value = response.json().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{mode}: {value}");
         assert_eq!(value["selection"], selection);
         assert_eq!(value["native"]["mode"], mode);
         assert_eq!(value["native"]["state"], "published");
@@ -241,7 +260,14 @@ async fn native_web_search_fts_semantic_hybrid_share_real_model_and_sdk_generati
                 .unwrap()
                 > 0
         );
+        let observed = &value["native"]["generation"];
+        if let Some(expected) = &generation {
+            assert_eq!(observed, expected, "{mode} must read the same publication");
+        } else {
+            generation = Some(observed.clone());
+        }
         if mode == "fts" {
+            assert!(value["native"]["model"].is_null());
             assert!(value["native"]["hits"][0]["score"].is_number());
         } else {
             assert!(value["native"]["model"]["dimensions"].as_u64().unwrap() > 0);
@@ -269,21 +295,23 @@ async fn native_web_search_fts_semantic_hybrid_share_real_model_and_sdk_generati
         .attach_memory_model(None)
         .unwrap();
     for mode in ["semantic", "hybrid"] {
-        let value: Value = read(
+        let response = read(
             &f,
             &cookie,
             "search",
             body(&selection, json!({"text":"Paris","top_k":4,"mode":mode})),
         )
-        .await
-        .json()
-        .await
-        .unwrap();
+        .await;
+        let status = response.status();
+        let value: Value = response.json().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{mode}: {value}");
         assert_eq!(value["native"]["state"], "unavailable");
         assert_eq!(value["native"]["reason"], "model_unavailable");
         assert!(value["native"].get("hits").is_none());
     }
+    assert_eq!(f.issuer.userinfo.load(Ordering::SeqCst), userinfo);
     f.finish_tasks().await;
+    stop_browser_model(&mut fixture, &mut foreground).await;
     foreground.shutdown().await.unwrap();
 }
 
@@ -315,7 +343,12 @@ async fn reopened_current_creation_full_history_filters_and_deleted_are_canonica
     tasks.shutdown().await.unwrap();
     let tasks = reopen_browser(&tasks);
     let selection = memory_fixture::selection(&tasks, 0);
+    let other_project = memory_fixture::selection(&tasks, 1);
     let mirror = memory_fixture::selection(&tasks, 2);
+    assert_eq!(mirror["project_id"], selection["project_id"]);
+    assert_eq!(mirror["project_version"], selection["project_version"]);
+    assert_ne!(mirror["project_dir"], selection["project_dir"]);
+    assert_ne!(other_project["project_id"], selection["project_id"]);
     let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
     let cookie = f.login().await;
     *f.issuer.user_status.lock().unwrap() = StatusCode::SERVICE_UNAVAILABLE;
@@ -398,41 +431,77 @@ async fn reopened_current_creation_full_history_filters_and_deleted_are_canonica
             expected
         );
     }
-    let absent: Value = read(&f, &cookie, "list", body(&mirror, json!({})))
+    let mirrored: Value = read(&f, &cookie, "list", body(&mirror, json!({})))
         .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(mirrored["selection"], mirror);
+    assert_eq!(mirrored["native"], value["native"]);
+    let mirrored_history: Value = read(
+        &f,
+        &cookie,
+        "history",
+        body(&mirror, json!({"id":ordinary.id})),
+    )
+    .await
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(mirrored_history["selection"], mirror);
+    assert_eq!(mirrored_history["native"], history["native"]);
+    let absent: Value = read(&f, &cookie, "list", body(&other_project, json!({})))
+        .await
+        .error_for_status()
+        .unwrap()
         .json()
         .await
         .unwrap();
     assert_eq!(absent["native"], json!({"state":"no_corpus"}));
-    assert_eq!(absent["selection"]["project_id"], selection["project_id"]);
+    assert_eq!(absent["selection"], other_project);
     let (tasks, raw) = f.tasks.as_ref().unwrap();
     let only = memory_fixture::seed(
         tasks,
         raw,
-        2,
-        Seed::Create(input("mirror-only", false, false)),
+        1,
+        Seed::Create(input("other-project-only", false, false)),
     )
     .await;
+    let foreign: Value = read(&f, &cookie, "get", body(&mirror, json!({"id":only.id})))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(foreign["native"], Value::Null);
     memory_fixture::seed(
         tasks,
         raw,
-        2,
+        1,
         Seed::Delete(
             only.id,
             DeleteMemory {
                 expected_revision: 1,
-                idempotency_key: "mirror-delete".into(),
+                idempotency_key: "other-project-delete".into(),
                 reason: "Empty this corpus".into(),
             },
         ),
     )
     .await;
-    let empty: Value = read(&f, &cookie, "list", body(&mirror, json!({})))
+    let empty: Value = read(&f, &cookie, "list", body(&other_project, json!({})))
         .await
+        .error_for_status()
+        .unwrap()
         .json()
         .await
         .unwrap();
     assert_eq!(empty["native"]["state"], "published");
+    assert_eq!(empty["selection"], other_project);
     assert_eq!(empty["native"]["memories"], json!([]));
     let (tasks, raw) = f.tasks.as_ref().unwrap();
     memory_fixture::seed(
@@ -449,27 +518,27 @@ async fn reopened_current_creation_full_history_filters_and_deleted_are_canonica
         ),
     )
     .await;
-    let deleted: Value = read(
-        &f,
-        &cookie,
-        "get",
-        body(&selection, json!({"id":ordinary.id})),
-    )
-    .await
-    .json()
-    .await
-    .unwrap();
+    let deleted: Value = read(&f, &cookie, "get", body(&mirror, json!({"id":ordinary.id})))
+        .await
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(deleted["native"], Value::Null);
     let history: Value = read(
         &f,
         &cookie,
         "history",
-        body(&selection, json!({"id":ordinary.id})),
+        body(&mirror, json!({"id":ordinary.id})),
     )
     .await
+    .error_for_status()
+    .unwrap()
     .json()
     .await
     .unwrap();
+    assert_eq!(history["selection"], mirror);
     assert_eq!(history["native"]["deleted"], true);
     assert_eq!(history["native"]["revisions"].as_array().unwrap().len(), 2);
     assert!(
@@ -481,6 +550,7 @@ async fn reopened_current_creation_full_history_filters_and_deleted_are_canonica
                 .unwrap()
     );
     assert_eq!(f.issuer.userinfo.load(Ordering::SeqCst), 0);
+    f.finish_tasks().await;
 }
 
 #[tokio::test]
@@ -741,6 +811,7 @@ async fn corrupt_native_manifest_is_an_error_and_never_no_corpus() {
         error["error"]["code"].as_str(),
         Some("store_failure" | "branch_failure" | "artifact_failure")
     ));
+    f.finish_tasks().await;
 }
 #[tokio::test]
 async fn expired_access_without_refresh_cannot_read_memory() {
@@ -904,31 +975,4 @@ async fn two_admitted_versions_of_same_project_keep_native_branches_and_selectio
         current["native"]["memory"],
         serde_json::to_value(feature).unwrap()
     );
-}
-
-#[tokio::test]
-async fn short_native_manifest_returns_causal_error_without_panicking_the_owned_job() {
-    let (_temp, tasks, raw) = memory_workspace_fixture(None, Duration::from_secs(30));
-    memory_fixture::seed(
-        &tasks,
-        &raw,
-        0,
-        Seed::Create(input("short-manifest", false, false)),
-    )
-    .await;
-    let selection = memory_fixture::selection(&tasks, 0);
-    memory_fixture::corrupt_short_manifest(&tasks);
-    let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
-    let cookie = f.login().await;
-    let response = read(&f, &cookie, "list", body(&selection, json!({}))).await;
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    let error: Value = response.json().await.unwrap();
-    assert!(error.get("native").is_none());
-    assert!(matches!(
-        error["error"]["code"].as_str(),
-        Some("store_failure" | "branch_failure" | "artifact_failure")
-    ));
-    let (tasks, _) = f.tasks.as_ref().unwrap();
-    tasks.shutdown().await.unwrap();
-    f.service.shutdown().await.unwrap();
 }

@@ -439,13 +439,9 @@ def run(args):
                             and response.request.post_data_json.get("selection") == mirror, timeout=30000) as mirror_read:
                         option.click()
                     assert mirror_read.value.status == 200, "actual mirror catalogue reader"
-                    assert mirror_read.value.json()["results"] == [], "genuine mirror has no Tasks"
+                    assert any(task["id"] == probe["task_id"] for task in mirror_read.value.json()["results"]), \
+                        "same project and version share the Task corpus"
                     require_selection(page.url, mirror)
-                    expect(page.get_by_text("No tasks match this view.", exact=True)).to_be_visible()
-                    expect(page.get_by_role("heading", name="Select a task", exact=True)).to_be_visible()
-                    require_selection(page.url, mirror)
-                    expect(page.get_by_text("Task to native Memory and Knowledge", exact=True)).to_have_count(0)
-                    expect(page.get_by_role("heading", name="Record links", exact=True)).to_have_count(0)
                     page.goto(origin + "/memory/explorer/project/" + probe["mirror_memory_id"], timeout=30000)
                     page.get_by_role("group", name="Working context", exact=True).get_by_role("combobox", name="Project", exact=True).click()
                     page.get_by_role("option").filter(has_text=mirror_label).click()
@@ -458,19 +454,20 @@ def run(args):
                     passed()
 
                     step("missing_projection_no_invented_navigation")
+                    unprojected = probe["missing_selection"]
                     missing_url = origin + "/knowledge/explorer?" + urlencode({"page": probe["missing_slug"]})
                     page.goto(missing_url, timeout=30000)
                     page.get_by_role("group", name="Working context", exact=True).get_by_role("combobox", name="Project", exact=True).click()
-                    page.get_by_role("option").filter(has_text=mirror_label).click()
+                    page.get_by_role("option").filter(has_text=unprojected["project_dir"]).click()
                     expect(page.get_by_role("heading", name=probe["missing_slug"], exact=True)).to_be_visible()
-                    require_selection(page.url, mirror)
+                    require_selection(page.url, unprojected)
                     expect(widget(page).get_by_text("References unavailable", exact=True)).to_be_visible()
                     expect(widget(page).get_by_role("link")).to_have_count(0)
                     missing_pages = [body for path, request, body in bodies if path == "/api/knowledge/page"
-                                     and request["selection"] == mirror and request["input"]["slug"] == probe["missing_slug"]]
+                                     and request["selection"] == unprojected and request["input"]["slug"] == probe["missing_slug"]]
                     focused = missing_pages[-1].get("focused_source")
                     assert focused is None or focused["namespace"] is None and focused["witness"] is None
-                    assert not any(path == "/api/records/references" and request.get("selection") == mirror
+                    assert not any(path == "/api/records/references" and request.get("selection") == unprojected
                                    and request["input"]["focus"]["id"] == probe["missing_slug"] for path, request, _ in bodies)
                     screenshot(page, "missing-projection")
                     passed()

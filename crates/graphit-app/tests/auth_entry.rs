@@ -32,11 +32,12 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(directory.path()).unwrap();
         let paths = InstallationPaths::resolve(
-            Brand::default(),
-            directory.path(),
+            Brand::new(env!("GRAPHIT_COMPILED_BUILD_BRAND")).unwrap(),
+            &root,
             None,
-            Some(&directory.path().join("installation")),
+            Some(&root.join("installation")),
         )
         .unwrap();
         let config = ConfigSnapshot::new(
@@ -86,6 +87,17 @@ impl Fixture {
         assert_eq!(exit, ExitCode::SUCCESS, "{diagnostic}");
         assert_eq!(output, "Applied\n");
         assert!(diagnostic.is_empty());
+    }
+    fn executable(&self, args: &[&str]) -> tokio::process::Command {
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_graphit"));
+        command
+            .current_dir(self._directory.path())
+            .env_clear()
+            .arg("--global-dir")
+            .arg(self.paths.root())
+            .args(args)
+            .kill_on_drop(true);
+        command
     }
 }
 
@@ -172,7 +184,7 @@ fn cancelled_and_expired_originals_do_not_initialize_an_installation() {
         let f = Fixture::new();
         let cancel = Cancellation::default();
         let deadline = if expired {
-            Instant::now() + Duration::from_secs(1)
+            Instant::now() + Duration::from_millis(100)
         } else {
             Instant::now() + Duration::from_secs(20)
         };
@@ -190,7 +202,7 @@ fn cancelled_and_expired_originals_do_not_initialize_an_installation() {
         )
         .unwrap();
         if expired {
-            std::thread::sleep(Duration::from_millis(1100));
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         } else {
             cancel.cancel();
         }
@@ -410,6 +422,113 @@ fn native_scratch_recovery_discards_stage_without_promoting_its_contents() {
     assert!(!shown.to_string().contains("scratch-canary"));
 }
 
+#[tokio::test]
+async fn compiled_standalone_device_login_polls_and_publishes_only_verified_identity() {
+    use std::sync::atomic::Ordering;
+
+    let f = Fixture::new();
+    let broker = broker_oauth::Broker::new().await;
+    f.publish(&[
+        "provider",
+        "add",
+        "broker",
+        "--type",
+        "broker",
+        "--broker-endpoint",
+        broker.origin(),
+        "--embedding-mode",
+        "disabled",
+        "--rerank-mode",
+        "disabled",
+        "--s3-credential-source",
+        "broker",
+    ]);
+    let login = |profile| {
+        let mut command = f.executable(&[
+            "--non-interactive",
+            "login",
+            "--device",
+            "--provider",
+            "broker",
+            "--profile",
+            profile,
+            "--s3-disabled",
+        ]);
+        async move {
+            tokio::time::timeout(Duration::from_secs(20), command.output())
+                .await
+                .expect("standalone device login timed out")
+                .unwrap()
+        }
+    };
+    let assert_clean = || {
+        assert!(!f.paths.root().join("daemon/mcp.key").exists());
+        assert!(!f.paths.root().join("daemon/mcp.json").exists());
+    };
+    let initial = std::fs::read(f.paths.auth_file()).unwrap();
+    let unsupported = login("unsupported").await;
+    assert!(!unsupported.status.success());
+    assert!(unsupported.stdout.is_empty());
+    let diagnostic = String::from_utf8(unsupported.stderr).unwrap();
+    assert!(diagnostic.contains("Unsupported"), "{diagnostic}");
+    assert!(!diagnostic.contains("Authorize native Broker login"));
+    assert_eq!(broker.state.device_polls.load(Ordering::SeqCst), 0);
+    assert_eq!(std::fs::read(f.paths.auth_file()).unwrap(), initial);
+    assert_clean();
+
+    broker.state.device.store(true, Ordering::SeqCst);
+    *broker.state.invalid.lock().unwrap() = Some("pending");
+    let output = login("device").await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"Applied\n");
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "Open {origin}/device and enter code ABCD-EFGH\nAuthorize native Broker login: {origin}/device?user_code=ABCD-EFGH\n",
+            origin = broker.origin()
+        )
+    );
+    assert_eq!(broker.state.device_polls.load(Ordering::SeqCst), 2);
+    assert_eq!(broker.state.rotation.load(Ordering::SeqCst), 1);
+    assert_clean();
+
+    let account = f.read(&["account", "show"]);
+    assert_eq!(account["profile"]["name"], "device");
+    assert_eq!(account["profile"]["active"], true);
+    assert_eq!(account["profile"]["username"], Value::Null);
+    assert_eq!(
+        account["profile"]["broker_identity"]["subject"],
+        "native-subject"
+    );
+    assert!(!account.to_string().contains("access_token"));
+    let published = std::fs::read(f.paths.auth_file()).unwrap();
+    for (invalid, reason) in [
+        ("denied", "AuthorizationRejected"),
+        ("expired", "DeviceExpired"),
+        ("aud", "InvalidToken"),
+    ] {
+        *broker.state.invalid.lock().unwrap() = Some(invalid);
+        let rejected = login(invalid).await;
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        let diagnostic = String::from_utf8(rejected.stderr).unwrap();
+        assert!(diagnostic.contains("ABCD-EFGH"));
+        assert!(diagnostic.contains(reason), "{invalid}: {diagnostic}");
+        assert!(!diagnostic.contains("device-private-canary"));
+        assert!(!diagnostic.contains("access_token"));
+        assert_eq!(std::fs::read(f.paths.auth_file()).unwrap(), published);
+        assert_clean();
+    }
+    assert_eq!(broker.state.device_polls.load(Ordering::SeqCst), 5);
+    assert_eq!(broker.state.rotation.load(Ordering::SeqCst), 2);
+    f.publish(&["logout"]);
+    assert!(f.read(&["account", "show"])["profile"].is_null());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compiled_standalone_native_refresh_preserves_cas_rotation_redaction_and_cleanup() {
     compiled_native_refresh(false).await;
@@ -426,17 +545,7 @@ async fn compiled_native_refresh(ended_owner: bool) {
 
     let f = Fixture::new();
     let mut broker = broker_oauth::Broker::new().await;
-    let executable = |args: &[&str]| {
-        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_graphit"));
-        command
-            .current_dir(f._directory.path())
-            .env_clear()
-            .arg("--global-dir")
-            .arg(f.paths.root())
-            .args(args)
-            .kill_on_drop(true);
-        command
-    };
+    let executable = |args: &[&str]| f.executable(args);
     let output = executable(&[
         "provider",
         "add",
@@ -490,7 +599,7 @@ async fn compiled_native_refresh(ended_owner: bool) {
     let callback = broker.callback(announced);
     let address = callback.socket_addrs(|| None).unwrap()[0];
     assert!(
-        reqwest::Client::new()
+        broker_oauth::loopback_client()
             .get(callback)
             .send()
             .await

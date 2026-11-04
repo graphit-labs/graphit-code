@@ -1156,7 +1156,7 @@ async fn automatic_authority_other_module_project_actor_deadline_and_fold_no_bir
     let timed_write = authority2
         .admit_write(&timed_grant, &timed, ProjectWriteOperation::FencedMemory)
         .unwrap();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep_until(timed.snapshot().deadline().unwrap().into()).await;
     assert!(
         NativeMemoryStore::reobserve_automatic_fold(
             timed.snapshot(),

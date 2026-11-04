@@ -97,9 +97,12 @@ fn seed_token(f: &Fixture, subject: &str) -> String {
 }
 
 #[tokio::test]
-async fn native_web_user_search_fts_semantic_hybrid_use_real_model_without_project_io() {
-    let (_model, foreground, model_tasks, _model_raw, _) =
-        crate::foreground_source::foreground_memory_jobs_tests::browser_search_fixture().await;
+async fn native_web_user_search_keeps_published_vectors_without_project_io() {
+    use crate::foreground_source::foreground_memory_jobs_tests::{
+        browser_search_fixture, stop_browser_model,
+    };
+
+    let (mut model, mut foreground, model_tasks, _model_raw, _) = browser_search_fixture().await;
     let resources = model_tasks.memory_model().unwrap().unwrap();
     let local = resources
         .local
@@ -125,17 +128,15 @@ async fn native_web_user_search_fts_semantic_hybrid_use_real_model_without_proje
     f.issuer.project_grant.store(false, Ordering::Release);
     *f.issuer.user_status.lock().unwrap() = StatusCode::SERVICE_UNAVAILABLE;
     let calls = f.issuer.project_calls.load(Ordering::SeqCst);
+    let userinfo = f.issuer.userinfo.load(Ordering::SeqCst);
+    let search_input = |mode: &str| {
+        json!({
+            "text":"Paris", "top_k":4, "mode":mode,
+            "filter":{"classification":"fact","tag":"literal"}
+        })
+    };
     for mode in ["fts", "semantic", "hybrid"] {
-        let response = read(
-            &f,
-            &cookie,
-            "search",
-            json!({
-                "text":"Paris", "top_k":4, "mode":mode,
-                "filter":{"classification":"fact","tag":"literal"}
-            }),
-        )
-        .await;
+        let response = read(&f, &cookie, "search", search_input(mode)).await;
         assert_eq!(response.status(), StatusCode::OK, "{mode}");
         let value: Value = response.json().await.unwrap();
         assert!(value.get("selection").is_none());
@@ -174,55 +175,62 @@ async fn native_web_user_search_fts_semantic_hybrid_use_real_model_without_proje
             assert!(value["native"]["hits"][0]["semantic"]["distance"].is_number());
         }
     }
+    let mut pending = input("unindexed", false);
+    pending.body = "Paris has another document.".into();
     let response = read(
         &f,
         &cookie,
         "create",
-        serde_json::to_value(input("unindexed", false)).unwrap(),
+        serde_json::to_value(pending).unwrap(),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
-    for mode in ["semantic", "hybrid"] {
-        let response = read(
-            &f,
-            &cookie,
-            "search",
-            json!({"text":"Paris","top_k":4,"mode":mode}),
-        )
-        .await;
+    let receipt: Value = response.json().await.unwrap();
+    assert_eq!(receipt["native"]["state"], "completed");
+    let pending_id: graphit_records::memory_store::MemoryId =
+        serde_json::from_value(receipt["native"]["id"].clone()).unwrap();
+    let indexed_id = json!(memory.id);
+    let pending_id = json!(pending_id);
+    for mode in ["fts", "semantic", "hybrid"] {
+        let response = read(&f, &cookie, "search", search_input(mode)).await;
         assert_eq!(response.status(), StatusCode::OK);
         let value: Value = response.json().await.unwrap();
-        assert_eq!(value["native"]["state"], "unavailable");
-        assert_eq!(value["native"]["reason"], "missing_coverage");
-        assert!(
-            value["native"]["generation"]["sdk_version"]
-                .as_u64()
-                .unwrap()
-                > 0
-        );
-        assert!(value["native"].get("hits").is_none());
+        assert_eq!(value["native"]["state"], "published", "{mode}");
+        let hits = value["native"]["hits"].as_array().unwrap();
+        assert_eq!(hits.len(), if mode == "semantic" { 1 } else { 2 });
+        let indexed = hits
+            .iter()
+            .find(|hit| hit["current"]["id"] == indexed_id)
+            .expect("the compatible published vector remains searchable");
+        let pending = hits.iter().find(|hit| hit["current"]["id"] == pending_id);
+        if mode == "semantic" {
+            assert!(indexed["distance"].is_number());
+            assert!(pending.is_none());
+        } else if mode == "hybrid" {
+            let pending = pending.expect("the pending row is already available to FTS");
+            assert!(pending["lexical"]["score"].is_number());
+            assert!(pending["semantic"].is_null());
+            assert!(indexed["semantic"]["distance"].is_number());
+        } else {
+            assert!(pending.expect("immediate lexical result")["score"].is_number());
+        }
     }
-    assert_eq!(f.issuer.project_calls.load(Ordering::SeqCst), calls);
     server.attach_memory_model(None).unwrap();
     for mode in ["semantic", "hybrid"] {
-        let value: Value = read(
-            &f,
-            &cookie,
-            "search",
-            json!({"text":"Paris","top_k":4,"mode":mode}),
-        )
-        .await
-        .json()
-        .await
-        .unwrap();
+        let response = read(&f, &cookie, "search", search_input(mode)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let value: Value = response.json().await.unwrap();
         assert_eq!(value["native"]["state"], "unavailable");
         assert_eq!(value["native"]["reason"], "model_unavailable");
         assert!(value["native"].get("hits").is_none());
     }
+    assert_eq!(f.issuer.project_calls.load(Ordering::SeqCst), calls);
+    assert_eq!(f.issuer.userinfo.load(Ordering::SeqCst), userinfo);
     f.service.shutdown().await.unwrap();
     server.shutdown().await.unwrap();
     model_tasks.shutdown().await.unwrap();
     drop(resources);
+    stop_browser_model(&mut model, &mut foreground).await;
     foreground.shutdown().await.unwrap();
 }
 

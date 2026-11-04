@@ -80,18 +80,18 @@ fn capture(
         .unwrap()
 }
 fn git(root: &Path, args: &[&str]) {
-    let result = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args([
+    let result = crate::git_checkout::git_command(
+        root,
+        &[
             "-c",
             "user.name=Fixture",
             "-c",
             "user.email=fixture@example.invalid",
-        ])
-        .args(args)
-        .output()
-        .unwrap();
+        ],
+    )
+    .args(args)
+    .output()
+    .unwrap();
     assert!(
         result.status.success(),
         "{}",
@@ -567,7 +567,8 @@ fn selection_brand_and_identity_conflicts_do_not_rekey() {
     let original = cap.identity.id();
     let mut writer = f.writer(&req);
     writer.register_checkout(&cap).unwrap();
-    let mut value = serde_json::to_value(&cap.identity).unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(f.project.identity_file()).unwrap()).unwrap();
     value["id"] = "01ARZ3NDEKTSV4RRFFQ69G5FAW".into();
     fs::write(
         f.project.identity_file(),

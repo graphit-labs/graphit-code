@@ -534,14 +534,9 @@ fn original_cancellation_deadline_and_real_utf8_byte_limits_are_enforced() {
         .kind(),
         InstructionErrorKind::Request(io::ErrorKind::Interrupted)
     );
-    let deadline = Instant::now() + Duration::from_millis(30);
-    let short = SnapshotContext::new(deadline, Cancellation::default());
-    render_instruction(set.entry(), set.candidates(), &vars, limits(), &short).unwrap();
-    while Instant::now() <= deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
+    let expired = SnapshotContext::new(Instant::now(), Cancellation::default());
     assert_eq!(
-        render_instruction(set.entry(), set.candidates(), &vars, limits(), &short)
+        render_instruction(set.entry(), set.candidates(), &vars, limits(), &expired)
             .unwrap_err()
             .kind(),
         InstructionErrorKind::Request(io::ErrorKind::TimedOut)

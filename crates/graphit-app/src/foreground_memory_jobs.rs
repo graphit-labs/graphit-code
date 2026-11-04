@@ -1054,19 +1054,18 @@ mod shutdown_tests {
     use crate::foreground_source::foreground_memory_jobs_tests::memory_shutdown_fixture;
 
     #[test]
-    fn packaged_sibling_and_captured_path_resolve_the_real_model_server() {
-        let model = PathBuf::from(
-            std::env::var_os("GRAPHIT_TEST_MODEL_SERVER").expect("qualified model-server path"),
-        );
-        assert!(model.is_absolute());
-        let directory = tempfile::tempdir_in(model.parent().unwrap()).unwrap();
+    fn model_server_lookup_prefers_sibling_and_uses_captured_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
         let installed = directory.path().join("installed binary siblings");
         let tools = directory.path().join("explicit tool directory");
         std::fs::create_dir(&installed).unwrap();
         std::fs::create_dir(&tools).unwrap();
         let filename = format!("graphit-model-server{}", std::env::consts::EXE_SUFFIX);
         let sibling = installed.join(&filename);
-        std::fs::hard_link(&model, &sibling).unwrap();
+        std::fs::write(&sibling, b"fixture executable").unwrap();
+        std::fs::set_permissions(&sibling, std::fs::Permissions::from_mode(0o700)).unwrap();
         let cli = installed.join(format!("graphit{}", std::env::consts::EXE_SUFFIX));
         assert_eq!(
             model_server_executable(&cli, directory.path(), &[]).unwrap(),

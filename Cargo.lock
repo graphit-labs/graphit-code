@@ -1478,6 +1478,7 @@ dependencies = [
 [[package]]
 name = "broker-control"
 version = "0.1.0"
+source = "git+https://github.com/graphit-labs/graphit-broker.git?rev=d048f5694559f0e5d5d92eec490953d90354bb15#d048f5694559f0e5d5d92eec490953d90354bb15"
 dependencies = [
  "base64 0.22.1",
  "broker-now-wire",
@@ -1517,6 +1518,7 @@ dependencies = [
 [[package]]
 name = "broker-now-wire"
 version = "0.1.0"
+source = "git+https://github.com/graphit-labs/graphit-broker.git?rev=d048f5694559f0e5d5d92eec490953d90354bb15#d048f5694559f0e5d5d92eec490953d90354bb15"
 dependencies = [
  "serde",
  "serde_json",
@@ -1526,6 +1528,7 @@ dependencies = [
 [[package]]
 name = "broker-presence"
 version = "0.1.0"
+source = "git+https://github.com/graphit-labs/graphit-broker.git?rev=d048f5694559f0e5d5d92eec490953d90354bb15#d048f5694559f0e5d5d92eec490953d90354bb15"
 dependencies = [
  "axum",
  "broker-control",
@@ -1553,6 +1556,7 @@ dependencies = [
 [[package]]
 name = "broker-security"
 version = "0.1.0"
+source = "git+https://github.com/graphit-labs/graphit-broker.git?rev=d048f5694559f0e5d5d92eec490953d90354bb15#d048f5694559f0e5d5d92eec490953d90354bb15"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1568,6 +1572,7 @@ dependencies = [
 [[package]]
 name = "broker-storage"
 version = "0.1.0"
+source = "git+https://github.com/graphit-labs/graphit-broker.git?rev=d048f5694559f0e5d5d92eec490953d90354bb15#d048f5694559f0e5d5d92eec490953d90354bb15"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -1601,6 +1606,7 @@ dependencies = [
 [[package]]
 name = "broker-store"
 version = "0.1.0"
+source = "git+https://github.com/graphit-labs/graphit-broker.git?rev=d048f5694559f0e5d5d92eec490953d90354bb15#d048f5694559f0e5d5d92eec490953d90354bb15"
 
 [[package]]
 name = "bs58"

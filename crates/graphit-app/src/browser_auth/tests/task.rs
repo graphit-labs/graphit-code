@@ -254,40 +254,53 @@ async fn cookie_reads_reopened_native_task_session_dates_dependencies_and_cursor
         .expect("browser fixture has a session cookie");
     assert!(!cookie_value.is_empty());
     assert!(!rendered.contains(cookie_value));
-    if let Some(directory) = std::env::var_os("GRAPHIT_TASK_BROWSER_UI_DIR") {
-        let output = tokio::time::timeout(
-            Duration::from_secs(60),
-            tokio::process::Command::new("npm")
-                .kill_on_drop(true)
-                .args([
-                    "exec",
-                    "--",
-                    "vitest",
-                    "run",
-                    "src/components/task/TaskBrowserNative.test.tsx",
-                ])
-                .current_dir(directory)
-                .env("GRAPHIT_TASK_BROWSER_ORIGIN", &fixture.origin)
-                .env("GRAPHIT_TASK_BROWSER_COOKIE", &cookie)
-                .env(
-                    "GRAPHIT_TASK_BROWSER_PROJECT_ID",
-                    context["project_id"].as_str().unwrap(),
-                )
-                .output(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(
-            output.status.success(),
-            "Native UI consumer failed: {}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        println!("{}", String::from_utf8_lossy(&output.stdout));
-    }
     fixture.finish_tasks().await;
 }
+
+#[tokio::test]
+#[ignore = "native Task Browser qualification requires Node and prepared UI dependencies"]
+async fn task_browser_ui_reads_authorized_native_records() {
+    let directory = std::env::var_os("GRAPHIT_TASK_BROWSER_UI_DIR")
+        .expect("set GRAPHIT_TASK_BROWSER_UI_DIR to the prepared UI directory");
+    let (_temp, tasks, raw) = browser_fixture();
+    seed(&tasks, &raw).await;
+    tasks.shutdown().await.unwrap();
+    let tasks = reopen_browser(&tasks);
+    let selection = browser_selection(&tasks);
+    let fixture = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
+    let cookie = fixture.login().await;
+    let output = tokio::time::timeout(
+        Duration::from_secs(60),
+        tokio::process::Command::new("npm")
+            .kill_on_drop(true)
+            .args([
+                "test",
+                "--",
+                "src/components/task/TaskBrowserNative.test.tsx",
+            ])
+            .current_dir(directory)
+            .env("npm_config_offline", "true")
+            .env("GRAPHIT_QUALIFY_TASK_BROWSER", "1")
+            .env("GRAPHIT_TASK_BROWSER_ORIGIN", &fixture.origin)
+            .env("GRAPHIT_TASK_BROWSER_COOKIE", &cookie)
+            .env(
+                "GRAPHIT_TASK_BROWSER_PROJECT_ID",
+                selection["project_id"].as_str().unwrap(),
+            )
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    fixture.finish_tasks().await;
+    assert!(
+        output.status.success(),
+        "Native UI consumer failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[tokio::test]
 async fn fresh_project_denial_provider_removal_and_browser_boundaries_precede_storage() {
     let (_temp, tasks, raw) = browser_fixture();

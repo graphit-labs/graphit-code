@@ -15,6 +15,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // Each fork owns a DOM. Keep the default pool small enough for component
+    // interactions to finish reliably alongside native builds.
+    minWorkers: 1,
+    maxWorkers: 2,
   },
   build: {
     outDir: 'dist',

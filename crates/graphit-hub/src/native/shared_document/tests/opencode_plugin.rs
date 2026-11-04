@@ -129,6 +129,8 @@ if(module.default.id !== 'graphit-context' || typeof cleanup !== 'function') thr
     let result = Command::new("node")
         .arg(file)
         .current_dir(&f.root)
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
         .output()
         .unwrap();
     assert!(

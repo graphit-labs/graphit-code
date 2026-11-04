@@ -508,7 +508,7 @@ async fn fenced_and_ordinary_authority_boundaries_cancel_deadline_revoke() {
             ProjectWriteOperation::FencedMemory,
         )
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    tokio::time::sleep_until(deadline.snapshot().deadline().unwrap().into()).await;
     assert!(matches!(
         NativeMemoryStore::reobserve_fenced_mutation(
             deadline.snapshot(),
@@ -1264,7 +1264,7 @@ async fn fenced_importance_denies_wrong_admission_original_cancel_deadline_and_r
             ProjectWriteOperation::FencedMemory,
         )
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    tokio::time::sleep_until(deadline.snapshot().deadline().unwrap().into()).await;
     for desired in [false, true] {
         assert!(matches!(
             set_importance(

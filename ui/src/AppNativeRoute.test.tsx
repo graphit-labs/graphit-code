@@ -3,7 +3,7 @@ import '@/test/contextControls'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hubNative } from '@/api/hubNative'
 import { catalog, installedPage, projectA, projectB } from '@/components/hub/hubTestFixtures'
 import { taskApi } from '@/api/task'
@@ -28,11 +28,19 @@ vi.mock('./components/wiki/WikiContextsPage', () => ({ default: Reader }))
 vi.mock('./components/layout/Sidebar', () => ({ Sidebar: () => null, MobileSidebar: () => null }))
 vi.mock('./components/layout/AuthIdentity', () => ({ AuthIdentity: () => <span>Signed-in identity</span> }))
 beforeEach(() => {
-  vi.clearAllMocks()
   stopTaskWorkspace()
+  readers.list.mockReset().mockResolvedValue(undefined)
+  readers.detail.mockReset().mockResolvedValue(undefined)
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })))
   window.history.replaceState(null, '', '/memory/explorer/user/memory1?scope_id=literal-user-scope')
+  useAppStore.setState(useAppStore.getInitialState(), true)
   useAppStore.setState({ activeProjectDir: '/project', activeProjectVersion: 'project-version', activeAgent: 'codex', projectsLoaded: true, projectsError: '', projects: [], supportedAgents: [], loadProjects: vi.fn(async () => {}) })
+})
+afterEach(() => {
+  cleanup()
+  stopTaskWorkspace()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('USER Memory route and header boundary', () => {
@@ -124,6 +132,14 @@ it('keeps installed Hub global across project changes and refreshes only its own
 })
 
 describe('FILE Hub real App routes', () => {
+  beforeAll(async () => {
+    // Load the real route modules before measuring any UI interaction.
+    await Promise.all([
+      import('./components/hub/RegistryPage'),
+      import('./components/hub/ProjectArtifactsPage'),
+      import('./components/hub/UploadPage'),
+    ])
+  })
   beforeEach(() => {
     useAppStore.setState({ webMode: true, apiBase: '/api', activeProjectOrigin: 'hub', activeProjectKey: 'hub:' + projectA,
       activeProjectId: projectA, activeProjectDir: '', activeProjectVersion: 'release/a', activeAgent: 'kiro-v3',
@@ -136,8 +152,6 @@ describe('FILE Hub real App routes', () => {
     vi.spyOn(hubNative, 'search').mockResolvedValue(catalog)
     vi.spyOn(hubNative, 'installed').mockImplementation(async query => ({ ...installedPage(), scope: query.scope }))
   })
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
-
   it.each([['/hub/registry', 'Hub registry'], ['/hub/local', 'Installed artifacts']])('opens %s using authorized Hub contexts and the real header', async (path, title) => {
     window.history.replaceState(null, '', path)
     render(<App />)

@@ -848,13 +848,8 @@ async fn raw_named_branch_custom_layers_empty_ignore_and_late_error()
             .await?
             .is_none()
     );
-    let before = LanceBranchStore::open(uri.to_str().unwrap(), source_schema(), None)
-        .await?
-        .capture_target(Some(&branch))
-        .await?
-        .version();
-    // The first valid row can be streamed, but a later invalid FILE must prevent publication.
-    std::fs::write(project.root().join("a.custom"), "must not publish")?;
+    // A complete file is visible even if a later file cannot be decoded.
+    std::fs::write(project.root().join("a.custom"), "new valid source")?;
     std::fs::write(project.root().join("z.custom"), [0xff])?;
     let failure = job
         .index(&project, &selected, rescan(), &cancel)
@@ -870,15 +865,9 @@ async fn raw_named_branch_custom_layers_empty_ignore_and_late_error()
         original_utf8,
         "the original FILE UTF-8 cause must survive the SDK stream: {failure:?}"
     );
-    let after = LanceBranchStore::open(uri.to_str().unwrap(), source_schema(), None)
-        .await?
-        .capture_target(Some(&branch))
-        .await?
-        .version();
-    assert_eq!(before, after);
     assert_eq!(
         observed_branch_text(&uri, Some(&branch), "a.custom", startup.snapshot()).await?,
-        Some("original custom".into())
+        Some("new valid source".into())
     );
     assert_eq!(
         observed_branch_text(&uri, Some(&branch), "z.custom", startup.snapshot()).await?,
@@ -922,8 +911,8 @@ async fn raw_direct_existing_job_noop_null_cancel_and_project_switches()
         ..Default::default()
     };
     let uri = project.project_runtime(selected.id, &["ast", "source.lance"])?;
-    // An actual failed full scan leaves no published Main. The next event only
-    // mentions A, but first publication still needs unchanged B's complete image.
+    // A's successful parse becomes visible before B's invalid bytes fail the
+    // full pass. The corrected B can publish independently through a delta.
     let failed = job
         .index(&project, &selected, rescan(), &cancel)
         .await
@@ -944,10 +933,14 @@ async fn raw_direct_existing_job_noop_null_cancel_and_project_switches()
         original_utf8,
         "the initial full scan retains the original FILE UTF-8 cause: {failure:?}"
     );
-    assert!(!uri.exists());
+    assert_eq!(
+        observed_text(&uri, "a.rs", startup.snapshot()).await?,
+        Some("fn original() {}".into())
+    );
+    assert_eq!(observed_text(&uri, "b.rs", startup.snapshot()).await?, None);
     std::fs::write(project.root().join("b.rs"), "fn unchanged() {}")?;
     let delta = graphit_daemon::watcher::ChangeBatch {
-        paths: std::collections::BTreeSet::from([project.root().join("a.rs")]),
+        paths: std::collections::BTreeSet::from([project.root().join("b.rs")]),
         ..Default::default()
     };
     let first = job.index(&project, &selected, delta, &cancel).await?;
@@ -956,7 +949,7 @@ async fn raw_direct_existing_job_noop_null_cancel_and_project_switches()
     assert_eq!(
         observed_text(&uri, "b.rs", request.snapshot()).await?,
         Some("fn unchanged() {}".into()),
-        "first incremental event must publish the complete selected Main"
+        "the repaired file is visible after its incremental event"
     );
     // Graph reconstructs all of that Raw image, even with NN disabled.
     job.index_semantic(
@@ -1175,6 +1168,7 @@ fn observed_antlr_publication(
                     .block_on(rows.try_next())
                     .map_err(io::Error::other)?
                 {
+                    let batch = graphit_ast::corpus::vectors(&batch, &model, original.snapshot())?;
                     graphit_ast::native_nn::validate_native_nn(&batch, &model, original.snapshot())
                         .map_err(io::Error::other)?;
                     let text = |name| {
@@ -1255,7 +1249,7 @@ async fn foreground_antlr_db2_oracle_graph_search_nn_incremental_and_reuse()
         foreground_memory_jobs::MemoryJobResources,
     };
     use graphit_daemon::supervisor::ProjectContext;
-    let (_storage, mut owner, tasks, credential, _) =
+    let (mut storage, mut owner, tasks, credential, _) =
         super::foreground_memory_jobs_tests::browser_search_fixture().await;
     let selected = owner.projects.as_ref().unwrap()[0].clone();
     let cancellation = Cancellation::default();
@@ -1508,7 +1502,7 @@ async fn foreground_antlr_db2_oracle_graph_search_nn_incremental_and_reuse()
             .await?
             .is_none()
     );
-    owner.memory_jobs.as_mut().unwrap().shutdown().await?;
+    super::foreground_memory_jobs_tests::stop_browser_model(&mut storage, &mut owner).await;
     assert!(
         tokio::net::TcpStream::connect(resources.local.as_ref().unwrap().address)
             .await

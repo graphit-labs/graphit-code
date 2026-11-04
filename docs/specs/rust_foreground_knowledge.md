@@ -178,24 +178,20 @@ handler já aceito retido pelo transporte até seu deadline finito.
 | Seleção bem formada, mas não retida | HTTP404 antes de PROJECT. |
 | Broker responde grant de outro módulo | HTTP502, sem acesso ao SDK. |
 | Corpus inválido, SDK ou limite de leitura/saída | HTTP500 causal, sem `native` saudável. |
-| Página e referências do mesmo corpus Knowledge observadas em gerações diferentes | HTTP409 `knowledge_generation_changed`, sem resposta parcial ou retry automático. |
 | Deadline, cancelamento ou parada | Falha causal atual, sem dados tardios. |
 
 ## Binding de referências da página
 
-Uma página `found` observa `focused_source` pelo leitor nativo de referências,
-com outgoing do slug literal e page_size 1. Página e metadata usam a mesma
-Original e admissão Knowledge; o servidor exige igualdade de `KnowledgeGeneration`
-do mesmo corpus, branch e versão antes de serializar. Isso não compara gerações
-de Task, Memory, Raw ou embeddings. Uma alteração concorrente do corpus não
-mistura body de uma geração com namespace/witness de outra.
+Uma página `found` lê o documento do slug solicitado. O leitor devolve
+`focused_source` com a projeção de referências armazenada no próprio documento,
+na mesma leitura do corpo. O pedido usa a autorização Knowledge e a versão do
+projeto selecionada.
 
 `focused_source` conserva os seis campos do SDK: `slug`, `title`, `source_path`,
 `compilation_digest`, `namespace` e `witness`. Zero arestas com projeção presente
-mantém namespace e witness. Projeção ausente mantém metadata com namespace/witness
-null e continua incompleta: seleção PROJECT, título, slug e body não fornecem
-um namespace substituto. Heads, NoCorpus, PageAbsent e PublishedEmpty devolvem
-focused_source null, preservando seus estados nativos.
+mantém namespace e witness. Uma página sem projeção conserva seus campos no
+documento e devolve `focused_source: null`. Heads, NoCorpus, PageAbsent e
+PublishedEmpty também devolvem `focused_source: null`.
 
 O envelope é uma observação para navegação, sem autoridade. O cliente conserva
 SourceKey, seleção e slug e usa somente namespace observado para construir o

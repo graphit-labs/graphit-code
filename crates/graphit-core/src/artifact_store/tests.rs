@@ -4350,18 +4350,23 @@ fn readable_copy_noop_at_manifest_cap_needs_no_hypothetical_inspect_journal() {
 
 #[cfg(target_os = "linux")]
 #[test]
+#[ignore = "native cross-device qualification requires Linux mount namespaces and /dev/shm"]
 fn publication_between_devices_uses_local_wrappers_and_recovers_relocations() {
     const CHILD: &str = "GRAPHIT_ARTIFACT_CROSS_DEVICE_CHILD";
+    const CASE: &str = "artifact_store::tests::publication_between_devices_uses_local_wrappers_and_recovers_relocations";
     if std::env::var_os(CHILD).is_none() {
         // Mounts exist only in this child namespace, never in the host namespace.
-        let output = Command::new("unshare").args(["--user", "--map-root-user", "--mount"])
+        let output = Command::new("unshare")
+            .args(["--user", "--map-root-user", "--mount"])
             .arg(std::env::current_exe().unwrap())
-            .args(["--exact", "artifact_store::tests::publication_between_devices_uses_local_wrappers_and_recovers_relocations", "--nocapture"])
-            .env(CHILD, "1").output().expect("Linux cross-device suite requires unshare in PATH");
+            .args(["--exact", CASE, "--nocapture", "--include-ignored"])
+            .env(CHILD, "1")
+            .output()
+            .expect("Linux cross-device suite requires unshare in PATH");
+        let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
-            output.status.success(),
-            "cross-device child failed: {}{}",
-            String::from_utf8_lossy(&output.stdout),
+            output.status.success() && stdout.contains("1 passed"),
+            "cross-device child did not pass: {stdout}{}",
             String::from_utf8_lossy(&output.stderr)
         );
         return;

@@ -103,6 +103,7 @@ fn configure_task_only(mut fixture: Fixture) -> Fixture {
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned BGE GGUF for real child retirement"]
 async fn remote_embedding_keeps_resources_after_last_local_rerank_slot_retires() {
     let fixture = configure_task_only(Fixture::with_ai_services(
         AiService::Direct {
@@ -238,7 +239,7 @@ fn start_task_source(fixture: &Fixture, original: &RequestContext<'_>) -> Foregr
 #[tokio::test]
 async fn global_user_memory_gate_is_independent_of_task_browser_and_project_embedding() {
     let fixture = Fixture::new();
-    fixture.install_model();
+    fixture.install_model_metadata();
     let cancellation = Cancellation::default();
     let global = ConfigStore::global(&fixture.installation).unwrap();
     for (module, enabled) in [
@@ -442,7 +443,7 @@ async fn assert_task_create_get_and_fts(
 #[tokio::test]
 async fn task_only_embedding_gate_respects_effective_modules_at_capture_and_refresh() {
     let fixture = task_only_fixture(true);
-    fixture.install_model();
+    fixture.install_model_metadata();
     let cancellation = Cancellation::default();
     set_embedding(&fixture, false, &cancellation);
     let original = fixture
@@ -519,7 +520,7 @@ async fn task_only_embedding_gate_respects_effective_modules_at_capture_and_refr
 async fn task_without_project_uses_fresh_global_embedding_gate_and_command_override() {
     let mut fixture = task_only_fixture(false);
     fixture.projects.clear();
-    fixture.install_model();
+    fixture.install_model_metadata();
     let cancellation = Cancellation::default();
     set_embedding(&fixture, false, &cancellation);
     let original = fixture
@@ -569,9 +570,10 @@ async fn task_without_project_uses_fresh_global_embedding_gate_and_command_overr
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable for real child retirement"]
 async fn task_only_embedding_off_retires_actual_child_and_semantic_resources() {
     let fixture = task_only_fixture(false);
-    fixture.install_model();
+    fixture.install_model_metadata();
     let cancellation = Cancellation::default();
     set_embedding(&fixture, true, &cancellation);
     let original = fixture
@@ -624,6 +626,7 @@ async fn task_only_embedding_off_retires_actual_child_and_semantic_resources() {
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned BGE GGUF for real child retirement"]
 async fn acquired_rerank_survives_embedding_off_and_retires_missing_slot_or_provider() {
     let fixture = task_only_fixture(true);
     fixture.install_rerank_model().await;

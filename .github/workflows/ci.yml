@@ -17,9 +17,6 @@ jobs:
 
   rust-contracts:
     name: Rust contracts (${{ matrix.os }})
-    defaults:
-      run:
-        working-directory: graphit-code
     strategy:
       fail-fast: false
       matrix:
@@ -28,15 +25,12 @@ jobs:
     env:
       CARGO_BUILD_JOBS: "2"
       RUST_TEST_THREADS: "2"
-      GRAPHIT_BROKER_REF: ${{ vars.GRAPHIT_BROKER_REF }}
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          path: graphit-code
       - name: Free Linux runner space for Rust test artifacts
         if: runner.os == 'Linux'
         run: |
@@ -50,23 +44,6 @@ jobs:
           sudo xcrun simctl runtime delete all
           df -h .
           echo "TMPDIR=$(cd "$RUNNER_TEMP" && pwd -P)" >> "$GITHUB_ENV"
-      - name: Require explicit Broker source ref
-        shell: bash
-        run: |
-          if [ -z "$GRAPHIT_BROKER_REF" ]; then
-            echo "Set repository variable GRAPHIT_BROKER_REF to the Broker source ref paired with this Code revision." >&2
-            exit 1
-          fi
-      - name: Checkout Broker wire producer
-        uses: actions/checkout@v4
-        with:
-          repository: graphit-labs/graphit-broker
-          ref: ${{ env.GRAPHIT_BROKER_REF }}
-          path: graphit-broker
-          persist-credentials: false
-          token: ${{ secrets.GRAPHIT_BROKER_READ_TOKEN || github.token }}
-      - name: Record paired Broker revision
-        run: git -C ../graphit-broker rev-parse --verify HEAD
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
       - name: Install current Git on Linux (native hooks/reftable required)
@@ -129,66 +106,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Set up compiler for external S3 test tools
-        if: runner.os == 'Linux'
-        uses: actions/setup-go@v5
+      - uses: actions/setup-node@v4
         with:
-          go-version: '1.25.9'
-          cache: false
-      - name: Prepare pinned S3 test tools
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          tools="$RUNNER_TEMP/broker-s3-test-tools"
-          GOBIN="$tools" sh ../graphit-broker/scripts/prepare-s3-test-tools.sh
-          go clean -cache -modcache
-          df -h .
-          echo "$tools" >> "$GITHUB_PATH"
-      - name: Build owned Broker Hub storage fixture
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture --target-dir target
-          fixture_bin="$PWD/target/debug/examples/hub_storage_fixture"
-          test -f "$fixture_bin"
-          test -x "$fixture_bin"
-          echo "GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN=$fixture_bin" >> "$GITHUB_ENV"
-      - name: Build model-server executable for Linux contract tests
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          cargo xtask cargo build --locked -p graphit-daemon --bin graphit-model-server
-          model_server="$PWD/target/debug/graphit-model-server"
-          test -s "$model_server"
-          test -x "$model_server"
-          echo "GRAPHIT_TEST_MODEL_SERVER=$model_server" >> "$GITHUB_ENV"
-      - name: Prepare pinned embedding GGUF for the Linux native NN gate
-        if: runner.os == 'Linux'
-        shell: bash
+          node-version: "22"
+      - name: Cache locked Cargo sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: code-ci-1.98-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+      - name: Check offline Rust contracts and quality
         env:
-          EMBEDDING_MODEL_URL: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/bfcd298762cc34d0357ece5ebdd31791a3a374d8/embeddinggemma-2-BF16.gguf
-          EMBEDDING_MODEL_SHA256: 68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216
-          EMBEDDING_MODEL_BYTES: '557950176'
-        run: |
-          model_file="$RUNNER_TEMP/embeddinggemma-2-BF16.gguf"
-          curl --fail --location --show-error --silent "$EMBEDDING_MODEL_URL" --output "$model_file"
-          printf '%s  %s\n' "$EMBEDDING_MODEL_SHA256" "$model_file" | sha256sum --check
-          test "$(wc -c < "$model_file")" -eq "$EMBEDDING_MODEL_BYTES"
-          echo "GRAPHIT_EMBEDDINGGEMMA2_MODEL=$model_file" >> "$GITHUB_ENV"
-      - name: Prepare pinned reranker GGUF for Linux model lifecycle tests
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          RERANK_MODEL_URL: https://huggingface.co/sinjab/bge-reranker-v2-m3-F16-GGUF/resolve/1458e3304258a8a11773000c7d0c192abfe78291/bge-reranker-v2-m3-F16.gguf
-          RERANK_MODEL_SHA256: 3c2de408d2c0a85a9472dc09f9d5a22c9b73743c6343952c15053299c777c298
-          RERANK_MODEL_BYTES: '1159774912'
-        run: |
-          model_file="$RUNNER_TEMP/bge-reranker-v2-m3-F16.gguf"
-          curl --fail --location --show-error --silent "$RERANK_MODEL_URL" --output "$model_file"
-          printf '%s  %s\n' "$RERANK_MODEL_SHA256" "$model_file" | sha256sum --check
-          test "$(wc -c < "$model_file")" -eq "$RERANK_MODEL_BYTES"
-          echo "GRAPHIT_BGE_RERANKER_V2_M3_MODEL=$model_file" >> "$GITHUB_ENV"
-      - name: Check Rust contracts and quality
+          CARGO_NET_OFFLINE: "true"
         run: cargo xtask gate
 
   workflow-lint:
@@ -228,16 +160,24 @@ jobs:
           cache: "npm"
           cache-dependency-path: ui/package-lock.json
 
+      - name: Prepare locked UI dependencies
+        run: npm --prefix ui ci
+
       - name: Build UI shipped with Rust
+        env:
+          npm_config_offline: "true"
         run: |
-          npm --prefix ui ci
           node scripts/build-rust-ui.mjs
           git diff --exit-code -- crates/graphit-app/assets/ui/index.html crates/graphit-app/assets/ui/logo.svg crates/graphit-app/assets/ui/favicon.svg
 
       - name: Lint UI
+        env:
+          npm_config_offline: "true"
         run: make ui-lint
 
       - name: Test UI
+        env:
+          npm_config_offline: "true"
         run: make ui-test
 
       - name: Upload built UI

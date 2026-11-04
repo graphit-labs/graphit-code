@@ -87,17 +87,18 @@ success does not authorize a commit or push.
 
 ```text
 pre-commit: git diff --cached --check → actionlint → cargo xtask check
-pre-push:   cargo xtask gate
+pre-push:   cargo xtask check → strict workspace Clippy → locked xtask tests
 ```
 
 `pre-commit` enforces native safety, staged whitespace, workflow lint and Rust formatting.
-`pre-push` runs strict workspace Clippy and the locked `xtask` tests. CI runs
-the Rust contracts, React checks and workflow validation. Release packaging
-runs in its own workflow.
+`pre-push` runs strict workspace Clippy and the locked `xtask` tests. After
+`cargo fetch --locked`, run `cargo --offline xtask gate` for the standard Rust
+checks or `make test TEST=graphit-ast/source_ranges` for an affected suite.
+CI also runs the React checks and workflow validation. Release packaging
+and native model/S3 qualification use the separate release workflow.
 See the [product architecture guide](docs/development/product-architecture.md)
 for component boundaries and validation commands. The [Rust workspace
-guide](docs/development/rust-workspace.md) explains the sibling Broker checkout
-required by the shared Now wire crate.
+guide](docs/development/rust-workspace.md) explains how Cargo prepares the locked shared Now wire crate.
 
 ## The Graphit Observatory
 

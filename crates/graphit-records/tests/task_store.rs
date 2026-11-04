@@ -18,6 +18,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+async fn wait_for_task_lease_expiry(task: &Task) {
+    let expires =
+        std::time::UNIX_EPOCH + Duration::from_millis(task.ownership.lease_expires_at.unwrap());
+    if let Ok(remaining) = expires.duration_since(std::time::SystemTime::now()) {
+        tokio::time::sleep(remaining).await;
+    }
+}
+
 fn session_input(key: &str) -> CreateSession {
     CreateSession {
         idempotency_key: key.into(),
@@ -1186,7 +1194,7 @@ async fn competing_actor_and_expired_lease_reclaim_rotate_epoch() {
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    wait_for_task_lease_expiry(&short.record).await;
     assert!(matches!(
         NativeTaskStore::heartbeat_task(
             ctx.snapshot(),
@@ -2233,14 +2241,7 @@ async fn specification_mutations_reject_wrong_fences_expiry_and_cancelled_origin
     let view = NativeTaskStore::read_view(ctx.snapshot(), &read, read_limits())
         .await
         .unwrap();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-    tokio::time::sleep(Duration::from_millis(
-        task.ownership.lease_expires_at.unwrap().saturating_sub(now) + 1,
-    ))
-    .await;
+    wait_for_task_lease_expiry(&task).await;
     assert!(matches!(
         NativeTaskStore::verify_task_check(
             ctx.snapshot(),

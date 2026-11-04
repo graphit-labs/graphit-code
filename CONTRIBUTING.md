@@ -104,24 +104,31 @@ make ui-test
 make ui
 ```
 
-Tests must own temporary isolated state and avoid real user home mutation. Integration fixtures
-may use owned local services and loopback networking when required by the actual contract;
-document their prerequisites and join their processes on failure and cancellation. Keep concrete
-input/output limits and test current behavior and non-obvious invariants; do not add
-environment-gated suites, production test switches, historical regression narratives, or duplicated
-coverage.
+Tests own temporary state and close resources before returning. Use the
+smallest scenario that exercises the guarantee. Keep real project components
+where they own the behavior and use controlled loopback peers for external
+protocols. Use events to coordinate concurrent operations and assert the
+response, error or persistent effect.
 
-The maintained [CI workflow](.github/workflows/ci.yml) runs Rust contracts on Linux, macOS and
-Windows with `cargo xtask gate` and `cargo xtask verify-guards`. Its UI job
-uses Node.js 22 and `make ui`, `make ui-lint` and `make ui-test`; a separate job validates all workflow
-files with the checksum-verified official actionlint binary. The obsolete Go quality jobs have been
-retired. See [Rust checks and Git hooks](docs/development/rust-fast-guard.md) for the current commands.
+The device login tests illustrate the boundary. Broker runs its actual HTTP
+server with a private SQLite database and checks pending, approved, denied
+and expired codes plus the resulting access token. Code runs its own CLI
+against a loopback OAuth peer and checks the request, JWT validation and
+persisted identity. Each workspace can exercise its side independently.
 
-The [release workflow](.github/workflows/release.yml) runs the Rust gate before native packaging.
-Both workflows require an explicit `GRAPHIT_BROKER_REF` paired with the Code revision. Release
-builds and native runtime qualification remain platform-specific; a local Linux result does not
-qualify macOS, Windows or a hosted CI run. Follow the native packaging guide for `make release`,
-product version metadata and installable assets.
+```bash
+cargo fetch --locked
+cargo --offline xtask gate
+```
+
+The [CI workflow](.github/workflows/ci.yml) runs this Rust suite on Linux, macOS
+and Windows. The UI job prepares locked Node.js dependencies before running
+the frontend checks. See [Rust checks and Git hooks](docs/development/rust-fast-guard.md)
+for targeted tests and external fixture qualification.
+
+The [release workflow](.github/workflows/release.yml) owns package and platform
+qualification. The [native packaging guide](docs/development/native-runtime-packaging.md)
+describes `make release`, product version metadata and installable assets.
 
 ## Documentation and UI
 

@@ -15,7 +15,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpSocket},
 };
 use tokio_tungstenite::{
     accept_async,
@@ -305,7 +305,7 @@ async fn original_cancel_deadline_and_abandoned_read_end_the_native_socket() {
         });
         let signal = Cancellation::default();
         let duration = if mode == "deadline" {
-            Duration::from_millis(60)
+            Duration::from_millis(250)
         } else {
             Duration::from_secs(3)
         };
@@ -386,11 +386,16 @@ async fn service_original_keeps_socket_active_until_real_cancellation() {
 #[tokio::test]
 async fn oversized_or_abandoned_send_is_terminal_without_flushing_pending_data() {
     for oversized in [true, false] {
-        let (listener, url) = listen().await;
+        let listener = TcpSocket::new_v4().unwrap();
+        listener.set_recv_buffer_size(4096).unwrap();
+        listener.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let listener = listener.listen(1).unwrap();
+        let url = format!("http://{}/v1/realtime", listener.local_addr().unwrap());
+        let (check_peer, after_send) = tokio::sync::oneshot::channel();
         let peer = tokio::spawn(async move {
             let (socket, _) = listener.accept().await.unwrap();
             let mut socket = accept_async(socket).await.unwrap();
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            after_send.await.unwrap();
             let received = tokio::time::timeout(Duration::from_secs(2), socket.next())
                 .await
                 .unwrap();
@@ -428,6 +433,7 @@ async fn oversized_or_abandoned_send_is_terminal_without_flushing_pending_data()
             socket.send(Message::Text("x".into())).await,
             Err(WebSocketError::Closed)
         ));
+        check_peer.send(()).unwrap();
         peer.await.unwrap();
     }
 }

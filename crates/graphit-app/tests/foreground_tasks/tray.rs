@@ -107,7 +107,13 @@ async fn private_bus(test_name: &str) -> bool {
         Command::new("dbus-run-session")
             .arg("--")
             .arg(exe)
-            .args(["--exact", &test_name, "--nocapture", "--test-threads=1"])
+            .args([
+                "--exact",
+                &test_name,
+                "--include-ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
             .env("GRAPHIT_PRIVATE_TRAY_BUS", "1")
             .output()
             .unwrap()
@@ -119,6 +125,10 @@ async fn private_bus(test_name: &str) -> bool {
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed;"),
+        "private D-Bus child did not run its selected test"
     );
     false
 }
@@ -163,6 +173,7 @@ async fn status(fixture: &Prepared) -> graphit_app::daemon_control::Reply {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "native desktop qualification requires dbus-run-session and dbus-daemon"]
 async fn late_watcher_registers_the_existing_tray_and_signal_preserves_the_headless_daemon() {
     if !private_bus(
         "tray::late_watcher_registers_the_existing_tray_and_signal_preserves_the_headless_daemon",
@@ -390,6 +401,7 @@ async fn runtime_command(fixture: &Prepared, arguments: &[&str]) -> std::process
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "native desktop qualification requires dbus-run-session and dbus-daemon"]
 async fn native_menu_login_quit_failure_recovery_and_signal_join_use_real_consumers() {
     if !private_bus(
         "tray::native_menu_login_quit_failure_recovery_and_signal_join_use_real_consumers",
@@ -552,7 +564,7 @@ async fn native_menu_login_quit_failure_recovery_and_signal_join_use_real_consum
             .expect("native login did not announce authorization");
         let callback = native.callback(authorization);
         assert!(
-            client()
+            oauth::loopback_client()
                 .get(callback)
                 .send()
                 .await
@@ -596,7 +608,8 @@ async fn native_menu_login_quit_failure_recovery_and_signal_join_use_real_consum
         click(&menu, "tray-profile").await;
         let (authorization, _cancelled_window) = opened_url(&announcements, &menu).await;
         let callback = native.callback(&authorization);
-        let callback = tokio::spawn(async move { client().get(callback).send().await });
+        let callback =
+            tokio::spawn(async move { oauth::loopback_client().get(callback).send().await });
         tokio::time::timeout(Duration::from_secs(20), native.state.started.notified())
             .await
             .unwrap();

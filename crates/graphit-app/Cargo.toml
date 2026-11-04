@@ -108,9 +108,9 @@ zbus = { version = "=5.13.2", default-features = false, features = ["tokio"] }
 tarpc = { version = "=0.38.0", default-features = false }
 tree-sitter-rust = "=0.24.2"
 tree-sitter-json = "=0.24.8"
-broker-presence = { path = "../../../graphit-broker/crates/broker-presence", version = "=0.1.0" }
-broker-control = { path = "../../../graphit-broker/crates/broker-control", version = "=0.1.0" }
-broker-security = { path = "../../../graphit-broker/crates/broker-security", version = "=0.1.0" }
+broker-presence.workspace = true
+broker-control.workspace = true
+broker-security.workspace = true
 rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 sqlx-core = { version = "=0.9.0", default-features = false, features = ["json", "_rt-tokio", "_tls-rustls-ring-webpki"] }
 sqlx-postgres = { version = "=0.9.0", default-features = false, features = ["json"] }

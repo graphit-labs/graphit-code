@@ -88,7 +88,7 @@ pub(crate) fn selection(server: &TaskServer, selected: usize) -> Value {
     json!({"project_dir":graphit_core::native_path::NativePath::new(paths.root().to_owned()).unwrap(),"project_id":id,"project_version":version.version()})
 }
 
-fn manifest_files(server: &TaskServer) -> Vec<std::path::PathBuf> {
+pub(crate) fn corrupt_manifest(server: &TaskServer) {
     let cancellation = Cancellation::default();
     let original = RequestContext::new(
         server.0.policy.content,
@@ -103,7 +103,10 @@ fn manifest_files(server: &TaskServer) -> Vec<std::path::PathBuf> {
     let scope =
         CapturedPublicationScope::project(paths, *id, server.0.policy.scope, original.snapshot())
             .unwrap();
-    let versions = scope.runtime_root().join("memory/index.lance/_versions");
+    corrupt_lance_manifests(&scope.runtime_root().join("memory/index.lance/_versions"));
+}
+
+pub(super) fn corrupt_lance_manifests(versions: &std::path::Path) {
     let mut files = std::fs::read_dir(versions)
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -111,10 +114,7 @@ fn manifest_files(server: &TaskServer) -> Vec<std::path::PathBuf> {
         .collect::<Vec<_>>();
     assert!(!files.is_empty());
     files.sort();
-    files
-}
-pub(crate) fn corrupt_manifest(server: &TaskServer) {
-    for file in manifest_files(server) {
+    for file in files {
         let mut data = std::fs::read(&file).unwrap();
         let offset =
             u64::from_le_bytes(data[data.len() - 16..data.len() - 8].try_into().unwrap()) as usize;
@@ -154,10 +154,4 @@ pub(crate) fn with_named_version(server: &TaskServer, name: &str) -> TaskServer 
         CancellationToken::new(),
     )
     .unwrap()
-}
-
-pub(crate) fn corrupt_short_manifest(server: &TaskServer) {
-    for file in manifest_files(server) {
-        std::fs::write(file, b"invalid actual SDK manifest").unwrap();
-    }
 }

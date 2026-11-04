@@ -33,6 +33,30 @@ struct Args {
 fn command(args: &[&str]) -> auth_cli::Command {
     Args::parse_from(std::iter::once("graphit").chain(args.iter().copied())).command
 }
+
+async fn first_admin_event(response: &mut reqwest::Response) -> Vec<u8> {
+    assert!(response.status().is_success(), "{}", response.status());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut frame = Vec::new();
+        loop {
+            let part = response
+                .chunk()
+                .await
+                .unwrap()
+                .expect("authentication stream ended before the first event");
+            let end = part.iter().position(|byte| *byte == b'\n');
+            let bytes = &part[..end.unwrap_or(part.len())];
+            assert!(frame.len() + bytes.len() <= 4096, "oversized auth event");
+            frame.extend_from_slice(bytes);
+            if end.is_some() {
+                break frame;
+            }
+        }
+    })
+    .await
+    .expect("authentication stream did not produce an event")
+}
+
 struct Fixture {
     temp: tempfile::TempDir,
     paths: InstallationPaths,
@@ -44,14 +68,15 @@ impl Fixture {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let brand = Brand::new(env!("GRAPHIT_COMPILED_BUILD_BRAND")).unwrap();
+        let base = fs::canonicalize(temp.path()).unwrap();
         let paths = InstallationPaths::resolve(
             brand.clone(),
-            temp.path(),
+            &base,
             None,
-            Some(&temp.path().join("installation")),
+            Some(&base.join("installation")),
         )
         .unwrap();
-        let root = temp.path().join("project");
+        let root = base.join("project");
         fs::create_dir(&root).unwrap();
         let project = ProjectPaths::at(&root, &paths).unwrap();
         ProjectIdentityStore::at(&project)
@@ -123,7 +148,7 @@ impl Fixture {
         let code = auth_active::run_if_active(
             &command(args),
             &self.paths,
-            &reqwest::Client::new(),
+            &loopback_client(),
             self.limits(),
             self.policy.content().max_output_bytes,
             &original,
@@ -164,23 +189,19 @@ impl Fixture {
         format!("http://{address}{ROUTE}")
     }
     async fn executable(&self, args: &[&str]) -> std::process::Output {
-        let binary = env!("CARGO_BIN_EXE_graphit");
-        let cwd = self.temp.path().to_owned();
-        let root = self.paths.root().to_owned();
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        tokio::task::spawn_blocking(move || {
-            std::process::Command::new(binary)
-                .current_dir(cwd)
-                .env_clear()
-                .arg("--global-dir")
-                .arg(root)
-                .arg("--non-interactive")
-                .args(args)
-                .output()
-                .unwrap()
-        })
-        .await
-        .unwrap()
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_graphit"));
+        command
+            .current_dir(self.temp.path())
+            .env_clear()
+            .arg("--global-dir")
+            .arg(self.paths.root())
+            .arg("--non-interactive")
+            .args(args)
+            .kill_on_drop(true);
+        tokio::time::timeout(Duration::from_secs(20), command.output())
+            .await
+            .unwrap_or_else(|_| panic!("active authentication CLI timed out: {args:?}"))
+            .unwrap()
     }
     async fn stop(
         &self,
@@ -246,7 +267,7 @@ async fn active_runtime_local_commands_preserve_same_key_cas_redaction_and_denia
         ("local", "admin-private-canary", 403),
         ("broker", "admin-private-canary", 403),
     ] {
-        let response = reqwest::Client::new()
+        let response = loopback_client()
             .post(f.endpoint())
             .header("x-graphit-auth-origin", origin)
             .bearer_auth(bearer)
@@ -267,7 +288,7 @@ async fn active_runtime_local_commands_preserve_same_key_cas_redaction_and_denia
         assert_eq!(response.status().as_u16(), status);
         assert_eq!(fs::read(f.paths.auth_file()).unwrap(), bytes);
     }
-    let response = reqwest::Client::new()
+    let response = loopback_client()
         .post(f.endpoint())
         .header("x-graphit-auth-origin", "runtime")
         .bearer_auth(std::str::from_utf8(&key).unwrap())
@@ -336,7 +357,7 @@ async fn absent_discovery_and_cancelled_original_do_not_replace_active_owner() {
         auth_active::run_if_active(
             &command(&["provider", "list"]),
             &f.paths,
-            &reqwest::Client::new(),
+            &loopback_client(),
             f.limits(),
             f.policy.content().max_output_bytes,
             &original,
@@ -353,7 +374,7 @@ async fn absent_discovery_and_cancelled_original_do_not_replace_active_owner() {
     let error = auth_active::run_if_active(
         &command(&["provider", "list"]),
         &f.paths,
-        &reqwest::Client::new(),
+        &loopback_client(),
         f.limits(),
         f.policy.content().max_output_bytes,
         &original,
@@ -369,7 +390,7 @@ async fn absent_discovery_and_cancelled_original_do_not_replace_active_owner() {
 
 #[path = "support/broker_oauth.rs"]
 mod broker_oauth;
-use broker_oauth::Broker;
+use broker_oauth::{Broker, loopback_client};
 use std::sync::atomic::Ordering;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -411,7 +432,7 @@ async fn active_broker_signed_callback_and_refresh_preserve_native_identity_and_
     let mut announced = Some(announced);
     let mut out = Vec::new();
     let mut err = Vec::new();
-    let client = reqwest::Client::new();
+    let client = loopback_client();
     let work = auth_active::run_if_active(
         &input,
         &f.paths,
@@ -431,7 +452,7 @@ async fn active_broker_signed_callback_and_refresh_preserve_native_identity_and_
     );
     let callback = async {
         let url = broker.callback(&callback.await.unwrap());
-        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        let response = loopback_client().get(url).send().await.unwrap();
         assert!(response.status().is_success());
     };
     let (result, ()) = tokio::join!(work, callback);
@@ -476,7 +497,7 @@ async fn response_eof_and_service_stop_close_owned_native_broker_callback() {
     .await;
     let key = fs::read(f.paths.root().join("daemon/mcp.key")).unwrap();
     let before = fs::read(f.paths.auth_file()).unwrap();
-    let client = reqwest::Client::new();
+    let client = loopback_client();
     let mut response = client
         .post(f.endpoint())
         .header("x-graphit-auth-origin", "runtime")
@@ -496,7 +517,7 @@ async fn response_eof_and_service_stop_close_owned_native_broker_callback() {
         .send()
         .await
         .unwrap();
-    let chunk = response.chunk().await.unwrap().unwrap();
+    let chunk = first_admin_event(&mut response).await;
     let event: graphit_app::admin_auth::Event = serde_json::from_slice(&chunk).unwrap();
     let url = match event {
         graphit_app::admin_auth::Event::AuthorizationUrl { url } => url,
@@ -542,7 +563,7 @@ async fn response_eof_and_service_stop_close_owned_native_broker_callback() {
         .await
         .unwrap();
     let event: graphit_app::admin_auth::Event =
-        serde_json::from_slice(&second.chunk().await.unwrap().unwrap()).unwrap();
+        serde_json::from_slice(&first_admin_event(&mut second).await).unwrap();
     let second_url = match event {
         graphit_app::admin_auth::Event::AuthorizationUrl { url } => url,
         _ => panic!("expected pending URL"),
@@ -621,7 +642,7 @@ async fn compiled_broker_login_announces_checked_url_and_refreshes_through_activ
         .unwrap();
     let callback = broker.callback(announced);
     assert!(
-        reqwest::Client::new()
+        loopback_client()
             .get(callback)
             .send()
             .await
@@ -629,7 +650,10 @@ async fn compiled_broker_login_announces_checked_url_and_refreshes_through_activ
             .status()
             .is_success()
     );
-    let output = child.wait_with_output().await.unwrap();
+    let output = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
+        .await
+        .expect("active Broker login did not exit after the callback")
+        .unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -726,11 +750,13 @@ async fn compiled_device_login_uses_active_http_and_shutdown_cancels_pending_pub
     assert!(logout.status.success());
     assert_eq!(logout.stdout, b"Applied\n");
     assert!(f.read(&["account", "show"]).await["profile"].is_null());
-    // Consume the first request notification before awaiting the genuinely paused request.
-    broker.state.started.notified().await;
+    // Consume the first request notification before awaiting the paused request.
+    tokio::time::timeout(Duration::from_secs(5), broker.state.started.notified())
+        .await
+        .expect("completed login never reached the Broker token endpoint");
     broker.state.pause.store(true, Ordering::SeqCst);
     let before = fs::read(f.paths.auth_file()).unwrap();
-    let mut response = reqwest::Client::new()
+    let mut response = loopback_client()
         .post(f.endpoint())
         .header("x-graphit-auth-origin", "runtime")
         .bearer_auth(std::str::from_utf8(&key).unwrap())
@@ -749,23 +775,7 @@ async fn compiled_device_login_uses_active_http_and_shutdown_cancels_pending_pub
         .send()
         .await
         .unwrap();
-    let chunk = tokio::time::timeout(Duration::from_secs(5), async {
-        let mut frame = Vec::new();
-        loop {
-            let part = response.chunk().await.unwrap().unwrap();
-            assert!(
-                frame.len() + part.len() <= 4096,
-                "public event exceeds fixture bound"
-            );
-            frame.extend_from_slice(&part);
-            if let Some(end) = frame.iter().position(|byte| *byte == b'\n') {
-                frame.truncate(end);
-                break frame;
-            }
-        }
-    })
-    .await
-    .unwrap();
+    let chunk = first_admin_event(&mut response).await;
     let event: graphit_app::admin_auth::Event = serde_json::from_slice(&chunk).unwrap();
     match event {
         graphit_app::admin_auth::Event::DeviceAuthorization {

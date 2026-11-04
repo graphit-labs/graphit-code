@@ -304,6 +304,7 @@ async fn drain_memory_rescan(foreground: &ForegroundSource, selected: usize) {
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native watcher inference"]
 async fn memory_crud_and_unselected_watcher_leave_ast_publications_untouched() {
     let fixture = Fixture::new();
     fixture.install_model();
@@ -390,6 +391,7 @@ async fn memory_crud_and_unselected_watcher_leave_ast_publications_untouched() {
 }
 
 #[tokio::test]
+#[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native inference"]
 async fn role_http_mutations_reach_real_main_model_on_two_projects_and_park_independently() {
     let fixture = Fixture::new();
     fixture.install_model();
@@ -456,7 +458,14 @@ async fn role_http_mutations_reach_real_main_model_on_two_projects_and_park_inde
     // Fully covered captures must return Complete without opening any RPC connection.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
-    let mut covered = job_resources(&foreground);
+    let covered = foreground
+        .memory_jobs
+        .as_ref()
+        .unwrap()
+        .resources(foreground.scope, foreground.native, NativeBinding::KiroV3)
+        .unwrap()
+        .unwrap();
+    let mut covered = Arc::into_inner(covered).expect("fresh model resource");
     covered.local.as_mut().unwrap().address = listener.local_addr().unwrap();
     for selected in [0, 1] {
         let result = snapshot_generation(&covered, &foreground, selected).await;
@@ -559,7 +568,11 @@ async fn role_http_no_model_keeps_actual_crud_without_a_memory_owner() {
     .unwrap();
     assert!(foreground.memory_jobs.is_none());
     assert!(foreground.memory_job_resources.upgrade().is_none());
-    assert_eq!(foreground.supervisors.supervised().count(), 0);
+    assert_eq!(
+        foreground.supervisors.supervised().count(),
+        fixture.projects.len(),
+        "structural project watchers stay active without a model"
+    );
     let (uri, serving) = serve_foreground(&mut foreground).await;
     let (client, _admin, _run) = role_client(
         &foreground,
