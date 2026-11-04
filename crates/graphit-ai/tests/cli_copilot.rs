@@ -61,8 +61,7 @@ impl Fixture {
                 request.snapshot(),
             )
             .into_owner()
-            .ok()
-            .unwrap(),
+            .expect("start the private Copilot fixture runtime key"),
         );
         let project_paths = ProjectPaths::at(&root, &paths).unwrap();
         let sl = ScopeLimits::new(16, 4096, 128).unwrap();

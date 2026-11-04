@@ -164,12 +164,19 @@ impl Namespace {
     fn sync(&self) -> io::Result<()> {
         #[cfg(test)]
         if let Some(after) = SYNC_FAULT.with(|v| v.borrow_mut().take()) {
+            #[cfg(windows)]
+            let _ = after;
+            #[cfg(unix)]
             if after {
                 self.handle.sync_all()?;
             }
             return Err(io::ErrorKind::Other.into());
         }
-        self.handle.sync_all()
+        #[cfg(unix)]
+        self.handle.sync_all()?;
+        // Windows directory handles are opened for identity and ACL checks.
+        // The staged runtime key is flushed before its atomic publication.
+        Ok(())
     }
 }
 enum OwnerState {

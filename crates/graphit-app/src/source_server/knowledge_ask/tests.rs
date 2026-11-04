@@ -511,7 +511,7 @@ fn invalid_unauthorized_empty_and_oversize_http_calls_spawn_no_child() {
                 let result = client
                     .call_tool(
                         CallToolRequestParams::new(TOOL).with_arguments(
-                            json!({"query":"q","selected_slugs":[],"model":"m"})
+                            json!({"ai_optimized":false,"query":"q","selected_slugs":[],"model":"m"})
                                 .as_object()
                                 .unwrap()
                                 .clone(),
@@ -976,7 +976,7 @@ fn knowledge_lexical_search_mcp_uses_published_reader_and_read_grant_without_mod
             let (client, served) = client(&server, &raw, ()).await;
             let result = client.call_tool(
                 CallToolRequestParams::new(super::super::knowledge_search::TOOL)
-                    .with_arguments(json!({"search":{"query":"Paris","mode":"fts","preview":true,"page_size":1}})
+                    .with_arguments(json!({"ai_optimized":false,"search":{"query":"Paris","mode":"fts","preview":true,"page_size":1}})
                         .as_object().unwrap().clone()),
             ).await.unwrap();
             assert_eq!(result.is_error, Some(!permitted));
@@ -1045,13 +1045,10 @@ fn knowledge_imported_lexical_search_mcp_reads_registered_copy_with_native_admis
             projection,
         )
         .unwrap();
-        let corpus = url::Url::parse(&published.default.corpus_uri)
-            .unwrap()
-            .to_file_path()
-            .unwrap();
+        let corpus = std::path::Path::new(&published.default.corpus_uri);
         let target = source.directory().as_path().join("index.lance");
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        crate::task_server::browser::records_fixture::copy_tree(&corpus, &target);
+        crate::task_server::browser::records_fixture::copy_tree(corpus, &target);
         {
             let mut writer = server
                 .0
@@ -1085,7 +1082,7 @@ fn knowledge_imported_lexical_search_mcp_reads_registered_copy_with_native_admis
         let (client, served) = client(&server, &raw, ()).await;
         let params = |source: Value| {
             CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(
-                json!({"source":source,"search":{"query":"Paris","mode":"fts","preview":true}})
+                json!({"ai_optimized":false,"source":source,"search":{"query":"Paris","mode":"fts","preview":true}})
                     .as_object()
                     .unwrap()
                     .clone(),
@@ -1136,7 +1133,7 @@ fn knowledge_lexical_search_retains_previous_worker_panic_in_service_shutdown() 
         let response = client
             .call_tool(
                 CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(
-                    json!({"search":{"query":"Paris","mode":"fts"}})
+                    json!({"ai_optimized":false,"search":{"query":"Paris","mode":"fts"}})
                         .as_object()
                         .unwrap()
                         .clone(),
@@ -1169,7 +1166,7 @@ fn knowledge_vector_search_native_mcp_uses_existing_cpu_query_and_selected_modul
         let (_storage,mut foreground,tasks,server,raw,selected) = crate::foreground_source::foreground_memory_jobs_tests::browser_knowledge_search_fixture().await;
         let (client, served) = client(&server, &raw, ()).await;
         for mode in ["semantic", "hybrid"] {
-            let result = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(json!({"search":{"query":"Knowledge CPU search","mode":mode,"preview":true}}).as_object().unwrap().clone())).await.unwrap();
+            let result = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(json!({"ai_optimized":false,"search":{"query":"Knowledge CPU search","mode":mode,"preview":true}}).as_object().unwrap().clone())).await.unwrap();
             assert_eq!(result.is_error, Some(false));
             let p = result.structured_content.unwrap();
             assert_eq!(p["native"]["state"], "hits");
@@ -1194,7 +1191,7 @@ fn knowledge_vector_search_native_mcp_uses_existing_cpu_query_and_selected_modul
                 &Cancellation::default(),
             )
             .unwrap();
-        let result = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(json!({"search":{"query":"Knowledge CPU search","mode":"hybrid","preview":true}}).as_object().unwrap().clone())).await.unwrap();
+        let result = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(json!({"ai_optimized":false,"search":{"query":"Knowledge CPU search","mode":"hybrid","preview":true}}).as_object().unwrap().clone())).await.unwrap();
         assert_eq!(result.is_error, Some(false));
         let p = result.structured_content.unwrap();
         assert_eq!(p["native"]["state"], "partial");
@@ -1223,7 +1220,7 @@ fn imported_knowledge_cpu_native_mcp_preserves_corpus_cursor_and_cancels_query()
                 search["cursor"] = cursor;
             }
             CallToolRequestParams::new(super::super::knowledge_search::TOOL).with_arguments(
-                json!({"source":source,"search":search})
+                json!({"ai_optimized":false,"source":source,"search":search})
                     .as_object()
                     .unwrap()
                     .clone(),
@@ -1260,10 +1257,8 @@ fn imported_knowledge_cpu_native_mcp_preserves_corpus_cursor_and_cancels_query()
                 } else {
                     semantic_generation = Some(native["semantic_generation"].clone());
                 }
-                let corpus = url::Url::parse(native["generation"]["corpus_uri"].as_str().unwrap())
-                    .unwrap()
-                    .to_file_path()
-                    .unwrap();
+                let corpus =
+                    std::path::Path::new(native["generation"]["corpus_uri"].as_str().unwrap());
                 assert_eq!(corpus.file_name().unwrap(), "index.lance");
                 assert_eq!(
                     corpus.parent().unwrap().file_name().unwrap(),
@@ -1315,7 +1310,7 @@ fn imported_knowledge_cpu_native_mcp_preserves_corpus_cursor_and_cancels_query()
             );
         }
         let changed = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL)
-            .with_arguments(json!({"source":source,"search":{"query":"changed query","mode":"semantic","top_k":2,"page_size":1,"cursor":ready_cursor}}).as_object().unwrap().clone())).await.unwrap();
+            .with_arguments(json!({"ai_optimized":false,"source":source,"search":{"query":"changed query","mode":"semantic","top_k":2,"page_size":1,"cursor":ready_cursor}}).as_object().unwrap().clone())).await.unwrap();
         assert_eq!(changed.is_error, Some(true));
         assert!(changed.structured_content.unwrap().get("native").is_none());
         let model = server.0.semantic_model().unwrap().unwrap();
@@ -1351,7 +1346,7 @@ fn imported_knowledge_cpu_native_mcp_preserves_corpus_cursor_and_cancels_query()
         }
         let missing_source = json!({"kind":"imported_knowledge","artifact":{"id":"vendor/mount-a","version":"not-registered"}});
         let missing = client.call_tool(CallToolRequestParams::new(super::super::knowledge_search::TOOL)
-            .with_arguments(json!({"source":missing_source,"search":{"query":"Knowledge CPU search","mode":"semantic"}}).as_object().unwrap().clone())).await.unwrap();
+            .with_arguments(json!({"ai_optimized":false,"source":missing_source,"search":{"query":"Knowledge CPU search","mode":"semantic"}}).as_object().unwrap().clone())).await.unwrap();
         assert_eq!(missing.is_error, Some(false));
         let missing = missing.structured_content.unwrap();
         assert_eq!(missing["source"], missing_source);
@@ -1417,7 +1412,7 @@ print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens
         for (mode, expected) in [("fts", "hits"), ("hybrid", "partial")] {
             let mut call = params("Paris");
             call.arguments = Some(
-                json!({"query":"Paris","model":"m","retrieval":{"mode":mode,"top_k":1}})
+                json!({"ai_optimized":false,"query":"Paris","model":"m","retrieval":{"mode":mode,"top_k":1}})
                     .as_object()
                     .unwrap()
                     .clone(),
@@ -1440,7 +1435,7 @@ print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens
         }
         let mut call = params("zzzzabsentterm");
         call.arguments = Some(
-            json!({"query":"zzzzabsentterm","model":"m","retrieval":{"mode":"fts","top_k":1}})
+            json!({"ai_optimized":false,"query":"zzzzabsentterm","model":"m","retrieval":{"mode":"fts","top_k":1}})
                 .as_object()
                 .unwrap()
                 .clone(),

@@ -204,7 +204,7 @@ async fn task_direct_background_reuses_vectors_and_mcp_http_search() {
         .send().await.unwrap();
     assert_eq!(denied.status(), axum::http::StatusCode::UNAUTHORIZED);
     let semantic = client.call_tool(CallToolRequestParams::new("graphit_task_search".to_owned()).with_arguments(
-        json!({"input":{"mode":"semantic","text":"Recover publication","filter":{},"page_size":10,"top_k":10}}).as_object().unwrap().clone()
+        json!({"ai_optimized":false,"input":{"mode":"semantic","text":"Recover publication","filter":{},"page_size":10,"top_k":10}}).as_object().unwrap().clone()
     )).await.unwrap();
     assert_ne!(semantic.is_error, Some(true), "{semantic:?}");
     let response: serde_json::Value =

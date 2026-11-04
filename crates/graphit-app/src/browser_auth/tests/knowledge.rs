@@ -1038,10 +1038,7 @@ async fn imported_knowledge_cpu_web_preserves_corpus_cursor_and_independent_auth
             } else {
                 generations = Some(current);
             }
-            let corpus = url::Url::parse(native["generation"]["corpus_uri"].as_str().unwrap())
-                .unwrap()
-                .to_file_path()
-                .unwrap();
+            let corpus = std::path::Path::new(native["generation"]["corpus_uri"].as_str().unwrap());
             assert_eq!(corpus.file_name().unwrap(), "index.lance");
             assert_eq!(
                 corpus.parent().unwrap().file_name().unwrap(),

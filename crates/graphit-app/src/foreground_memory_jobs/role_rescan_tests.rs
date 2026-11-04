@@ -139,8 +139,12 @@ async fn role_client(
 async fn call(client: &Client, name: &'static str, input: Value, failure: bool) -> Value {
     let result = client
         .call_tool(
-            CallToolRequestParams::new(name)
-                .with_arguments(json!({"input":input}).as_object().unwrap().clone()),
+            CallToolRequestParams::new(name).with_arguments(
+                json!({"ai_optimized":false,"input":input})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
         )
         .await
         .unwrap();

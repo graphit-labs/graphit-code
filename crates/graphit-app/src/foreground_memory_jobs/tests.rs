@@ -451,14 +451,10 @@ async fn live_task_call(
     input: serde_json::Value,
     error: bool,
 ) -> serde_json::Value {
-    let result = client
-        .peer()
-        .call_tool(
-            rmcp::model::CallToolRequestParams::new(name.to_owned())
-                .with_arguments(input.as_object().unwrap().clone()),
-        )
-        .await
-        .unwrap();
+    let mut call = rmcp::model::CallToolRequestParams::new(name.to_owned())
+        .with_arguments(input.as_object().unwrap().clone());
+    crate::mcp_output::json_call(&mut call);
+    let result = client.peer().call_tool(call).await.unwrap();
     let value: serde_json::Value =
         serde_json::from_str(&result.content[0].as_text().unwrap().text).unwrap();
     assert_eq!(result.is_error, Some(error), "{name}: {value}");
@@ -2067,7 +2063,7 @@ async fn now_local_reads_active_memory_for_each_captured_project_version() {
             .await
             .unwrap();
             let call = CallToolRequestParams::new(tool.clone()).with_arguments(
-                json!({"mode":"local","project_id":id,"version":version.version()})
+                json!({"ai_optimized":false,"mode":"local","project_id":id,"version":version.version()})
                     .as_object()
                     .unwrap()
                     .clone(),
@@ -2083,7 +2079,7 @@ async fn now_local_reads_active_memory_for_each_captured_project_version() {
             original.check().unwrap();
             let response = response.unwrap();
             assert_ne!(response.is_error, Some(true), "{:?}", response.content);
-            assert!(response.structured_content.is_none());
+            assert!(response.structured_content.is_some());
             assert_eq!(response.content.len(), 1);
             let snapshot: serde_json::Value =
                 serde_json::from_str(&response.content[0].as_text().unwrap().text).unwrap();

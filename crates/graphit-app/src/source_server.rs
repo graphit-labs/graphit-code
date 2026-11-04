@@ -1814,7 +1814,11 @@ mod tests {
                 .contains("controlled join failure after actual Host shutdown")
         );
         // This only reads the actual join receipt; it does not observe/join the child.
-        assert!(owner.clean_joined().await);
+        assert!(
+            owner.clean_joined().await,
+            "{}",
+            owner.public_observation().await
+        );
         fixture.server.shutdown().await.unwrap();
         native.service().unwrap().shutdown().await.unwrap();
     }

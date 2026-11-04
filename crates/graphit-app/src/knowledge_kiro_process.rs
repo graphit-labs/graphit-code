@@ -375,14 +375,32 @@ async fn terminate_group(
     signal_error: &mut Option<io::Error>,
 ) -> io::Result<ExitStatus> {
     if let Some(pid) = pid {
-        match rustix::process::kill_process_group(pid, rustix::process::Signal::TERM) {
-            Ok(()) => tokio::time::sleep(grace).await,
-            Err(error) if error == rustix::io::Errno::SRCH => (),
-            Err(error) => {
-                signal_error.get_or_insert(error.into());
-            }
+        // The final group signal below establishes the outcome even if
+        // the graceful signal raced with the leader's exit.
+        if rustix::process::kill_process_group(pid, rustix::process::Signal::TERM).is_ok() {
+            tokio::time::sleep(grace).await;
         }
-        if let Err(error) = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL)
+        let killed = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        // Match ProcessHost: a Darwin group can temporarily report EPERM
+        // while its leader exits. Reap and retry without accepting a
+        // persistent permission failure as a successful termination.
+        #[cfg(target_os = "macos")]
+        let killed = {
+            let mut result = killed;
+            let until = Instant::now() + Duration::from_millis(25);
+            while result == Err(rustix::io::Errno::PERM) && Instant::now() < until {
+                if child.try_wait().is_err() {
+                    break;
+                }
+                tokio::time::sleep_until(
+                    until.min(Instant::now() + Duration::from_millis(1)).into(),
+                )
+                .await;
+                result = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+            }
+            result
+        };
+        if let Err(error) = killed
             && error != rustix::io::Errno::SRCH
         {
             signal_error.get_or_insert(error.into());

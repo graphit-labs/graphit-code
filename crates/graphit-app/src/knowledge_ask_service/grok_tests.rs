@@ -99,7 +99,8 @@ time.sleep(2)
     );
     assert_eq!(
         joined.is_err(),
-        service.cleanup_failure.lock().unwrap().is_some()
+        service.cleanup_failure.lock().unwrap().is_some(),
+        "{joined:?}"
     );
 }
 

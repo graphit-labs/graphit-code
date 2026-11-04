@@ -175,6 +175,19 @@ jobs:
           printf '%s  %s\n' "$EMBEDDING_MODEL_SHA256" "$model_file" | sha256sum --check
           test "$(wc -c < "$model_file")" -eq "$EMBEDDING_MODEL_BYTES"
           echo "GRAPHIT_EMBEDDINGGEMMA2_MODEL=$model_file" >> "$GITHUB_ENV"
+      - name: Prepare pinned reranker GGUF for Linux model lifecycle tests
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          RERANK_MODEL_URL: https://huggingface.co/sinjab/bge-reranker-v2-m3-F16-GGUF/resolve/1458e3304258a8a11773000c7d0c192abfe78291/bge-reranker-v2-m3-F16.gguf
+          RERANK_MODEL_SHA256: 3c2de408d2c0a85a9472dc09f9d5a22c9b73743c6343952c15053299c777c298
+          RERANK_MODEL_BYTES: '1159774912'
+        run: |
+          model_file="$RUNNER_TEMP/bge-reranker-v2-m3-F16.gguf"
+          curl --fail --location --show-error --silent "$RERANK_MODEL_URL" --output "$model_file"
+          printf '%s  %s\n' "$RERANK_MODEL_SHA256" "$model_file" | sha256sum --check
+          test "$(wc -c < "$model_file")" -eq "$RERANK_MODEL_BYTES"
+          echo "GRAPHIT_BGE_RERANKER_V2_M3_MODEL=$model_file" >> "$GITHUB_ENV"
       - name: Check Rust contracts and quality
         run: cargo xtask gate
 

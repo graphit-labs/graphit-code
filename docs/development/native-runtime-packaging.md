@@ -78,6 +78,10 @@ installed-child fixture uses `GRAPHIT_TEST_GEMMA2_MODEL`. These real-model tests
 are explicitly selected with `--ignored`. Ordinary contracts, build, workflow
 lint or archive assembly do not qualify model inference.
 
+The Linux CI also supplies the checksum-verified BGE F16 artifact to the
+standard model lifecycle tests that exercise switching and retiring the local
+rerank slot.
+
 The Code CI/release workflows build the model-server executable and explicitly
 prepare the Linux native NN gate's embedding GGUF. They download the same
 official EmbeddingGemma BF16 file pinned in App's `model_provision.rs`, revision
