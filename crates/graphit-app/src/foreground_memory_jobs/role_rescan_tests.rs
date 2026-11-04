@@ -246,7 +246,13 @@ async fn ast_generations(foreground: &ForegroundSource, selected: usize) -> (u64
                     .and(graphit_data::lance_branch_store::col("vector").is_null()),
             );
             pending.limit(Some(1), None).map_err(io::Error::other)?;
-            if pending.count_rows().await.map_err(io::Error::other)? > 0 {
+            if pending
+                .try_into_batch()
+                .await
+                .map_err(io::Error::other)?
+                .num_rows()
+                > 0
+            {
                 return Err(io::ErrorKind::WouldBlock.into());
             }
             let raw = graphit_ast::source_index_locator::open_local_source_index(

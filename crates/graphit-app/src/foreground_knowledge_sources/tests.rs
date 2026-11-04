@@ -1283,7 +1283,8 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
                     rerank: Some(false), cursor: None, cursor_file: None, project_dir: Some(project.root().to_owned()),
                     artifact_id: None, artifact_version: None, context_alias: None,
                 };
-                let call = crate::knowledge_search_entry::prepare(&input, None, &observe).unwrap();
+                let mut call = crate::knowledge_search_entry::prepare(&input, None, &observe).unwrap();
+                crate::mcp_output::json_call(&mut call);
                 let reply = connection.peer().call_tool(call).await.unwrap();
                 assert_ne!(reply.is_error, Some(true), "Source/FTS before NN: {reply:?}");
                 let body = reply.structured_content.unwrap();
@@ -1378,8 +1379,12 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
             cursor:None, cursor_file:None, project_dir:Some(project.root().to_owned()),
             artifact_id:None, artifact_version:None, context_alias:None,
         };
-        let call = crate::knowledge_search_entry::prepare(&arguments(Some(false)), None, &observe).unwrap();
-        let baseline = connection.peer().call_tool(call).await.expect("Knowledge Source baseline MCP search with rerank=false");
+        let prepare = |input: &crate::knowledge_search_entry::Arguments| {
+            let mut call = crate::knowledge_search_entry::prepare(input, None, &observe).unwrap();
+            crate::mcp_output::json_call(&mut call);
+            call
+        };
+        let baseline = connection.peer().call_tool(prepare(&arguments(Some(false)))).await.expect("Knowledge Source baseline MCP search with rerank=false");
         assert_ne!(baseline.is_error, Some(true), "{baseline:?}");
         let baseline = baseline.structured_content.unwrap();
         assert_eq!(baseline["native"]["total"], 3);
@@ -1397,9 +1402,8 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
         for (configured, cases) in cases {
             ConfigStore::global(&installation).unwrap().set(ConfigKey::new("search.rerank").unwrap(), json!(configured), Duration::from_secs(5), &live).unwrap();
             for (flag, enabled) in cases {
-                let call = crate::knowledge_search_entry::prepare(&arguments(flag), None, &observe).unwrap();
                 let started = Instant::now();
-                let result = connection.peer().call_tool(call).await.unwrap_or_else(|error| panic!(
+                let result = connection.peer().call_tool(prepare(&arguments(flag))).await.unwrap_or_else(|error| panic!(
                     "Knowledge Source MCP search: configured={configured} input={flag:?} effective={enabled} elapsed={:?}: {error:?}",
                     started.elapsed(),
                 ));
@@ -1432,7 +1436,7 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
         }
         let mut empty_arguments = arguments(Some(true));
         empty_arguments.query = "absentzzzz".into();
-        let empty = connection.peer().call_tool(crate::knowledge_search_entry::prepare(&empty_arguments, None, &observe).unwrap()).await.unwrap();
+        let empty = connection.peer().call_tool(prepare(&empty_arguments)).await.unwrap();
         assert_ne!(empty.is_error, Some(true), "{empty:?}");
         let empty = empty.structured_content.unwrap();
         assert_eq!(empty["native"]["total"], 0);
@@ -1455,7 +1459,18 @@ async fn actual_foreground_model_scenario(local_rerank: bool) {
         let KnowledgeEmbeddingRead::Published(after_failure) = capture_knowledge_embedding_corpus(observe.snapshot(), &read, limits).await.unwrap()
             else { panic!("semantic failure must preserve document corpus") };
         assert_eq!(after_failure.source_generation(), generation);
-        assert_eq!(after_failure.semantic_generation().as_ref(), Some(&semantic_generation));
+        let retained = after_failure.stored_inputs().collect::<Vec<_>>();
+        assert_eq!(
+            retained.iter().map(|(input, _)| input.slug).collect::<BTreeSet<_>>(),
+            BTreeSet::from(["actual-b", "actual-c"]),
+            "a failed refresh must exclude the stale vector and keep unaffected vectors"
+        );
+        for (input, identity) in retained {
+            let before = old_pin.read_reusable_embedding_batch(observe.snapshot(), &read, identity, std::slice::from_ref(&input)).await.unwrap();
+            let after = after_failure.read_reusable_embedding_batch(observe.snapshot(), &read, identity, std::slice::from_ref(&input)).await.unwrap();
+            assert_eq!(before.num_rows(), 1);
+            assert_eq!(before, after);
+        }
         assert_eq!(old_pin.source_generation(), &document_generation);
 
         let actual = if !local_rerank {
