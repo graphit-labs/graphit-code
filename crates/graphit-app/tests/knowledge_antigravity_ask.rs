@@ -940,6 +940,7 @@ wire=json.loads(sys.stdin.read())
 assert wire['event']=='user'
 print('{"event":"init","conversation_id":"fixture","init":{"cwd":"/captured","tools":["view_file"],"permission_mode":"request-review","model":"observed"}}',flush=True)
 print('{"event":"step_update","step_update":{"conversation_id":"fixture","step_index":4,"state":"ACTIVE","step_type":"agent_response","text_delta":"native effect before invalidation"}}',flush=True)
+print('{"event":"step_update","step_update":{"conversation_id":"fixture","step_index":5,"state":"ACTIVE","step_type":"agent_response","text_delta":"fixture progress boundary"}}',flush=True)
 s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
 assert s.recv(1)==b'1'
 print('{"event":"result","result":{"conversation_id":"fixture","status":"SUCCESS","response":"must-not-be-answer","duration_seconds":0.001,"num_turns":1,"usage":{"input_tokens":5,"output_tokens":3}}}',flush=True)
@@ -972,7 +973,9 @@ print('{"event":"result","result":{"conversation_id":"fixture","status":"SUCCESS
             .await
             .unwrap()
             .unwrap();
-        progress_count(&h.events, &h.changed, 2).await;
+        // Progress delivery precedes the sink's second authorization check.
+        // Seeing the third callback proves that the first two were accepted.
+        progress_count(&h.events, &h.changed, 3).await;
         assert!(!final_wait.is_finished());
         let displaced = f.temp.path().join("displaced-project");
         std::fs::rename(f.projects[0].0.root(), &displaced).unwrap();
@@ -984,10 +987,19 @@ print('{"event":"result","result":{"conversation_id":"fixture","status":"SUCCESS
         let payload = result.structured_content.unwrap();
         assert!(payload["receipt"]["completion"].get("answer").is_none());
         assert_eq!(payload["receipt"]["provider"], "antigravity");
-        assert_eq!(payload["receipt"]["known_events"], 2);
+        let accepted = payload["receipt"]["known_events"].as_u64().unwrap();
+        assert!((2..=3).contains(&accepted), "receipt: {payload}");
+        assert_eq!(payload["receipt"]["frames"], accepted + 1);
         assert!(payload["receipt"].get("native_result_json").is_none());
         assert_eq!(payload["receipt"]["process"]["cleanup"], "Complete");
-        assert!(payload["execution_error"].is_string());
+        assert_eq!(payload["execution_error"], "Sink(Closed)");
+        let denial = if accepted == 2 {
+            // The proxy also denies the forwarded third event if its post-check failed.
+            "Knowledge Ask observed progress exceeds accepted prefix"
+        } else {
+            "ProjectDeliveryDenied"
+        };
+        assert_eq!(payload["delivery_error"], denial);
         std::fs::rename(&displaced, f.projects[0].0.root()).unwrap();
         h.stop().await;
         stop(&f, served, &record, ctx.snapshot()).await;

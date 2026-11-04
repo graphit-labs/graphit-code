@@ -1529,6 +1529,18 @@ async fn compiled_hub_publish_native_uses_broker_sts_and_preserves_versions() ->
     }
 }
 
+fn ast_daemon_without_compiler(f: &Fixture) -> Result<Command> {
+    let git_path = f._temp.path().join("git-only-bin");
+    fs::create_dir(&git_path)?;
+    std::os::unix::fs::symlink(which::which("git")?, git_path.join("git"))?;
+    let mut command = f.command();
+    command
+        .env("PATH", git_path)
+        .env("GRAPHIT_MODULES__AST", "true")
+        .args(["daemon", "foreground", "--project-version", "main"]);
+    Ok(command)
+}
+
 /// The same productive AST prerequisite, isolated from remote Hub startup and shutdown.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compiled_native_ast_initial_source_publishes_before_remote_hub() -> Result {
@@ -1553,14 +1565,7 @@ async fn compiled_native_ast_initial_source_publishes_before_remote_hub() -> Res
             &cancel,
         )?;
     }
-    let mut command = f.command();
-    command.env("GRAPHIT_MODULES__AST", "true").args([
-        "daemon",
-        "foreground",
-        "--project-version",
-        "main",
-    ]);
-    let daemon = f.daemon_command(command).await?;
+    let daemon = f.daemon_command(ast_daemon_without_compiler(&f)?).await?;
     let result: Result = async {
         let until = Instant::now() + Duration::from_secs(20);
         loop {
@@ -1619,14 +1624,7 @@ async fn compiled_native_knowledge_file_update_reaches_current_fts() -> Result {
         Duration::from_secs(5),
         &cancel,
     )?;
-    let mut command = f.command();
-    command.env("GRAPHIT_MODULES__AST", "true").args([
-        "daemon",
-        "foreground",
-        "--project-version",
-        "main",
-    ]);
-    let daemon = f.daemon_command(command).await?;
+    let daemon = f.daemon_command(ast_daemon_without_compiler(&f)?).await?;
     let result: Result = async {
         wait_productive_sources(&f, KNOWLEDGE_ONE).await?;
         fs::write(&document, body(KNOWLEDGE_TWO))?;

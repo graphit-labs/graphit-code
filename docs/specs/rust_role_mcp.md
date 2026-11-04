@@ -109,7 +109,7 @@ SDK Omitted variant. No new quota or reservation is introduced.
 
 Requests carry a sensitive Authorization bearer header,
 `x-graphit-auth-origin: role` and bounded JSON `x-graphit-role-reference`.
-Optional `x-graphit-role-selection` is bounded Selection JSON with project_dir,
+Optional `x-graphit-role-selection` is bounded UTF-8 Selection JSON with project_dir,
 project_id and/or project_version. These are selectors, never authority; they
 select only tuples retained by Runtime. project_dir is a literal Unicode path string. Without it, list_tools uses current.
 Calls without explicit selectors use the same header/default. Explicit call

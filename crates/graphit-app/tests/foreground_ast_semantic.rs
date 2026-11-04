@@ -39,7 +39,7 @@ use graphit_daemon::{
     model_service as model_api, model_service::ExpectedModel,
     project_bootstrap::ProjectBootstrapInput,
 };
-use graphit_data::lance_branch_store::LanceBranchStore;
+use graphit_data::lance_branch_store::{BranchSnapshot, LanceBranchStore};
 use graphit_hub::{NativeBinding, policy::HubResourcePolicy};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -57,6 +57,27 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 const RUST: &str = "pub fn alpha() -> u32 { 42 }";
 const JSON: &str = r#"{"answer":42}"#;
+
+async fn assert_raw_pin(
+    raw: &BranchSnapshot,
+    path: &str,
+    observed: &Value,
+    source: &str,
+    original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+) -> TestResult {
+    let version: u64 = observed.as_str().ok_or("FILE Raw pin missing")?.parse()?;
+    assert!(
+        version > 0 && version <= raw.version(),
+        "invalid Raw pin for {path}"
+    );
+    let retained = raw.at_version(version).await?;
+    let read = read_branch_source(&retained, path, original).await?;
+    assert!(
+        matches!(read.source(original)?, graphit_ast::source_inspection::IndexedSource::Available(text) if text == source),
+        "{path} must resolve to the exact indexed Source at Raw {version}"
+    );
+    Ok(())
+}
 
 struct Fixture {
     _directory: tempfile::TempDir,
@@ -636,6 +657,7 @@ impl Fixture {
         &self,
         address: std::net::SocketAddr,
         selection: &serde_json::Value,
+        required: &[(&str, u64)],
     ) -> TestResult<serde_json::Value> {
         let expires = Instant::now() + Duration::from_secs(30);
         loop {
@@ -645,7 +667,28 @@ impl Fixture {
                 continue;
             }
             assert_eq!(status, reqwest::StatusCode::OK, "Graph schema: {result}");
-            return Ok(result);
+            let nodes = result["nodes"]
+                .as_array()
+                .ok_or("Graph node schema missing")?;
+            let ready = required.iter().all(|&(label, minimum)| {
+                nodes.iter().any(|node| {
+                    node["label"] == label
+                        && node["rows"]
+                            .as_str()
+                            .and_then(|count| count.parse::<u64>().ok())
+                            .is_some_and(|count| count >= minimum)
+                })
+            });
+            if ready {
+                return Ok(result);
+            }
+            if Instant::now() >= expires {
+                return Err(format!(
+                    "Graph did not publish required FILEs/tables {required:?}: {result}"
+                )
+                .into());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
 
@@ -777,7 +820,7 @@ async fn project_graph_http_queries_real_models_neighborhood_and_current_raw() -
             let selection = json!({"selection":{
                 "project_dir": graphit_core::native_path::NativePath::new(fixture.project.root().to_owned())?
             }});
-            let schema = fixture.graph_ready(address, &selection).await?;
+            let schema = fixture.graph_ready(address, &selection, &[("Function", 3), ("Pair", 1), ("AstFileObservation", 3)]).await?;
             let tables = schema["nodes"].as_array().ok_or("Graph node schema missing")?;
             for label in ["Function", "Pair", "AstFileObservation"] {
                 assert!(tables.iter().any(|table| table["label"] == label));
@@ -890,7 +933,7 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
                 let selection = json!({"selection":{"project_dir":
                     graphit_core::native_path::NativePath::new(fixture.project.root().to_owned())?
                 }});
-                fixture.graph_ready(address, &selection).await?;
+                fixture.graph_ready(address, &selection, &[("Function", 2), ("AstFileObservation", 3)]).await?;
                 let mut query = selection;
                 query["query"] = json!({"query":"MATCH (n:Function) RETURN n.name,n.path,n.raw_version,n.source_sha256,n.raw_name,n.extent_status ORDER BY n.path,n.name"});
                 let (status, result) = fixture.graph(address, "query", &query).await?;
@@ -901,7 +944,9 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
                     .load()?
                     .unwrap()
                     .id();
-                let root = fixture.installation.root().join("ast").join(id.to_string());
+                let root = fixture.project.project_runtime(id, &["ast"])?;
+                let cancel = Cancellation::default();
+                let original = fixture.policy.request_context(Instant::now(), &cancel)?;
                 let raw = LanceBranchStore::open(
                     root.join("source.lance").to_str().unwrap(),
                     source_schema(),
@@ -916,7 +961,7 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
                 ]) {
                     assert_eq!(row[0]["value"], name);
                     assert_eq!(row[1]["value"], path);
-                    assert_eq!(row[2]["value"], raw.version().to_string());
+                    assert_raw_pin(&raw, path, &row[2]["value"], source, original.snapshot()).await?;
                     assert_eq!(row[3]["value"], Sha256::digest(source.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
                     assert_eq!(row[4]["value"], name);
                     assert_eq!(row[5]["value"], "Exact");
@@ -949,20 +994,16 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
                 }
                 let diagnostics: Value = serde_json::from_str(available[2]["value"].as_str().ok_or("Diagnostics JSON missing")?)?;
                 assert_eq!(diagnostics, json!([]), "valid Java fallback must not publish unavailable-model or recovery diagnostics");
-                assert_eq!(available[3]["value"], raw.version().to_string());
+                assert_eq!(available[3]["value"], rows[1][2]["value"], "Java entity and FILE must agree on the Raw pin");
                 assert_eq!(available[4]["value"], Sha256::digest(fallback_source.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
                 assert_eq!(available[5]["value"], true);
                 assert_eq!(available[6]["value"], false);
                 assert_eq!(available[7]["value"], "java");
                 assert_eq!(available[8]["value"], "tree-sitter-java");
-                let version =
-                    VersionContext::select(&fixture.project, Checkout::NonGit, "", None, "")?;
-                assert!(
-                    fixture
-                        .native_nn_rows(&fixture.project, &version)
-                        .await?
-                        .is_none()
-                );
+                let corpus = BranchSnapshot::capture_observed(root.join("corpus.lance").to_str().unwrap(), None, None).await?;
+                graphit_ast::corpus::validate_schema(corpus.schema())?;
+                assert!(graphit_ast::corpus::model(corpus.schema())?.is_none(),
+                    "the shared lexical corpus must not contain a model or vector column when embedding is disabled");
                 Ok(())
             }
         })
@@ -1106,7 +1147,7 @@ async fn real_model_failure_preserves_queryable_graph_without_partial_nn_commit(
             let selection = json!({"selection":{"project_dir":
                 graphit_core::native_path::NativePath::new(f.project.root().to_owned())?
             }});
-            let schema = f.graph_ready(address, &selection).await?;
+            let schema = f.graph_ready(address, &selection, &[("Function", 1), ("AstFileObservation", 2)]).await?;
             assert!(schema["nodes"].as_array().ok_or("Graph tables missing")?
                 .iter().any(|table| table["label"] == "Function"));
             let mut query = selection;
@@ -1118,15 +1159,21 @@ async fn real_model_failure_preserves_queryable_graph_without_partial_nn_commit(
             assert_eq!(rows[0][0]["value"], "alpha.rs");
             assert_eq!(rows[1][0]["value"], "answer.json");
             let id = ProjectIdentityStore::at(&f.project).load()?.unwrap().id();
-            let raw = LanceBranchStore::open(
-                f.installation.root().join("ast").join(id.to_string()).join("source.lance").to_str().unwrap(),
-                source_schema(), None,
-            ).await?.capture_target(None).await?;
-            let raw_text = raw.version().to_string();
-            assert!(rows.iter().all(|row| row[1]["value"].as_str() == Some(raw_text.as_str())));
-            let version = VersionContext::select(&f.project, Checkout::NonGit, "", None, "")?;
-            assert!(f.native_nn_rows(&f.project, &version).await?.is_none(),
-                "SDK-confirmed absence required; a partial NN dataset is not a successful failure");
+            let root = f.project.project_runtime(id, &["ast"])?;
+            let raw = LanceBranchStore::open(root.join("source.lance").to_str().unwrap(), source_schema(), None)
+                .await?.capture_target(None).await?;
+            let cancel = Cancellation::default();
+            let original = f.policy.request_context(Instant::now(), &cancel)?;
+            for (row, (path, text)) in rows.iter().zip([("alpha.rs", RUST), ("answer.json", JSON)]) {
+                assert_raw_pin(&raw, path, &row[1]["value"], text, original.snapshot()).await?;
+            }
+            let corpus = BranchSnapshot::capture_observed(root.join("corpus.lance").to_str().unwrap(), None, None).await?;
+            graphit_ast::corpus::validate_schema(corpus.schema())?;
+            if corpus.schema().field_with_name(graphit_ast::corpus::VECTOR).is_ok() {
+                let mut scan = corpus.scan();
+                scan.filter_expr(graphit_data::lance_branch_store::col(graphit_ast::corpus::VECTOR).is_not_null());
+                assert_eq!(scan.count_rows().await?, 0, "model failure must not publish partial vectors");
+            }
             Ok(())
         }
     }).await

@@ -423,6 +423,7 @@ fn configure_aws_process(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires the built real Broker STSv3/MinIO fixture"]
 async fn compiled_standalone_file_acl_uses_explicit_storage_and_verified_native_subject() -> Result
 {
     let fixture = Fixture::new().await?;

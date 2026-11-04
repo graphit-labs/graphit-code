@@ -216,6 +216,11 @@ fn typed_globals_override_environment_policy_and_explicit_installation_wins() {
     assert!(!out.status.success());
     let out = f.run(&["--version", "provider", "list"]);
     assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn direct_embedding_configuration_preserves_explicit_model_identity_and_protocol_options() {
+    let f = Fixture::new();
     f.publish(&[
         "provider",
         "add",
@@ -230,14 +235,21 @@ fn typed_globals_override_environment_policy_and_explicit_installation_wins() {
         "https://example.invalid/v1/embeddings",
         "--embedding-model",
         "text-embedding-3-small",
+        "--embedding-model-revision",
+        "fixture-openai-revision",
+        "--embedding-recipe",
+        "fixture-openai-recipe",
         "--embedding-dimensions",
         "512",
         "--embedding-request-dimensions",
         "512",
     ]);
     let provider = f.read(&["provider", "show", "openai"]);
-    assert_eq!(provider["config"]["embedding"]["request_dimensions"], 512);
-    assert!(provider["config"]["embedding"]["batch_endpoint"].is_null());
+    let embedding = &provider["config"]["embedding"];
+    assert_eq!(embedding["model_revision"], "fixture-openai-revision");
+    assert_eq!(embedding["recipe"], "fixture-openai-recipe");
+    assert_eq!(embedding["request_dimensions"], 512);
+    assert!(embedding["batch_endpoint"].is_null());
     f.publish(&[
         "provider",
         "add",
@@ -252,15 +264,22 @@ fn typed_globals_override_environment_policy_and_explicit_installation_wins() {
         "https://example.invalid/v1beta/models/gemini-embedding-001:embedContent",
         "--embedding-model",
         "models/gemini-embedding-001",
+        "--embedding-model-revision",
+        "fixture-google-revision",
+        "--embedding-recipe",
+        "fixture-google-recipe",
         "--embedding-dimensions",
         "3",
         "--embedding-batch-endpoint",
         "https://example.invalid/v1beta/models/gemini-embedding-001:batchEmbedContents",
     ]);
     let provider = f.read(&["provider", "show", "google"]);
-    assert!(provider["config"]["embedding"]["request_dimensions"].is_null());
+    let embedding = &provider["config"]["embedding"];
+    assert_eq!(embedding["model_revision"], "fixture-google-revision");
+    assert_eq!(embedding["recipe"], "fixture-google-recipe");
+    assert!(embedding["request_dimensions"].is_null());
     assert_eq!(
-        provider["config"]["embedding"]["batch_endpoint"],
+        embedding["batch_endpoint"],
         "https://example.invalid/v1beta/models/gemini-embedding-001:batchEmbedContents"
     );
 }

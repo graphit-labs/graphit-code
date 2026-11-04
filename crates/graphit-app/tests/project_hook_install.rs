@@ -716,9 +716,19 @@ async fn project_hook_compiled_cli_real_writer_mandatory_and_role_factory_v3()
         // Its managed child must receive both from the captured native launch.
         let source_bin = temp.path().join("source-bin");
         fs::create_dir(&source_bin)?;
-        for program in ["python3", "git"] {
-            std::os::unix::fs::symlink(which::which(program)?, source_bin.join(program))?;
-        }
+        let python = Command::new(which::which("python3")?)
+            .args(["-c", "import sys; print(sys.executable)"])
+            .output()?;
+        assert!(
+            python.status.success(),
+            "Python interpreter discovery failed"
+        );
+        let executable = String::from_utf8(python.stdout)?;
+        let executable = Path::new(executable.trim_end_matches(['\r', '\n']));
+        assert!(executable.is_absolute() && executable.is_file());
+        // A Python version-manager shim can require a shell absent from this private PATH.
+        std::os::unix::fs::symlink(executable, source_bin.join("python3"))?;
+        std::os::unix::fs::symlink(which::which("git")?, source_bin.join("git"))?;
         std::os::unix::fs::symlink(
             temp.path().join("bin/kiro-cli"),
             source_bin.join("kiro-cli"),

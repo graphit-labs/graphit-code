@@ -20,12 +20,12 @@ use graphit_data::{LocalGraphPolicy, lance_module_store::LanceModuleStore};
 use graphit_hub::{
     ArtifactId, ArtifactType, ConcreteVersion, NativeBinding, SourceRef,
     native::ContentLimits,
-    native_package::{self, PackageKind},
+    native_package::{self, PackageError, PackageKind},
     policy::RequestContext,
 };
 use serde_json::json;
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -203,11 +203,16 @@ fn actual_signed_native_ast_knowledge_and_imported_source() {
         let broker = auth::Broker::start().await;
         let ast = f.temp.path().join("ast");
         payload(&ast, PackageKind::Ast, true, false).await;
-        fs::create_dir(ast.join("graph.icebug/search.lance")).unwrap();
-        fs::write(
-            ast.join("graph.icebug/search.lance/opaque"),
-            b"transport only, not Source schema",
+        let schema = graphit_ast::corpus::schema();
+        LanceModuleStore::create(
+            ast.join("graph.icebug")
+                .join(graphit_ast::corpus::DIRECTORY)
+                .to_str()
+                .unwrap(),
+            Arc::clone(&schema),
+            vec![RecordBatch::new_empty(schema)],
         )
+        .await
         .unwrap();
         let zip = export(&f, &ast, "ast", PackageKind::Ast, &ctx);
         let mut req = request(zip, "namespace/ast", "v1");
@@ -227,6 +232,16 @@ fn actual_signed_native_ast_knowledge_and_imported_source() {
         assert!(first.outcome.succeeded(), "{first:?}");
         assert_eq!(broker.requests(), [1, 1, 1]);
         assert_eq!(first.outcome.kind, Some(PackageKind::Ast));
+        let corpus = first
+            .outcome
+            .destination
+            .as_ref()
+            .unwrap()
+            .join("graph.icebug")
+            .join(graphit_ast::corpus::DIRECTORY);
+        LanceModuleStore::open(corpus.to_str().unwrap(), graphit_ast::corpus::schema())
+            .await
+            .unwrap();
         let id = ArtifactId::new(&req.id, f.policy.projection()).unwrap();
         let version = ConcreteVersion::new(&req.version, f.policy.projection()).unwrap();
         let document = f.registry.load().unwrap();
@@ -737,106 +752,59 @@ fn actual_profile_replacement_after_publication_refuses_registration() {
 }
 
 #[test]
-fn actual_source_change_and_destination_race_before_publication() {
+fn staged_install_refuses_changed_input_and_competing_destination() {
     native_test(async {
         let cancel = Cancellation::default();
         let ctx = original(&cancel);
-        let broker = auth::Broker::start().await;
         let f = auth::Fixture::new(&ctx, true);
-        f.profile(&broker, auth::now() + 600, "broker-api", false, &ctx);
         let ast = f.temp.path().join("ast");
         payload(&ast, PackageKind::Ast, true, false).await;
-        fs::create_dir(ast.join("graph.icebug/search.lance")).unwrap();
-        fs::write(
-            ast.join("graph.icebug/search.lance/opaque"),
-            vec![7u8; 16 * 1024 * 1024],
-        )
-        .unwrap();
-        for race in [false, true] {
-            let zip = export(
-                &f,
-                &ast,
-                if race { "race" } else { "change" },
-                PackageKind::Ast,
-                &ctx,
-            );
-            let req = request(
-                zip.clone(),
-                if race {
-                    "race/destination"
-                } else {
-                    "race/source"
-                },
-                "v1",
-            );
-            let destination = SourceRef::hub_cache(
-                &f.paths,
-                req.producer,
-                ArtifactType::Ast,
-                ArtifactId::new(&req.id, f.policy.projection()).unwrap(),
-                None,
-                ConcreteVersion::new(&req.version, f.policy.projection()).unwrap(),
-                f.policy.projection(),
+        let policy = f
+            .policy
+            .snapshot_policy(CopyPolicy::RejectFileLinks, [])
+            .unwrap();
+        for case in ["source", "destination"] {
+            let zip = export(&f, &ast, case, PackageKind::Ast, &ctx);
+            let captured = CapturedSourceReader::capture(
+                &zip,
+                graphit_fs::NodeKind::File,
+                &policy,
+                read_limits(),
+                Arc::clone(ctx.snapshot()),
             )
-            .unwrap()
-            .directory()
-            .as_path()
-            .to_owned();
-            let published = destination.clone();
-            let parent = destination.parent().unwrap().to_owned();
-            let monitor = std::thread::spawn(move || {
-                let until = Instant::now() + Duration::from_secs(10);
-                loop {
-                    if let Ok(entries) = fs::read_dir(&parent)
-                        && entries.filter_map(Result::ok).any(|e| {
-                            e.file_name()
-                                .to_string_lossy()
-                                .starts_with(".graphit-package-")
-                        })
-                    {
-                        break;
-                    }
-                    assert!(Instant::now() < until, "owned staging never arrived");
-                    std::thread::yield_now();
-                }
-                if race {
-                    fs::create_dir(&published).unwrap();
-                    fs::write(published.join("foreign"), b"preserved").unwrap();
-                } else {
-                    use std::io::Write;
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .open(zip)
-                        .unwrap()
-                        .write_all(b"changed captured ZIP")
-                        .unwrap();
-                }
-            });
-            let execution = install(&f, &req, &ctx).await;
-            monitor.join().unwrap();
-            assert_eq!(
-                execution.outcome.payload,
-                PayloadEffect::NotPublished,
-                "{execution:?}"
-            );
-            assert_eq!(
-                execution.outcome.registry,
-                RegistryEffect::NotAttempted,
-                "{execution:?}"
-            );
-            assert!(execution.cause.is_some());
-            if race {
-                assert_eq!(
-                    execution.outcome.failure.unwrap().category,
-                    FailureCategory::AlreadyExists
-                );
-                assert_eq!(fs::read(destination.join("foreign")).unwrap(), b"preserved");
-            } else {
+            .unwrap();
+            let destination = f.temp.path().join(format!("installed-{case}"));
+            let stage = native_package::stage_import(
+                &captured,
+                Some(PackageKind::Ast),
+                &destination,
+                f.policy.copy(),
+                ctx.snapshot(),
+            )
+            .unwrap();
+            let staged_path = stage.path().to_owned();
+            assert!(staged_path.join("graph.icebug/source.lance").is_dir());
+            assert!(!destination.exists());
+            if case == "source" {
+                fs::write(&zip, b"changed captured ZIP").unwrap();
+                assert!(matches!(
+                    stage.publish(),
+                    Err(PackageError::Io(error)) if error.kind() == io::ErrorKind::InvalidData
+                ));
                 assert!(!destination.exists());
+            } else {
+                fs::create_dir(&destination).unwrap();
+                fs::write(destination.join("foreign"), b"preserved").unwrap();
+                assert!(matches!(
+                    stage.publish(),
+                    Err(PackageError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists
+                ));
+                assert_eq!(fs::read(destination.join("foreign")).unwrap(), b"preserved");
+                assert!(!destination.join("graph.icebug").exists());
             }
-            assert_eq!(f.registry.load().unwrap().entries().count(), 0);
+            assert!(!staged_path.exists());
         }
+        assert_eq!(f.registry.load().unwrap().entries().count(), 0);
         f.remove(&ctx);
-        broker.shutdown().await;
     });
 }

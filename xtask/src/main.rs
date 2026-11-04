@@ -650,7 +650,22 @@ fn qualify(root: &Path) -> Result<(), String> {
             "knowledge_foreground_actual_local_bge_rerank_uses_control_without_local_embedding",
         ],
     )?;
-    execute_test(root, FastTest::RoleHubFile)
+    execute_test(root, FastTest::RoleHubFile)?;
+    execute(
+        root,
+        &[
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "graphit-app",
+            "--test",
+            "source_executable",
+            "native_publication::file_installation",
+            "--",
+            "--ignored",
+        ],
+    )
 }
 
 fn native_nn_resource(name: &str, value: Option<std::ffi::OsString>) -> Result<(), String> {

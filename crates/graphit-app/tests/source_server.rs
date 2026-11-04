@@ -252,7 +252,8 @@ impl Fixture {
             limits,
         )
         .unwrap();
-        fs::create_dir_all(source.directory().as_path()).unwrap();
+        let graph = source.directory().as_path().join("graph.icebug");
+        fs::create_dir_all(&graph).unwrap();
         if let Some(rows) = rows {
             let columns: Vec<ArrayRef> = vec![
                 Arc::new(StringArray::from(
@@ -264,12 +265,7 @@ impl Fixture {
             ];
             let batch = RecordBatch::try_new(source_schema(), columns).unwrap();
             LanceModuleStore::create(
-                source
-                    .directory()
-                    .as_path()
-                    .join("source.lance")
-                    .to_str()
-                    .unwrap(),
+                graph.join("source.lance").to_str().unwrap(),
                 source_schema(),
                 vec![batch],
             )
@@ -409,11 +405,10 @@ impl Fixture {
         }
     }
     fn corpus(&self, project: usize) -> PathBuf {
-        self.paths
-            .root()
-            .join("ast")
-            .join(self.projects[project].1.to_string())
-            .join("source.lance")
+        let (paths, id, _) = &self.projects[project];
+        paths
+            .project_runtime(*id, &["ast", "source.lance"])
+            .unwrap()
     }
     async fn publish(&self, project: usize, rows: &[(&str, Option<&str>)]) -> LanceModuleStore {
         let path = self.corpus(project);
@@ -511,7 +506,7 @@ fn text(result: &CallToolResult) -> &str {
     result.content[0].as_text().unwrap().text.as_str()
 }
 fn success(result: CallToolResult, expected: &str) {
-    assert_eq!(result.is_error, Some(false));
+    assert_eq!(result.is_error, Some(false), "{}", text(&result));
     assert_eq!(text(&result), expected);
 }
 fn error(result: CallToolResult, category: &str) {
@@ -529,10 +524,19 @@ async fn real_sdk_lists_schema_and_reads_raw_files_with_exact_selectors() -> Tes
     let e = f.start().await;
     let client = e.client(Some(&f.raw), Some("runtime")).await;
     let tools = client.list_tools(Default::default()).await?;
-    assert_eq!(tools.tools.len(), 1);
-    assert_eq!(tools.tools[0].name, "graphit_ast_source");
+    let mut source_tools = tools
+        .tools
+        .iter()
+        .filter(|tool| tool.name == "graphit_ast_source");
+    let source_tool = source_tools
+        .next()
+        .expect("Source tool in the composed server");
+    assert!(
+        source_tools.next().is_none(),
+        "Source must be advertised exactly once"
+    );
     assert_eq!(
-        tools.tools[0].input_schema.get("required"),
+        source_tool.input_schema.get("required"),
         Some(&json!(["path"]))
     );
     success(
@@ -799,7 +803,7 @@ async fn strict_schema_paths_and_unavailable_routes_produce_typed_errors() -> Te
     }
     error(
         call(&client, json!({"path":"raw","entity":"x"})).await,
-        "entity",
+        "PROJECT graph or bound text unavailable or invalid",
     );
     error(
         call(&client, json!({"path":"raw","context":"foreign"})).await,
@@ -977,7 +981,7 @@ async fn imported_context_misses_require_explicit_unambiguous_runtime_fallback()
         );
     }
     let bad = f.imported("vendor/broken", 0, None).await;
-    fs::create_dir(bad.directory().as_path().join("source.lance"))?;
+    fs::create_dir(bad.directory().as_path().join("graph.icebug/source.lance"))?;
     error(call(&client,json!({"path":"same","context":"vendor/broken@release-1","project_dir":root,"project_version":"feature"})).await,"storage unavailable or invalid");
     let wrong = f.imported("vendor/schema", 0, None).await;
     let schema = Arc::new(source_schema().project(&[0])?);
@@ -985,7 +989,7 @@ async fn imported_context_misses_require_explicit_unambiguous_runtime_fallback()
         wrong
             .directory()
             .as_path()
-            .join("source.lance")
+            .join("graph.icebug/source.lance")
             .to_str()
             .unwrap(),
         Arc::clone(&schema),
@@ -996,7 +1000,7 @@ async fn imported_context_misses_require_explicit_unambiguous_runtime_fallback()
     assert!(
         !f._directory
             .path()
-            .join("imported/vendor/absent/source.lance")
+            .join("imported/vendor/absent/graph.icebug/source.lance")
             .exists()
     );
     client.cancel().await?;
@@ -1008,7 +1012,7 @@ async fn imported_context_misses_require_explicit_unambiguous_runtime_fallback()
             json!({"path":"same","context":"vendor/context@release-1"}),
         )
         .await,
-        "imported operation failed",
+        "remote acquisition or selection failed",
     );
     malformed.cancel().await?;
     e.stop().await;
@@ -1034,7 +1038,7 @@ async fn imported_auth_precedes_malformed_registry_and_corpus() -> TestResult {
                 json!({"path":"same","context":"vendor/context@release-1"}),
             )
             .await,
-            "authentication or permission",
+            "authentication or imported permission denied",
         );
         client.cancel().await?;
     }

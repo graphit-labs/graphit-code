@@ -137,11 +137,12 @@ fn header_selection(
     headers
         .get(ROLE_SELECTION_HEADER)
         .map(|value| {
-            let raw = value.to_str().map_err(|_| "invalid_selection")?;
+            // The captured selector is UTF-8 JSON, including literal native paths.
+            let raw = value.as_bytes();
             if raw.len() > policy.content.max_input_bytes {
                 return Err("invalid_selection");
             }
-            serde_json::from_str(raw).map_err(|_| "invalid_selection")
+            serde_json::from_slice(raw).map_err(|_| "invalid_selection")
         })
         .transpose()
 }

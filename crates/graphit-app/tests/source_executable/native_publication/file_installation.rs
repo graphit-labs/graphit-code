@@ -67,6 +67,7 @@ fn install_file(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires the built real Broker STSv3/MinIO fixture"]
 async fn compiled_hub_file_install_uses_real_broker_and_verified_cache() -> Result {
     let fixture = Fixture::new().await?;
     let broker = BrokerFixture::start(&fixture).await?;

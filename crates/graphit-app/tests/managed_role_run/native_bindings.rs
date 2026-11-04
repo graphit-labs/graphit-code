@@ -56,6 +56,9 @@ impl Fixture {
             let output = Command::new("git")
                 .args(args)
                 .current_dir(&project)
+                .env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .env("HOME", temp.path())
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .output()?;
@@ -149,7 +152,7 @@ impl Fixture {
             case["mcp_config"] = json!(config);
             case["mcp_entry"] = json!(plan.entry());
             case["graphit_executable"] = json!(env!("CARGO_BIN_EXE_graphit"));
-            case["installation"] = json!(self.installation.root());
+            case["graphit_program"] = json!(self.installation.brand().binary_name());
         }
         fs::write(
             self.temp.path().join("bin/case.json"),
@@ -496,7 +499,7 @@ async fn compiled_kimi_print_role_selects_published_agent_and_joins_after_eof()
 
 fn native_peer(bin: &Path) -> io::Result<()> {
     let script = r#"#!/usr/bin/env python3
-import json,os,sys,subprocess,pathlib,tomllib,select,time,re
+import json,os,sys,subprocess,pathlib,tomllib,select,time,re,shutil
 directory=pathlib.Path(__file__).parent
 case=json.loads((directory/'case.json').read_text())
 binding,role,model=case['binding'],case['role'],case['model']
@@ -525,11 +528,12 @@ def proxy(environment,denied=False):
         for key in case['mcp_entry']: server=server[key]
         assert server['type']=='local'
         argv=server['command']
-        assert pathlib.Path(argv[0]).resolve()==pathlib.Path(case['graphit_executable']).resolve()
-        assert argv[1:]==['--global-dir',case['installation'],'mcp','--stdio']
+        assert argv==[case['graphit_program'],'mcp','--stdio']
         configured_environment=server.get('environment',{})
         assert not any(key.startswith('GRAPHIT_ROLE_') for key in configured_environment)
         child_environment.update(configured_environment)
+        executable=shutil.which(argv[0],path=child_environment.get('PATH'))
+        assert executable and os.path.samefile(executable,case['graphit_executable'])
         cwd=server.get('cwd',cwd)
         assert pathlib.Path(cwd).resolve()==pathlib.Path.cwd()
     with subprocess.Popen(argv,cwd=cwd,env=child_environment,
@@ -548,13 +552,13 @@ def proxy(environment,denied=False):
             else:
                 assert not rejected and answer in json.dumps(value)
                 if role=='tracker':
-                    git=request(child,'tools/call',{'name':'graphit_git_status','arguments':{'input':{}}},3)
+                    git=request(child,'tools/call',{'name':'graphit_git_status','arguments':{'ai_optimized':False,'input':{}}},3)
                     assert not git['result'].get('isError',False)
-                    assert json.loads(git['result']['content'][0]['text'])['object_format']=='sha1'
+                    assert git['result']['structuredContent']['object_format']=='sha1'
             if not denied and role=='scout':
-                shape=request(child,'tools/call',{'name':'graphit_hub_type_path','arguments':{'input':{'artifact_type':'agent','name':'observer'}}},4)
+                shape=request(child,'tools/call',{'name':'graphit_hub_type_path','arguments':{'ai_optimized':False,'input':{'artifact_type':'agent','name':'observer'}}},4)
                 assert not shape['result'].get('isError',False)
-                metadata=json.loads(shape['result']['content'][0]['text'])
+                metadata=shape['result']['structuredContent']
                 assert metadata['binding']==binding
                 assert metadata['target']=={'kind':'native_binding','binding':binding}
             child.stdin.close()

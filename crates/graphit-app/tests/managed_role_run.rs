@@ -136,13 +136,13 @@ for line in sys.stdin:
             assert "actual executable Role payload" in json.dumps(answer)
             if role=="tracker":
                 stage="stdio-git-status"
-                status=request(proxy,"tools/call",{"name":"graphit_git_status","arguments":{"input":{}}},3)
+                status=request(proxy,"tools/call",{"name":"graphit_git_status","arguments":{"ai_optimized":False,"input":{}}},3)
                 assert not status["result"].get("isError",False)
-                assert json.loads(status["result"]["content"][0]["text"])["object_format"]=="sha1"
+                assert status["result"]["structuredContent"]["object_format"]=="sha1"
                 stage="stdio-git-diff"
-                diff=request(proxy,"tools/call",{"name":"graphit_git_diff","arguments":{"input":{}}},4)
+                diff=request(proxy,"tools/call",{"name":"graphit_git_diff","arguments":{"ai_optimized":False,"input":{}}},4)
                 assert not diff["result"].get("isError",False)
-                patches=json.loads(diff["result"]["content"][0]["text"])["patches"]
+                patches=diff["result"]["structuredContent"]["patches"]
                 tracked=next(p for p in patches if base64.b64decode(p["path_base64"])==b"tracked")
                 assert b"+bravo" in base64.b64decode(tracked["hunks_base64"])
             stage="stdio-close"
@@ -187,6 +187,9 @@ async fn compiled_role_run_v3_uses_only_run_owned_stdio_credentials()
                 let output = Command::new("git")
                     .args(args)
                     .current_dir(&root)
+                    .env_clear()
+                    .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                    .env("HOME", temp.path())
                     .env("GIT_CONFIG_GLOBAL", "/dev/null")
                     .env("GIT_CONFIG_NOSYSTEM", "1")
                     .output()?;

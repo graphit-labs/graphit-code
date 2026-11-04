@@ -754,7 +754,7 @@ async fn compiled_source_imported_context_preserves_namespace_without_checkout_f
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compiled_source_inflight_signal_keeps_service_usable() -> Result {
-    use axum::{body::Body, extract::Request, response::Response, routing::any};
+    use axum::{body::Body, extract::Request, response::Response};
     let f = Fixture::new().await?;
     let daemon = f.daemon(&[]).await?;
     let discovery_path = f.paths.root().join("daemon/mcp.json");
@@ -768,42 +768,43 @@ async fn compiled_source_inflight_signal_keeps_service_usable() -> Result {
     record["address"] = json!(listener.local_addr()?.to_string());
     // Forward real authenticated SDK traffic, holding only a completed tool response.
     let client = reqwest::Client::builder().no_proxy().build()?;
-    let router = axum::Router::new().route(
-        "/mcp",
-        any({
+    let router = axum::Router::new().fallback({
+        let ready = ready.clone();
+        let release = release.clone();
+        move |request: Request| {
+            let client = client.clone();
+            let upstream = upstream.clone();
             let ready = ready.clone();
             let release = release.clone();
-            move |request: Request| {
-                let client = client.clone();
-                let upstream = upstream.clone();
-                let ready = ready.clone();
-                let release = release.clone();
-                async move {
-                    let (parts, body) = request.into_parts();
-                    let body = axum::body::to_bytes(body, 2 * 1024 * 1024).await.unwrap();
-                    let tool_call = serde_json::from_slice::<serde_json::Value>(&body)
-                        .is_ok_and(|value| value["method"] == "tools/call");
-                    let response = client
-                        .request(parts.method, format!("http://{upstream}/mcp"))
-                        .headers(parts.headers)
-                        .body(body)
-                        .send()
-                        .await
-                        .unwrap();
-                    if tool_call {
-                        ready.notify_one();
-                        release.notified().await;
-                    }
-                    let status = response.status();
-                    let headers = response.headers().clone();
-                    let mut result = Response::new(Body::from_stream(response.bytes_stream()));
-                    *result.status_mut() = status;
-                    *result.headers_mut() = headers;
-                    result
+            async move {
+                let (parts, body) = request.into_parts();
+                let body = axum::body::to_bytes(body, 2 * 1024 * 1024).await.unwrap();
+                let tool_call = parts.uri.path() == "/mcp"
+                    && serde_json::from_slice::<serde_json::Value>(&body).is_ok_and(|value| {
+                        value["method"] == "tools/call"
+                            && value["params"]["name"] == "graphit_ast_source"
+                    });
+                let path = parts.uri.path_and_query().map_or("/", |path| path.as_str());
+                let response = client
+                    .request(parts.method, format!("http://{upstream}{path}"))
+                    .headers(parts.headers)
+                    .body(body)
+                    .send()
+                    .await
+                    .unwrap();
+                if tool_call {
+                    ready.notify_one();
+                    release.notified().await;
                 }
+                let status = response.status();
+                let headers = response.headers().clone();
+                let mut result = Response::new(Body::from_stream(response.bytes_stream()));
+                *result.status_mut() = status;
+                *result.headers_mut() = headers;
+                result
             }
-        }),
-    );
+        }
+    });
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let proxy = tokio::spawn(async move {
         axum::serve(listener, router)
@@ -993,7 +994,7 @@ async fn compiled_requested_read_version_does_not_register_a_maintained_version(
             .peer()
             .call_tool(
                 CallToolRequestParams::new("graphit_ast_source")
-                    .with_arguments(json_arguments(arguments.as_object().unwrap().clone())),
+                    .with_arguments(arguments.as_object().unwrap().clone()),
             )
             .await?;
         assert_eq!(result.is_error == Some(true), expected.is_err());
@@ -1344,7 +1345,7 @@ async fn compiled_mcp_stdio_current_explicit_sibling_and_eof_leave_daemon_alive(
                 .peer()
                 .call_tool(
                     CallToolRequestParams::new("graphit_ast_source")
-                        .with_arguments(json_arguments(args.as_object().unwrap().clone())),
+                        .with_arguments(args.as_object().unwrap().clone()),
                 )
                 .await?;
             assert_ne!(result.is_error, Some(true), "{result:?}");
@@ -1464,7 +1465,34 @@ async fn compiled_knowledge_watcher_export_import_and_installed_mcp_query_withou
         f.projects[0].root().join("docs/b.md"),
         "---\nid: exported-second\ntitle: Second export\n---\n# Second export\nliteral second document.\n",
     )?;
-    let daemon = f.daemon(&["--project-version", "main"]).await?;
+    let project_id = ProjectIdentityStore::at(&f.projects[0])
+        .load()?
+        .ok_or("missing Knowledge fixture project identity")?
+        .id();
+    let mut daemon = f.daemon(&["--project-version", "main"]).await?;
+    // Discovery only means MCP can accept connections. Wait for the watcher
+    // to finish the document pass so FTS and export observe the same corpus.
+    let publication =
+        format!("Graphit Knowledge job for {project_id} version main: document generation ");
+    let until = Instant::now() + Duration::from_secs(20);
+    loop {
+        let log = fs::read_to_string(&daemon.log)?;
+        if let Some(status) = daemon.child.try_wait()? {
+            return Err(
+                io::Error::other(format!("Knowledge daemon exited with {status}: {log}")).into(),
+            );
+        }
+        if log.lines().any(|line| line.starts_with(&publication)) {
+            break;
+        }
+        if Instant::now() >= until {
+            return Err(io::Error::other(format!(
+                "Knowledge watcher did not finish its initial publication: {log}"
+            ))
+            .into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let mut command = tokio::process::Command::from(f.command());
     command
         .current_dir(f.paths.root())
@@ -1490,41 +1518,23 @@ async fn compiled_knowledge_watcher_export_import_and_installed_mcp_query_withou
         "project_dir":NativePath::new(f.projects[0].root().to_owned())?,
         "project_version":"main"
     });
-    let until = Instant::now() + Duration::from_secs(20);
-    let page = loop {
-        let response = sdk
-            .peer()
-            .call_tool(
-                CallToolRequestParams::new("graphit_knowledge_search")
-                    .with_arguments(json_arguments(project_query.as_object().unwrap().clone())),
-            )
-            .await?;
-        assert_ne!(
-            response.is_error,
-            Some(true),
-            "{response:?}: {}",
-            fs::read_to_string(&daemon.log)?
-        );
-        let payload = response
-            .structured_content
-            .ok_or("missing Knowledge search result")?;
-        if payload["native"]["state"] == "hits" && payload["native"]["total"] == 2 {
-            break payload;
-        }
-        assert!(
-            matches!(
-                payload["native"]["state"].as_str(),
-                Some("no_corpus" | "published_empty" | "no_hits" | "hits")
-            ),
-            "{payload}"
-        );
-        assert!(
-            Instant::now() < until,
-            "watcher did not publish: {payload}: {}",
-            fs::read_to_string(&daemon.log)?
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    let response = sdk
+        .peer()
+        .call_tool(
+            CallToolRequestParams::new("graphit_knowledge_search")
+                .with_arguments(json_arguments(project_query.as_object().unwrap().clone())),
+        )
+        .await?;
+    assert_ne!(
+        response.is_error,
+        Some(true),
+        "{response:?}: {}",
+        fs::read_to_string(&daemon.log)?
+    );
+    let page = response
+        .structured_content
+        .ok_or("missing Knowledge search result")?;
+    assert_eq!(page["native"]["state"], "hits", "{page}");
     assert_eq!(page["source"], json!({"kind":"project_knowledge"}));
     assert_eq!(page["native"]["total"], 2);
     let project_hit = page["native"]["hits"]
@@ -2309,7 +2319,34 @@ async fn compiled_okf_and_obsidian_export_project_and_installed_source() -> Resu
         f.projects[0].root().join("docs/b.md"),
         "---\nid: exported-second\ntitle: Second export\ntype: reference\ndescription: ''\n---\n# Second export\nliteral second document.\n[[exported-note]]\n<div>\nopen author HTML [[exported-note]]\n",
     )?;
-    let daemon = f.daemon(&["--project-version", "main"]).await?;
+    let project_id = ProjectIdentityStore::at(&f.projects[0])
+        .load()?
+        .ok_or("missing Knowledge fixture project identity")?
+        .id();
+    let mut daemon = f.daemon(&["--project-version", "main"]).await?;
+    // Discovery only means MCP can accept connections. Wait for the watcher
+    // to finish the document pass so FTS and export observe the same corpus.
+    let publication =
+        format!("Graphit Knowledge job for {project_id} version main: document generation ");
+    let until = Instant::now() + Duration::from_secs(20);
+    loop {
+        let log = fs::read_to_string(&daemon.log)?;
+        if let Some(status) = daemon.child.try_wait()? {
+            return Err(
+                io::Error::other(format!("Knowledge daemon exited with {status}: {log}")).into(),
+            );
+        }
+        if log.lines().any(|line| line.starts_with(&publication)) {
+            break;
+        }
+        if Instant::now() >= until {
+            return Err(io::Error::other(format!(
+                "Knowledge watcher did not finish its initial publication: {log}"
+            ))
+            .into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let mut command = tokio::process::Command::from(f.command());
     command
         .current_dir(f.paths.root())
@@ -2335,41 +2372,23 @@ async fn compiled_okf_and_obsidian_export_project_and_installed_source() -> Resu
         "project_dir":NativePath::new(f.projects[0].root().to_owned())?,
         "project_version":"main"
     });
-    let until = Instant::now() + Duration::from_secs(20);
-    let page = loop {
-        let response = sdk
-            .peer()
-            .call_tool(
-                CallToolRequestParams::new("graphit_knowledge_search")
-                    .with_arguments(json_arguments(project_query.as_object().unwrap().clone())),
-            )
-            .await?;
-        assert_ne!(
-            response.is_error,
-            Some(true),
-            "{response:?}: {}",
-            fs::read_to_string(&daemon.log)?
-        );
-        let payload = response
-            .structured_content
-            .ok_or("missing Knowledge search result")?;
-        if payload["native"]["state"] == "hits" && payload["native"]["total"] == 2 {
-            break payload;
-        }
-        assert!(
-            matches!(
-                payload["native"]["state"].as_str(),
-                Some("no_corpus" | "published_empty" | "no_hits" | "hits")
-            ),
-            "{payload}"
-        );
-        assert!(
-            Instant::now() < until,
-            "watcher did not publish: {payload}: {}",
-            fs::read_to_string(&daemon.log)?
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    let response = sdk
+        .peer()
+        .call_tool(
+            CallToolRequestParams::new("graphit_knowledge_search")
+                .with_arguments(json_arguments(project_query.as_object().unwrap().clone())),
+        )
+        .await?;
+    assert_ne!(
+        response.is_error,
+        Some(true),
+        "{response:?}: {}",
+        fs::read_to_string(&daemon.log)?
+    );
+    let page = response
+        .structured_content
+        .ok_or("missing Knowledge search result")?;
+    assert_eq!(page["native"]["state"], "hits", "{page}");
     assert_eq!(page["source"], json!({"kind":"project_knowledge"}));
     assert_eq!(page["native"]["total"], 2);
     let project_hit = page["native"]["hits"]

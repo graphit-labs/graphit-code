@@ -203,15 +203,13 @@ impl Fixture {
                 RecordBatch::try_new(Arc::clone(&schema), columns).unwrap()
             };
             let store = graphit_data::lance_module_store::LanceModuleStore::create(
-                path.join("source.lance").to_str().unwrap(),
+                path.join("graph.icebug/source.lance").to_str().unwrap(),
                 schema,
                 vec![batch],
             )
             .await
             .unwrap();
             drop(store);
-            fs::create_dir(path.join("search.lance")).unwrap();
-            fs::write(path.join("search.lance/opaque"), b"opaque native transport").unwrap();
         } else {
             let schema = if wrong_schema {
                 graphit_ast::indexed_source::source_schema()

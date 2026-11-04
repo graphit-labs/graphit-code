@@ -858,7 +858,7 @@ fn actual_other_and_corrupt_corpus_are_errors_without_repair_or_creation() {
         for mode in ["other", "unpublished", "corrupt"] {
             let cancel = Cancellation::default();
             let ctx = request(&cancel);
-            let f = Fixture::new(&ctx, "A");
+            let f = Fixture::new(&ctx, if mode == "corrupt" { "" } else { "A" });
             let full = f.auth.issuer();
             let seed_caller = full.authenticate_runtime(&f.secret(&ctx), &ctx).unwrap();
             let seed_authority = ProjectRecordAuthority::new(full);
@@ -871,18 +871,34 @@ fn actual_other_and_corrupt_corpus_are_errors_without_repair_or_creation() {
             )
             .await;
             let path = f.project.runtime_root().join("knowledge/index.lance");
-            let permissions = fs::metadata(&path).unwrap().permissions();
-            fs::remove_dir_all(&path).unwrap();
-            if mode == "other" {
-                fs::write(&path, b"real other file").unwrap();
+            if mode == "corrupt" {
+                let mut manifests = 0;
+                for entry in fs::read_dir(path.join("_versions")).unwrap() {
+                    let manifest = entry.unwrap().path();
+                    if manifest.extension().is_some_and(|ext| ext == "manifest") {
+                        let mut bytes = fs::read(&manifest).unwrap();
+                        let footer = bytes.len().checked_sub(16).unwrap();
+                        let offset = usize::try_from(u64::from_le_bytes(
+                            bytes[footer..footer + 8].try_into().unwrap(),
+                        ))
+                        .unwrap();
+                        assert!(offset + 4 < footer);
+                        // Invalidate protobuf while preserving Lance's real envelope.
+                        bytes[offset + 4] = 0;
+                        fs::write(manifest, bytes).unwrap();
+                        manifests += 1;
+                    }
+                }
+                assert!(manifests > 0);
             } else {
-                fs::create_dir(&path).unwrap();
-                fs::set_permissions(&path, permissions).unwrap();
-                if mode == "unpublished" {
-                    fs::write(path.join("unexpected"), b"no published Main").unwrap();
+                let permissions = fs::metadata(&path).unwrap().permissions();
+                fs::remove_dir_all(&path).unwrap();
+                if mode == "other" {
+                    fs::write(&path, b"real other file").unwrap();
                 } else {
-                    fs::create_dir(path.join("_versions")).unwrap();
-                    fs::write(path.join("_versions/1.manifest"), b"corrupt manifest").unwrap();
+                    fs::create_dir(&path).unwrap();
+                    fs::set_permissions(&path, permissions).unwrap();
+                    fs::write(path.join("unexpected"), b"no published Main").unwrap();
                 }
             }
             let reader = f.issuer(&ctx, &[Permission::Read(Module::Knowledge)]);

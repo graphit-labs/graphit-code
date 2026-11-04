@@ -97,6 +97,37 @@ impl Installation {
         )?;
         let root = temporary.path().join("project");
         fs::create_dir(&root)?;
+        // The stdio proxy maintains the actual checkout before selecting a
+        // requested view. Seed the branch that the runtime is meant to serve.
+        let git = |args: &[&str]| -> io::Result<()> {
+            let output = Command::new("git")
+                .env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .env("HOME", temporary.path())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .current_dir(&root)
+                .args(args)
+                .output()?;
+            if !output.status.success() {
+                return Err(io::Error::other(format!(
+                    "Git fixture {args:?}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )));
+            }
+            Ok(())
+        };
+        git(&["init", "-b", "main", "--template="])?;
+        git(&[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ])?;
+        git(&["switch", "-c", version])?;
         let project = ProjectPaths::at(&root, &paths)?;
         let project_id = ProjectIdentityStore::at(&project)
             .writer(Duration::from_secs(5), &Cancellation::default())?

@@ -2069,11 +2069,8 @@ fn expired_grant_or_original_deadline_after_user_writer_wait_denies_before_child
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs();
-            let raw = broker.state.token(
-                "caller-A",
-                RESOURCE,
-                if deadline { expiry() } else { now + 3 },
-            );
+            let token_expiry = if deadline { expiry() } else { now + 3 };
+            let raw = broker.state.token("caller-A", RESOURCE, token_expiry);
             let client = rpc_client(&uri, &raw).await;
             // Birth and hold the exact caller's actual Core USER writer, without a conversation.
             use graphit_core::artifact_store::{ArtifactStore, UserIdentity};
@@ -2117,29 +2114,67 @@ fn expired_grant_or_original_deadline_after_user_writer_wait_denies_before_child
             })
             .await
             .unwrap();
-            tokio::time::sleep(if deadline {
-                Duration::from_millis(1750)
+            let writer_path = user.runtime_root().join("artifact-store.lock");
+            let result = if deadline {
+                // Keep the writer held until the request's own deadline wins.
+                // The wire timer and expired worker can become ready together.
+                let result = tokio::time::timeout(Duration::from_secs(10), call)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(graphit_core::file_lock::FileLock::is_locked(&writer_path).unwrap());
+                drop(held);
+                result
             } else {
-                Duration::from_secs(4)
-            })
-            .await;
-            assert!(f.launches().is_empty());
-            drop(held);
-            let result = call.await.unwrap();
-            assert_eq!(result.is_error, Some(true));
-            if deadline {
-                assert!(serde_json::to_string(&result).unwrap().contains("deadline"));
-            }
-            assert!(f.launches().is_empty());
-            assert!(
-                !graphit_core::file_lock::FileLock::is_locked(
-                    user.runtime_root().join("artifact-store.lock")
+                let expires = UNIX_EPOCH + Duration::from_secs(token_expiry);
+                tokio::time::sleep(
+                    expires
+                        .duration_since(SystemTime::now())
+                        .unwrap_or_default(),
                 )
-                .unwrap()
-            );
+                .await;
+                assert!(
+                    !call.is_finished(),
+                    "the live request must still be waiting for the writer"
+                );
+                drop(held);
+                tokio::time::timeout(Duration::from_secs(10), call)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            };
+            assert!(f.launches().is_empty());
+            assert_eq!(result.is_error, Some(true));
+            let error_text = result
+                .content
+                .first()
+                .and_then(|block| block.as_text())
+                .map(|text| text.text.as_str());
+            if deadline {
+                if let Some(payload) = &result.structured_content {
+                    assert_eq!(payload["status"], "failed");
+                    assert_eq!(payload["delivery_error"], "CancelledOrExpired");
+                    assert_eq!(
+                        payload["error_content"][0]["text"],
+                        "Knowledge conversation: Store"
+                    );
+                    assert!(payload.get("receipt").is_none());
+                } else {
+                    assert_eq!(error_text, Some("Knowledge conversation deadline"));
+                }
+            } else {
+                assert_eq!(
+                    error_text,
+                    Some(
+                        "Knowledge conversation authorization changed while waiting for USER writer"
+                    )
+                );
+            }
             client.cancel().await.unwrap();
             cancel.cancel();
             running.await.unwrap().unwrap();
+            assert!(f.launches().is_empty());
+            assert!(!graphit_core::file_lock::FileLock::is_locked(writer_path).unwrap());
             broker.shutdown().await;
         }
     });

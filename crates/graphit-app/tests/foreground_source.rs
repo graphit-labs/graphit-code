@@ -62,12 +62,7 @@ impl Fixture {
 
     async fn publish_versions(&self) -> TestResult {
         let identity = ProjectIdentityStore::at(&self.projects[0]).load()?.unwrap();
-        let corpus = self
-            .paths
-            .root()
-            .join("ast")
-            .join(identity.id().to_string())
-            .join("source.lance");
+        let corpus = self.projects[0].project_runtime(identity.id(), &["ast", "source.lance"])?;
         fs::create_dir_all(corpus.parent().unwrap())?;
         let batch = |text: &str| {
             let columns: Vec<ArrayRef> = vec![
@@ -424,10 +419,15 @@ fn invalid_configuration_missing_identity_and_cancelled_original_do_not_publish(
         [ConfigDocument::new(
             fixture.paths.brand(),
             ConfigSource::Command,
-            [(ConfigKey::new("mcp.host")?, json!("0.0.0.0"))],
+            [(ConfigKey::new("mcp.host")?, json!("192.0.2.1"))],
         )?],
     )?;
-    assert!(fixture.start().is_err());
+    let invalid = fixture
+        .start()
+        .err()
+        .expect("non-loopback unicast must fail");
+    assert_eq!(invalid.error.kind(), io::ErrorKind::InvalidInput);
+    assert!(invalid.owner.is_none());
     assert!(!fixture.paths.root().join("daemon/mcp.json").exists());
     assert!(!fixture.paths.root().join("daemon/mcp.key").exists());
     fixture.config = ConfigSnapshot::new(fixture.paths.brand(), [])?;
@@ -439,6 +439,7 @@ fn invalid_configuration_missing_identity_and_cancelled_original_do_not_publish(
     let missing = fixture.start().err().unwrap();
     assert_eq!(missing.error.kind(), io::ErrorKind::NotFound);
     assert!(!fixture.paths.root().join("daemon/mcp.json").exists());
+    fixture.projects.pop();
     let cancellation = Cancellation::default();
     let original = fixture
         .policy

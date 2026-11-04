@@ -15,7 +15,6 @@ use graphit_auth::{
 use graphit_core::{
     artifact_store::{ArtifactLimits, CapturedPublicationScope, CopyLimits, ScopeLimits},
     brand::Brand,
-    file_io::SnapshotContext,
     file_lock::Cancellation,
     module_settings::Module,
     native_document_file::NativeDocumentFileLimits,
@@ -23,7 +22,6 @@ use graphit_core::{
 use graphit_data::{knowledge_document_projection as h, knowledge_index::*};
 use graphit_hub::{NativeBinding, native::ContentLimits, policy::RequestContext};
 use std::{
-    ffi::OsString,
     io,
     num::NonZeroUsize,
     os::unix::fs::PermissionsExt,
@@ -137,18 +135,21 @@ async fn publish(f: &fixture_support::Fixture, ctx: &RequestContext<'_>) {
     .await
     .unwrap();
 }
-fn command(f: &fixture_support::Fixture) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
-    command
-        .current_dir(f.projects[0].0.root())
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", f.temp.path());
-    command.env(
-        f.paths.brand().environment_variable("GLOBAL_DIR").unwrap(),
-        f.paths.root(),
-    );
-    command
+fn cli_command(f: &fixture_support::Fixture) -> impl Fn() -> Command + use<> {
+    let checkout = f.projects[0].0.root().to_owned();
+    let home = f.temp.path().to_owned();
+    let global_dir = f.paths.brand().environment_variable("GLOBAL_DIR").unwrap();
+    let installation = f.paths.root().to_owned();
+    move || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
+        command
+            .current_dir(&checkout)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &home)
+            .env(&global_dir, &installation);
+        command
+    }
 }
 fn run(test: impl std::future::Future<Output = ()> + Send + 'static) {
     std::thread::Builder::new()
@@ -165,51 +166,11 @@ fn run(test: impl std::future::Future<Output = ()> + Send + 'static) {
         .join()
         .unwrap();
 }
-async fn serve(
-    f: &fixture_support::Fixture,
-    ctx: &RequestContext<'_>,
-) -> (
-    tokio::task::JoinHandle<io::Result<()>>,
-    graphit_daemon::source_discovery::DiscoveryRecord,
-) {
-    let listener = graphit_core::tcp_listener::reserve(
-        graphit_core::tcp_listener::Options {
-            address: std::net::Ipv4Addr::LOCALHOST.into(),
-            ports: graphit_core::tcp_listener::PortSelection::Ephemeral,
-            timeout: Duration::from_secs(5),
-        },
-        ctx.cancellation(),
-    )
-    .unwrap();
-    let discovery = graphit_daemon::source_discovery::publish_discovery(
-        &f.auth,
-        &listener,
-        native(),
-        ctx.snapshot(),
-    )
-    .unwrap();
-    let server = f.server.clone();
-    (
-        tokio::spawn(async move { server.serve(listener).await }),
-        discovery,
-    )
-}
-async fn stop(
-    f: &fixture_support::Fixture,
-    served: tokio::task::JoinHandle<io::Result<()>>,
-    record: &graphit_daemon::source_discovery::DiscoveryRecord,
-    ctx: &SnapshotContext,
-) {
-    f.server.shutdown().await.unwrap();
-    served.await.unwrap().unwrap();
-    graphit_daemon::source_discovery::remove_discovery(&f.auth, record, native(), ctx).unwrap();
-}
-
 #[test]
 fn compiled_cli_preserves_query_model_and_startup_capture_and_writes_only_final_answer() {
     run(async {
         let brand = Brand::new(env!("GRAPHIT_COMPILED_BUILD_BRAND")).unwrap();
-        let mut f = fixture_support::fixture(
+        let f = fixture_support::fixture(
             &[
                 Permission::Read(Module::Ast),
                 Permission::Read(Module::Knowledge),
@@ -239,21 +200,19 @@ print(json.dumps({"type":"item.completed","item":{"id":"i","type":"agent_message
 print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}',flush=True)
 "#).unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-        f.server
-            .attach_ask(
-                &graphit_core::config::ConfigSnapshot::new(f.paths.brand(), []).unwrap(),
-                vec![
-                    (OsString::from("PATH"), f.temp.path().as_os_str().to_owned()),
-                    ("CAPTURED".into(), "startup only;$(literal)".into()),
-                ],
-                &ctx,
-            )
-            .await
-            .unwrap();
-        // Moving the executable after capture would fail launch; changing caller PATH
-        // below must instead leave the captured program/environment authoritative.
-        let (served, record) = serve(&f, &ctx).await;
-        let mut cmd = command(&f);
+        // The compiled PROJECT command maintains its checkout through the real
+        // Foreground route before it calls Ask.
+        let command = cli_command(&f);
+        let mut daemon = cli_daemon::CliDaemon::start(
+            f,
+            NativeBinding::Codex,
+            vec![("CAPTURED".into(), "startup only;$(literal)".into())],
+            &ctx,
+        )
+        .await
+        .unwrap();
+        // Caller PATH/environment must not override the captured process binding.
+        let mut cmd = command();
         cmd.env("PATH", "/no-codex-in-client-path")
             .env("CAPTURED", "client differs")
             .args([
@@ -269,11 +228,15 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
         let result = tokio::task::spawn_blocking(move || cmd.output().unwrap())
             .await
             .unwrap();
-        assert!(result.status.success(), "compiled Ask must succeed");
+        assert!(
+            result.status.success(),
+            "compiled Ask failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
         assert_eq!(result.stdout, "actual β [[Paris]]\n".as_bytes());
         assert!(result.stderr.is_empty());
         for mode in ["fts", "hybrid"] {
-            let mut automatic = command(&f);
+            let mut automatic = command();
             automatic
                 .env("PATH", "/no-codex-in-client-path")
                 .env("CAPTURED", "client differs")
@@ -307,7 +270,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
             vec!["--retrieval", "fts", "--top-k", "1", "--metric", "dot"],
             vec!["--slug", "Paris", "--top-k", "1"],
         ] {
-            let mut invalid = command(&f);
+            let mut invalid = command();
             invalid
                 .args([
                     "knowledge",
@@ -324,7 +287,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
             assert!(!invalid.status.success());
             assert!(invalid.stdout.is_empty());
         }
-        let mut invalid = command(&f);
+        let mut invalid = command();
         invalid.args([
             "knowledge",
             "ask",
@@ -345,7 +308,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
                 .unwrap()
                 .contains("page selection")
         );
-        stop(&f, served, &record, ctx.snapshot()).await;
+        daemon.stop().await.unwrap();
     });
 }
 
@@ -353,7 +316,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
 fn missing_optional_codex_keeps_source_and_compiled_ask_has_actionable_error() {
     run(async {
         let brand = Brand::new(env!("GRAPHIT_COMPILED_BUILD_BRAND")).unwrap();
-        let mut f = fixture_support::fixture(
+        let f = fixture_support::fixture(
             &[
                 Permission::Read(Module::Ast),
                 Permission::Read(Module::Knowledge),
@@ -363,16 +326,13 @@ fn missing_optional_codex_keeps_source_and_compiled_ask_has_actionable_error() {
         );
         let cancel = Cancellation::default();
         let ctx = original(&cancel);
-        f.server
-            .attach_ask(
-                &graphit_core::config::ConfigSnapshot::new(f.paths.brand(), []).unwrap(),
-                Vec::new(),
-                &ctx,
-            )
+        let command = cli_command(&f);
+        // CliDaemon captures PATH at this fixture's fresh directory, which
+        // contains no completion executable even if the host has Codex.
+        let mut daemon = cli_daemon::CliDaemon::start(f, NativeBinding::Codex, Vec::new(), &ctx)
             .await
             .unwrap();
-        let (served, record) = serve(&f, &ctx).await;
-        let mut cmd = command(&f);
+        let mut cmd = command();
         cmd.args([
             "knowledge",
             "ask",
@@ -389,9 +349,15 @@ fn missing_optional_codex_keeps_source_and_compiled_ask_has_actionable_error() {
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
         let text = String::from_utf8(output.stderr).unwrap();
-        assert!(text.contains("Codex unavailable"));
-        assert!(text.contains("restart"));
-        let mut source = command(&f);
+        assert!(
+            text.contains("Knowledge Ask native CLI unavailable:"),
+            "{text}"
+        );
+        assert!(
+            text.contains("install the configured CLI in the startup PATH and restart the service"),
+            "{text}"
+        );
+        let mut source = command();
         source.args(["ast", "source", "raw"]).stdin(Stdio::null());
         let output = tokio::task::spawn_blocking(move || source.output().unwrap())
             .await
@@ -402,7 +368,7 @@ fn missing_optional_codex_keeps_source_and_compiled_ask_has_actionable_error() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(output.stdout, b"actual native payload");
-        stop(&f, served, &record, ctx.snapshot()).await;
+        daemon.stop().await.unwrap();
     });
 }
 
@@ -432,7 +398,7 @@ fn compiled_cli_kiro_v3_preserves_captured_inputs_and_waits_for_terminal() {
         let journal = f.temp.path().join("kiro-cli-journal");
         let query = "  literal β\n  ";
         let model = "literal model;$(native)";
-        let mut cmd = tokio::process::Command::from(command(&f));
+        let mut cmd = tokio::process::Command::from(cli_command(&f)());
         let mut daemon = cli_daemon::CliDaemon::start(
             f,
             NativeBinding::KiroV3,

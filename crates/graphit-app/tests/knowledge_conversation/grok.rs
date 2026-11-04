@@ -271,7 +271,7 @@ fn grok_incoming_native_failures_never_publish_answer_or_create_binding() {
         let listed = client
             .call_tool(
                 CallToolRequestParams::new("graphit_knowledge_conversation").with_arguments(
-                    json!({"operation":"list","provider":"broker"})
+                    json!({"ai_optimized":false,"operation":"list","provider":"broker"})
                         .as_object()
                         .unwrap()
                         .clone(),
@@ -279,6 +279,7 @@ fn grok_incoming_native_failures_never_publish_answer_or_create_binding() {
             )
             .await
             .unwrap();
+        assert_eq!(listed.is_error, Some(false));
         let records = listed.structured_content.unwrap();
         assert_eq!(records["conversations"].as_array().unwrap().len(), 1);
         assert_eq!(records["conversations"][0]["conversation_id"], "grok-good");

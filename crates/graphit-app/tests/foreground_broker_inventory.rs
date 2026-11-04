@@ -2,6 +2,8 @@
 #![cfg(target_os = "linux")]
 use graphit_app::foreground_source::{ForegroundFailure, ForegroundSource};
 use graphit_auth::{
+    ServiceUseError,
+    broker::BrokerError,
     profile::{
         AiService, BrokerService, LocalCredentials, OidcTokens, ProfileCredentials, ProfileData,
         ProfileExpectation, ProfileLimits, ProviderConfig, ProviderKind, S3Location, S3Source,
@@ -25,13 +27,16 @@ use graphit_core::{
     version_context::VersionContext,
 };
 use graphit_daemon::{
-    broker_inventory::{InventoryPublicationRemoteCode, OwnInventoryPublicationFailure},
+    broker_inventory::{
+        InventoryAdmissionFailure, InventoryPublicationRemoteCode, OwnInventoryPublicationFailure,
+    },
     maintained_inventory::MaintainedProjectVersions,
     project_bootstrap::ProjectBootstrapInput,
     source_discovery,
 };
 use graphit_http::client::{
-    BoundedClient, ClientPolicy, Limits, NetworkEffect, NetworkRequest, NetworkRequestContext,
+    BoundedClient, ClientPolicy, Limits, NetworkEffect, NetworkError, NetworkRequest,
+    NetworkRequestContext,
 };
 use graphit_hub::{
     NativeBinding,
@@ -47,12 +52,13 @@ use serde_json::{Value, json};
 use std::{
     fs,
     future::{Future, poll_fn},
-    io::{BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader, Read, Write},
+    net::TcpListener,
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver},
     task::Poll,
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 fn config(paths: &InstallationPaths, values: &[(&str, Value)]) -> ConfigSnapshot {
@@ -464,7 +470,7 @@ async fn exact_absence_no_active_and_local_without_broker_use_real_local_startup
 }
 
 #[tokio::test]
-async fn malformed_auth_and_untrusted_http_fail_before_runtime_owner() {
+async fn malformed_auth_and_untrusted_http_fail_before_remote_publication() {
     let f = Fixture::new();
     let cancel = Cancellation::default();
     let original = f.request(&cancel);
@@ -473,14 +479,16 @@ async fn malformed_auth_and_untrusted_http_fail_before_runtime_owner() {
     assert!(f.start("", &original).await.err().unwrap().owner.is_none());
     f.cleaned();
     fs::remove_file(f.paths.root().join("auth.json")).unwrap();
+    let broker = TcpListener::bind("127.0.0.1:0").unwrap();
+    broker.set_nonblocking(true).unwrap();
     f.profile(
-        broker_kind("http://127.0.0.1:1"),
+        broker_kind(&format!("http://{}", broker.local_addr().unwrap())),
         local(Some("stored-key")),
         "fixture-user",
         &original,
     );
     let without_trust = config(&f.paths, &[]);
-    let failure = ForegroundSource::start_and_publish(
+    let mut failure = ForegroundSource::start_and_publish(
         &f.paths,
         &[ProjectBootstrapInput {
             project: &f.project,
@@ -497,14 +505,18 @@ async fn malformed_auth_and_untrusted_http_fail_before_runtime_owner() {
     .await
     .err()
     .unwrap();
-    assert!(failure.owner.is_none());
-    assert!(
+    assert_eq!(
         failure
             .error
             .get_ref()
-            .unwrap()
-            .is::<graphit_http::client::NetworkError>()
+            .and_then(|cause| cause.downcast_ref::<NetworkError>()),
+        Some(&NetworkError::InvalidPolicy),
     );
+    assert_eq!(
+        broker.accept().unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    failure.owner.take().unwrap().shutdown().await.unwrap();
     f.cleaned();
 }
 
@@ -514,22 +526,30 @@ async fn missing_key_and_unverified_native_retain_cleanup_owner() {
         let f = Fixture::new();
         let cancel = Cancellation::default();
         let original = f.request(&cancel);
-        let endpoint = "http://127.0.0.1:1";
+        let broker = TcpListener::bind("127.0.0.1:0").unwrap();
+        broker.set_nonblocking(true).unwrap();
+        let endpoint = format!("http://{}", broker.local_addr().unwrap());
         let (kind, credentials) = if native {
             (
                 ProviderKind::Broker(BrokerService {
-                    endpoint: endpoint.into(),
+                    endpoint: endpoint.clone(),
                     mcp_resource: None,
                     allow_anonymous: false,
                 }),
                 ProfileCredentials::Broker {
-                    issuer: endpoint.into(),
+                    issuer: endpoint,
                     subject: "stored-untrusted-assertion".into(),
                     tokens: OidcTokens {
                         access_token: Secret::new(SecretString::from("unverified-stored-access")),
                         refresh_token: None,
                         id_token: Secret::new(SecretString::from("unverified-stored-id")),
-                        expires_at: 4102444800,
+                        expires_at: i64::try_from(
+                            (SystemTime::now() + Duration::from_secs(600))
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_micros(),
+                        )
+                        .unwrap(),
                     },
                     s3_disabled: true,
                 },
@@ -539,7 +559,7 @@ async fn missing_key_and_unverified_native_retain_cleanup_owner() {
                 ProviderKind::Local {
                     allow_aws_credential_chain: false,
                     broker: Some(BrokerService {
-                        endpoint: endpoint.into(),
+                        endpoint,
                         mcp_resource: None,
                         allow_anonymous: true,
                     }),
@@ -548,13 +568,26 @@ async fn missing_key_and_unverified_native_retain_cleanup_owner() {
             )
         };
         // Anonymous permission never supplies this non-anonymous profile's missing key.
-        // Native now attempts verification; this unreachable endpoint cannot establish JWT authority.
-        // NotSent describes inventory HTTP, not preceding Auth metadata work.
+        // The unexpired stored Native token must still pass JWT preflight.
         f.profile(kind, credentials, "fixture-user", &original);
         let mut failure = f.start("", &original).await.err().unwrap();
         assert!(matches!(
-            publication(&failure),
-            OwnInventoryPublicationFailure::Admission { .. }
+            (native, publication(&failure)),
+            (
+                false,
+                OwnInventoryPublicationFailure::Admission {
+                    source: InventoryAdmissionFailure::Auth(ServiceUseError::MissingCredential),
+                    ..
+                }
+            ) | (
+                true,
+                OwnInventoryPublicationFailure::Admission {
+                    source: InventoryAdmissionFailure::Auth(ServiceUseError::Broker(
+                        BrokerError::InvalidToken
+                    )),
+                    ..
+                }
+            )
         ));
         assert_eq!(publication(&failure).effect(), NetworkEffect::NotSent);
         assert!(!f.core(&original).is_empty());
@@ -563,6 +596,10 @@ async fn missing_key_and_unverified_native_retain_cleanup_owner() {
         let mut again = f.start("", &original).await.err().unwrap();
         again.owner.take().unwrap().shutdown().await.unwrap();
         f.cleaned();
+        assert_eq!(
+            broker.accept().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
     }
 }
 

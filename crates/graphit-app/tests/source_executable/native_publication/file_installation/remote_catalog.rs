@@ -40,6 +40,7 @@ fn rows(value: &serde_json::Value) -> Result<&Vec<serde_json::Value>> {
         .ok_or_else(|| "missing projects".into())
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires the built real Broker STSv3/MinIO fixture"]
 async fn compiled_hub_projects_reads_published_metadata_and_pages_current_standalone_acl() -> Result
 {
     let f = Fixture::new().await?;

@@ -5,7 +5,7 @@ use graphit_app::{
     native_install::{
         FailureCategory, InstallOutcome, InstallRequest, PayloadEffect, RegistryEffect,
     },
-    native_install_http::NativeInstallPolicy,
+    native_install_http::{NativeInstallHttp, NativeInstallPolicy},
     source_server::{SourcePolicy, SourceServer},
 };
 use graphit_core::{
@@ -412,12 +412,25 @@ fn actual_active_installer_registry_wait_observes_owner_stop_after_publication()
             f.policy.projection(),
         )
         .unwrap();
-        let (server, url, task) = serve(
-            &f,
+        let installer = NativeInstallHttp::new(
+            Arc::clone(&f.auth),
+            f.paths.clone(),
+            f.registry.clone(),
             NativeInstallPolicy::capture(&f.config, ctx.snapshot()).unwrap(),
-            &ctx,
+            CancellationToken::new(),
         )
-        .await;
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (stop_listener, listener_stopping) = tokio::sync::oneshot::channel();
+        let router = installer.router();
+        let serving = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = listener_stopping.await;
+                })
+                .await
+        });
         let held = f
             .registry
             .writer(
@@ -437,17 +450,21 @@ fn actual_active_installer_registry_wait_observes_owner_stop_after_publication()
         assert!(f.auth.runtime().check(ctx.snapshot()).is_ok());
         // The installer really ran Auth, staging and native admission and published;
         // only the actual global registry writer remains unavailable.
-        let stopping = server.clone();
-        let shutdown = tokio::spawn(async move { stopping.shutdown().await });
-        let outcome: InstallOutcome = response.json().await.unwrap();
+        let (shutdown, outcome) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(installer.shutdown(), response.json::<InstallOutcome>())
+        })
+        .await
+        .unwrap();
+        shutdown.unwrap();
+        let outcome = outcome.unwrap();
         assert_eq!(outcome.payload, PayloadEffect::Published);
         assert_eq!(outcome.registry, RegistryEffect::NotAttempted);
         assert_eq!(
             outcome.failure.unwrap().category,
             FailureCategory::Cancelled
         );
-        shutdown.await.unwrap().unwrap();
-        task.await.unwrap().unwrap();
+        stop_listener.send(()).unwrap();
+        serving.await.unwrap().unwrap();
         assert!(source.directory().as_path().join("graph.icebug").is_dir());
         assert!(f.auth.runtime().check(ctx.snapshot()).is_ok());
         drop(held);

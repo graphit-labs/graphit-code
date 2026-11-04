@@ -113,6 +113,7 @@ const BODY_ONE: &str = "journey_one {{brand}} {{artifact_version}} {{mcp_tool_as
 const BODY_TWO: &str = "journey_two {{brand}} {{artifact_version}} {{mcp_tool_ast_source}}";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires the built real Broker STSv3/MinIO fixture"]
 async fn compiled_update_all_cli_mcp_preserves_local_and_reports_unattempted() -> Result {
     let fixture = Fixture::new().await?;
     let broker = BrokerFixture::start(&fixture).await?;
@@ -330,6 +331,7 @@ async fn seed(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires the built real Broker STSv3/MinIO fixture"]
 async fn compiled_file_consumers_preserve_project_updates_global_versions_and_raw_content() -> Result
 {
     let fixture = Fixture::new().await?;
@@ -923,6 +925,7 @@ async fn compiled_file_consumers_preserve_project_updates_global_versions_and_ra
     joined(result, joined(daemon_cleanup, broker_cleanup))
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires the built real Broker STSv3/MinIO fixture"]
 async fn compiled_files_preserve_updates_retarget_forget_and_reject_generated_links() -> Result {
     use graphit_core::artifact_store::{ArtifactMode, CopyPolicy};
     use graphit_hub::{

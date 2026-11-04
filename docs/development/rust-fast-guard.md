@@ -134,9 +134,17 @@ checkout, prepare the loopback MinIO and `mc` tools using
 `cargo build --locked -p broker-presence --example hub_storage_fixture`.
 Add the prepared tools to `PATH` and set
 `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` to the absolute executable path.
-Use `cargo xtask qualify` to run both journeys or select
+Use `cargo xtask qualify` to run these journeys or select
 `graphit-app/ast-generic-main-native-nn` or `graphit-app/role-hub-file`
 through `cargo xtask test`. Missing fixture paths fail the selected check.
+
+The same qualification covers compiled Hub FILE installation, registry changes,
+remote catalog and standalone authorization against the owned Broker/S3 fixture.
+To run only this group after setting `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN`:
+
+```sh
+cargo xtask cargo test --locked --offline -p graphit-app --test source_executable native_publication::file_installation -- --ignored
+```
 
 The PostgreSQL Now qualification uses the locked Broker control fixture and
 its pinned PostgreSQL image on Linux. After `cargo fetch --locked`, export the
