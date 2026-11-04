@@ -189,9 +189,9 @@ impl Fixture {
                 self.root.join("native-session").into_os_string(),
             ),
         ];
-        environment.extend(
-            std::env::vars_os().filter(|(k, _)| k == "LD_LIBRARY_PATH" || k == "SYSTEMROOT"),
-        );
+        environment.extend(std::env::vars_os().filter(|(k, _)| {
+            k == "LD_LIBRARY_PATH" || k.as_encoded_bytes().eq_ignore_ascii_case(b"SYSTEMROOT")
+        }));
         Request {
             program: env!("CARGO_BIN_EXE_ai-copilot-fixture").into(),
             args: Vec::new(),

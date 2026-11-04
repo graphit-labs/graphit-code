@@ -35,10 +35,15 @@ fn emit(value: Value, fragmented: bool) {
     }
 }
 fn gate() {
+    let Some(path) = std::env::var_os("COPILOT_GATE_PORT") else {
+        // Deadline tests wait for process cancellation and have no peer to
+        // release them. Keep the child alive without opening a socket.
+        loop {
+            std::thread::park();
+        }
+    };
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
-    if let Some(path) = std::env::var_os("COPILOT_GATE_PORT") {
-        std::fs::write(path, listener.local_addr().unwrap().port().to_string()).unwrap();
-    }
+    std::fs::write(path, listener.local_addr().unwrap().port().to_string()).unwrap();
     let (mut connection, _) = listener.accept().unwrap();
     connection
         .set_read_timeout(Some(std::time::Duration::from_secs(2)))

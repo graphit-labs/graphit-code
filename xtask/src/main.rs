@@ -615,7 +615,7 @@ fn source_checks(root: &Path) -> Result<(), String> {
 }
 
 fn tests(root: &Path) -> Result<(), String> {
-    execute(root, &["test", "--workspace", "--locked"])?;
+    execute(root, &["test", "--workspace", "--locked", "--no-fail-fast"])?;
     for &test in LINUX_GATE_TESTS {
         if cfg!(target_os = "linux") {
             execute_test(root, test)?;

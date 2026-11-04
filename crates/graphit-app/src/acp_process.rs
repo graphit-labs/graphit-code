@@ -530,6 +530,10 @@ pub(crate) fn spawn(
         };
         loop {
             let absent = match group.absent() {
+                Ok(true) => {
+                    signal_error = None;
+                    true
+                }
                 Ok(value) => value,
                 Err(error) => {
                     signal_error.get_or_insert(error.kind());
@@ -581,7 +585,10 @@ pub(crate) fn spawn(
             {
                 killed = true;
                 match group.signal(rustix::process::Signal::KILL) {
-                    Ok(()) => group_kill_completed = true,
+                    Ok(()) => {
+                        group_kill_completed = true;
+                        signal_error = None;
+                    }
                     Err(error) => {
                         signal_error.get_or_insert(error.kind());
                     }
@@ -724,8 +731,8 @@ mod tests {
             .unwrap();
         assert_eq!(slots.available_permits(), 0);
         assert!(owner.observe(Instant::now() + Duration::from_secs(2)).await);
-        assert!(owner.clean().await);
         let observed = owner.public_observation().await;
+        assert!(owner.clean().await, "{observed}");
         assert_eq!(observed["exit_code"], 0);
         assert_eq!(observed["stdout_eof"], true);
         assert_eq!(observed["stderr_eof"], true);
