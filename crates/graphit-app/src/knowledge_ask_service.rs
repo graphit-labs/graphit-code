@@ -2077,13 +2077,12 @@ pub(crate) mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn kiro_authority_changed_while_two_real_children_hold_slots_prevents_third_spawn() {
+        use crate::knowledge_kiro_process::KiroProcessOwner;
         use agent_client_protocol::schema::v1::SessionNotification;
         use graphit_ai::cli_kiro::{KiroDeliveryPhase, KiroSink, run_kiro};
-        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-        struct Sink {
-            first: bool,
-            count: Arc<AtomicUsize>,
-        }
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::sync::mpsc;
+        struct Sink(Option<(mpsc::Sender<Arc<KiroProcessOwner>>, Arc<KiroProcessOwner>)>);
         impl KiroSink for Sink {
             async fn push<'a>(
                 &'a mut self,
@@ -2092,9 +2091,11 @@ pub(crate) mod tests {
                 original: &'a SnapshotContext,
             ) -> io::Result<()> {
                 original.check()?;
-                if !self.first {
-                    self.first = true;
-                    self.count.fetch_add(1, Ordering::SeqCst);
+                if let Some((ready, owner)) = self.0.take() {
+                    ready
+                        .send(owner)
+                        .await
+                        .map_err(|_| io::ErrorKind::BrokenPipe)?;
                 }
                 Ok(())
             }
@@ -2132,32 +2133,27 @@ pub(crate) mod tests {
             Instant::now() + Duration::from_secs(30),
             Cancellation::default(),
         ));
-        let count = Arc::new(AtomicUsize::new(0));
-        let (send, mut receive) = tokio::sync::mpsc::channel(2);
+        let (ready, mut receive) = mpsc::channel(2);
         let mut tasks = Vec::new();
         for _ in 0..2 {
             let availability = Arc::clone(&availability);
             let original = Arc::clone(&original);
             let cwd = temp.path().to_owned();
-            let count = Arc::clone(&count);
-            let send = send.clone();
+            let ready = ready.clone();
             tasks.push(tokio::spawn(async move {
                 let service = availability.service().unwrap();
                 let (transport,owner) = service.kiro_process(&cwd,&original,None,&||true).await.unwrap();
-                send.send(Arc::clone(&owner)).await.unwrap();
-                let mut sink = Sink { first:false,count };
+                let mut sink = Sink(Some((ready, Arc::clone(&owner))));
                 let _result = run_kiro(&original,transport,service.kiro_engine().unwrap(),service.kiro_new_session(&cwd,"fixture-model"),service.kiro_prompt(serde_json::json!({"question":"bounded","pages":[{"slug":"Paris","body":"physical"}]}).to_string(),"fixture-model"),service.kiro_limits(),&mut sink).await;
                 assert!(service.join_kiro(&owner).await.unwrap());
             }));
         }
-        let owners = [receive.recv().await.unwrap(), receive.recv().await.unwrap()];
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while count.load(Ordering::SeqCst) != 2 {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+        drop(ready);
+        let owners = tokio::time::timeout_at(original.required_deadline().unwrap().into(), async {
+            [receive.recv().await.unwrap(), receive.recv().await.unwrap()]
         })
         .await
-        .unwrap();
+        .expect("both native children must stream before the admission check");
         assert!(owners.iter().all(|o| o.spawned()));
         let service = availability.service().unwrap();
         let (_user, scope, turn) = conversation_fixture_engine(
@@ -2175,11 +2171,7 @@ pub(crate) mod tests {
             Some(Arc::clone(&custody)),
             &check,
         ));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(40), &mut waiting)
-                .await
-                .is_err()
-        );
+        assert!(futures_util::poll!(waiting.as_mut()).is_pending());
         assert_writer_held(&scope);
         drop(waiting);
         drop(decision);
@@ -2194,11 +2186,7 @@ pub(crate) mod tests {
         let allowed = AtomicBool::new(true);
         let check = || allowed.load(Ordering::SeqCst);
         let mut third = Box::pin(service.kiro_process(temp.path(), &original, None, &check));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(40), &mut third)
-                .await
-                .is_err()
-        );
+        assert!(futures_util::poll!(third.as_mut()).is_pending());
         allowed.store(false, Ordering::SeqCst);
         for owner in &owners {
             owner.stop();

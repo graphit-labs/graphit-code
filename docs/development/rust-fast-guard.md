@@ -88,6 +88,10 @@ Prepare dependencies with `cargo fetch --locked`. Run the standard suite with
 for network contracts. Real provider inference and externally provisioned services
 are selected explicitly.
 
+Rust runs cases within each test target in parallel, using the CPUs available to
+the process. Set `RUST_TEST_THREADS` to choose a different test concurrency for a
+local run. `CARGO_BUILD_JOBS` controls compilation separately.
+
 Pre-commit runs the staged whitespace check, `actionlint` and `cargo xtask check`.
 Pre-push runs `cargo xtask check`, strict all-target workspace Clippy through
 `cargo xtask cargo`, and `cargo test --locked -p xtask --bin xtask`. These checks

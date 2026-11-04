@@ -17,7 +17,9 @@ fn journal(event: &str) {
             .append(true)
             .open(path)
             .expect("fixture journal");
-        writeln!(f, "{event}").expect("fixture journal write");
+        // Other fixture children may append to this journal concurrently.
+        f.write_all(format!("{event}\n").as_bytes())
+            .expect("fixture journal write");
     }
 }
 fn offer(model: &str, current: &str) -> SessionConfigOption {

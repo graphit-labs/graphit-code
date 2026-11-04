@@ -482,7 +482,10 @@ async fn final_mcp(
     let client: rmcp::service::RunningService<RoleClient, ()> = ()
         .serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
-                reqwest::Client::new(),
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()?,
                 StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
             ),
             ClientLifecycleMode::Discover {
@@ -568,7 +571,9 @@ async fn refresh_paths(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reuses_on_retry()
 -> TestResult {
-    let (mut storage, mut owner, tasks, credential, selected, ast, resources) = fixture(65).await?;
+    // The two shipped profiles each produce a table and column projection per
+    // statement. Seventeen statements cross the 64-row checkpoint in one FILE.
+    let (mut storage, mut owner, tasks, credential, selected, ast, resources) = fixture(17).await?;
     let source = owner.server.as_ref().unwrap().clone();
     let cancel = Cancellation::default();
     let request = owner.policy.request_context(Instant::now(), &cancel)?;
@@ -576,15 +581,23 @@ async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reu
     let (_, baseline_batches) = live(&source, &selected, &resources, original).await?;
     let baseline = rows(&baseline_batches);
     let a = for_path(&baseline_batches, "a.checkpoint");
-    assert!(a.len() > 64);
+    let checkpoint_rows = 64;
+    assert!(a.len() > checkpoint_rows);
+    let checkpoint = arrow_select::concat::concat_batches(&a[0].schema(), &a[..checkpoint_rows])?;
     let model =
         crate::ast_semantic::expected_native_nn_model(&resources.local.as_ref().unwrap().expected)?;
     for fail_stream in [true, false] {
         let (initial, _) = live(&source, &selected, &resources, original).await?;
-        let initial = withdraw_vectors(&initial, "a.checkpoint", &a[..64], original).await?;
+        let initial = withdraw_vectors(
+            &initial,
+            "a.checkpoint",
+            std::slice::from_ref(&checkpoint),
+            original,
+        )
+        .await?;
         let (_, partial_batches) = live(&source, &selected, &resources, original).await?;
         let partial_rows = rows(&partial_batches);
-        assert_eq!(partial_rows.len(), baseline.len() - 64);
+        assert_eq!(partial_rows.len(), baseline.len() - checkpoint_rows);
         let partial = live_mcp(
             &source,
             &selected,
@@ -609,7 +622,7 @@ async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reu
                 "MCP must not read embeddings absent from the current progressive snapshot"
             );
         }
-        let (tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(1);
         let (complete_tx, complete_rx) = oneshot::channel();
         let (committed_tx, committed_rx) = oneshot::channel();
         let mut committed_tx = Some(committed_tx);
@@ -623,8 +636,11 @@ async fn partial_file_checkpoint_survives_stream_failure_without_pruning_and_reu
                 }
             };
         let sending = async {
-            for batch in a.iter().take(64) {
-                tx.send(Ok(batch.clone())).await.map_err(io::Error::other)?;
+            for batch in [
+                checkpoint.slice(0, checkpoint_rows - 1),
+                checkpoint.slice(checkpoint_rows - 1, 1),
+            ] {
+                tx.send(Ok(batch)).await.map_err(io::Error::other)?;
             }
             committed_rx.await?;
             if fail_stream {
