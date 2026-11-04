@@ -216,21 +216,15 @@ pub(crate) fn test_snapshot_parent()
         sync::Arc,
         time::{Duration, Instant},
     };
-    let builder = tempfile::Builder::new();
-    #[cfg(unix)]
-    let mut builder = builder;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(std::fs::Permissions::from_mode(0o700));
-    }
-    let root = builder.tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = root.path().join("snapshot");
+    graphit_fs::create_private_directory(&snapshot).unwrap();
     let original = SnapshotContext::new(
         Instant::now() + Duration::from_secs(30),
         Cancellation::default(),
     );
     let parent = CapturedDocumentDirectory::capture(
-        root.path(),
+        &snapshot,
         NativeDocumentFileLimits::new(1, 4096, 64, 65536).unwrap(),
         &original,
     )
@@ -289,7 +283,7 @@ mod tests {
     }
     #[test]
     fn gguf_snapshot_digest_error_cleans_only_its_stage() {
-        let (root, parent) = test_snapshot_parent();
+        let (_root, parent) = test_snapshot_parent();
         let input = tempfile::tempdir().unwrap();
         let cancel = Cancellation::default();
         let mut source = source(input.path(), b"verified bytes");
@@ -298,12 +292,15 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.kind(), ModelArtifactErrorKind::Integrity);
-        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read_dir(parent.canonical_path()).unwrap().count(),
+            0
+        );
         assert!(input.path().join("input.gguf").exists());
     }
     #[test]
     fn gguf_snapshot_byte_limit_cleans_partial_stage() {
-        let (root, parent) = test_snapshot_parent();
+        let (_root, parent) = test_snapshot_parent();
         let input = tempfile::tempdir().unwrap();
         let cancel = Cancellation::default();
         let mut source = source(input.path(), &vec![42; 64 * 1024 + 1]);
@@ -312,11 +309,14 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.kind(), ModelArtifactErrorKind::Limit);
-        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read_dir(parent.canonical_path()).unwrap().count(),
+            0
+        );
     }
     #[test]
     fn gguf_snapshot_cancellation_and_deadline_preserve_original_error_without_io() {
-        let (root, parent) = test_snapshot_parent();
+        let (_root, parent) = test_snapshot_parent();
         let input = tempfile::tempdir().unwrap();
         for expired in [false, true] {
             let cancel = Cancellation::default();
@@ -343,7 +343,10 @@ mod tests {
                     ContextError::Cancelled
                 })
             );
-            assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+            assert_eq!(
+                std::fs::read_dir(parent.canonical_path()).unwrap().count(),
+                0
+            );
         }
     }
     #[cfg(unix)]
@@ -372,28 +375,35 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn gguf_snapshot_missing_parent_fails_without_system_temp_fallback() {
-        let (root, parent) = test_snapshot_parent();
-        std::fs::remove_dir(root.path()).unwrap();
+        let (_root, parent) = test_snapshot_parent();
+        std::fs::remove_dir(parent.canonical_path()).unwrap();
         let input = tempfile::tempdir().unwrap();
         let cancel = Cancellation::default();
         let error = capture_gguf(&parent, source(input.path(), b"bytes"), context(&cancel))
             .err()
             .unwrap();
         assert_eq!(error.kind(), ModelArtifactErrorKind::Artifact);
-        assert!(!root.path().exists());
+        assert!(!parent.canonical_path().exists());
     }
     #[cfg(unix)]
     #[test]
     fn gguf_snapshot_rejects_nonprivate_parent() {
         use std::os::unix::fs::PermissionsExt;
-        let (root, parent) = test_snapshot_parent();
-        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (_root, parent) = test_snapshot_parent();
+        std::fs::set_permissions(
+            parent.canonical_path(),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
         let input = tempfile::tempdir().unwrap();
         let cancel = Cancellation::default();
         let error = capture_gguf(&parent, source(input.path(), b"bytes"), context(&cancel))
             .err()
             .unwrap();
         assert_eq!(error.kind(), ModelArtifactErrorKind::Artifact);
-        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read_dir(parent.canonical_path()).unwrap().count(),
+            0
+        );
     }
 }

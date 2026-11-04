@@ -34,15 +34,9 @@ pub fn snapshot_parent() -> (
     tempfile::TempDir,
     Arc<graphit_core::native_document_file::CapturedDocumentDirectory>,
 ) {
-    let builder = tempfile::Builder::new();
-    #[cfg(unix)]
-    let builder = {
-        use std::os::unix::fs::PermissionsExt;
-        let mut builder = builder;
-        builder.permissions(std::fs::Permissions::from_mode(0o700));
-        builder
-    };
-    let root = builder.tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = root.path().join("snapshot");
+    graphit_fs::create_private_directory(&snapshot).unwrap();
     let original = SnapshotContext::new(
         Instant::now() + Duration::from_secs(30),
         Cancellation::default(),
@@ -51,9 +45,7 @@ pub fn snapshot_parent() -> (
         graphit_core::native_document_file::NativeDocumentFileLimits::new(1, 4096, 64, 65536)
             .unwrap();
     let parent = graphit_core::native_document_file::CapturedDocumentDirectory::capture(
-        root.path(),
-        limits,
-        &original,
+        &snapshot, limits, &original,
     )
     .unwrap();
     // Establish the fixture's actual SDK privacy policy before testing artifact outcomes.

@@ -612,7 +612,8 @@ async fn denied_read_before_unavailable_origin_and_captured_change_and_original_
     );
     assert!(matches!(
         result,
-        Err(ReadFailure::Imported(ImportedGraphError::Authentication(_)))
+        Err(ReadFailure::Remote(error))
+            if matches!(*error, crate::remote_native_mount::ErrorKind::Auth(_))
     ));
     let (f, s) = fixture(true);
     let root = install(&f, &s, "release-1", "actual");
@@ -1790,7 +1791,7 @@ async fn native_ast_export_requires_read_ast_and_unconditional_external_before_i
     ] {
         let (fixture, server) = fixture_with_permissions(&permissions, &[]);
         let destination = fixture.temp.path().join("denied.zip");
-        let result=server.call_mcp(CallToolRequestParams::new("graphit_ast_export").with_arguments(json!({"ai_optimized":false,"output":NativePath::new(destination.clone()).unwrap(),"context":"absent/artifact@version"}).as_object().unwrap().clone()),headers(&fixture.raw,false),CancellationToken::new()).await;
+        let result=server.call_mcp(CallToolRequestParams::new("graphit_ast_export").with_arguments(json!({"output":NativePath::new(destination.clone()).unwrap(),"context":"absent/artifact@version"}).as_object().unwrap().clone()),headers(&fixture.raw,false),CancellationToken::new()).await;
         assert_eq!(result.is_error, Some(true));
         assert_eq!(
             result.structured_content.unwrap()["code"],
