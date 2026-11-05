@@ -25,13 +25,23 @@ use graphit_hub::{native::ContentLimits, policy::RequestContext};
 use secrecy::SecretString;
 use std::{
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const MCP: &str = "inventory-fixture-mcp-key";
 const KEY: &str = "inventory-fixture-broker-key";
 const ENDPOINT: &str = "https://broker.example/api";
 const REMOTE: Permission = Permission::External(ExternalEffect::RemoteRequest);
+
+fn renewable_expiry() -> i64 {
+    i64::try_from(
+        (SystemTime::now() + Duration::from_secs(3600))
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_micros(),
+    )
+    .unwrap()
+}
 
 fn context(cancel: &Cancellation) -> RequestContext<'_> {
     context_until(cancel, Instant::now() + Duration::from_secs(120))
@@ -919,7 +929,7 @@ fn native_inventory_original_precedes_token_verification() {
                     access_token: secret("not-a-jwt"),
                     refresh_token: None,
                     id_token: secret("not-an-id-token"),
-                    expires_at: 2000000000,
+                    expires_at: renewable_expiry(),
                 },
             },
         },
@@ -957,7 +967,7 @@ fn native_inventory_original_precedes_token_verification() {
 }
 
 #[test]
-fn native_broker_config_is_independent_of_ai_but_inventory_rejects_native_provider() {
+fn native_broker_rejects_direct_ai_and_local_key_inventory_rules() {
     use graphit_auth::profile::OidcTokens;
     for direct in [false, true] {
         let cancel = Cancellation::default();
@@ -992,18 +1002,30 @@ fn native_broker_config_is_independent_of_ai_but_inventory_rejects_native_provid
                 batch_endpoint: None,
             };
         }
-        // Provider configuration validation is independent of whether a native
-        // profile can supply a particular Direct AI credential.
+        // A Native provider must route inference through the Broker or disable it.
         let result = f
             .store
             .mutate(f.store.load(&ctx).unwrap(), &ctx, |doc, ctx| {
                 doc.add_provider("inventory".into(), cfg, doc.revision(), 1, ctx)
-            })
-            .unwrap();
-        assert_eq!(result.effect(), AuthPublicationEffect::Applied);
+            });
         if direct {
+            assert!(matches!(
+                result,
+                Err(graphit_auth::store::AuthStoreError::Profile(
+                    graphit_auth::profile::ProfileError::InvalidDocument
+                ))
+            ));
+            assert!(
+                f.store
+                    .load(&ctx)
+                    .unwrap()
+                    .document()
+                    .provider("inventory")
+                    .is_none()
+            );
             continue;
         }
+        assert_eq!(result.unwrap().effect(), AuthPublicationEffect::Applied);
         let result = f
             .store
             .mutate(f.store.load(&ctx).unwrap(), &ctx, |doc, ctx| {
@@ -1027,7 +1049,7 @@ fn native_broker_config_is_independent_of_ai_but_inventory_rejects_native_provid
                                 access_token: secret("opaque-structural-token"),
                                 refresh_token: None,
                                 id_token: secret("opaque-structural-id-token"),
-                                expires_at: 2000000000,
+                                expires_at: renewable_expiry(),
                             },
                         },
                     },

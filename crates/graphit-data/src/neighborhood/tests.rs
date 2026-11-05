@@ -462,10 +462,15 @@ fn neighborhood_rejects_native_non_utf8_capture_root() {
     let path = parent
         .path()
         .join(std::ffi::OsString::from_vec(vec![b'n', 0xff]));
+    // Linux supports the physical entry. APFS does not; Data must still
+    // reject the same logical path at capture before filesystem lookup.
+    #[cfg(target_os = "linux")]
     fs::rename(fixture.path(), &path).unwrap();
+    #[cfg(not(target_os = "linux"))]
+    assert!(fixture.path().is_dir());
     assert!(matches!(
         capture(&path, context(), policy()),
-        Err(DataReadError::Source(_))
+        Err(DataReadError::Source(error)) if error.kind() == std::io::ErrorKind::InvalidInput
     ));
 }
 #[test]

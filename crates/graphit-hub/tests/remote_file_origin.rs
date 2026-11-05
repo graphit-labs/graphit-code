@@ -44,8 +44,9 @@ fn file_source_roundtrip_preserves_the_configured_authority_reference() {
         .with_remote_file_origin(origin.clone(), [7; 32], policy.projection())
         .unwrap();
         let value = serde_json::to_value(&source).unwrap();
+        assert!(value.get("directory").is_none());
         let record: SourceRecord = serde_json::from_value(value).unwrap();
-        let restored = SourceRef::restore(record, policy.projection()).unwrap();
+        let restored = SourceRef::restore(record.clone(), policy.projection()).unwrap();
         assert_eq!(restored, source);
         assert_eq!(restored.remote_file_origin(), Some(&origin));
         assert_eq!(restored.archive_sha256(), Some(&[7; 32]));
@@ -66,16 +67,19 @@ fn file_source_roundtrip_preserves_the_configured_authority_reference() {
             .with_remote_file_origin(other_origin.clone(), [7; 32], policy.projection())
             .unwrap();
         assert_ne!(source.directory(), other_authority.directory());
-        let mut changed_origin: SourceRecord =
-            serde_json::from_value(serde_json::to_value(&source).unwrap()).unwrap();
+        let mut changed_origin = record.clone();
         changed_origin.remote_file_origin = Some(other_origin);
-        assert!(SourceRef::restore(changed_origin, policy.projection()).is_err());
-        let mut mismatched: SourceRecord =
-            serde_json::from_value(serde_json::to_value(&source).unwrap()).unwrap();
-        mismatched.archive_sha256 = Some([8; 32]);
-        assert!(SourceRef::restore(mismatched, policy.projection()).is_err());
-        let mut missing: SourceRecord =
-            serde_json::from_value(serde_json::to_value(&source).unwrap()).unwrap();
+        assert_eq!(
+            SourceRef::restore(changed_origin, policy.projection()).unwrap(),
+            other_authority
+        );
+        let mut changed_digest = record.clone();
+        changed_digest.archive_sha256 = Some([8; 32]);
+        assert_eq!(
+            SourceRef::restore(changed_digest, policy.projection()).unwrap(),
+            other
+        );
+        let mut missing = record;
         missing.archive_sha256 = None;
         assert!(SourceRef::restore(missing, policy.projection()).is_err());
     }

@@ -483,7 +483,7 @@ fn file_replacement_growth_and_body_mutation_deny_without_adoption() {
                 fs::write(&path, b"0123456789").unwrap();
             }
             1 => fs::write(&path, b"01234567890").unwrap(),
-            _ => fs::write(&path, b"abcdefghij").unwrap(),
+            _ => crate::artifact_store::tests::overwrite_with_changed_mtime(&path, b"abcdefghij"),
         };
         assert!(f.read_range(0, 1).is_err());
         assert!(f.last_modified().is_err());
@@ -551,7 +551,7 @@ fn root_alias_and_captured_ancestor_replacement_never_accept_equal_bytes() {
     assert!(f.read_range(0, 3).is_err());
     assert!(f.last_modified().is_err());
 }
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn non_unicode_names_are_rejected_with_a_clear_error() {
     use std::os::unix::ffi::OsStringExt;
@@ -772,7 +772,7 @@ fn complete_same_fd_observation_rejects_changes_even_when_identity_is_unchanged(
         match attack {
             0 => fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap(),
             1 => fs::write(&path, b"short").unwrap(),
-            _ => fs::write(&path, b"abcdefghij").unwrap(),
+            _ => crate::artifact_store::tests::overwrite_with_changed_mtime(&path, b"abcdefghij"),
         }
         assert!(old_id == crate::native_file_identity::handle_id(&fd).unwrap());
         // Directly qualify the retained FD, so path/root fences cannot mask a

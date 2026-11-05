@@ -1119,6 +1119,7 @@ fn child_directory_probe_checks_exact_child_path_bounds_and_native_names() {
     {
         use std::os::unix::ffi::OsStrExt;
         let name = OsStr::from_bytes(b"native-\xff");
+        #[cfg(target_os = "linux")]
         fs::create_dir(paths.root().join(".graphit").join(name)).unwrap();
         assert_eq!(
             captured

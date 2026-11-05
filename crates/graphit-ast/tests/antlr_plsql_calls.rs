@@ -450,8 +450,8 @@ fn dedicated_plsql_custom_and_original_control_remain_explicit() {
 parser: antlr4
 grammar: antlr-plsql
 queries:
-  - {data_key: calls, graph_label: '', type: relation, relation_type: CALLS, pattern: '//string_function/CHR', name_capture: name, qualifier_capture: string_function, name_reject: '^CHR$'}
-  - {data_key: calls, graph_label: '', type: relation, relation_type: CALLS, pattern: '//string_function/CHR', name_capture: name, qualifier_capture: string_function, name_reject: '^CHR$'}
+  - {data_key: calls, graph_label: '', type: relation, relation_type: CALLS, pattern: '//string_function/CHR', captures: {qualifier: [{nearest_ancestor: string_function}]}, name_reject: '^CHR$'}
+  - {data_key: calls, graph_label: '', type: relation, relation_type: CALLS, pattern: '//string_function/CHR', captures: {qualifier: [{nearest_ancestor: string_function}]}, name_reject: '^CHR$'}
 "#);
     let profile = &catalog.profiles()[0];
     let source = "SELECT CHR(65 USING NCHAR_CS) FROM dual;";
@@ -470,6 +470,17 @@ queries:
                 profile.queries().value().iter().nth(i).unwrap().value()
             ));
             assert_eq!(occurrence.query.name_reject().value(), "^CHR$");
+            let CaptureBinding::Present(name) = &occurrence.name else {
+                panic!("native CHR token");
+            };
+            assert_eq!(name.node_index, occurrence.matched.node_index);
+            let CaptureBinding::Present(qualifier) = &occurrence.qualifier else {
+                panic!("native CHR qualifier");
+            };
+            assert_eq!(
+                doc.syntax.nodes[qualifier.node_index].kind,
+                "string_function"
+            );
         }
     });
     let operation = context();
@@ -525,7 +536,7 @@ queries: [{data_key: calls, type: relation, relation_type: CALLS, pattern: '//no
 fn oracle_collection_statement_raw_selectors_are_native() {
     let draft = catalog(include_bytes!("fixtures/catalog/shipped/plsql.yaml"));
     let profile = &draft.profiles()[0];
-    assert_eq!(profile.queries().value().len(), 172);
+    assert_eq!(profile.queries().value().len(), 177);
     let source = "BEGIN items.DELETE; items.DELETE(1); items.DELETE(1,2); items.EXTEND; items.EXTEND(2); items.EXTEND(2,3); items.TRIM; items.TRIM(2); END; /";
     with_input(source, &context(), |input| {
         let raw = parse_semantic_occurrences(profile, input).unwrap();
@@ -583,10 +594,12 @@ fn oracle_collection_statement_raw_selectors_are_native() {
                     .value()
                     .starts_with("//collection_method_call/")
             }));
-            assert!(
-                raw.occurrences.iter().any(|o| o.query.pattern().value()
-                    == "//general_element_part[rule:function_argument]")
-            );
+            assert!(raw.occurrences.iter().any(|o| {
+                o.query.pattern().value() == "//general_element_part"
+                    && o.query.child_rule().value() == "function_argument"
+                    && matches!(&o.name, CaptureBinding::Present(name)
+                        if name.prepared.as_ref().is_some_and(|span| span.text() == "fn"))
+            }));
         },
     );
 }

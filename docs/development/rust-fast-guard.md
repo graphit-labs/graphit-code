@@ -74,7 +74,7 @@ Cargo fetches the shared Now wire crate from the locked Broker revision.
 Maintainers use the same commands on Linux, macOS and Windows:
 
 - `cargo xtask check`: native SDK boundary audit and formatting. The pre-commit hook runs this command and stops at the first failure.
-- `cargo xtask gate`: native SDK boundary audit, formatting, strict workspace Clippy and workspace tests, including documentation tests. The CI matrix runs this offline gate after dependency preparation.
+- `cargo xtask gate`: native SDK boundary audit, formatting, strict workspace Clippy and workspace tests, including documentation tests. The CI matrix reports the source checks and tests separately after dependency preparation.
 - `cargo xtask qualify`: run the Linux native GGUF and Broker/S3 journeys with explicit fixtures.
 - `cargo xtask test PACKAGE/TARGET ...`: run only selected registered suites, in catalog order. Empty, unknown or repeated selectors are rejected.
 - `graphit git install`: snapshot current records and register the commands declared in `.graphit/project.json`, using Git 2.54+ native configuration. `graphit git sync` reconciles events without a snapshot.
@@ -110,7 +110,7 @@ The Hub publication positive-flow fixtures use a 30-second request captured once
 The [CI workflow](../../.github/workflows/ci.yml) keeps four independent jobs:
 
 - `rust-contracts`: Linux, macOS and Windows fetch the locked dependencies, then
-  run `cargo xtask gate` with Cargo offline. The standard job has no model
+  run the source checks, Clippy and workspace tests with Cargo offline. The standard job has no model
   download, model-server provisioning or external storage service setup.
 - `ui-build`: Node.js 22 installs the UI dependencies, runs `node scripts/build-rust-ui.mjs` and checks that the three shipped assets have no diff. `make ui-lint` and `make ui-test` run the maintained lint and test scripts.
 - `workflow-lint`: the official actionlint 1.7.12 Linux binary is verified against its pinned SHA-256 before extraction, then runs `actionlint -no-color .github/workflows/*.yml`.
@@ -140,7 +140,8 @@ through `cargo xtask test`. Missing fixture paths fail the selected check.
 
 The same qualification covers compiled Hub FILE installation, registry changes,
 remote catalog and standalone authorization against the owned Broker/S3 fixture.
-To run only this group after setting `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN`:
+Set `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` and use this command to run only the
+Hub FILE group.
 
 ```sh
 cargo xtask cargo test --locked --offline -p graphit-app --test source_executable native_publication::file_installation -- --ignored

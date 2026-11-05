@@ -18,7 +18,10 @@ use graphit_core::{
     version_context::VersionContext,
 };
 use graphit_daemon::auth_startup::DaemonAuth;
-use graphit_hub::policy::RequestContext;
+use graphit_hub::{
+    native::ContentError,
+    policy::{RequestContext, RequestError},
+};
 use std::{io, sync::Arc, time::Instant};
 use tokio::{
     sync::{Mutex, mpsc},
@@ -566,7 +569,14 @@ async fn publish(
                 &worker_cancel,
                 deadline,
             )
-            .map_err(io::Error::other)?;
+            .map_err(|cause| {
+                let kind = match &cause {
+                    RequestError::Content(ContentError::Cancelled) => io::ErrorKind::Interrupted,
+                    RequestError::Content(ContentError::TimedOut) => io::ErrorKind::TimedOut,
+                    _ => io::ErrorKind::Other,
+                };
+                io::Error::new(kind, cause)
+            })?;
             let docs_project = match &request {
                 PublicationRequest::Roles(request) => request.project_dir.as_deref(),
                 _ => None,
@@ -652,12 +662,24 @@ async fn publish(
         tokio::pin!(work);
         let mut closed = true;
         let mut stopped = true;
-        let (bytes, effects) = loop {
+        let result = loop {
             tokio::select! {
-                result=&mut work=>break result.map_err(io::Error::other)??,
+                result=&mut work=>break result.map_err(io::Error::other)?,
                 ()=send.closed(),if closed=>{cancel.cancel();closed=false;},
                 ()=state.stop.cancelled(),if stopped=>{cancel.cancel();stopped=false;},
             }
+        };
+        let (bytes, effects) = match result {
+            // A request may stop before the worker constructs or checks its
+            // Original. The worker is already joined, and Source can drain normally.
+            Err(error)
+                if error.raw_os_error().is_none()
+                    && ((error.kind() == io::ErrorKind::Interrupted && cancel.is_cancelled())
+                        || (error.kind() == io::ErrorKind::TimedOut && Instant::now() >= deadline)) =>
+            {
+                return Ok(());
+            }
+            result => result?,
         };
         if send.send(Ok(Bytes::from(bytes))).await.is_err() && effects {
             eprintln!("managed role publication effects occurred before recipient closed");

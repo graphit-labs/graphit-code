@@ -243,7 +243,11 @@ async fn cookie_reads_reopened_native_task_session_dates_dependencies_and_cursor
     {
         let access = fixture.issuer.issued.lock().unwrap();
         assert!(!access.is_empty());
-        assert!(!rendered.contains(access.as_str()));
+        assert!(
+            access
+                .iter()
+                .all(|token| !rendered.contains(token.as_str()))
+        );
     }
     let refresh_sequence = fixture.issuer.refresh.load(Ordering::SeqCst);
     assert!(refresh_sequence > 0);
@@ -433,11 +437,19 @@ async fn concurrent_task_reads_serialize_rotation_and_shutdown_joins_cancelled_p
     fixture.issuer.hold_refresh.store(true, Ordering::Release);
     let first = fixture.task_read(&cookie, "view", json!({}));
     let work = async {
-        fixture.issuer.refresh_started.notified().await;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            fixture.issuer.refresh_started.notified(),
+        )
+        .await
+        .unwrap();
         assert_eq!(fixture.issuer.refresh.load(Ordering::SeqCst), 2);
+        let second = fixture.task_read(&cookie, "session-heads", json!({}));
+        tokio::pin!(second);
+        assert!(futures_util::poll!(second.as_mut()).is_pending());
         fixture.issuer.hold_refresh.store(false, Ordering::Release);
         fixture.issuer.release_refresh.notify_one();
-        fixture.task_read(&cookie, "session-heads", json!({})).await
+        second.await
     };
     let (first, second) = tokio::join!(first, work);
     assert_eq!(first.status(), StatusCode::OK);

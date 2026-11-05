@@ -948,21 +948,87 @@ fn expiry() -> u64 {
         + 600
 }
 async fn rpc_client(uri: &str, raw: &str) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    rpc_client_with_handler(uri, raw, ()).await
+}
+async fn rpc_client_with_handler<H: rmcp::ClientHandler>(
+    uri: &str,
+    raw: &str,
+    handler: H,
+) -> rmcp::service::RunningService<rmcp::RoleClient, H> {
     let mut headers = HashMap::new();
     let mut bearer = header::HeaderValue::from_str(&format!("Bearer {raw}")).unwrap();
     bearer.set_sensitive(true);
     headers.insert(header::AUTHORIZATION, bearer);
-    ().serve_with_lifecycle(
-        StreamableHttpClientTransport::with_client(
-            reqwest::Client::builder().no_proxy().build().unwrap(),
-            StreamableHttpClientTransportConfig::with_uri(uri.to_owned()).custom_headers(headers),
-        ),
-        ClientLifecycleMode::Discover {
-            preferred_versions: vec![ProtocolVersion::LATEST],
-        },
-    )
-    .await
-    .unwrap()
+    handler
+        .serve_with_lifecycle(
+            StreamableHttpClientTransport::with_client(
+                reqwest::Client::builder().no_proxy().build().unwrap(),
+                StreamableHttpClientTransportConfig::with_uri(uri.to_owned())
+                    .custom_headers(headers),
+            ),
+            ClientLifecycleMode::Discover {
+                preferred_versions: vec![ProtocolVersion::LATEST],
+            },
+        )
+        .await
+        .unwrap()
+}
+// Admission, selected sources and the native handshake share this real request
+// deadline. Give them room on CI before testing expiration of a blocked turn.
+const BLOCKED_TURN_DEADLINE_MS: u64 = 10_000;
+
+#[derive(Clone)]
+struct ProgressWitness {
+    markers: &'static [&'static str],
+    observed: Arc<tokio::sync::Notify>,
+}
+impl ProgressWitness {
+    fn new(markers: &'static [&'static str]) -> Self {
+        Self {
+            markers,
+            observed: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+    async fn wait(&self, scenario: &str) {
+        tokio::time::timeout(Duration::from_secs(15), self.observed.notified())
+            .await
+            .unwrap_or_else(|_| panic!("{scenario}: expected native progress before completion"));
+    }
+}
+impl rmcp::ClientHandler for ProgressWitness {
+    async fn on_progress(
+        &self,
+        params: rmcp::model::ProgressNotificationParam,
+        _: rmcp::service::NotificationContext<rmcp::RoleClient>,
+    ) {
+        if params
+            .message
+            .as_deref()
+            .is_some_and(|message| self.markers.iter().all(|marker| message.contains(marker)))
+        {
+            self.observed.notify_one();
+        }
+    }
+}
+fn assert_blocked_turn_expired(result: &rmcp::model::CallToolResult) {
+    assert_eq!(result.is_error, Some(true));
+    if let Some(payload) = &result.structured_content {
+        // The native worker can return at the same instant as the wire timer.
+        assert_eq!(payload["delivery_error"], "CancelledOrExpired");
+        assert!(payload["receipt"]["completion"].get("answer").is_none());
+        assert!(payload["receipt"].get("native_result").is_none());
+        assert!(payload["receipt"].get("native_result_json").is_none());
+        assert!(payload["persistence"].get("conversation").is_none());
+    } else {
+        assert_eq!(
+            result
+                .content
+                .first()
+                .and_then(|block| block.as_text())
+                .map(|text| text.text.as_str()),
+            Some("Knowledge conversation deadline")
+        );
+    }
 }
 #[test]
 fn trusted_factory_optin_defaults_off_and_incoming_create_resume_reopen_is_private() {
@@ -2484,6 +2550,7 @@ fn kiro_partial_retains_real_session_and_load_failure_never_falls_back_to_new() 
 fn kiro_native_frame_stderr_and_deadline_errors_do_not_deliver_partial_answers() {
     native_test(async {
         for mode in ["large_frame", "stderr_limit", "cancel"] {
+            let deadline = mode == "cancel";
             let broker = Broker::new().await;
             let f = Fixture::new(&broker).await;
             let owner = f
@@ -2491,7 +2558,7 @@ fn kiro_native_frame_stderr_and_deadline_errors_do_not_deliver_partial_answers()
                     &broker,
                     NativeBinding::KiroV3,
                     mode,
-                    if mode == "cancel" { Some(700) } else { None },
+                    deadline.then_some(BLOCKED_TURN_DEADLINE_MS),
                 )
                 .await;
             let uri = format!("http://{}/mcp", owner.address().unwrap());
@@ -2499,19 +2566,44 @@ fn kiro_native_frame_stderr_and_deadline_errors_do_not_deliver_partial_answers()
             let stopped = stop.clone();
             let running = tokio::spawn(async move { owner.run(&stopped).await });
             let raw = broker.state.token("caller-A", RESOURCE, expiry());
-            let client = rpc_client(&uri, &raw).await;
-            let result = client
-                .call_tool(
-                    CallToolRequestParams::new("graphit_knowledge_conversation").with_arguments(
-                        args("create", mode, "bounded question")
-                            .as_object()
-                            .unwrap()
-                            .clone(),
-                    ),
-                )
-                .await
-                .unwrap();
-            assert_eq!(result.is_error, Some(true));
+            let progress = ProgressWitness::new(&["fresh fixture answer"]);
+            let client = rpc_client_with_handler(&uri, &raw, progress.clone()).await;
+            let mut params = CallToolRequestParams::new("graphit_knowledge_conversation")
+                .with_arguments(
+                    args("create", mode, "bounded question")
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                );
+            let result = if deadline {
+                params.meta = Some(
+                    serde_json::from_value(json!({"progressToken":"kiro-deadline-progress"}))
+                        .unwrap(),
+                );
+                let handle = client
+                    .peer()
+                    .send_cancellable_request(
+                        rmcp::model::ClientRequest::CallToolRequest(
+                            rmcp::model::CallToolRequest::new(params),
+                        ),
+                        rmcp::service::PeerRequestOptions::no_options(),
+                    )
+                    .await
+                    .unwrap();
+                // The fixture leaves the prompt pending after sending real
+                // progress; do not accept a timeout during setup.
+                progress.wait("Kiro deadline").await;
+                let rmcp::model::ServerResult::CallToolResult(result) =
+                    handle.await_response().await.unwrap()
+                else {
+                    panic!("Kiro deadline tool result")
+                };
+                assert_blocked_turn_expired(&result);
+                result
+            } else {
+                client.call_tool(params).await.unwrap()
+            };
+            assert_eq!(result.is_error, Some(true), "{mode}: {result:?}");
             assert!(
                 !serde_json::to_string(&result)
                     .unwrap()
@@ -2520,10 +2612,36 @@ fn kiro_native_frame_stderr_and_deadline_errors_do_not_deliver_partial_answers()
             if let Some(payload) = &result.structured_content {
                 assert!(payload["receipt"]["completion"].get("answer").is_none());
             }
-            assert!(f.kiro_events().iter().any(|e| e == "prompt"));
             client.cancel().await.unwrap();
             stop.cancel();
             running.await.unwrap().unwrap();
+            let events = f.kiro_events();
+            assert!(events.iter().any(|e| e == "prompt"), "{mode}: {events:?}");
+            if deadline {
+                assert!(
+                    !events.iter().any(|e| e == "terminal"),
+                    "{mode}: {events:?}"
+                );
+                use sha2::{Digest, Sha256};
+                let digest = Sha256::digest(mode.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                let user = kiro_clear_user(&f, &broker);
+                assert!(
+                    !user
+                        .user_root()
+                        .unwrap()
+                        .join(format!("graphit-ai-conversation-{digest}.json"))
+                        .exists()
+                );
+                assert!(
+                    !graphit_core::file_lock::FileLock::is_locked(
+                        user.runtime_root().join("artifact-store.lock")
+                    )
+                    .unwrap()
+                );
+            }
             broker.shutdown().await;
         }
     });

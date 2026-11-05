@@ -6,6 +6,16 @@ use std::time::Instant;
 
 const ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
+pub(super) fn overwrite_with_changed_mtime(path: &Path, bytes: &[u8]) {
+    let previous = fs::metadata(path).unwrap().modified().unwrap();
+    fs::write(path, bytes).unwrap();
+    let file = fs::File::options().write(true).open(path).unwrap();
+    // Consecutive writes can have equal timestamps on the test filesystem.
+    file.set_modified(previous + Duration::from_secs(60))
+        .unwrap();
+    assert_ne!(file.metadata().unwrap().modified().unwrap(), previous);
+}
+
 struct Fixture {
     store: ArtifactStore,
     source: PathBuf,
@@ -1344,7 +1354,7 @@ fn windows_codec_rejects_unpaired_utf16_and_preserves_unicode_target_equivalence
     receipt.validate(&candidate).unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn non_unicode_source_rejected_without_publishing_or_modifying_input() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
@@ -3051,7 +3061,7 @@ fn copy_source_plan_detects_changes_without_partial_inventory_or_root_mtime_auth
         &Cancellation::default(),
     )
     .unwrap();
-    fs::write(f.source.join("nested/binary"), [0, 255, 2, 0, 37]).unwrap();
+    overwrite_with_changed_mtime(&f.source.join("nested/binary"), &[0, 255, 2, 0, 37]);
     assert_eq!(
         plan.recheck(f.store.limits.copy, &Cancellation::default())
             .unwrap_err()

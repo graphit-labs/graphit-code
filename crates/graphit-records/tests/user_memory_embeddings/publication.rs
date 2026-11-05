@@ -81,6 +81,28 @@ async fn actual_user_embedding_commit_preserves_key_cause_and_fresh_resolution_w
         .unwrap()
         .unwrap();
     assert_eq!(docs.len(), 1);
+    let fresh_cancel = Cancellation::default();
+    let fresh = request(&fresh_cancel);
+    incoming!(f, fresh, fv, fp, fr, fw);
+    let UserMemoryEmbeddingCorpusRead::Published(mut retry) =
+        NativeUserMemoryStore::capture_embeddings(
+            fresh.snapshot(),
+            &fr,
+            identity.clone(),
+            read_limits(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("published source before concurrent attachment");
+    };
+    let retry_documents = retry
+        .next_documents(fresh.snapshot(), &fr)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(retry_documents.len(), 1);
+    assert_eq!(retry_documents[0].fingerprint(), docs[0].fingerprint());
     let writer = native::acquire(ctx.snapshot(), &write, write_limits(), false)
         .await
         .unwrap()
@@ -124,9 +146,6 @@ async fn actual_user_embedding_commit_preserves_key_cause_and_fresh_resolution_w
             .is_err()
     );
     drop(writer);
-    let fresh_cancel = Cancellation::default();
-    let fresh = request(&fresh_cancel);
-    incoming!(f, fresh, fv, fp, fr, fw);
     assert_eq!(
         NativeUserMemoryStore::resolve_embeddings(fresh.snapshot(), &fw, &key, write_limits())
             .await
@@ -153,19 +172,21 @@ async fn actual_user_embedding_commit_preserves_key_cause_and_fresh_resolution_w
     else {
         panic!("current metadata corpus");
     };
-    let docs = current
-        .next_documents(fresh.snapshot(), &fr)
-        .await
-        .unwrap()
-        .unwrap();
+    assert!(
+        current
+            .next_documents(fresh.snapshot(), &fr)
+            .await
+            .unwrap()
+            .is_none()
+    );
     let outcome = NativeUserMemoryStore::attach_embeddings(
         fresh.snapshot(),
         &fw,
-        &current,
+        &retry,
         vec![MemoryEmbeddingAttachment {
             memory_id: first.id,
             revision: std::num::NonZeroU64::MIN,
-            input_fingerprint: *docs[0].fingerprint(),
+            input_fingerprint: *retry_documents[0].fingerprint(),
             vector: vec![1., 0.],
         }],
         write_limits(),

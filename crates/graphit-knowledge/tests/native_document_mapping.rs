@@ -648,12 +648,24 @@ fn logical_identity_and_origin_are_exact_and_collisions_reject_the_whole_plan() 
 fn native_non_utf8_filename_is_rejected_before_logical_mapping() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
     let name = PathBuf::from(OsString::from_vec(b"physical-\xff.md".to_vec()));
+    #[cfg(target_os = "linux")]
     let fixture = Fixture::with_name(
         b"# Physical\n",
         &name,
         Instant::now() + Duration::from_secs(30),
     );
-    assert!(capture(&fixture, &fixture.request, fixture.document_bytes).is_err());
+    #[cfg(not(target_os = "linux"))]
+    let fixture = {
+        // APFS rejects creation of the raw name. The PROJECT API still
+        // receives and rejects the same invalid path data before opening it.
+        let mut fixture = Fixture::with_document(b"# Physical\n");
+        fixture.physical_name = name;
+        fixture
+    };
+    let error = capture(&fixture, &fixture.request, fixture.document_bytes)
+        .err()
+        .expect("non-Unicode selection must fail");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
 }
 
 #[test]

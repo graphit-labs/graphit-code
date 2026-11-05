@@ -1,4 +1,7 @@
 //! Selected LOCAL reads with actual authenticated PROJECT admissions and SDK corpora.
+#[path = "support/knowledge_manifest_fixture.rs"]
+mod manifest;
+
 use futures::TryStreamExt;
 use graphit_auth::*;
 use graphit_auth::{profile::ProfileLimits, store::AuthStore};
@@ -730,22 +733,16 @@ fn other_and_corrupt_native_corpora_are_errors_without_repair() {
                 )
                 .unwrap();
             let published = seed(&ctx, &write, &[page("picked", &[])]).await;
-            let path = url::Url::parse(&published.default.corpus_uri)
-                .unwrap()
-                .to_file_path()
-                .unwrap();
-            let permissions = std::fs::metadata(&path).unwrap().permissions();
-            std::fs::remove_dir_all(&path).unwrap();
+            let path = std::path::Path::new(&published.default.corpus_uri);
+            assert!(path.is_absolute());
             if file {
-                std::fs::write(&path, b"other").unwrap();
+                let permissions = std::fs::metadata(path).unwrap().permissions();
+                std::fs::remove_dir_all(path).unwrap();
+                std::fs::write(path, b"other").unwrap();
+                std::fs::set_permissions(path, permissions).unwrap();
             } else {
-                std::fs::create_dir(&path).unwrap();
-                // An unpinned empty directory is NoCorpus; corrupt published
-                // metadata must still fail without repairing the stored bytes.
-                std::fs::create_dir(path.join("_versions")).unwrap();
-                std::fs::write(path.join("_versions/1.manifest"), b"corrupt manifest").unwrap();
+                manifest::corrupt_published_manifest(path);
             }
-            std::fs::set_permissions(&path, permissions).unwrap();
             let before = image(f.project.runtime_root());
             let error = read_native_knowledge_page(ctx.snapshot(), &read, "picked", read_limits())
                 .await

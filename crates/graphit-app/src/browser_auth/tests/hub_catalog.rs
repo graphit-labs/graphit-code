@@ -422,7 +422,7 @@ async fn installed_native_metadata_denies_expired_signed_access_before_registry_
     let mut claims = {
         let issued = f.issuer.issued.lock().unwrap();
         let payload = URL_SAFE_NO_PAD
-            .decode(issued.split('.').nth(1).unwrap())
+            .decode(issued.last().unwrap().split('.').nth(1).unwrap())
             .unwrap();
         serde_json::from_slice::<Value>(&payload).unwrap()
     };

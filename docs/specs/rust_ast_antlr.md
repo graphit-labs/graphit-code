@@ -800,7 +800,8 @@ Generated comments retain relative grammar names.
 `tsk-589d` delivers the [official runtime Source](../../crates/graphit-ast/src/antlr_engine/cpp/vendor/antlr4/GRAPHIT-PATCHES.md)
 and private [build_support](../../crates/graphit-ast/src/antlr_engine/build_support.rs).
 Approved `build_runtime()` returns `RuntimeInstall` with `include_dir`,
-`library_dir`, `static_lib_name`, or a build error with its cause. It uses mature
+`library_dir`, `static_lib_name`, and the C++ definitions required by consumers,
+or a build error with its cause. It uses mature
 `cmake`. Configuration selects C++17/static and disables shared/upstream tests/demo.
 MSVC CRT follows Cargo's target `crt-static`. Real target: `antlr4_static`;
 installed headers: `include/antlr4-runtime`; Windows archive naming differs.
@@ -819,6 +820,9 @@ their causes. Cmake-rs exposes build failures as panics: the helper returns
 Cargo build log. It does not fabricate an exit status or retry another SDK.
 Root must link the static runtime and platform C++ library, Unix threads, and
 Apple CoreFoundation; Windows bridge compilation requires `ANTLR4CPP_STATIC`.
+On macOS the build gives the AST runtime private C++ names to isolate it from
+Ladybug's bundled ANTLR. The runtime, recognizers and bridge share the same
+compiler definitions for `antlr4`, `antlrcpp`, and `XPathLexer`.
 
 The [linked runtime test](../../crates/graphit-ast/src/antlr_engine/cpp/runtime_test/CMakeLists.txt)
 uses the installed SDK, compiled version macros and `RuntimeMetaData::VERSION`,
@@ -831,8 +835,11 @@ cmake --build .build/antlr-runtime-test --config Release --parallel 1
 ctest --test-dir .build/antlr-runtime-test -C Release --output-on-failure
 ```
 
-Use the same target toolchain and CRT for this test and the runtime. The Linux
-Source overlay `.build/antlr-runtime-source` compiled the exact helper with
+Use the same target toolchain and CRT for this test and the runtime. When
+testing a macOS SDK installed by the Cargo build, append
+`-DCMAKE_CXX_FLAGS="-Dantlr4=graphit_ast_antlr4 -Dantlrcpp=graphit_ast_antlrcpp -DXPathLexer=GraphitAstXPathLexer"`
+to the CMake configure command.
+The Linux Source overlay `.build/antlr-runtime-source` compiled the exact helper with
 `cmake 0.1.58`; its linked runtime test passed. Evidence is in
 `.build/antlr-runtime-source/qualification.json`, `build-qualified.log` and
 `runtime-test.log`. This qualifies H Source/runtime only; it does not activate

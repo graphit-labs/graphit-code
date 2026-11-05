@@ -44,7 +44,7 @@ struct Issuer {
     key: Ed25519KeyPair,
     nonce: StdMutex<String>,
     challenge: StdMutex<String>,
-    issued: StdMutex<String>,
+    issued: StdMutex<Vec<String>>,
     refresh: AtomicUsize,
     userinfo: AtomicUsize,
     user_status: StdMutex<StatusCode>,
@@ -176,7 +176,7 @@ impl Fixture {
             key: Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(),
             nonce: StdMutex::new(String::new()),
             challenge: StdMutex::new(String::new()),
-            issued: StdMutex::new(String::new()),
+            issued: StdMutex::new(Vec::new()),
             refresh: AtomicUsize::new(0),
             userinfo: AtomicUsize::new(0),
             user_status: StdMutex::new(StatusCode::OK),
@@ -554,9 +554,15 @@ async fn project_access(
     Json(value): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
     s.project_calls.fetch_add(1, Ordering::SeqCst);
-    assert_eq!(
-        headers[header::AUTHORIZATION].to_str().unwrap(),
-        format!("Bearer {}", s.issued.lock().unwrap())
+    let bearer = headers[header::AUTHORIZATION]
+        .to_str()
+        .unwrap()
+        .strip_prefix("Bearer ")
+        .unwrap();
+    // Refresh rotation does not revoke access tokens already in flight.
+    assert!(
+        s.issued.lock().unwrap().iter().any(|token| token == bearer),
+        "PROJECT must receive an issued access token"
     );
     assert_eq!(value.as_object().unwrap().len(), 3);
     assert!(matches!(
@@ -626,7 +632,7 @@ async fn tokens(
         .unwrap()
         .clone()
         .unwrap_or_else(|| s.jwt(claims));
-    *s.issued.lock().unwrap() = access.clone();
+    s.issued.lock().unwrap().push(access.clone());
     let mut response = json!({"access_token":access,"token_type":"Bearer","expires_in":seconds});
     if s.issue_refresh.load(Ordering::Acquire) {
         response["refresh_token"] = format!("refresh-{refresh}").into();
@@ -657,7 +663,7 @@ async fn userinfo(
     s.userinfo.fetch_add(1, Ordering::SeqCst);
     assert_eq!(
         headers[header::AUTHORIZATION].to_str().unwrap(),
-        format!("Bearer {}", s.issued.lock().unwrap())
+        format!("Bearer {}", s.issued.lock().unwrap().last().unwrap())
     );
     (
         *s.user_status.lock().unwrap(),

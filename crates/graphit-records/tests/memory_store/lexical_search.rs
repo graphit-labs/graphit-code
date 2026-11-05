@@ -403,42 +403,32 @@ async fn lexical_search_absence_empty_shape_caps_and_full_validation() {
         .1,
         2
     );
-    let mut values: Vec<_> = (0..batch.num_rows())
-        .map(|r| sdk::string(&batch, 17, r).to_owned())
-        .collect();
-    let last = values.len() - 1;
+    let head = sdk::select(&batch, "head");
+    let mut payload: serde_json::Value = serde_json::from_str(sdk::string(&head, 17, 0)).unwrap();
+    assert!(payload["revision"].is_number());
+    payload["revision"] = "invalid revision".into();
     let mut nofilter = query("Literal");
     nofilter.filter.tag = Some("excluded".into());
-    values[last] = "{ malformed late JSON".into();
-    sdk::replace(&pin, sdk::text_column(&batch, 17, values)).await;
+    sdk::replace(
+        &pin,
+        sdk::text_column(&head, 17, vec![serde_json::to_string(&payload).unwrap()]),
+    )
+    .await;
     let corrupted = sdk::pin(&f).await;
     let corrupt_version = corrupted.version();
-    // The fixture bypasses the product writer. FTS now reaches the SDK tokenizer before
-    // typed candidate decoding, so invalid JSON can surface as a recoverable SDK error.
-    let error = NativeMemoryStore::search_lexical(ctx.snapshot(), &read, nofilter, read_limits())
-        .await
-        .expect_err("malformed JSON must not produce a successful or partial response");
-    eprintln!("corrupt unindexed JSON causal error: {error:?}");
-    match error {
-        MemoryStoreError::Json(_) => {}
-        MemoryStoreError::Store(graphit_data::lance_module_store::StoreError::Sdk(cause)) => {
-            let message = format!("{cause:?}");
-            assert!(
-                message.contains("JSON parse error") || message.contains("key must be a string"),
-                "expected malformed JSON cause, got {message}"
-            );
-        }
-        other => panic!("expected JSON codec/tokenizer error, got {other:?}"),
-    }
+    // The matching payload remains valid JSON for the SDK tokenizer but fails
+    // Graphit's record schema before the query can discard it by tag.
+    assert!(matches!(
+        NativeMemoryStore::search_lexical(ctx.snapshot(), &read, nofilter, read_limits()).await,
+        Err(MemoryStoreError::Json(_))
+    ));
     assert_eq!(
         sdk::pin(&f).await.version(),
         corrupt_version,
         "failed read must be readonly"
     );
-    // Recovery is confined to this fixture: restore the original row, then query again
-    // with the same runtime, request and admitted store. A caught worker panic must not
-    // leave the executor or subsequent queries unusable.
-    sdk::replace(&corrupted, batch).await;
+    // Restore the original row through the SDK and query the same admitted store.
+    sdk::replace(&corrupted, head).await;
     let restored_version = sdk::pin(&f).await.version();
     let (_, total, hits) = result(
         NativeMemoryStore::search_lexical(ctx.snapshot(), &read, query("Literal"), read_limits())

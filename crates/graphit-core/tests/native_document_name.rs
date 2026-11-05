@@ -259,6 +259,7 @@ fn non_unicode_names_fail_and_unicode_colon_backslash_names_round_trip() {
     let parent = capture(tmp.path(), &ctx);
     for byte in [0xff, 0xfe] {
         let filename = OsString::from_vec(vec![b'r', b'a', b'w', b'-', byte]);
+        #[cfg(target_os = "linux")]
         fs::write(tmp.path().join(&filename), b"unchanged").unwrap();
         assert_eq!(
             parent
@@ -268,6 +269,7 @@ fn non_unicode_names_fail_and_unicode_colon_backslash_names_round_trip() {
                 .kind(),
             io::ErrorKind::InvalidInput
         );
+        #[cfg(target_os = "linux")]
         assert_eq!(fs::read(tmp.path().join(&filename)).unwrap(), b"unchanged");
     }
     let filename = OsStr::new("colon:slash\\.json");

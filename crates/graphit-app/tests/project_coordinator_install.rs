@@ -976,7 +976,12 @@ async fn coordinator_compiled_cli_publishes_root_mcp_and_delivers_current_projec
             let result = tokio::task::spawn_blocking(move || remove.output()).await??;
             assert!(
                 result.status.success(),
-                "remove {binding:?}: {}",
+                "remove {binding:?} (daemon exit {:?}, Source terminal {:?}): {}",
+                daemon.0.try_wait(),
+                fs::read_to_string(&log).ok().and_then(|log| log
+                    .lines()
+                    .find(|line| line.starts_with("Graphit Source terminal: selected_branch="))
+                    .map(str::to_owned)),
                 String::from_utf8_lossy(&result.stderr)
             );
             let removed: CoordinatorOutcome = serde_json::from_slice(&result.stdout)?;

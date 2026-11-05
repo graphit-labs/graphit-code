@@ -243,20 +243,35 @@ fn non_unicode_sources_fail_without_modifying_the_file() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
     let temp = tempfile::tempdir().unwrap();
     let name = PathBuf::from(OsString::from_vec(vec![b'f', 0xff]));
-    fs::write(temp.path().join(&name), b"native").unwrap();
     assert!(
         RetainedFileSet::new([name.clone()], RetainedBytesLimits::new(6, 1, 64).unwrap()).is_err()
     );
-    assert!(
+    assert_eq!(
         SourceSnapshot::capture(
-            temp.path(),
-            NodeKind::Directory,
+            &temp.path().join(&name),
+            NodeKind::File,
             &policy(&[], 6),
             &context()
         )
-        .is_err()
+        .err()
+        .expect("invalid native input must fail before filesystem access")
+        .kind(),
+        std::io::ErrorKind::InvalidInput
     );
-    assert_eq!(fs::read(temp.path().join(name)).unwrap(), b"native");
+    #[cfg(target_os = "linux")]
+    {
+        fs::write(temp.path().join(&name), b"native").unwrap();
+        assert!(
+            SourceSnapshot::capture(
+                temp.path(),
+                NodeKind::Directory,
+                &policy(&[], 6),
+                &context()
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read(temp.path().join(name)).unwrap(), b"native");
+    }
 }
 
 #[test]

@@ -552,12 +552,17 @@ fn native_non_utf8_root_is_rejected_without_replacement() {
     let path = parent
         .path()
         .join(std::ffi::OsString::from_vec(vec![b'x', 0xff]));
-    fs::create_dir(&path).unwrap();
-    save(&path, &manifest());
+    #[cfg(target_os = "linux")]
+    {
+        fs::create_dir(&path).unwrap();
+        save(&path, &manifest());
+    }
     assert!(matches!(
         capture(&path, context(), policy()),
-        Err(DataReadError::Source(_))
+        Err(DataReadError::Source(error)) if error.kind() == std::io::ErrorKind::InvalidInput
     ));
+    #[cfg(target_os = "linux")]
+    assert!(path.is_dir());
 }
 #[cfg(unix)]
 #[test]

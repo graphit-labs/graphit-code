@@ -708,9 +708,8 @@ async fn schema16_is_rejected_and_native_capture_path_budgets_apply_to_each_admi
     let mut writer = artifacts.writer_with_context(ctx.snapshot())?;
     let guard = writer.create_record_directory(ProjectRecordDirectory::Knowledge, l.native)?;
     guard.revalidate(ctx.snapshot())?;
-    let uri = url::Url::from_file_path(f.project.runtime_root().join("knowledge/index.lance"))
-        .unwrap()
-        .to_string();
+    let path = f.project.runtime_root().join("knowledge/index.lance");
+    let uri = path.to_str().unwrap().to_owned();
     let full = physical_schema();
     let legacy = std::sync::Arc::new(arrow_schema::Schema::new(full.fields()[..16].to_vec()));
     let batch = RecordBatch::new_empty(std::sync::Arc::clone(&legacy));
@@ -730,7 +729,7 @@ async fn schema16_is_rejected_and_native_capture_path_budgets_apply_to_each_admi
             .unwrap_err();
     assert!(matches!(
         error,
-        KnowledgeBranchMaterializationError::Data(KnowledgeIndexError::Branch(_))
+        KnowledgeBranchMaterializationError::Data(KnowledgeIndexError::InvalidField("schema"))
     ));
     assert!(error.source().is_some());
     // Another real canonical18 corpus is used to isolate Native capture budgets.

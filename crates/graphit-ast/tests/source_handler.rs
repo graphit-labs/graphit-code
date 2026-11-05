@@ -287,13 +287,10 @@ impl Fixture {
         }
     }
     fn corpus(&self, project: usize) -> PathBuf {
-        let StoreOwner::Project { project_id } = self.projects[project].scope.owner() else {
-            panic!("actual project owner")
-        };
-        self.installation
-            .owner_root()
+        self.projects[project]
+            .scope
+            .runtime_root()
             .join("ast")
-            .join(project_id.to_string())
             .join("source.lance")
     }
     async fn runtime<'a>(
@@ -808,7 +805,7 @@ async fn native_paths_selectors_original_cancellation_and_deadline_stay_errors()
         let path = PathBuf::from(std::ffi::OsString::from_vec(vec![0xff]));
         assert!(matches!(
             f.runtime(&ctx, 0, false, &path, &Request::default()).await,
-            Err(SourceHandlerError::InvalidPath)
+            Err(SourceHandlerError::Operation(error)) if error.kind() == io::ErrorKind::InvalidInput
         ));
     }
     for selection in [
@@ -862,7 +859,7 @@ async fn index_and_physical_symlinks_and_stale_project_scope_never_fallback() ->
     fs::write(f.projects[0].root.join("file"), "fallback must not appear")?;
     let target = f._temp.path().join("external");
     fs::create_dir(&target)?;
-    let ast = f.installation.owner_root().join("ast");
+    let ast = f.projects[0].scope.runtime_root().join("ast");
     std::os::unix::fs::symlink(&target, &ast)?;
     assert!(matches!(
         f.runtime(&ctx, 0, false, Path::new("file"), &Request::default())

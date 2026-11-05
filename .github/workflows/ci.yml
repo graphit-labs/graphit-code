@@ -120,10 +120,18 @@ jobs:
           key: code-ci-1.98-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
-      - name: Check offline Rust contracts and quality
+      - name: Check offline Rust sources
         env:
           CARGO_NET_OFFLINE: "true"
-        run: cargo xtask gate
+        run: cargo xtask check
+      - name: Run offline Rust Clippy
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo xtask cargo clippy --workspace --all-targets --locked --offline --keep-going -- -D warnings
+      - name: Run offline Rust workspace tests
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo xtask cargo test --workspace --locked --offline --no-fail-fast
 
   workflow-lint:
     name: Workflow lint

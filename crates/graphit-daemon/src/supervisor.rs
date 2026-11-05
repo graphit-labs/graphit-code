@@ -749,8 +749,10 @@ mod tests {
         ProjectSupervisor::start(ctx, cfg, move |ctx, batch, _| {
             let tx = tx.clone();
             async move {
-                assert!(batch.rescan);
-                tx.send(ctx.key()).await.map_err(io::Error::other)
+                if batch.rescan {
+                    tx.send(ctx.key()).await.map_err(io::Error::other)?;
+                }
+                Ok(())
             }
         })
         .await

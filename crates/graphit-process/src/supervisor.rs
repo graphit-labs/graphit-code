@@ -1720,11 +1720,11 @@ mod tests {
         let mut peer = TcpStream::connect(address).expect("native fixture connects");
         peer.write_all(b"R").expect("native fixture readiness");
         let mode = std::env::var("GRAPHIT_PROCESS_RECOVERY_MODE").unwrap();
-        if mode == "held" || mode == "companion-held" {
+        if mode == "held" {
             peer.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
             let mut ack = [0];
             peer.read_exact(&mut ack).unwrap();
-            assert!(ack == *b"A" || (mode == "companion-held" && ack == *b"E"));
+            assert_eq!(ack, *b"A");
             std::process::exit(7);
         }
         if mode == "immediate-zero" {
@@ -2242,7 +2242,7 @@ mod tests {
     }
     #[cfg(unix)]
     struct Companion {
-        peer: Option<std::net::TcpStream>,
+        _peer: Option<std::net::TcpStream>,
         child: Box<dyn process_wrap::std::ChildWrapper>,
     }
     #[cfg(unix)]
@@ -2316,25 +2316,27 @@ mod tests {
                 return Err(io::ErrorKind::InvalidData.into());
             }
             let mut leader = ready(&self.leader, self.endpoint)?;
-            let request = native_setup_request(&self.companion, "companion-held");
-            // A fresh wrapper registry avoids extending an existing leader group.
-            let mut command =
-                process_wrap::std::CommandWrap::with_new(&request.program, |command| {
-                    command
-                        .args(&request.args)
-                        .current_dir(&request.cwd)
-                        .env_clear()
-                        .envs(request.environment)
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null());
-                });
+            let request = native_setup_request(&self.companion, "held");
+            // Keep the companion alive through TERM so the test exercises the
+            // owned group's KILL and wait. Darwin skips zombies in killpg.
+            let mut command = process_wrap::std::CommandWrap::with_new("/bin/sh", |command| {
+                command
+                    .args(["-c", "trap '' TERM; exec \"$@\"", "graphit-companion"])
+                    .arg(&request.program)
+                    .args(&request.args)
+                    .current_dir(&request.cwd)
+                    .env_clear()
+                    .envs(request.environment)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null());
+            });
             command.wrap(process_wrap::std::ProcessGroup::attach_to(pid));
             // The companion Group records its own PID, not the attached PGID.
             // Consume it immediately; never signal/wait through that wrapper.
             let companion = command.spawn()?.into_inner();
             *self.owned.lock().unwrap() = Some(Companion {
-                peer: None,
+                _peer: None,
                 child: companion,
             });
             let peer = ready(&self.companion, self.endpoint)?;
@@ -2343,7 +2345,7 @@ mod tests {
                 .unwrap()
                 .as_mut()
                 .expect("actual companion retained")
-                .peer = Some(peer);
+                ._peer = Some(peer);
             leader.write_all(b"A")?; // Leader can reap only after companion birth.
             Ok(child)
         }
@@ -2352,7 +2354,6 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn native_caller_abort_result_drop_and_last_host_drop_retain_same_group_wait() {
         use graphit_core::file_lock::Cancellation;
-        use std::io::Write;
         // Each branch owns a real group companion before any assertion. The
         // leader exits only after that birth; only SAME Group wait observes it.
         for (abort_caller, detach_host) in [(true, false), (true, true), (false, false)] {
@@ -2456,16 +2457,8 @@ mod tests {
                 }
             }
 
-            {
-                let mut companion = owned.lock().unwrap();
-                if let Some(child) = companion.as_mut()
-                    && let Some(mut peer) = child.peer.take()
-                {
-                    let _ = peer.write_all(b"E");
-                }
-            }
-            // Release the real companion, then wait for the existing host's
-            // own closure. No fresh Child::wait or numeric signal occurs.
+            // Observe the existing host's closure after its own group kill.
+            // No fresh Child::wait or numeric signal occurs.
             if let Some(mut same) = retained_join {
                 match same
                     .repair(std::time::Instant::now() + Duration::from_secs(5))
@@ -2542,17 +2535,6 @@ mod tests {
                         .repair(std::time::Instant::now() + Duration::from_millis(5))
                         .await,
                 );
-            }
-        }
-        // Release the actual companion through its retained native protocol,
-        // without a PID/PGID signal while Group's wait owns the reap.
-        {
-            use std::io::Write;
-            let mut child = owned.lock().unwrap();
-            if let Some(companion) = child.as_mut()
-                && let Some(mut peer) = companion.peer.take()
-            {
-                let _ = peer.write_all(b"E");
             }
         }
         let (terminal, late) = if let Some(owner) = remaining.as_mut() {

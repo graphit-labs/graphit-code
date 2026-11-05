@@ -291,31 +291,18 @@ fn kimi_incoming_progress_precedes_exit_and_actual_cleanup_releases_writer() {
             let f = Fixture::new(&broker).await;
             f.kimi_mode("gate");
             let owner = f
-                .start_kimi(&broker, (mode == "deadline").then_some(2000))
+                .start_kimi(
+                    &broker,
+                    (mode == "deadline").then_some(BLOCKED_TURN_DEADLINE_MS),
+                )
                 .await;
             let uri = format!("http://{}/mcp", owner.address().unwrap());
             let stop = Cancellation::default();
             let stopped = stop.clone();
             let running = tokio::spawn(async move { owner.run(&stopped).await });
             let raw = broker.state.token("caller-A", RESOURCE, expiry());
-            let mut headers = HashMap::new();
-            let mut bearer = header::HeaderValue::from_str(&format!("Bearer {raw}")).unwrap();
-            bearer.set_sensitive(true);
-            headers.insert(header::AUTHORIZATION, bearer);
-            let progress = ProgressCollector(Arc::new(std::sync::Mutex::new(Vec::new())));
-            let client = progress
-                .clone()
-                .serve_with_lifecycle(
-                    StreamableHttpClientTransport::with_client(
-                        reqwest::Client::builder().no_proxy().build().unwrap(),
-                        StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
-                    ),
-                    ClientLifecycleMode::Discover {
-                        preferred_versions: vec![ProtocolVersion::LATEST],
-                    },
-                )
-                .await
-                .unwrap();
+            let progress = ProgressWitness::new(&["assistant.delta", "actual β"]);
+            let client = rpc_client_with_handler(&uri, &raw, progress.clone()).await;
             let mut params = CallToolRequestParams::new("graphit_knowledge_conversation")
                 .with_arguments(
                     args("create", "kimi-gated", "wait for release")
@@ -336,15 +323,7 @@ fn kimi_incoming_progress_precedes_exit_and_actual_cleanup_releases_writer() {
                 )
                 .await
                 .unwrap();
-            tokio::time::timeout(Duration::from_secs(10), async {
-                while !progress.0.lock().unwrap().iter().any(|message| {
-                    message.contains("assistant.delta") && message.contains("actual β")
-                }) {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            })
-            .await
-            .unwrap();
+            progress.wait(mode).await;
             assert_eq!(f.kimi_launches().len(), 1);
             let user = kiro_clear_user(&f, &broker);
             let writer = user.runtime_root().join("artifact-store.lock");
@@ -393,7 +372,13 @@ fn kimi_incoming_progress_precedes_exit_and_actual_cleanup_releases_writer() {
                     }
                 }
                 let response = handle.await_response().await;
-                if mode == "release" || mode == "store-fault" || mode == "physical-denied" {
+                if mode == "deadline" {
+                    let rmcp::model::ServerResult::CallToolResult(result) = response.unwrap()
+                    else {
+                        panic!("deadline tool result")
+                    };
+                    assert_blocked_turn_expired(&result);
+                } else if mode == "release" || mode == "store-fault" || mode == "physical-denied" {
                     let rmcp::model::ServerResult::CallToolResult(result) = response.unwrap()
                     else {
                         panic!("call result")

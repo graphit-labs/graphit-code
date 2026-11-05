@@ -121,23 +121,21 @@ fn record_limits() -> NativeDocumentFileLimits {
 }
 
 #[test]
-fn brand_birth_after_capture_is_a_real_source_change() {
+fn global_runtime_birth_after_capture_preserves_the_checkout_source() {
     let f = Fixture::new();
     assert!(!f.project.brand_directory().exists());
+    assert!(!f.scope.runtime_root().exists());
     let source = f.source();
-    let writer = f.artifacts().writer_with_context(&f.original).unwrap();
-    assert!(f.project.brand_directory().exists());
-    assert_eq!(
-        source.revalidate_content().unwrap_err().kind(),
-        io::ErrorKind::InvalidData
-    );
+    let _writer = f.artifacts().writer_with_context(&f.original).unwrap();
+    assert!(f.scope.runtime_root().is_dir());
+    assert!(!f.project.brand_directory().exists());
+    source.revalidate_content().unwrap();
     assert!(!f.scope.runtime_root().join("knowledge").exists());
     f.assert_document(&source);
-    drop(writer);
 }
 
 #[test]
-fn publication_inside_existing_pruned_brand_preserves_source() {
+fn publication_with_an_existing_pruned_checkout_brand_preserves_source() {
     let f = Fixture::new();
     drop(graphit_fs::create_private_directory(&f.project.brand_directory()).unwrap());
     let source = f.source();
@@ -157,7 +155,8 @@ fn runtime_preparation_before_first_capture_preserves_source_without_a_lock() {
     f.artifacts()
         .prepare_project_runtime_with_context(&f.original)
         .unwrap();
-    assert!(f.project.brand_directory().exists());
+    assert!(f.scope.runtime_root().is_dir());
+    assert!(!f.project.brand_directory().exists());
     assert!(!f.scope.runtime_root().join("artifact-store.lock").exists());
     assert!(!f.artifacts().manifest_path().exists());
     assert!(!f.scope.runtime_root().join("knowledge").exists());
@@ -188,7 +187,8 @@ fn runtime_preparation_reuses_the_physical_scope_with_the_current_context() {
     f.artifacts()
         .prepare_project_runtime_with_context(&f.original)
         .unwrap();
-    assert!(f.project.brand_directory().exists());
+    assert!(f.scope.runtime_root().is_dir());
+    assert!(!f.project.brand_directory().exists());
     assert!(!f.scope.runtime_root().join("artifact-store.lock").exists());
     assert!(!f.artifacts().manifest_path().exists());
 }
@@ -206,6 +206,7 @@ fn runtime_preparation_rejects_cancelled_or_expired_context_before_creation() {
         graphit_core::artifact_store::ArtifactStage::Prepare
     );
     assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert!(!f.scope.runtime_root().exists());
     assert!(!f.project.brand_directory().exists());
     let expired = Arc::new(SnapshotContext::new(
         Instant::now() - Duration::from_secs(1),
@@ -218,6 +219,7 @@ fn runtime_preparation_rejects_cancelled_or_expired_context_before_creation() {
             .kind(),
         io::ErrorKind::TimedOut
     );
+    assert!(!f.scope.runtime_root().exists());
     assert!(!f.project.brand_directory().exists());
 }
 
@@ -234,5 +236,6 @@ fn runtime_preparation_rejects_replaced_project_before_creation() {
             .kind(),
         io::ErrorKind::InvalidData
     );
+    assert!(!f.scope.runtime_root().exists());
     assert!(!f.project.brand_directory().exists());
 }

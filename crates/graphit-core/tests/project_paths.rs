@@ -458,6 +458,7 @@ fn non_unicode_bootstrap_paths_fail_without_creating_state() {
         assert!(error.to_string().contains("Unicode"));
     }
     let directory = fixture.root().join(invalid);
+    #[cfg(target_os = "linux")]
     fs::create_dir(&directory).unwrap();
     let error = InstallationPaths::resolve(
         Brand::default(),
@@ -468,12 +469,15 @@ fn non_unicode_bootstrap_paths_fail_without_creating_state() {
     .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     assert!(error.to_string().contains("Unicode"));
-    let alias = fixture.root().join("unicode-alias");
-    std::os::unix::fs::symlink(&directory, &alias).unwrap();
-    assert!(
-        InstallationPaths::resolve(Brand::default(), &alias, None, Some(Path::new("global")))
-            .is_err()
-    );
-    assert_eq!(fs::read_dir(fixture.root()).unwrap().count(), 2);
+    #[cfg(target_os = "linux")]
+    {
+        let alias = fixture.root().join("unicode-alias");
+        std::os::unix::fs::symlink(&directory, &alias).unwrap();
+        assert!(
+            InstallationPaths::resolve(Brand::default(), &alias, None, Some(Path::new("global")))
+                .is_err()
+        );
+        assert_eq!(fs::read_dir(fixture.root()).unwrap().count(), 2);
+    }
     assert!(!directory.join("global").exists());
 }

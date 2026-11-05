@@ -314,7 +314,10 @@ impl Fixture {
                                 access_token: Secret::new(SecretString::from(token)),
                                 refresh_token: None,
                                 id_token: Secret::new(SecretString::from("historical")),
-                                expires_at: (now_seconds() + 3600).try_into().unwrap(),
+                                expires_at: Duration::from_secs(now_seconds() + 3600)
+                                    .as_micros()
+                                    .try_into()
+                                    .unwrap(),
                             },
                         }
                     } else {

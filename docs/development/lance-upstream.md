@@ -115,6 +115,9 @@ inline indices, public decode errors and Graphit admission/error behavior keep
 their functional tests. Corruption must never be reported as a healthy empty
 corpus, but arbitrary corrupt SDK bytes can still panic instead of returning a
 normal domain error. That residual upstream limitation remains explicit.
+Lance 14.0.2 also panics in its JSON full-text tokenizer when fed a syntactically
+invalid payload written outside Graphit's record writer. The record search tests
+exercise Graphit's rejection of valid JSON with an invalid record shape.
 
 ## AST embedding checkpoints
 

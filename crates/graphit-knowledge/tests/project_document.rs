@@ -28,7 +28,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DOCUMENT: &[u8] = include_bytes!("fixtures/document/unicode-crlf.md");
+const DOCUMENT: &[u8] = include!("fixtures/document/unicode-crlf.rs").as_bytes();
 const DOCUMENT_BYTES: usize = 35;
 
 struct TemporaryDirectory(PathBuf);

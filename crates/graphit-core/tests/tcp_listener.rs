@@ -105,15 +105,12 @@ fn exact_occupied_range_is_exhausted_without_stealing_owner() {
     .unwrap_err();
     assert_eq!(error.failure, Failure::Exhausted);
     assert_eq!(error.attempts, 1);
-    assert_eq!(occupied.local_addr().unwrap().port(), preferred);
-    drop(occupied);
-    let bound = reserve(
-        options(range(preferred, preferred)),
-        &Cancellation::default(),
-    )
-    .unwrap();
-    assert_eq!(bound.address().port(), preferred);
-    assert_eq!(bound.attempts(), 1);
+    let address = occupied.local_addr().unwrap();
+    assert_eq!(address.port(), preferred);
+    assert_eq!(
+        TcpListener::bind(address).unwrap_err().kind(),
+        std::io::ErrorKind::AddrInUse
+    );
 }
 
 #[test]

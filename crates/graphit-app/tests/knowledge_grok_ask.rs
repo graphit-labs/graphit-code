@@ -986,6 +986,7 @@ fn grok_project_invalidation_after_native_effect_denies_delivery_keeps_receipt()
 import os,socket,json,sys
 print('{"type":"thought","data":"native thought"}',flush=True)
 print('{"type":"text","data":"native effect before invalidation"}',flush=True)
+print('{"type":"text","data":"fixture progress boundary"}',flush=True)
 s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
 assert s.recv(1)==b'1'
 print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","requestId":"","usage":{"input_tokens":5,"output_tokens":3}}',flush=True)
@@ -1018,7 +1019,9 @@ print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","reque
             .await
             .unwrap()
             .unwrap();
-        progress_count(&h.events, &h.changed, 2).await;
+        // Progress delivery precedes the sink's second authorization check.
+        // Seeing the third callback proves that the first two were accepted.
+        progress_count(&h.events, &h.changed, 3).await;
         assert!(!final_wait.is_finished());
         let displaced = f.temp.path().join("displaced-project");
         std::fs::rename(f.projects[0].0.root(), &displaced).unwrap();
@@ -1030,10 +1033,18 @@ print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","reque
         let payload = result.structured_content.unwrap();
         assert!(payload["receipt"]["completion"].get("answer").is_none());
         assert_eq!(payload["receipt"]["provider"], "grok");
-        assert_eq!(payload["receipt"]["known_events"], 2);
+        let accepted = payload["receipt"]["known_events"].as_u64().unwrap();
+        assert!((2..=3).contains(&accepted), "receipt: {payload}");
+        assert_eq!(payload["receipt"]["frames"], accepted + 1);
         assert!(payload["receipt"].get("native_result_json").is_none());
         assert_eq!(payload["receipt"]["process"]["cleanup"], "Complete");
-        assert!(payload["execution_error"].is_string());
+        assert_eq!(payload["execution_error"], "Sink(Closed)");
+        let denial = if accepted == 2 {
+            "Knowledge Ask observed progress exceeds accepted prefix"
+        } else {
+            "ProjectDeliveryDenied"
+        };
+        assert_eq!(payload["delivery_error"], denial);
         assert_prompt_removed(&f.temp.path().join("prompt-path"));
         std::fs::rename(&displaced, f.projects[0].0.root()).unwrap();
         h.stop().await;

@@ -180,14 +180,19 @@ fn invalid_context_source_type_and_overlap_have_no_creation_effect() {
 
 #[cfg(unix)]
 #[test]
-fn aliases_are_captured_and_non_utf8_paths_stay_lossless() {
-    use std::os::unix::ffi::OsStringExt;
+fn aliases_are_captured_and_native_paths_stay_lossless() {
     let root = tempfile::tempdir().unwrap();
     let source_root = root.path().join("source");
     let parent = root.path().join("parent");
     fs::create_dir(&source_root).unwrap();
     fs::create_dir(&parent).unwrap();
-    let source = source_root.join(std::ffi::OsString::from_vec(b"file-\xff".to_vec()));
+    #[cfg(target_os = "linux")]
+    let source = {
+        use std::os::unix::ffi::OsStringExt;
+        source_root.join(std::ffi::OsString::from_vec(b"file-\xff".to_vec()))
+    };
+    #[cfg(not(target_os = "linux"))]
+    let source = source_root.join("file-é 🚀");
     fs::write(&source, b"native bytes").unwrap();
     let source_alias = root.path().join("source-alias");
     let parent_alias = root.path().join("parent-alias");

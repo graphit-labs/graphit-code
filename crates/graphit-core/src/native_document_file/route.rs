@@ -643,6 +643,7 @@ mod tests {
         use std::os::unix::ffi::OsStringExt;
         let (tmp, ctx, parent) = fixture(Duration::from_secs(30), Cancellation::default());
         let name = OsString::from_vec(vec![b'n', 0xff]);
+        #[cfg(target_os = "linux")]
         fs::write(tmp.path().join(&name), b"other").unwrap();
         assert_eq!(
             parent
@@ -652,6 +653,7 @@ mod tests {
                 .kind(),
             io::ErrorKind::InvalidInput
         );
+        #[cfg(target_os = "linux")]
         assert_eq!(fs::read(tmp.path().join(name)).unwrap(), b"other");
         let name = OsString::from("n-é");
         fs::write(tmp.path().join(&name), b"unicode").unwrap();

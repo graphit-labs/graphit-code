@@ -146,7 +146,10 @@ fn source_mutation_after_first_effect_never_produces_a_verified_tree() {
         &mut || {
             effects += 1;
             if effects == 1 {
-                fs::write(source.path().join("asset"), b"87654321")?;
+                crate::artifact_store::tests::overwrite_with_changed_mtime(
+                    &source.path().join("asset"),
+                    b"87654321",
+                );
             }
             Ok(())
         },

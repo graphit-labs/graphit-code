@@ -1478,15 +1478,47 @@ fn remaining_go_whole_constant_parent_is_not_a_first_name_owner() -> TestResult 
 
 #[test]
 fn remaining_go_initializer_parts_and_tuple_arity_are_native_observations() -> TestResult {
-    use graphit_ast::tree_sitter_model::{TsDeclaredValue, TsValueBinding};
-    let draft = catalog(b"language: go\ngrammar: tree-sitter-go\ncontext_types: {}\nembed_labels: []\nqueries:\n  - {data_key: tuple, graph_label: Variable, value_capture: value, value_label: Value, pattern: '(var_spec name: (identifier) @name value: (expression_list (call_expression) @value))'}\n  - {data_key: whole, graph_label: Variable, value_capture: value, value_label: Value, pattern: '(var_spec name: (identifier) @name value: (expression_list) @value)'}\n  - {data_key: part, graph_label: Variable, value_capture: value, value_label: Value, pattern: '(var_spec name: (identifier) @name value: (expression_list (binary_expression (int_literal) @value)))'}\n");
+    use graphit_ast::tree_sitter_model::{TsDeclaredValue, TsIssue, TsValueBinding};
+    let draft = catalog(b"language: go\ngrammar: tree-sitter-go\ncontext_types: {}\nembed_labels: []\nqueries:\n  - {data_key: tuple, graph_label: Variable, value_capture: value, value_label: Value, pattern: '(var_spec name: (identifier) @name value: (expression_list (call_expression) @value))'}\n  - {data_key: whole, graph_label: Variable, value_capture: value, value_label: Value, pattern: '(var_spec name: (identifier) @name value: (expression_list) @value)'}\n  - {data_key: part, graph_label: Variable, value_capture: value, value_label: Value, pattern: '(var_spec name: (identifier) @name value: (expression_list (binary_expression left: (int_literal) @value)))'}\n");
     inspect(
         "package sample\nvar A,B = Pair()\nvar C = 1+2\n",
         &draft,
         |model| {
-            assert!(model.diagnostics()?.is_empty());
+            let mut unproven = [0, 0];
+            for diagnostic in model.diagnostics()? {
+                match diagnostic.issue {
+                    TsIssue::UnprovenValueOwner {
+                        binding:
+                            TsValueBinding::UnprovenArity {
+                                subjects: 2,
+                                expressions: 1,
+                            },
+                        ..
+                    } => unproven[0] += 1,
+                    TsIssue::UnprovenValueOwner {
+                        binding: TsValueBinding::Initializer,
+                        ..
+                    } => {
+                        unproven[1] += 1;
+                    }
+                    ref issue => panic!("unexpected initializer diagnostic: {issue:?}"),
+                }
+            }
+            assert_eq!(unproven, [2, 2]);
+            let mut derived = Vec::new();
             for e in model.entities()? {
                 for c in e.contributions() {
+                    if let Some(value) = &c.derived_value {
+                        assert_eq!(e.identity().label(), "Value");
+                        assert_eq!(e.namespaces().last().unwrap().name, "C");
+                        assert!(matches!(
+                            (e.data_key(), value.binding),
+                            ("whole", TsValueBinding::Initializer)
+                                | ("part", TsValueBinding::ExpressionPart { ordinal: 0 })
+                        ));
+                        derived.push((e.data_key(), e.name()));
+                        continue;
+                    }
                     let TsDeclaredValue::Native {
                         initializer: Some(initializer),
                         captures,
@@ -1518,7 +1550,9 @@ fn remaining_go_initializer_parts_and_tuple_arity_are_native_observations() -> T
                     }
                 }
             }
-            assert_eq!(model.entities()?.len(), 6);
+            derived.sort_unstable();
+            assert_eq!(derived, [("part", "1"), ("whole", "1+2")]);
+            assert_eq!(model.entities()?.len(), 8);
             Ok(())
         },
     )

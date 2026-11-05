@@ -237,7 +237,7 @@ fn concurrent_publishers_have_exactly_one_winner() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_native_paths_are_not_converted() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};

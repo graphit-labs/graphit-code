@@ -333,6 +333,7 @@ async fn relative_link_frontmatter_cap_is_not_reported_as_corrupt_utf8()
 }
 
 #[tokio::test]
+#[cfg(target_os = "linux")] // This ownership probe needs Linux procfs fd targets.
 async fn relative_target_captures_do_not_accumulate_checkout_fds_across_files()
 -> std::result::Result<(), Box<dyn Error>> {
     let cancel = Cancellation::default();

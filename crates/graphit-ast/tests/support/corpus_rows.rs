@@ -59,11 +59,14 @@ pub async fn persist(
         None,
         original,
     )?;
-    let pin = pin
-        .prepare_merge(vec![rows], vec!["uid".into(), "data_key".into()])
-        .await?
-        .commit()
-        .await?;
+    let pin = if rows.num_rows() == 0 {
+        pin
+    } else {
+        pin.prepare_merge(vec![rows], vec!["uid".into(), "data_key".into()])
+            .await?
+            .commit()
+            .await?
+    };
     match corpus::prepare_embeddings(&pin, inferred, model, original).await? {
         Some(update) => Ok(update.commit().await?),
         None => Ok(pin),

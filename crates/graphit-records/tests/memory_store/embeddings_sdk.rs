@@ -78,10 +78,10 @@ pub fn legacy_schema() -> Arc<Schema> {
     ))
 }
 pub async fn pin(f: &Fixture) -> BranchSnapshot {
-    let uri = url::Url::from_file_path(f.project.runtime_root().join("memory/index.lance"))
-        .unwrap()
-        .to_string();
-    let store = LanceBranchStore::open(&uri, schema(), None).await.unwrap();
+    let path = f.project.runtime_root().join("memory/index.lance");
+    let store = LanceBranchStore::open(path.to_str().unwrap(), schema(), None)
+        .await
+        .unwrap();
     let branch = f.version.lance_branch();
     store
         .capture_target((!branch.is_empty()).then_some(branch.as_str()))
@@ -246,11 +246,9 @@ pub async fn empty_with_schema(
     schema: Arc<Schema>,
 ) {
     let _writer = directory_only(f, ctx).await;
-    let uri = url::Url::from_file_path(f.project.runtime_root().join("memory/index.lance"))
-        .unwrap()
-        .to_string();
+    let path = f.project.runtime_root().join("memory/index.lance");
     graphit_data::lance_module_store::LanceModuleStore::create(
-        &uri,
+        path.to_str().unwrap(),
         Arc::clone(&schema),
         vec![RecordBatch::new_empty(schema)],
     )

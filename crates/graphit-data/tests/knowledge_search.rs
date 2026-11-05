@@ -494,9 +494,8 @@ async fn named_and_inherited_search_preserve_actual_branch_observations()
         Some(branch.as_str())
     );
     assert!(capture.generation().inherited_target.is_none());
-    let dataset = url::Url::parse(&published.default.corpus_uri)?
-        .to_file_path()
-        .unwrap();
+    let dataset = std::path::Path::new(&published.default.corpus_uri);
+    assert!(dataset.is_absolute());
     let forbidden = dataset.join("must-not-stage.md");
     assert!(
         matches!(capture.validate_export_destination(ctx.snapshot(), &read, &forbidden),
@@ -687,9 +686,8 @@ async fn source_only_cursor_keeps_generation_batches_removed_and_terminal_guards
         let outside = exports.path().join("outside.md");
         capture.validate_export_destination(ctx.snapshot(), &read, &outside)?;
         assert!(!outside.exists());
-        let dataset = url::Url::parse(&published.default.corpus_uri)?
-            .to_file_path()
-            .unwrap();
+        let dataset = std::path::Path::new(&published.default.corpus_uri);
+        assert!(dataset.is_absolute());
         assert!(
             matches!(capture.validate_export_destination(ctx.snapshot(), &read, &dataset.join("inside.md")),
             Err(KnowledgeSearchError::Data(KnowledgeIndexError::Request(error))) if error.kind() == std::io::ErrorKind::InvalidInput)
@@ -697,14 +695,14 @@ async fn source_only_cursor_keeps_generation_batches_removed_and_terminal_guards
         #[cfg(unix)]
         {
             let alias = exports.path().join("alias");
-            std::os::unix::fs::symlink(&dataset, &alias)?;
+            std::os::unix::fs::symlink(dataset, &alias)?;
             assert!(
                 capture
                     .validate_export_destination(ctx.snapshot(), &read, &alias.join("inside.md"))
                     .is_err()
             );
             let final_link = exports.path().join("link.md");
-            std::os::unix::fs::symlink(&dataset, &final_link)?;
+            std::os::unix::fs::symlink(dataset, &final_link)?;
             assert!(
                 capture
                     .validate_export_destination(ctx.snapshot(), &read, &final_link)

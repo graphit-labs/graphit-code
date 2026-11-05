@@ -39,7 +39,8 @@ Cargo prepares registry and Git dependencies before the offline run. The
 source revision, including the codec consumed by the daemon.
 
 The [standard CI](../../.github/workflows/ci.yml) fetches the same locked sources
-then runs offline on Linux, macOS and Windows. The tagged Linux
+then runs the source checks, Clippy and workspace tests offline on Linux, macOS
+and Windows. The tagged Linux
 [release workflow](../../.github/workflows/release.yml) checks out the Broker
 revision in the lockfile when it needs the explicit Broker/S3 qualification
 fixture. See [Rust checks and Git hooks](rust-fast-guard.md) for the distinction

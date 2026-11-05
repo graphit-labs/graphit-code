@@ -478,6 +478,7 @@ fn non_unicode_checkout_is_rejected_without_identity_or_inventory_publication() 
     let f = Fixture::new();
     let name = std::ffi::OsString::from_vec(b"checkout-\xff".to_vec());
     let other = f._temp.path().join(name);
+    #[cfg(target_os = "linux")]
     fs::create_dir(&other).unwrap();
     let error = ProjectPaths::at(&other, &f.installation).unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);

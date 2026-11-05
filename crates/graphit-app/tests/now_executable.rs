@@ -20,7 +20,7 @@ mod cli_daemon;
 )]
 mod wire;
 use graphit_core::{
-    config::{ConfigKey, ConfigStore},
+    config::{ConfigKey, ConfigMutation, ConfigStore},
     file_lock::Cancellation,
     native_document_file::NativeDocumentFileLimits,
     project_identity::ProjectId,
@@ -222,12 +222,26 @@ impl Fixture {
         });
         let cancel = Cancellation::default();
         let original = wire::original(&cancel);
-        assert!(ConfigStore::global(&paths)?.set(
-            ConfigKey::new("broker.allow_loopback_http")?,
-            json!(true),
-            WAIT,
-            &cancel,
-        )?);
+        // The peer supplies the snapshot data; background corpus jobs are unrelated to this path.
+        let settings = [
+            ("broker.allow_loopback_http", true),
+            ("modules.ast", false),
+            ("modules.knowledge", false),
+            ("modules.embedding", false),
+        ]
+        .into_iter()
+        .map(|(key, value)| {
+            Ok(ConfigMutation::Set {
+                key: ConfigKey::new(key)?,
+                value: json!(value),
+            })
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+        assert!(
+            ConfigStore::global(&paths)?
+                .writer(WAIT, &cancel)?
+                .apply(settings)?
+        );
         let daemon =
             cli_daemon::CliDaemon::start(source, NativeBinding::Codex, Vec::new(), &original)
                 .await
@@ -447,15 +461,16 @@ async fn compiled_broken_pipe_and_auth_terminal_close_the_real_subscriber() -> R
 async fn finite_original_expiry_at_real_entry_retires_source_subscriber() -> Result {
     let mut f = Fixture::new().await?;
     let cancel = Cancellation::default();
+    let client = reqwest::Client::new();
+    let mut output = tempfile::tempfile()?;
     let original = graphit_hub::policy::RequestContext::new(
         wire::content(),
         &cancel,
         Instant::now() + Duration::from_secs(2),
     )?;
-    let mut output = tempfile::tempfile()?;
     let result = graphit_app::now_entry::run_pipe(
         &f.paths,
-        &reqwest::Client::new(),
+        &client,
         graphit_app::now_entry::Arguments {
             project: f.project,
             provider: "now".into(),
@@ -473,6 +488,10 @@ async fn finite_original_expiry_at_real_entry_retires_source_subscriber() -> Res
     output.rewind()?;
     let mut text = String::new();
     output.read_to_string(&mut text)?;
+    assert!(
+        !text.is_empty(),
+        "Now expired before writing the first snapshot"
+    );
     assert_eq!(
         serde_json::from_str::<Value>(text.trim())?["instances"]
             .as_array()

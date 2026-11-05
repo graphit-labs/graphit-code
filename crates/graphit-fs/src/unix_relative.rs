@@ -110,5 +110,18 @@ pub(super) fn enumeration_fd(
     {
         return Err(io::ErrorKind::InvalidData.into());
     }
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        // Darwin can reopen an unlinked directory and report a nonzero link
+        // count. Check the native name still refers to the held directory.
+        before()?;
+        let path = rustix::fs::getpath(&file).map_err(io::Error::from)?;
+        before()?;
+        let named = std::fs::symlink_metadata(Path::new(OsStr::from_bytes(path.as_bytes())))?;
+        if !named.is_dir() || named.dev() != observed.dev() || named.ino() != observed.ino() {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+    }
     Ok(file)
 }

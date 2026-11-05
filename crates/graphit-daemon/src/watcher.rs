@@ -204,8 +204,15 @@ impl Watcher for CheckoutWatcher {
         let old = self.backend.mode(path);
         let previous = lock(&self.subscription.paths).insert(path.to_owned(), mode);
         let aggregate = self.backend.mode(path).expect("registered native path");
-        // Always ask the real backend, including an existing path: a native
-        // removal/recreation must not be mistaken for a still installed watch.
+        // FSEvents keeps registrations by path and restarts its shared stream
+        // on every SDK watch call. Keep an unchanged canonical registration.
+        if RecommendedWatcher::kind() == notify::WatcherKind::Fsevent
+            && old == Some(aggregate)
+            && fs::canonicalize(path).is_ok_and(|current| current == path)
+        {
+            return Ok(());
+        }
+        // Other backends may need to reattach after a path is recreated.
         let result =
             if old == Some(RecursiveMode::Recursive) && aggregate == RecursiveMode::NonRecursive {
                 self.backend
@@ -995,7 +1002,7 @@ mod tests {
             }
         })
         .await
-        .expect("native change received")
+        .unwrap_or_else(|_| panic!("timed out observing native change at {path:?}"))
     }
 
     #[test]

@@ -857,7 +857,7 @@ mod tests {
 
     #[test]
     fn envelope_preserves_bom_crlf_delimiters_and_byte_offsets() {
-        let source = include_str!("../tests/fixtures/document/unicode-crlf.md");
+        let source = include!("../tests/fixtures/document/unicode-crlf.rs");
         let doc = parse(source);
         assert!(std::ptr::eq(doc.source.as_ptr(), source.as_ptr()));
         assert_eq!(doc.source.as_bytes(), source.as_bytes());

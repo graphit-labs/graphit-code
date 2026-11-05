@@ -1514,9 +1514,12 @@ async fn genuine_ecma_custom_keys_properties_unsupported_names_and_absent_rules_
     let IndexedSource::Available(text) = snapshot.source(&original)? else {
         panic!("actual Raw Source");
     };
-    let profile=include_str!("../../../crates/graphit-ast/profiles/queries/javascript.yaml")
-        .replace("  CALLS: { labels: [Function, Method] }\n","")
-        .replace("queries:\n",r#"queries:
+    let profile = include_str!("../../../crates/graphit-ast/profiles/queries/javascript.yaml")
+        .replace("  CALLS: { labels: [Function, Method] }\n", "")
+        .replacen(
+            "\nqueries:\n",
+            r#"
+queries:
   - data_key: bespoke
     graph_label: AstFileObservation
     span_capture: declaration
@@ -1527,7 +1530,10 @@ async fn genuine_ecma_custom_keys_properties_unsupported_names_and_absent_rules_
   - data_key: computed_methods
     graph_label: OddMethod
     pattern: '(method_definition name: (computed_property_name) @name)'
-"#).replace("embed_labels:\n","embed_labels:\n  - OddMethod\n");
+"#,
+            1,
+        )
+        .replace("embed_labels:\n", "embed_labels:\n  - OddMethod\n");
     let draft = catalog(profile.as_bytes());
     with_model(text, &original, &draft, &[path], |document| {
         let entities = document.entities()?;

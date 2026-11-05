@@ -171,7 +171,7 @@ fn create_directory(path: &CStr, security: &FileSecurity) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, os::unix::ffi::OsStringExt, process::Command};
+    use std::{ffi::OsStr, fs, process::Command};
 
     #[test]
     fn inherited_parent_acl_does_not_enter_private_children() {
@@ -217,9 +217,9 @@ mod tests {
     #[test]
     fn paths_are_lossless_bounded_and_exclusive() {
         let root = tempfile::tempdir().unwrap();
-        let path = root
-            .path()
-            .join(std::ffi::OsString::from_vec(b"stage-\xff".to_vec()));
+        let path = root.path().join("stage-é 🚀");
+        let opaque = Path::new(OsStr::from_bytes(b"stage-\xff"));
+        assert_eq!(native_path(opaque).unwrap().as_bytes(), b"stage-\xff");
         let file = new_file(&path).unwrap();
         assert_eq!(file.metadata().unwrap().len(), 0);
         assert_eq!(

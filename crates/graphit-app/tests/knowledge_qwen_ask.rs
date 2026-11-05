@@ -934,6 +934,7 @@ fn qwen_project_invalidation_after_native_effect_denies_delivery_keeps_receipt()
 import os,socket
 print('{"type":"system","uuid":"fixture-22","subtype":"init","session_id":"fixture","model":"observed"}',flush=True)
 print('{"type":"stream_event","uuid":"partial","session_id":"fixture","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"native effect before invalidation"}}}',flush=True)
+print('{"type":"stream_event","uuid":"boundary","session_id":"fixture","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"fixture progress boundary"}}}',flush=True)
 s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
 assert s.recv(1)==b'1'
 print('{"type":"result","uuid":"fixture-24","subtype":"success","is_error":false,"duration_ms":9,"duration_api_ms":8,"num_turns":1,"session_id":"fixture","result":"must-not-be-answer","usage":{"input_tokens":5,"output_tokens":3},"permission_denials":[]}',flush=True)
@@ -966,7 +967,9 @@ print('{"type":"result","uuid":"fixture-24","subtype":"success","is_error":false
             .await
             .unwrap()
             .unwrap();
-        progress_count(&h.events, &h.changed, 2).await;
+        // Progress delivery precedes the sink's second authorization check.
+        // Seeing the third callback proves that the first two were accepted.
+        progress_count(&h.events, &h.changed, 3).await;
         assert!(!final_wait.is_finished());
         let displaced = f.temp.path().join("displaced-project");
         std::fs::rename(f.projects[0].0.root(), &displaced).unwrap();
@@ -978,10 +981,18 @@ print('{"type":"result","uuid":"fixture-24","subtype":"success","is_error":false
         let payload = result.structured_content.unwrap();
         assert!(payload["receipt"]["completion"].get("answer").is_none());
         assert_eq!(payload["receipt"]["provider"], "qwen");
-        assert_eq!(payload["receipt"]["known_events"], 2);
+        let accepted = payload["receipt"]["known_events"].as_u64().unwrap();
+        assert!((2..=3).contains(&accepted), "receipt: {payload}");
+        assert_eq!(payload["receipt"]["frames"], accepted + 1);
         assert!(payload["receipt"].get("native_result_json").is_none());
         assert_eq!(payload["receipt"]["process"]["cleanup"], "Complete");
-        assert!(payload["execution_error"].is_string());
+        assert_eq!(payload["execution_error"], "Sink(Closed)");
+        let denial = if accepted == 2 {
+            "Knowledge Ask observed progress exceeds accepted prefix"
+        } else {
+            "ProjectDeliveryDenied"
+        };
+        assert_eq!(payload["delivery_error"], denial);
         std::fs::rename(&displaced, f.projects[0].0.root()).unwrap();
         h.stop().await;
         stop(&f, served, &record, ctx.snapshot()).await;

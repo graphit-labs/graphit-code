@@ -1042,7 +1042,12 @@ fn fallback_non_unicode_names_are_rejected() {
     fs::remove_file(root.join("COMMAND.md")).unwrap();
     let first = OsString::from_vec(vec![b'a', 0x80]);
     let last = OsString::from_vec(vec![b'a', 0xff]);
-    fs::write(root.join(&last), "last").unwrap();
+    if let Err(error) = fs::write(root.join(&last), "last") {
+        // APFS can reject non-Unicode names before the planner can observe them.
+        assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
+        assert!(fs::read_dir(root).unwrap().next().is_none());
+        return;
+    }
     fs::write(root.join(&first), "first").unwrap();
     let planner = fixture.planner(ArtifactMode::Link);
     assert!(

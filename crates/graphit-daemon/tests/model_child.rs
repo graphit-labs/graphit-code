@@ -30,6 +30,7 @@ use graphit_process::{
     SinkFailure, run_service, spawn_service,
 };
 use std::{
+    ffi::OsString,
     io,
     net::{Ipv4Addr, TcpListener},
     num::NonZeroU16,
@@ -79,6 +80,15 @@ fn configure(root: &Path, value: serde_json::Value, cancel: &Cancellation) {
 }
 fn model_server_executable() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_graphit-model-server"))
+}
+fn cpu_lifecycle_environment() -> Vec<(OsString, OsString)> {
+    if cfg!(target_os = "macos") {
+        // The pinned llama.cpp registers one Metal device by default even
+        // without model weights. These process tests require no accelerator.
+        vec![("GGML_METAL_DEVICES".into(), "0".into())]
+    } else {
+        Vec::new()
+    }
 }
 fn executable_with_spaces(directory: &Path) -> PathBuf {
     let executable = directory.join("model server α with spaces");
@@ -409,10 +419,17 @@ async fn assert_bootstrap_rejects_invalid_input(executable: &Path) {
 
 #[tokio::test]
 async fn cold_child_reports_model_errors_on_demand_and_pre_cancelled_start_has_no_child() {
-    assert_cold_child_reports_model_errors(&model_server_executable()).await;
+    assert_cold_child_reports_model_errors(
+        &model_server_executable(),
+        &cpu_lifecycle_environment(),
+    )
+    .await;
 }
 
-async fn assert_cold_child_reports_model_errors(executable: &Path) {
+async fn assert_cold_child_reports_model_errors(
+    executable: &Path,
+    environment: &[(OsString, OsString)],
+) {
     let cancel = Cancellation::default();
     let ctx = auth::request(&cancel, Instant::now() + Duration::from_secs(30));
     let auth = auth::AuthFixture::new(
@@ -425,7 +442,7 @@ async fn assert_cold_child_reports_model_errors(executable: &Path) {
     let launch = || ChildLaunch {
         executable: executable.to_owned(),
         installation_root: auth.installation_root().to_owned(),
-        environment: vec![],
+        environment: environment.to_vec(),
         limits: process_limits(),
     };
     for (configuration, expected_error) in [
@@ -757,10 +774,14 @@ fn assert_normalized(vectors: &[Vec<f32>], count: usize, dimensions: usize) {
 
 #[tokio::test]
 async fn actual_child_completion_is_cancel_safe_and_retains_the_same_exit() {
-    assert_child_completion_is_cancel_safe(&model_server_executable()).await;
+    assert_child_completion_is_cancel_safe(&model_server_executable(), cpu_lifecycle_environment())
+        .await;
 }
 
-async fn assert_child_completion_is_cancel_safe(executable: &Path) {
+async fn assert_child_completion_is_cancel_safe(
+    executable: &Path,
+    environment: Vec<(OsString, OsString)>,
+) {
     let cancel = Cancellation::default();
     let ctx = auth::request(&cancel, Instant::now() + Duration::from_secs(30));
     let auth = auth::AuthFixture::new(
@@ -779,7 +800,7 @@ async fn assert_child_completion_is_cancel_safe(executable: &Path) {
         ChildLaunch {
             executable: executable.to_owned(),
             installation_root: auth.installation_root().to_owned(),
-            environment: vec![],
+            environment,
             limits: process_limits(),
         },
         &auth.runtime,
@@ -788,11 +809,14 @@ async fn assert_child_completion_is_cancel_safe(executable: &Path) {
     )
     .await
     .unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_millis(20), child.completed())
-            .await
-            .is_err()
-    );
+    {
+        let mut observation = std::pin::pin!(child.completed());
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(observation.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+    }
     let address = child.address();
     let client = ModelServiceClient::new(fixture::rpc_limits()).unwrap();
     client
@@ -831,8 +855,8 @@ async fn packaged_model_child_preserves_bootstrap_errors_and_shutdown() {
     );
     assert!(executable.is_absolute() && executable.is_file());
     assert_bootstrap_rejects_invalid_input(&executable).await;
-    assert_cold_child_reports_model_errors(&executable).await;
-    assert_child_completion_is_cancel_safe(&executable).await;
+    assert_cold_child_reports_model_errors(&executable, &[]).await;
+    assert_child_completion_is_cancel_safe(&executable, Vec::new()).await;
 }
 
 #[cfg(unix)]

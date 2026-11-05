@@ -11,6 +11,9 @@ pub fn build_recognizers(
         .include("src/antlr_engine/cpp/generated")
         .include(&runtime.include_dir)
         .file("src/antlr_engine/cpp/bridge.cpp");
+    for &(name, value) in runtime.cpp_definitions {
+        build.define(name, Some(value));
+    }
     build.file("src/antlr_engine/cpp/profile_queries.cpp");
     for source in [
         "actions/PlSqlParserBase.cpp",

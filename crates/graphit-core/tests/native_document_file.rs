@@ -441,20 +441,27 @@ mod unix {
         let root = tmp
             .path()
             .join(std::ffi::OsString::from_vec(b"root-\xfe".to_vec()));
-        fs::create_dir(&root).unwrap();
-        fs::write(root.join(&name), b"native").unwrap();
+        #[cfg(target_os = "linux")]
+        {
+            fs::create_dir(&root).unwrap();
+            fs::write(root.join(&name), b"native").unwrap();
+        }
         let ctx = context();
         assert!(
             matches!(CapturedDocumentDirectory::capture(&root, limits(64), &ctx), Err(error) if error.kind()==io::ErrorKind::InvalidInput)
         );
         let valid = tmp.path().join("valid");
         fs::create_dir(&valid).unwrap();
+        #[cfg(target_os = "linux")]
         fs::write(valid.join(&name), b"native").unwrap();
         let directory = capture(&valid, &ctx, 64);
         assert!(
             matches!(directory.read(&name, &ctx), Err(error) if error.kind()==io::ErrorKind::InvalidInput)
         );
-        assert_eq!(fs::read(root.join(&name)).unwrap(), b"native");
-        assert_eq!(fs::read(valid.join(&name)).unwrap(), b"native");
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(fs::read(root.join(&name)).unwrap(), b"native");
+            assert_eq!(fs::read(valid.join(&name)).unwrap(), b"native");
+        }
     }
 }

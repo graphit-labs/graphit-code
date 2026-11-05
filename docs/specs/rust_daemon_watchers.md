@@ -87,6 +87,8 @@ O adaptador `CheckoutWatcher` compartilha um `RecommendedWatcher` nativo por con
 
 Cada assinatura recebe os eventos dos seus diretórios cadastrados; rename conserva os paths originais do evento. Overflow/rescan e erros nativos sem paths são entregues a todas as assinaturas. Categorias de erro, paths e códigos IO do sistema permanecem observáveis. O agregado de assinaturas conserva o watch enquanto outro owner usa o mesmo path; `unwatch`, rebuild ou Drop de um checkout não retiram a observação do sibling. O callback nativo não adquire o mutex usado para comandos ao SDK e libera o registro de assinaturas antes da entrega, evitando esperar o próprio event loop. As configurações de criação distintas conservam backends distintos; os backends nativos da versão fixada do SDK devolvem `false` para `configure` em runtime. A reconfiguração de controles PROJECT continua individual no estado do checkout.
 
+No FSEvents, um path canônico que continua com o mesmo modo agregado conserva o registro nativo existente. Isso evita reiniciar o stream compartilhado ao anexar outra assinatura ao mesmo registro. Mudanças efetivas de registro continuam passando pelo SDK.
+
 Eventos de leitura, abertura e fechamento de leitura são descartados no primeiro
 callback nativo, antes de copiar assinaturas, comparar paths ou entrar nos
 debouncers. Isso evita multiplicar o trabalho provocado pelas próprias leituras

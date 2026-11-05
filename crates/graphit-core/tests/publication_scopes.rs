@@ -684,17 +684,19 @@ fn non_unicode_allowed_root_is_rejected_without_creating_runtime_state() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
     let f = Fixture::new();
     let root = f.allowed.join(OsString::from_vec(vec![b'n', 0xff]));
+    #[cfg(target_os = "linux")]
     fs::create_dir(&root).unwrap();
-    assert!(
-        CapturedPublicationScope::installation(
-            &f.installation,
-            InstallationId::new("fixture").unwrap(),
-            [root.clone()],
-            limits(),
-            &native_capture_request(),
-        )
-        .is_err()
-    );
+    let Err(error) = CapturedPublicationScope::installation(
+        &f.installation,
+        InstallationId::new("fixture").unwrap(),
+        [root.clone()],
+        limits(),
+        &native_capture_request(),
+    ) else {
+        panic!("non-Unicode allowed root must fail before capture");
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    #[cfg(target_os = "linux")]
     assert!(root.is_dir());
     assert!(!f.installation.global_path(&["runtime"]).unwrap().exists());
 }

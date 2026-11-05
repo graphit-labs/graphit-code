@@ -906,11 +906,13 @@ async fn project_hook_compiled_cli_real_writer_mandatory_and_role_factory_v3()
             assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
         }
         let mut bounded = command(&root, &installation, &path, &home);
+        // Keep the policy coherent and leave room for native file access metadata.
+        assert!(installed.stdout.len() > 128);
         bounded.args([
             "-c",
-            "hub.limits.content.output_bytes=32",
+            "hub.limits.content.scalar_bytes=128",
             "-c",
-            "hub.limits.content.scalar_bytes=32",
+            "hub.limits.content.output_bytes=128",
             "hooks",
             "install",
             "--binding",
@@ -1010,9 +1012,12 @@ async fn project_hook_compiled_cli_real_writer_mandatory_and_role_factory_v3()
         );
         assert!(!installation.root().join("daemon/mcp.key").exists());
         assert!(!installation.root().join("daemon/mcp.json").exists());
+        let terminal = diagnostic
+            .lines()
+            .find(|line| line.starts_with("Graphit Source terminal: selected_branch="));
         assert_eq!(
             exit, 130,
-            "foreground SIGTERM after request-owned EOF must remain cancellation"
+            "foreground SIGTERM after request-owned EOF must remain cancellation ({terminal:?})"
         );
     }
     Ok(())

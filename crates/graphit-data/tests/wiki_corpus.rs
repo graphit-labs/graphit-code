@@ -1,10 +1,14 @@
 //! Native Data facade exercised with real runtime-key issuer admissions and SDK corpora.
+#[path = "support/knowledge_manifest_fixture.rs"]
+mod manifest;
+
 use futures::TryStreamExt;
 use graphit_auth::*;
 use graphit_auth::{profile::ProfileLimits, store::AuthStore};
 use graphit_core::{
     artifact_store::{
-        ArtifactLimits, CapturedPublicationScope, CopyLimits, ScopeBindingRecord, ScopeLimits,
+        ArtifactLimits, ArtifactStore, CapturedPublicationScope, CopyLimits,
+        ProjectRecordDirectory, ScopeBindingRecord, ScopeLimits,
     },
     auth_document::{AuthDocumentLimits, AuthDocumentStore},
     brand::Brand,
@@ -510,8 +514,7 @@ async fn metadata_empty_published_preserves_generation_and_present_schema_failur
     let error = read_native_knowledge_heads(ctx.snapshot(), &read, head_limits())
         .await
         .unwrap_err();
-    assert!(matches!(error, KnowledgeIndexError::Branch(_)));
-    assert!(std::error::Error::source(&error).is_some());
+    assert!(matches!(error, KnowledgeIndexError::InvalidField("schema")));
 }
 
 #[tokio::test]
@@ -703,13 +706,15 @@ async fn absent_main_never_masks_corrupt_dataset_or_invalid_capture() {
     let read = authority
         .admit_read(&grant, &ctx, ProjectReadModule::Knowledge)
         .unwrap();
-    let mut prefix = f.root.clone();
-    for child in [
-        f.project.brand().directory(),
-        "runtime",
-        "knowledge",
-        "index.lance",
-    ] {
+    let write = authority
+        .admit_write(&grant, &ctx, ProjectWriteOperation::Knowledge)
+        .unwrap();
+    let runtime = f.project.runtime_root();
+    let knowledge = runtime.join("knowledge");
+    let corpus = knowledge.join("index.lance");
+    let limits = write_limits();
+    let artifacts = ArtifactStore::new(f.project.clone(), limits.artifacts);
+    for prefix in [runtime, knowledge.as_path(), corpus.as_path()] {
         assert_eq!(
             read_native_knowledge_index(ctx.snapshot(), &read, read_limits())
                 .await
@@ -722,8 +727,19 @@ async fn absent_main_never_masks_corrupt_dataset_or_invalid_capture() {
                 .unwrap(),
             KnowledgeHeadRead::NoCorpus
         );
-        prefix.push(child);
-        std::fs::create_dir(&prefix).unwrap();
+        if prefix == runtime {
+            // The writer births the private runtime with the platform's policy.
+            drop(artifacts.writer_with_context(ctx.snapshot()).unwrap());
+        } else if prefix == knowledge {
+            let mut writer = artifacts.writer_with_context(ctx.snapshot()).unwrap();
+            writer
+                .create_record_directory(ProjectRecordDirectory::Knowledge, limits.native)
+                .unwrap();
+        } else {
+            std::fs::create_dir(prefix).unwrap();
+            std::fs::set_permissions(prefix, std::fs::metadata(&knowledge).unwrap().permissions())
+                .unwrap();
+        }
     }
     assert_eq!(
         read_native_knowledge_index(ctx.snapshot(), &read, read_limits())
@@ -750,9 +766,13 @@ async fn absent_main_never_masks_corrupt_dataset_or_invalid_capture() {
         KnowledgeIndexPageRead::NoCorpus
     );
     // A manifest selected by the SDK but unreadable is corruption, not absence.
-    let versions = prefix.join("_versions");
-    std::fs::create_dir(&versions).unwrap();
-    std::fs::write(versions.join("1.manifest"), b"corrupt manifest").unwrap();
+    std::fs::remove_dir(&corpus).unwrap();
+    let prepared = h::prepare(ctx.snapshot(), &[page("page", &[])], &[], hlimits()).unwrap();
+    let published = publish_native_authored(ctx.snapshot(), &write, &prepared, limits)
+        .await
+        .unwrap();
+    assert_eq!(std::path::Path::new(&published.default.corpus_uri), corpus);
+    manifest::corrupt_published_manifest(&corpus);
     let error = read_native_knowledge_index(ctx.snapshot(), &read, read_limits())
         .await
         .unwrap_err();
@@ -773,12 +793,8 @@ async fn absent_main_never_masks_corrupt_dataset_or_invalid_capture() {
     );
     // A present non-directory and a replaced captured root are causal errors,
     // never the authoritative absence produced by the four valid probes.
-    std::fs::remove_dir_all(f.root.join(f.project.brand().directory())).unwrap();
-    std::fs::write(
-        f.root.join(f.project.brand().directory()),
-        b"not a directory",
-    )
-    .unwrap();
+    std::fs::remove_dir_all(&knowledge).unwrap();
+    std::fs::write(&knowledge, b"not a directory").unwrap();
     let error = read_native_knowledge_index(ctx.snapshot(), &read, read_limits())
         .await
         .unwrap_err();
@@ -790,6 +806,13 @@ async fn absent_main_never_masks_corrupt_dataset_or_invalid_capture() {
                 .unwrap_err()
         )
         .is_some()
+    );
+    std::fs::remove_file(&knowledge).unwrap();
+    assert_eq!(
+        read_native_knowledge_index(ctx.snapshot(), &read, read_limits())
+            .await
+            .unwrap(),
+        KnowledgeIndexRead::NoCorpus
     );
     std::fs::rename(&f.root, f.root.with_extension("replaced")).unwrap();
     std::fs::create_dir(&f.root).unwrap();

@@ -455,11 +455,16 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
-    fn symlink_and_raw_non_utf8_names_remain_native() {
-        use std::os::unix::ffi::OsStringExt;
+    fn symlinks_are_denied_and_native_names_are_preserved() {
         use std::os::unix::fs::symlink;
         let (directory, root) = root();
-        let name = OsString::from_vec(vec![b'f', 0xff]);
+        #[cfg(target_os = "linux")]
+        let name = {
+            use std::os::unix::ffi::OsStringExt;
+            OsString::from_vec(vec![b'f', 0xff])
+        };
+        #[cfg(not(target_os = "linux"))]
+        let name = OsString::from("f-é 🚀");
         std::fs::write(directory.path().join(&name), b"native").unwrap();
         open_relative_readonly(&root, &name, Some(NodeKind::File), 256, &mut || Ok(())).unwrap();
         symlink(&name, directory.path().join("link")).unwrap();

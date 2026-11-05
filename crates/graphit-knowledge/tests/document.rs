@@ -61,7 +61,9 @@ fn field<'document, 'input>(
 
 #[test]
 fn public_projection_borrows_original_bytes_and_outlives_context_and_fallback() {
-    let input = include_bytes!("fixtures/document/unicode-crlf.md").to_vec();
+    let input = include!("fixtures/document/unicode-crlf.rs")
+        .as_bytes()
+        .to_vec();
     let parsed = {
         let context = context();
         let fallback = String::from("owned fallback");

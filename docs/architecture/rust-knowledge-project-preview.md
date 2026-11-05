@@ -79,7 +79,7 @@ scalars Unicode, não bytes ou graphemes.
 | Caso | Inputs reais | Limites preview | Resultado esperado |
 |---|---|---|---|
 | PP1 | Arquivo sem frontmatter de 24 B: # H, duas quebras CRLF, prosa Markdown **ação** 🍀 e CRLF final. title H; summary ação 🍀, 11 B; body integral 0..24. | input 35 B; output 11 B; body 1 scalar | Summary integral, range 0..11, sem corte; pointer igual à String do parser. |
-| PP2 | Fixture unicode-crlf.md de 35 B com BOM/header. title Café; summary vazio; body # Olá + CRLF, source 27..35, 8 B. | input 8 B; output 9 B; body 5 scalars | Body # Olá… de 9 B; prefixo 0..6 no body / 27..33 na fonte, marker 3 B; texto owned e truncated. |
+| PP2 | Fixture `unicode-crlf.rs` de 35 B com BOM e CRLF explícitos no literal Rust. title Café; summary vazio; body # Olá + CRLF, source 27..35, 8 B. | input 8 B; output 9 B; body 5 scalars | Body # Olá… de 9 B; prefixo 0..6 no body / 27..33 na fonte, marker 3 B; texto owned e truncated. |
 | PP3 | Captura e parse válidos da fixture de 35 B; cancelar a mesma requisição somente depois do parse. | input 8 B; output 9 B; body 5 scalars | Context/Interrupted com causa original; nenhum preview nem I/O adicional. |
 
 Em PP1, input 34 B ou output 10 B retornam LimitExceeded de input bytes ou

@@ -110,12 +110,9 @@ fn last_extension_ascii_fold_and_dotfiles_keep_observed_spelling() {
 }
 #[cfg(unix)]
 #[test]
-fn unicode_extensions_are_exact_and_invalid_names_are_rejected_without_loss() {
-    use std::os::unix::ffi::OsStringExt;
+fn unicode_extensions_are_exact() {
     let (_temp, paths, _birth, scope) = fixture();
     std::fs::create_dir(paths.root().join("docs")).unwrap();
-    let bad = std::ffi::OsString::from_vec(b"bad\xff.md".to_vec());
-    let invalid_ext = std::ffi::OsString::from_vec(b"normal.\xff".to_vec());
     for name in [
         std::ffi::OsString::from("a.é"),
         std::ffi::OsString::from("b.É"),
@@ -132,6 +129,17 @@ fn unicode_extensions_are_exact_and_invalid_names_are_rejected_without_loss() {
     )
     .unwrap();
     assert_eq!(documents(&reader), [Path::new("docs").join("a.é")]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn invalid_native_names_and_extensions_are_rejected_without_loss() {
+    use std::os::unix::ffi::OsStringExt;
+    let (_temp, paths, _birth, scope) = fixture();
+    std::fs::create_dir(paths.root().join("docs")).unwrap();
+    let bad = std::ffi::OsString::from_vec(b"bad\xff.md".to_vec());
+    let invalid_ext = std::ffi::OsString::from_vec(b"normal.\xff".to_vec());
+    let original = request();
     for name in [bad, invalid_ext] {
         let path = paths.root().join("docs").join(name);
         std::fs::write(&path, b"x").unwrap();

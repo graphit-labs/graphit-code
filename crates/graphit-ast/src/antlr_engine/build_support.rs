@@ -14,7 +14,16 @@ pub struct RuntimeInstall {
     pub include_dir: PathBuf,
     pub library_dir: PathBuf,
     pub static_lib_name: String,
+    pub cpp_definitions: &'static [(&'static str, &'static str)],
 }
+
+// Darwin links Ladybug's ANTLR alongside ours. Give the runtime and every
+// translation unit that consumes its headers the same private C++ names.
+const DARWIN_ANTLR_DEFINITIONS: &[(&str, &str)] = &[
+    ("antlr4", "graphit_ast_antlr4"),
+    ("antlrcpp", "graphit_ast_antlrcpp"),
+    ("XPathLexer", "GraphitAstXPathLexer"),
+];
 
 pub enum BuildError {
     Environment {
@@ -122,6 +131,11 @@ pub fn build_runtime() -> Result<RuntimeInstall, BuildError> {
     let static_crt = target_features
         .split(',')
         .any(|feature| feature == "crt-static");
+    let cpp_definitions = if target_os == "macos" {
+        DARWIN_ANTLR_DEFINITIONS
+    } else {
+        &[]
+    };
     let install = panic::catch_unwind(AssertUnwindSafe(|| {
         let mut config = cmake::Config::new(&source);
         config
@@ -141,6 +155,9 @@ pub fn build_runtime() -> Result<RuntimeInstall, BuildError> {
             .define("WITH_STATIC_CRT", if static_crt { "ON" } else { "OFF" });
         if target.ends_with("-msvc") {
             config.cxxflag("/EHsc");
+        }
+        for (name, value) in cpp_definitions {
+            config.cxxflag(format!("-D{name}={value}"));
         }
         if let Some(path) = &toolchain {
             config.define("CMAKE_TOOLCHAIN_FILE", path);
@@ -168,5 +185,6 @@ pub fn build_runtime() -> Result<RuntimeInstall, BuildError> {
         include_dir,
         library_dir,
         static_lib_name,
+        cpp_definitions,
     })
 }

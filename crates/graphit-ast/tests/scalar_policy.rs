@@ -9,7 +9,7 @@ use serde::{
 use serde_saphyr::{DuplicateKeyPolicy, MergeKeyPolicy, Spanned};
 use std::fmt;
 
-const INPUT: usize = 32_768;
+const INPUT: usize = 64 * 1024;
 const DEPTH: usize = 16;
 const NODES: usize = 2048;
 const EVENTS: usize = NODES * 4;
@@ -242,8 +242,8 @@ fn s01_audits_every_shipped_profile_without_numeric_conversion() {
             }
         }
     }
-    assert_eq!(bytes, 198_844);
-    assert_eq!(booleans, 5);
+    assert_eq!(bytes, 243_075);
+    assert_eq!(booleans, 168);
 }
 
 #[test]

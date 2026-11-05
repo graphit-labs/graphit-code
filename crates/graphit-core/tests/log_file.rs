@@ -568,10 +568,7 @@ fn write_and_flush_report_replaced_target_io_errors() {
 #[cfg(unix)]
 #[test]
 fn unix_permissions_symlinks_parent_aliases_and_native_long_names() {
-    use std::os::unix::{
-        ffi::OsStringExt,
-        fs::{PermissionsExt, symlink},
-    };
+    use std::os::unix::fs::{PermissionsExt, symlink};
     let fixture = Fixture::new();
     let path = fixture.path("permissions.log");
     fs::write(&path, b"old\n").unwrap();
@@ -616,7 +613,13 @@ fn unix_permissions_symlinks_parent_aliases_and_native_long_names() {
     symlink(fixture.root(), fixture.path(".graphit")).unwrap();
     assert!(ProjectPaths::at(fixture.root(), &fixture.installation()).is_err());
     fs::remove_file(fixture.path(".graphit")).unwrap();
-    let native = std::ffi::OsString::from_vec([vec![b'x'; 240], vec![0xff]].concat());
+    #[cfg(target_os = "linux")]
+    let native = {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec([vec![b'x'; 240], vec![0xff]].concat())
+    };
+    #[cfg(not(target_os = "linux"))]
+    let native = format!("{}é", "x".repeat(240));
     let long = open(&fixture.root().join(native), options(9, 3, 3, 6));
     assert_eq!(long.paths().lock_path().file_name().unwrap().len(), 74);
     long.append(b"aa\nbb\ncc\n").unwrap_err(); // Batch is limited independently of the file.

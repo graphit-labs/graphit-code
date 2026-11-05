@@ -304,7 +304,7 @@ fn selected_symlink_and_hardlink_metadata_deny_without_payload() {
     drop(temporary);
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn non_unicode_selected_name_is_rejected_without_rewriting_the_source() {
     use std::os::unix::ffi::OsStringExt;

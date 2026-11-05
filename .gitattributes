@@ -10,6 +10,8 @@ crates/graphit-ai/licenses/NVIDIA-CUDA-LICENSE -whitespace
 # These fixtures exercise significant trailing spaces and implicit YAML nulls.
 crates/graphit-knowledge/tests/fixtures/document/rich.md -whitespace
 crates/graphit-ast/tests/fixtures/profiles/schema-cases/exports-null-implicit.yaml -whitespace
+crates/graphit-ast/tests/fixtures/profiles/schema-cases/unicode-crlf.yaml text eol=crlf
+crates/graphit-ast/tests/fixtures/symbols/unicode-crlf.js text eol=crlf
 
 # Preserve generated bundle bytes, including whitespace in vendor literals.
 crates/graphit-app/assets/ui/index.html linguist-generated=true -whitespace
