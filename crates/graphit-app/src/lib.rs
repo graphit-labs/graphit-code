@@ -134,7 +134,7 @@ pub mod knowledge_conversation;
 #[cfg(test)]
 #[path = "../tests/support/agent_fixture.rs"]
 pub(crate) mod test_agent_fixture;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "../tests/support/dream_peer.rs"]
 pub(crate) mod test_dream_peer;
 
