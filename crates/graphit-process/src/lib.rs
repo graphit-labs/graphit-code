@@ -272,6 +272,25 @@ pub enum Cleanup {
     },
     Unconfirmed(UnconfirmedCleanup),
 }
+impl Cleanup {
+    /// The process leader was reaped without a reported control failure.
+    /// On Windows this can be true while cleanup of descendants remains unconfirmed.
+    pub fn leader_reaped_without_control_failure(self) -> bool {
+        self == Self::Complete
+            || cfg!(windows)
+                && matches!(
+                    self,
+                    Self::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows {
+                        leader: LeaderCleanup::Reaped,
+                        control: ControlFailures {
+                            group: None,
+                            terminate: None,
+                            kill: None,
+                        },
+                    })
+                )
+    }
+}
 /// The result of an actual cleanup wait; status is reported separately.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LeaderCleanup {

@@ -165,12 +165,18 @@ fn observation(state: &State) -> KimiServerObservation {
             failure.remaining.is_some(),
         ),
     };
-    let joined = !remaining && !matches!(cleanup, Cleanup::TimedOut | Cleanup::Unconfirmed(_));
+    let leader_reaped = status.is_some() && cleanup.leader_reaped_without_control_failure();
+    let joined = !remaining
+        && match cleanup {
+            Cleanup::TimedOut => false,
+            Cleanup::Unconfirmed(_) => leader_reaped,
+            _ => true,
+        };
     KimiServerObservation {
         joined,
         clean: result.is_ok()
             && joined
-            && cleanup == Cleanup::Complete
+            && leader_reaped
             && status.is_some_and(|status| status.success())
             && pipes.stdout == PipeEnd::Eof
             && pipes.stderr == PipeEnd::Eof,

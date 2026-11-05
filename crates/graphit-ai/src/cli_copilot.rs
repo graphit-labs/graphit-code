@@ -3,8 +3,8 @@ use crate::cli_codex_wire::{CodexWireLimits, audit_json_frame};
 use graphit_auth::{ProjectReadAdmission, ProjectReadModule};
 use graphit_core::file_io::SnapshotContext;
 use graphit_process::{
-    Chunk, Cleanup, Failure, IncrementalSink, Outcome, PipeEnd, ProcessHost, Request, Retention,
-    SinkFailure, Stream,
+    Chunk, Failure, IncrementalSink, OperationAdmissionFailure, Outcome, PipeEnd, ProcessHost,
+    Request, Retention, SinkFailure, Stream,
 };
 use secrecy::zeroize::Zeroizing;
 use serde::Deserialize;
@@ -495,8 +495,12 @@ pub async fn run_copilot<S: CopilotSink>(
         command.args.push(format!("--resume={id}").into());
     }
     command.stdin = Some(Zeroizing::new(prompt.into_bytes()));
-    let (_stop, receiver) =
-        graphit_process::operation(original, host).map_err(|_| fail(CopilotReason::Admission))?;
+    let (_stop, receiver) = graphit_process::operation(original, host).map_err(|error| {
+        fail(match error {
+            OperationAdmissionFailure::Core(error) => CopilotReason::Context(error.kind()),
+            _ => CopilotReason::Admission,
+        })
+    })?;
     let mut bridge = Bridge {
         original,
         admission,
@@ -512,25 +516,12 @@ pub async fn run_copilot<S: CopilotSink>(
     let terminal =
         graphit_process::run(command, original, Retention::None, &mut bridge, receiver).await;
     let (clean, eof) = match &terminal {
-        Ok(o) => {
-            let cleanup = o.cleanup == Cleanup::Complete;
-            // Windows cannot certify the whole job tree through ProcessHost.
-            // Require the observed leader and successful control, then check
-            // exit status, both pipe EOFs and the native terminal frame below.
-            #[cfg(windows)]
-            let cleanup = cleanup
-                || o.cleanup
-                    == Cleanup::Unconfirmed(
-                        graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-                            leader: graphit_process::LeaderCleanup::Reaped,
-                            control: graphit_process::ControlFailures::default(),
-                        },
-                    );
-            (
-                o.status.success() && cleanup && o.remaining.is_none(),
-                o.pipes.stdout == PipeEnd::Eof && o.pipes.stderr == PipeEnd::Eof,
-            )
-        }
+        Ok(o) => (
+            o.status.success()
+                && o.cleanup.leader_reaped_without_control_failure()
+                && o.remaining.is_none(),
+            o.pipes.stdout == PipeEnd::Eof && o.pipes.stderr == PipeEnd::Eof,
+        ),
         Err(_) => (false, false),
     };
     let mut reason = bridge.failure.or_else(|| {

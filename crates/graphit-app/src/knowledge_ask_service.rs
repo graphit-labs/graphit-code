@@ -333,13 +333,8 @@ impl AskService {
         for owner in entries {
             let observed = owner.observe(deadline).await;
             if observed.joined {
-                if let Some(cleanup) = observed.cleanup
-                    && !matches!(cleanup, Cleanup::Complete | Cleanup::NotSpawned)
-                {
-                    self.cleanup_failure
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .get_or_insert(cleanup);
+                if let Some(cleanup) = observed.cleanup {
+                    self.conversation_cleanup(cleanup);
                 }
                 done.push(owner);
             } else {
@@ -624,7 +619,7 @@ impl AskService {
         entry
     }
     fn conversation_cleanup(&self, cleanup: Cleanup) {
-        if !matches!(cleanup, Cleanup::Complete | Cleanup::NotSpawned) {
+        if cleanup != Cleanup::NotSpawned && !cleanup.leader_reaped_without_control_failure() {
             self.cleanup_failure
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())

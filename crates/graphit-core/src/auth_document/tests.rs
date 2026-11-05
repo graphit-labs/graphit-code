@@ -547,6 +547,28 @@ fn same_size_mutation_with_restored_mtime_is_not_accepted_as_same_content() {
 }
 
 #[test]
+fn atomic_publication_preserves_retained_readers_and_rejects_stale_state() {
+    let fixture = Fixture::new();
+    fixture.write(b"old");
+    let original = context();
+    let store = fixture.store(&original, 4);
+    let mut reader = store.read(&original).unwrap();
+    let update = store.publish(store.read(&original).unwrap(), b"new", &original);
+    assert_eq!(update.effect(), publication::AuthPublicationEffect::Applied);
+    assert_eq!(update.failure(), None);
+    assert_eq!(update.cleanup_failure(), None);
+    assert_eq!(reader.bytes(), Some(b"old".as_slice()));
+    assert_eq!(
+        err(store.revalidate(&mut reader, &original)),
+        AuthDocumentError::Conflict
+    );
+    assert_eq!(
+        store.read(&original).unwrap().bytes(),
+        Some(b"new".as_slice())
+    );
+}
+
+#[test]
 fn same_bytes_on_a_replaced_physical_file_are_a_conflict() {
     let fixture = Fixture::new();
     fixture.write(b"same");

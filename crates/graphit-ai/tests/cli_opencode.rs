@@ -122,6 +122,10 @@ async fn run_start_with_agent(
     bounds: OpencodeLimits,
     sink: &mut Sink,
 ) -> (Result<OpencodeReceipt, OpencodeFailure>, Arc<Requests>) {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = std::path::absolute(directory.path()).unwrap();
+    let new_cwd = cwd.clone();
+    let load_cwd = cwd.clone();
     let (client, peer) = Channel::duplex();
     let calls = Arc::new(Requests::default());
     let observed = Arc::clone(&calls);
@@ -142,14 +146,14 @@ async fn run_start_with_agent(
             .on_receive_request(async move |request:NewSessionRequest,responder,_| {
                 created_calls.created.fetch_add(1,Ordering::SeqCst);
                 assert!(!matches!(mode,"legacy"|"future"|"local"|"missing-info"|"protocol"),"incompatible initialization must not publish session/new");
-                assert_eq!(request.cwd,std::path::PathBuf::from("/fixture"));
+                assert_eq!(request.cwd,new_cwd);
                 assert!(request.mcp_servers.is_empty());
                 let response=NewSessionResponse::new("native-main");
                 responder.respond(if mode.starts_with("agent-") { response.config_options(agent_options(mode,"build","provider/initial")) } else if mode=="missing-model" { response } else { response.config_options(vec![option("provider/initial")]) })
             }, agent_client_protocol::on_receive_request!())
             .on_receive_request(async move |request:LoadSessionRequest,responder,cx| {
                 loaded_calls.loaded.fetch_add(1,Ordering::SeqCst);
-                assert_eq!(request.cwd,std::path::PathBuf::from("/fixture"));
+                assert_eq!(request.cwd,load_cwd);
                 assert!(request.mcp_servers.is_empty());
                 assert!(request.additional_directories.is_empty());
                 assert!(request.meta.is_none());
@@ -215,7 +219,7 @@ async fn run_start_with_agent(
         client,
         OpencodeRequest {
             session,
-            cwd: "/fixture".into(),
+            cwd,
             model: model.map(str::to_owned),
             agent: selected_agent.map(str::to_owned),
             prompt: "  literal\nquestion\t".into(),

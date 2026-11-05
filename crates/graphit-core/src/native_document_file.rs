@@ -892,10 +892,15 @@ fn open_directory_with_access(path: &Path, inspect_access: bool) -> io::Result<F
     options.open(path)
 }
 pub(crate) fn open_file(path: &Path) -> io::Result<File> {
+    open_file_with_sharing(path, false)
+}
+
+pub(crate) fn open_file_with_sharing(path: &Path, allow_replacement: bool) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
+        let _ = allow_replacement;
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
     }
@@ -903,10 +908,15 @@ pub(crate) fn open_file(path: &Path) -> io::Result<File> {
     {
         use std::os::windows::fs::OpenOptionsExt;
         use windows_sys::Win32::Storage::FileSystem::{
-            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        };
+        let share = if allow_replacement {
+            FILE_SHARE_READ | FILE_SHARE_DELETE
+        } else {
+            FILE_SHARE_READ
         };
         options
-            .share_mode(FILE_SHARE_READ)
+            .share_mode(share)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
     options.open(path)

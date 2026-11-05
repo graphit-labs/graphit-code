@@ -4,8 +4,8 @@ pub use crate::cli_codex_wire::CodexWireLimits as KimiPrintLimits;
 use crate::cli_codex_wire::{CodexWireError, audit_json_frame};
 use graphit_core::file_io::SnapshotContext;
 use graphit_process::{
-    Chunk, Cleanup, Failure, IncrementalSink, OperationAdmissionFailure, Outcome, PipeEnd,
-    ProcessHost, Request, Retention, SinkFailure, Stream,
+    Chunk, Failure, IncrementalSink, OperationAdmissionFailure, Outcome, PipeEnd, ProcessHost,
+    Request, Retention, SinkFailure, Stream,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -449,7 +449,7 @@ pub async fn run_kimi_print<S: KimiPrintSink>(
         }
     }
     if reason.is_none()
-        && matches!(&terminal, Ok(o) if o.cleanup != Cleanup::Complete || o.remaining.is_some())
+        && matches!(&terminal, Ok(o) if !o.cleanup.leader_reaped_without_control_failure() || o.remaining.is_some())
     {
         reason = Some(KimiPrintReason::Cleanup);
     }

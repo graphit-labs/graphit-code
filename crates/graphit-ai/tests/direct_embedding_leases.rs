@@ -12,6 +12,7 @@ use graphit_http::client::{BoundedClient, ClientPolicy, Limits, NetworkEffect, N
 use http::StatusCode;
 use serde_json::{Value, json};
 use std::{
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -121,6 +122,32 @@ fn redacted(error: &DirectEmbeddingError) {
 }
 fn require_send<T: Send>(value: T) -> T {
     value
+}
+
+async fn await_response_headers(
+    tcp: &mut tcp::Fixture,
+    call: Pin<&mut impl Future<Output = Result<Vec<Vec<f32>>, DirectEmbeddingError>>>,
+    protocol: DirectProtocol,
+) {
+    tokio::select! {
+        biased;
+        observed = tokio::time::timeout(Duration::from_secs(6), tcp.observed.notified()) => {
+            observed.unwrap_or_else(|_| panic!("{protocol:?} fixture did not send response headers"));
+        }
+        result = call => panic!("{protocol:?} embedding completed before fixture headers: {result:?}"),
+        result = &mut tcp.server => panic!("{protocol:?} fixture stopped before sending headers: {result:?}", result = result.map(|requests| requests.len())),
+    }
+}
+
+async fn finish_fixture(tcp: tcp::Fixture) -> usize {
+    let mut server = tcp.server;
+    match tokio::time::timeout(Duration::from_secs(6), &mut server).await {
+        Ok(result) => result.unwrap().len(),
+        Err(_) => {
+            server.abort();
+            panic!("embedding fixture did not shut down");
+        }
+    }
 }
 
 #[tokio::test]
@@ -331,7 +358,7 @@ async fn physical_revocation_after_successful_batch_discards_vectors_and_prevent
     for protocol in PROTOCOLS {
         let first = Arc::new(Semaphore::new(0));
         let second = Arc::new(Semaphore::new(0));
-        let tcp = fixture_with_barriers(
+        let mut tcp = fixture_with_barriers(
             vec![
                 reply(rows(protocol, &[[1.0, 0.0, 0.0]])),
                 reply(rows(protocol, &[[0.0, 1.0, 0.0]])),
@@ -356,17 +383,18 @@ async fn physical_revocation_after_successful_batch_discards_vectors_and_prevent
             &transport,
             limits(1),
         );
-        let revoke = async {
-            tcp.observed.notified().await;
-            first.add_permits(1);
-            tcp.observed.notified().await;
-            auth.rotate_key(&ctx);
-            let expected = lease.check().expect_err("rotation must invalidate lease");
-            second.add_permits(1);
-            expected
-        };
-        let (result, expected) = tokio::join!(call, revoke);
-        let result = error(result);
+        tokio::pin!(call);
+        await_response_headers(&mut tcp, call.as_mut(), protocol).await;
+        first.add_permits(1);
+        await_response_headers(&mut tcp, call.as_mut(), protocol).await;
+        auth.rotate_key(&ctx);
+        let expected = lease.check().expect_err("rotation must invalidate lease");
+        second.add_permits(1);
+        let result = error(
+            tokio::time::timeout(Duration::from_secs(6), call)
+                .await
+                .expect("revoked embedding must finish"),
+        );
         match &result {
             DirectEmbeddingError::Service { source, effect } => {
                 assert_eq!(*effect, NetworkEffect::MayHaveApplied);
@@ -378,7 +406,7 @@ async fn physical_revocation_after_successful_batch_discards_vectors_and_prevent
             _ => panic!("expected typed Auth failure"),
         }
         redacted(&result);
-        assert_eq!(tcp.server.await.unwrap().len(), 2);
+        assert_eq!(finish_fixture(tcp).await, 2);
     }
 }
 
@@ -434,62 +462,91 @@ async fn original_context_before_entry_preserves_auth_cause_and_zero_send() {
 }
 
 #[tokio::test]
-async fn original_cancel_and_deadline_during_response_preserve_remote_effect() {
-    for protocol in PROTOCOLS {
-        for cancelled in [true, false] {
-            let release = Arc::new(Semaphore::new(0));
-            let tcp = fixture_with_barriers(
-                vec![reply(rows(protocol, &[[1.0, 0.0, 0.0]]))],
-                vec![release.clone()],
-            )
-            .await;
-            let cancel = Cancellation::default();
-            let setup = request(&cancel, Instant::now() + Duration::from_secs(30));
-            let auth = embedding_fixture(&setup, protocol, &tcp.origin);
-            let ctx = request(
-                &cancel,
-                Instant::now() + Duration::from_secs(if cancelled { 30 } else { 1 }),
-            );
-            let issuer = auth.issuer(&ctx, ServicePurpose::Embedding);
-            let caller = issuer.authenticate_local(MCP_KEY, &ctx).unwrap();
-            let mut selection = issuer
-                .capture_service(&caller, ServicePurpose::Embedding)
-                .unwrap();
-            let lease = selection.credential().unwrap();
-            let transport = client(&tcp.origin);
-            let call = direct_embedding::embed(
-                &lease,
-                &["text"],
-                DirectEmbeddingInput::Query,
-                &transport,
-                limits(1),
-            );
-            let observe = async {
-                tcp.observed.notified().await;
-                if cancelled {
-                    cancel.cancel();
-                }
-            };
-            let (result, ()) = tokio::join!(call, observe);
-            let result = error(result);
-            assert_eq!(result.effect(), NetworkEffect::MayHaveApplied);
-            match result {
-                DirectEmbeddingError::Embedding {
-                    source: EmbeddingError::Context(source),
-                    ..
-                } => assert_eq!(
-                    source,
-                    if cancelled {
-                        ContextError::Cancelled
-                    } else {
-                        ContextError::Deadline
-                    }
-                ),
-                _ => panic!("expected original inference context failure"),
-            }
-            release.add_permits(1);
-            assert_eq!(tcp.server.await.unwrap().len(), 1);
+async fn cohere_original_cancel_and_deadline_during_response() {
+    check_original_cancel_and_deadline_during_response(DirectProtocol::Cohere).await;
+}
+
+#[tokio::test]
+async fn voyage_original_cancel_and_deadline_during_response() {
+    check_original_cancel_and_deadline_during_response(DirectProtocol::Voyage).await;
+}
+
+#[tokio::test]
+async fn openai_original_cancel_and_deadline_during_response() {
+    check_original_cancel_and_deadline_during_response(DirectProtocol::OpenAi).await;
+}
+
+#[tokio::test]
+async fn openai_compatible_original_cancel_and_deadline_during_response() {
+    check_original_cancel_and_deadline_during_response(DirectProtocol::OpenAiCompatible).await;
+}
+
+#[tokio::test]
+async fn gemini_1_original_cancel_and_deadline_during_response() {
+    check_original_cancel_and_deadline_during_response(DirectProtocol::GoogleGemini1).await;
+}
+
+#[tokio::test]
+async fn gemini_2_original_cancel_and_deadline_during_response() {
+    check_original_cancel_and_deadline_during_response(DirectProtocol::GoogleGemini2).await;
+}
+
+async fn check_original_cancel_and_deadline_during_response(protocol: DirectProtocol) {
+    for cancelled in [true, false] {
+        let release = Arc::new(Semaphore::new(0));
+        let mut tcp = fixture_with_barriers(
+            vec![reply(rows(protocol, &[[1.0, 0.0, 0.0]]))],
+            vec![release.clone()],
+        )
+        .await;
+        let cancel = Cancellation::default();
+        let setup = request(&cancel, Instant::now() + Duration::from_secs(30));
+        let auth = embedding_fixture(&setup, protocol, &tcp.origin);
+        let issuer = auth.issuer(&setup, ServicePurpose::Embedding);
+        let ctx = request(
+            &cancel,
+            Instant::now() + Duration::from_secs(if cancelled { 30 } else { 3 }),
+        );
+        let caller = issuer.authenticate_local(MCP_KEY, &ctx).unwrap();
+        let mut selection = issuer
+            .capture_service(&caller, ServicePurpose::Embedding)
+            .unwrap();
+        let lease = selection.credential().unwrap();
+        let transport = client(&tcp.origin);
+        let call = direct_embedding::embed(
+            &lease,
+            &["text"],
+            DirectEmbeddingInput::Query,
+            &transport,
+            limits(1),
+        );
+        tokio::pin!(call);
+        await_response_headers(&mut tcp, call.as_mut(), protocol).await;
+        if cancelled {
+            cancel.cancel();
         }
+        let result = error(
+            tokio::time::timeout(Duration::from_secs(6), call)
+                .await
+                .expect("held embedding must observe its Original"),
+        );
+        assert_eq!(result.effect(), NetworkEffect::MayHaveApplied);
+        match result {
+            DirectEmbeddingError::Embedding {
+                source: EmbeddingError::Context(source),
+                ..
+            } => assert_eq!(
+                source,
+                if cancelled {
+                    ContextError::Cancelled
+                } else {
+                    ContextError::Deadline
+                }
+            ),
+            _ => panic!("expected original inference context failure"),
+        }
+        release.add_permits(1);
+        assert_eq!(finish_fixture(tcp).await, 1);
     }
 }
 

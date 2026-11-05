@@ -52,6 +52,11 @@ readiness, token, header e corpo privado de erro não pertencem a logs, receipts
 documentação. A API pública expõe causas redigidas, preservando erros Process e de
 transporte; o erro bruto do provider fica privado.
 
+No Windows, o encerramento pode confirmar o processo principal sem confirmar a
+árvore de descendentes. Kimi mantém essa distinção no recibo. Uma conclusão
+bem-sucedida exige status de saída zero, EOF nos dois pipes, ausência de falhas de
+controle e nenhum owner de limpeza pendente.
+
 Erros nativos e terminais main failed/cancelled/blocked, com error ou interrupt,
 são classificados antes do callback de progresso bruto. O payload da falha fica
 privado e não vira texto principal. ACK não zero conserva o frame privado e o

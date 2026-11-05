@@ -4,13 +4,15 @@ use graphit_http::client::{
     BoundedClient, ClientPolicy, Limits as NetworkLimits, NetworkRequest, NetworkRequestContext,
 };
 use graphit_process::{
-    Cleanup, HostLimits, HostReadiness, HostShutdown, Limits, ProcessHost, Request,
+    Cleanup, HostLimits, HostReadiness, HostShutdown, Limits, ProcessHost, Reason, Request, Stage,
 };
 use http::{HeaderMap, HeaderValue, Method, header};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[path = "support/kimi_cleanup.rs"]
+mod cleanup;
 #[path = "support/kimi_peer.rs"]
 mod peer;
 
@@ -48,9 +50,9 @@ fn request(dir: &std::path::Path, mode: &str) -> Request {
         ("KIMI_MODE".into(), mode.into()),
         ("KIMI_PEER_PORT".into(), dir.join("port").into_os_string()),
     ];
-    environment.extend(
-        std::env::vars_os().filter(|(key, _)| key == "LD_LIBRARY_PATH" || key == "SYSTEMROOT"),
-    );
+    environment.extend(std::env::vars_os().filter(|(key, _)| {
+        key == "LD_LIBRARY_PATH" || key.as_encoded_bytes().eq_ignore_ascii_case(b"SYSTEMROOT")
+    }));
     Request {
         program: std::env::current_exe().unwrap(),
         args: [
@@ -125,7 +127,10 @@ async fn official_readiness_then_native_shutdown_observes_status_eof_and_join() 
     let original = original();
     let host = host().await;
     let owner = spawn_kimi_server(&original, &host, request(dir.path(), "answer"), 4096).await;
-    assert!(owner.ready(&original).await.is_ok());
+    owner
+        .ready(&original)
+        .await
+        .expect("Kimi loopback readiness");
     let port = std::fs::read_to_string(dir.path().join("port")).unwrap();
     let origin = format!("http://127.0.0.1:{port}");
     let client = BoundedClient::new(
@@ -165,6 +170,7 @@ async fn official_readiness_then_native_shutdown_observes_status_eof_and_join() 
         observation.joined && observation.clean && observation.stdout_eof && observation.stderr_eof
     );
     assert_eq!(observation.status_code, Some(0));
+    assert_eq!(observation.cleanup, Some(cleanup::REAPED));
     drop(owner);
     finish(host).await;
 }
@@ -189,7 +195,7 @@ async fn startup_eof_and_invalid_endpoint_do_not_become_readiness_and_original_c
         }
         let observation = owner.observe(Instant::now() + Duration::from_secs(5)).await;
         assert!(observation.joined);
-        assert_eq!(observation.cleanup, Some(Cleanup::Complete));
+        assert_eq!(observation.cleanup, Some(cleanup::REAPED));
         if mode != "startup_eof" {
             assert!(!observation.clean);
         }
@@ -211,10 +217,11 @@ async fn readiness_limit_and_failed_spawn_keep_real_process_observations() {
     let observation = owner.observe(Instant::now() + Duration::from_secs(5)).await;
     assert!(observation.joined);
     assert!(!observation.clean);
+    assert_eq!(observation.cleanup, Some(cleanup::REAPED));
     assert!(observation.process_reason.is_some());
     drop(owner);
     let mut missing = request(dir.path(), "answer");
-    missing.program = dir.path().join("absent-native-kimi");
+    missing.program = dir.path().join("absent-native-kimi.exe");
     let owner = spawn_kimi_server(&original, &host, missing, 4096).await;
     assert!(matches!(
         owner.ready(&original).await,
@@ -225,7 +232,10 @@ async fn readiness_limit_and_failed_spawn_keep_real_process_observations() {
     assert!(!observation.clean);
     assert_eq!(observation.cleanup, Some(Cleanup::NotSpawned));
     assert_eq!(observation.status_code, None);
-    assert!(observation.process_reason.is_some());
+    assert!(matches!(
+        observation.process_reason,
+        Some(Reason::Io(Stage::Spawn, error)) if error.kind() == std::io::ErrorKind::NotFound
+    ));
     drop(owner);
     finish(host).await;
 }
@@ -257,7 +267,7 @@ async fn original_deadline_and_cancelled_observation_keep_one_owned_native_child
     let observed = owner.observe(Instant::now() + Duration::from_secs(5)).await;
     assert!(observed.joined);
     assert!(!observed.clean);
-    assert_eq!(observed.cleanup, Some(Cleanup::Complete));
+    assert_eq!(observed.cleanup, Some(cleanup::REAPED));
     assert!(observed.process_reason.is_some());
     drop(owner);
     finish(host).await;
@@ -370,6 +380,7 @@ async fn neutral_recheck_runs_real_protocol_without_knowledge_admission() {
                 && observation.stderr_eof
         );
         assert_eq!(observation.status_code, Some(0));
+        assert_eq!(observation.cleanup, Some(cleanup::REAPED));
         drop(owner);
         finish(host).await;
     }
@@ -445,7 +456,7 @@ async fn neutral_recheck_deny_before_io_and_after_progress_preserves_process_own
         owner.stop();
         let observation = owner.observe(Instant::now() + Duration::from_secs(5)).await;
         assert!(observation.joined);
-        assert_eq!(observation.cleanup, Some(Cleanup::Complete));
+        assert_eq!(observation.cleanup, Some(cleanup::REAPED));
         drop(owner);
         finish(host).await;
     }
@@ -496,7 +507,7 @@ async fn explicitly_empty_kimi_model_is_invalid_before_rest_io() {
     owner.stop();
     let observed = owner.observe(Instant::now() + Duration::from_secs(5)).await;
     assert!(observed.joined);
-    assert_eq!(observed.cleanup, Some(Cleanup::Complete));
+    assert_eq!(observed.cleanup, Some(cleanup::REAPED));
     drop(owner);
     finish(host).await;
 }

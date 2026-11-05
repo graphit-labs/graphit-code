@@ -98,7 +98,7 @@ fn run() -> io::Result<i32> {
         }
         "capture" => {
             let expected_cwd = PathBuf::from(args.get(2).ok_or_else(invalid)?);
-            if std::env::current_dir()? != expected_cwd
+            if std::env::current_dir()?.canonicalize()? != expected_cwd
                 || args.get(3).map(OsString::as_os_str)
                     != Some(std::ffi::OsStr::new("literal;$(fixture)"))
                 || std::env::var_os("AI_PLAIN_FIXTURE_VALUE")

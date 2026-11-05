@@ -2,7 +2,7 @@
 use crate::{
     file_io::SnapshotContext,
     local_files::regular_metadata,
-    native_document_file::{FileObservation, observe_handle, open_file},
+    native_document_file::{FileObservation, observe_handle, open_file, open_file_with_sharing},
     native_file_identity::{PhysicalId, handle_id, physical_id},
     native_path::valid_path,
 };
@@ -91,6 +91,14 @@ pub(crate) fn capture(
     path: &Path,
     access: &Access<'_>,
 ) -> io::Result<Option<(File, FileObservation)>> {
+    capture_file(path, access, false)
+}
+
+fn capture_file(
+    path: &Path,
+    access: &Access<'_>,
+    allow_replacement: bool,
+) -> io::Result<Option<(File, FileObservation)>> {
     access.check()?;
     let Some(metadata) = regular_metadata(path)? else {
         return Ok(None);
@@ -99,7 +107,7 @@ pub(crate) fn capture(
         return Err(io::ErrorKind::FileTooLarge.into());
     }
     let expected = physical_id(path, &metadata)?;
-    let file = open_file(path)?;
+    let file = open_file_with_sharing(path, allow_replacement)?;
     let observed = observe(path, &file, access)?;
     if observed.identity != expected {
         return Err(conflict());
@@ -150,7 +158,9 @@ impl CapturedFile {
         access: &Access<'_>,
         after_read: impl FnOnce(),
     ) -> io::Result<Option<Self>> {
-        let Some((file, metadata)) = capture(path, access)? else {
+        // Retained readers can coexist with atomic replacement. Revalidation
+        // still checks the exact handle and current pathname identity.
+        let Some((file, metadata)) = capture_file(path, access, true)? else {
             return Ok(None);
         };
         Self::from_opened(file, metadata, access, after_read, |file, expected| {

@@ -21,7 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
-use tokio::{sync::Notify, time::sleep};
+use tokio::{io::AsyncReadExt, sync::Notify, time::sleep};
 
 struct OwnedFixture {
     root: Option<TempDir>,
@@ -1014,8 +1014,7 @@ async fn original_cancel_and_deadline_drop_pending_callback_then_await_real_clea
         );
         let closure = fixture_host.finish(&mut result).await;
         let error = result.unwrap_err();
-        let (mut connection, alive) =
-            observation.expect("native callback readiness was not observed");
+        let (connection, alive) = observation.expect("native callback readiness was not observed");
         assert!(alive);
         let actual = failed(error.receipt());
         assert_eq!(
@@ -1035,8 +1034,15 @@ async fn original_cancel_and_deadline_drop_pending_callback_then_await_real_clea
             (1, 1, 0)
         );
         assert!(actual.status.is_some());
-        let mut closed = [0];
-        assert!(matches!(connection.read(&mut closed), Ok(0)));
+        let mut connection = tokio::net::TcpStream::from_std(connection).unwrap();
+        let closed = tokio::time::timeout(Duration::from_secs(2), connection.read(&mut [0]))
+            .await
+            .expect("native fixture connection must close after cleanup");
+        match closed {
+            Ok(0) => (),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => (),
+            other => panic!("expected EOF or reset from the terminated fixture, got {other:?}"),
+        }
         dir.finish(error.receipt(), &closure);
     }
 }

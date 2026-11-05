@@ -4,8 +4,8 @@ use graphit_ai::cli_kimi_print::{
 };
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
 use graphit_process::{
-    Cleanup, HostLimits, HostReadiness, HostShutdown, HostShutdownObservation, Limits, PipeEnd,
-    ProcessHost, RepairObservation, Request, SinkFailure,
+    HostLimits, HostReadiness, HostShutdown, HostShutdownObservation, Limits, PipeEnd, ProcessHost,
+    RepairObservation, Request, SinkFailure,
 };
 use std::{
     ffi::OsString,
@@ -20,6 +20,8 @@ use std::{
 };
 use tempfile::TempDir;
 use tokio::{sync::Notify, time::sleep};
+#[path = "support/kimi_cleanup.rs"]
+mod cleanup;
 
 #[tokio::test]
 async fn invalid_print_policy_and_cancelled_original_never_spawn() {
@@ -101,7 +103,7 @@ impl Host {
                     .repair(Instant::now() + Duration::from_secs(5))
                     .await,
                 RepairObservation::Observed {
-                    cleanup: Cleanup::Complete,
+                    cleanup: cleanup::REAPED,
                     ..
                 }
             ));
@@ -324,7 +326,7 @@ async fn official_print_messages_stream_over_existing_process_without_retention(
     let receipt = result.as_ref().unwrap();
     let outcome = receipt.process().unwrap().as_ref().unwrap();
     assert!(outcome.status.success());
-    assert_eq!(outcome.cleanup, Cleanup::Complete);
+    assert_eq!(outcome.cleanup, cleanup::REAPED);
     assert_eq!(outcome.pipes.stdout, PipeEnd::Eof);
     assert_eq!(outcome.pipes.stderr, PipeEnd::Eof);
     assert!(outcome.remaining.is_none());
@@ -515,9 +517,11 @@ async fn original_and_host_stop_pending_callbacks_with_same_process_owner() {
                 io::ErrorKind::TimedOut
             };
             assert!(matches!(error.reason(),KimiPrintReason::Context(kind) if kind==expected));
-            assert!(
-                matches!(error.receipt().process(),Some(Ok(o)) if o.pipes.stdout==PipeEnd::Eof&&o.pipes.stderr==PipeEnd::Eof&&o.cleanup==Cleanup::Complete)
-            );
+            assert!(matches!(error.receipt().process(), Some(Ok(o))
+                    if o.pipes.stdout == PipeEnd::Eof
+                        && o.pipes.stderr == PipeEnd::Eof
+                        && o.cleanup == cleanup::REAPED
+                        && o.remaining.is_none()));
         }
         assert_eq!(sink.frames.len(), 1);
         assert_eq!(sink.dropped, 1);

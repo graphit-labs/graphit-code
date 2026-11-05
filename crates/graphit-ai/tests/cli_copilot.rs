@@ -192,6 +192,12 @@ impl Fixture {
         environment.extend(std::env::vars_os().filter(|(k, _)| {
             k == "LD_LIBRARY_PATH" || k.as_encoded_bytes().eq_ignore_ascii_case(b"SYSTEMROOT")
         }));
+        if matches!(mode, "start_hold" | "hold") {
+            environment.push((
+                "COPILOT_CONVERSATION_JOURNAL".into(),
+                self.root.join(format!("{mode}-journal")).into_os_string(),
+            ));
+        }
         Request {
             program: env!("CARGO_BIN_EXE_ai-copilot-fixture").into(),
             args: Vec::new(),
@@ -376,7 +382,12 @@ async fn create_and_cold_resume_confirm_exact_native_result_and_clean_process() 
         &mut sink,
     )
     .await;
-    let receipt = result.as_ref().unwrap();
+    let receipt = result.as_ref().unwrap_or_else(|error| {
+        panic!(
+            "Copilot create failed: {error:?}; process: {:?}",
+            error.receipt().process()
+        )
+    });
     assert_eq!(
         receipt.eligible_text(),
         Some("Native Copilot documentary answer 🦀\n")
@@ -455,7 +466,12 @@ async fn errors_missing_mismatched_terminal_and_post_result_save_failure_never_d
         )
         .await;
         let error = result.as_ref().unwrap_err();
-        assert_eq!(error.reason(), expected, "{mode}");
+        assert_eq!(
+            error.reason(),
+            expected,
+            "{mode}; process: {:?}",
+            error.receipt().process()
+        );
         assert!(error.receipt().eligible_text().is_none());
         assert!(!format!("{error:?}").contains("canary"));
         assert!(error.receipt().process().is_some());
@@ -515,7 +531,12 @@ async fn fragmented_utf8_final_eof_and_transient_private_error_keep_real_answer(
             &mut sink,
         )
         .await;
-        let receipt = result.as_ref().unwrap();
+        let receipt = result.as_ref().unwrap_or_else(|error| {
+            panic!(
+                "{mode}: {error:?}; process: {:?}",
+                error.receipt().process()
+            )
+        });
         assert!(receipt.eligible_text().is_some());
         if mode == "transient" {
             assert!(receipt.nonterminal_error().is_some());
@@ -634,7 +655,7 @@ async fn original_deadline_stops_native_start_and_output_waits_and_joins() {
     let f = Fixture::new(&setup);
     for mode in ["start_hold", "hold"] {
         let h = host().await;
-        let ctx = request_until(&signal, Instant::now() + Duration::from_secs(1));
+        let ctx = request_until(&signal, Instant::now() + Duration::from_secs(3));
         let mut sink = Sink::default();
         let mut result = run(
             &f,
@@ -655,6 +676,16 @@ async fn original_deadline_stops_native_start_and_output_waits_and_joins() {
         assert!(error.receipt().eligible_text().is_none());
         assert!(sink.bound.is_empty());
         finish(h, &mut result).await;
+        let journal = std::fs::read_to_string(f.root.join(format!("{mode}-journal"))).unwrap();
+        let operations: Vec<_> = journal
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap()["op"].clone())
+            .collect();
+        if mode == "start_hold" {
+            assert_eq!(operations, ["start"]);
+        } else {
+            assert_eq!(operations, ["start", "create", "prompt"]);
+        }
     }
 }
 #[tokio::test]
